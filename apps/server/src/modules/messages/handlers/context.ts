@@ -217,40 +217,10 @@ export function mailPolicy(opts?: { ceiling?: HumanCeiling; machines?: MachineAc
   }
 }
 
-/**
- * Whether a send WAITS for its outcome — and the reason this is a property of
- * the calling surface rather than of the contract.
- *
- * `confirm` is the urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the
- * agent/CLI `podium mail send` surface waits until the row leaves `queued`, so a
- * sender is never handed a bare "queued" that provably vanished. `immediate`
- * returns the synchronous result.
- *
- * WHAT THIS IS NOT: it is not a policy switch. Resolution under the human
- * ceiling, the session-target and issue-scope gates, the attribution pair and
- * apply-time re-authorization all run identically either way — the mode chooses
- * only whether the caller blocks afterwards. `MessageDeliveryService` already
- * draws exactly this line ("Only THIS surface blocks; internal sends use
- * send()"); what changed in POD-729 is that the internal path now goes through
- * the contract to reach the non-blocking mode instead of going around it.
- *
- * It comes from the COMPOSITION ROOT, never from payload: `mailSendInput` has no
- * field for it, so a caller cannot ask a send not to be confirmed.
- *
- * Why legacy session chat still needs `immediate`, concretely: POD-379's oracle
- * pins an unreachable machine as `{ok:true, queued:true, disposition:'queued'}`.
- * Blocking a legacy send would turn that into `accepted` — a pinned shape changed
- * by a delivery-mode default nobody chose. Contract-backed sessions use `confirm`
- * so the driver's existing receipt can refuse a send whose process disappeared.
- */
-export type MailDeliveryMode = 'confirm' | 'immediate'
-
 export interface MailHandlerContext {
   caller: MailCaller
   deps: MessageGateDeps
   access: MailAccess
-  /** Absent = `confirm`, the shipped agent/CLI behaviour. */
-  deliveryMode?: MailDeliveryMode
   /** Internal chat-send correlation. It comes from the session command's
    * framework mutation id, never from the validated public mail payload. */
   correlationId?: string

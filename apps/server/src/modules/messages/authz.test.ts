@@ -606,10 +606,12 @@ describe('read-surface and reply authz (A5)', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
-    await h.svc.send(
+    const sent = await h.svc.send(
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'answer me', expectsResponse: true },
     )
+    // Delivered once the session's daemon takes it.
+    await h.svc.onQueuedInputApplied(sent.message.id, asSessionId('s1'))
     expect(await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {})).toEqual([])
     expect(
       await h.gate.dispatch(
@@ -677,7 +679,7 @@ describe('the operator principal class (A6)', () => {
       { to: { kind: 'operator' }, body: 'help' },
     )
     expect(await h.svc.renderFor(escalation.message)).toBe(
-      `[podium message ${escalation.message.id} · from issue:#${iss.seq} · to the operator · ` +
+      `[podium message ${escalation.message.id} · from issue:REP-${iss.seq} · to the operator · ` +
         `reply: podium mail reply ${escalation.message.id}]\nhelp\n` +
         `[end podium message ${escalation.message.id}]`,
     )

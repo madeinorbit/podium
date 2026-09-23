@@ -44,7 +44,6 @@ import {
   asAgentIdentityId,
   asIssueId,
   asSessionId,
-  isAgentComputing,
   isIssueClosed,
   type IssueScope,
   type SessionId,
@@ -81,7 +80,6 @@ import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } fro
 import type {
   MessageSender,
   MessageSendInput,
-  MessageSendOptions,
   MessageSendResult,
   SendDisposition,
 } from './types'
@@ -89,13 +87,10 @@ import { SUPERAGENT_AGENT_IDENTITY } from './types'
 
 const log = createLogger('server:messages')
 
-export { INTERRUPT_DELIVERY_CEILING_MS, NEXT_TURN_DELIVERY_BUDGET_MS } from './mailbox'
-
 export type {
   MessageSender,
   MessageSenderIdentity,
   MessageSendInput,
-  MessageSendOptions,
   MessageSendResult,
   SendDisposition,
 } from './types'
@@ -109,18 +104,6 @@ import {
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
-/** A pushed message becomes `delivered` only when its envelope echoes back as a
- *  turn in the target's transcript [POD-834 §04d]. If no echo confirms within
- *  this window the push was lost (drain refused, session died, an ESC ate it) and
- *  the sweep auto-requeues it. Comfortably exceeds the 25s queue-drain deadline
- *  plus the ~1s transcript-tail latency so a slow-but-live drain is never
- *  mistaken for a loss. */
-export const ECHO_CONFIRM_WINDOW_MS = 90_000
-/** How many lost-echo requeues a pushed row gets before the sweep stops
- *  re-injecting and degrades it to delivered-at-last-push [POD-853 stopgap]:
- *  a mid-turn injection never echoes as a user turn, and an uncapped requeue
- *  loop re-delivers the same message forever (observed live 2026-07-17). */
-export const MAX_ECHO_REQUEUES = 2
 /** Extracts every podium-message id an echoed transcript turn carries — the
  *  server-rendered envelope frames the body with `[podium message <id> …]` and
  *  `[end podium message <id>]`, so a user turn that pasted a delivered message
@@ -472,7 +455,6 @@ export function senderFromPrincipal(principal: CommandPrincipal): MessageSender 
 }
 
 /** How the target session presents at delivery time. */
-type TargetState = 'idle' | 'running' | 'parked'
 
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 
@@ -577,25 +559,9 @@ export class MessageDeliveryService {
    *  delivery, cleared when the session goes idle (turn ended). Messages the
    *  session sends within that turn carry hop + 1 (brake 3). */
   private readonly turnHop = new Map<string, number>()
-  /**
-   * Lost-echo requeues per message id [POD-853 stopgap].
-   *
-   * A CACHE OVER THE DURABLE LEDGER, NOT INSTEAD OF IT (POD-1703). "In-memory is
-   * fine — a restart resets the count and the row simply earns its cap again"
-   * was the old note, and it was wrong in exactly the way that matters: a row
-   * whose echo can never arrive is requeued on a 90s timer forever, and every
-   * server start handed it a fresh budget. One operator message reached EIGHT
-   * copies across 23h that way, three times the cap. `message.requeued` is
-   * already written to `podium_events` on every requeue, so the true count
-   * survives a restart — {@link requeueCountFor} reads it. Same shape as brake
-   * 2's spawn count.
-   */
-  private readonly requeueCounts = new Map<string, number>()
   /** needs-attention already emitted per `${messageId}|${reason}` — the sweep
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
-  /** Direct live sends that were held outside SessionInbox until an exit. */
-  private readonly liveQueuedForExit = new Map<SessionId, Set<string>>()
 
   private readonly notificationArbiter: NotificationArbiter
   /** Envelope/pointer rendering and the confirmation mode that follows from it
@@ -642,7 +608,7 @@ export class MessageDeliveryService {
               await deps.mirrorMarkIssueMailRead?.(issueId, ids),
           }
         : {}),
-      send: async (from, input, opts) => await this.send(from, input, opts),
+      send: async (from, input) => await this.send(from, input),
       cancelQueuedInput: async (message) => {
         const sessionId =
           message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
@@ -685,126 +651,23 @@ export class MessageDeliveryService {
   }
 
   /** Queue the session principal plus both sides of its issue-resolution change. */
-  async onSessionEligibilityChanged(
+  async onSessionEligibilityChanged(sessionId: SessionId, changed?: SessionMeta): Promise<void> {
+    await this.requeueSessionTargets(sessionId, changed ?? await this.deps.sessions.sessionById(sessionId))
+  }
+
+  private async requeueSessionTargets(
     sessionId: SessionId,
-    changed?: SessionMeta,
-    opts?: {
-      preferThisIdleSession?: boolean
-      boundaryThrough?: ReadonlyMap<string, MessagePageCursor>
-    },
+    session: Pick<SessionFacts, 'cwd' | 'issueId'> | undefined,
   ): Promise<void> {
-    const session = changed ?? await this.deps.sessions.sessionById(sessionId)
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
     const nextIssueId = this.issueForSession(session)
     this.rememberMembership(sessionId, session, nextIssueId)
 
-    const preferred =
-      opts?.preferThisIdleSession && session && this.stateOf(session) === 'idle'
-        ? session
-        : undefined
-    const queue = async (target: DeliveryTarget, targetPreferred?: SessionMeta) =>
-      await this.queueDeliveryTarget(
-        target,
-        targetPreferred,
-        undefined,
-        opts?.boundaryThrough?.get(deliveryTargetKey(target)),
-      )
-    await queue({ kind: 'session', id: sessionId }, preferred)
-    if (previousIssueId && previousIssueId !== nextIssueId) {
-      await queue({ kind: 'issue', id: previousIssueId })
-    }
-    // Session-addressed mail above is preferred to this session unconditionally —
-    // it names this session. ISSUE-addressed mail does not, and routing already
-    // chose a recipient for it by ROLE [POD-1365]. Handing the issue's pending
-    // rows to whichever member happens to reach a turn boundary first DISCARDS
-    // that decision, and it is not a race the coordinator merely loses sometimes:
-    // a fan-out coordinator is mid-turn by definition, so it queues (no recipient
-    // recorded) and a peer that idles often takes it every time. Measured on
-    // POD-279: three consecutive sends to the same wrong session while the
-    // coordinator was set and live.
-    if (nextIssueId) {
-      await queue(
-        { kind: 'issue', id: nextIssueId },
-        await this.mayDrainIssueMail(asIssueId(nextIssueId), preferred),
-      )
-    }
-  }
-
-  /**
-   * A direct send can be accepted while a live Grok ACP session is busy. Such a
-   * row lives in the message ledger, not in SessionInbox, so ordinary exit
-   * recovery cannot see it. Move only those rows into the same durable FIFO after
-   * the real exit event; parked wait sends never enter this set.
-   */
-  async onSessionExited(sessionId: SessionId): Promise<void> {
-    const messageIds = this.liveQueuedForExit.get(sessionId)
-    if (!messageIds) return
-    this.liveQueuedForExit.delete(sessionId)
-
-    const session = await this.targetOf(sessionId)
-    if (
-      !session ||
-      session.status !== 'exited' ||
-      session.archived ||
-      session.resume === undefined ||
-      !this.canTrackGrokExit(sessionId, session)
-    )
-      return
-
-    for (const messageId of messageIds) {
-      const message = await this.deps.messages.getMessage(messageId)
-      if (
-        !message ||
-        message.status !== 'queued' ||
-        message.injectedAt != null ||
-        message.deliveredTo != null
-      )
-        continue
-
-      // Re-authorize at the new apply boundary. The send was accepted before the
-      // child exit, but its delegated rights may have changed since then.
-      const auth = await this.applyAuth(message)
-      if (!auth.ok) {
-        await this.deadLetter(message, auth.reason, { notifySender: true })
-        continue
-      }
-      await this.injectAndMark('queue', message, sessionId, 'queued')
-    }
-  }
-
-  /** Fleet-scan equivalent when no preferred session or boundary cursor exists. */
-  private async onRoutingEligibilityChanged(session: SessionFacts): Promise<void> {
-    const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
-    const nextIssueId = this.issueForSession(session)
-    this.rememberMembership(session.sessionId, session, nextIssueId)
-
-    await this.queueDeliveryTarget({ kind: 'session', id: session.sessionId })
+    await this.queueDeliveryTarget({ kind: 'session', id: sessionId })
     if (previousIssueId && previousIssueId !== nextIssueId) {
       await this.queueDeliveryTarget({ kind: 'issue', id: previousIssueId })
     }
     if (nextIssueId) await this.queueDeliveryTarget({ kind: 'issue', id: nextIssueId })
-  }
-
-  /** Whether `session` may take an issue's pending mail at its turn boundary
-   *  [POD-1365] [POD-1371]. The coordinator owns its issue's mail by ROLE while
-   *  it still exists as a non-exited member: peers hold, and the row waits for
-   *  the coordinator's OWN next boundary (or a lifecycle=wake send that routes
-   *  through the parked wake path). Deliberate second-order choice: ownership
-   *  survives hibernation — a resting fan-out lead must not lose mail to a live
-   *  worker. Only when the coordinator is gone or exited may any member drain,
-   *  so a departed coordinator can never strand its issue's mail. Undefined
-   *  preference = no preference, which is the caller's "let attemptDelivery
-   *  decide" path. */
-  private async mayDrainIssueMail(issueId: IssueId, session?: SessionMeta): Promise<SessionMeta | undefined> {
-    if (!session) return undefined
-    const coordinatorId = (await this.deps.issues.get(issueId))?.coordinatorSessionId
-    if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
-    const coordinator = await this.deps.sessions.sessionById(asSessionId(coordinatorId))
-    const coordinatorOwns =
-      coordinator !== undefined &&
-      coordinator.agentKind !== 'shell' &&
-      coordinator.status !== 'exited'
-    return coordinatorOwns ? undefined : session
   }
 
   /** Issue-side target changes can alter inferred session membership and the
@@ -832,7 +695,7 @@ export class MessageDeliveryService {
     }
     for (const id of candidates) {
       const session = this.deps.sessions.sessionFactsById(id)
-      if (session) await this.onRoutingEligibilityChanged(session)
+      if (session) await this.requeueSessionTargets(session.sessionId, session)
       else this.rememberMembership(id, undefined, null)
     }
   }
@@ -846,41 +709,12 @@ export class MessageDeliveryService {
     return {
       targetOf: (message) => this.deliveryTargetOf(message),
       nowMs: () => this.nowMs(),
-      drainPreferred: async (session, messages, nowMs) => await this.drainPreferred(session, messages, nowMs),
-      attemptOne: async (message, nowMs) => {
-        if (!await this.prepareQueuedAttemptSafely(message, nowMs)) return
+      attemptOne: async (message) => {
+        if (!await this.prepareQueuedAttemptSafely(message)) return
         await this.attemptDelivery(message, { viaSweep: true })
         await this.scheduleQueuedWakeRetry(message)
       },
     }
-  }
-
-  /**
-   * The idle drain for ONE preferred session. Total by contract — see
-   * {@link DeliveryRunner.drainPreferred}: it reports its own failure and still
-   * returns the ids it took, because a row that falls out of the handled set is
-   * a row delivered twice.
-   */
-  private async drainPreferred(
-    session: SessionMeta,
-    messages: readonly MessageRow[],
-    nowMs: number,
-  ): Promise<readonly string[]> {
-    if (this.stateOf(session) !== 'idle') return []
-    const handled = messages.map((message) => message.id)
-    if (this.draftHoldActive(session)) return handled
-    const eligibility = await Promise.all(
-      messages.map(async (message) => await this.prepareQueuedAttemptSafely(message, nowMs)),
-    )
-    const eligible = messages.filter((_, index) => eligibility[index])
-    eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-    try {
-      await this.deliverBatch(session, eligible)
-      for (const message of eligible) await this.scheduleQueuedWakeRetry(message)
-    } catch (error) {
-      this.scheduler.recordTriggerFailure(`preferred session ${session.sessionId}`, error)
-    }
-    return handled
   }
 
   /** Begin a bounded startup walk. The session→issue before-state is this
@@ -895,15 +729,15 @@ export class MessageDeliveryService {
       return
     }
     for (const session of sessions) {
-      await this.onRoutingEligibilityChanged(session)
+      await this.requeueSessionTargets(session.sessionId, session)
     }
     this.routingMembershipReady = true
     await this.scheduler.reconcile()
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
-  async flushDeliveryTriggers(onlyPreferredSessionId?: SessionId): Promise<void> {
-    await this.scheduler.flushDeliveryTriggers(onlyPreferredSessionId)
+  async flushDeliveryTriggers(): Promise<void> {
+    await this.scheduler.flushDeliveryTriggers()
   }
 
   /** Slow delivery backstop [spec:SP-c29e]. */
@@ -919,71 +753,19 @@ export class MessageDeliveryService {
     this.scheduler.dispose()
     this.brakes.dispose()
     this.sessionIssueTargets.clear()
-    this.liveQueuedForExit.clear()
   }
 
-  private async queueDeliveryTarget(
-    target: DeliveryTarget,
-    preferred?: SessionMeta,
-    after?: MessagePageCursor,
-    through?: MessagePageCursor,
-  ): Promise<void> {
-    await this.scheduler.queueDeliveryTarget(target, preferred, after, through)
+  private async queueDeliveryTarget(target: DeliveryTarget): Promise<void> {
+    await this.scheduler.queueDeliveryTarget(target)
   }
 
-  private async prepareQueuedAttemptSafely(message: MessageRow, nowMs: number): Promise<boolean> {
+  private async prepareQueuedAttemptSafely(message: MessageRow): Promise<boolean> {
     try {
-      return await this.prepareQueuedAttempt(message, nowMs)
+      return await this.prepareQueuedAttempt(message)
     } catch (error) {
       this.scheduler.recordTriggerFailure(`prepare message ${message.id}`, error)
       return false
     }
-  }
-
-  private canTrackGrokExit(sessionId: SessionId, session: SessionMeta): boolean {
-    return (
-      session.agentKind === 'grok' &&
-      session.driverId === 'grok-acp' &&
-      this.deps.isAgentDriven?.(sessionId) === true
-    )
-  }
-
-  private async rememberLiveQueuedForExit(
-    message: MessageRow,
-    target: SessionMeta | undefined,
-    outcome: DeliveryOutcome,
-  ): Promise<void> {
-    if (
-      message.toKind !== 'session' ||
-      !target ||
-      target.status !== 'live' ||
-      !outcome.queued ||
-      !this.canTrackGrokExit(target.sessionId, target)
-    )
-      return
-
-    const current = await this.deps.messages.getMessage(message.id)
-    if (
-      !current ||
-      current.status !== 'queued' ||
-      current.injectedAt != null ||
-      current.deliveredTo != null
-    )
-      return
-
-    let messageIds = this.liveQueuedForExit.get(target.sessionId)
-    if (!messageIds) {
-      messageIds = new Set<string>()
-      this.liveQueuedForExit.set(target.sessionId, messageIds)
-    }
-    messageIds.add(message.id)
-  }
-
-  private forgetLiveQueuedForExit(sessionId: SessionId, messageId: string): void {
-    const messageIds = this.liveQueuedForExit.get(sessionId)
-    if (!messageIds) return
-    messageIds.delete(messageId)
-    if (messageIds.size === 0) this.liveQueuedForExit.delete(sessionId)
   }
 
   private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
@@ -998,7 +780,7 @@ export class MessageDeliveryService {
    * Clamps/brakes downgrade the axes BEFORE the row is written, so the row
    * always holds the effective values and `clamped_from` the requested ones.
    */
-  async send(from: MessageSender, input: MessageSendInput, opts?: MessageSendOptions): Promise<MessageSendResult> {
+  async send(from: MessageSender, input: MessageSendInput): Promise<MessageSendResult> {
     const issues = this.deps.issues
     // Resolve an issue recipient ref (#N / seq / id) to the canonical id up
     // front so the stored to_id is stable.
@@ -1216,16 +998,10 @@ export class MessageDeliveryService {
       afterCommit(() => this.deps.mirrorIssueMail?.(mirrored), 'legacy-mail-mirror')
     }
 
-    const outcome = await this.attemptDelivery(
-      message,
-      opts?.awaitReceipt ? { awaitReceipt: true } : undefined,
-    )
-    await this.rememberLiveQueuedForExit(message, targetSession, outcome)
-    // A busy-turn row can remain in the message ledger without entering the
-    // SessionInbox FIFO. Conversely, a wake/boot push may already be in that
-    // FIFO and have an exact driver-facing position. Fill the common result
-    // boundary from a live read in either case; never freeze the enqueue ordinal
-    // into the message row.
+    const outcome = await this.attemptDelivery(message)
+    // A pushed row may already be in the SessionInbox FIFO with an exact
+    // driver-facing position. Fill the common result boundary from a live read;
+    // never freeze the enqueue ordinal into the message row.
     const position =
       outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(message) : undefined)
     await this.scheduleQueuedWakeRetry(message)
@@ -1242,8 +1018,9 @@ export class MessageDeliveryService {
   /**
    * Resolve the recipient to a concrete session NOW (TOCTOU-safe — nothing was
    * decided at send time) and act per the delivery table. Undeliverable
-   * messages stay `queued`; retriggers: session-goes-idle drain (onSessionIdle),
-   * the daemon stop-hook (mailPending), and the slow sweep().
+   * messages stay `queued`; retriggers: eligibility changes (bind, resume,
+   * membership, draft clear), the daemon stop-hook (mailPending), and the slow
+   * sweep(). None of them is the agent's phase [POD-4661].
    */
   /**
    * NO FULL SESSION PASS [POD-1653]. This used to take an `allSessions` listing
@@ -1262,14 +1039,14 @@ export class MessageDeliveryService {
    */
   private async attemptDelivery(
     message: MessageRow,
-    opts?: { viaSweep?: boolean; awaitReceipt?: boolean },
+    opts?: { viaSweep?: boolean },
   ): Promise<DeliveryOutcome> {
     return await withReadScope(async () => await this.attemptDeliveryInScope(message, opts))
   }
 
   private async attemptDeliveryInScope(
     message: MessageRow,
-    opts?: { viaSweep?: boolean; awaitReceipt?: boolean },
+    opts?: { viaSweep?: boolean },
   ): Promise<DeliveryOutcome> {
     // A dead-letter found at SEND time returns synchronously to a watching sender
     // (no async notice); one found LATER (sweep) must tell the sender once.
@@ -1329,8 +1106,8 @@ export class MessageDeliveryService {
       const allMembers = await sessions.listSessionsForIssue(issue.worktreePath ?? null, issue.id)
       // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): exclude the sender's own
       // session from issue-recipient resolution, so an agent mailing its own
-      // issue never picks itself. selectMailNudgeSession picks the single live
-      // idle member, which would otherwise BE the sender.
+      // issue never picks itself. selectMailNudgeSession picks the most recently
+      // active live member, which would otherwise BE the sender.
       const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
       // Prefer the issue's designated coordinator by ROLE (docs/agent-comms-target.html
       // §05 q1), for EVERY urgency [POD-1365] and every non-exited session status
@@ -1366,7 +1143,7 @@ export class MessageDeliveryService {
       } else {
         const live = selectMailNudgeSession(members)
         target = live
-          ? members.find((s) => s.sessionId === live.sessionId)
+          ? members.find((s) => s.sessionId === live)
           : // No live member: a wake picks the most recent parked agent to resurrect.
             [...members]
               .filter((s) => s.agentKind !== 'shell')
@@ -1414,36 +1191,31 @@ export class MessageDeliveryService {
       return { ok: true, queued: true, disposition: 'queued' }
     }
 
-    const state = this.stateOf(target)
-    if (state === 'idle') {
-      // idle/live: inject now, every urgency.
-      return await this.injectAndMark('now', message, target.sessionId, 'delivered', opts)
-    }
-    if (state === 'running') {
-      if (message.urgency === 'fyi') {
-        // Surfaces at the next pause: stop-hook / prime pending query.
-        return { ok: true, queued: true, disposition: 'queued' }
-      }
+    // THE SERVER NEVER HOLDS A MESSAGE ON ITS VIEW OF THE AGENT [POD-4661].
+    // Only the daemon knows whether a turn is running right now; the server's
+    // phase is a report that can lag or drift (POD-4641 held a send forever on
+    // it). A session that has a process gets the message at once, down the
+    // durable queue to the daemon's delivery queue, which waits for readiness
+    // and the turn boundary itself (POD-4427) — so nothing is typed mid-turn
+    // (#471) and nothing answers an on-screen menu (#473). Interrupt is the one
+    // urgency that asks to cut the running turn; the driver decides whether
+    // there is one to cut.
+    if (target.status !== 'hibernated' && target.status !== 'exited') {
       if (message.urgency === 'interrupt') {
-        // The intended mid-turn path. interruptText sends ESC first, which
-        // visibly cancels an open AskUserQuestion menu before the text lands.
-        return await this.injectAndMark('interrupt', message, target.sessionId, 'delivered', opts)
+        return await this.injectAndMark('interrupt', message, target.sessionId, 'delivered')
       }
-      // next-turn. A 'starting' session has no turn in flight and nothing on
-      // screen — ride the durable boot queue; it types once the agent binds.
-      if (target.status === 'starting') {
-        return await this.injectAndMark('queue', message, target.sessionId, 'queued', opts)
+      // Files cannot ride the durable queue (it stores text only), so a send with
+      // attachments to a bound session goes to the driver as when-ready: the
+      // driver still decides when, and the server reads nothing about the turn.
+      if (message.attachments?.length && target.status === 'live') {
+        return await this.injectAndMark('now', message, target.sessionId, 'delivered')
       }
-      // Busy live agent: HOLD for the turn boundary. queueText's immediate
-      // drain types mid-turn (#471), and its submitting CR auto-answers an
-      // on-screen AskUserQuestion menu (#473 P0). onSessionIdle delivers when
-      // the phase reaches idle; sweep() is the backstop. A valid, reachable,
-      // live target — the sender gets certainty of landing (queued), not a drop.
-      return { ok: true, queued: true, disposition: 'queued' }
+      return await this.injectAndMark('queue', message, target.sessionId, 'queued')
     }
-    // parked (hibernated/exited). lifecycle=wait HOLDS the row for this target's
-    // next turn (drain-on-idle / stop-hook / sweep) — including a hibernated
-    // coordinator preferred by role [POD-1371]. Do not wake on every fyi.
+    // parked (hibernated/exited): there is no process to hand it to.
+    // lifecycle=wait HOLDS the row for this target's next run (bind / sweep) —
+    // including a hibernated coordinator preferred by role [POD-1371]. Do not
+    // wake on every fyi.
     if (message.lifecycle === 'wait') {
       return { ok: true, queued: true, disposition: 'queued' }
     }
@@ -1458,7 +1230,7 @@ export class MessageDeliveryService {
     }
     // record the wake against the cooldown window.
     await this.recordWake(message, target)
-    const injected = await this.injectAndMark('queue', message, target.sessionId, 'queued', opts)
+    const injected = await this.injectAndMark('queue', message, target.sessionId, 'queued')
     if (injected.ok) return injected
     if (injected.reason === 'no resume ref') {
       // Unresumable → spawn-on-wake. The resume attempt was already gated on
@@ -1477,21 +1249,19 @@ export class MessageDeliveryService {
   }
 
   /**
-   * The ONE place a push toward a live PTY records its ledger state [POD-834].
+   * The ONE place a push toward a session records its ledger state [POD-834].
    * `via` picks the transport; `okDisposition` is what a successful dispatch means
-   * to the sender. Crucially it marks the row `injected` (bytes dispatched,
-   * awaiting the transcript echo), NOT `delivered` — except an unwrapped operator
-   * body, which carries no id to echo and so is confirmed on injection. A
-   * contract-backed blocking caller keeps even that row queued until the driver's
-   * receipt accepts it, so a late refusal can correct the optimistic record. This
-   * is the fix for the POD-495 defect-B lie: an enqueue is no longer a delivery.
+   * to the sender. Crucially it marks the row `injected` (handed on, awaiting the
+   * daemon's settlement or the transcript echo), NOT `delivered` — except a
+   * direct push (interrupt, or a send with files) of an unwrapped operator body,
+   * which carries no id to echo and so is confirmed on injection. This is the fix for the POD-495 defect-B lie: an
+   * enqueue is no longer a delivery.
    */
   private async injectAndMark(
     via: 'now' | 'queue' | 'interrupt',
     message: MessageRow,
     sessionId: SessionId,
     okDisposition: SendDisposition,
-    opts?: { awaitReceipt?: boolean },
   ): Promise<DeliveryOutcome> {
     const sessions = this.deps.sessions
     const principal = await this.inboxPrincipal(message)
@@ -1510,37 +1280,17 @@ export class MessageDeliveryService {
       principal,
       sourceMessageId: message.id,
     }
-    // ONE SEND, WITH THE MODE THE TABLE ABOVE ALREADY PICKED (POD-1761 W4).
-    // `receiptSend` is the migrated path; the three-way switch below it is the
-    // legacy one, kept intact and reached whenever this session has no driver
-    // behind it — which is what makes flag-off byte-identical rather than
-    // merely similar.
+    // `receiptSend` is the migrated path; the legacy verbs below it are reached
+    // whenever this session has no driver behind it.
     // WHETHER THIS FUNCTION HAS WRITTEN ANYTHING YET, told to the reconciler so a
     // refusal corrects the push it answers and never the one before it. The
     // durable-queue branch of `receiptSend` refuses SYNCHRONOUSLY, from inside the
     // call below — its receipt is recorded, and the `ok: false` return underneath
     // is what handles it [POD-2298].
-    const awaitReceipt =
-      opts?.awaitReceipt === true &&
-      sessions.receiptSend !== undefined &&
-      this.deps.isAgentDriven?.(sessionId) === true
-    const confirmed = this.render.confirmedOnInjection(message)
     let recorded = false
-    const pendingReceipts: TurnReceipt[] = []
-    const settleReceipt = async (receipt: TurnReceipt, afterRecord: boolean): Promise<void> => {
-      await this.reconcileReceipt(
-        message.id,
-        sessionId,
-        receipt,
-        afterRecord,
-        awaitReceipt && confirmed && via !== 'queue',
-      )
-    }
     const r = await (sessions.receiptSend
       ? sessions.receiptSend(via, input, async (receipt) => {
-          if (recorded) await settleReceipt(receipt, true)
-          else if (awaitReceipt) pendingReceipts.push(receipt)
-          else await settleReceipt(receipt, false)
+          await this.reconcileReceipt(message.id, sessionId, receipt, recorded)
         })
       : via === 'now'
         ? sessions.sendText(input)
@@ -1553,31 +1303,20 @@ export class MessageDeliveryService {
     // reports THIS push attempt failed. The one caller whose ok:false carries a
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
-    if (!r.ok) {
-      for (const receipt of pendingReceipts) await settleReceipt(receipt, false)
-      return { ...r, disposition: 'queued' }
-    }
-    // A live session can still be inside the harness's startup window. The
-    // legacy inbox redirects that `now` send into its durable FIFO; preserve
-    // that queued state instead of marking the message delivered on enqueue.
-    if (via !== 'queue' && r.queued === true) {
+    if (!r.ok) return { ...r, disposition: 'queued' }
+    // A queue acceptance is not delivery. Keep the ledger row queued until
+    // SessionInbox settles this exact sourceMessageId (`onQueuedInputApplied`);
+    // otherwise the transcript hides a still-pending message as soon as it is
+    // accepted, and cancellation can no longer stop it. Recording the chosen
+    // target here keeps the row off the retry sweep while it waits. A direct push
+    // that the legacy inbox redirected into the same queue is the same case.
+    if (via === 'queue' || r.queued === true) {
       await this.markInjected(message, sessionId)
       recorded = true
-      for (const receipt of pendingReceipts) await settleReceipt(receipt, true)
-      return { ...r, disposition: 'queued' }
+      return { ...r, disposition: via === 'queue' ? okDisposition : 'queued' }
     }
-    // A boot/busy queue acceptance is not delivery. Keep the ledger row queued
-    // until SessionInbox drains this exact sourceMessageId; otherwise the
-    // transcript hides a still-pending human message as soon as revival starts,
-    // and cancellation can no longer stop it. Recording the chosen target here
-    // preserves the existing sweep/retry guard while status remains retractable.
-    if (via === 'queue') {
-      await this.markInjected(message, sessionId)
-      recorded = true
-      for (const receipt of pendingReceipts) await settleReceipt(receipt, true)
-      return { ...r, disposition: okDisposition }
-    }
-    if (confirmed && !awaitReceipt) {
+    const confirmed = this.render.confirmedOnInjection(message)
+    if (confirmed) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification) — the injection IS the
       // delivery [POD-834, POD-853].
@@ -1588,36 +1327,23 @@ export class MessageDeliveryService {
       await this.markInjected(message, sessionId)
     }
     recorded = true
-    for (const receipt of pendingReceipts) await settleReceipt(receipt, true)
-    // Honest sync disposition [spec:SP-cb9f] [POD-854]. The optimistic `delivered`
-    // disposition is only ever passed for a LIVE-PTY push (via 'now' / 'interrupt',
-    // sendText/interruptText) — the bytes are on screen now — so it is honest only
-    // when the push is confirmed-on-injection (unwrapped operator body / best-effort
-    // ack). An enveloped echo is merely in the harness input queue, not yet
-    // transcript-observed, so it downgrades to `queued`; the blocking send surface
-    // upgrades it to `delivered` only when the echo / turn boundary confirms it. A
-    // durable boot-queue push ('queue') keeps its `queued`/`spawning` disposition
-    // untouched — the message rides the resume queue, delivered when the session binds.
+    // Honest sync disposition [spec:SP-cb9f] [POD-854]: `delivered` only when the
+    // push is confirmed on injection; an enveloped push is merely handed on.
     if (okDisposition === 'delivered') {
-      return {
-        ...r,
-        disposition: confirmed && !awaitReceipt ? 'delivered' : 'queued',
-      }
+      return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
     }
     return { ...r, disposition: okDisposition }
   }
 
-  /** SessionInbox calls this at the real queued-input boundary, after typeText
-   * accepted the row. Unwrapped human text is confirmed there; enveloped mail
-   * records injection and still waits for its transcript echo. */
+  /** SessionInbox calls this when the daemon settles a durable row as delivered:
+   *  the driver took the turn. That settlement IS the delivery receipt, for every
+   *  row — an operator's unwrapped line and enveloped mail alike [POD-4661]. A
+   *  pointer row still waits for its inbox read. */
   async onQueuedInputApplied(messageId: string, sessionId: SessionId): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || message.status !== 'queued') return
-    if (this.render.confirmedOnInjection(message)) {
-      await this.markDelivered(message, sessionId, 'injection')
-    } else {
-      await this.markInjected(message, sessionId)
-    }
+    if (this.render.isPointer(message)) await this.markInjected(message, sessionId)
+    else await this.markDelivered(message, sessionId, 'injection')
   }
 
   /** SessionInbox calls this the moment a durable row's bytes cross into the CLI,
@@ -1755,12 +1481,12 @@ export class MessageDeliveryService {
   // ---- retriggers ----
 
   /**
-   * Drain trigger: a session's turn ended (phase → idle). Confirms delivery of
-   * anything the just-ended turn consumed (turn-boundary backstop), clears the hop
-   * context for the finished turn, then delivers what queued up while it was
-   * busy/parked — its session-addressed rows plus its issue's rows, FIFO, with fyi
-   * batches coalesced into one inbox pointer. `priorPhase` is the phase the session
-   * left to become idle; an `errored` turn did not complete, so it must not confirm.
+   * A session's turn ended (phase → idle). Confirms delivery of anything the
+   * just-ended turn consumed (turn-boundary backstop) and clears the hop context
+   * for the finished turn. It DELIVERS nothing: nothing waits for this edge
+   * [POD-4661] — a send went to the daemon when it was made. `priorPhase` is the
+   * phase the session left to become idle; an `errored` turn did not complete, so
+   * it must not confirm.
    */
   async onSessionIdle(session: SessionMeta, opts?: { priorPhase?: AgentPhase }): Promise<void> {
     const issueId = this.issueForSession(session)
@@ -1779,9 +1505,8 @@ export class MessageDeliveryService {
     // record, so ECHO_ID_RE never sees the id and the sweep would re-inject past
     // the echo window = duplicate. The turn boundary is the RELIABLE backstop:
     // no text matching, and it cannot duplicate. Transcript-echo stays the ~1s
-    // fast path. This runs BEFORE deliverBatch (which stamps injected_at=now on
-    // fresh pushes), so any injected_at present here is from a PRIOR turn — never
-    // one we push in this same idle. Pointer/pull-path rows are excluded (an
+    // fast path. A row still waiting in the durable queue is skipped below, so a
+    // push that has not reached the agent is never confirmed. Pointer/pull-path rows are excluded (an
     // inbox READ confirms those, not a turn boundary), and only rows pushed to
     // THIS session (deliveredTo match) are confirmed — never a sibling session's
     // in-flight push. An ERRORED turn (API 529 &c) did NOT complete — it may not
@@ -1820,19 +1545,7 @@ export class MessageDeliveryService {
     // re-stamps turnHop (right for the echo path, which fires DURING the
     // processing turn), but at a turn boundary that turn is over — anything the
     // session sends next belongs to a fresh turn and must not inherit the hop.
-    // deliverBatch below re-stamps turnHop for genuinely new pushes, which is
-    // correct (those trigger the session's NEXT turn).
     this.turnHop.delete(session.sessionId)
-    // Idle is one eligibility transition among bind/resume/membership/startup:
-    // enqueue the same durable target keys and synchronously flush so existing
-    // turn-boundary ordering remains exact. The keyed gate handles confirmation,
-    // draft holds, FIFO/pointer batching, cooldown, and duplicate events.
-    await this.scheduler.runBoundaryDrain([...boundaryThrough.keys()], session.sessionId, async () => {
-      await this.onSessionEligibilityChanged(session.sessionId, session, {
-        preferThisIdleSession: true,
-        boundaryThrough,
-      })
-    })
   }
 
   /**
@@ -1866,68 +1579,6 @@ export class MessageDeliveryService {
     return injects === undefined ? true : injects()
   }
 
-  /** A queued row already pushed and awaiting its own confirmation must not be
-   *  re-delivered [POD-834]: a pointer nudge waits for the inbox read (never
-   *  re-nudged); an echo-mode push waits for its transcript echo until the window
-   *  passes (after which the sweep re-pushes it as a lost push). */
-  private async awaitingConfirmation(m: MessageRow, nowMs: number): Promise<boolean> {
-    if (!m.injectedAt) return false
-    if (this.render.isPointer(m)) return true
-    // STILL IN THE PHYSICAL QUEUE IS NOT A LOST PUSH (POD-1703). `injectAndMark`
-    // stamps injectedAt for a durable boot/busy enqueue too — acceptance, not
-    // arrival — so the echo timer below would call a row that has not yet
-    // crossed the PTY boundary lost and push a SECOND copy of the same text
-    // behind the first. The drain owns the row until it settles it; this is the
-    // same discriminator the turn-boundary confirm already uses.
-    const sessionId = m.deliveredTo ? asSessionId(m.deliveredTo) : undefined
-    if (sessionId && (await this.deps.sessions.hasQueuedMessage?.(sessionId, m.id))) return true
-    // NO ECHO WILL EVER COME for an unwrapped operator body (POD-1703): it
-    // carries no `[podium message <id>]` frame, so ECHO_ID_RE cannot match it in
-    // any transcript. Only the durable-queue path reaches here with one — a
-    // live-PTY push of the same row is marked delivered on injection — and its
-    // confirmation is `onQueuedInputApplied` at the drain boundary, never a
-    // transcript echo. Letting the echo timer expire against it is what re-sent
-    // the operator's own chat message every 90 seconds.
-    if (this.render.confirmedOnInjection(m)) return true
-    // A TURN IN FLIGHT IS NOT A LOST PUSH (POD-1242). The echo window is sized
-    // against the drain deadline plus tail latency — a turn's own length is a
-    // different order entirely, and a mid-turn injection cannot echo as a user
-    // turn until the harness reaches its boundary. Re-pushing on that schedule is
-    // how one offer click reached an agent eight times: MAX_ECHO_REQUEUES capped
-    // the damage but the requeues themselves were never the right reading of a
-    // busy target. While it is computing, the copy it is holding IS the push.
-    const target = sessionId ? await this.targetOf(sessionId) : undefined
-    if (target && isAgentComputing(target)) return true
-    return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
-  }
-
-  /**
-   * How many times this row has already been requeued, counting the DURABLE
-   * ledger and not just this process (POD-1703).
-   *
-   * `message.requeued` is emitted on every requeue, so the event log is the
-   * authority and the map is only a cache in front of it. Without this the
-   * MAX_ECHO_REQUEUES cap bounded copies per server lifetime rather than per
-   * message, and a row that could never confirm collected another two copies
-   * after every restart.
-   */
-  private async requeueCountFor(messageId: string): Promise<number> {
-    const cached = this.requeueCounts.get(messageId)
-    if (cached !== undefined) return cached
-    let count = 0
-    try {
-      // Indexed by subject, and bounded: the cap is a small number, so a row
-      // that somehow ran past it does not need an exact tally to stay capped.
-      count = (await this.deps.events.listEventsSince(0, {
-        kinds: ['message.requeued'],
-        subject: messageId,
-        limit: MAX_ECHO_REQUEUES + 1,
-      })).length
-    } catch {}
-    this.requeueCounts.set(messageId, count)
-    return count
-  }
-
   /** One recipient's live meta, through the narrow read when the composition
    *  root wired it [POD-1653]. Undefined for a session this service cannot see. */
   private async targetOf(sessionId: SessionId): Promise<SessionMeta | undefined> {
@@ -1937,21 +1588,14 @@ export class MessageDeliveryService {
   /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.
    *  Duplicate eligibility events cannot re-push an injected row, and a queued
    *  wake gets a one-shot retry at the exact durable cooldown boundary. */
-  private async prepareQueuedAttempt(message: MessageRow, nowMs: number): Promise<boolean> {
+  private async prepareQueuedAttempt(message: MessageRow): Promise<boolean> {
     if (message.toKind === 'operator') return false
-    if (message.injectedAt) {
-      if (await this.awaitingConfirmation(message, nowMs)) return false
-      const requeues = await this.requeueCountFor(message.id)
-      if (requeues >= MAX_ECHO_REQUEUES && message.deliveredTo) {
-        await this.emitTransition(message, 'message.echo_capped')
-        await this.markDelivered(message, message.deliveredTo, 'injection')
-        return false
-      }
-      if (await this.deps.messages.clearInjected(message.id)) {
-        this.requeueCounts.set(message.id, requeues + 1)
-        await this.emitTransition(message, 'message.requeued')
-      }
-    }
+    // A row already handed on is never pushed again on a timer [POD-4661]. The
+    // server cannot see whether the agent is still working on it, so any window
+    // it guessed would be a guess about the agent's turn. The daemon settles the
+    // row (delivered, failed or dropped), a refusal puts it back in the queue,
+    // and the echo, a turn boundary or an inbox read confirm it.
+    if (message.injectedAt) return false
     if (message.lifecycle === 'wake' && !exemptFromBrakes(principalOfRow(message))) {
       const key = await this.wakeKeyOfRow(message)
       if (await this.brakes.isWakeHot(key)) {
@@ -1970,110 +1614,6 @@ export class MessageDeliveryService {
     if (!current || current.status !== 'queued' || current.injectedAt) return
     const key = await this.wakeKeyOfRow(current)
     if (await this.brakes.isWakeHot(key)) this.scheduleWakeRetry(key, current)
-  }
-
-  /** Deliver a pending batch into an idle session. Inline rows go FIFO; fyi
-   *  issue-addressed rows past one coalesce into a single pointer
-   *  ("N messages from X, Y — run 'podium issue mail inbox'"). */
-  private async deliverBatch(session: SessionMeta, batch: MessageRow[]): Promise<void> {
-    const sessions = this.deps.sessions
-    // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): the idle drain pulls this
-    // session's issue-pending rows, which can include a note it sent to its own
-    // issue while another member was busy — never deliver those back to the
-    // sender. They stay queued for their real recipient's own idle drain.
-    const rows = batch.filter((m) => m.fromSession !== session.sessionId)
-    if (rows.length === 0) return
-    const pointerRows = rows.filter((m) => this.render.isPointer(m))
-    const inlineRows = rows.filter((m) => !pointerRows.includes(m))
-    // Same origin rule as injectAndMark: operator bodies are person-origin
-    // (controller); everything else is mail (POD-552 / POD-118).
-    const originOf = (m: MessageRow) =>
-      m.fromKind === 'operator' ? ('controller' as const) : ('mail' as const)
-    // THE IDLE DRAIN'S SEND, MIGRATED (POD-1761 W4). Same verb the batch always
-    // used — this path already knows the session is idle, so `now` is the mode
-    // and nothing about that choice changes. `reconcile` names which row the
-    // late receipt belongs to, because a batch dispatches several and a receipt
-    // that could not say which one would settle the wrong one.
-    // The same "which push is this receipt about" latch `injectAndMark` keeps, per
-    // row rather than per call: this helper dispatches several and `recordPush`
-    // below is what puts each one's optimistic state on the ledger [POD-2298].
-    const recorded = new Set<string>()
-    const push = async (
-      input: InboxDeliveryInput,
-      reconcile: string,
-    ): Promise<{ ok: boolean; queued?: boolean; reason?: string; position?: number }> =>
-      await (sessions.receiptSend
-        ? sessions.receiptSend('now', input, async (receipt) => {
-            await this.reconcileReceipt(reconcile, session.sessionId, receipt, recorded.has(reconcile))
-          })
-        : sessions.sendText(input))
-    for (const m of inlineRows) {
-      const r = await push(
-        {
-          sessionId: session.sessionId,
-          text: await this.render.renderFor(m, session.sessionId),
-          inputOrigin: originOf(m),
-          principal: await this.inboxPrincipal(m),
-          sourceMessageId: m.id,
-        },
-        m.id,
-      )
-      if (r.ok) await this.recordPush(m, session.sessionId)
-      recorded.add(m.id)
-    }
-    if (pointerRows.length === 1 && pointerRows[0]!.body.length <= INLINE_BODY_MAX) {
-      // One short fyi delivers inline with its full envelope (id present) — the
-      // echo can still confirm it; record a push and let the echo/read follow.
-      const m = pointerRows[0]!
-      const r = await push(
-        {
-          sessionId: session.sessionId,
-          text: await this.render.renderFor(m, session.sessionId),
-          inputOrigin: originOf(m),
-          principal: await this.inboxPrincipal(m),
-          sourceMessageId: m.id,
-        },
-        m.id,
-      )
-      if (r.ok) await this.recordPush(m, session.sessionId)
-      recorded.add(m.id)
-    } else if (pointerRows.length > 0) {
-      // Coalesced nudge: the bodies (and ids) are NOT in the transcript, so these
-      // can only be confirmed by an inbox READ. Record the push (injected) and
-      // wait — the sweep never re-nudges a pointer row [POD-834].
-      const r = await push(
-        {
-          sessionId: session.sessionId,
-          text: await this.render.pointerText(pointerRows),
-          inputOrigin: 'mail',
-          principal: {
-            kind: 'system',
-            attribution: { actor: actorSystem('message-pointer'), onBehalfOf: null },
-            principalRef: 'message-pointer',
-            delegation: null,
-          },
-          sourceMessageId: pointerRows[0]!.id,
-        },
-        // ONE RECEIPT, ONE ROW, and the coalesced nudge only has one id it can
-        // honestly claim: the pointer text carries no message ids, so the other
-        // rows in the batch are confirmed by an inbox read and never by this
-        // send's receipt. Attributing it to all of them would put evidence on
-        // rows the driver said nothing about.
-        pointerRows[0]!.id,
-      )
-      if (r.ok) for (const m of pointerRows) await this.markInjected(m, session.sessionId)
-      recorded.add(pointerRows[0]!.id)
-    }
-  }
-
-  /** Record an INLINE push whose body (and id) went into the transcript: an
-   *  unwrapped operator body can never echo and a best-effort ack/notification is
-   *  never chased, so both are confirmed now; everything else is injected and
-   *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
-  private async recordPush(message: MessageRow, sessionId: SessionId): Promise<void> {
-    if (this.render.confirmedOnInjection(message))
-      await this.markDelivered(message, sessionId, 'injection')
-    else await this.markInjected(message, sessionId)
   }
 
   // ---- acks & reads (#237 phase 3) [spec:SP-34d7 acks] ----
@@ -2175,28 +1715,6 @@ export class MessageDeliveryService {
     return await this.mailbox.awaitAck(messageId, opts)
   }
 
-  /** Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]. */
-  async awaitDelivered(
-    messageId: string,
-    opts: {
-      timeoutMs: number
-      pollMs?: number
-      sleep?(ms: number): Promise<void>
-      now?(): number
-    },
-  ): Promise<MessageRow | null> {
-    return await this.mailbox.awaitDelivered(messageId, opts)
-  }
-
-  /** Urgency-gated blocking send [spec:SP-cb9f] [POD-854]. */
-  async sendAndConfirm(
-    from: MessageSender,
-    input: MessageSendInput,
-    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
-  ): Promise<MessageSendResult> {
-    return await this.mailbox.sendAndConfirm(from, input, opts)
-  }
-
   /** Inbox listing for a set of recipient principals, oldest first. */
   async inbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
@@ -2277,19 +1795,6 @@ export class MessageDeliveryService {
   }
 
   // ---- state helpers ----
-
-  private stateOf(s: SessionMeta): TargetState {
-    if (s.status === 'hibernated' || s.status === 'exited') return 'parked'
-    if (s.status !== 'live' || (s.queuedMessageCount ?? 0) > 0) return 'running'
-    const phase = s.agentState?.phase
-    // `unknown` is "no turn classified yet", not a busy turn. Missing
-    // agentState already used the shell-busy check; unknown must too. A fresh
-    // Grok causal session stays unknown until the first real turn, and holding
-    // next-turn here queued the first chat send forever.
-    if (phase === undefined) return s.busy ? 'running' : 'idle'
-    if (phase === 'idle' || phase === 'unknown') return 'idle'
-    return 'running'
-  }
 
   private issueForSession(s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined): IssueId | null {
     if (!s) return null
@@ -2399,7 +1904,6 @@ export class MessageDeliveryService {
   private async markInjected(message: MessageRow, sessionId: SessionId): Promise<void> {
     const at = this.deps.now()
     if (await this.deps.messages.markInjected(message.id, sessionId, at)) {
-      this.forgetLiveQueuedForExit(sessionId, message.id)
       // The injected message triggers the receiver's next turn — anything it
       // sends within that turn chains at hop + 1 (cleared when it goes idle).
       this.turnHop.set(sessionId, message.hop)
@@ -2425,18 +1929,14 @@ export class MessageDeliveryService {
    * it would fire hardest on a slow agent (the case most likely to have received
    * the text and be working on it).
    *
-   * For non-blocking sends and unverified receipts, a receipt moves no row and
-   * triggers no push. It records `message.receipt` beside the transitions the row
-   * already emitted, which is what "ledger-visible delivered-unconfirmed" means
-   * here. The receipt-aware blocking caller is the explicit exception: an
-   * accepted non-queue receipt settles its own injected row so its bounded wait
-   * can return delivered; refusals still use the correction table below. The
-   * other paths that advance a row are unchanged: the transcript echo confirms
-   * it (`markDelivered` via 'echo'), an inbox read confirms a pointer, and the
-   * existing sweep remains the backstop for a row whose echo never came. The
-   * sweep is not a blind retry — it is the same time-based backstop as before the
-   * migration, and this item does not get to change delivery semantics while
-   * moving the evidence.
+   * An unverified or queued receipt moves no row and triggers no push. It records
+   * `message.receipt` beside the transitions the row already emitted, which is
+   * what "ledger-visible delivered-unconfirmed" means here. An ACCEPTED receipt
+   * is the driver saying the turn took the text, so it settles the injected row
+   * it answers as delivered [POD-4661]; refusals use the correction table below.
+   * The other paths that advance a row are unchanged: the transcript echo
+   * confirms it (`markDelivered` via 'echo'), an inbox read confirms a pointer.
+   * Nothing re-pushes an injected row on a timer.
    *
    * What the ledger gains is the ability to tell three things apart that were
    * indistinguishable while delivery was inferred: a turn that provably opened,
@@ -2471,7 +1971,6 @@ export class MessageDeliveryService {
     sessionId: SessionId,
     receipt: TurnReceipt,
     afterRecord: boolean,
-    confirmAccepted = false,
   ): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     // Already settled by the echo, read or a cancellation while the window was
@@ -2499,7 +1998,7 @@ export class MessageDeliveryService {
           }
         : {}),
     })
-    if (receipt.outcome === 'accepted' && confirmAccepted && receipt.deliveredAs !== 'queue') {
+    if (receipt.outcome === 'accepted' && receipt.deliveredAs !== 'queue') {
       const current = await this.deps.messages.getMessage(messageId)
       if (current?.status === 'queued' && current.injectedAt && current.deliveredTo === sessionId) {
         await this.markDelivered(current, sessionId, 'injection')
@@ -2600,21 +2099,10 @@ export class MessageDeliveryService {
   ): Promise<void> {
     const at = this.deps.now()
     if (await this.deps.messages.markDelivered(message.id, sessionId, at)) {
-      // THE MIRRORS MOVE WITH THE COMMIT [POD-3259, spec §6 rule 12]. All three
-      // of these are process-owned state describing a durable transition, and
-      // all three now sit AFTER the write that makes the transition true, in the
-      // same turn it resolves in.
+      // THE MIRRORS MOVE WITH THE COMMIT [POD-3259, spec §6 rule 12]: process-owned
+      // state describing a durable transition sits AFTER the write that makes the
+      // transition true, in the same turn it resolves in.
       //
-      // `requeueCounts.delete` used to stand BEFORE the write. That is harmless
-      // while nothing can run between the two lines and wrong the moment the
-      // write awaits: a delivery that fails to commit would have handed the
-      // message a fresh retry cap it did not earn, and a requeue landing in the
-      // gap would have its count dropped by a delivery that never happened. It
-      // still no longer RESETS the budget (POD-1703) — the count lives in
-      // `message.requeued` events, so a re-read would recover it — but a cache
-      // entry freed for a write that rolled back is a lie either way.
-      this.requeueCounts.delete(message.id)
-      this.forgetLiveQueuedForExit(sessionId, message.id)
       // Delivery consumes the legacy issue_messages mirror row too, or
       // mailPending's legacy fallback keeps the stop-hook nagging ("You have
       // mail") until the agent runs `podium issue mail inbox`.

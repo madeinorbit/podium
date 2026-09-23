@@ -26,11 +26,9 @@ import type {
  *  reached no one is never a bare success [POD-834 §04b]:
  *   - `delivered`   CONFIRMED in the target's transcript (echo or turn boundary),
  *                   or injection-is-delivery for an unwrapped operator body;
- *   - `queued`      handed to the harness input queue (or held for a live target's
- *                   next boundary) — NOT yet transcript-observed [spec:SP-cb9f];
- *   - `accepted`    a blocking send's budget expired with the row still queued
- *                   (busy / composer-draft-held / lost echo) — durably captured,
- *                   not yet confirmed; the sender queries `podium mail status`;
+ *   - `queued`      handed on toward the target (the daemon's delivery queue, or
+ *                   held for a parked target's next run) — NOT yet confirmed;
+ *                   the daemon's settlement confirms it later [POD-4661];
  *   - `held`        issue-addressed, issue live but NO live session — held for
  *                   the issue's next session (delivered at its next boundary);
  *   - `spawning`    a wake spawned a fresh agent to receive it;
@@ -38,7 +36,6 @@ import type {
 export type SendDisposition =
   | 'delivered'
   | 'queued'
-  | 'accepted'
   | 'held'
   | 'spawning'
   | 'dead_letter'
@@ -75,13 +72,6 @@ export interface MessageSendInput {
   expectsResponse?: boolean
   /** Internal-only arbiter identity for message-backed notifications. */
   notificationFact?: { factKey: string; target: string }
-}
-
-/** Internal delivery option used by the blocking caller. Legacy callers keep
- * the optimistic send path; contract-backed callers opt into waiting for the
- * driver's already-existing receipt. */
-export interface MessageSendOptions {
-  awaitReceipt?: boolean
 }
 
 export interface MessageSendResult {

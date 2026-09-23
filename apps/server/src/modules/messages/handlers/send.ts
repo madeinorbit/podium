@@ -44,20 +44,11 @@ export async function sendHandler(
     // write access to the target issue.
     await checkIssueAccess(caller, deps.issues, 'messages.send', 'write', to.id)
   }
-  // Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
-  // surface waits for the trustworthy outcome — interrupt until delivered
-  // (transcript-observed), next-turn until delivered within a budget then
-  // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
-  // that provably vanished.
-  //
-  // Legacy session chat reaches this same handler in `immediate` mode, preserving
-  // its pinned queued response. A session with an active runtime contract is
-  // selected into `confirm` mode by the composition root so its existing receipt
-  // can refuse a send after the process disappears. Everything above this line —
-  // resolution under the ceiling, the target gate, and the sender stamped from
-  // the capability — is shared in either mode. See {@link MailDeliveryMode}.
-  const { sleep, awaitPollMs } = deps
-  const nowIso = deps.now
+  // A send answers at once, on every surface [POD-4661]. It never waits on the
+  // agent's turn: the server has handed the message on, and whether it reached
+  // the agent comes later from the daemon's settlement of the row (`mail
+  // status`, the ledger, the chat bubble). Resolution under the ceiling, the
+  // target gate and the sender stamped from the capability are above.
   const from = senderFromPrincipal(caller.principal)
   const payload = {
     to,
@@ -69,27 +60,13 @@ export async function sendHandler(
     ...(input.expectResponse ? { expectsResponse: true } : {}),
     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
   }
-  const r =
-    ctx.deliveryMode === 'immediate'
-      ? await svc.send(from, payload)
-      : await svc.sendAndConfirm(from, payload, {
-          ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
-          ...(sleep ? { sleep } : {}),
-          ...(nowIso ? { now: () => Date.parse(nowIso()) } : {}),
-        })
-  // Keep the legacy `queued` boolean consistent with the FINAL (post-blocking)
-  // disposition [POD-854]: blocking upgraded a busy-held `queued` sync send to
-  // `delivered`, so it must not still report `queued: true` alongside it. The
-  // enqueue-time position is the same stale claim in numeric form: once the
-  // blocking boundary confirms delivery, reload projects no queued position.
-  const queued = r.queued === true && r.disposition === 'delivered' ? false : r.queued
-  const position = r.disposition === 'delivered' ? undefined : r.position
+  const r = await svc.send(from, payload)
   return {
     id: r.message.id,
     ok: r.ok,
-    ...(queued !== undefined ? { queued } : {}),
+    ...(r.queued !== undefined ? { queued: r.queued } : {}),
     ...(r.reason !== undefined ? { reason: r.reason } : {}),
-    ...(position !== undefined ? { position } : {}),
+    ...(r.position !== undefined ? { position: r.position } : {}),
     // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
     // hidden behind a bare "queued" success.
     disposition: r.disposition,

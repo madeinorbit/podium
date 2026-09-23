@@ -300,9 +300,13 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         dispositionLabel(r.disposition, r.queued),
         r.clamped ? 'downgraded to your authority cap' : null,
         r.expectsResponse ? 'response expected (pull-delivered)' : null,
-        // An accepted send is never a bare success [POD-854]: point the sender at
-        // the ledger so they can see it flip to delivered (or dead-lettered).
-        r.disposition === 'accepted' ? `run 'podium mail status ${r.id}' to track it` : null,
+        // A handed-on send is never a bare success [POD-854]: point the sender at
+        // the ledger so they can see it flip to delivered (or dead-lettered). A
+        // send answers at once and the daemon confirms it later [POD-4661];
+        // `accepted` is what an older server says for the same state.
+        r.disposition === 'queued' || r.disposition === 'accepted'
+          ? `run 'podium mail status ${r.id}' to track it`
+          : null,
       ]
         .filter(Boolean)
         .join(', ')

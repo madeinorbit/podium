@@ -251,20 +251,9 @@ interface SessionRegistryOptions {
   now?: () => number
   /**
    * The mail gate's BOUNDED-WAIT seam (`MessageGateDeps.awaitPollMs`/`sleep`),
-   * which `sendAndConfirm` and `awaitAgent` already accept but nothing above
-   * them could reach. Absent — every production boot and every existing test —
-   * means real timers and the shipped poll interval.
-   *
-   * A fixture injects it so an urgency-gated send spends its delivery budget on
-   * a virtual clock instead of 25 real seconds: pair a `sleep` that advances
-   * {@link SessionRegistryOptions.now} with a `pollMs` above the budget, and the
-   * whole wait resolves in one step with no timer. It never shortens the budget
-   * itself — that constant is production policy, and whether 25s is the RIGHT
-   * policy is POD-3388's question rather than this seam's.
-   *
-   * POD-3386 and POD-3387 added this independently, hours apart, because the
-   * boundary lane had read that 25-second wait as a HANG for a week [POD-3380].
-   * Two fixtures needed the same seam to stop paying it in real time.
+   * which `awaitAgent` and `ask` accept but nothing above them could reach.
+   * Absent — every production boot and nearly every test — means real timers
+   * and the shipped poll interval. A send never waits on it [POD-4661].
    */
   mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
@@ -2109,7 +2098,6 @@ export class SessionRegistry {
       await messagesSvc.onQueueDrainAbandoned(sessionId, turnIds, reason)
     // A live busy send can be in the message ledger without a SessionInbox row.
     // The exit event is the real boundary that hands that row to the durable FIFO.
-    this.bus.on('session.exited', async ({ sessionId }) => await messagesSvc.onSessionExited(sessionId))
     queuedApplyHooks.interrupted = (messageId): Promise<void> =>
       cancelInterruptedQueuedMessage(messagesSvc, messageId)
     queuedApplyHooks.interruptedPending = async (sessionId, messageId) => {
@@ -2366,9 +2354,7 @@ export class SessionRegistry {
         },
         now: () => new Date(this.now()).toISOString(),
         // Bounded-wait seam, absent unless a fixture injected one (see
-        // SessionRegistryOptions.mailAwait). The gate's `now` above is what
-        // `sendAndConfirm` measures the budget with, so an injected `sleep` that
-        // moves the registry clock retires the wait without a timer.
+        // SessionRegistryOptions.mailAwait).
         ...(options.mailAwait?.pollMs !== undefined
           ? { awaitPollMs: options.mailAwait.pollMs }
           : {}),
@@ -3491,9 +3477,9 @@ export class SessionRegistry {
     })
     // Steward timer RETIRED [POD-925]: janitor owns steward-poll cadence.
     // this.steward.start()
-    // Message delivery retriggers (#237) [spec:SP-34d7]: a turn ending (phase →
-    // idle) drains that session's queued messages (and clears its hop context);
-    // the slow sweep expires + retries whatever the event triggers missed.
+    // Turn-boundary confirmation (#237) [POD-853]: a turn ending (phase → idle)
+    // confirms what it consumed and clears the hop context. It delivers nothing —
+    // no send waits for the server to see an idle edge [POD-4661].
     this.bus.on('session.stateChanged', async ({ sessionId, prev, next }) => {
       if (next.phase !== 'idle' || prev?.phase === 'idle') return
       const meta = await sessionsSvc.sessionById(sessionId)
@@ -3501,7 +3487,6 @@ export class SessionRegistry {
       // not complete, so the turn-boundary backstop must not confirm its injected
       // rows [POD-853].
       if (meta) await messagesSvc.onSessionIdle(meta, { priorPhase: prev?.phase })
-      else await messagesSvc.onSessionEligibilityChanged(sessionId)
     })
     // Transcript-echo confirmation (#834) [POD-834 §04d]: a message the substrate
     // typed into a PTY reappears as a user turn carrying its `[podium message

@@ -27,7 +27,7 @@ function harness(sessions: SessionMeta[], coordinatorSessionId?: string) {
 }
 
 describe('legacy issue-mail coordinator nudge', () => {
-  it('resolves explicit membership by canonical issue id and sends to the idle coordinator', async () => {
+  it('resolves explicit membership by canonical issue id and queues for the coordinator', async () => {
     const ports = harness(
       [
         session({
@@ -47,11 +47,13 @@ describe('legacy issue-mail coordinator nudge', () => {
     await nudgeIssueMail(ports, { issueId: ISSUE_ID, seq: 42 })
 
     expect(ports.sessionsForIssue).toHaveBeenCalledWith('/r/.worktrees/target', ISSUE_ID)
+    // Always the durable queue, even for an idle-looking coordinator: the
+    // server does not pick a transport from the agent's phase [POD-4661].
     expect(ports.receiptSend).toHaveBeenCalledWith(
-      'now',
+      'queue',
       expect.objectContaining({ sessionId: asSessionId('coordinator') }),
     )
-    expect(ports.receiptSend).not.toHaveBeenCalledWith('queue', expect.anything())
+    expect(ports.receiptSend).not.toHaveBeenCalledWith('now', expect.anything())
   })
 
   it('queues for a busy coordinator and falls back only when the coordinator is unavailable', async () => {

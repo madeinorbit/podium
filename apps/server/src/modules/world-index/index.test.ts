@@ -497,7 +497,6 @@ describe('world index committed facts', () => {
     const apply = vi.spyOn(index, 'apply')
     const writes: Array<[string, (id: string) => Promise<unknown>]> = [
       ['markInjected', (id) => store.messages.markInjected(id, session, at)],
-      ['clearInjected', (id) => store.messages.clearInjected(id)],
       ['markDelivered', (id) => store.messages.markDelivered(id, null, at)],
       ['markCancelled', (id) => store.messages.markCancelled(id)],
       ['markDeliveredByPull', (id) => store.messages.markDeliveredByPull(id, null, at)],

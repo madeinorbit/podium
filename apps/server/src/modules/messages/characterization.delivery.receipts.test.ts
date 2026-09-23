@@ -41,7 +41,7 @@ const receipts = async (
   (await h.events(['message.receipt'])).map((e) => e.payload as Record<string, unknown>)
 
 describe('flag-on delivery: the table still chooses, the receipt reports (R1)', () => {
-  it('sends an idle target through the same push, and settles it with an accepted receipt', async () => {
+  it('sends an idle target down the durable queue, and records its receipt', async () => {
     const h = await mailHarness({ receipts: {} })
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
@@ -52,16 +52,15 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
     })) as { id: string; ok: boolean }
     expect(r.ok).toBe(true)
 
-    // THE DECISION IS UNCHANGED. An idle target is injected now, by the same
-    // verb, with the same bytes — this is the half of the claim that a receipt
-    // assertion alone would not catch.
-    expect(h.pushes.map((p) => p.fn)).toEqual(['sendText'])
+    // Every live agent takes the durable queue, whatever its phase [POD-4661];
+    // the bytes are the same — the half a receipt assertion alone would not catch.
+    expect(h.pushes.map((p) => p.fn)).toEqual(['queueText'])
     expect(h.pushes[0]!.text).toContain('the body')
 
     // THE EVIDENCE IS NEW. Flag off, nothing on this row said whether the turn
     // opened; the ledger inferred delivery from the push returning ok.
     expect(await receipts(h)).toMatchObject([
-      { messageId: r.id, outcome: 'accepted', provenBy: 'hook', deliveredAs: 'when-ready' },
+      { messageId: r.id, outcome: 'accepted', provenBy: 'hook', deliveredAs: 'queue' },
     ])
   })
 
@@ -82,22 +81,21 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
     expect(await receipts(h)).toMatchObject([{ outcome: 'accepted', deliveredAs: 'interrupt' }])
   })
 
-  it('leaves a busy live target holding for its turn boundary, with no push and no receipt', async () => {
+  it('hands a busy live target the same push at once; its daemon holds it for the boundary', async () => {
     const h = await mailHarness({ receipts: {} })
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
 
-    await h.gate.dispatch(OPERATOR, undefined, 'send', {
+    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
       to: `#${iss.seq}`,
       body: 'next turn please',
       urgency: 'next-turn',
-    })
+    })) as { id: string }
 
-    // THE TABLE HOLDS THE ROW WITHOUT SENDING AT ALL. There is nothing for a
-    // receipt to report because nothing was dispatched — the flag must not turn
-    // a deliberate hold into a speculative send.
-    expect(h.pushes).toEqual([])
-    expect(await receipts(h)).toEqual([])
+    // THE SERVER DOES NOT HOLD ON ITS VIEW OF THE AGENT [POD-4661]. The row goes
+    // down the durable queue now, and the receipt reports what the queue did.
+    expect(h.pushes.map((p) => p.fn)).toEqual(['queueText'])
+    expect(await receipts(h)).toMatchObject([{ messageId: r.id, deliveredAs: 'queue' }])
   })
 })
 
@@ -244,7 +242,7 @@ describe('flag-on delivery: a legacy-driven session is untouched (R4)', () => {
 
     await h.gate.dispatch(OPERATOR, undefined, 'send', { to: `#${legacy.seq}`, body: 'no driver' })
 
-    expect(h.pushes.map((p) => p.fn)).toEqual(['sendText'])
+    expect(h.pushes.map((p) => p.fn)).toEqual(['queueText'])
     expect(await receipts(h)).toEqual([])
   })
 })

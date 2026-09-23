@@ -167,6 +167,15 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toContain('podium mail status msg_9')
   })
 
+  it('[POD-4661] a send handed on to the daemon points the sender at mail status', async () => {
+    const c = client({ send: { id: 'msg_7', ok: true, disposition: 'queued' } })
+    const out = await runMailCli(
+      ['send', '--to', 's-abc', '--body', 'x', '--urgency', 'next-turn'],
+      c,
+    )
+    expect(out).toContain('podium mail status msg_7')
+  })
+
   it('[POD-854] a blocking send confirmed delivered reports delivered', async () => {
     const c = client({ send: { id: 'msg_9', ok: true, disposition: 'delivered' } })
     const out = await runMailCli(

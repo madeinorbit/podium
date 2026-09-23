@@ -9,11 +9,12 @@
  * inbox READ is what confirms a row the push path could not, and every entry
  * point here either performs that read or reports on it.
  *
- * It owns NO mutable state, so it has no dispose contract; the two bounded
- * waits (`awaitAck`, `awaitDelivered`) are self-limiting polls with an
- * injectable clock and sleep, holding no timer between calls.
+ * It owns NO mutable state, so it has no dispose contract; the bounded wait
+ * (`awaitAck`) is a self-limiting poll with an injectable sleep, holding no
+ * timer between calls. Nothing here waits on DELIVERY: a send answers at once
+ * and the daemon's settlement confirms it later [POD-4661].
  *
- * THOSE TWO ARE DELIBERATELY OUTSIDE THE DISPOSAL CONTRACT, and the exception is
+ * THAT WAIT IS DELIBERATELY OUTSIDE THE DISPOSAL CONTRACT, and the exception is
  * worth stating rather than leaving to be rediscovered. Each iteration sleeps on
  * a fresh `setTimeout` that nothing retains, so there is no handle for a
  * `dispose()` to clear and no timer that outlives the deadline. The consequence:
@@ -21,7 +22,7 @@
  * more and reads `getMessage()` from a store that may already be shut. That is
  * the same family as POD-1390 but not its severity — one poll, 250–500ms,
  * read-only, and the caller is still holding the promise it asked for. Giving
- * these an abort would mean deciding what a caller mid-`sendAndConfirm` should
+ * it an abort would mean deciding what a caller mid-`awaitAck` should
  * observe at shutdown, which is a real question and not this issue's.
  * [POD-1385 review of POD-1397]
  *
@@ -39,29 +40,9 @@ import type { IssueService } from '../issues/service'
 import type {
   MessageSender,
   MessageSendInput,
-  MessageSendOptions,
   MessageSendResult,
   SendDisposition,
 } from './types'
-
-/** Urgency-gated blocking send budgets [spec:SP-cb9f] [POD-854]. A `next-turn`
- *  send blocks up to this budget for the transcript-observed `delivered`; a busy /
- *  draft-held target that outlasts it returns `accepted` (still queued — the sender
- *  queries `podium mail status`). 25s tracks the harness queue-drain deadline: long
- *  enough to catch an idle or quickly-finishing target, short enough that the CLI
- *  never hangs on a long turn. */
-export const NEXT_TURN_DELIVERY_BUDGET_MS = 25_000
-/** An `interrupt` send blocks until `delivered`; this ceiling is only a hang-guard
- *  [spec:SP-cb9f] [POD-854]. An interrupt injects immediately (ESC + inject), so it
- *  normally confirms within seconds at the ESC-cancelled turn boundary — but a
- *  composer-draft hold [POD-865] or a dead PTY can legitimately keep the row queued,
- *  so at this ceiling it returns the honest `accepted` rather than block forever.
- *  Matches ECHO_CONFIRM_WINDOW_MS (the outer bound on any single confirmation).
- *  INVARIANT: must stay under @podium/protocol's AGENT_RELAY_BLOCKING_TIMEOUT_MS —
- *  the loopback relay hub gives `messages.send` that long before it times out, and
- *  a block that outlives the transport makes the agent CLI throw instead of getting
- *  this disposition (a drift-guard test enforces the gap). */
-export const INTERRUPT_DELIVERY_CEILING_MS = 90_000
 
 /**
  * Ports, narrowed from the real collaborators rather than restated.
@@ -95,11 +76,7 @@ export interface MessageMailboxDeps {
   mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): Promise<void>
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
-  send(
-    from: MessageSender,
-    input: MessageSendInput,
-    opts?: MessageSendOptions,
-  ): MessageSendResult | Promise<MessageSendResult>
+  send(from: MessageSender, input: MessageSendInput): MessageSendResult | Promise<MessageSendResult>
   cancelQueuedInput(message: MessageRow): Promise<void>
   /** The transition ledger — a read is a status transition like any other. */
   emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void | Promise<void>
@@ -303,119 +280,6 @@ export class MessageMailbox {
       if (Date.now() >= deadline) return null
       await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
     }
-  }
-
-  /**
-   * Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]:
-   * poll the ledger until the row leaves `queued` — `delivered` (transcript echo
-   * or turn boundary observed it), `read` (recipient pulled its inbox), or a
-   * terminal `dead_letter`/`expired`/`cancelled` — or the deadline passes. Returns
-   * the row in whatever state it reached (still `queued` on a budget expiry — the
-   * sender is TOLD it is not yet confirmed, never left guessing), or null for an
-   * unknown id. NEVER hangs — the every-wait-bounded rule shared with `awaitAck`.
-   * This is the primitive urgency-gated blocking send builds on: `queued` means
-   * only "handed to the harness input queue", and a harness-queued message can
-   * still be Esc-cancelled or draft-held, so only a non-`queued` status is trusted.
-   * `now`/`sleep` are injectable so tests drive a deterministic clock (no timers).
-   */
-  async awaitDelivered(
-    messageId: string,
-    opts: {
-      timeoutMs: number
-      pollMs?: number
-      sleep?(ms: number): Promise<void>
-      now?(): number
-    },
-  ): Promise<MessageRow | null> {
-    const pollMs = opts.pollMs ?? 250
-    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
-    const now = opts.now ?? (() => Date.now())
-    const deadline = now() + opts.timeoutMs
-    for (;;) {
-      const m = await this.deps.messages.getMessage(messageId)
-      if (m && m.status !== 'queued') return m
-      if (now() >= deadline) return m ?? null
-      await sleep(Math.min(pollMs, Math.max(1, deadline - now())))
-    }
-  }
-
-  /**
-   * Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
-   * surface (the gate) calls this instead of `send()` so the sender waits for the
-   * trustworthy outcome instead of a bare `queued` that provably vanished. Internal
-   * sends (steward auto-ack, self-suppress, dead-letter notice) keep calling `send`
-   * and never block. Runs the synchronous `send()`, then blocks by the EFFECTIVE
-   * (post-clamp) urgency of the resulting row. `opts` threads the caller's injectable
-   * clock/sleep straight to `awaitDelivered` (production: real timers).
-   */
-  async sendAndConfirm(
-    from: MessageSender,
-    input: MessageSendInput,
-    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
-  ): Promise<MessageSendResult> {
-    const r = await this.deps.send(from, input, { awaitReceipt: true })
-    const disposition = await this.blockForDelivery(r, opts)
-    if (disposition !== 'dead_letter') return { ...r, disposition }
-
-    // A late contract refusal corrects the durable row after the synchronous
-    // send result was built. Project that existing terminal state back through
-    // the blocking caller, instead of leaving the original optimistic `ok`.
-    const final = await this.deps.messages.getMessage(r.message.id)
-    const reason =
-      r.reason ??
-      (final?.deliveryDeferredReason
-        ? `dead-lettered: ${final.deliveryDeferredReason}`
-        : undefined)
-    return {
-      ...r,
-      ok: false,
-      disposition,
-      ...(reason !== undefined ? { reason } : {}),
-    }
-  }
-
-  /** Block by urgency until the send's outcome is trustworthy [spec:SP-cb9f]. Only a
-   *  `queued` push to a live target has an imminent turn to observe — `delivered`
-   *  (already confirmed-on-injection), `held` (no live session), `spawning` (a boot)
-   *  and `dead_letter` (gone) have nothing to wait on and pass straight through.
-   *  `fyi` confirms at queued (never blocks); an operator-addressed row is confirmed
-   *  by a HUMAN inbox read, not a turn boundary, so blocking would always time out —
-   *  it returns immediately too. `interrupt` blocks up to the hang-guard ceiling,
-   *  `next-turn` up to the shorter budget; either, on expiry with the row still
-   *  queued (busy / composer-draft-held / lost echo), returns `accepted` — durably
-   *  captured, not yet confirmed — never a bare `queued` and never an infinite block. */
-  private async blockForDelivery(
-    r: MessageSendResult,
-    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
-  ): Promise<SendDisposition> {
-    if (r.disposition !== 'queued') return r.disposition
-    // A push that FAILED at the transport (ok:false — the daemon dropped offline
-    // mid-send) put no bytes on screen, so no echo / turn boundary can confirm it
-    // within the budget; the row is durably queued and the sweep retries it. Return
-    // the honest `accepted` now instead of blocking the whole budget for a
-    // confirmation that provably cannot arrive.
-    if (!r.ok) {
-      return (await this.deps.messages.getMessage(r.message.id))?.status === 'dead_letter'
-        ? 'dead_letter'
-        : 'accepted'
-    }
-    const { urgency, toKind } = r.message
-    if (urgency === 'fyi' || toKind === 'operator') return r.disposition
-    const timeoutMs =
-      urgency === 'interrupt' ? INTERRUPT_DELIVERY_CEILING_MS : NEXT_TURN_DELIVERY_BUDGET_MS
-    const row = await this.awaitDelivered(r.message.id, {
-      timeoutMs,
-      ...(opts?.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
-      ...(opts?.sleep ? { sleep: opts.sleep } : {}),
-      ...(opts?.now ? { now: opts.now } : {}),
-    })
-    if (row?.status === 'delivered' || row?.status === 'read') return 'delivered'
-    // `accepted` is the honest "durably queued, not yet confirmed — query mail
-    // status" ONLY while the row is still queued at the budget expiry. Any other
-    // outcome is terminal-undelivered — dead-lettered, expired past its TTL, or
-    // cancelled — and reporting the pending `accepted` for it would lie [POD-854].
-    if (row?.status === 'queued') return 'accepted'
-    return 'dead_letter'
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */

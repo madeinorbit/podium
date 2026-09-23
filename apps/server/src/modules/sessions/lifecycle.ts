@@ -100,7 +100,6 @@ import { SessionFactsReader, type SessionFacts } from './facts'
 import type { SessionOwnerMemo } from './session-state/service'
 import {
   liveSessionsUsingWorktree,
-  selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'

@@ -91,29 +91,22 @@ export async function sessionCommandCtx(
     //
     // The capability is closed over HERE, at the composition root, so no handler
     // takes a principal as an argument and none can invent one — the same rule
-    // the rest of this function follows. The server selects the delivery mode
-    // from the target session's taxonomy (POD-4427: agents take the driver
-    // path, shells keep the raw transport): agent-driven sessions use the
-    // existing receipt-aware confirmation path, while shells retain `immediate`.
-    // `mailSendInput` has no field for it, so a client cannot choose either mode.
+    // the rest of this function follows. The send answers at once for every
+    // session: it never waits on the agent's turn [POD-4661], so a Stop or the
+    // next message right behind it is never queued behind a delivery poll.
     //
     // The non-null assertion is safe by the same argument the router's makes: a
     // `undefined` here would mean `mail.send` does not name this transport, and
     // both transports that build this context are in its exposure set.
-    mailSend: async (input) => {
-      const deliveryMode = sessions.receiptSender.onContract(asSessionId(input.to))
-        ? 'confirm'
-        : 'immediate'
-      return (await modules.messageGate.dispatch(
+    mailSend: async (input) =>
+      (await modules.messageGate.dispatch(
         capability,
         overrideScope,
         'send',
         input,
         transport,
-        deliveryMode,
         input.correlationId,
-      ))!
-    },
+      ))!,
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await issues.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {

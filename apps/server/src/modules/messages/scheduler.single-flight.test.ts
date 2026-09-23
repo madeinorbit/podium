@@ -55,7 +55,6 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {
         targetOf: () => null,
-        drainPreferred: () => [],
         attemptOne: () => onAttempt(),
         nowMs: () => 1_000_000,
       },
@@ -108,7 +107,6 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
       now: () => '2026-07-13T00:00:00.000Z',
       runner: {
         targetOf: () => null,
-        drainPreferred: () => [],
         attemptOne: () => {},
         nowMs: () => 1_000_000,
       },

@@ -314,7 +314,7 @@ export class SessionReadToolkit {
     if (!issue) return undefined
     const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
     const live = selectMailNudgeSession(members)
-    if (live) return members.find((s) => s.sessionId === live.sessionId)
+    if (live) return members.find((s) => s.sessionId === live)
     return [...members]
       .filter((s) => s.agentKind !== 'shell')
       .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))

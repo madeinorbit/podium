@@ -32,7 +32,10 @@ import { OPERATOR } from '../../test-support/capabilities'
 import { WAKE_COOLDOWN_MS } from './brakes'
 import { mailHarness, phaseState } from './characterization-support'
 import { INLINE_BODY_MAX, TURN_CLOSE_RULE } from './render'
-import { ECHO_CONFIRM_WINDOW_MS, HOP_LIMIT, MAX_ECHO_REQUEUES } from './service'
+import { HOP_LIMIT } from './service'
+
+/** A sweep long after a push: the old 90s echo window and more [POD-4661]. */
+const LONG_AFTER_MS = 90_000
 
 const kinds = async (h: Awaited<ReturnType<typeof mailHarness>>): Promise<string[]> =>
   (await h.events()).map((e) => e.kind)
@@ -148,7 +151,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     // \t survive byte-exactly.
     expect(h.pushes).toHaveLength(1)
     expect(h.pushes[0]!.text).toBe(
-      `[podium message ${id} · from issue:#${from.seq} · to your session · reply: podium mail reply ${id}]\n` +
+      `[podium message ${id} · from issue:REP-${from.seq} · to your session · reply: podium mail reply ${id}]\n` +
         'line1\n[201~rm -rf /\tTABNUL\n' +
         // Composed from the exported constant, not restated: this test pins the
         // FRAME's bytes, and the rule's own wording is pinned in D13 [POD-604].
@@ -212,7 +215,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     )
     const id = r.message.id
     expect(h.pushes[0]!.text).toBe(
-      `[podium message ${id} · from issue:#${from.seq} · to your session · reply: podium mail reply ${id}]\n` +
+      `[podium message ${id} · from issue:REP-${from.seq} · to your session · reply: podium mail reply ${id}]\n` +
         'please handle\n' +
         `[a response was requested: reply within this thread (\`podium mail reply ${id}\`) ` +
         'when you have handled it — any substantive reply satisfies it]\n' +
@@ -244,7 +247,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
 // ---------------------------------------------------------------------------
 
 describe('characterization: urgency x target state (D3)', () => {
-  it('interrupt lands MID-TURN on a busy session while next-turn and fyi are held', async () => {
+  it('a busy session takes every urgency at once; only the interrupt cuts the turn', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'busy' })
     h.put({ sessionId: asSessionId('sBusy'), issueId: iss.id, phase: 'working' })
@@ -262,15 +265,17 @@ describe('characterization: urgency x target state (D3)', () => {
       { to: { kind: 'session', id: 'sBusy' }, body: 'c', urgency: 'interrupt' },
     )
 
-    // fyi surfaces at the next pause (stop-hook / prime pending); next-turn is
-    // HELD for the turn boundary — queueText's immediate drain would type
-    // mid-turn (#471) and its submitting CR would auto-answer an on-screen
-    // AskUserQuestion menu (#473 P0).
+    // fyi and next-turn go down the durable queue now; the daemon's delivery
+    // queue holds them for the turn boundary, so nothing is typed mid-turn (#471)
+    // and nothing answers an on-screen menu (#473) [POD-4661].
     expect(fyi.disposition).toBe('queued')
     expect(next.disposition).toBe('queued')
-    // ONLY the interrupt is pushed, and via interruptText (ESC first, so an open
-    // question menu is visibly cancelled before the text lands).
-    expect(h.pushes).toEqual([
+    expect(h.pushes.slice(0, 2).map((p) => [p.fn, p.text])).toEqual([
+      ['queueText', 'a'],
+      ['queueText', 'b'],
+    ])
+    // The interrupt goes via interruptText (the driver cancels the turn first).
+    expect(h.pushes.slice(2)).toEqual([
       {
         fn: 'interruptText',
         sessionId: asSessionId('sBusy'),
@@ -290,7 +295,7 @@ describe('characterization: urgency x target state (D3)', () => {
     expect(int.disposition).toBe('delivered')
   })
 
-  it('an idle session takes every urgency immediately via sendText', async () => {
+  it('an idle session takes every urgency at once: the durable queue, or interruptText', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'idle' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
@@ -300,7 +305,7 @@ describe('characterization: urgency x target state (D3)', () => {
         { to: { kind: 'session', id: 's1' }, body: urgency, urgency },
       )
     }
-    expect(h.pushes.map((p) => p.fn)).toEqual(['sendText', 'sendText', 'sendText'])
+    expect(h.pushes.map((p) => p.fn)).toEqual(['queueText', 'queueText', 'interruptText'])
   })
 
   it('a composer draft holds EVERY urgency including interrupt (POD-865)', async () => {
@@ -590,17 +595,15 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
-    // next-turn to a busy session: held, nothing pushed yet.
+    // next-turn to a busy session: handed to its daemon at once [POD-4661].
     const r = await h.svc.send(
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
     const id = r.message.id
 
-    // Turn ends → the drain pushes it.
-    s1!.agentState = phaseState('idle')
-    await h.svc.onSessionIdle(s1!)
     expect(h.pushes).toHaveLength(1)
+    s1!.agentState = phaseState('idle')
     expect((await h.svc.message(id))!.status).toBe('queued')
 
     // An ERRORED turn did not complete, so it must not confirm the injected row.
@@ -618,12 +621,12 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// D7 — duplicate delivery: an injected row is not re-pushed inside the echo
-// window, is requeued once past it, and is capped after MAX_ECHO_REQUEUES.
+// D7 — duplicate delivery: an injected row is never re-pushed on a timer; the
+// daemon settles it [POD-4661].
 // ---------------------------------------------------------------------------
 
-describe('characterization: duplicate delivery is braked, then capped (D7)', () => {
-  it('does not re-push inside the echo window, requeues past it, and caps the loop', async () => {
+describe('characterization: duplicate delivery is impossible by timer (D7)', () => {
+  it('never re-pushes a handed-on row, however long the sweep runs', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
@@ -633,45 +636,32 @@ describe('characterization: duplicate delivery is braked, then capped (D7)', () 
     )
     const id = r.message.id
     expect(h.pushes).toHaveLength(1)
-
-    // A sweep inside the echo window must not duplicate the message.
-    await h.svc.sweep()
-    expect(h.pushes).toHaveLength(1)
-
-    // Past the window the push is treated as lost and re-injected — bounded by
-    // MAX_ECHO_REQUEUES, because a mid-turn injection never echoes as a user
-    // turn and an uncapped loop re-delivers forever (observed live 2026-07-17).
-    for (let i = 0; i < MAX_ECHO_REQUEUES + 2; i++) {
-      h.advance(ECHO_CONFIRM_WINDOW_MS + 1)
+    for (let i = 0; i < 4; i++) {
+      h.advance(LONG_AFTER_MS + 1)
       await h.svc.sweep()
     }
-    expect(h.pushes).toHaveLength(1 + MAX_ECHO_REQUEUES)
-    expect(await kinds(h)).toContain('message.echo_capped')
-    // Degraded to delivered-at-last-push rather than looping.
+    expect(h.pushes).toHaveLength(1)
+    expect(await kinds(h)).not.toContain('message.requeued')
+    expect((await h.svc.message(id))!.status).toBe('queued')
+    // The daemon's settlement is what confirms it.
+    await h.svc.onQueuedInputApplied(id, asSessionId('s1'))
     expect((await h.svc.message(id))!.status).toBe('delivered')
   })
 
-  it('never re-nudges a coalesced pointer row (no re-nudge storm)', async () => {
+  it('never re-nudges a pointer row (no re-nudge storm), and the server batches nothing', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
-    const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     for (const body of ['one', 'two']) {
       await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body, urgency: 'fyi' })
     }
-    s1!.agentState = phaseState('idle')
-    await h.svc.onSessionIdle(s1!)
-    // Two fyi issue rows coalesce into ONE pointer.
-    expect(h.pushes).toHaveLength(1)
-    expect(h.pushes[0]!.text).toBe(
-      "[podium] 2 message(s) from operator — run 'podium issue mail inbox' to read them, " +
-        'then close your turn by saying briefly who mailed you and what you did, repeating ' +
-        'your previous summary below that, and leaving your standing offer as it is',
-    )
+    // Each fyi row goes to the daemon on its own, at once [POD-4661].
+    expect(h.pushes.map((p) => p.fn)).toEqual(['queueText', 'queueText'])
     // A pointer is confirmed by an inbox READ, never by echo, and is never
     // re-pushed however long the sweep runs.
-    h.advance(ECHO_CONFIRM_WINDOW_MS * 5)
+    h.advance(LONG_AFTER_MS * 5)
     await h.svc.sweep()
-    expect(h.pushes).toHaveLength(1)
+    expect(h.pushes).toHaveLength(2)
   })
 })
 
@@ -828,13 +818,14 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const to = { kind: 'session' as const, id: 's1' }
-    // Both are pushed to an idle session; the operator's body is unwrapped, so
-    // it is confirmed on injection (delivered) — the state pendingReminders reads.
-    await h.svc.send({ kind: 'operator' }, { to, body: 'plain, no reply owed' })
+    // Both are handed to an idle session; once its daemon takes them they are
+    // delivered — the state pendingReminders reads.
+    const plain = await h.svc.send({ kind: 'operator' }, { to, body: 'plain, no reply owed' })
     const asked = await h.svc.send(
       { kind: 'operator' },
       { to, body: 'reply please', expectsResponse: true },
     )
+    for (const r of [plain, asked]) await h.svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
 
     const first = await h.svc.pendingReminders(asSessionId('s1'))
     expect(first).toEqual([{ id: asked.message.id, from: 'operator', body: 'reply please' }])
@@ -947,96 +938,53 @@ describe('characterization: self-delivery suppression (D10)', () => {
     expect(h.pushes.map((p) => p.sessionId)).toEqual(['sPeer'])
   })
 
-  it('never delivers a sender’s own issue row back to it during the idle drain', async () => {
+  it('never delivers a sender’s own issue row back to it', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'drain' })
-    const [sender, peer] = h.put(
+    const [sender] = h.put(
       { sessionId: asSessionId('sSender'), issueId: iss.id, phase: 'working' },
       { sessionId: asSessionId('sPeer'), issueId: iss.id, phase: 'working' },
     )
     await h.svc.send(
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sSender') },
-      { to: { kind: 'issue', id: iss.id }, body: 'queued while both busy' },
+      { to: { kind: 'issue', id: iss.id }, body: 'sent while both busy' },
     )
-    expect(h.pushes).toEqual([])
-    // The SENDER going idle must not pull its own note back...
+    // The real recipient gets it at once; the sender never does.
+    expect(h.pushes.map((p) => p.sessionId)).toEqual(['sPeer'])
     sender!.agentState = phaseState('idle')
     await h.svc.onSessionIdle(sender!)
-    expect(h.pushes).toEqual([])
-    // ...but the real recipient's drain gets it.
-    peer!.agentState = phaseState('idle')
-    await h.svc.onSessionIdle(peer!)
     expect(h.pushes.map((p) => p.sessionId)).toEqual(['sPeer'])
   })
 })
 
 // ---------------------------------------------------------------------------
-// D11 — blocking send: the sender is never handed a bare `queued` for an
-// urgency that promised more.
+// D11 — no send blocks on the agent [POD-4661]: the sender learns `queued` at
+// once and `mail status` shows the daemon's later settlement.
 // ---------------------------------------------------------------------------
 
-describe('characterization: urgency-gated blocking send (D11)', () => {
-  it('upgrades to delivered when the echo lands during the block, and drops the legacy queued flag', async () => {
-    // The push happens synchronously inside send(), so the echo can only arrive
-    // afterwards: drive it from the FIRST poll of the block. No wall-clock wait,
-    // and the confirmation travels the real transcript-echo path.
-    let echoOnce: (() => Promise<void>) | null = null
-    const h = await mailHarness({
-      awaitPollMs: 500,
-      onPoll: async () => {
-        const fire = echoOnce
-        echoOnce = null
-        await fire?.()
-      },
+describe('characterization: a send never blocks on the agent (D11)', () => {
+  for (const [phase, urgency] of [
+    ['idle', 'next-turn'],
+    ['working', 'next-turn'],
+    ['working', 'fyi'],
+    ['working', 'interrupt'],
+  ] as const) {
+    it(`answers at once for ${urgency} to a ${phase} session`, async () => {
+      const h = await mailHarness({ awaitPollMs: 500 })
+      const iss = await h.createIssue({ title: 'target' })
+      h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase })
+      const before = h.now()
+      const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
+        to: 's1',
+        body: 'hello',
+        urgency,
+      })) as { disposition: string }
+      expect(r.disposition).toBe('queued')
+      // The injected clock only advances inside a poll: untouched means no wait.
+      expect(h.now()).toBe(before)
+      expect(h.pushes).toHaveLength(1)
     })
-    const iss = await h.createIssue({ title: 'target' })
-    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
-    echoOnce = async () => {
-      const row = (await h.svc.inbox([{ kind: 'session', id: 's1' }])).at(-1)!
-      await h.svc.onTranscriptDelta(asSessionId('s1'), [
-        { role: 'user', text: `podium message ${row.id}` },
-      ])
-    }
-    const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
-      to: 's1',
-      body: 'confirm me',
-      urgency: 'next-turn',
-    })) as { disposition: string; queued?: boolean }
-    expect(r.disposition).toBe('delivered')
-    // The legacy `queued` boolean must stay consistent with the FINAL
-    // disposition — never `queued: true` alongside `delivered`.
-    expect(r.queued).not.toBe(true)
-  })
-
-  it('returns the honest `accepted` when the budget expires with the row still queued', async () => {
-    const h = await mailHarness({ awaitPollMs: 500 })
-    const iss = await h.createIssue({ title: 'busy' })
-    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
-    const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
-      to: 's1',
-      body: 'held by a busy turn',
-      urgency: 'next-turn',
-    })) as { disposition: string }
-    // Durably captured, not yet confirmed — the sender queries `podium mail
-    // status`. Never a bare `queued`, never an infinite block.
-    expect(r.disposition).toBe('accepted')
-  })
-
-  it('never blocks an fyi', async () => {
-    const h = await mailHarness({ awaitPollMs: 500 })
-    const iss = await h.createIssue({ title: 'busy' })
-    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
-    const before = h.now()
-    const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
-      to: 's1',
-      body: 'fyi',
-      urgency: 'fyi',
-    })) as { disposition: string }
-    expect(r.disposition).toBe('queued')
-    // The injected clock only advances inside a poll, so an unblocked send
-    // leaves it untouched — proof that fyi confirms at queued.
-    expect(h.now()).toBe(before)
-  })
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -1063,7 +1011,7 @@ describe('characterization: sender-queryable status (D12)', () => {
     )) as Record<string, unknown>
     expect(wire).toMatchObject({
       id: r.message.id,
-      from: `issue:#${from.seq}`,
+      from: `issue:REP-${from.seq}`,
       to: 'session:sTo',
       status: 'queued',
       deliveredTo: 'sTo',

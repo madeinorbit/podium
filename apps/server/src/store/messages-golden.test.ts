@@ -346,18 +346,6 @@ describe('guarded ledger transitions', () => {
     expect(await messages.markDeadLetter('b', 't2', 'teardown')).toBe(false)
   })
 
-  it('clearInjected re-arms a queued push and leaves a raced row alone', async () => {
-    await add({ id: 'ghost' })
-    await messages.markInjected('ghost', READER, 't1')
-    await add({ id: 'raced' })
-    await messages.markInjected('raced', READER, 't1')
-    await messages.markDelivered('raced', String(READER), 't1')
-    expect(await messages.clearInjected('ghost')).toBe(true)
-    expect(await messages.clearInjected('raced')).toBe(false)
-    expect((await back('ghost'))?.injectedAt).toBeNull()
-    expect((await back('raced'))?.injectedAt).toBe('t1')
-  })
-
   it('markReminded fires once and never again', async () => {
     await add({ id: 'm1' })
     expect(await messages.markReminded('m1', 't1')).toBe(true)

@@ -944,7 +944,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 })
 
-describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', () => {
+describe('a send never blocks on the agent (gate wiring) [POD-4661]', () => {
   // A target on the PARENT's own issue subtree, so `messages.send` authz passes.
   const target = (over: Partial<SessionMetaInput>): SessionMeta =>
     ({
@@ -965,7 +965,13 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
     it(`a ${urgency} send to a working target answers at once, forwarded, with no poll [POD-4661]`, async () => {
       let sleeps = 0
       const { gate, sent } = await harness({
-        sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
+        // The parent: its clamp allows an interrupt through unchanged.
+        sessions: [
+          target({
+            agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
+            spawnedBy: 'session:sParent',
+          }),
+        ],
         sleep: async () => {
           sleeps += 1
         },
@@ -988,72 +994,6 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
       )
     })
   }
-
-  it('a next-turn mail send BLOCKS until the boundary confirms, then reports delivered', async () => {
-    const sessions = [target({})] // live idle
-    // The confirmation fires during the first poll sleep (turn boundary). The hook
-    // is late-bound because `svc` is created inside the harness.
-    let confirm: () => void = () => {}
-    const { gate, svc } = await harness({
-      sessions,
-      awaitPollMs: 5,
-      now: () => new Date(0).toISOString(), // constant clock: deadline never reached
-      sleep: async () => confirm(),
-    })
-    confirm = () => svc.onSessionIdle(target({}))
-    const r = (await gate.dispatch(PARENT, undefined, 'send', {
-      to: 's1',
-      body: 'x',
-      urgency: 'next-turn',
-    })) as { disposition: string }
-    expect(r.disposition).toBe('delivered')
-  })
-
-  it('a next-turn send to a BUSY target returns accepted at the budget (never spins)', async () => {
-    let t = 1_000
-    const { gate } = await harness({
-      sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
-      now: () => new Date(t).toISOString(),
-      awaitPollMs: 1_000_000, // one sleep jumps past the 25s budget
-      sleep: async (ms) => void (t += ms),
-    })
-    const r = (await gate.dispatch(PARENT, undefined, 'send', {
-      to: 's1',
-      body: 'x',
-      urgency: 'next-turn',
-    })) as { disposition: string }
-    expect(r.disposition).toBe('accepted')
-    expect(t).toBeGreaterThanOrEqual(26_000)
-  })
-
-  it('clears stale queue metadata when blocking upgrades a busy send to delivered', async () => {
-    const sessions = [
-      target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } }),
-    ]
-    // First idle drains the held row into the PTY; the second confirms it at the
-    // boundary. The sync send returned queued:true (busy-held) — the delivered
-    // result must NOT still carry it.
-    let confirm: () => void = () => {}
-    const { gate, svc } = await harness({
-      sessions,
-      awaitPollMs: 5,
-      now: () => new Date(0).toISOString(),
-      sleep: async () => confirm(),
-    })
-    confirm = () => svc.onSessionIdle(target({}))
-    const r = (await gate.dispatch(PARENT, undefined, 'send', {
-      to: 's1',
-      body: 'x',
-      urgency: 'next-turn',
-    })) as { id: string; disposition: string; queued?: boolean; position?: number }
-    expect(r.disposition).toBe('delivered')
-    expect(r.queued).not.toBe(true)
-    expect(r).not.toHaveProperty('position')
-    // The durable row is the reload projection's source of truth. Once the
-    // boundary confirms it, a fresh lookup agrees that no queued position remains.
-    expect(await svc.message(r.id)).toMatchObject({ status: 'delivered' })
-    expect(await svc.message(r.id)).not.toHaveProperty('queuePosition')
-  })
 
   it('an fyi send returns at queued without blocking', async () => {
     const { gate } = await harness({

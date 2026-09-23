@@ -251,6 +251,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const store = await openTestStore(':memory:')
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
+  // A reported repo carries a prefix (`REP`), so issue labels read `REP-<seq>`.
   await store.repos.addRepo('/repo', store.hostMachineId)
   const sessions: SessionMeta[] = []
   const pushes: Push[] = []

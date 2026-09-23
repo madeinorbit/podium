@@ -664,8 +664,8 @@ export class MessagesRepository {
   /** Record a PUSH toward a live PTY without claiming the agent saw it [POD-834]:
    *  stamps injected_at + delivered_to but keeps status='queued'. This replaces
    *  the old "mark delivered on enqueue" lie — `delivered` is now reserved for a
-   *  transcript echo. A queued row that was injected but never echoed within the
-   *  window is auto-requeued (clearInjected). Guarded on status='queued'. */
+   *  confirmation (the daemon's settlement, an echo, a turn boundary). Guarded on
+   *  status='queued'. */
   async markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): Promise<boolean> {
     const r = await this.committed.write(async () => this.db
       .update(messagesTable)
@@ -883,18 +883,6 @@ export class MessagesRepository {
             }
           : { status: 'dead_letter', deadLetteredAt: at },
       )
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    return r.changes === 1
-  }
-
-  /** Auto-requeue seam [POD-834]: a queued row was injected but no echo confirmed
-   *  it within the window — the push was lost. Clear injected_at so the next
-   *  delivery attempt re-pushes. Guarded on status='queued' so a row that raced to
-   *  delivered/read in the meantime is left alone. */
-  async clearInjected(id: string): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({ injectedAt: null })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }

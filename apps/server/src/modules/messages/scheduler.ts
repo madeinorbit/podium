@@ -28,7 +28,6 @@
 
 import type { WorldIndexReader } from '../world-index'
 import { createLogger } from '@podium/logger'
-import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow, MessagePageCursor, DeliveryMessages } from '../../hot-path-ports'
 import {
   compareCursor,
@@ -51,8 +50,6 @@ const DELIVERY_RECONCILE_PAGE_LIMIT = 100
 interface DeliveryTargetWork {
   target: DeliveryTarget
   after?: MessagePageCursor
-  through?: MessagePageCursor
-  preferred?: SessionMeta
   enqueuedAt: number
 }
 
@@ -73,22 +70,6 @@ export interface DeliveryRunner {
   /** The durable target a row is addressed to, or null when it has none
    *  (operator-addressed rows are not queued against a target). */
   targetOf(message: MessageRow): DeliveryTarget | null
-  /**
-   * Idle drain for one preferred session: the snapshot of rows pulled for it.
-   * Returns the ids this drain took responsibility for — including rows it
-   * deliberately suppressed (a composer-draft hold), which must NOT then be
-   * attempted down the generic path. A non-idle session takes nothing, and its
-   * rows fall through to {@link attemptOne}.
-   *
-   * CONTRACT: total. It reports its own failures (through
-   * {@link DeliveryScheduler.recordTriggerFailure}) and still returns what it
-   * took, because a row dropped from the handled set would be attempted twice.
-   */
-  drainPreferred(
-    session: SessionMeta,
-    messages: readonly MessageRow[],
-    nowMs: number,
-  ): readonly string[] | Promise<readonly string[]>
   /** One row, attempted. Takes NO session listing [POD-1653]: delivery resolves
    *  its recipient through the narrow by-id / by-issue reads, so the scheduler
    *  no longer builds (and this no longer carries) a full reader-scoped pass. */
@@ -108,10 +89,6 @@ export interface DeliverySchedulerDeps {
 export class DeliveryScheduler {
   /** Bounded delivery jobs coalesce by durable recipient principal. */
   private readonly pendingDeliveryTargets = new Map<string, DeliveryTargetWork>()
-  /** A synchronous idle drain owns these finite-snapshot targets. Fresh,
-   * reentrant triggers are retained separately for the next macrotask. */
-  private readonly activeBoundaryTargets = new Map<string, number>()
-  private readonly deferredBoundaryTargets = new Map<string, DeliveryTarget>()
   private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
   private reconcileTimer: ReturnType<typeof setTimeout> | null = null
   private retryBackstopTimer: ReturnType<typeof setTimeout> | null = null
@@ -129,23 +106,11 @@ export class DeliveryScheduler {
 
   // ---- entry path 1: the coalesced trigger queue ---------------------------
 
-  async queueDeliveryTarget(
-    target: DeliveryTarget,
-    preferred?: SessionMeta,
-    after?: MessagePageCursor,
-    through?: MessagePageCursor,
-  ): Promise<void> {
+  async queueDeliveryTarget(target: DeliveryTarget, after?: MessagePageCursor): Promise<void> {
     const key = deliveryTargetKey(target)
-    if (!after && !through && this.activeBoundaryTargets.has(key)) {
-      if (this.deferredBoundaryTargets.has(key)) this.coalescedTriggerCount += 1
-      else this.deferredBoundaryTargets.set(key, target)
-      return
-    }
-
     try {
       // Eligibility bus listeners run at root after commit (ModuleBus.emit).
-      // Boot, cooldown timers and boundary drains likewise enter outside a span;
-      // boundary writes are awaited before this read. This is a committed reader,
+      // Boot and cooldown timers likewise enter outside a span. This is a committed reader,
       // never a read-your-writes seam inside an open mutation.
       if (this.deps.worldIndex.pendingCount(target) === 0) return
     } catch (error) {
@@ -156,17 +121,13 @@ export class DeliveryScheduler {
     const existing = this.pendingDeliveryTargets.get(key)
     if (existing) {
       this.coalescedTriggerCount += 1
-      if (through) existing.through = through
       if (!after) existing.after = undefined
       else if (existing.after && compareCursor(after, existing.after) < 0) existing.after = after
       else if (!existing.after) existing.after = after
-      if (preferred) existing.preferred = preferred
     } else {
       this.pendingDeliveryTargets.set(key, {
         target,
         ...(after ? { after } : {}),
-        ...(through ? { through } : {}),
-        ...(preferred ? { preferred } : {}),
         enqueuedAt: this.runner.nowMs(),
       })
     }
@@ -187,39 +148,21 @@ export class DeliveryScheduler {
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
-  async flushDeliveryTriggers(onlyPreferredSessionId?: SessionId): Promise<void> {
+  async flushDeliveryTriggers(): Promise<void> {
     if (this.deliveryTriggerTimer) {
       clearTimeout(this.deliveryTriggerTimer)
       this.deliveryTriggerTimer = null
     }
     if (this.pendingDeliveryTargets.size === 0) return
-    const works: DeliveryTargetWork[] = []
-    if (onlyPreferredSessionId) {
-      for (const [key, work] of this.pendingDeliveryTargets) {
-        if (work.preferred?.sessionId !== onlyPreferredSessionId) continue
-        works.push(work)
-        this.pendingDeliveryTargets.delete(key)
-      }
-      // Non-boundary/reentrant work is deliberately retained for the next
-      // macrotask; it cannot expand this synchronous finite snapshot.
-      if (this.pendingDeliveryTargets.size > 0) this.scheduleDeliveryFlush()
-    } else {
-      works.push(...this.pendingDeliveryTargets.values())
-      this.pendingDeliveryTargets.clear()
-    }
-    if (works.length === 0) return
+    const works = [...this.pendingDeliveryTargets.values()]
+    this.pendingDeliveryTargets.clear()
     const selected = new Map<string, MessageRow>()
-    const preferredGroups = new Map<
-      string,
-      { session: SessionMeta; messages: Map<string, MessageRow> }
-    >()
 
     for (const work of works) {
       let page: MessageRow[]
       try {
         page = await this.deps.messages.pendingForPage(work.target, {
           ...(work.after ? { after: work.after } : {}),
-          ...(work.through ? { through: work.through } : {}),
           limit: DELIVERY_TARGET_PAGE_LIMIT,
         })
       } catch (error) {
@@ -227,89 +170,20 @@ export class DeliveryScheduler {
         continue
       }
       const pageCursor = page.length > 0 ? cursorOf(page.at(-1)!) : undefined
-      if (
-        page.length === DELIVERY_TARGET_PAGE_LIMIT &&
-        pageCursor &&
-        (!work.through || compareCursor(pageCursor, work.through) < 0)
-      ) {
-        await this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
+      if (page.length === DELIVERY_TARGET_PAGE_LIMIT && pageCursor) {
+        await this.queueDeliveryTarget(work.target, pageCursor)
       }
-      for (const message of page) {
-        selected.set(message.id, message)
-        if (!work.preferred) continue
-        let group = preferredGroups.get(work.preferred.sessionId)
-        if (!group) {
-          group = { session: work.preferred, messages: new Map() }
-          preferredGroups.set(work.preferred.sessionId, group)
-        }
-        group.messages.set(message.id, message)
-      }
+      for (const message of page) selected.set(message.id, message)
     }
 
     if (selected.size === 0) return
     const nowMs = this.runner.nowMs()
-    const handled = new Set<string>()
-    for (const group of preferredGroups.values()) {
-      const taken = await this.runner.drainPreferred(
-        group.session,
-        [...group.messages.values()],
-        nowMs,
-      )
-      for (const id of taken) handled.add(id)
-    }
     for (const message of selected.values()) {
-      if (handled.has(message.id)) continue
       try {
         await this.runner.attemptOne(message, nowMs)
       } catch (error) {
         this.recordTriggerFailure(`message ${message.id}`, error)
       }
-    }
-  }
-
-  // ---- the boundary drain --------------------------------------------------
-
-  /**
-   * A turn boundary drains synchronously against a finite high-water snapshot.
-   * While it runs, a fresh trigger for one of ITS target keys must not expand
-   * the snapshot — it is deferred and re-queued after, or the drain could chase
-   * a queue that grows under it.
-   *
-   * The service supplies `enqueue` (what to put in the queue) and the session
-   * whose preferred work this drain owns; the depth counting, the deferral set
-   * and the loop bound stay here, because they are this owner's invariant.
-   */
-  async runBoundaryDrain(
-    keys: readonly string[],
-    sessionId: SessionId,
-    enqueue: () => void | Promise<void>,
-  ): Promise<void> {
-    for (const key of keys) {
-      this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
-    }
-    try {
-      // Enqueue crosses async repository reads. Keep the boundary fence held
-      // until its preferred work exists, before flushing the finite snapshot.
-      await enqueue()
-      do {
-        await this.flushDeliveryTriggers(sessionId)
-        // Each preferred continuation is bounded by the captured high-water.
-        // A fresh/reentrant trigger is held for the next macrotask instead of
-        // resetting this snapshot's cursor or expanding its synchronous work.
-      } while (
-        [...this.pendingDeliveryTargets.values()].some(
-          (work) => work.preferred?.sessionId === sessionId,
-        )
-      )
-    } finally {
-      for (const key of keys) {
-        const depth = this.activeBoundaryTargets.get(key) ?? 0
-        if (depth <= 1) this.activeBoundaryTargets.delete(key)
-        else this.activeBoundaryTargets.set(key, depth - 1)
-      }
-      const deferred = [...this.deferredBoundaryTargets.values()]
-      this.deferredBoundaryTargets.clear()
-      for (const target of deferred) await this.queueDeliveryTarget(target)
     }
   }
 
@@ -451,7 +325,5 @@ export class DeliveryScheduler {
     // set could never sweep again if it were reused.
     this.retryPassStartedAt = null
     this.pendingDeliveryTargets.clear()
-    this.activeBoundaryTargets.clear()
-    this.deferredBoundaryTargets.clear()
   }
 }

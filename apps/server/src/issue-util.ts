@@ -100,26 +100,20 @@ export function summarizeSessions(
   return { total: sessions.length, byPhase }
 }
 
-/** Send-time mail nudge target (issue #103). Over the issue's member sessions:
- *  - exactly one live agent session AND it is idle → immediate 'send' (sendText);
- *  - otherwise any live agent sessions → most recently active one, 'queue'
- *    (sendTextWhenReady / durable outbox);
- *  - none → null (mail waits for prime / the stop-hook).
- *  Shells never get nudged. */
+/** Send-time mail nudge target (issue #103): the issue's coordinator when it is
+ *  live, else the most recently active live agent session; null when none is
+ *  live (mail waits for prime / the stop-hook). Shells never get nudged. The
+ *  agent's phase plays no part — the daemon decides when the nudge lands
+ *  [POD-4661]. */
 export function selectMailNudgeSession(
   sessions: readonly NudgeCandidate[],
   coordinatorSessionId?: SessionId | null,
-): { sessionId: SessionId; mode: 'send' | 'queue' } | null {
+): SessionId | null {
   const live = sessions.filter((s) => s.agentKind !== 'shell' && s.status === 'live')
   if (live.length === 0) return null
   const preferred = preferIssueCoordinator(live, coordinatorSessionId)
-  if (preferred.length === 1 && preferred[0]!.agentState?.phase === 'idle') {
-    return { sessionId: preferred[0]!.sessionId, mode: 'send' }
-  }
-  const target = [...preferred].sort((a, b) =>
-    (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
-  )[0]!
-  return { sessionId: target.sessionId, mode: 'queue' }
+  return [...preferred].sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))[0]!
+    .sessionId
 }
 
 /** Prefer an issue's designated coordinator within an already-eligible target
@@ -143,7 +137,6 @@ export interface NudgeCandidate {
   agentKind: SessionMeta['agentKind']
   status: SessionMeta['status']
   lastActiveAt: string
-  agentState?: { phase?: string | undefined } | undefined
 }
 
 export function stageIndex(stage: IssueStage): number {

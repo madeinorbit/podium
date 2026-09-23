@@ -39,7 +39,6 @@ import type { IssueService } from '../issues/service'
 import {
   type MachineAccess,
   MailAccess,
-  type MailDeliveryMode,
   type MailCaller,
   type MailHandlerContext,
   SINGLE_USER_MACHINE_ACCESS,
@@ -247,7 +246,6 @@ export class MessageGate {
     proc: string,
     input: unknown,
     transport: TransportTag = 'relay',
-    deliveryMode?: MailDeliveryMode,
     correlationId?: string,
   ): Promise<unknown | undefined> {
     if (!isMailProcExposedOn(proc, transport)) return undefined
@@ -258,7 +256,6 @@ export class MessageGate {
         proc,
         input,
         transport,
-        deliveryMode,
         correlationId,
       ),
     )
@@ -270,7 +267,6 @@ export class MessageGate {
     proc: string,
     input: unknown,
     transport: TransportTag,
-    deliveryMode: MailDeliveryMode | undefined,
     correlationId: string | undefined,
   ): Promise<unknown> {
     const principal =
@@ -297,7 +293,6 @@ export class MessageGate {
       caller,
       deps: this.deps,
       access,
-      ...(deliveryMode ? { deliveryMode } : {}),
       ...(correlationId ? { correlationId } : {}),
     }
     // Invoked SYNCHRONOUSLY, with a sync throw converted to a rejection.

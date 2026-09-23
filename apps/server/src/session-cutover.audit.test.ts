@@ -173,7 +173,6 @@ async function ctxFor(
         'send',
         input,
         'trpc',
-        'immediate',
         input.correlationId,
       ))!,
     rpc: () => modules.rpc,

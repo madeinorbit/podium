@@ -648,14 +648,9 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
    * gate.
    */
   it('delivers an issue-addressed send to the live agent and threads its reply back', async () => {
-    // An urgency-gated send BLOCKS until its row leaves `queued` or the delivery
-    // budget expires [spec:SP-cb9f]. Nothing in this fixture witnesses the turn,
-    // so the budget always runs out — 25 real seconds, past the lane's timeout.
-    // Spend it on a VIRTUAL clock instead: the injected `sleep` moves the
-    // registry's own `now`, which is what the gate measures the budget with, so
-    // a single step retires the whole wait and no timer runs. The production
-    // constant is deliberately untouched — whether 25s is the right budget is
-    // POD-3388's question, not this test's.
+    // A send no longer waits on the agent [POD-4661]; the virtual clock below
+    // stays so any wait that crept back in would show up as fake time, not as
+    // a 25-second hang.
     let clockSkewMs = 0
     const o = await makeOracle({
       now: () => Date.now() + clockSkewMs,

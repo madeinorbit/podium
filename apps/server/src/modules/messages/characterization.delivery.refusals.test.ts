@@ -60,44 +60,19 @@ const chatHarness = async (answer: () => TurnReceipt, opts?: { defer?: boolean }
   return h
 }
 
+/** An operator INTERRUPT line: since every other send rides the durable queue
+ *  to the daemon [POD-4661], the interrupt is the push that reaches the driver
+ *  directly, and so the one whose optimistic record a refusal can disprove. */
 const chat = async (h: Awaited<ReturnType<typeof mailHarness>>, body: string): Promise<string> => {
-  const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', { to: TARGET, body })) as {
+  const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+    to: TARGET,
+    body,
+    urgency: 'interrupt',
+  })) as {
     id: string
   }
   return r.id
 }
-
-describe('contract-backed blocking sends return receipt refusals (POD-3044)', () => {
-  it('waits for a not-running receipt and returns the typed dead letter', async () => {
-    let h!: Awaited<ReturnType<typeof mailHarness>>
-    h = await mailHarness({
-      receipts: { defer: true, answer: () => refused('not_running') },
-      isAgentDriven: () => true,
-      awaitPollMs: 1,
-      onPoll: async (poll) => {
-        if (poll === 1) await h.settleReceipts()
-      },
-    })
-    const issue = await h.createIssue({ title: 'target' })
-    h.put({ sessionId: TARGET, issueId: issue.id, phase: 'idle' })
-
-    const result = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
-      to: TARGET,
-      body: 'anyone there?',
-      urgency: 'next-turn',
-    })) as { id: string; ok: boolean; reason?: string; disposition: string }
-
-    expect(result).toMatchObject({
-      ok: false,
-      reason: 'dead-lettered: delivery-failed',
-      disposition: 'dead_letter',
-    })
-    expect(await h.svc.message(result.id)).toMatchObject({
-      status: 'dead_letter',
-      deliveryDeferredReason: 'delivery-failed',
-    })
-  })
-})
 
 /** Every undelivered-notice the sender was actually handed. */
 const notices = async (h: Awaited<ReturnType<typeof mailHarness>>): Promise<string[]> =>

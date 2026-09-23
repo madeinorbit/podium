@@ -1168,24 +1168,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // coordinator from the canonical issue id at delivery time. The nudge carries
   // no body; prime/inbox remain the durable pull path when nobody is live.
   //
-  // MIGRATED, WITH BOTH ARMS PRESERVED EXACTLY (POD-1761 W4, C4).
-  //
-  // The obvious move is to collapse these two into one `when-ready`: that is
-  // what the mode has always been approximating — "now if it can take it,
-  // next turn boundary otherwise" — and it is what would finally retire
-  // the selection helper's phase peek, which W4 was asked to do.
-  //
-  // I did not, and the reason is durability rather than nerve. `when-ready`
-  // is the daemon's IN-MEMORY path; the busy-agent arm here is the DURABLE
-  // outbox, so collapsing them would silently drop any outstanding nudge
-  // across a daemon restart. That is a delivery-semantics change, and this
-  // item's rule is that behavioural improvements leave as subissues rather
-  // than riding in on a migration. POD-2043 carries the collapse, to be done
-  // when the operator flips the default and the trade can be judged on its
-  // own.
-  //
-  // What DOES change: both arms stop calling the legacy verbs directly, so
-  // the nudge gets a receipt and the C5 guard has nothing to except here.
+  // ONE ARM, THE DURABLE ONE (POD-2043's collapse, done by POD-4661). The nudge
+  // used to pick `now` for an idle-looking agent and the durable queue for a
+  // busy one — a server guess at the agent's phase. It always rides the durable
+  // queue now: that survives a daemon restart, and the daemon's delivery queue
+  // decides when it lands.
   bag.bus.on('issue.mailSent', (event: IssueMailNudgeEvent) =>
     nudgeIssueMail(
       {

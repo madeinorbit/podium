@@ -79,26 +79,17 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
       ...(o.phase ? { agentState: { phase: o.phase, since: 't', nativeSubagentCount: 0 } } : {}),
     }) as unknown as SessionMeta
 
-  it('single idle live agent → immediate send', () => {
-    expect(selectMailNudgeSession([meta({ id: 'a', phase: 'idle' })])).toEqual({
-      sessionId: asSessionId('a'),
-      mode: 'send',
-    })
+  it('single live agent, whatever the server believes its phase is [POD-4661]', () => {
+    expect(selectMailNudgeSession([meta({ id: 'a', phase: 'idle' })])).toBe(asSessionId('a'))
+    expect(selectMailNudgeSession([meta({ id: 'a', phase: 'working' })])).toBe(asSessionId('a'))
   })
 
-  it('single busy live agent → queued send', () => {
-    expect(selectMailNudgeSession([meta({ id: 'a', phase: 'working' })])).toEqual({
-      sessionId: asSessionId('a'),
-      mode: 'queue',
-    })
-  })
-
-  it('several live agents → most recently active, queued (even if one is idle)', () => {
+  it('several live agents → most recently active (even if another is idle)', () => {
     const picked = selectMailNudgeSession([
       meta({ id: 'old', phase: 'idle', lastActiveAt: '2026-07-06T00:00:00Z' }),
       meta({ id: 'new', phase: 'working', lastActiveAt: '2026-07-06T01:00:00Z' }),
     ])
-    expect(picked).toEqual({ sessionId: asSessionId('new'), mode: 'queue' })
+    expect(picked).toBe(asSessionId('new'))
   })
 
   it('ignores shells and non-live sessions; none live → null', () => {
@@ -114,6 +105,6 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
         meta({ id: 'sh', agentKind: 'shell' }),
         meta({ id: 'a', phase: 'idle' }),
       ]),
-    ).toEqual({ sessionId: asSessionId('a'), mode: 'send' })
+    ).toBe(asSessionId('a'))
   })
 })

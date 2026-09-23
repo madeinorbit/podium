@@ -16,7 +16,7 @@ export interface IssueMailNudgePorts {
     | undefined
   >
   sessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
-  receiptSend(via: 'now' | 'queue', input: { sessionId: SessionId; text: string }): Promise<unknown>
+  receiptSend(via: 'queue', input: { sessionId: SessionId; text: string }): Promise<unknown>
 }
 
 /** Legacy issue-mail's send-time nudge. Resolve both membership and coordinator
@@ -30,11 +30,10 @@ export async function nudgeIssueMail(
   const issue = await ports.issueMeta(event.issueId)
   if (!issue) return
   const members = await ports.sessionsForIssue(issue.worktreePath, issue.id)
-  const target = selectMailNudgeSession(members, issue.coordinatorSessionId)
-  if (!target) return
+  const sessionId = selectMailNudgeSession(members, issue.coordinatorSessionId)
+  if (!sessionId) return
   const text = `You have mail on issue #${event.seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`
-  await ports.receiptSend(target.mode === 'send' ? 'now' : 'queue', {
-    sessionId: target.sessionId,
-    text,
-  })
+  // Always the durable queue: it survives a daemon restart, and the daemon's
+  // delivery queue decides when the nudge reaches the agent [POD-4661].
+  await ports.receiptSend('queue', { sessionId, text })
 }
