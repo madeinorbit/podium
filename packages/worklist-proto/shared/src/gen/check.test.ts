@@ -237,9 +237,7 @@ describe('checkArm on the tiny reference arm', () => {
   // on a run with nothing to catch.
   const removesSession = (changes: unknown): boolean =>
     JSON.stringify(changes).includes('"entity":"session"')
-  const seed = Array.from({ length: 20 }, (_, k) => 7 + k).find((s) =>
-    removesSession(gen(s, 200)),
-  )
+  const seed = Array.from({ length: 20 }, (_, k) => 7 + k).find((s) => removesSession(gen(s, 200)))
   const sequence = gen(seed ?? 7, 200)
 
   it('draws a session removal for the planted leak to show at', () => {

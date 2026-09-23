@@ -55,8 +55,8 @@ matched to the export.
 the planted three per unit (live 10), so the twin collapse removes 2 sessions
 per unit (live 10). Depth 6 holds 3 issues at 1x (live 4). The per-issue
 extremes differ: live's largest `issue.sessions` bucket is 190 and its largest
-`issue.children` 245 (M3, POD-4591); the fixture's missions carry at most
-~100 children and ~6 sessions.
+`issue.children` 245 (M3, POD-4591); the fixture's largest are 123
+children (137 at 4x) and 8 sessions.
 
 **What the generator keeps from before.** Resume twins (one group of each kind
 per unit), hidden askers (20 per unit), valid sort keys (`spreadSortKeys`),
@@ -118,6 +118,37 @@ open roots with children, 130 childless open roots, 0 `phaseRoot`). The #2
 rule needs a working session by design; an export taken during a working day
 would be expected to satisfy it.
 
+### Tests that encoded the old fixture's shape (changed here)
+
+Each asserted a property the old fixture had and live does not; each change
+keeps the test's intent on the new shape.
+
+- `oracle.test.ts`, `fences.planted.test.tsx`, `control-1x.test.tsx`: the
+  literal 211 visible rows is now the oracle's own 1x count over the corpus
+  (live 759, fixture 732).
+- `pickTargets` #1: the heartbeat's closed agent root must not be any
+  issue's spin-off origin. Live-shaped origins are common (35% of issues
+  carry one), and a pool that makes origins resident would otherwise draw
+  the heartbeat's row (the a-phase MobX list draws every resident issue).
+- `arms/mobx/pool/counts.test.tsx`: "no open issue has a closed origin at
+  1x" no longer holds (live: 842 open→closed spin-off edges), so the mount
+  queues cold loads. The test now closes the load window before counting
+  (five windows: origins chain), under `act`, and zeroes the log, stats and
+  reads as the mount does.
+- `arms/mobx/pool/pool.test.tsx`: the removed-row case picks an open issue
+  with no spin-off origin (whose view would build a second model).
+- `arms/hand/pool/pool.test.tsx`: "each repo has one lane" is now "a repo
+  with one lane" (the small repos have one; the main repo has hundreds).
+- `shared/src/gen/check.test.ts`: `gen(7, 200)` no longer draws a session
+  removal for the planted bucket leak to show at; the test takes the first
+  seed from 7 that does, and asserts it.
+- `arms/mobx/spike/optimistic-rename.test.tsx`: a retired round-two case,
+  already an expected failure; its worker now grows past 4.3 GB and is
+  killed (2.7 GB on the old fixture), so it is skipped until the round-two
+  code is deleted.
+- The retired round-two `it.fails` cases in `hand.m3`, `mobx.m3` and
+  `mobx.clock` still fail as expected, now first at their literal 211.
+
 ### What moves (re-run before comparing)
 
 Every number measured on the old fixture must be re-run on this one before
@@ -125,27 +156,29 @@ anything is compared against it:
 
 - **Ma4 fence cells** (`docs/measurements/POD-4568-a.md`, "Fence steps #1–#4
   at 1x"): the targets moved (old `i17` / `s34` / `s2135`, new at 1x: root
-  `i214`, phase session `s15`, heartbeat `s2284`), so every cell there
+  `i214`, phase session `s15`, heartbeat `s2623`), so every cell there
   (changed rows, drawn rows, reads, rows committed, pool counters) and the
   finding in its "#2 cannot catch a sibling re-read" section are old-fixture
   numbers. The finding is resolved by the target rule above.
 - **The flatblock no-op floor (POD-4558)** was measured on the old fixture's
   211-row list; the list is now 732 / 1,465 / 2,928 rows.
-- **Reads budgets that depend on the corpus**, replayed exactly as
-  `runFenceScenarios` computes them (budget before each write, one engine per
-  scale, steps in order):
+- **Reads budgets that depend on the corpus**, as `runFenceStep` computes
+  them (budget before each write, the fence feeds and a mounted reference
+  arm, one engine per scale, steps in order). Old values from
+  `docs/plans/pod-4441-harness.md` ("Reads per change"):
 
 | step | old 1x / 2x / 4x | new 1x / 2x / 4x |
 |---|---|---|
-| #8b clock grace crossing | **0 / 0 / 0** | **144 / 288 / 576** |
-| #10 burst (50 issues, 3 × (ancestors + 1) each) | 171 / 195 / 243 | 168 / 177 / 156 |
-| every other step (#1–#8, #9a–c) | unchanged | unchanged |
+| #8b clock grace crossing (24 × crossings) | 96 / 192 / 384 | **144 / 288 / 576** |
+| #10 burst (50 issues, 3 × (ancestors + 1) each) | 171 / 195 / 243 | **168 / 177 / 180** |
+| #1–#8, #9a–c | unchanged (3, 3, 3, 3, 24, 16, 15, 15, 30, 21, 0, 3) | unchanged |
 
-  #8b had no row crossing the 24 h grace window on the old fixture, so its
-  budget was 0 and the step exercised nothing; now 6 rows per unit cross.
-  The burst's chain mix now follows creation order; its budget no longer
-  grows with scale, because a bigger workspace does not deepen the oldest
-  issues' chains.
+  #8b now crosses 6 grace rows per unit (4, 8, 16 before). The burst's
+  fifty issues are the oldest open human ones, which now include 7–9
+  children; its budget no longer grows with scale as it did (81 chain
+  levels at 4x before), because a bigger workspace does not deepen the
+  oldest chains. The plan doc's "Reads per change" table carries the old
+  values.
 - **The #5, #6 and #7 constants rest on "~850 visible rows at 4x"**
   (`READ_BUDGETS` comments, log2 ≈ 10 probes). The list is now 2,928 rows at
   4x: log2 ≈ 11.5, about two more probes per binary search. The constants
