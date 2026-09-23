@@ -3138,7 +3138,11 @@ describe('interactions', () => {
         observerGeneration: 1,
         bindingVersion: 1,
       })
-      world.observe(sessionId, { transitionKind: 'turn_opened', priorPhase: 'idle', nextPhase: 'working' })
+      world.observe(sessionId, {
+        transitionKind: 'turn_opened',
+        priorPhase: 'idle',
+        nextPhase: 'working',
+      })
       expect(await session.interactions()).toHaveLength(0)
       expect(answeredEvents(world)).toEqual([expect.objectContaining({ answeredBy: 'human' })])
     })

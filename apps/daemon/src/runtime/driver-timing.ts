@@ -305,10 +305,16 @@ export class DriverTimingRecorder {
     // An ask before the first turn is that hold, stated on the launch clock.
     if (event.t === 'interaction' && event.ev.ev === 'asked') {
       if (session.turnStarted) return
-      this.#emit(binding.sessionId, 'session_blocked', 'launch', session.requestedAt ?? this.#now(), {
-        interactionKind: event.ev.interaction.kind,
-        source: event.ev.interaction.source,
-      })
+      this.#emit(
+        binding.sessionId,
+        'session_blocked',
+        'launch',
+        session.requestedAt ?? this.#now(),
+        {
+          interactionKind: event.ev.interaction.kind,
+          source: event.ev.interaction.source,
+        },
+      )
       return
     }
 

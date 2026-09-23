@@ -863,7 +863,11 @@ export function createTerminalRuntime(
 
   /** Close a screen-opened ask once the session left that wait. Nobody typed
    *  through the contract, so a person at the terminal answered it. */
-  function closeScreenAsk(session: DriverSession, at: string, provenance: ObservationProvenance): void {
+  function closeScreenAsk(
+    session: DriverSession,
+    at: string,
+    provenance: ObservationProvenance,
+  ): void {
     const id = session.screenAskId
     if (id === undefined) return
     session.screenAskId = undefined
@@ -871,7 +875,12 @@ export function createTerminalRuntime(
     session.interactions.delete(id)
     session.interactionOwners.delete(id)
     session.answered.add(id)
-    emit(session, { t: 'interaction', ev: { ev: 'answered', id, answeredBy: 'human', at } }, at, provenance)
+    emit(
+      session,
+      { t: 'interaction', ev: { ev: 'answered', id, answeredBy: 'human', at } },
+      at,
+      provenance,
+    )
   }
 
   function openAsk(
@@ -882,8 +891,12 @@ export function createTerminalRuntime(
   ): void {
     session.interactions.set(interaction.id, interaction)
     const bridge = host.bridge(session.sessionId)
-    session.interactionOwners.set(interaction.id, { bridge, pid: bridge?.pid,
-      generation: session.observerGeneration, bindingVersion: session.bindingVersion })
+    session.interactionOwners.set(interaction.id, {
+      bridge,
+      pid: bridge?.pid,
+      generation: session.observerGeneration,
+      bindingVersion: session.bindingVersion,
+    })
     emit(
       session,
       { t: 'interaction', ev: { ev: 'asked', interaction } },
@@ -907,34 +920,34 @@ export function createTerminalRuntime(
     // not knowable here. The server aggregate reads the transcript tail and
     // fills them in.
     return need?.kind === 'permission'
-        ? {
-            kind: 'permission',
-            payload: {
-              v: 1,
-              toolName: need.ask?.toolName ?? need.summary ?? 'unknown tool',
-              ...(need.ask?.detail ? { inputSummary: need.ask.detail } : {}),
-              canAlwaysAllow: need.ask?.canAlwaysAllow ?? false,
-            },
-          }
-        : {
-            kind: 'question',
-            payload: {
-              v: 1,
-              // THE OBSERVED MENU, when the channel carried one. `need.interview`
-              // is the tool input's own questions — the same shape the server's
-              // synthesis normalizes — so the ask ships the flags (`multiSelect`,
-              // `previewLayout`, `otherIndex`) its own answering needs. Absent =
-              // the honest option-less prompt this always shipped.
-              questions: interviewPrompts(need) ?? [
-                {
-                  question: need?.summary ?? '',
-                  multiSelect: false,
-                  previewLayout: false,
-                  options: [],
-                },
-              ],
-            },
-          }
+      ? {
+          kind: 'permission',
+          payload: {
+            v: 1,
+            toolName: need.ask?.toolName ?? need.summary ?? 'unknown tool',
+            ...(need.ask?.detail ? { inputSummary: need.ask.detail } : {}),
+            canAlwaysAllow: need.ask?.canAlwaysAllow ?? false,
+          },
+        }
+      : {
+          kind: 'question',
+          payload: {
+            v: 1,
+            // THE OBSERVED MENU, when the channel carried one. `need.interview`
+            // is the tool input's own questions — the same shape the server's
+            // synthesis normalizes — so the ask ships the flags (`multiSelect`,
+            // `previewLayout`, `otherIndex`) its own answering needs. Absent =
+            // the honest option-less prompt this always shipped.
+            questions: interviewPrompts(need) ?? [
+              {
+                question: need?.summary ?? '',
+                multiSelect: false,
+                previewLayout: false,
+                options: [],
+              },
+            ],
+          },
+        }
   }
 
   /**

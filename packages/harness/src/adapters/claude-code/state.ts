@@ -165,8 +165,8 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
     : folderTrust
       ? [{ kind: 'needs_user', need: 'question', summary: CLAUDE_FOLDER_TRUST_SUMMARY }]
       : transcriptDisabled
-      ? [{ kind: 'observation_gap', reason: 'transcript_disabled' }]
-      : []
+        ? [{ kind: 'observation_gap', reason: 'transcript_disabled' }]
+        : []
 
   return {
     events: withStateChannel(events, 'classifier'),
@@ -179,4 +179,3 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
       : {}),
   }
 }
-
