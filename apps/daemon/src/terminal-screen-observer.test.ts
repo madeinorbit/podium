@@ -1,12 +1,14 @@
 import {
   type AgentStateProvider,
   type ProviderAgentStateEvent,
+  STATE_CHANNEL_STALENESS_MS,
   withStateChannelEvent,
 } from '@podium/harness'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createTerminalScreenObserver,
   TERMINAL_SCREEN_COALESCE_MS,
+  TERMINAL_SCREEN_RESTATE_MARGIN_MS,
 } from './terminal-screen-observer'
 import type { ScreenReader } from './composer-sync'
 
@@ -109,6 +111,81 @@ describe('event-driven terminal screen observer', () => {
       expect(stateEvents.at(-1)).toEqual([
         { kind: 'session_started', source: 'classifier', confidence: 0.3 },
       ])
+      observer.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * A STILL-VISIBLE PROMPT IS RESTATED ONCE THE STRONGER CHANNEL GOES QUIET
+   * (POD-4650). The reducer drops a screen reading that lands within
+   * STATE_CHANNEL_STALENESS_MS of a hook, and a modal that just sits there
+   * paints no new frame, so without a restatement it is never read again: Codex's
+   * trust prompt (right after SessionStart) and its usage-limit modal (right
+   * after UserPromptSubmit) stayed invisible to Chat.
+   */
+  it('restates a prompt that is still on screen once the staleness window has passed', async () => {
+    vi.useFakeTimers()
+    try {
+      const screen = fakeScreen()
+      const stateEvents: ProviderAgentStateEvent[][] = []
+      const observer = createTerminalScreenObserver(
+        providerFor(),
+        { cols: 80, rows: 24 },
+        { onStateEvents: (events) => stateEvents.push(events), onLoginSignal: () => {} },
+        screen,
+      )
+      if (!observer) throw new Error('screen classifier should create an observer')
+
+      screen.setLines(['prompt'])
+      observer.onData(new Uint8Array([1]))
+      await vi.advanceTimersByTimeAsync(TERMINAL_SCREEN_COALESCE_MS)
+      expect(stateEvents).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(STATE_CHANNEL_STALENESS_MS)
+      expect(stateEvents).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(TERMINAL_SCREEN_RESTATE_MARGIN_MS)
+      expect(stateEvents).toEqual([stateEvents[0], stateEvents[0]])
+
+      // Once is enough: past the window a screen reading is never stale.
+      await vi.advanceTimersByTimeAsync(STATE_CHANNEL_STALENESS_MS * 3)
+      expect(stateEvents).toHaveLength(2)
+      observer.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not restate a prompt that has left the screen, nor one it never saw', async () => {
+    vi.useFakeTimers()
+    try {
+      const screen = fakeScreen()
+      const stateEvents: ProviderAgentStateEvent[][] = []
+      const observer = createTerminalScreenObserver(
+        providerFor(),
+        { cols: 80, rows: 24 },
+        { onStateEvents: (events) => stateEvents.push(events), onLoginSignal: () => {} },
+        screen,
+      )
+      if (!observer) throw new Error('screen classifier should create an observer')
+
+      screen.setLines(['prompt'])
+      observer.onData(new Uint8Array([1]))
+      await vi.advanceTimersByTimeAsync(TERMINAL_SCREEN_COALESCE_MS)
+      screen.setLines(['normal'])
+      observer.onData(new Uint8Array([2]))
+      await vi.advanceTimersByTimeAsync(TERMINAL_SCREEN_COALESCE_MS)
+      const settled = stateEvents.length
+
+      await vi.advanceTimersByTimeAsync(STATE_CHANNEL_STALENESS_MS * 2)
+      expect(stateEvents).toHaveLength(settled)
+
+      // A plain screen (no interaction) arms nothing either.
+      screen.setLines(['normal', 'more output'])
+      observer.onData(new Uint8Array([3]))
+      await vi.advanceTimersByTimeAsync(STATE_CHANNEL_STALENESS_MS * 2)
+      expect(stateEvents).toHaveLength(settled)
       observer.dispose()
     } finally {
       vi.useRealTimers()

@@ -1,0 +1,45 @@
+# Codex usage-limit screen + model-switch modal, read from the web terminal (__podium.screenText()) on integrate d1497532f,
+# Copied from POD-4604 evidence 31-codex-*-screen.txt for POD-4650; only the home path is redacted.
+# codex-cli 0.155.0, session 9d738a62-e018-41ed-b922-4d83b5fcccd4 (demo dir pre-trusted), 2026-09-23 ~10:29Z. Terminal cols=74 rows=31/33 (browser-applied).
+# Full screen buffer as returned (includes blank rows):
+
+╭─────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                  │
+│                                             │
+│ model:     gpt-6-astra   /model to change   │
+│ directory: /home/user/sbx/repos/demo │
+╰─────────────────────────────────────────────╯
+
+  Tip: This is GPT-6, a new generation of intelligence. Astra is state-of-
+  the-art in coding, computer use, science, and professional work. Give it
+  a hard problem, a half-formed idea, or anything you've been meaning to
+  build. See where it takes you.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+› What is 6 times 7? Reply with only the number followed by the word KIWI
+  in capitals.
+
+
+• You have 3 usage limit resets available. Run /usage to use one.
+
+⚠ MCP startup incomplete (failed: cloudflare-api)
+
+■ You’ve hit your usage limit. Visit
+https://chatgpt.com/codex/settings/usage to purchase more credits or try
+again at Sep 24th, 2026 8:42 PM.
+ 
+ 
+  Approaching rate limits
+  Switch to gpt-5.6-luna for lower credit usage?
+ 
+› 1. Switch to gpt-5.6-luna                 Older fast and efficient
+                                            model.
+  2. Keep current model
+  3. Keep current model (never show again)  Hide future rate limit
+                                            reminders about switching
+                                            models.
+ 
+  Press enter to confirm or esc to go back                                
+

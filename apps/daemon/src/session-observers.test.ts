@@ -1,4 +1,5 @@
 import type { TerminalStateObservation } from './runtime/terminal-driver'
+import { readFileSync } from 'node:fs'
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,10 +14,14 @@ import {
   type HarnessObserveInput,
   type HarnessObserverHost,
   harnessAdapterFor,
+  CODEX_TRUST_SUMMARY,
+  codexUsageLimitSummary,
   parseClaudeTranscriptSegmentId,
+  STATE_CHANNEL_STALENESS_MS,
   supported,
   withStateChannelEvent,
 } from '@podium/harness'
+
 import { asSessionId, type SessionId } from '@podium/model'
 import type { AgentObservation, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -3659,5 +3664,97 @@ it('refuses to start a transcript tail until native identity is known', () => {
     expect(statTick.watchers.size).toBe(1)
   } finally {
     observers.clearSession(sessionId)
+  }
+})
+
+/**
+ * CODEX'S BLOCKING PROMPTS REACH CHAT (POD-4650). Codex draws its directory-trust
+ * prompt right after SessionStart and its usage-limit modal right after
+ * UserPromptSubmit. Only the screen sees either, and a screen reading is weaker
+ * than the hook that just fired, so it has to survive that hook to become the
+ * needs-you state the terminal driver opens an ask for.
+ */
+describe('Codex blocking prompts become a needs-you state [POD-4650]', () => {
+  const paint = (lines: readonly string[]) => Buffer.from(`\x1b[2J\x1b[H${lines.join('\r\n')}`)
+  /** Real screen captures of codex-cli 0.155.0, kept beside the adapter's rules. */
+  const capture = (name: string) =>
+    readFileSync(
+      new URL(`../../../packages/harness/src/adapters/codex/fixtures/${name}`, import.meta.url),
+      'utf8',
+    )
+      .split('\n')
+      .filter((row) => !row.startsWith('# '))
+  const CODEX_TRUST_SCREEN = capture('trust-prompt.txt')
+  const CODEX_USAGE_LIMIT_SCREEN = capture('usage-limit.txt')
+
+  async function codexSession() {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-blocking-'))
+    const sessionId = asSessionId('podium-codex-blocking')
+    const states: TerminalStateObservation[] = []
+    const observers = createSessionObservers({
+      send: () => {},
+      onState: (state) => states.push(state),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      statTick: new ManualStatTick(),
+      homeDir: home,
+    })
+    observers.initSessionObservers(
+      {
+        type: 'spawn',
+        sessionId,
+        agentKind: 'codex',
+        cwd: home,
+        geometry: { cols: 120, rows: 60 },
+        durableLabel: 'podium-podium-codex-blocking',
+        observationGeneration: 1,
+        observationBindingVersion: 1,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('codex'),
+      { seedOnFrame: false },
+    )
+    const hook = (hook_event_name: string) =>
+      observers.onHookPayload(sessionId, { hook_event_name, session_id: 'codex-thread-1', cwd: home })
+    const latest = () => states.at(-1)?.state
+    const cleanup = async () => {
+      observers.clearSession(sessionId)
+      await rm(home, { recursive: true, force: true })
+    }
+    return { observers, sessionId, hook, latest, cleanup }
+  }
+
+  for (const [label, hookName, screen, summary] of [
+    ['the directory-trust prompt', 'SessionStart', CODEX_TRUST_SCREEN, CODEX_TRUST_SUMMARY],
+    [
+      'the usage-limit modal',
+      'UserPromptSubmit',
+      CODEX_USAGE_LIMIT_SCREEN,
+      codexUsageLimitSummary('Sep 24th, 2026 8:42 PM'),
+    ],
+  ] as const) {
+    it(`reports ${label} as a needs-you wait even though a ${hookName} hook just fired`, async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      const session = await codexSession()
+      try {
+        session.hook(hookName)
+        await vi.advanceTimersByTimeAsync(0)
+        const afterHook = session.latest()
+        await vi.advanceTimersByTimeAsync(500)
+        session.observers.onFrame(session.sessionId, paint(screen))
+        await vi.advanceTimersByTimeAsync(STATE_CHANNEL_STALENESS_MS * 2)
+
+        expect(afterHook?.phase).not.toBe('needs_user')
+        expect(session.latest()).toMatchObject({
+          phase: 'needs_user',
+          stateSource: 'classifier',
+          need: { kind: 'question', summary },
+        })
+        expect(session.latest()?.need?.interview).toBeUndefined()
+      } finally {
+        await session.cleanup()
+        vi.useRealTimers()
+      }
+    })
   }
 })

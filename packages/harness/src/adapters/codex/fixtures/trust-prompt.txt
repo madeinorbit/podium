@@ -1,0 +1,12 @@
+# Codex directory-trust prompt, as read from the web terminal (__podium.screenText()) on integrate d1497532f,
+# Copied from POD-4604 evidence 31-codex-*-screen.txt for POD-4650; only the home path is redacted.
+# codex-cli 0.155.0, session fbe42a62-f246-4ffa-9976-39419826e96e, 2026-09-23 ~09:34Z.
+# Terminal: podium-host started 80x24; the browser then applied cols=74 rows=31/33 (daemon "geometry applied").
+# Rows as captured (blank rows removed by my capture filter; wrapping at 74 cols is Codex's own):
+> You are in /home/user/sbx/repos/demo
+  Do you trust the contents of this directory? Working with untrusted cont
+encomes with higher risk of prompt injection. Trusting the directory allow
+s project-local config, hooks, and exec policies to load.
+› 1. Yes, continue
+  2. No, quit
+  Press enter to continue
