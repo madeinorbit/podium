@@ -99,12 +99,14 @@ export const AGENT_NOT_READY_COPY =
  * default stands, and the caller's readiness check refuses it.
  */
 export function launchAgentKind<K extends HarnessAgent>(input: {
-  picked: K | undefined
+  /** Absent as `null` or `undefined` alike: the harness parsers answer an
+   *  unrecognised draft value with `null`, and that is not a pick. */
+  picked: K | null | undefined
   preferred: K
   candidates: readonly K[]
   readiness: (agent: K) => ActivationAgentReadiness
 }): K {
-  if (input.picked !== undefined) return input.picked
+  if (input.picked !== undefined && input.picked !== null) return input.picked
   if (activationAgentIsReady(input.readiness(input.preferred))) return input.preferred
   return (
     input.candidates.find((candidate) => activationAgentIsReady(input.readiness(candidate))) ??

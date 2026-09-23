@@ -92,7 +92,10 @@ describe('the harness a launch starts on (POD-4639)', () => {
       },
     }
   }
-  const pick = (logins: Record<string, 'in' | 'out'>, picked?: 'claude-code' | 'opencode') =>
+  const pick = (
+    logins: Record<string, 'in' | 'out'>,
+    picked?: 'claude-code' | 'opencode' | null,
+  ) =>
     launchAgentKind({
       picked,
       preferred: 'claude-code',
@@ -110,6 +113,10 @@ describe('the harness a launch starts on (POD-4639)', () => {
 
   it('keeps the default when nothing is ready, so the caller refuses it', () => {
     expect(pick({ 'claude-code': 'out' })).toBe('claude-code')
+  })
+
+  it('reads a null pick as no pick, as the harness parsers spell it', () => {
+    expect(pick({ 'claude-code': 'out', opencode: 'in' }, null)).toBe('opencode')
   })
 
   it('never swaps a harness the operator picked', () => {

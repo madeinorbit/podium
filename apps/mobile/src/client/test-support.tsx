@@ -95,7 +95,13 @@ function stubApi(fixture: MobileStoreFixture): MobileTrpc {
   return {
     discovery: {
       refreshRepos: {
-        mutate: async () => ({ repositories: fixture.repos ?? [], diagnostics: [], machines: [] }),
+        // The refresh answers with the fixture's machines too: it REPLACES the
+        // machine list, so an empty answer here erased what the hub emitted.
+        mutate: async () => ({
+          repositories: fixture.repos ?? [],
+          diagnostics: [],
+          machines: fixture.machines ?? [],
+        }),
       },
     },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
