@@ -552,3 +552,172 @@ landed tests; clean green; and my probe re-run.
   fixed by counting plain `Set` work, that iteration becomes visible too. It
   is still bounded by the schema doc's "members under one root" rule, and
   the F1 rig adds no root.
+
+## 7. Final review, 2026-09-23, at `b29ea68ce`
+
+**Verdict: FAIL on two lines, G4 and G5. Both are small and neither changes
+what the pool does.** G2 and G3, as sent back in §6.4, both PASS: my cold-issue plant now
+fails #2 through the shared fence, and the F1 guard is red on both of my
+copy-on-write plants. But two other ways of copying the prefix index's plain
+sets, `set.union(new Set())` and `structuredClone(set)`, each copy 8,002
+elements per new session and the guard stays green. That is the same gap G3
+was about, reached by a different idiom (§7.3). The fix is test-only and
+closes the whole class: a check that no set the engine holds is replaced by a
+new object during one change. It is already written and armed
+(`harness/review/m3-index-identity.test.ts`, §7.3). G5: the arm's own lint
+(L6a, `eslint-plugin-mobx`) is red at `b29ea68ce`, because the two new load
+hooks on `MobxPool` have no `makeObservable` annotation. The fix is two
+`false` entries. By operator decision this
+review no longer blocks Mb1 (POD-4569). The findings go back to POD-4568 and
+land under Mb1. This is the complete list (coordinator ruling): every
+remaining concern is either G4 or a note in §7.6.
+
+- **Reviewed commit:** `b29ea68ce` (POD-4568's G2/G3 landing, the tip of
+  `integrate/4545-round-three` when this review started). My branch is that
+  commit plus commits that touch only `harness/review/*` and this document.
+  Paths are relative to `packages/worklist-proto/`.
+- **Independence:** I built no part of the MobX pool. Between `7ebeb9897` and
+  `b29ea68ce`, `arms/mobx/` changed only in POD-4568's commits `bee3d58ca`,
+  `9820d0e4b` and `b29ea68ce`. `shared/src/schema.ts` changed only in
+  POD-4580's `c533c6fc2`, which adds `coldByRule`/`viaTargetOf` for the hand
+  pool. The MobX pool does not import them. None of these commits is mine.
+- **Pool code read:** the only pool changes are the load hooks:
+  `arms/mobx/pool/pool.ts:397-414` (`settleLoads`, `pendingLoads`),
+  `residency.ts:282` (`queued`) and `arm.ts:78-88` (the handle's
+  `settleLoads`: flush this arm's React roots, then land what they queued,
+  until nothing is queued). Everything in §5.1 still holds line for line.
+- **Load:** 8.9–15.2 (1-minute) during the runs. Counts and assertions only,
+  no wall timings.
+- **Runner:** package config under the validation queue, from
+  `packages/worklist-proto`
+  (`bun ../../scripts/validation-admission.ts focused --label <l> -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts <files>`).
+  Plants were applied by scripts that copy each file aside first and put it
+  back with `cp` (a shell `trap` also restores on any exit). The G2 and G3
+  plants ran in my worktree, one batch at a time. The identity-check plants
+  ran in a detached checkout of my branch. The L4b gate ran in a separate
+  detached checkout of `b29ea68ce`, so no plant was ever on disk under it.
+  `git status` was clean after every batch.
+
+### 7.1 Checklist lines in this round
+
+| # | Check | Verdict at `b29ea68ce` | Evidence |
+|---|---|---|---|
+| G2 | A fence step counts the load its own change triggers | **PASS** | `harness/src/fence-scenarios.ts:384-432` `runFenceStep`. Before the step, it lands the loads that were already queued, outside the count (:396-405). Inside `apply`, after the write and `flush()`, it awaits the arm's `settleLoads()` (:414). After the step it refuses a load still pending (:425) and a row read through the feed after the settle (:428-429). `loadHooks` (:353-372) refuses a lazy arm that lacks either hook. The MobX handle's settle flushes its roots' redraws before landing loads (`arms/mobx/pool/arm.ts:78-88`). My plant fails #2 at 2,839 reads under both windows, and the probe is red on the pre-G2 fence (§7.2). |
+| G3 | The F1 guard sees an unsorted copy of the relation engine's plain sets | **PASS** | `arms/mobx/pool/relations.test.ts:825-838` `calledByMobx`, `:860-966` `countedOutside` (plain `Set`/`Map` writes, deletes and every iterator, plus `Array.from`), and the per-edge bound `:986-988, 1013`. Clean code is green. P4 fails with `plain … expected 16029 to be less than or equal to 23`, and P4s fails with `sorted 8003` (§7.3). |
+| G5 (C11) | L6a lint clean on the pool | **FAIL** | `bun run lint` in the package exits 1, both in my worktree and in a clean detached checkout of `b29ea68ce`: `arms/mobx/pool/pool.ts:290:5 error Missing annotation for settleLoads, pendingLoads … mobx/exhaustive-make-observable`. `MobxPool.settleLoads`/`pendingLoads` (`pool.ts:397, 412`) are new in this landing, and Ma4's G1 landing mail reported the package lint green at `7ebeb9897`. Functionally harmless, since `makeObservable` leaves an unannotated method alone. But the arm's enforcement gate is red at the landed SHA, and the landing mail did not report lint. |
+| G4 | The F1 guard sees a copy-on-write of those sets **whatever idiom makes it** | **FAIL** | The guard counts calls to patched prototype methods. `Set.prototype.union` copies the receiver's elements natively, and `structuredClone` calls no prototype method, so neither is counted. As copy-on-writes in `place()` (P7, P8), each copies 8,002 elements per new session and the guard is **green** (§7.3). My identity check is red on P4, P4s, P7 and P8 and green on clean code. |
+
+### 7.2 G2: a step's own load, through the shared fence (`harness/review/m3-step-load.test.tsx`)
+
+My probe now pins the new contract. The old line, `expect(a.hydratedInStep).toBe(0)`,
+pinned the defect, and it is now red on the integration branch. It is
+replaced by: the load lands in the step (`hydratedInStep > 0`), none lands
+after the sample (`hydratedAfterSample === 0`, which is new and counted
+directly), the reads fence fails, and A is charged exactly what B is. I
+dropped one line I tried first, "reads after the step equal reads charged".
+It held only by coincidence: the harness's own `snapshot()` reads the whole
+issue table after the sample (2,833 reads even on the clean arm D), and
+reads are deduplicated by row.
+
+| Run | Arm | #2 reads charged | by entity | loaded in step / after sample | fence |
+|---|---|---|---|---|---|
+| clean `c8002b3b9` | D, never, no plant | 1 | session 1 | 0 / 0 | pass |
+| clean | C, microtask, no plant | 1 | session 1 | 0 / 0 | pass |
+| clean | **A, never (the counts test's window), planted** | **2,839** | session 3, issue 2,833, repo 1, worktree 2 | **3 / 0** | **fail**: `read 2839 rows, budget 3` |
+| clean | B, microtask, planted | 2,839 | same | 3 / 0 | fail |
+| P-G2a: `fence-scenarios.ts` from `7ebeb9897` | A, planted | 2 | session 1, issue 1 | 0 / **3** | pass (the defect) → probe **red**: `expected 0 to be greater than 0`; Ma4's counts test is red too (`rows loaded in #2`) |
+| P-G2b: handle's settle without `flushSync` | A, planted | – | – | – | refused: `#2 … loaded 2 row(s) after the step settled its loads: charged to no step` |
+
+Clean steps #1–#4 are unchanged under both windows: #1 charges 2, #2–#4
+charge 1 each, commits are 0/1/1/1, and no row is loaded in or after any
+step. P-G2b shows why the handle flushes: a load that a redraw queues at
+`act()` exit would otherwise be refused rather than charged. It is still a
+NO, not a silent pass.
+
+### 7.3 G3 and G4: the F1 guard and the identity check, planted
+
+Each plant adds one line in `RelationEngine.place()`
+(`arms/mobx/pool/relations.ts:627-634`), after `set.add(id)`:
+`under.set(path, <copy>)`. That is a copy-on-write of the prefix index's plain
+set for every ancestor path of the new session. The rig is the F1 guard's:
+4,000 sessions under `/repo`.
+
+| Plant | `<copy>` | F1 guard (`relations.test.ts -t 'bucket upkeep'`) | Identity check (`harness/review/m3-index-identity.test.ts`) |
+|---|---|---|---|
+| clean | none | green | green: 0 sets replaced on all four edges |
+| P4 | `new Set(set)` | **red**: `new session: plain {written 8019, deleted 2, iterated 8008}: expected 16029 <= 23` | **red**: `new session: {keys 2, elements 8002}` |
+| P4s | `new Set([...set].sort())` | **red**: `sorted 8003: expected 8004 to be 1` | **red**: same |
+| P7 | `set.union(new Set<string>())` | **green: missed** | **red**: same |
+| P8 | `structuredClone(set)` | **green: missed** | **red**: same |
+| P9 (withdrawn) | `toJS(set)` | green | green: `toJS` returns a plain `Set` unchanged (checked in MobX 7.0.3: `toJS(s) === s`), so P9 copies nothing. It is not a plant. |
+
+The identity check does not count work. Before and after each edge, it
+records every set the engine holds (`under`, `buckets` and `coldBuckets` per
+link, and each collapse's `groups`) and counts the ones that were replaced
+by another object. An in-place update keeps the object. A copy-on-write
+swaps it, whatever idiom made the copy. Put together with `countedOutside`,
+the two close the class. A copy that is stored changes an object's identity.
+A rebuild in place (`clear` and then add everything back) is counted by the
+patched `add`. **The residual** is a native copy that is made and then thrown
+away, such as `set.union(∅)` whose result is never stored. That wastes
+bucket-sized work and changes nothing either check can see. Only an
+allocation or time instrument would see it. I record it as N11 rather than
+as a fail, because a copy nobody stores has no reason to exist in upkeep
+code.
+
+### 7.4 L4b gate, 5 seeds × 300 steps at 1×, live-shaped fixture (POD-4635)
+
+GATE_PLACEHOLDER
+
+### 7.5 What must change (G4 and G5, go to POD-4568, land under Mb1)
+
+**G5. Annotate the load hooks.** In `arms/mobx/pool/pool.ts:290`, add
+`settleLoads: false` and `pendingLoads: false` to the `makeObservable` map.
+Acceptance: `bun run lint` in the package exits 0. Report lint in the landing
+mail.
+
+**G4. Add the identity check beside the F1 guard.** In
+`arms/mobx/pool/relations.test.ts`, "bucket upkeep is proportional to the
+change": before and after each edge, record every set the engine holds, then
+assert that none was replaced by another object. `harness/review/m3-index-identity.test.ts`
+has the code, and its `held()`/`replaced()` pair can be moved in as it is.
+Keep `countedOutside` as it is. The two checks see different things (§7.3).
+Acceptance: P7 and P8 from §7.3 fail the F1 test, and clean code stays
+green. When it lands, my probe file can be deleted.
+
+### 7.6 Notes (not send-back)
+
+- **N9. The fence's lazy-arm detection depends on the caller passing the
+  feeds' own `flush`.** `runFenceStep` finds the feeds through a `WeakMap`
+  keyed on the `flush` function (`harness/src/fence-scenarios.ts:132, 172,
+  392`). If a caller passes a wrapper (`() => feeds.flush()`), `feeds` is
+  undefined. The per-row read count is then 0, so a lazy arm without hooks
+  is not refused, and the "loaded after the settle" check reads 0 − 0.
+  Plant P-G2c: the "no hooks" case in `counts.test.tsx:262` with a wrapped
+  flush. The fence then accepts the step (`promise resolved … instead of
+  rejecting`). Today all eight call sites pass `feeds.flush` itself (grep
+  `runFenceStep(`), so no current test is blind. Fix: throw in
+  `runFenceStep` when `FEEDS_OF_FLUSH.get(flush)` is undefined.
+- **N10. The pre-step settle is uncounted by design.** It lands only what was
+  queued between steps. A step's own loads cannot reach it: those are
+  refused after the step if they are still pending. The one path left is a
+  load queued on a later macrotask. Nothing in `arms/mobx/pool/` defers work
+  that way: the only timer is the residency window's own
+  (`residency.ts:130`), which the in-step settle preempts. The only autorun
+  is `tracked()`'s, which is synchronous (`pool.ts:160`).
+- **N11.** The residual from §7.3: a bucket-sized native copy that is never
+  stored is invisible to both upkeep checks.
+- **N12.** The handle's settle flushes only the arm's own web roots
+  (`arm.ts:80`, `roots`). A native mount (`mountNative`) is rendered by the
+  caller's root, so a native-lane fence step would have loads queued by a
+  redraw refused (P-G2b's message), not charged. That is a NO, not a silent
+  pass. No native lane runs `runFenceStep` today.
+- **N3** is unchanged: `shared/src/probes/probes.test.tsx` and
+  `harness/native/mobx-pool.native.test.tsx` run the pool without
+  `installMobxWarnTrap`. It stays with Mb4. **N5** (feed-shape composition in
+  `tables.ts`) and **N6** (`rootAdded` iterates the members under one root)
+  are unchanged. N1, N4, N7 and N8 are closed or were already answered in §5
+  and §6.
+- **Not mine:** `arms/hand/pool/counts.test.tsx` is red at `b29ea68ce` until
+  POD-4581 lands the hand handle's `settleLoads`. This is the refusal the G2
+  ruling asks for.
