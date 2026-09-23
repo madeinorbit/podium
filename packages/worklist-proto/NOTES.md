@@ -1,5 +1,47 @@
 # worklist-proto — package notes
 
+## POD-4564 (L6b) — five planted-mistake probes · 2026-09-23
+
+Catalogue and how N1b/N2b use it: `docs/plans/pod-pod-4545-round-three-probes.md`
+(the path is the brief's, double `pod-` included).
+
+### Decisions
+
+- **A second reference arm, not a change to L6a's.** The L6a arm holds no
+  pool, so four probes had no site; and its snapshot reads the engine, which
+  L6a's planted tests rely on (parity blind to `stale`). The probe reference
+  arm (`harness/src/reference-arm/probe-arm.tsx`) holds fed rows, the declared
+  issue self-relations and its own views, and snapshots its held views.
+- **Two new instruments.** The relation check reads the arm's own
+  `RelationReader`, caught by `capturingFence` on its way to
+  `reads.wrapRelations` (every round-three pool must call it); the history
+  check compares the long-lived arm with a fresh one after every change. The
+  relation check is arm-neutral where round two's only detector for P2/P5 was
+  an arm-private bucket test.
+- **Blind is a verdict.** SILENT carries `blind` when the instrument had
+  nothing to inspect; the control's baseline is mostly that.
+- **The lint column is measured**, on each probe's code shape in the lint
+  fence's fixture arm (`probes-lint.test.ts`), not asserted from reading the
+  rules. New fixture file `planted/context.ts` (type-only context module).
+- **The write-path mistakes of L1c §5 are not probes here**: they need phase
+  c. They are already killed in `write-contract.test.ts`; P1's sequence uses
+  the §5 events (edit, receipt, echo, remote on pending, rejection).
+- **P1's rejection comes last**: a refused title parks its outbox partition
+  for good, so an edit after it is never sent (the runner skips it).
+
+### Evidence
+
+- `probes.test.tsx` 18/18, `probes-lint.test.ts` 10/10 (package config).
+- Mutation: the relation check's ghost branch disabled → P2 planted red;
+  restored (`cp`) → green.
+- MobX pool (clean): relation check over P2's and P5's sequences, >1,000
+  edges per change, no problem.
+
+### Open
+
+- None blocking. N1b/N2b confirm the MobX/hand columns; the reference arm
+  realises the hand idiom (P3's commit fence is silent on it, as K hand F).
+
 ## POD-4558 (L5b) — browser driver, work time only · 2026-09-23
 
 What landed and how it is proven: `docs/plans/pod-4441-harness.md`, "Timings"
