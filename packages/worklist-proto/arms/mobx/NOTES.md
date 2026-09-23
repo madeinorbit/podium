@@ -57,6 +57,19 @@ Numbers and commands: `docs/measurements/POD-4568-a.md`.
    no selection, so the oracle changes only the clicked row (`i17`); the
    reference arm's cell is also 1. The two-row case (selection moving) is
    `pool.test.tsx`'s "a click re-derives exactly the old and the new selection".
+3. **The 20 x 300 gate found a relation bug Ma3's 3 x 200 run never
+   reached** (first run, 2026-09-23 04:26, at e001b958c: `relations
+   diverged from the scan (snapshot 126): issue:i80.children: live
+   ["i229"], scan []`). Mechanism (`relations.ts` `flush`): a bucket was
+   placed by its target's CURRENT residency on every write. A resident
+   parent that is removed keeps its observable bucket ("nothing moves
+   back"), so the next move of one of its children wrote the plain twin and
+   left the observable bucket, which every reader sees first, stale. Fix: a
+   bucket is written where it lives; residency places only a bucket that
+   does not exist yet. Test: `residency.test.tsx`, "a removed resident
+   parent's children follow a child that moves away" (red before the fix
+   on `i0`, green after). The gate's per-step relation check caught it; the
+   rebuild comparison alone would have only if a row view read that bucket.
 
 ## Round three: residency, a3 (POD-4567) · 2026-09-23
 
