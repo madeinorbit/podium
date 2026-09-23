@@ -652,6 +652,15 @@ export class SyncRepository {
       .where(eq(this.queuedMessages.id, id)).run()
   }
 
+  /** Undo {@link reserveQueuedDelivery} after a refusal that proves nothing
+   * was written (POD-4622). It writes only a row that is still reserved, so it
+   * cannot mark a row the inbox never reserved as fresh. */
+  async releaseQueuedDelivery(id: string, attempts: number): Promise<void> {
+    await this.db.update(this.queuedMessages)
+      .set({ deliveryOwner: null, attempts })
+      .where(and(eq(this.queuedMessages.id, id), eq(this.queuedMessages.deliveryOwner, 'daemon'))).run()
+  }
+
   async bumpQueuedAttempts(id: string): Promise<void> {
     await this.db
       .update(this.queuedMessages)

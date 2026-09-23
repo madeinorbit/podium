@@ -403,6 +403,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         }))
       },
       reserveDelivery: (id) => store.sync.reserveQueuedDelivery(id),
+      releaseDelivery: (id, attempts) => store.sync.releaseQueuedDelivery(id, attempts),
       delete: (id) => store.sync.deleteQueuedMessage(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
       // boot, read as a work list for the queue sweep (POD-1703).

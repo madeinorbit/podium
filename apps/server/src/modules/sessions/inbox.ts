@@ -88,6 +88,23 @@ const CONFIRM_NEEDLE_MIN_CHARS = 12
 const INITIAL_PROMPT_QUEUE_ID_PREFIX = 'session-initial-prompt:'
 
 /**
+ * Refusals that PROVE the durable forward typed nothing (POD-4622), so the
+ * reservation taken for it is released and the row stays fresh. Every
+ * producer of these on the contractDeliver path answers before any write:
+ *
+ *   - `not_running`: the gateway has no machine for the session, or the
+ *     daemon has no handle (the readiness window, a session not yet bound).
+ *     A daemon whose durable send THROWS answers `unverified`, not this.
+ *   - `unsupported`: the gateway's attachment gate, or the delivery queue's
+ *     at-boundary gate, both before the row is admitted.
+ *   - `staging_failed`: the daemon's attachment check, before `handle.send`.
+ *
+ * Any other reason keeps the reservation: confirm-or-fail leaves a visible,
+ * retryable failure, while a wrong release can type the same turn twice.
+ */
+const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
+
+/**
  * Stable authorization identity stored with a queued input.
  *
  * `delegation` is the existing actor-session seam expressed as the canonical
@@ -175,6 +192,9 @@ export interface InboxQueuePort {
   list(sessionId: SessionId): Promise<QueuedInboxMessage[]>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   reserveDelivery?(id: string): Promise<void>
+  /** Undo a reservation a proven-unwritten forward took (POD-4622): no owner,
+   *  and the attempts count the row had before it. UNBRANDED: see above. */
+  releaseDelivery?(id: string, attempts: number): Promise<void>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   delete(id: string): Promise<void>
   /** Every session holding at least one pending row — the work list for
@@ -1218,7 +1238,9 @@ export class SessionInbox {
         const recovery = row.attempts > 0 || row.deliveryOwner === 'daemon'
         // The durable reservation precedes every possible external write. On a
         // replacement owner it means confirm-or-fail, never replay the prompt.
-        if (row.deliveryOwner !== 'daemon') await this.deps.queue.reserveDelivery(row.id)
+        const reservedHere = row.deliveryOwner !== 'daemon'
+        const attemptsBeforeReservation = row.attempts
+        if (reservedHere) await this.deps.queue.reserveDelivery(row.id)
         if (!current()) return
         if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
         if (!current()) return
@@ -1234,6 +1256,11 @@ export class SessionInbox {
           if (!current()) return
           if (receipt.outcome !== 'queued' && receipt.outcome !== 'accepted') {
             binding.ids.delete(row.id)
+            // A refusal proves only THIS forward typed nothing. A reservation
+            // an earlier forward took stays: that one may have written.
+            if (receipt.outcome === 'refused' && reservedHere && REFUSALS_PROVING_NO_WRITE.has(receipt.refusal.reason)) {
+              await this.deps.queue.releaseDelivery?.(row.id, attemptsBeforeReservation)
+            }
             await this.reportContractUnconfirmed(sessionId, row, receipt.outcome === 'refused'
               ? receipt.refusal.detail ?? receipt.refusal.reason
               : 'the daemon did not acknowledge custody; delivery remains unconfirmed')

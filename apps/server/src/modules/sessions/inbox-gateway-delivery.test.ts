@@ -75,7 +75,7 @@ function harness(
     phase?: string
     agentKind?: 'claude-code' | 'shell'
     /** Switch the fake gateway between receipts mid-test (migration (c)). */
-    deliver?: (input: { turnId: string; deliveryRecovery: boolean }) => TurnReceipt
+    deliver?: (input: { turnId: string; deliveryRecovery?: boolean }) => TurnReceipt
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
@@ -110,7 +110,7 @@ function harness(
       noteInputAttribution: vi.fn(),
     },
   } as unknown as Session
-  const deliver = (input: { turnId: string; deliveryRecovery: boolean }) =>
+  const deliver = (input: { turnId: string; deliveryRecovery?: boolean }) =>
     options.deliver ? options.deliver(input) : acceptedReceipt()
   const deps = {
     getSession: (id: SessionId) => (id === SID ? session : undefined),
@@ -202,7 +202,7 @@ function harness(
       return { ok: true }
     },
     contractCancel: vi.fn(async () => ({ ok: true as const })),
-    contractDeliver: async (input: { turnId: string; deliveryRecovery: boolean }) => {
+    contractDeliver: async (input: { turnId: string; deliveryRecovery?: boolean }) => {
       contractSends.push(input)
       return deliver(input)
     },

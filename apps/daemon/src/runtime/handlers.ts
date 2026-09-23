@@ -27,6 +27,7 @@ import type {
   RuntimeDraftResultMessage,
   RuntimeSnapshotResultMessage,
   RuntimeHistoryResultMessage,
+  TurnReceipt,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { stopSessionProcess } from '../control/session'
@@ -243,18 +244,25 @@ export const runtimeHandlers: Pick<
         // honesty commitment, so an unexpected failure is reported as the one
         // that is true — we could not prove the send did anything — rather than
         // as a silence the caller has to time out on.
-        driverTiming.promptReceipt(handle.binding, msg.turnId, {
-          outcome: 'refused',
-          refusal: { reason: 'not_running', detail: String(err) },
-        })
+        //
+        // A DURABLE row is `unverified`, never `refused` (POD-4622): the throw
+        // may follow the row's admission, and the server reads a durable
+        // `not_running` as proof nothing was typed and releases the row's
+        // reservation. "Could not prove" is what `unverified` means.
+        const receipt: TurnReceipt = msg.rowId
+          ? {
+              outcome: 'unverified',
+              deliveredAs: msg.delivery,
+              verificationWindowMs: 0,
+              at: new Date().toISOString(),
+            }
+          : { outcome: 'refused', refusal: { reason: 'not_running', detail: String(err) } }
+        driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
         ctx.send({
           type: 'runtimeSendResult',
           requestId: msg.requestId,
           sessionId: msg.sessionId,
-          receipt: {
-            outcome: 'refused',
-            refusal: { reason: 'not_running', detail: String(err) },
-          },
+          receipt,
         })
       })
   },

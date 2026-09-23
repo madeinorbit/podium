@@ -486,6 +486,20 @@ describe('the session inbox', () => {
     expect((await repo.listQueuedMessages(session('s1'))).map((m) => m.id)).toEqual(['m2'])
   })
 
+  it('reserves, then releases a reservation back to the prior attempts, only on a reserved row (POD-4622)', async () => {
+    await enqueue('m1', 's1', 1)
+    await enqueue('m2', 's1', 2)
+    const custody = async () => (await repo.listQueuedMessages(session('s1'))).map((m) => [m.deliveryOwner, m.attempts])
+    await repo.reserveQueuedDelivery('m1')
+    expect(await custody()).toEqual([['daemon', 1], [null, 0]])
+    await repo.releaseQueuedDelivery('m1', 0)
+    expect(await custody()).toEqual([[null, 0], [null, 0]])
+    // Not reserved: the release writes nothing, whatever count it carries.
+    await repo.bumpQueuedAttempts('m2')
+    await repo.releaseQueuedDelivery('m2', 7)
+    expect(await custody()).toEqual([[null, 0], [null, 1]])
+  })
+
   it('drops one session queue and leaves the others', async () => {
     await enqueue('m1', 's1', 1)
     await enqueue('m2', 's2', 2)
