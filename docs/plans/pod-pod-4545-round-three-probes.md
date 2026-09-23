@@ -389,9 +389,9 @@ and P1's sequence reaches it: its rejection lands after a remote update.
 
 - `probes.test.tsx`: 18 tests, green (15 per-probe: clean, planted, control;
   the P4 history pair; the relation check on the MobX pool for P2 and P5).
-  One full run: about 230 s under load 8–10 (counts runs; the times are not
-  evidence).
-- `probes-lint.test.ts`: 10 tests, green. Module-scope guard →
+  The whole directory (27 tests) runs in about 240 s under load 8–10
+  (counts runs; the times are not evidence).
+- `probes-lint.test.ts`: 9 tests (8 plants and a coverage check), green. Module-scope guard →
   `fence/no-hidden-state`; direct row walk → `fence/no-store-in-component`,
   `fence/no-table-walk`; every other shape SILENT.
 - Armed: the clean reference arm is SILENT and not blind on every instrument
@@ -399,6 +399,21 @@ and P1's sequence reaches it: its rejection lands after a remote update.
   Mutation: with the relation check's ghost branch disabled, P2's planted
   test goes red (`expected null not to be null`: the behaviour test no
   longer fires); restored, green.
+- What each planted reference arm fired, first message per instrument
+  (`probes-reference.json`, 1x, seed 4443 targets):
+
+  | Probe | Instrument | First firing |
+  |---|---|---|
+  | P1 | commit-fence | #4: drew 0 rows, the oracle changed 1, `under=[i17]` |
+  | P1 | parity | #4: row i17 keeps title "reconcile sidebar 17" |
+  | P1 | gate | step 0 (the edit) against the rebuild: `title: "reconcile sidebar 17" (expected "Probe title A")`, shrunk to 1 change |
+  | P1 | history-check | step 0: the same row differs from a fresh arm |
+  | P2 | relation-check | #6d: `ghost: issue:i326.children holds issue:i5, which the feed no longer has` |
+  | P3 | reads-fence | #2: read 4,867 rows (the whole issue table), budget 3 |
+  | P4 | gate | step 3 (the second edit) against the rebuild: `title: "Probe first title" (expected "Probe second title")`, shrunk to 2 changes |
+  | P4 | history-check | step 3: the same row differs from a fresh arm |
+  | P5 | relation-check | #7: `one-way: issue:i85.parent = issue:i17, but issue:i17.children does not hold i85` (2 problems: the old parent still holds it too) |
+
 - Baseline (legacy control, unplanted): commit fence and reads fence FIRE on
   every step with no plant (#2: drew 346 rows, the oracle changed 1; read
   9,669 rows against 3), parity, gate and history SILENT (looked, passed),

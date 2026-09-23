@@ -31,7 +31,7 @@ Catalogue and how N1b/N2b use it: `docs/plans/pod-pod-4545-round-three-probes.md
 
 ### Evidence
 
-- `probes.test.tsx` 18/18, `probes-lint.test.ts` 10/10 (package config).
+- `probes.test.tsx` 18/18, `probes-lint.test.ts` 9/9 (package config).
 - Mutation: the relation check's ghost branch disabled → P2 planted red;
   restored (`cp`) → green.
 - MobX pool (clean): relation check over P2's and P5's sequences, >1,000
