@@ -1676,7 +1676,7 @@ it('retains the binding projection cursor when receipt persistence fails', async
 describe('a finished turn ends the session\'s working state (POD-4641)', () => {
   const at = (second: number) => new Date(Date.UTC(2026, 8, 23, 7, 31, second)).toISOString()
 
-  async function bindDriver(agentKind: string, driverId: string) {
+  async function bindDriver(agentKind: 'opencode' | 'grok' | 'claude-code', driverId: string) {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const commands: ControlMessage[] = []
@@ -1703,7 +1703,7 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
         cursor: { segmentId: `${driverId}-segment`, components: { seq } },
         observerGeneration: input.observerGeneration ?? 1,
         turnEpoch: input.turnEpoch,
-      } as RuntimeEvent
+      } as unknown as RuntimeEvent
       await registry.gateway.routeDaemonFrame(store.hostMachineId, {
         type: 'runtimeEvent', sessionId, deliveryId: `${driverId}-${seq}`, event,
       })
