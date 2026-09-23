@@ -125,8 +125,8 @@ goes through ONE timer in the page (`entrylib.ts`, `measure`):
 change aimed at a row the arm has not drawn commits nothing on a windowed arm
 and the whole list on the control, so it would time the control's redraw
 against an arm doing nothing. Every row target is therefore picked by rule,
-identically for every arm, from the **first window**: the oracle's first 36
-rows of the list as it stands before the change (`FIRST_WINDOW_ROWS`,
+identically for every arm, from the **first window**: the oracle's first 96
+rows of the list (36 before POD-4560) as it stands before the change (`FIRST_WINDOW_ROWS`,
 `entrylib.ts`), root rows only (the control nests formal children inside
 their parent's row). The rules are the scenario library's (`targetRules`,
 the predicates `pickTargets` uses; POD-4559 removed the page's own copy):
@@ -178,12 +178,17 @@ different targets: its entry point (`runSummary`) prints `TARGETS DIFFER`,
 prints no table and exits 2. `summarize.test.ts` drives the entry point over
 such runs; with the call to `targetMismatches` removed that test goes red.
 
-**Viewport 1600×2400, for every arm and scale.** The pinned section grows
-with the corpus (6 rows at 1x, 12 at 2x, 24 at 4x) and at 4x the first
-childless open root is row 33 of the list. Round two's 1600×1000 (17 rows on
-hand/MobX) held only pinned rows at 4x: #5 had no drawn target there. At
-2400 px hand and MobX draw about 40 rows. Accepted by the coordinator
-(POD-4286, 2026-09-23): without it #5 has no drawn target at 4x.
+**Viewport 1600×5800, for every arm and scale** (POD-4560; was 1600×2400).
+The pinned section grows with the corpus: on the reshaped fixture (POD-4635)
+21 rows at 1x, 42 at 2x, 84 at 4x, and the first open root with children and
+the first childless open root are rows 84 and 85 at 4x (42 and 43 at 2x). The
+old 36-row window at 2400 px held only pinned rows at 2x and 4x, so rename
+and stage move had no drawn target there (the 4x no-op run failed at its
+first rename); round two's 1600×1000 failed the same way on the old fixture.
+At 5800 px hand and MobX draw about 103 rows of 56 px; the first window is
+96 rows (5,456 px with two 40 px headers) and the no-op page draws 108. The
+2400 px viewport was accepted by the coordinator (POD-4286, 2026-09-23) on
+the same reasoning.
 
 **Check mode** (`run.ts --check`, page `?check=1`): after each change the page
 compares, over the rows mounted before and after, the rows whose oracle row
@@ -509,14 +514,30 @@ never from a measured arm. Three terms, each already used above:
 | #6d evict keeper | `evictKeeperReadBudget(ancestors)` = level(ancestors) + 2 × `placeOne` | 30 / 30 / 30 | The evicted leaf's chain (the leaf, its rescue parent, their ancestors: 2 levels at every scale), and TWO rows leaving: the leaf and the parent that was visible only through it. Whether the parent still has a member is a `size` (free), not a read. |
 | #7 parent reassignment | `parentReassignmentReadBudget(moved, newParent)` = level(moved) + level(newParent) + `placeOne` | 21 / 21 / 21 | The moved row's OLD chain loses its cached subtree roll-up (the row and its old ancestors: 2 levels), the NEW parent's chain gains it (1 level), and one placement (a row that becomes or stops being top-level changes fold eligibility). The subtree moves as one cached value: no descendant is read. |
 | #8 clock tick (60 s) | `clockTickReadBudget(crossings)` = crossings × 24 | 0 / 0 / 0 | A local, like #3: the row feed emits nothing; the tick reaches the arm on the locals channel (POD-4608). The only rows a tick re-derives are those whose time-derived fields cross at this tick (a lapsing defer, the finished grace, retention windows); deadlines are derived keys, not entity reads. Each crossing row moves between lanes (or enters or leaves) with no row event: #5's shape, 24 per row. `crossings` is projected BEFORE the write, by the row-view oracle at the advanced clock over the same store (`tickCrossings`). This tick crosses none at any scale. |
-| #8b grace crossing (24 h) | `clockTickReadBudget(crossings)` | 96 / 192 / 384 | The same rule. This tick crosses the grace rows (finished 1–20 h before the corpus clock, 4 per scale unit: 4, 8, 16), which fold. Flat per crossing; the crossings are the corpus's, not N's. An O(visible) walk still fails at every scale (211 / 422 / 844 visible). |
+| #8b grace crossing (24 h) | `clockTickReadBudget(crossings)` | 144 / 288 / 576 | The same rule. This tick crosses the grace rows, which fold: 6 / 12 / 24 crossings on the reshaped fixture (POD-4560; 4 / 8 / 16 before it). Flat per crossing; the crossings are the corpus's, not N's. An O(visible) walk still fails at every scale (732 / 1,464 / 2,928 visible). |
 | #9a press, #9b echo, #9c rejection | `READ_BUDGETS.markRead` = 3 | 3 / 3 / 3 | An own-field change (`readAt`) of one issue that no row-view field reads — the #4 shape: the issue and at most two rows to place or label it. The rejection's two events name the same row; distinct counting makes it one. |
-| #10 burst of 50 | `burstReadBudget(ancestors per issue)` = Σ level(ancestorsᵢ) | 171 / 195 / 243 | Fifty #2-shaped changes in one event: each new working session flips `working`/`phase` up its issue's chain. The sum of the #2 budget over the fifty chains; distinct counting only lowers it where chains share ancestors. No placement term: `rankOf` reads no activity. Bounded by fifty chains, not by N: at 4x, 243 against 844 visible rows. |
+| #10 burst of 50 | `burstReadBudget(ancestors per issue)` = Σ level(ancestorsᵢ) | 168 / 177 / 180 | Fifty #2-shaped changes in one event: each new working session flips `working`/`phase` up its issue's chain. The sum of the #2 budget over the fifty chains; distinct counting only lowers it where chains share ancestors. No placement term: `rankOf` reads no activity. Bounded by fifty chains, not by N: at 4x, 180 against 2,928 visible rows. |
 
 The per-scale values are what `FENCE_SCENARIOS` computes from the targets
 before each write (#10 after #6–#7 reshaped the tree). #10 moves with the
-depth of the fifty burst issues' chains (57, 65 and 81 levels at the step), not with the
+depth of the fifty burst issues' chains (56, 59 and 60 levels at the step), not with the
 corpus.
+
+**Re-derived on the reshaped fixture (POD-4560, 2026-09-23, at `fe1745142`).**
+POD-4635 (L2d) reshaped the fixture to the live workspace: 732 / 1,464 /
+2,928 visible rows (open lanes 664 / 1,329 / 2,657, closed folds 68 / 135 /
+271), 4,867 / 9,734 / 19,468 issues. Every value in the table above is what
+`runFenceStep` computes there: each entry's `readsBudget(ctx)` taken before its
+write, in `FENCE_SCENARIOS` order on one `startScenarioEngine(scale)` engine,
+the writes applied as the step applies them (the budget reads only the engine
+and the targets, never the arm). Only #8b (crossings 6 / 12 / 24, was 4 / 8 /
+16) and #10 (levels 56 / 59 / 60, was 57 / 65 / 81) moved; #1–#8 and #9 are
+the same at every scale. The old #8b (96 / 192 / 384) and #10 (171 / 195 /
+243) are superseded. OPEN (sent to the coordinator, not changed here): the
+placement terms were derived from ~850 visible rows at 4x (log2 ≈ 10); at
+2,928 the binary search is log2 ≈ 11.5, so `placeOne` (12) and #5's
+`stageMoveNeighbourhood` (24, from 15) rest on an old row count. Neither is
+re-read here (pitfall g).
 
 `assertReads(result, { readsPerChange })` throws with the per-entity
 breakdown when the budget is exceeded, and also when the result has no reads
@@ -525,7 +546,7 @@ cell (fence disabled): a missing cell fails, never passes.
 **The legacy control fails it.** `legacyControlArmFor` reads its store
 through the fence (`legacy-control/fenced-store.ts`). The one corpus at 1x
 (`startScenarioEngine(1)`): 4,867 issues, 4,304 sessions, 500 lanes. Measured
-2026-09-22 at `da7e6c1b3` on this branch (`control.test.tsx`; happy-dom
+on the fixture BEFORE the POD-4635 reshape (not re-measured by POD-4560), 2026-09-22 at `da7e6c1b3` on this branch (`control.test.tsx`; happy-dom
 counts, which box load does not move).
 
 | Scenario | Legacy reads | Of which | Budget |
