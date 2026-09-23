@@ -133,9 +133,15 @@ optimistic test and the real-runtime rejection test.
   without a resume-ref index. Such an index is a relation for the declared pool (POD-4546). The
   feed passes `resume` through; the pool applies the collapse. The fixture carries twin groups
   for every branch of the rule (POD-4551), and the oracle collapses them as the runtime does.
-- **Discovery lanes.** A new `EngineState.repos` array from discovery sends no worktree event.
-  This behaviour is inherited from round two, because discovery is not a kernel row. A `repos`
-  prefix address sends only that repo's lanes.
+- **Discovery lanes — resolved by POD-4606.** A new `EngineState.repos` array from discovery
+  used to send no worktree event (inherited from round two, because discovery is not a kernel
+  row). The feed now watches the array's identity in both modes. When it moves, the feed diffs
+  the new answer's lanes against the lanes the arms hold, by path, and sends each lane that
+  appeared, changed or left. A refresh that moves nothing visible sends nothing. That flush
+  visits the answer's lanes and counts one `enumerations` pass; no other publication does. A
+  top-level entry that is another entry's linked worktree is dropped, as legacy `reposToViews`
+  does, so a worktree lane keeps its parent repo root. A `repos` prefix address still sends
+  only that repo's lanes.
 
 ## For the arm builders
 
