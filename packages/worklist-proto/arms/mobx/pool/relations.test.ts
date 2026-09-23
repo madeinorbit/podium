@@ -42,6 +42,7 @@ import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { diffRelations } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
+import { ancestorPaths } from './relations'
 import { rebuildSnapshot } from './rebuild'
 
 installMobxWarnTrap()
@@ -779,66 +780,177 @@ describe('the reads fence and the write record', () => {
 
 // ------------------------------------------- bucket upkeep (M3 F1, POD-4568 rework)
 
-/** Element work on observable sets and sorts, counted outside the pool (M3 G1). */
+/**
+ * Element work on plain `Set`s and `Map`s and `Array.from` copies, from any
+ * caller but MobX itself (M3 G3). The relation engine's prefix index is a map
+ * of plain sets, so a copy of one is invisible to the observable counts.
+ */
+interface PlainCount {
+  /** `Set.add` and `Map.set` (a `new Set(iterable)` adds every element). */
+  written: number
+  /** `Set.delete` and `Map.delete`. */
+  deleted: number
+  /** Elements yielded by a plain set's or map's iterators or `forEach`. */
+  iterated: number
+  /** Elements `Array.from` copied from a source whose iteration is not counted above. */
+  copied: number
+}
+
+/** Element work on observable sets and sorts (M3 G1), and on plain sets and maps (G3), counted outside the pool. */
 interface OutsideCount {
   added: number
   deleted: number
   iterated: number
   sorted: number
+  plain: PlainCount
 }
 
 const outsideTotal = (c: OutsideCount): number => c.added + c.deleted + c.iterated + c.sorted
+const plainTotal = (c: PlainCount): number => c.written + c.deleted + c.iterated + c.copied
+
+/** Formatting a stack walks the source maps' own maps: never counted. */
+let readingStack = false
+
+/** This file's frames: the patches below (never a caller of the pool's work). */
+const THIS_FILE = `${new URL(import.meta.url).pathname}:`
 
 /**
- * Run `fn` with MobX's `ObservableSet` prototype and `Array.prototype.sort` /
- * `toSorted` patched to count, then restore them. Nothing here reads a pool
- * counter: a bucket is an `ObservableSet`, and every way to read one member by
- * member (`for…of`, spread, `Array.from`, `new Set(bucket)`, `forEach`, `keys`,
- * `entries`) goes through its `values()`, so a copy of the bucket is counted
- * whether or not the pool reports it. Every observable set counts, not only
- * the ones the pool names as buckets, and every sort counts, since a
- * regression could sort a plain copy.
+ * True when the patched call was made by MobX's own code: the first frame
+ * that is neither this file's (the patch) nor native (a `new Set(iterable)` or
+ * `Array.from` shows a native frame between the patch and its caller). By
+ * location, not by depth: JSC eliminates frames in strict-mode tail calls.
+ * MobX keeps its own plain sets and maps (every observable's observers, an
+ * observable set's `data_`); that is the library's bookkeeping, not the pool's.
+ */
+function calledByMobx(): boolean {
+  if (readingStack) return true
+  readingStack = true
+  let stack: string
+  try {
+    stack = new Error().stack ?? ''
+  } finally {
+    readingStack = false
+  }
+  const frames = stack.split('\n').slice(1)
+  for (const frame of frames) {
+    if (frame.includes(THIS_FILE) || frame.includes('(native)')) continue
+    return frame.includes('/node_modules/mobx/')
+  }
+  return false
+}
+
+/**
+ * Run `fn` with MobX's `ObservableSet` prototype, `Array.prototype.sort` /
+ * `toSorted`, the plain `Set` and `Map` prototypes and `Array.from` patched to
+ * count, then restore them. Nothing here reads a pool counter.
+ *
+ * OBSERVABLE (G1). A bucket is an `ObservableSet`, and every way to read one
+ * member by member (`for…of`, spread, `Array.from`, `new Set(bucket)`,
+ * `forEach`, `keys`, `entries`) goes through its `values()`, so a copy of the
+ * bucket is counted whether or not the pool reports it. Every observable set
+ * counts, not only the ones the pool names as buckets, and every sort counts,
+ * since a regression could sort a plain copy.
+ *
+ * PLAIN (G3). `Set` `add`/`delete`/`values`/`keys`/`forEach`/`[Symbol.iterator]`,
+ * `Map` `set`/`delete`/`values`/`keys`/`entries`/`forEach`/`[Symbol.iterator]`
+ * and `Array.from` count in `plain`, unless MobX made the call
+ * (`calledByMobx`). An unsorted copy of the prefix index's plain sets counts
+ * there: `new Set(set)` iterates and adds every element.
  */
 function countedOutside(fn: () => void): OutsideCount {
-  const count: OutsideCount = { added: 0, deleted: 0, iterated: 0, sorted: 0 }
+  const plain: PlainCount = { written: 0, deleted: 0, iterated: 0, copied: 0 }
+  const count: OutsideCount = { added: 0, deleted: 0, iterated: 0, sorted: 0, plain }
   type Method = (this: unknown, ...args: unknown[]) => unknown
-  type Patched = Record<string, Method>
+  type Patched = Record<PropertyKey, Method>
+  type After = (self: unknown, result: unknown, args: unknown[]) => unknown
   const set = Object.getPrototypeOf(observable.set<string>()) as Patched
+  const observableSetProto = set
   const array = Array.prototype as unknown as Patched
   const counted =
-    (field: keyof OutsideCount, weight: (self: unknown) => number) =>
-    (self: unknown, result: unknown): unknown => {
+    (field: 'added' | 'deleted' | 'sorted', weight: (self: unknown) => number): After =>
+    (self, result) => {
       count[field] += weight(self)
       return result
     }
   const one = (): number => 1
   const length = (self: unknown): number => (self as unknown[]).length
-  const patches: [Patched, string, (self: unknown, result: unknown) => unknown][] = [
+  const countingIterator = (it: Iterator<unknown>, tick: () => void): IterableIterator<unknown> => {
+    const counting: IterableIterator<unknown> = {
+      next: () => {
+        const step = it.next()
+        if (step.done !== true) tick()
+        return step
+      },
+      [Symbol.iterator]: () => counting,
+    }
+    return counting
+  }
+  // Plain work is counted unless MobX made the call.
+  const outsideMobx =
+    (tick: (self: unknown, result: unknown, args: unknown[]) => void): After =>
+    (self, result, args) => {
+      if (!calledByMobx()) tick(self, result, args)
+      return result
+    }
+  const plainIterator: After = (self, result) =>
+    calledByMobx()
+      ? result
+      : countingIterator(result as Iterator<unknown>, () => {
+          plain.iterated += 1
+        })
+  const plainForEach: After = outsideMobx((self) => {
+    plain.iterated += (self as ReadonlySet<unknown> | ReadonlyMap<unknown, unknown>).size
+  })
+  const plainSet = Set.prototype as unknown as Patched
+  const plainMap = Map.prototype as unknown as Patched
+  const arrayCtor = Array as unknown as Patched
+  /** Sources whose own iteration is counted: `Array.from` over them would count twice. */
+  const iterationCounted = (source: unknown): boolean =>
+    source instanceof Set ||
+    source instanceof Map ||
+    (typeof source === 'object' &&
+      source !== null &&
+      Object.getPrototypeOf(source) === observableSetProto)
+  const patches: [Patched, PropertyKey, After][] = [
     [set, 'add', counted('added', one)],
     [set, 'delete', counted('deleted', one)],
     [
       set,
       'values',
-      (_self, result) => {
-        const it = result as Iterator<unknown>
-        const counting: IterableIterator<unknown> = {
-          next: () => {
-            const step = it.next()
-            if (step.done !== true) count.iterated += 1
-            return step
-          },
-          [Symbol.iterator]: () => counting,
-        }
-        return counting
-      },
+      (_self, result) =>
+        countingIterator(result as Iterator<unknown>, () => {
+          count.iterated += 1
+        }),
     ],
     [array, 'sort', counted('sorted', length)],
     [array, 'toSorted', counted('sorted', length)],
+    [plainSet, 'add', outsideMobx(() => (plain.written += 1))],
+    [plainSet, 'delete', outsideMobx(() => (plain.deleted += 1))],
+    [plainSet, 'values', plainIterator],
+    [plainSet, 'keys', plainIterator],
+    [plainSet, Symbol.iterator, plainIterator],
+    [plainSet, 'forEach', plainForEach],
+    [plainMap, 'set', outsideMobx(() => (plain.written += 1))],
+    [plainMap, 'delete', outsideMobx(() => (plain.deleted += 1))],
+    [plainMap, 'values', plainIterator],
+    [plainMap, 'keys', plainIterator],
+    [plainMap, 'entries', plainIterator],
+    [plainMap, Symbol.iterator, plainIterator],
+    [plainMap, 'forEach', plainForEach],
+    [
+      arrayCtor,
+      'from',
+      outsideMobx((_self, result, args) => {
+        if (!iterationCounted(args[0])) plain.copied += (result as unknown[]).length
+      }),
+    ],
   ]
+  const stackLimit = Error.stackTraceLimit
+  Error.stackTraceLimit = Math.max(stackLimit, 20)
   const restore = patches.map(([proto, name, after]) => {
     const original = proto[name] as Method
     proto[name] = function (this: unknown, ...args: unknown[]) {
-      return after(this, original.apply(this, args))
+      return after(this, original.apply(this, args), args)
     }
     return () => {
       proto[name] = original
@@ -848,6 +960,7 @@ function countedOutside(fn: () => void): OutsideCount {
     fn()
   } finally {
     for (const undo of restore) undo()
+    Error.stackTraceLimit = stackLimit
   }
   return count
 }
@@ -859,6 +972,20 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
   const B = 4000
   /** The bound: one element per edge moved, whatever the bucket's size. */
   const PER_EDGE = 1
+  /**
+   * The plain bound (M3 G3), also whatever the bucket's size: the change's own
+   * bookkeeping, plus the prefix index. The bookkeeping, counted on clean code
+   * at 10-15 per edge: the netted move (`RelationEngine.move`: the pending
+   * map's three levels written, then read once by `flush`), the flipped-issue
+   * check, the dedupe key pair (`new Set([oldKey, newKey])`), the replay
+   * source's row entry and listener copy, the read fence's first sight of a
+   * new row, the model cache's delete of a removed one. The prefix index
+   * (`place`) adds or deletes one entry per ancestor path of the row's path,
+   * creates or drops at most one set per path, and records the placement once.
+   */
+  const PLAIN_BOOKKEEPING = 16
+  const plainBound = (path: string | null): number =>
+    PLAIN_BOOKKEEPING + (path === null ? 0 : 2 * [...ancestorPaths(path)].length + 1)
   const big: RowRecord[] = [lane('/repo')]
   for (let i = 0; i < B; i += 1) {
     big.push(issue(`B${i}`), session(`BS${i}`, { cwd: `/repo/x${i}` }))
@@ -869,7 +996,8 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
     try {
       expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
       expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
-      const touched = (label: string, ...change: RowRecord[]): void => {
+      /** `path`: the row's path in the prefix index, when it has one. */
+      const touched = (label: string, path: string | null, ...change: RowRecord[]): void => {
         const before = r.pool.stats.counters.bucketElements
         const outside = countedOutside(() => r.push(...change))
         // The evidence: counted outside the pool (M3 re-review G1).
@@ -878,13 +1006,18 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
         const reported = r.pool.stats.counters.bucketElements - before
         expect(reported, `${label}: bucketElements`).toBe(outsideTotal(outside))
         expect(r.pool.graph.lastElements, `${label}: lastElements`).toBe(reported)
+        // Plain sets and maps, the prefix index among them (M3 re-review G3).
+        expect(
+          plainTotal(outside.plain),
+          `${label}: plain ${JSON.stringify(outside.plain)}`,
+        ).toBeLessThanOrEqual(plainBound(path))
       }
       // belongsTo (issue.repo → repo.issues)
-      touched('new issue', issue('N1'))
-      touched('removed issue', gone('issue', 'B7'))
+      touched('new issue', null, issue('N1'))
+      touched('removed issue', null, gone('issue', 'B7'))
       // prefix (session.worktree → worktree.sessions)
-      touched('new session', session('NS1', { cwd: '/repo/y' }))
-      touched('removed session', gone('session', 'BS7'))
+      touched('new session', '/repo/y', session('NS1', { cwd: '/repo/y' }))
+      touched('removed session', '/repo/x7', gone('session', 'BS7'))
       expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
       expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
       r.check({ issue: ['B7'], session: ['BS7'] })
