@@ -1,8 +1,8 @@
 # M3: MobX pool shape review (POD-4591)
 
 **Verdict: FAIL, sent back to Ma4 (POD-4568).** Two checklist lines fail:
-bucket maintenance scales with the bucket, which on the live corpus is the
-whole issue table (F1), and the row views resolve relations themselves
+bucket maintenance scales with the bucket, which on live data is a
+repo's whole share of the issue table (F1), and the row views resolve relations themselves
 instead of reading them from the relation engine (F2). Both fixes are small
 and local. The b-phase issues (Mb1 onward) stay blocked until a re-review
 records PASS.
@@ -29,7 +29,7 @@ records PASS.
 | C1 | Relations come from the schema only | PASS | `relations.ts:263-321` builds every link from `schema[entity].relations`: one `Link` per `belongsTo`/`prefix`/outgoing `edge`, paired with its `inverse` collection. It throws when a collection has no maintaining link (:315-321). No relation or foreign-key name appears in `relations.ts`. Resolution goes only through the declared `relationRef` (:119-143), `longestPrefixPath`/`prefixCandidates` (:161-179, 581-590) and `collapseLosers` (:503-507). The residency rule comes from `schema[entity].cold` (`residency.ts:77-104, 160-191`). Model field getters come from `SCHEMA[entity].fields` (`models.ts:80-99, 222-224`). |
 | C2 | No relation maintenance inside derivations | PASS | Every inverse collection a derivation reads comes from the engine's buckets through `RelationReader.many` (`views.ts:342`, `pool.ts:346`). Nothing outside `relations.ts` writes `forward`/`buckets`/`under`. The only write paths are `changed`/`flush`/`promote`, called from ingest inside the action (`tables.ts:126-142`, `pool.ts:382-386, 365-368`). |
 | C3 | No relation **resolution** inside derivations (the engine is the one path) | **FAIL (F2)** | `views.ts:286-294` (`repoRefPartOf` → `relationRef('issue','repo', row)`, then `prefixPartOf` → `input.repo(ref)`) and `views.ts:316-324` (`originRefPartOf` → `relationRef('issue','discoveredFrom', row)`, then `originIdPartOf` → `input.present('issue', ref)`) each resolve a single-valued relation inside a derivation. They bypass the engine's maintained `forward` map, and no production derivation calls `RelationReader.one` (grep `\.one(` over `pool/` and `shared/src`: only `enumerate.ts:232-233`, `instrument/reads.ts:559` and `probes/relations-check.ts`). So the forward maps for `issue.repo` and `issue.discoveredFrom` are maintained on every write but only tests read them, and the header claim at `relations.ts:64-65` ("Derivations … never resolve a relation themselves") is false at HEAD. |
-| C4 | No whole-table walk outside the one declared enumeration (`fence.json` → `pool/enumerate.ts`) | **FAIL (F1)** | *Named tables:* PASS. A grep for `.keys()/.values()/.entries()/.forEach/for…of/spread/Object.*` over non-test `pool/` files finds table iteration only in `enumerate.ts` (`issueIdsOf` :56-58, `reseed` :67-91, the gate's `knownTables`/`scanRelations`/`diffResidency`), `rebuild.ts:48-50,71` (the from-scratch oracle, run only by the checker), `pool.ts:437` and `relations.ts:443-455` (`dispose`), and `residency.ts:215` `ids()` (called only from `enumerate.ts:83,313` and `gate.test.ts`). *Collections:* FAIL. Every membership change copies and sorts its target's whole bucket (`relations.ts:648-651` `new Set(peekBucket(…))`, `:419` `Object.freeze([...members].sort())`). On the live corpus `repo.issues` holds every issue of the repo, cold ones included (probe, §2.3), so one new issue walks the issue table. This breaks schema doc §4.4 ("No maintenance path may scan a whole collection. Every rule above is O(edges of the changed row)") and the engine's own claim at `relations.ts:43-45`. |
+| C4 | No whole-table walk outside the one declared enumeration (`fence.json` → `pool/enumerate.ts`) | **FAIL (F1)** | *Named tables:* PASS. A grep for `.keys()/.values()/.entries()/.forEach/for…of/spread/Object.*` over non-test `pool/` files finds table iteration only in `enumerate.ts` (`issueIdsOf` :56-58, `reseed` :67-91, the gate's `knownTables`/`scanRelations`/`diffResidency`), `rebuild.ts:48-50,71` (the from-scratch oracle, run only by the checker), `pool.ts:437` and `relations.ts:443-455` (`dispose`), and `residency.ts:215` `ids()` (called only from `enumerate.ts:83,313` and `gate.test.ts`). *Collections:* FAIL. Every membership change copies and sorts its target's whole bucket (`relations.ts:648-651` `new Set(peekBucket(…))`, `:419` `Object.freeze([...members].sort())`). `repo.issues` holds every issue of the repo, cold ones included. On the live export that is ≈ 574 issues per repo on average (9 repos, 5,170 issues; §2.3), so one new issue copies and sorts a repo-sized share of the issue table. This breaks schema doc §4.4 ("No maintenance path may scan a whole collection. Every rule above is O(edges of the changed row)") and the engine's own claim at `relations.ts:43-45`. |
 | C5 | Lazy construction present | PASS | Ingest builds no model: models are created on first access inside `MobxPool.model` (`pool.ts:310-320`) and hold no row (`models.ts:74-77`). Cold rows (closed issues, their sessions) never reach a table: `Residency.ingest`/`keepCold` register the id only (`residency.ts:297-324, 387-398`), and their relation slots live in plain twins (`relations.ts:194-197, 543-550, 425-432`) until `promote` (:620-640). Loads are batched in one 50 ms window, one action (`residency.ts:239-290`, `pool.ts:358-371`). Residency atoms exist only while observed (`residency.ts:449-461`), and so do clock atoms (`clock.ts:121-135`). |
 | C6 | Enforcement asserts (MobX warnings trapped as failures) | PASS, with a coverage note (N3) | Configured at `enforce.ts:21-28` (all four flags). `pool.ts:40` imports it, so every pool constructor runs under it. The trap (`mobx-trap.ts:12-26`) throws on any `console.warn` and fails the test in `afterEach` on any recorded warning, so a warning MobX swallows inside a reaction still fails. MobX 7.0.3 emits all four enforcement messages through `console.warn` (`node_modules/mobx/dist/mobx.cjs.development.js:1478, 1573, 1578, 1623`). My plants (§2.1) show all four paths fail. Installed in all 8 pool test files. *Hand never-checks:* not applicable to this arm (H3). |
 | C7 | Untracked state read inside a derivation (pitfall j) | PASS, with notes (N1, N2) | Plain state reached from derivations: the clock's `now` (`clock.ts:121-135`, paired with atoms); the residency registry (`residency.ts:239-252`, each question observes a per-id atom that `register`/`unregister`/`notify` fire, :432, 445, 255-257); the relation plain twins (`relations.ts:333-336, 356-360`, which observe that atom, while every plain write calls `cold.changed`, :550, 432, 639); and the model identity memo `models.session` (`pool.ts:261-263`), whose answer is the member's `activityMs`, tracked on the same slot either way (N1). None of these can produce a stale answer without a tracked dependency. The per-step gate (§2.2) holds the pool to a from-scratch rebuild and scan. |
@@ -48,9 +48,22 @@ TBD
 
 TBD
 
-### 2.3 Bucket sizes on the live-shaped corpus
+### 2.3 Bucket sizes (old fixture), and what the live export says
+
+**Old fixture.** POD-4635 (L2d) reshapes the 1× fixture after this review, so
+every count below is provisional and applies only to the fixture at `4c0ccde73`.
 
 TBD
+
+**Live shape (POD-4552 export, `docs/measurements/POD-4441-fixture-shape.md`
+"Fixture vs live").** The live workspace has **9** kernel repo rows against
+the fixture's 500, and 5,170 issues. So on live data the average `repo.issues`
+bucket is ≈ 574 issues, at least one repo holds ≥ 575, and a
+workspace dominated by one repo (POD) puts most of the issue table in one
+bucket. Live sessions in repo-root lanes: 1,287 across 17 roots, against 3,135
+across 500 in the fixture. The fixture spreads issues over 500 repos, which is
+why the per-insert copy looks small in the old-fixture counts above: the
+fixture hides F1, and the live shape is where it bites.
 
 ## 3. Findings
 
@@ -60,7 +73,8 @@ TBD
 membership change. `pendingSet` seeds a `Set` from the whole current bucket
 (`relations.ts:648-651`), and `flush` spreads, sorts and freezes it
 (`relations.ts:419`). For `repo.issues` (every issue of the repo, closed ones
-included, because cold rows are linked too), `worktree.sessions` of a repo-root
+included, because cold rows are linked too; 5,170 issues over 9 repos on the
+live export, §2.3), `worktree.sessions` of a repo-root
 lane, and `issue.children` of a large epic, the cost per insert, delete or
 foreign-key move is the size of the collection, not of the change. `indexUpdates`
 reports it as one slot (C8), and neither the reads fence nor the lint can
