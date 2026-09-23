@@ -155,10 +155,18 @@ const PANEL_LABELS: Readonly<Record<string, string>> = {
   shell: 'Shell',
 }
 
-/** A draft wears its first member's label; everything else its own title (spec §3 R-SUM). */
-export function displayTitleOf(issue: SliceIssue, firstMember: SliceSession | undefined): string {
+/**
+ * A draft wears its first member's label; everything else its own title (spec
+ * §3 R-SUM). The member is asked for only on a draft, so a non-draft's title
+ * reads no relation.
+ */
+export function displayTitleOf(
+  issue: SliceIssue,
+  firstMemberOf: () => SliceSession | undefined,
+): string {
   const title = issue.title.trim()
   if (issue.draft !== true || (title !== '' && title !== DRAFT_TITLE)) return issue.title
+  const firstMember = firstMemberOf()
   if (firstMember === undefined) return 'New agent'
   const kind = firstMember.agentKind ?? 'undefined'
   return `New ${PANEL_LABELS[kind] ?? kind} session`
@@ -280,7 +288,7 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
   },
   displayTitle(input, id) {
     const issue = input.issue(id)
-    return issue === undefined ? undefined : displayTitleOf(issue, firstMemberOf(input, id))
+    return issue === undefined ? undefined : displayTitleOf(issue, () => firstMemberOf(input, id))
   },
   /** The spin-off's origin (`issue.discoveredFrom`), when it is in the pool. */
   originId(input, id) {

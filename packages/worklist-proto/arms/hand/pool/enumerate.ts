@@ -177,12 +177,18 @@ export function diffRelations(
     const ids = new Set([...tables[from].keys(), ...(extra[from] ?? [])])
     for (const id of ids) {
       for (const [name, spec] of Object.entries(schema[from].relations)) {
-        const single = isLinkSpec(spec)
-        const got = single ? live.one(from, id, name) : [...live.many(from, id, name)].sort()
-        const want = single ? scan.one(from, id, name) : [...scan.many(from, id, name)]
-        const size = single ? null : live.size(from, id, name)
-        if (JSON.stringify(got) === JSON.stringify(want) && (size === null || size === want.length))
-          continue
+        let got: unknown
+        let want: unknown
+        if (isLinkSpec(spec)) {
+          got = live.one(from, id, name)
+          want = scan.one(from, id, name)
+        } else {
+          const members = [...live.many(from, id, name)].sort()
+          const size = live.size(from, id, name)
+          got = size === members.length ? members : { members, size }
+          want = [...scan.many(from, id, name)]
+        }
+        if (JSON.stringify(got) === JSON.stringify(want)) continue
         if (out.length < 12) {
           out.push(`${from}:${id}.${name}: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`)
         }
