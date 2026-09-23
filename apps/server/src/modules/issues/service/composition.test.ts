@@ -13,8 +13,12 @@ const source = (relative: string): string =>
 
 describe('issue tracker capability composition', () => {
   it('exposes all capability interfaces over the same live store', async () => {
+    const store = await openTestStore(':memory:')
+    // An issue's repo resolves only through a machine that reported it (2b803efb5),
+    // so the fixture repo is reported by the host machine.
+    await store.repos.addRepo('/repo', store.hostMachineId)
     const deps: IssueDeps = {
-      store: await openTestStore(':memory:'),
+      store,
       ...sessionReadPorts(() => []),
       getSettings: async () =>
         normalizeSettings({

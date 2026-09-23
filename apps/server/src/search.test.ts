@@ -11,7 +11,7 @@ import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { forceFeature } from './test-support/features'
 import { openTestStore } from './test-support/open-test-store'
-import { attachHostDaemon } from './test-support/host-daemon'
+import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so
@@ -23,6 +23,25 @@ forceFeature('command-palette', true)
 const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 const READER = { kind: 'user' as const, id: firstAdminMemberId() }
+
+/**
+ * Attach the fixture daemon 'm1' as the machine that runs agents and reports the
+ * fixture repos (POD-4631): placement refuses a machine with no row assigned
+ * `agentExecution`, and an issue's repo resolves only through a reporting machine.
+ */
+async function attachFixtureDaemon(registry: SessionRegistry): Promise<void> {
+  const store = registry.sessionStore
+  await store.machines.upsertMachine({
+    id: 'm1',
+    name: 'm1',
+    hostname: 'm1',
+    tokenHash: 'm1',
+    ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
+  })
+  for (const path of ['/repo', '/private']) await store.repos.addRepo(path, asMachineId('m1'))
+  await registry.gateway.attachDaemon('m1', confirmingRetirement(registry, 'm1', () => {}))
+}
 
 // Omni-search (docs/spec/search-v1.md §2.4): one query, ranked typed hits across
 // sessions, issues (+comments), conversations, lake-indexed transcripts and the
@@ -39,7 +58,7 @@ describe('MemoryService omni-search', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    registry.gateway.attachDaemon('m1', () => {})
+    await attachFixtureDaemon(registry)
 
     // Session named after the phrase.
     const { sessionId } = await registry.modules.sessions.createSession({
@@ -243,7 +262,7 @@ describe('MemoryService omni-search', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    registry.gateway.attachDaemon('m1', () => {})
+    await attachFixtureDaemon(registry)
 
     const issueIds: string[] = []
     const conversationIds: string[] = []
@@ -357,7 +376,7 @@ describe('search.query tRPC', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    registry.gateway.attachDaemon('m1', () => {})
+    await attachFixtureDaemon(registry)
     const bob = asUserId('usr_bob')
     const { sessionId } = await registry.modules.sessions.createSession({
       ownerUserId: bob,
@@ -431,7 +450,7 @@ describe('search.query tRPC', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    registry.gateway.attachDaemon('m1', () => {})
+    await attachFixtureDaemon(registry)
     const bob = asUserId('usr_bob')
     const bind = async (ownerUserId: typeof bob, nativeId: string, cwd: string) => {
       const { sessionId } = await registry.modules.sessions.createSession({

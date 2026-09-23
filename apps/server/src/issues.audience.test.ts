@@ -43,9 +43,17 @@ const asWire = (v: unknown): IssueWire => v as IssueWire
 
 const withWarning = (v: unknown): string | undefined => (v as { warning?: string }).warning
 
+/** A registry whose host reported the fixture repo: an issue's repo resolves only
+ *  through a machine that reported it (2b803efb5 refuses implicit placement). */
+async function registryWithRepo(): Promise<SessionRegistry> {
+  const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+  return reg
+}
+
 describe('issues.create provenance (#198)', () => {
   it('operator create → origin/audience human, no warning, not flagged', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     try {
       const op = ctx(reg, OPERATOR)
       const created = await op.issues.create({
@@ -63,7 +71,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent top-level create → human-facing proposed, without needsHuman', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -87,7 +95,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent top-level create forces audience human even if agent passes audience agent', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -109,7 +117,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent top-level audience input cannot bypass proposed curation', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -131,7 +139,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('agent sub-issue create → internal, not forced-visible, not attention-flagged', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -154,7 +162,7 @@ describe('issues.create provenance (#198)', () => {
   })
 
   it('nested agent sub-issue stays internal and unflagged', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
@@ -180,7 +188,7 @@ describe('issues.create provenance (#198)', () => {
     }
   })
   it('rejects agent promotion while allowing operator promotion', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     try {
       const op = ctx(reg, OPERATOR)
       const root = await op.issues.create({ repoPath: '/r', title: 'root', startNow: false })
@@ -212,7 +220,7 @@ describe('issues.create provenance (#198)', () => {
  *  attach, and the proposal-subtree inertness rule. */
 describe('proposed lane bypass paths are closed (B1-B4)', () => {
   const setup = async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const reg = await registryWithRepo()
     const op = ctx(reg, OPERATOR)
     const root = await op.issues.create({ repoPath: '/r', title: 'root', startNow: false })
     const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: root.id } })

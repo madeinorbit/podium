@@ -21,7 +21,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
 
   async function setup() {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg, () => {})
+    await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
     await reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
     const s1 = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',

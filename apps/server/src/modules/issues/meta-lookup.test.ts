@@ -8,6 +8,9 @@ import { issueTestPlumbing } from './service/test-plumbing'
 
 async function harness() {
   const store = await openTestStore(':memory:')
+  // An issue's repo resolves only through a machine that reported it (2b803efb5),
+  // so the fixture repo is reported by the host machine.
+  await store.repos.addRepo('/repo', store.hostMachineId)
   // POD-826's assertion, restated for POD-3857: the cheap lookups must not
   // enumerate the fleet AT ALL — not even the in-memory facts read that
   // replaced the reader-scoped projection here.

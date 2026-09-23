@@ -22,6 +22,7 @@ async function captureSpawn(over: {
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
   await store.machines.setMachineInventory(
     'm1',

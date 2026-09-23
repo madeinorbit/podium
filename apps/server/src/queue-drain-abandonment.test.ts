@@ -25,6 +25,7 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
+import { confirmingRetirement } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
 const MACHINE = 'm1'
@@ -51,13 +52,17 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
         hostname: id,
         tokenHash: `token-${id}`,
         ownerUserId: firstAdminMemberId(),
+        assignment: { server: false, agentExecution: true },
       })
       await store.machines.setMachineInventory(id, INVENTORY)
     }
     registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     toDaemon = []
-    registry.gateway.attachDaemon(MACHINE, (message) => toDaemon.push(message))
-    registry.gateway.attachDaemon(OTHER_MACHINE, () => {})
+    await registry.gateway.attachDaemon(
+      MACHINE,
+      confirmingRetirement(registry, MACHINE, (message) => toDaemon.push(message)),
+    )
+    await registry.gateway.attachDaemon(OTHER_MACHINE, confirmingRetirement(registry, OTHER_MACHINE, () => {}))
     return () => registry.dispose()
   })
 

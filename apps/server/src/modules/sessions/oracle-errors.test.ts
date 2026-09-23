@@ -147,6 +147,8 @@ describe('oracle: not-found shape, per write', () => {
 
   it(`${EXISTENCE_ORACLE}: via the RELAY, not-found and authz-denied are DIFFERENT messages — the send path is an existence oracle today`, async () => {
     const o = await makeOracle()
+    // An issue's repo resolves only through a machine that reported it (2b803efb5).
+    await o.store.repos.addRepo('/r', o.store.hostMachineId)
     const a = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
     const b = await o.reg.issues.create({ repoPath: '/r', title: 'B', startNow: false })

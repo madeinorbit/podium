@@ -103,7 +103,11 @@ const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
   }) as IssueRow
 
 const freshStore = async (): Promise<SessionStore> => {
-  return await openTestStore(':memory:')
+  const store = await openTestStore(':memory:')
+  // An issue's repo resolves only through a machine that reported it (2b803efb5),
+  // so the fixture repo is reported by the host machine.
+  await store.repos.addRepo('/r', store.hostMachineId)
+  return store
 }
 
 describe('issue scope read cache', () => {

@@ -138,10 +138,27 @@ describe('startServer with the hub role disabled (node shape)', () => {
    * `machines.rename`'s to `core`. Neither direction is silent.
    */
   it('core fleet writes are NOT gated: repos.add/remove keep working with the hub role off', async () => {
-    expect(await trpc.repos.add.mutate({ path: '/abs/node-repo' })).toContain('/abs/node-repo')
-    expect(await trpc.repos.remove.mutate({ path: '/abs/node-repo' })).not.toContain(
-      '/abs/node-repo',
-    )
+    // An unpinned repos.add lands on the default machine, which is one assigned
+    // agent execution with its daemon attached (34aa06cf2) — the all-in-one host
+    // with its local daemon. The enrolled fixture host is server-only and has no
+    // daemon, so give it the shape the node actually runs, for this test only.
+    const host = handle.registry.modules.machines.hostMachineId
+    const before = (await handle.registry.sessionStore.machines.getMachine(host))?.serviceAssignment
+    await handle.registry.sessionStore.machines.setServiceAssignment(host, {
+      server: true,
+      agentExecution: true,
+    })
+    const daemon = (): void => {}
+    await handle.registry.gateway.attachDaemon(host, daemon)
+    try {
+      expect(await trpc.repos.add.mutate({ path: '/abs/node-repo' })).toContain('/abs/node-repo')
+      expect(await trpc.repos.remove.mutate({ path: '/abs/node-repo' })).not.toContain(
+        '/abs/node-repo',
+      )
+    } finally {
+      handle.registry.gateway.detachDaemon(host, daemon)
+      if (before) await handle.registry.sessionStore.machines.setServiceAssignment(host, before)
+    }
   })
 
   /**

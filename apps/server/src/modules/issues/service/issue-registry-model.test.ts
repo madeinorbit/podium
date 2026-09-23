@@ -48,6 +48,9 @@ interface Harness {
 
 const open = async (): Promise<Harness> => {
   const store = await openTestStore(':memory:')
+  // An issue's repo resolves only through a machine that reported it (2b803efb5),
+  // so the fixture repo is reported by the host machine.
+  await store.repos.addRepo('/repo', store.hostMachineId)
   let during: { fn: () => Promise<void>; when: 'before' | 'after' } | null = null
   let fail = false
   const transact: LedgerDeps['transact'] = async (fn) => {

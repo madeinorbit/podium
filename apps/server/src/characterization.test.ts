@@ -226,6 +226,9 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       instanceId: 'default',
     })
     registries.push(reg)
+    // An issue's repo resolves only through a machine that reported it (2b803efb5);
+    // the one host reports it, identically in all three runs.
+    await reg.sessionStore.repos.addRepo('/repo', reg.sessionStore.hostMachineId)
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
     const c = sink()
@@ -341,6 +344,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 describe('characterization: closed-state normalization (contract 2, issue #24)', () => {
   it('a bare closedReason patch moves the stage to done (#24)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
       const w = await reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
       const patched = await reg.issues.update(w.id, { closedReason: 'wontfix' })
@@ -369,6 +373,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
 
   it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
       const w = await reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
       await reg.issues.close(w.id) // stage done + closedReason 'done'
@@ -393,6 +398,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
 
   it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
       const w = await reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
       await reg.issues.close(w.id)
@@ -508,7 +514,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // Populate one row in each family through the real write paths.
     const store1 = await openTestStore(file)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg1, () => {})
+    await attachHostDaemon(reg1, () => {}, { repos: ['/repo'] })
     const { sessionId } = await reg1.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
@@ -584,6 +590,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
 
   it('scope violations are PRECONDITION_FAILED, role denials are FORBIDDEN, operator passes — identically via the middleware and the in-proc mailClaim check', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
       const op = appRouter.createCaller({
         registry: reg,

@@ -43,6 +43,9 @@ async function fleet() {
     hostname: 'mango.local',
     tokenHash: 'h',
     ownerUserId: firstAdminMemberId(),
+    // Enrollment assigns agent execution; the durable `daemon` component is that
+    // assignment (a bare upsert defaults to no components at all).
+    assignment: { server: false, agentExecution: true },
   })
   const laptop = asMachineId('laptop')
   // A daemon attaching is what records the durable `daemon` component.

@@ -26,6 +26,14 @@ function rawDb(s: SessionStore): {
   return (s as unknown as { db: ReturnType<typeof rawDb> }).db
 }
 
+/** A store whose host reported the fixture repo: an issue's repo resolves only
+ *  through a machine that reported it (2b803efb5). */
+async function storeWithRepo(): Promise<SessionStore> {
+  const s = await openTestStore(':memory:')
+  await s.repos.addRepo('/r', s.hostMachineId)
+  return s
+}
+
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
     id: asIssueId('iss_x'),
@@ -79,7 +87,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 
 describe('issue schema: FK behavior at runtime', () => {
   it('deleting an issue cascades onto labels/deps/comments/messages', async () => {
-    const s = await openTestStore(':memory:')
+    const s = await storeWithRepo()
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_a'), seq: 1 }))
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_b'), seq: 2 }))
     await s.issues.setIssueLabels(asIssueId('iss_a'), ['ui'])
@@ -114,7 +122,7 @@ describe('issue schema: FK behavior at runtime', () => {
   })
 
   it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", async () => {
-    const s = await openTestStore(':memory:')
+    const s = await storeWithRepo()
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_parent'), seq: 1 }))
     await s.issues.upsertIssue(
       issueRow({ id: asIssueId('iss_child'), seq: 2, parentId: asIssueId('iss_parent') }),
@@ -137,7 +145,7 @@ describe('issue schema: FK behavior at runtime', () => {
   })
 
   it('rejects a child row for an issue that does not exist', async () => {
-    const s = await openTestStore(':memory:')
+    const s = await storeWithRepo()
     expect(() =>
       rawDb(s)
         .prepare(
@@ -149,7 +157,7 @@ describe('issue schema: FK behavior at runtime', () => {
   })
 
   it('CHECK rejects a garbage stage/type/priority at the SQL layer', async () => {
-    const s = await openTestStore(':memory:')
+    const s = await storeWithRepo()
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_ok') }))
     const upd = (col: string, v: unknown) =>
       rawDb(s).prepare(`UPDATE issues SET ${col} = ? WHERE id = 'iss_ok'`).run(v)

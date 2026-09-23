@@ -11,6 +11,7 @@ import { IssueToolProvider } from './issue-mcp'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { confirmingRetirement } from './test-support/host-daemon'
 
 type LifecycleName = 'archive' | 'depRemove' | 'reparent' | 'supersede' | 'duplicate'
 
@@ -28,6 +29,9 @@ interface LifecycleFixture {
 }
 
 async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
+  // An issue's repo resolves only through a machine that reported it (2b803efb5),
+  // so the fixture repo is reported by the host machine.
+  await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
   const create = async (title: string, parentId?: IssueId) =>
     await registry.issues.create({
       repoPath: '/repo',
@@ -162,18 +166,33 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
     let relayServer: Awaited<ReturnType<typeof startAgentRelayServer>> | undefined
     try {
       const f = await fixture(registry)
+      const machineId = 'lifecycle-machine'
+      // The relaying daemon's machine is the one that runs the agent: placement
+      // needs a machine assigned agentExecution with a daemon attached (34aa06cf2),
+      // so it is enrolled and attached before the worktree is homed and the
+      // session is created.
+      await registry.sessionStore.machines.upsertMachine({
+        id: machineId,
+        name: machineId,
+        hostname: machineId,
+        tokenHash: 'lifecycle-token',
+        ownerUserId: firstAdminMemberId(),
+        assignment: { server: false, agentExecution: true },
+      })
+      const hub = createAgentRelayHub((msg: DaemonMessage) =>
+        registry.gateway.routeDaemonFrame(machineId, msg),
+      )
+      await registry.gateway.attachDaemon(
+        machineId,
+        confirmingRetirement(registry, machineId, (msg: ControlMessage) => {
+          if (msg.type === 'agentRelayResult') hub.onResult(msg)
+        }),
+      )
       await registry.issues.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
       const sessionId = (await registry.modules.sessions.createSession({
         cwd: '/wt/lifecycle-root',
         agentKind: 'shell',
       })).sessionId
-      const machineId = 'lifecycle-machine'
-      const hub = createAgentRelayHub((msg: DaemonMessage) =>
-        registry.gateway.routeDaemonFrame(machineId, msg),
-      )
-      registry.gateway.attachDaemon(machineId, (msg: ControlMessage) => {
-        if (msg.type === 'agentRelayResult') hub.onResult(msg)
-      })
       relayServer = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })
       const client = makeRelayIssueClient(relayServer.endpointFor(sessionId))
 

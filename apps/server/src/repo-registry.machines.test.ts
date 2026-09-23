@@ -20,6 +20,7 @@ async function regWithTwoDaemons() {
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
   await store.machines.upsertMachine({
     id: 'm2',
@@ -27,13 +28,14 @@ async function regWithTwoDaemons() {
     hostname: 'two',
     tokenHash: 'y',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
-  reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
-  reg.gateway.attachDaemon('m2', (msg) => m2Out.push(msg))
+  await reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
+  await reg.gateway.attachDaemon('m2', (msg) => m2Out.push(msg))
   return { reg, repos, store, m1Out, m2Out }
 }
 
@@ -252,11 +254,12 @@ describe('RepoRegistry.scanReposAll()', () => {
       hostname: 'one',
       tokenHash: 'x',
       ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []
-    reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
+    await reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
     await repos.add('/repo', asMachineId('m1'))
 
     const scanPromise = repos.scanReposAll()

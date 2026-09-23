@@ -53,6 +53,7 @@ import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import type { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { assignHostMachine, confirmingRetirement } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import type { PortableStateFence } from '../server-transfer/portable-fence'
 import { SuperagentService } from '../superagent'
@@ -218,6 +219,9 @@ export async function makeOracle(
       // The oracle's fixture fleet belongs to the instance's one account: these
       // rows stand in for machines the operator paired (POD-1079).
       ownerUserId: firstAdminMemberId(),
+      // Paired to run agents: an unassigned row reads "runs no Podium daemon"
+      // rather than offline since 34aa06cf2.
+      assignment: { server: false, agentExecution: true },
     })
     await store.machines.setMachineInventory(
       machine.id,
@@ -231,6 +235,9 @@ export async function makeOracle(
       }),
     )
   }
+  // The host's own machine row, as setup enrollment writes it: boot no longer
+  // provisions it (6fd4f7221), and placement needs an assigned daemon (34aa06cf2).
+  await assignHostMachine(store)
   const reg = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
@@ -238,17 +245,16 @@ export async function makeOracle(
     ...(opts.mailAwait ? { mailAwait: opts.mailAwait } : {}),
   })
   registries.push(reg)
-  // The daemon the oracle attaches is THIS HOST's (POD-318): the registry
-  // provisioned its row on construction, so it has a credential to have
-  // authenticated with and an owner to be granted `use` by — the same posture a
-  // real boot leaves behind. A caller naming its own machineId is asking for a
+  // The daemon the oracle attaches is THIS HOST's (POD-318): its row was
+  // written above, so it has an owner to be granted `use` by — the same posture
+  // setup enrollment leaves behind. A caller naming its own machineId is asking for a
   // machine the fixture has NOT registered, which is a refusal, on purpose.
   const machineId = opts.machineId ?? store.hostMachineId
   const daemon: ControlMessage[] = []
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
   const relayWaiters: ((msg: ControlMessage) => void)[] = []
-  await reg.gateway.attachDaemon(machineId, (msg) => {
+  await reg.gateway.attachDaemon(machineId, confirmingRetirement(reg, machineId, (msg) => {
     daemon.push(msg)
     for (const waiter of relayWaiters) waiter(msg)
     // Answer the one RPC a session write makes of its daemon: `stop` inspects the
@@ -263,7 +269,7 @@ export async function makeOracle(
         output: '',
       })
     }
-  })
+  }))
   // A real daemon reports its current inventory immediately after attaching.
   // Without this frame the fixture describes a connection that is permanently
   // mid-probe, and every harness-gated command exercises reconnect timing

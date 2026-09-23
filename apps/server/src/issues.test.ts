@@ -35,6 +35,9 @@ const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function harness(sessions: SessionMeta[] = []) {
   const store = await openTestStore(':memory:')
+  // Issues are placed on a machine that reported their repo (2b803efb5 refuses
+  // implicit placement), so the fixture's repo is reported by the host machine.
+  await store.repos.addRepo('/r', store.hostMachineId)
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
@@ -488,6 +491,7 @@ describe('IssueService unread (#124)', () => {
     // (computeUnread uses lastActivity > readAt, not >=).
     let clock = '2026-06-30T00:00:00.000Z'
     const store = await openTestStore(':memory:')
+    await store.repos.addRepo('/r', store.hostMachineId)
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -590,6 +594,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     // Mutable clock so a repeated tuck could visibly move the stamp if it did.
     let clock = '2026-06-30T00:00:00.000Z'
     const store = await openTestStore(':memory:')
+    await store.repos.addRepo('/r', store.hostMachineId)
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -1514,8 +1519,10 @@ describe('IssueService.start', () => {
   })
 
   it('records and reuses the resolver-selected remote machine', async () => {
-    const { svc, deps } = await harness()
+    const { svc, deps, store } = await harness()
     const selected = asMachineId('repo-affine-remote')
+    // The remote the resolver selects is the machine that reported the repo.
+    await store.repos.addRepo('/remote/repo', selected)
     deps.resolveMachine = vi.fn(async () => selected)
     const created = await svc.create({
       repoPath: '/remote/repo',
@@ -1744,7 +1751,9 @@ describe('IssueService.start', () => {
   it('refuses a target that is a DIFFERENT repository, before building anything', async () => {
     // The identity guard rehome applies: a target whose repoId differs would silently
     // renumber the issue into another repo. It must refuse on this path too.
-    const { svc, deps } = await harness()
+    const { svc, deps, store } = await harness()
+    // The target machine reports its (different) repository, as its daemon's scan would.
+    await store.repos.addRepo('/somewhere/entirely-else', asMachineId('mach-b'))
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/somewhere/entirely-else' }))
     const created = await svc.create({
@@ -3109,6 +3118,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
 describe('IssueService graph (P2a)', () => {
   it('returns nodes for repo issues and edges from issue_deps', async () => {
     const { svc, store } = await harness()
+    await store.repos.addRepo('/other', store.hostMachineId)
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     await svc.create({ repoPath: '/other', title: 'X', startNow: false })
@@ -3655,14 +3665,16 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   })
 
   it('throws on a seq that exists in several repos (per-repo counters collide)', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
+    for (const path of ['/r1', '/r2']) await store.repos.addRepo(path, store.hostMachineId)
     await svc.create({ repoPath: '/r1', title: 'A', startNow: false })
     await svc.create({ repoPath: '/r2', title: 'B', startNow: false })
     await expect(svc.resolveRef('1')).rejects.toThrow(/ambiguous issue ref #1/)
   })
 
   it('resolves repo-qualified refs — the exact form the ambiguity error prints', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
+    for (const path of ['/home/u/r1', '/home/u/r2']) await store.repos.addRepo(path, store.hostMachineId)
     const a = await svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
     const b = await svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
     // full repoPath#seq (copy-pasted from the ambiguity error) resolves
@@ -3675,7 +3687,8 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   })
 
   it('the ambiguity error is copy-paste actionable: its printed refs resolve', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
+    for (const path of ['/home/u/r1', '/home/u/r2']) await store.repos.addRepo(path, store.hostMachineId)
     const a = await svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
     await svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
     let message = ''
@@ -3691,7 +3704,8 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   })
 
   it('a suffix ref matching several repos throws instead of guessing', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
+    for (const path of ['/a/podium', '/b/podium']) await store.repos.addRepo(path, store.hostMachineId)
     await svc.create({ repoPath: '/a/podium', title: 'A', startNow: false })
     await svc.create({ repoPath: '/b/podium', title: 'B', startNow: false })
     await expect(svc.resolveRef('podium#1')).rejects.toThrow(/ambiguous issue ref podium#1/)
@@ -3885,6 +3899,9 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
   it("uses git's primary working tree guard even without a repos-table match", async () => {
     const h = await harness()
     const issue = await prepared(h)
+    // The harness reports /r so the issue can be created (2b803efb5); this case is
+    // about a free with NO repos-table match, so the report is withdrawn first.
+    await h.store.repos.removeRepo('/r', h.store.hostMachineId)
     const row = (
       h.svc as never as {
         rows: Map<string, { worktreePath: string | null; branch: string | null }>
@@ -4930,7 +4947,8 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
   })
 
   it('depReport without id covers the repo', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
+    await store.repos.addRepo('/other', store.hostMachineId)
     await svc.create({ repoPath: '/r', title: 'x', startNow: false })
     await svc.create({ repoPath: '/other', title: 'y', startNow: false })
     expect((await svc.depReport({ repoPath: '/r' })).map((e) => e.title)).toEqual(['x'])

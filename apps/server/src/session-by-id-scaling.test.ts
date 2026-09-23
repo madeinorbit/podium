@@ -40,6 +40,7 @@ import { describe, expect, it } from 'vitest'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { SessionView } from './modules/sessions/view'
 import { SessionRegistry } from './relay'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 /** Capability shape a session-actor command arrives with — the relay builds it
  *  from the authenticated transport, never from a payload. */
@@ -51,6 +52,8 @@ const actorCapability = (sessionId: string) =>
  * return the leaf's id — the session a command would arrive as.
  */
 async function seedChain(reg: SessionRegistry, count: number, chainDepth: number): Promise<string> {
+  // Placement needs an assigned machine with a daemon attached (34aa06cf2).
+  await attachHostDaemon(reg)
   const ids: string[] = []
   for (let i = 0; i < count; i++) {
     const parent = i > 0 && i > count - 1 - chainDepth ? ids[i - 1] : undefined
