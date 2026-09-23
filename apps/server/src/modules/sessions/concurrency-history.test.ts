@@ -1,6 +1,10 @@
 import { type AgentRuntimeState, asSessionId } from '@podium/model'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import type { SessionStore } from '../../store'
 import type { PodiumEventRecord } from '../../store/events'
+import { probeStatements, type StatementProbeHolder } from '../../store/executor/statement-probe'
+import { openTestStore } from '../../test-support/open-test-store'
 import { EventBus } from '../bus'
 import {
   AGENT_CONCURRENCY_BUCKET_MS,
@@ -158,6 +162,109 @@ describe('AgentConcurrencyHistory', () => {
     bus.emit('session.exited', { sessionId: asSessionId('s1'), code: 1 })
 
     expect(rows.map((row) => row.payload)).toEqual([{ count: 1 }, { count: 0 }])
+    history.dispose()
+  })
+})
+
+/**
+ * POD-4644. Every open shell polls this graph every five minutes, and on a
+ * real-size log the read froze the whole server for seconds: it walked EVERY
+ * `fleet.agent_concurrency` row the log had ever kept (4,458 on the POD-4604
+ * copy, each on its own page between big `session.runtime` payloads) and sorted
+ * them, twice per poll. These run the recorder against the REAL store and judge
+ * the SQL it actually issued — the plan decides the cost; a timing assertion on
+ * a small fixture passes either way.
+ */
+describe('AgentConcurrencyHistory against the real event log', () => {
+  const fleetRow = (ts: string, count: number) => ({
+    ts,
+    kind: AGENT_CONCURRENCY_EVENT,
+    subject: 'fleet',
+    payload: { count },
+  })
+
+  /** Every podium_events read the store executes while `during` runs. */
+  const eventReads = async (store: SessionStore, during: () => Promise<unknown>) => {
+    const seen: { sql: string; rows: number }[] = []
+    const detach = probeStatements(store as unknown as StatementProbeHolder, (observation) => {
+      if (/^\s*select\b/i.test(observation.sql) && /from\s+"?podium_events"?/i.test(observation.sql)) {
+        seen.push({ sql: observation.sql, rows: observation.rows })
+      }
+    })
+    try {
+      await during()
+    } finally {
+      detach()
+    }
+    return seen
+  }
+
+  const planOf = (store: SessionStore, sql: string): string => {
+    const db = (store as unknown as { db: SqlDatabase }).db
+    const params = Array.from({ length: (sql.match(/\?/g) ?? []).length }, () => null)
+    return (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[])
+      .map((row) => row.detail)
+      .join(' | ')
+  }
+
+  const seeded = async () => {
+    const store = await openTestStore(':memory:')
+    const hour = 3_600_000
+    // A long history before the window, interleaved with other kinds, so a read
+    // keyed on kind alone has real rows to walk and sort.
+    for (let i = 48; i >= 1; i -= 1) {
+      await store.events.appendEvent(fleetRow(new Date(NOW - i * hour).toISOString(), i % 7))
+      await store.events.appendEvent({
+        ts: new Date(NOW - i * hour).toISOString(),
+        kind: 'session.runtime',
+        subject: 's1',
+        payload: { t: 'item' },
+      })
+    }
+    const history = new AgentConcurrencyHistory({
+      sessions: () => [],
+      events: store.events,
+      bus: new EventBus(),
+      now: () => NOW,
+    })
+    return { store, history }
+  }
+
+  it('serves every read from an index search, with no scan and no sort', async () => {
+    const { store, history } = await seeded()
+    const reads = [
+      ...(await eventReads(store, () => history.history())),
+      ...(await eventReads(store, () => history.history())),
+    ]
+
+    expect(reads.length).toBeGreaterThan(0)
+    for (const read of reads) {
+      const plan = planOf(store, read.sql)
+      expect(plan, read.sql).toMatch(/SEARCH podium_events USING (?:COVERING )?INDEX/)
+      expect(plan, read.sql).not.toContain('SCAN podium_events')
+      expect(plan, read.sql).not.toContain('TEMP B-TREE')
+    }
+    history.dispose()
+  })
+
+  it('reads only the rows appended since its last read, and answers the same', async () => {
+    const { store, history } = await seeded()
+    const first = await history.history()
+
+    await store.events.appendEvent(fleetRow(new Date(NOW - 1_000).toISOString(), 11))
+    let second: Awaited<ReturnType<typeof history.history>> | undefined
+    const reads = await eventReads(store, async () => {
+      second = await history.history()
+    })
+
+    // The window held 12+ rows; the steady-state poll must not fetch them again.
+    expect(first.buckets.some((bucket) => bucket.count > 0)).toBe(true)
+    expect(reads.reduce((sum, read) => sum + read.rows, 0)).toBe(1)
+    // …and the answer is exactly what a full re-read of the log gives.
+    const since = new Date(NOW - AGENT_CONCURRENCY_BUCKET_MS * AGENT_CONCURRENCY_BUCKETS).toISOString()
+    const full = await store.events.listKindSubjectSinceWithPrior(AGENT_CONCURRENCY_EVENT, 'fleet', since)
+    expect(second).toEqual(buildAgentConcurrencyHistory(full, NOW))
+    expect(second?.buckets.at(-1)?.count).toBe(11)
     history.dispose()
   })
 })
