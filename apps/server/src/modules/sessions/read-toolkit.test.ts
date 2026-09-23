@@ -257,6 +257,64 @@ describe('session status (tier 1)', () => {
   })
 })
 
+/**
+ * THE LINK RESOLVER (POD-4637). A web pane link and a phone session route ask
+ * the server what a short id names, through the SAME rule `podium session
+ * status` uses — never a client-side prefix matcher. The answer is structured
+ * so a client can say "ambiguous" or "not found" instead of "not here yet".
+ */
+describe('session identifier resolution for links', () => {
+  const a = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const b = 'aaaaaaaa-2222-4222-8222-222222222222'
+  const c = '214a3887-6146-4a1d-9c3e-0123456789ab'
+
+  it('resolves an unambiguous prefix to the full id', async () => {
+    const { toolkit } = harness({
+      sessions: [session({ sessionId: asSessionId(a) }), session({ sessionId: asSessionId(c) })],
+    })
+    expect(await toolkit.resolveIdentifier('214a3887')).toEqual({ kind: 'session', sessionId: c })
+    expect(await toolkit.resolveIdentifier('214a')).toEqual({ kind: 'session', sessionId: c })
+    expect(await toolkit.resolveIdentifier(c)).toEqual({ kind: 'session', sessionId: c })
+  })
+
+  it('answers ambiguous with the candidates and the CLI message', async () => {
+    const { toolkit } = harness({
+      sessions: [session({ sessionId: asSessionId(a) }), session({ sessionId: asSessionId(b) })],
+    })
+    const res = await toolkit.resolveIdentifier('aaaaaaaa')
+    expect(res).toEqual({
+      kind: 'ambiguous',
+      prefix: 'aaaaaaaa',
+      candidates: [a, b],
+      message: `ambiguous session id prefix 'aaaaaaaa' matches 2 sessions: ${a}, ${b}`,
+    })
+  })
+
+  it('answers absent for a prefix naming nothing', async () => {
+    const { toolkit } = harness({ sessions: [session({ sessionId: asSessionId(a) })] })
+    expect(await toolkit.resolveIdentifier('bbbb')).toEqual({ kind: 'absent' })
+  })
+
+  it('resolves a permanent birth ref too', async () => {
+    const { toolkit } = harness({
+      sessions: [
+        session({
+          sessionId: asSessionId(c),
+          displayRef: 'POD-529-A',
+          refIssueId: ISSUE.id,
+          refLetter: 'A',
+        }),
+      ],
+    })
+    expect(await toolkit.resolveIdentifier('POD-529-A')).toEqual({ kind: 'session', sessionId: c })
+  })
+
+  it('does not resolve an issue ref: a session link names a session', async () => {
+    const { toolkit } = harness()
+    expect(await toolkit.resolveIdentifier('#228')).toEqual({ kind: 'absent' })
+  })
+})
+
 describe('session read (tier 2)', () => {
   it('returns the bounded window with a paging cursor and event-logs the read', async () => {
     const { toolkit, events } = harness({ hasMore: true })

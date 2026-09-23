@@ -786,6 +786,103 @@ describe('stale workspace tabs (POD-710)', () => {
 })
 
 /**
+ * A SHORT SESSION ID IN A PANE LINK (POD-4637).
+ *
+ * `podium session status 214a3887` resolves; `/workspace?pane=214a3887` used to
+ * adopt the prefix as a tab id that named nothing, so the link silently opened
+ * nothing. The pane now asks the server — the SAME resolver the CLI uses — and
+ * swaps in the full id, or says why it cannot.
+ */
+describe('short session id pane links (POD-4637)', () => {
+  const FULL = '214a3887-6146-4a1d-9c3e-0123456789ab'
+  const openTabIds = (engine: ReturnType<typeof makeEngine>['engine']): string[] =>
+    Object.values(engine.getSnapshot().workspaces).flatMap((ws) =>
+      Object.values(ws.panes).flatMap((pane) => pane.tabs),
+    )
+  const apiResolving = (answer: unknown) => {
+    const api = makeApi()
+    const resolve = vi.fn(async () => answer)
+    api.sessions.resolve = { query: resolve }
+    return { api, resolve }
+  }
+
+  it('a cold pane link with a short id opens the full session', async () => {
+    const { api, resolve } = apiResolving({ kind: 'session', sessionId: FULL })
+    const { engine, rw, errors } = makeEngine({
+      url: '/workspace?wt=%2Ftmp%2Fknown-repo&pane=214a3887',
+      api,
+    })
+    engine.replica.applySnapshot('sessions', [session(FULL, '/tmp/known-repo')])
+    engine.start()
+    await settle(60)
+    expect(resolve).toHaveBeenCalledWith({ identifier: '214a3887' })
+    expect(engine.getSnapshot().paneA).toBe(FULL)
+    expect(rw.url()).toContain(`pane=${FULL}`)
+    expect(openTabIds(engine)).toContain(FULL)
+    expect(openTabIds(engine)).not.toContain('214a3887')
+    expect(errors).toEqual([])
+    engine.dispose()
+  })
+
+  it('a warm route change to a short id opens the full session', async () => {
+    const { api } = apiResolving({ kind: 'session', sessionId: FULL })
+    const { engine, rw } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', api })
+    engine.start()
+    engine.replica.applySnapshot('sessions', [session(FULL, '/tmp/known-repo')])
+    await settle(40)
+    rw.popTo('/workspace?wt=%2Ftmp%2Fknown-repo&pane=214a')
+    await settle(60)
+    expect(engine.getSnapshot().paneA).toBe(FULL)
+    expect(rw.url()).toContain(`pane=${FULL}`)
+    expect(openTabIds(engine)).not.toContain('214a')
+    engine.dispose()
+  })
+
+  it('an ambiguous short id says so and opens nothing', async () => {
+    const message = "ambiguous session id prefix '2' matches 2 sessions: 2a, 2b"
+    const { api } = apiResolving({ kind: 'ambiguous', prefix: '2', candidates: ['2a', '2b'], message })
+    const { engine, rw, errors } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', api })
+    engine.start()
+    await settle(40)
+    const before = engine.getSnapshot().paneA
+    rw.popTo('/workspace?wt=%2Ftmp%2Fknown-repo&pane=2')
+    await settle(60)
+    expect(errors).toEqual([`Couldn't open session link — ${message}`])
+    expect(openTabIds(engine)).not.toContain('2')
+    expect(engine.getSnapshot().paneA).toBe(before)
+    engine.dispose()
+  })
+
+  it('an unknown short id says not found and opens nothing', async () => {
+    const { api } = apiResolving({ kind: 'absent' })
+    const { engine, errors } = makeEngine({
+      url: '/workspace?wt=%2Ftmp%2Fknown-repo&pane=bbbbbbbb',
+      api,
+    })
+    engine.start()
+    await settle(60)
+    expect(errors).toEqual(["Couldn't open session link — no session matches 'bbbbbbbb'"])
+    expect(openTabIds(engine)).not.toContain('bbbbbbbb')
+    expect(engine.getSnapshot().paneA).not.toBe('bbbbbbbb')
+    engine.dispose()
+  })
+
+  it('a full session id never asks the server (optimistic spawns stay early, not gone)', async () => {
+    const { api, resolve } = apiResolving({ kind: 'absent' })
+    const { engine, errors } = makeEngine({
+      url: `/workspace?wt=%2Ftmp%2Fknown-repo&pane=${FULL}`,
+      api,
+    })
+    engine.start()
+    await settle(60)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(engine.getSnapshot().paneA).toBe(FULL)
+    expect(errors).toEqual([])
+    engine.dispose()
+  })
+})
+
+/**
  * FILE TABS SURVIVE THE VISIT (POD-1247).
  *
  * The layouts always persisted tab IDS; the file RECORDS they name did not, so
