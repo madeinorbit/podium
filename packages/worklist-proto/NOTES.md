@@ -601,6 +601,8 @@ at `2efe456d7`. Targets: heartbeat `s2623` (invisible), visibleHeartbeat `i921`.
   queued vs waiting; mobx `i3117` missing), identical hashes on a clean
   checkout of the base `164b9ae7d` with `heartbeat,clock` only: not this
   issue's. Their `visibleHeartbeat` under-draw (the row's `activityAt` moved,
-  nothing redrew) is new information, reported to the coordinator.
+  nothing redrew) was reported to the coordinator. CORRECTION (coordinator,
+  2026-09-23): the browser pages' hand and mobx are the ROUND-TWO arms (L5c
+  already showed they fail parity), so neither finding is an Hx/Mx action.
 - FINDING filed as POD-4652: a driver crash (page never ready) writes the JSON
   as `status: ok` with 0 records; seen while proving the base.
