@@ -55,7 +55,64 @@ the schema".
 
 ### Findings
 
-(filled below as runs land)
+1. **#1's commit fence can no longer be met by the a1 list.** Its session is
+   bound to a closed agent root the worklist never shows; with
+   `issue.sessions` maintained, the heartbeat really moves that row's
+   `activityAt`, and the a1 list draws every issue, so it redraws `i1211`.
+   Same class as #4's `i933` at a1; moved to Hb1 in `counts.test.tsx`, which
+   now asserts instead that every extra drawn row is one the oracle hides.
+   The reads budget is unchanged and still asserted.
+2. **A draft's title read the member bucket on EVERY issue** (the member was
+   an eager argument), so any session joining an issue re-ran its title
+   cell. `displayTitleOf` now takes a thunk: a non-draft reads no relation
+   (asserted: a session joining I2 re-runs exactly `activityAt:I2` and
+   `view:I2`).
+3. **Mutation check** (`relations.test.ts`, 45 tests, each mutant run alone
+   against the committed engine, file restored with `cp`): `where` fields not
+   treated as link inputs → 13 fail; a new root takes no sessions → 30; a
+   removed root re-homes none → 12; the collapse shortcut on the new row's
+   state only → 6; `one()` ignoring presence → 21; collapse flips not
+   relinked → 10. None survived.
+
+### Measured (OLD FIXTURE 1x and hand-built rows, counts only; no walls)
+
+Relation write record per change kind (`relations.test.ts`, hand-built
+9-row graph, fence on; `hand-pool-relation-writes.json`). Slots are exact
+(asserted); elements are `indexUpdates`; rows are the fence's distinct reads
+for the whole ingest.
+
+| change | slots | elements | rows read |
+| --- | --- | --- | --- |
+| heartbeat | 0 | 0 | 1 |
+| rename | 0 | 0 | 1 |
+| new issue | 2 | 2 | 1 |
+| reparent | 3 | 4 | 1 |
+| archive (`where` input) | 2 | 2 | 1 |
+| session moves issue | 3 | 4 | 1 |
+| session moves lane (cwd) | 3 | 12 | 2 |
+| deps change | 3 | 4 | 1 |
+| new session | 4 | 7 | 2 |
+| remove session | 4 | 9 | 1 |
+| new lane | 2 | 2 | 2 |
+| new lane over a session | 5 | 6 | 2 |
+| remove lane (2 sessions re-homed) | 6 | 10 | 3 |
+| evict a parent | 2 | 2 | 1 |
+
+The lane moves' extra elements are the path index (one entry per ancestor
+of the old and new cwd). Upkeep vs bucket size: one new issue in a repo of
+1,000 = one in a repo of 1 (2 elements, 1 row, same `Set` object; asserted).
+
+Fence steps (`counts.test.tsx`, 1x engine, OLD FIXTURE, shared budgets):
+
+| step | oracle changed | drawn | commit fence | reads / budget |
+| --- | --- | --- | --- | --- |
+| #1 heartbeat | — | i1211 (hidden) | Hb1; extra row asserted hidden | 1 / 3 |
+| #3 click | i17 | i17 | asserted | 1 / 3 |
+| #4 rename | i17 | i17, i933 (hidden) | Hb1; extra row asserted hidden | 1 / 3 |
+| #8 tick | — | — | asserted | 0 / 0 |
+| #8b grace | i300-i303 | i300-i303 | asserted | 4 / 96 |
+
+GATE: see below.
 
 ### Open
 
