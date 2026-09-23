@@ -288,6 +288,19 @@ describe('the loader', () => {
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
+  it('counts a hydration as one read of that row in the reads fence', () => {
+    const r = rig()
+    const { pool } = r
+    const closed = corpus.sliceIssues.find(isClosed)!
+    expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
+    r.reads.reset()
+    r.fire()
+    const stats = r.reads.stats()
+    expect(stats.rows).toBe(1)
+    expect(stats.byEntity).toEqual({ issue: 1 })
+    expect(stats.sample).toEqual([`issue:${closed.id}`])
+  })
+
   it('closes the window on its own with the real timer', async () => {
     const r = rig({ realTimer: true })
     const closed = corpus.sliceIssues.find(isClosed)!

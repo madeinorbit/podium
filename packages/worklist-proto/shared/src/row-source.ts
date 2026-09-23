@@ -55,6 +55,17 @@
  * `replica.batch()` of 50 upserts yields one update with 50 rows. Tests that
  * need determinism call `flush()` synchronously; both go through one drain.
  *
+ * ONE ROW BY ID (POD-4567, shared contract: `RowSource.row`, `arm.ts`).
+ * `row(kind, id)` serves one issue or session row exactly as `snapshot(kind)`
+ * would carry it — the replica's row by id (`replica.row`), with that row's
+ * own overlays folded in `overlaid` mode and the ledger never read in
+ * `truth` mode, the previously emitted object kept when the fold recomposed
+ * an equal one — and enumerates nothing. It is how a lazy pool loads a cold
+ * row it holds only the id of (both round-three pools use it); the reads
+ * fence counts it as one keyed read of that row (`reads.ts` `wrapSource`).
+ * It leaves the emit memo alone, so the next flush still emits whatever
+ * moved. A disposed source answers undefined.
+ *
  * REPLACE. A bootstrap or rescope is the one place a flush enumerates the
  * slice (`replica.rows()` per kind, plus pending inserts); `snapshot()` is the
  * other enumeration. Both count in `stats.enumerations`, which the scenarios

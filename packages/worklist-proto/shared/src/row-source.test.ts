@@ -453,6 +453,41 @@ describe('row-source over the real facade (fake runtime)', () => {
     }
   })
 
+  it('row() serves one row as snapshot() would, per mode, enumerating nothing (POD-4567)', () => {
+    for (const mode of ['overlaid', 'truth'] as const) {
+      const { cache, replica } = fixture()
+      const truth = issueValue('i1', { readAt: null })
+      cache.put('issue', 'i1', truth)
+      const session = sessionValue('s1')
+      cache.put('session', 's1', session)
+      const runtime = fakeRuntime()
+      const handle = createRowSource(runtime, replica, { mode })
+      try {
+        runtime.setPending('issues', 'i1', [
+          patch('issues', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
+        ])
+        handle.stats.reset()
+        const one = handle.source.row?.('issue', 'i1')
+        const all = handle.source.snapshot('issue').find((record) => record.id === 'i1')?.value
+        // Overlaid folds that row's overlay; truth never reads the ledger.
+        expect((one as { readAt: unknown }).readAt).toBe(
+          mode === 'overlaid' ? '2026-09-20T12:00:01Z' : null,
+        )
+        expect(one).toEqual(all)
+        if (mode === 'truth') expect(one).toBe(truth)
+        // A row with no overlay is the replica's object itself (borrowed).
+        expect(handle.source.row?.('session', 's1')).toBe(session)
+        expect(handle.source.row?.('session', 'gone')).toBeUndefined()
+        // Three keyed reads, one enumeration (the snapshot() above).
+        expect(handle.stats.rowsVisited).toBe(3 + 1)
+        expect(handle.stats.enumerations).toBe(1)
+      } finally {
+        handle.dispose()
+      }
+      expect(handle.source.row?.('issue', 'i1')).toBeUndefined()
+    }
+  })
+
   it('snapshot() serves current rows by kind for arm bootstrap', () => {
     const { cache, replica } = fixture()
     const s = sessionValue('s1')

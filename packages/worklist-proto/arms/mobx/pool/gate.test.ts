@@ -29,13 +29,16 @@
  *
  * FULL-RESIDENCY CHECKPOINT (coordinator's safeguard). Passing the pool's
  * resident set into the rebuild lets the rebuild lean on the state it checks.
- * So at the end of every arm's life (each reload, and the run's end) the
- * gated arm loads EVERY cold row, settles, and is held, with no input from
- * the pool, to: no row left cold (a row that cannot load is one the pool
- * should have forgotten), every relation against a scan, and its snapshot
- * against a rebuild with every row resident. Its own NO: a third plant skips
- * relation maintenance for updates of cold rows only, and with the per-step
- * checks OFF, the checkpoint alone must fail it on every seed.
+ * So at the run's last compared step the gated arm loads EVERY cold row,
+ * settles, and is held, with no input from the pool, to: no row left cold (a
+ * row that cannot load is one the pool should have forgotten), every relation
+ * against a scan, and its snapshot against a rebuild with every row resident.
+ * It runs at the last step because loading everything ends the run's cold
+ * state, and not at a reload because the checker has already replaced the
+ * engine by the time it disposes the old arm (its feed is dead). Its own NO: a
+ * third plant skips relation maintenance for updates of cold rows only, and
+ * with the per-step checks OFF, the checkpoint alone must fail it on every
+ * seed.
  *
  * FIDELITY. The fields Ma1 derives from the row, one hop and the locals are
  * compared with the oracle's row views (`rowViewsFromStore`) for every
@@ -202,6 +205,11 @@ function checked(
         snapshot() {
           wrapper.snapshots += 1
           const { pool } = handle
+          // The checker snapshots once at boot and once per step.
+          if (checks.full && wrapper.snapshots === STEPS + 1) {
+            fullResidencyCheck(handle, source, locals, `step ${STEPS - 1}`)
+            wrapper.cold.checkpoints += 1
+          }
           const settled = handle.snapshot()
           if (!checks.perStep) return settled
           // In an action, not a reaction: the check reads every relation of
@@ -222,15 +230,8 @@ function checked(
           return settled
         },
         dispose() {
-          try {
-            if (checks.full) {
-              fullResidencyCheck(handle, source, locals, `after snapshot ${wrapper.snapshots}`)
-              wrapper.cold.checkpoints += 1
-            }
-          } finally {
-            tally()
-            handle.dispose()
-          }
+          tally()
+          handle.dispose()
         },
       }
     },

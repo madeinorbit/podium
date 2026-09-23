@@ -36,24 +36,35 @@ import {
 import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
-import { mobxPoolArm } from './arm'
+import type { CheckableArm } from '../../../shared/src/arm'
+import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { installMobxWarnTrap } from './mobx-trap'
 
 installMobxWarnTrap()
 
 /** The steps a1 runs, and whether the commit fence applies yet. */
 const STEPS: readonly { methodology: string; commits: boolean }[] = [
-  { methodology: '#1', commits: false },
-  { methodology: '#4', commits: false },
+  { methodology: '#1', commits: true },
+  { methodology: '#4', commits: true },
 ]
+
+/** The pool with a load window that never closes on its own: no load lands inside a counted step. */
+const arm: CheckableArm = {
+  create: (source, locals, reads) =>
+    mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+}
 
 describe('fence steps #1 and #4', () => {
   it('meets the shared reads budget and holds no copy', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const mounted = mountArmForCounts(mobxPoolArm, feeds.rows.source, feeds.locals)
+    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
+      // At 1x no drawn row reaches a cold one (no open issue has a closed
+      // origin; an open issue's sessions are hot by rule), so nothing is
+      // queued and the counted steps see a settled pool.
+      expect((mounted.handle as MobxPoolHandle).pool.residency?.hasQueued()).toBe(false)
       const cells = []
       for (const step of STEPS) {
         const entry = FENCE_SCENARIOS.find(
