@@ -39,6 +39,16 @@ visible collection, order, groups and roll-ups (Mb1-Mb3) come next.
   which returns the same string, and no target is read; an origin's rename
   re-runs only its spin-offs' `originTick`. Objects compare structurally
   (`computedStruct`), so an unchanged part or view keeps its identity.
+- **Roll-ups re-compose from cached child values** (POD-4568). A part over
+  a collection reads the bucket once (`sessionIds`, its own computed) and
+  each member's CACHED value, a computed on the member's model
+  (`SessionModel.activityMs`), never the member's row: one session's
+  `lastActiveAt` re-runs that session's computed (one row read) and the
+  issue's `activityAt` over cached siblings. A value that needs a member
+  only sometimes asks for it only then (a draft's title reads its first
+  member; a non-draft's never does). A member model built earlier is taken
+  from the identity memo without a presence read; it reads its own slot, so
+  a removed member answers null (the bucket that listed it has moved).
 - **Locals as tracked state**: the selection is a one-entry observable map
   (`selection.has(id)`), so a click re-derives exactly two views; the clock
   is a set of deadlines (`pool/clock.ts`): a rule asks "has `t` passed", and
@@ -118,7 +128,9 @@ by the engine.
   deleted, one per bucket array replaced (`PoolRelations.lastWrites` names
   them for the last action).
 - `rollupsDerived` — 0 until the roll-ups (Mb3).
-- `stats.counters` (the pool's own): `modelsCreated` (first accesses),
+- `stats.counters` (the pool's own): `modelsCreated` (first accesses:
+  every drawn issue, and each resident member session a drawn row's
+  activity reads),
   `tableWrites` (slots set to a different object or deleted), `rowsRemoved`.
 - `residency.counters` (Ma3): `coldWrites` (a cold row registered, relinked
   or forgotten: no slot), `requests` (distinct rows queued), `batches` (load
@@ -128,6 +140,21 @@ by the engine.
 - Reads are never counted by the arm: every table read goes through
   `reads.wrapTables`, every relation read through `reads.wrapRelations`, and
   the enumeration records each id it walks with `reads.touch`.
+
+### Gates (a phase, POD-4568)
+
+- **Correctness (L4b)**, `pool/gate.test.ts`: rebuild-only (`oracleEvery:
+  0`; the oracle compares order and roll-ups, Mb4's). Defaults are 3 seeds x
+  200 steps; the gate of record is 20 x 300, run from the repo root:
+  `POD_POOL_GATE_SEEDS=20 POD_POOL_GATE_STEPS=300 bun scripts/test-heavy.ts
+  -- bash -c "bun --bun ./node_modules/vitest/vitest.mjs run --config
+  vitest.unit.config.ts --project node
+  packages/worklist-proto/arms/mobx/pool/gate.test.ts"` (heavy lease only;
+  `test:file` inside `test-heavy` would also hold a focused slot for hours).
+- **Fence steps #1-#4**, `pool/counts.test.tsx`: the shared
+  `assertCommits` (#1-#3), `assertReads` and `assertNoCopies`, no parity; the
+  roster entry with parity is Mb4's (`fences.test.tsx` names it pending).
+- Numbers: `docs/measurements/POD-4568-a.md`.
 
 ### How to add a field
 
@@ -145,6 +172,12 @@ by the engine.
 3. Never read a row in `view` itself, and never read a target in a part
    that also reads the own row: that is how a rename starts charging reads
    to its neighbours (`pool/counts.test.tsx` fails the budget).
+4. A field over a collection (a roll-up): put each member's contribution in
+   a computed on the MEMBER's model, add it to `ViewInputs` (the rebuild
+   computes the same function directly), and walk the cached member list
+   (`sessionIds`), never the relation or the member rows, in the parent's
+   part. Reading member rows re-reads the whole family on every member's
+   change (POD-4568: #2 read 4 rows against a budget of 3).
 
 ## Round two (frozen, POD-4447)
 

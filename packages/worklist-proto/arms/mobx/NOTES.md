@@ -1,5 +1,63 @@
 # arms/mobx — notes
 
+## Round three: a-phase gates, a4 (POD-4568) · 2026-09-23
+
+Numbers and commands: `docs/measurements/POD-4568-a.md`.
+
+### Decisions
+
+- **Scope after the coordinator's correction (2026-09-23):** L4b stays
+  rebuild-only (`oracleEvery: 0`); fence steps #1-#3 (and #4, kept from Ma1)
+  run through the shared `assertCommits`, `assertReads` and
+  `assertNoCopies` without parity; the roster exception stays, naming Mb4
+  (POD-4572). #3's budget is 3 (POD-4619), not the brief's 0.
+- **#2 failed as found** (base 1cd21c6aa): 4 rows read, budget 3 —
+  `s34` (the changed session), its siblings `s35` and `s507`, and `i17`.
+  Two parts read every member ROW on any member's change: `activityAt`
+  (max over the members' `lastActiveAt`) and the draft title (its first
+  member, read eagerly for every issue, draft or not).
+- **Fix, in the idiom:** the member's contribution is a computed on the
+  member's model (`SessionModel.activityMs`); the issue's parts read the
+  bucket once (`sessionIds`, its own `computedStruct`) and walk it; the
+  draft title asks for its first member only for a draft. #2 now reads 1
+  row (`s34`). The rebuild computes the same functions directly
+  (`ViewInputs.sessionActivity`), so the gate holds them together. Nothing
+  scenario-specific: every roll-up over members will take the same shape
+  (Mb3).
+- **A member model built earlier is taken from the identity memo without a
+  presence read** (`pool.ts` `sessionActivity`). The fence counts `has` as a
+  read of that id; going through `model()` would charge every sibling again.
+  Safe because the model reads its own tracked slot (a removed member
+  answers null, as before) and the bucket that lists members is tracked.
+  The harness doc allows exactly this ("a walk over any other per-row cache
+  the arm keeps"); the growth slope and review are its check.
+- **Real clock in the fence test** (the roster's conditions since POD-4618);
+  Ma1's frozen `Date` is gone.
+- **Mounted models now include member sessions**: 2,170 drawn issues +
+  1,600 resident member sessions = 3,770 at 1x (Ma3's "models == rows
+  drawn" is restated in `residency.test.tsx`).
+- **Gate runs hold only the heavy lease.** `test-heavy -- bash -c "bun run
+  test:file …"` also takes one of the host's two focused slots for the whole
+  run (hours for 20 x 300), which starved my own focused runs; the gate runs
+  vitest directly under `test-heavy`, as the repo's heavy scripts do. Bun
+  eats the first `--`, so a nested `test:file -- path` must go through
+  `bash -c`.
+
+### Findings
+
+1. **The #2 fence cannot see a sibling re-read alone on its target.** The
+   budget is 3 per level; `i17` has exactly 3 member sessions, so re-reading
+   the whole family costs 3 and passes. The base failed only because a
+   second part also read `i17`. Pinned in `counts.test.tsx` (the planted
+   pool with member activity read from rows: #2 reads `{session: 3}` = the
+   budget). Reported to the coordinator: the target needs a family larger
+   than a level's budget for the fence's "a roll-up that re-reads a level's
+   siblings ... fails" to hold.
+2. **#3 commits 1 row, not the brief's 2.** The fence's click starts with
+   no selection, so the oracle changes only the clicked row (`i17`); the
+   reference arm's cell is also 1. The two-row case (selection moving) is
+   `pool.test.tsx`'s "a click re-derives exactly two views".
+
 ## Round three: residency, a3 (POD-4567) · 2026-09-23
 
 Cold rows (closed issues and their sessions) stay out of the pool until
