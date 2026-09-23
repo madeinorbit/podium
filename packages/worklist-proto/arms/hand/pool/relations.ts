@@ -54,7 +54,7 @@
  * THE READER. `one` = the forward slot + the target's presence (one counted
  * read: the target); `many` = the bucket (one counted read per member, by the
  * fence's wrapper); `size` = the bucket's size (free). Each records the slot
- * it read through `slots.read`. Derivations read relations only through this
+ * it read through the `read` option. Derivations read relations only through this
  * reader and never resolve one themselves.
  */
 

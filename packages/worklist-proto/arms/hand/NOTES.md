@@ -1,5 +1,69 @@
 # arms/hand — notes
 
+## Round three: relations, a2 (POD-4579) · 2026-09-23
+
+The relation engine (`pool/relations.ts`), maintained from the declared
+schema. Read with `pool/relations.test.ts` and the README's "Relations from
+the schema".
+
+### Decisions
+
+- **Buckets are `Set`s edited one member at a time, not frozen arrays.** The
+  brief's idiom says "Maps of readonly id arrays"; M3 (POD-4591) failed the
+  MobX pool for exactly that shape (F1: a copy and sort per membership
+  change, 4,575 elements per new issue on the live export). A `Set` is O(1)
+  per edge and has no order to maintain. The cost moves to readers that need
+  an order; today that is one: a draft's first member, now the LOWEST
+  session id (`views.ts` `firstMemberOf`), which is also what the MobX
+  pool's sorted buckets give. Legacy uses replica order, which no pool has.
+- **`indexUpdates` counts ELEMENTS, not slots** (bucket members, forward
+  entries, path-index entries, collapse entries): F1's counting half.
+  `relations.test.ts` "upkeep does not grow with the bucket" asserts a new
+  issue costs the same elements, reads and bucket object in a repo of 1,000
+  as in a repo of 1.
+- **Relation reads are tracked per SLOT.** The engine records each slot it
+  writes (`issue.children:I1`, `issue.parent:I2`); the pool turns each into
+  a `relation` delta (a new member of the closed `Delta` union, handled in
+  every switch) that dirties the cells that read that slot, and nothing
+  else. `one()` tracks the target's PRESENCE (a new `presence` index,
+  invalidated only on membership deltas), not its row, so a target's field
+  change re-runs only parts that read its fields. `tracked.has` moved to the
+  presence index too: a `has` answer changes only with membership.
+- **F2 applied: row views resolve nothing.** `repoId` and `originId` are
+  `relations.one(...)`; `repoRef`/`originRef` (own-row foreign keys) are
+  gone, and `relationRef` is no longer imported by `views.ts`. A rename
+  moves no relation slot, so neither part re-runs.
+- **Repo takeover reads `repo.worktrees`** (`tables.ts` `releaseRepo`);
+  `otherLaneOf`'s table walk is deleted. The engine runs inside `put`/`drop`,
+  so the leaving lane has already left the bucket when the takeover asks.
+  A `replace`'s staging tables keep no relations, so `reseed` stages each
+  record once (last value wins) and a staged lane can never hand a repo over;
+  `releaseRepo` throws if one tries.
+- **The prefix candidate walk is shared** (`shared/src/schema.ts`
+  `prefixAncestors`, `prefixCandidates`, beside `longestPrefixPath`), with a
+  test that probing the candidates finds what `longestPrefixPath` picks. The
+  MobX engine carries its own copy (`ancestorPaths`, `prefixCandidates`);
+  it can switch to the shared one when it next changes.
+- **Collapse shortcut:** a row that keeps its group whole before and after
+  (a live session's heartbeat) decides nothing and reads no twin; a group of
+  one decides without reading a row.
+- **The scan oracle** (`enumerate.ts` `scanRelations`/`diffRelations`) is
+  written for this arm, not imported from the MobX arm (the import fence):
+  it walks the tables, groups the collapse, and resolves prefixes with
+  `longestPrefixPath`, sharing only the declared resolvers and `relationRef`
+  with the engine. Collections compare as sorted sets.
+
+### Findings
+
+(filled below as runs land)
+
+### Open
+
+- The fidelity test still skips a draft's title where it needs a member:
+  legacy's "first member" is replica order.
+- `activityAt` reads explicit sessions only; containment-owned sessions
+  (`issue.worktree` → `worktree.sessions`, R3) join in the worklist phase.
+
 ## Round three: the pool, a1 (POD-4578) · 2026-09-23
 
 Decisions, findings and open questions for `pool/`. The idiom, write path,
