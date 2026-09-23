@@ -234,6 +234,50 @@ describe('the stream client', () => {
     await expect(client.ready).resolves.toBe('sess-1')
   })
 
+  it('writes the first user line on the initialize answer alone, before any system/init', async () => {
+    // claude-code 2.1.280 in streaming-input mode answers `initialize` and
+    // then waits: `system/init` is its reply to the first user line. The
+    // client learns the id from the invocation that named it.
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'minted-1' })
+    const turn = client.turn('hello', {
+      onPartialText: () => {},
+      onPermission: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      emit: () => {},
+    })
+    answerInitialize(fake)
+    await expect(client.ready).resolves.toBe('minted-1')
+    await vi.waitFor(() =>
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(true),
+    )
+    answerInitSystem(fake, 'minted-1')
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'hi' }))
+    await expect(turn.done).resolves.toMatchObject({ harnessSessionId: 'minted-1', output: 'hi' })
+  })
+
+  it('writes the first user line on the initialize answer even when no id was named', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, {})
+    const turn = client.turn('hello', {
+      onPartialText: () => {},
+      onPermission: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      emit: () => {},
+    })
+    answerInitialize(fake)
+    await vi.waitFor(() =>
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(true),
+    )
+    // The id is the CLI's to report, and it reports it in reply to the line.
+    answerInitSystem(fake, 'reported-1')
+    await expect(client.ready).resolves.toBe('reported-1')
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'hi' }))
+    await expect(turn.done).resolves.toMatchObject({ harnessSessionId: 'reported-1' })
+  })
+
   it('routes a permission ask and answers it on the wire', async () => {
     const fake = fakeTransport()
     const asked: Array<{ id: string; toolName: string }> = []

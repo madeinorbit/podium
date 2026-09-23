@@ -12,7 +12,8 @@ import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
-import type { ClaudeEngineHost } from './engine-host.js'
+import { createClaudeEngineHost, type ClaudeEngineHost } from './engine-host.js'
+import type { EngineAttachment } from '../engine-supervision.js'
 import { createClaudeSdkSessionRuntime, type ClaudeSdkSessionDeps } from './session.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 
@@ -502,5 +503,127 @@ describe('Claude SDK daemon host adapter', () => {
       expect(journal.released).toHaveBeenCalledWith(SESSION_ID)
       runtime.dispose()
     })
+  })
+
+  /**
+   * THE INITIAL PROMPT, END TO END THROUGH THE REAL ENGINE HOST (POD-4636).
+   *
+   * The CLI fake answers the way claude-code 2.1.280 really does in
+   * streaming-input mode: `initialize` gets its control_response and nothing
+   * else — `system/init` is written only once a user line arrives. A client
+   * that holds the first user line until it has seen `system/init` waits on a
+   * message the user line itself is what triggers.
+   */
+  it('delivers the initial prompt as a stream-json user line and opens a live turn', async () => {
+    const sent: DaemonMessage[] = []
+    const writes: string[] = []
+    const dataCbs = new Set<(seq: bigint, data: Buffer) => void>()
+    let claudeSessionId = ''
+    const stdout = (value: unknown): void => {
+      for (const cb of [...dataCbs]) cb(0n, Buffer.from(`${JSON.stringify(value)}\n`))
+    }
+    const attachment = {
+      ready: Promise.resolve({ lease: true, childPid: 4242 }),
+      connection: {
+        onData: (cb: (seq: bigint, data: Buffer) => void) => {
+          dataCbs.add(cb)
+          return () => dataCbs.delete(cb)
+        },
+        onExit: () => () => {},
+        signal: () => {},
+        write: async (data: Uint8Array) => {
+          for (const line of Buffer.from(data).toString('utf8').split('\n')) {
+            if (!line.trim()) continue
+            writes.push(line)
+            const msg = JSON.parse(line)
+            if (msg.type === 'control_request' && msg.request?.subtype === 'initialize') {
+              queueMicrotask(() =>
+                stdout({
+                  type: 'control_response',
+                  response: { subtype: 'success', request_id: msg.request_id, response: {} },
+                }),
+              )
+            } else if (msg.type === 'user') {
+              queueMicrotask(() => {
+                stdout({ type: 'system', subtype: 'init', session_id: claudeSessionId })
+                stdout({ type: 'result', subtype: 'success', result: 'fifty-six MANGO' })
+              })
+            }
+          }
+          return data.byteLength
+        },
+      },
+      dispose: () => {},
+    } as unknown as EngineAttachment
+    const bound = vi.fn()
+    const engine = createClaudeEngineHost({
+      facts: {
+        harnessKind: 'claude-code',
+        command: 'claude',
+        stripEnv: [],
+        scopeToken: 'cl',
+        journalNamespace: 'claude-engines',
+        attachKind: 'claude-code',
+      },
+      supervision: { scopeUnitFor: () => undefined },
+      engines: {
+        startEngine: async (req) => {
+          const at = req.args.indexOf('--session-id')
+          claudeSessionId = at >= 0 ? (req.args[at + 1] ?? '') : ''
+          return { attachment }
+        },
+        reattachEngine: async () => {
+          throw new Error('unexpected reattach')
+        },
+        engineAlive: async () => false,
+        destroyEngine: async () => {},
+        bound,
+        released: vi.fn(),
+        recorded: () => undefined,
+      },
+      buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
+      gracefulExitMs: 50,
+      executablePath: '/bin/claude',
+    })
+
+    const runtime = sessionWorld(sent, [], engine)
+    await runtime.launch({
+      sessionId: SESSION_ID,
+      cwd: '/project',
+      initialPrompt: 'What is 7 times 8? Answer with MANGO.',
+    })
+
+    // The prompt reaches the engine's stdin as a stream-json user line.
+    await vi.waitFor(
+      () => {
+        const user = writes.map((line) => JSON.parse(line)).find((msg) => msg.type === 'user')
+        expect(user?.message?.content).toEqual([
+          { type: 'text', text: 'What is 7 times 8? Answer with MANGO.' },
+        ])
+      },
+      { timeout: 2000 },
+    )
+    // The turn it opened is reported LIVE. A turn start relabelled as
+    // bootstrap lies behind the checkpoint `session_started` already set, so
+    // the server's event gate refuses it and every later event of that turn.
+    const turnStarted = sent
+      .flatMap((message) => (message.type === 'runtimeEvent' ? [message.event] : []))
+      .find((event) => event.t === 'turn' && event.ev.ev === 'started')
+    expect(turnStarted).toMatchObject({ provenance: 'live', turnEpoch: 1 })
+    // And the answer comes back.
+    await vi.waitFor(
+      () =>
+        expect(sent).toContainEqual(
+          expect.objectContaining({
+            type: 'transcriptDelta',
+            sessionId: SESSION_ID,
+            items: [expect.objectContaining({ role: 'assistant', text: 'fifty-six MANGO' })],
+          }),
+        ),
+      { timeout: 2000 },
+    )
+    // The journal names the conversation the invocation minted.
+    expect(bound).toHaveBeenCalledWith(expect.objectContaining({ claudeSessionId }))
+    runtime.dispose()
   })
 })
