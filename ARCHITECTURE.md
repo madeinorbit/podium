@@ -43,7 +43,7 @@ L1 — wire / commands / contracts
                                 deps: @podium/model
 
 L2 — kernels / ports
-  @podium/harness               neutral, host capability — importable only by @podium/daemon, scripts/
+  @podium/harness               neutral, host capability — importable only by @podium/cli, @podium/daemon, @podium/mobile, scripts/
                                 deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime
   @podium/pty                   node-only, host capability — importable only by @podium/daemon, scripts/
                                 deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime
