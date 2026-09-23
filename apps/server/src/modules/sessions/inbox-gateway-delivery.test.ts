@@ -318,6 +318,49 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     expect(h.rows).toHaveLength(1)
   })
 
+  it('an UNVERIFIED row the 60 s sweep re-forwards goes out as recovery, never as a fresh send (POD-4616)', async () => {
+    // The layers page: an `unverified` durable row re-forwarded by the sweep
+    // is CONFIRMED on the daemon, never retyped. (a) above covers a row the
+    // previous release left with a spent budget; this is the current
+    // release's own row — first forwarded fresh, its receipt unverified.
+    // The daemon half (recovery → settle failed, nothing typed) is pinned in
+    // apps/daemon/src/session/layer-claims.test.ts.
+    let receipt: TurnReceipt = {
+      outcome: 'unverified',
+      deliveredAs: 'when-ready',
+      verificationWindowMs: 0,
+      at: new Date().toISOString(),
+    }
+    const h = harness({ deliver: () => receipt })
+
+    expect(
+      await h.inbox.queueText({
+        sessionId: SID,
+        text: 'typed once, never confirmed',
+        mutationId: asMutationId('unverified-row'),
+        sourceMessageId: 'msg_unverified',
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: true, queued: true })
+    await flush()
+
+    expect(h.contractSends).toEqual([
+      expect.objectContaining({ turnId: 'unverified-row', deliveryRecovery: false }),
+    ])
+    expect(h.rows).toEqual([expect.objectContaining({ id: 'unverified-row', deliveryOwner: 'daemon' })])
+    expect(h.promptFailed).toHaveLength(1)
+
+    // The sweep tick (relay.ts, QUEUED_INPUT_SWEEP_MS). Whatever the daemon
+    // answers now, what it was ASKED is to confirm, not to type.
+    receipt = acceptedReceipt()
+    await h.inbox.sweepQueuedInputs()
+    await flush()
+
+    expect(h.contractSends).toHaveLength(2)
+    expect(h.contractSends[1]).toMatchObject({ turnId: 'unverified-row', deliveryRecovery: true })
+    expect(h.sent).toEqual([])
+  })
+
   it('(b) a pending native-menu answer goes via gateway.answer, never keystrokes', async () => {
     const h = harness()
 
