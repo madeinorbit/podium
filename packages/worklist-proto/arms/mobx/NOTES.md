@@ -108,7 +108,12 @@ entries, buckets). Models built: 0 in every cell.
   26 / 7, partition then relations); relink-only with the checkpoint off (31
   / 26 / 8, the per-step relation check); promotion-skipped with the
   per-step checks off (the checkpoint, at step 199).
-- **Bootstrap walls**: WALLS_PENDING
+- **Bootstrap walls**: NOT MEASURED. One attempt, 2026-09-23 03:56, under
+  `bench:ludovico`, lazy and all-resident interleaved (15 rounds, order
+  rotated, `POD_POOL_BOOT_WALLS=1 ... bootstrap.test.ts`): FAILED by the load
+  rule at both scales (1x max load 8.10, 4x max 9.14; uptime before 8.39,
+  after 9.12). No summary is kept. Re-run on a box below load 8; the browser
+  wall waits for L5e (POD-4561).
 
 ### Findings
 
