@@ -10,7 +10,7 @@
  * sits in the queue for good ("N changes are queued" while connected).
  */
 
-import { asMutationId, STOPPED_SEND_REASON } from '@podium/model'
+import { asMutationId, asSessionId, STOPPED_SEND_REASON } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -84,12 +84,12 @@ async function open(api: PodiumClientApi): Promise<EngineOutbox> {
 async function sendTwo(outbox: EngineOutbox): Promise<void> {
   await outbox.enqueue(
     'resumeAndSend',
-    { sessionId: 's1', text: 'Write the numbers from 1 to 400' },
+    { sessionId: asSessionId('s1'), text: 'Write the numbers from 1 to 400' },
     { mutationId: asMutationId('msg_stopped') },
   )
   await outbox.enqueue(
     'resumeAndSend',
-    { sessionId: 's1', text: 'What is 3 times 3?' },
+    { sessionId: asSessionId('s1'), text: 'What is 3 times 3?' },
     { mutationId: asMutationId('msg_next') },
   )
   online = true
