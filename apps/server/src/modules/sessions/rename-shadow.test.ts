@@ -55,6 +55,7 @@ import { MIGRATED_COMMANDS, RENAME_PATH_ENV, renamePath } from './rename-adapter
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 import { SessionStateRegistry} from './session-state/registry'
 import { sessionSurfaceManifest } from './trpc'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -66,7 +67,7 @@ async function stack() {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+  attachHostDaemon(reg, () => {})
   return { store, sessions: reg.modules.sessions, mutations: reg.modules.mutations }
 }
 

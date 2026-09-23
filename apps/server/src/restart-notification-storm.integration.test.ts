@@ -12,6 +12,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 type RestartKind = 'daemon-only' | 'server-only' | 'server-and-daemon'
 
@@ -130,7 +131,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       registry.bus.on('notification.telegramRequested', telegramRequest)
       const controls: ControlMessage[] = []
       const attach = () =>
-        registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (msg) =>
+        attachHostDaemon(registry, (msg) =>
           controls.push(msg),
         )
       attach()

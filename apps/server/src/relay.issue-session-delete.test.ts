@@ -2,12 +2,13 @@ import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 async function registryWithDaemon(store?: Awaited<ReturnType<typeof openTestStore>>) {
   const messages: unknown[] = []
   const resolvedStore = store ?? (await openTestStore(':memory:'))
   const registry = await SessionRegistry.create(resolvedStore, undefined, { instanceId: 'default' })
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => messages.push(message))
+  attachHostDaemon(registry, (message) => messages.push(message))
   return { registry, store: resolvedStore, messages }
 }
 

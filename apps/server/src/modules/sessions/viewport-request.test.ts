@@ -24,6 +24,7 @@ import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionTerminal, type ViewportRequest } from './terminal'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const SESSION = asSessionId('s-request')
 const MACHINE = asMachineId('m-request')
@@ -655,7 +656,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
 
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, () => {}, [
+    await attachHostDaemon(restarted, () => {}, [
       CAP_DAEMON_GEOMETRY_APPLIED,
     ])
     const session = (restarted as unknown as InternalRegistry).modules.sessions.sessions.get(

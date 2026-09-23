@@ -21,6 +21,7 @@ import { SessionClientControl } from './client-control'
 import type { SessionInbox } from './inbox'
 import type { Session } from './session'
 import type { SessionLifecycle } from './lifecycle'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 
@@ -41,7 +42,7 @@ async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMe
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await attachHostDaemon(reg, (m) => daemon.push(m))
   await reg.sessionStore.repos.addRepo(
     '/r',
     reg.sessionStore.hostMachineId,

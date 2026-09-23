@@ -8,6 +8,7 @@ import { OPERATOR } from '../../test-support/capabilities'
 import { ShippingOrderAccessError } from '../shipping/service'
 import { IssueCommandDispatcher } from './dispatcher'
 import { guardIssueCommand, issueRegistry } from './registry'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 /**
  * Registry completeness + explicit authz decisions (#248, #413). Action and
@@ -808,7 +809,7 @@ describe('issues.get session membership', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = await registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+      attachHostDaemon(registry, () => {})
       const first = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/r',

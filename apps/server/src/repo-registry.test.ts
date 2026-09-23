@@ -6,13 +6,14 @@ import { SessionRegistry } from './relay'
 import { browseDirectories, RepoRegistry } from './repo-registry'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 /** A RepoRegistry whose registry shares the given store and has one online machine,
  *  so single-machine add/remove attribute to that machine — preserving the original
  *  single-store behavior these tests assert. */
 async function singleMachineRepos(store: SessionStore): Promise<RepoRegistry> {
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  await attachHostDaemon(registry, () => {})
   return new RepoRegistry(registry, store)
 }
 

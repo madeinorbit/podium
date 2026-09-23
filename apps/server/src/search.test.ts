@@ -11,6 +11,7 @@ import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { forceFeature } from './test-support/features'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so
@@ -490,7 +491,7 @@ describe('search.query tRPC', () => {
   async function caller() {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     return {

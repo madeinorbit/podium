@@ -48,6 +48,7 @@ import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -62,7 +63,7 @@ async function revocableStack() {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+  attachHostDaemon(reg, () => {})
   const sessions = reg.modules.sessions
   const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 

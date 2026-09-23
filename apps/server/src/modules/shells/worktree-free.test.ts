@@ -25,6 +25,7 @@ import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
 import type { Session } from '../sessions/session'
 import type { SessionLifecycle } from '../sessions/lifecycle'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 
@@ -60,7 +61,7 @@ async function makeRegistry(statusImpl: () => Promise<{ ok: boolean; output: str
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await attachHostDaemon(reg, (m) => daemon.push(m))
   await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
   const rpc = (
     reg.modules.sessions as unknown as {

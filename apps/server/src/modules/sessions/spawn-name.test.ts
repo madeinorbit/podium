@@ -6,6 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 
@@ -16,7 +17,7 @@ afterEach(async () => {
 async function makeRegistry(): Promise<SessionRegistry> {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  attachHostDaemon(registry, () => {})
   return registry
 }
 

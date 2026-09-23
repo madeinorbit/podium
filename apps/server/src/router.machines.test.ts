@@ -10,6 +10,7 @@ import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 async function machineCaller() {
   const store = await openTestStore(':memory:')
@@ -27,7 +28,7 @@ async function machineCaller() {
     pairing: new PairingManager(),
   })
   await registry.modules.machines.ensureHostMachine('machine-under-test')
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
@@ -125,7 +126,7 @@ describe('sessions.create with machineId', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await registry.modules.machines.ensureHostMachine('machine-under-test')
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({

@@ -2,6 +2,7 @@ import type { IssueId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
+import { attachHostDaemon } from '../test-support/host-daemon'
 
 /**
  * THE KILL FLOOD (POD-3845).
@@ -51,7 +52,7 @@ async function makeFixture(): Promise<Fixture> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await attachHostDaemon(reg, (m) => daemon.push(m))
   const rpc = (
     reg.modules.sessions as unknown as {
       rpc: {

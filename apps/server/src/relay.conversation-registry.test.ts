@@ -7,6 +7,7 @@ import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // Registry wiring at the observation seams (docs/spec/conversation-registry.md):
 // scans mint identities + enrich the wire, sessionResumeRef stamps sessions and
@@ -96,7 +97,7 @@ describe('SessionRegistry conversation registry', () => {
   it('transcriptRead carries the recorded segment path as pathHint', async () => {
     const registry = await makeRegistry()
     const daemon: unknown[] = []
-    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+    await attachHostDaemon(registry, (m) => {
       daemon.push(m)
       if (m.type === 'transcriptRead') {
         void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
@@ -136,7 +137,7 @@ describe('SessionRegistry conversation registry', () => {
 
   it('sessionResumeRef stamps the session and a roll keeps the same identity', async () => {
     const registry = await makeRegistry()
-    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    await attachHostDaemon(registry, () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',

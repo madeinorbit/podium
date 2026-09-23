@@ -18,6 +18,7 @@ import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -57,7 +58,7 @@ async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await attachHostDaemon(reg, (m) => daemon.push(m))
   return { reg, daemon }
 }
 

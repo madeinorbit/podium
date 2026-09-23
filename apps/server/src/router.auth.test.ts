@@ -13,6 +13,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
  * ONE registry per test, so `users` is a REAL repository: `auth.*` writes credential rows
@@ -21,7 +22,7 @@ import { OPERATOR } from './test-support/capabilities'
  */
 async function harness(member = false) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users

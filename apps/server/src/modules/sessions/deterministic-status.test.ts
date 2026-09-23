@@ -7,6 +7,7 @@ import type { MessageDeliveryService } from '../messages/service'
 import { SessionReadToolkit } from './read-toolkit'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metasAsFacts } from '../../test-support/session-facts'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const ISSUE = {
   id: 'iss_status',
@@ -31,7 +32,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   const store = await openTestStore(':memory:')
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
-  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  await attachHostDaemon(registry, () => {})
 
   const spawned = await registry.modules.sessions.createSession({
     agentKind: 'codex',

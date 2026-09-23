@@ -32,6 +32,7 @@ import {
   READY_CEILING_MS,
   READY_STEP_MS,
 } from './test-support/readiness-queue'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
 // queueText wake + durable delivery, restart survival, FIFO + spacing, the
@@ -176,7 +177,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await attachHostDaemon(reg, (message) => daemon.push(message))
 
       const source = (await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -243,7 +244,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await attachHostDaemon(reg, (m) => daemon.push(m))
       const sessionId = await hibernatedSession(reg)
       daemon.length = 0
 
@@ -306,7 +307,7 @@ describe('queueText (durable outbox sends)', () => {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-dead-send-reconcile-')), 'podium.db')
       const storeA = await openTestStore(file, TEST_MACHINE)
       const regA = await SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
-      await regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
+      await attachHostDaemon(regA, () => {})
       // The lost wake is admitted while the process is live, then the process
       // dies before a wake can be reconstructed. A bare bind after hibernation
       // does not resume a parked row (Session.markLive deliberately preserves it).
@@ -336,7 +337,7 @@ describe('queueText (durable outbox sends)', () => {
       const storeB = await openTestStore(file, TEST_MACHINE)
       const regB = await SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await attachHostDaemon(regB, (message) => daemon.push(message))
       expect(
         (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId),
       ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
@@ -377,7 +378,7 @@ describe('queueText (durable outbox sends)', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      await attachHostDaemon(reg, (message) => daemon.push(message))
       const sessionId = await hibernatedSession(reg)
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
@@ -437,7 +438,7 @@ describe('queueText (durable outbox sends)', () => {
   it('refuses a parked agent with no resume ref and queues NOTHING', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await attachHostDaemon(reg, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -467,7 +468,7 @@ describe('queueText (durable outbox sends)', () => {
       const storeA = await openTestStore(file, TEST_MACHINE)
       const regA = await SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
       const daemonA: ControlMessage[] = []
-      await regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
+      await attachHostDaemon(regA, (m) => daemonA.push(m))
       const sessionId = await hibernatedSession(regA)
       expect(
         (await regA.modules.sessions.queueText({
@@ -494,7 +495,7 @@ describe('queueText (durable outbox sends)', () => {
       ).toBe(1)
 
       const daemonB: ControlMessage[] = []
-      await regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (m) => daemonB.push(m))
+      await attachHostDaemon(regB, (m) => daemonB.push(m))
       await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       // The resumed harness reports runtime state once rehydrated; terminal quiet
       // alone is no longer a readiness signal after a wake.
@@ -527,7 +528,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await attachHostDaemon(reg, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
@@ -581,7 +582,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await attachHostDaemon(reg, (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -621,7 +622,7 @@ describe('queueText (durable outbox sends)', () => {
 
   it('surfaces the queued count on the P2 delta stream (session upsert with queuedMessageCount 1)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await attachHostDaemon(reg, () => {})
     const sessionId = await hibernatedSession(reg)
 
     const inbox: ServerMessage[] = []
@@ -660,7 +661,7 @@ describe('queueText (durable outbox sends)', () => {
 
   it('clears an existing snooze when a message is queued (fresh user intent)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await attachHostDaemon(reg, () => {})
     const sessionId = await hibernatedSession(reg)
     await reg.modules.sessions.setSnooze({
       userId: firstAdminMemberId(),
@@ -745,7 +746,7 @@ describe('framework idempotency (modules.mutations)', () => {
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      await attachHostDaemon(reg, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',

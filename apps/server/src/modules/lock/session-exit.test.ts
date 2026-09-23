@@ -1,6 +1,7 @@
 import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 /**
  * The session-exit → lock auto-release seam [spec:SP-85d1]: `session.exited`
@@ -26,7 +27,7 @@ const bind = (sessionId: SessionId, cwd: string) =>
 
 async function regWithDaemon() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+  await attachHostDaemon(reg, () => {})
   return reg
 }
 

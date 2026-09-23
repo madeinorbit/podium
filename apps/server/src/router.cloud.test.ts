@@ -9,6 +9,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const geometry = { cols: 80, rows: 24 }
 
@@ -27,7 +28,7 @@ async function caller(
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, onDaemon)
+  attachHostDaemon(registry, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({

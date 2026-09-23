@@ -12,6 +12,7 @@ import type { SessionStore } from './store'
 import { PostCommitError } from './store/executor'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
   const store = await openTestStore(':memory:')
@@ -630,7 +631,7 @@ describe('SessionRegistry session.phase events', () => {
     const store = await openTestStore(':memory:')
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+      attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',

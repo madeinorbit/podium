@@ -32,6 +32,7 @@ import {
   provisional,
 } from './oracle-support'
 import { type SessionStatePrincipal, SessionStateRegistry } from './session-state/registry'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 afterEach(() => disposeOracles())
 
@@ -318,7 +319,7 @@ describe('oracle: priority pushes', () => {
 
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const reconnected: ControlMessage[] = []
-    await o.reg.gateway.attachDaemon(o.reg.sessionStore.hostMachineId, (message) =>
+    await attachHostDaemon(o.reg, (message) =>
       reconnected.push(message),
     )
     expect(priorities(reconnected)).toEqual(

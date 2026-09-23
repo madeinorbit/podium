@@ -3,6 +3,7 @@ import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { attachTestClient } from '../../test-support/client-transport'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 // POD-797: session broadcasts retain their own POD-722 coalescing behavior but never
 // republish the now-session-free issue residue.
@@ -20,7 +21,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
 
   async function setup() {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    await attachHostDaemon(reg, () => {})
     await reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
     const s1 = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',

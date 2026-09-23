@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@podium/model'
 import { SessionRegistry } from '../../relay'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const G = { cols: 80, rows: 24 }
 const HUMAN_TURN_AT = '2026-09-01T00:00:10.000Z'
@@ -19,7 +20,7 @@ const SYSTEM_TURN_AT = '2026-09-01T00:00:20.000Z'
 
 async function seedContractSession() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+  attachHostDaemon(reg, () => {})
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'claude-code',
     cwd: '/p',

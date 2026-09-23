@@ -1,6 +1,7 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // Issue archive → session cascade (issue #133), through the REAL relay wiring
 // (IssueService's setSessionArchived hook → SessionRegistry.setArchived). Archiving
@@ -9,7 +10,7 @@ import { SessionRegistry } from './relay'
 
 async function regWithDaemon() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+  attachHostDaemon(reg, () => {})
   return reg
 }
 

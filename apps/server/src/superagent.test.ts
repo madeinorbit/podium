@@ -13,6 +13,7 @@ import {
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { attachDaemonWithInventory } from './test-support/daemon-inventory'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -346,7 +347,7 @@ describe('session-steering tool belt (issue #62)', () => {
   async function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const inputs: string[] = []
-    await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+    await attachHostDaemon(registry, (m) => {
       if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>

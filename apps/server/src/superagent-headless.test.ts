@@ -30,6 +30,7 @@ import {
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -82,7 +83,7 @@ async function harness() {
   const epochs = new Map<string, number>()
   const pendingResults = new Map<string, { harnessSessionId?: string; output?: string }>()
   const sessionInfo = new Map<string, { agent: string; cwd: string }>()
-  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+  await attachHostDaemon(registry, (m) => {
     if (m.type === 'spawn') {
       sessionInfo.set(m.sessionId, { agent: m.agentKind, cwd: m.cwd })
     }
@@ -1343,7 +1344,7 @@ describe('boot reconciliation for headless sessions', () => {
     const reborn = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
-    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
+    await attachHostDaemon(reborn, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
@@ -1386,7 +1387,7 @@ describe('boot reconciliation for headless sessions', () => {
     const reborn = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
-    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
+    await attachHostDaemon(reborn, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
@@ -1419,7 +1420,7 @@ describe('boot reconciliation for headless sessions', () => {
     const acknowledgements: TurnAck[] = []
     const rebornEpochs = new Map<string, number>()
     const rebornPending = new Map<string, { harnessSessionId?: string; output?: string }>()
-    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
+    await attachHostDaemon(reborn, (message) => {
       if (message.type === 'runtimeSendRequest' || message.type === 'runtimeDurableSendRequest') {
         const epoch = (rebornEpochs.get(message.sessionId) ?? 0) + 1
         rebornEpochs.set(message.sessionId, epoch)
@@ -1556,7 +1557,7 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const binds: BindReq[] = []
     const reattaches: string[] = []
-    await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (m) => {
+    await attachHostDaemon(reborn, (m) => {
       if (m.type === 'reattach' && m.requestedDriverId === 'headless') {
         binds.push({ ...m, resumeValue: m.resume?.value } as BindReq)
         return

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
  * The nudge's own opening sentence, taken from the source of truth rather than
@@ -194,7 +195,7 @@ describe('server agent relay handler (P1b)', () => {
     // 'machine <host-uuid> is not reachable right now'. Attached HERE rather than
     // in beforeEach because a third live machine changes the fleet projections
     // the enumeration and quota tests in this file assert on.
-    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    attachHostDaemon(registry, () => {})
     const spawnReply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',

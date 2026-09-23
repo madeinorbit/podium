@@ -9,6 +9,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 
@@ -25,7 +26,7 @@ async function makeRegistry(confirmed = true): Promise<{ reg: SessionRegistry; d
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+  await attachHostDaemon(reg, (m) => {
     daemon.push(m)
     if (m.type === 'runtimeLifecycleRequest') void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'runtimeLifecycleResult', requestId: m.requestId, sessionId: m.sessionId,
@@ -176,7 +177,7 @@ describe('archive parks the session process [POD-108]', () => {
     expect((await meta(reg, sessionId))?.status).toBe('live')
 
     const reattached: ControlMessage[] = []
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+    await attachHostDaemon(reg, (m) => {
       daemon.push(m)
       reattached.push(m)
       if (m.type === 'runtimeLifecycleRequest') void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {

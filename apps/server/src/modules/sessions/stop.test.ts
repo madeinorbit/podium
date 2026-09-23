@@ -9,6 +9,7 @@ import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 
@@ -57,7 +58,7 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await attachHostDaemon(reg, (m) => daemon.push(m))
   // Every issue in this file lives at `/r`, and recreating a freed worktree
   // goes through `requireMachineForRepo` — an issue's machine must actually
   // host the repo. The fixture states that once rather than each test carrying

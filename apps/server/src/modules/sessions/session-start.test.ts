@@ -18,6 +18,7 @@ import { runAgentCli } from '../../../../cli/src/agent-cli'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 
@@ -36,7 +37,7 @@ async function makeRegistry(store?: SessionStore): Promise<{ reg: SessionRegistr
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+  await attachHostDaemon(reg, (m) => {
     daemon.push(m)
     // POD-4302: hibernate parks on confirmed process retirement. The fixture
     // daemon answers the lifecycle request with a measured confirmation so the
@@ -153,7 +154,7 @@ describe('resolved runtime driver projection', () => {
 
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     daemon.length = 0
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    await attachHostDaemon(reg, (message) => daemon.push(message))
 
     const reattach = daemon.find(
       (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
@@ -227,7 +228,7 @@ describe('Claude SDK continuity projection', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     daemon.length = 0
-    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) => {
+    await attachHostDaemon(reloaded, (message) => {
       daemon.push(message)
       // Same confirmed-retirement fixture as makeRegistry: hibernate below must
       // not wait out the 10s lifecycle timeout on the reloaded registry.
@@ -280,7 +281,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
-    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+    await attachHostDaemon(reloaded, (message) =>
       daemon.push(message),
     )
     expect(
@@ -388,7 +389,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
-    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+    await attachHostDaemon(reloaded, (message) =>
       daemon.push(message),
     )
     expect(

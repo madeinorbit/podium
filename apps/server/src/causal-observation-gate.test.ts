@@ -4,6 +4,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const at = (second: number) => `2026-07-18T12:00:${String(second).padStart(2, '0')}.000Z`
 const runtime = (
@@ -30,7 +31,7 @@ describe('causal session observation gate', () => {
       },
       { instanceId: 'default' },
     )
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await attachHostDaemon(reg, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
@@ -152,7 +153,7 @@ describe('causal session observation gate', () => {
     expect(
       (await restarted.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
-    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
+    await attachHostDaemon(restarted, (msg) =>
       restartedSent.push(msg),
     )
     const reattach = restartedSent.find(
@@ -194,7 +195,7 @@ describe('causal session observation gate', () => {
     const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await attachHostDaemon(reg, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
@@ -248,7 +249,7 @@ describe('causal session observation gate', () => {
     const ntfy = vi.fn()
     const telegram = vi.fn()
     const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await attachHostDaemon(reg, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
@@ -439,7 +440,7 @@ describe('causal session observation gate', () => {
     await reg.dispose()
     const restartedSent: ControlMessage[] = []
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
+    await attachHostDaemon(restarted, (msg) =>
       restartedSent.push(msg),
     )
     expect(
@@ -465,7 +466,7 @@ describe('causal session observation gate', () => {
     const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    await attachHostDaemon(reg, (msg) => sent.push(msg))
     const owner = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
@@ -543,7 +544,7 @@ describe('causal session observation gate', () => {
   it('rolls back resume and lease when conversation linking throws', async () => {
     const store = await openTestStore(':memory:')
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
+    await attachHostDaemon(reg, vi.fn<(msg: ControlMessage) => void>())
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
