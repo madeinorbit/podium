@@ -23,7 +23,9 @@
  * missing cell is never a gap. Its records stay in the JSON for diagnosis;
  * `summarize.ts` refuses to print them as results.
  *
- * Timing runs under the bench lease (`bench:ludovico`).
+ * Timing runs under the bench lease of the machine it runs on (`bench:<hostname>`);
+ * round three times on flatblock through `matrix.ts --host flatblock`, which
+ * takes `bench:flatblock` itself and passes `--no-lease`.
  *
  * Field names overlap `docs/measurements/POD-4286-stage0-live.json` where
  * they measure the same thing: `runtimeSha`, `browser`, `capturedAt`,
@@ -164,7 +166,7 @@ function serveDist(dir: string, port: number): Promise<Server> {
 function acquireBenchLease(): boolean {
   const result = spawnSync(
     'podium',
-    ['lock', 'acquire', 'bench:ludovico', '--ttl', '30m', '--wait'],
+    ['lock', 'acquire', `bench:${hostname()}`, '--ttl', '30m', '--wait'],
     {
       encoding: 'utf-8',
     },
@@ -178,7 +180,7 @@ function acquireBenchLease(): boolean {
 }
 
 function releaseBenchLease(): void {
-  spawnSync('podium', ['lock', 'release', 'bench:ludovico'], { encoding: 'utf-8' })
+  spawnSync('podium', ['lock', 'release', `bench:${hostname()}`], { encoding: 'utf-8' })
 }
 
 function write(out: string, output: RunOutput): void {

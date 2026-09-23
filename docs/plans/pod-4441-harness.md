@@ -96,7 +96,10 @@ bun scripts/test-heavy.ts -- bunx vite build --config packages/worklist-proto/ha
 # the interleaved matrix: one run.ts invocation per (arm, scale) per round, pair
 # order rotated each round, load-gated, bench and heavy-test leases per invocation:
 bun packages/worklist-proto/harness/browser/matrix.ts \
-  --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor
+  --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor --host flatblock
+# (round three's timing machine is flatblock: push the commit to
+#  ssh://flatblock/home/mgw/podium-timing, check it out there, `bun install`,
+#  build harness/web/dist there with `bun x vite build`; see "Instrument floor")
 bun packages/worklist-proto/harness/browser/summarize.ts packages/worklist-proto/harness/browser/results/floor
 ```
 
@@ -217,41 +220,59 @@ is stated as **floor p95 + allowance**, per scenario and scale (table above);
 the allowances are methodology §1a's numbers, fixed here before any
 round-three arm is timed and not re-read on another dimension afterwards.
 
-**Floor numbers** (2026-09-23, `f33022e5f`, pages built from `4a870d0dc`
-— the commits between touch docs and notes only; drawn targets, viewport
-1600×2400). `matrix.ts --arms noop --scales 1,2,4 --rounds 4 --samples 5`,
-one page load per (round, scale), bench lease per invocation: 12 runs, all
-`ok`, n = 20 per cell, 1-minute load ≤ 7.73 on every record. Four attempts
-crossed load 8 part-way and were recorded failed and retried, never
-summarised (`r0-noop-2x.try0`, `r0-noop-4x.try0`, `r3-noop-2x.try0/.try1`).
+**Floor numbers — flatblock, THE FLOOR THE BUDGETS USE** (2026-09-23,
+`6fbaf7a3c`, Chromium 148.0.7778.96, 8 cores). Round three times on one
+machine, flatblock (POD-4286 ruling): anything compared must be timed on the
+same machine, so every arm and the control are timed there and every budget
+below is computed from this floor. Runs record `host`; `summarize.ts` refuses
+to mix machines (`MACHINES DIFFER`, exit 2). `matrix.ts --host flatblock
+--arms noop,noop+walk:2,noop+sync:5 --scales 1,2,4 --rounds 4 --samples 5`,
+interleaved, `bench:flatblock` lease per invocation: 36 runs `ok`, n = 20 per
+cell, 1-minute load ≤ 7.78 on every record; three attempts crossed load 8
+part-way and were recorded failed and retried, never summarised.
 `actionMs`, ms:
 
-| Scenario | 1x p50 / p95 | 2x p50 / p95 | 4x p50 / p95 | slope p50 4x/1x |
+| Scenario | 1x p50 / p95 | 2x p50 / p95 | 4x p50 / p95 | raw slope p50 4x/1x |
 |---|---|---|---|---|
-| #1 heartbeat | 14.2 / 29.0 | 23.6 / 37.1 | 34.5 / 55.8 | 2.43 |
-| #4 rename | 1.5 / 2.7 | 1.3 / 2.2 | 6.7 / 27.0 | 4.47 |
-| #5 stage move | 2.2 / 9.6 | 2.5 / 4.6 | 4.5 / 8.7 | 2.05 |
-| #8 clock | 0.4 / 0.5 | 0.4 / 0.6 | 0.4 / 0.9 | 1.00 |
-| #3 click | 0.5 / 1.3 | 0.5 / 1.2 | 0.6 / 3.2 | 1.20 |
+| #1 heartbeat | 12.7 / 21.5 | 20.7 / 25.0 | 34.9 / 71.2 | 2.75 |
+| #4 rename | 1.4 / 3.6 | 1.4 / 3.0 | 7.8 / 28.5 | 5.57 |
+| #5 stage move | 2.2 / 5.5 | 2.8 / 7.9 | 4.6 / 10.7 | 2.09 |
+| #8 clock | 0.4 / 2.5 | 0.4 / 1.5 | 0.5 / 1.1 | 1.25 |
+| #3 click | 0.5 / 0.6 | 0.6 / 1.2 | 0.6 / 3.9 | 1.20 |
 
 Every no-op record commits 0 rows with 0 stray commits; `endedBy` is `drain`
 throughout (the kernel write, the feed and the settle hop, nothing drawn).
-The wall budgets on this floor (floor p95 + allowance): at 1x heartbeat 31.0
-(publish, + 2), rename 10.7, stage move 17.6, clock 8.5 (+ 8); click 17.3 at
-1x and 35.2 at 4x.
+**The wall budgets** (floor p95 + allowance), at 1x: heartbeat 23.5 (publish,
++ 2), rename 11.6, stage move 13.5, clock 10.5 (+ 8); click 16.6 at 1x and
+35.9 at 4x. Slope: the excess over this floor (below).
+
+Note on the flatblock checkout: its Playwright Chromium cannot start without
+`libasound.so.2` (Ubuntu 26.04 ships it as `libasound2t64`, not installed).
+The runs use Ubuntu's own package unpacked into
+`~/podium-timing/.toolchain/lib`, on `LD_LIBRARY_PATH` (`matrix.ts --host`
+sets it); nothing system-wide was changed.
+
+**Floor numbers — ludovico, a record only** (2026-09-23, `f33022e5f`; the
+first valid floor, not used for any budget). `matrix.ts --arms noop`, same
+shape: 12 runs ok, n = 20 per cell, load ≤ 7.73; four attempts failed on load
+and were not summarised. p50 / p95 at 1x, 2x, 4x: heartbeat 14.2/29.0,
+23.6/37.1, 34.5/55.8; rename 1.5/2.7, 1.3/2.2, 6.7/27.0; stage move 2.2/9.6,
+2.5/4.6, 4.5/8.7; clock 0.4/0.5, 0.4/0.6, 0.4/0.9; click 0.5/1.3, 0.5/1.2,
+0.6/3.2. The raw slopes (2.43, 4.47, 2.05) agree with flatblock's in kind.
 
 **Two budgets restated as excess over the floor** (coordinator ruling on
 POD-4558 finding (a), 2026-09-23). The shared write path (kernel write,
 replica, engine publish, row-source drain) grows with the corpus before any
-arm does anything: the no-op's p50 is 2.4x at 4x for a heartbeat, 4.5x for a
-rename, 2.0x for a stage move, and its heartbeat alone takes 14 ms. Two
+arm does anything: the no-op's p50 is 2.4–2.8x at 4x for a heartbeat,
+4.5–5.6x for a rename, 2.0–2.1x for a stage move (both machines), and its
+heartbeat alone takes 13–14 ms. Two
 budgets therefore failed every arm, the no-op included — the same class of
 defect as round two's `taskMs` budget with two frame waits inside it:
 
 | Budget | Old | New | Why |
 |---|---|---|---|
-| Growth slope (#14), per scenario | `actionMs` p50 4x / p50 1x ≤ 1.2 | (arm p50 − no-op p50) at 4x / (arm p50 − no-op p50) at 1x ≤ 1.2; the 1x excess taken as at least 1 ms (`SLOPE_MIN_EXCESS_MS`) | the no-op's own raw slope is 2.43 (heartbeat), 4.47 (rename), 2.05 (stage move) |
-| Unrelated heartbeat publish (#1) | publish ≤ 2 ms | `actionMs` p95 ≤ no-op p95 + 2 ms at 1x (31.0 ms on this floor) | the no-op's heartbeat is 14.2 ms p50, 29.0 ms p95 |
+| Growth slope (#14), per scenario | `actionMs` p50 4x / p50 1x ≤ 1.2 | (arm p50 − no-op p50) at 4x / (arm p50 − no-op p50) at 1x ≤ 1.2; the 1x excess taken as at least 1 ms (`SLOPE_MIN_EXCESS_MS`) | the no-op's own raw slope is 2.75 (heartbeat), 5.57 (rename), 2.09 (stage move) on flatblock; 2.43, 4.47, 2.05 on ludovico |
+| Unrelated heartbeat publish (#1) | publish ≤ 2 ms | `actionMs` p95 ≤ no-op p95 + 2 ms at 1x (23.5 ms on the flatblock floor) | the no-op's heartbeat is 12.7 ms p50, 21.5 ms p95 on flatblock (14.2 / 29.0 on ludovico) |
 
 The 1 ms minimum: the no-op's per-round p50 moves by at most 0.3 ms on the
 sub-millisecond scenarios (clock, click, rename at 1x), so a smaller 1x
@@ -264,7 +285,25 @@ beside the budgeted one, unbudgeted. Unit tests (`summarize.test.ts`,
 excess 1.0) and work that grows with the corpus fails (excess 4.0); a mutant
 that restores the raw ratio turns three of them red.
 
-SLOPE_PROOF
+**The restated budgets can fail** (flatblock, the same matrix as the floor,
+interleaved with it; n = 20 per cell). Two planted no-op arms
+(`noop-arm.tsx`): `walk:2` walks every issue and session row of the feed twice
+inside every notification (O(N) per change), `sync:5` busy-waits a constant
+5 ms. Neither commits a row.
+
+| Plant | heartbeat | rename | stage move | clock | click |
+|---|---|---|---|---|---|
+| `walk:2` (O(N)) — excess slope 4x/1x | 4.95 OVER | 5.36 OVER | 5.91 OVER | 5.25 OVER | −0.10 (no notification) |
+| `sync:5` (constant) — excess slope 4x/1x | 0.79 within | 0.75 within | 0.83 within | 0.98 within | 0.00 |
+| `walk:2` raw slope, for comparison | 3.87 | 5.38 | 5.34 | 5.14 | 1.00 |
+| `sync:5` raw slope, for comparison | 2.11 | 1.78 | 1.20 | 1.00 | 1.20 |
+
+The raw ratio would fail the constant plant on heartbeat and rename (2.11,
+1.78) exactly as it fails the no-op; the excess passes it and fails only the
+work that grows. A no-op click sends the arm no notification, so neither
+plant runs on it. The restated publish budget fails too: `sync:5`'s
+heartbeat p95 at 1x is 25.8 ms against 23.5 (a constant 5 ms over a 2 ms
+allowance), and every `walk:2` wall at 1x is over its budget.
 
 **The control's walls are not published.** Its 1x and 2x round-0 runs
 passed, but its 4x run FAILED: a click's whole-list redraw (1384 row commits)
