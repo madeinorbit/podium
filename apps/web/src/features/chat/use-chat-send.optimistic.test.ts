@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
 import { type UseChatSendOptions, type UseChatSendResult, useChatSend } from './use-chat-send'
 
-const sendText = vi.fn(async () => ({ ok: true, disposition: 'accepted' }) as never)
+const sendText = vi.fn(async () => ({ ok: true, disposition: 'queued' }) as never)
 const REFUSED = new Error('offline')
 const ledger = vi.fn(async () => [] as never)
 

@@ -209,7 +209,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
             mutationId: turn.deliveryId,
           })
           assertSendAccepted(result)
-          if (result.disposition === 'queued' || result.disposition === 'accepted') {
+          if (result.disposition === 'queued') {
             return {
               state: 'queued',
               ...(result.position !== undefined ? { position: result.position } : {}),

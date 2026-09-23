@@ -591,7 +591,7 @@ describe('ChatView composer', () => {
       | ((result: {
           ok: true
           queued: true
-          disposition: 'accepted'
+          disposition: 'queued'
           position: number
         }) => void)
       | undefined
@@ -599,7 +599,7 @@ describe('ChatView composer', () => {
     const confirmation = new Promise<{
       ok: true
       queued: true
-      disposition: 'accepted'
+      disposition: 'queued'
       position: number
     }>((resolve) => {
       confirmSend = resolve
@@ -639,7 +639,7 @@ describe('ChatView composer', () => {
     expect(sendConfirmed).toBe(false)
     expect(sendButton.disabled).toBe(false)
 
-    confirmSend?.({ ok: true, queued: true, disposition: 'accepted', position: 1 })
+    confirmSend?.({ ok: true, queued: true, disposition: 'queued', position: 1 })
     await flush()
   })
 
@@ -866,7 +866,7 @@ describe('ChatView composer', () => {
       fakeTrpc.messages.ledger.query.mockResolvedValue([failedRow])
       fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
         ok: true,
-        disposition: 'accepted',
+        disposition: 'queued',
       })
       act(() => {
         root.render(<ChatView sessionId={asSessionId('s1')} />)
