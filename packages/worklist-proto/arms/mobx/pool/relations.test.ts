@@ -965,6 +965,58 @@ function countedOutside(fn: () => void): OutsideCount {
   return count
 }
 
+type SetLike = { readonly size: number }
+type MapLike = { forEach(fn: (value: unknown, key: unknown) => void): void }
+/** Every set the engine holds, by container and key: the object and its size. */
+type Held = Map<string, { set: SetLike; size: number }>
+
+/**
+ * The sets the relation engine holds (M3 §7 G4, from
+ * `harness/review/m3-index-identity.test.ts`): each link's `under`, `buckets`
+ * and `coldBuckets`, and each collapse's `groups`, keyed by container and key.
+ * Read outside `countedOutside`, so taking it is never counted.
+ */
+function held(pool: MobxPool): Held {
+  const out: Held = new Map()
+  const engine = pool.graph as unknown as {
+    links: Map<string, Record<string, unknown>>
+    collapses: Map<string, { groups: MapLike }>
+  }
+  const take = (label: string, container: unknown): void => {
+    if (container === null || container === undefined) return
+    ;(container as MapLike).forEach((value, key) => {
+      const set = value as SetLike
+      out.set(`${label}:${String(key)}`, { set, size: set.size })
+    })
+  }
+  tracked(() => {
+    for (const [name, link] of engine.links) {
+      for (const field of ['under', 'buckets', 'coldBuckets']) take(`${name}.${field}`, link[field])
+    }
+    for (const [entity, collapse] of engine.collapses) take(`${entity}.groups`, collapse.groups)
+  })
+  return out
+}
+
+/**
+ * Sets held both before and after one change that are different objects: a
+ * copy-on-write, by ANY idiom. The counters cannot see a copy no patched
+ * method makes (`set.union(new Set())` copies natively, `structuredClone(set)`
+ * calls no prototype method); an in-place update keeps the object, a copy
+ * swaps it.
+ */
+function replaced(before: Held, after: Held): { keys: number; elements: number } {
+  let keys = 0
+  let elements = 0
+  for (const [key, was] of before) {
+    const now = after.get(key)
+    if (now === undefined || now.set === was.set) continue
+    keys += 1
+    elements += now.size
+  }
+  return { keys, elements }
+}
+
 describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)', () => {
   // The live export's largest buckets: repo.issues 4,574, worktree.sessions
   // 2,263 (docs/decisions/pod-4545-round-three-shape-review.md §2.3). One
@@ -999,7 +1051,9 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
       /** `path`: the row's path in the prefix index, when it has one. */
       const touched = (label: string, path: string | null, ...change: RowRecord[]): void => {
         const before = r.pool.stats.counters.bucketElements
+        const sets = held(r.pool)
         const outside = countedOutside(() => r.push(...change))
+        const swapped = replaced(sets, held(r.pool))
         // The evidence: counted outside the pool (M3 re-review G1).
         expect(outsideTotal(outside), `${label}: ${JSON.stringify(outside)}`).toBe(PER_EDGE)
         // The published stat agrees with it.
@@ -1011,6 +1065,8 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
           plainTotal(outside.plain),
           `${label}: plain ${JSON.stringify(outside.plain)}`,
         ).toBeLessThanOrEqual(plainBound(path))
+        // No set the engine held is replaced by a copy, by any idiom (M3 §7 G4).
+        expect(swapped, `${label}: sets replaced by a copy`).toEqual({ keys: 0, elements: 0 })
       }
       // belongsTo (issue.repo → repo.issues)
       touched('new issue', null, issue('N1'))

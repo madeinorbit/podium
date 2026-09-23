@@ -128,7 +128,7 @@ export interface FenceFeeds {
   dispose(): void
 }
 
-/** The feeds behind a `flush` handed to `runFenceStep`: how a step finds `rowReads`. */
+/** The feeds behind a `flush` handed to `runFenceStep`: how a step finds `rowReads` (none: refused, N9). */
 const FEEDS_OF_FLUSH = new WeakMap<() => void, FenceFeeds>()
 
 export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceFeeds {
@@ -350,15 +350,11 @@ const SETTLE_ROUNDS = 100
  * hook without the other: a lazy arm without them would have its loads
  * charged to no step.
  */
-function loadHooks(
-  handle: ArmHandle,
-  feeds: FenceFeeds | undefined,
-  step: string,
-): LazyArmHandle | null {
+function loadHooks(handle: ArmHandle, feeds: FenceFeeds, step: string): LazyArmHandle | null {
   const settle = typeof handle.settleLoads === 'function'
   const pending = typeof handle.pendingLoads === 'function'
   if (settle && pending) return handle as LazyArmHandle
-  const reads = feeds?.rowReads() ?? 0
+  const reads = feeds.rowReads()
   if (settle || pending || reads > 0) {
     const missing = [settle ? null : 'settleLoads()', pending ? null : 'pendingLoads()']
       .filter((hook) => hook !== null)
@@ -389,7 +385,14 @@ export async function runFenceStep(
 ): Promise<FenceStep> {
   const step = `${entry.methodology} ${entry.scenario}`
   const readsBudget = entry.readsBudget(ctx)
+  // N9: the feeds are found by the flush's identity; a wrapped flush would
+  // find none and silently switch off the lazy-arm refusal. Refuse it.
   const feeds = FEEDS_OF_FLUSH.get(flush)
+  if (feeds === undefined) {
+    throw new Error(
+      `${step}: the flush is not an openFenceFeeds flush (pass feeds.flush itself, not a wrapper)`,
+    )
+  }
   const before = loadHooks(mounted.handle, feeds, step)
   // Each round under its own act: the rows it lands redraw when act exits,
   // and a redrawn row can reach another cold row.
@@ -403,7 +406,7 @@ export async function runFenceStep(
       await before.settleLoads()
     })
   }
-  let settledAt = feeds?.rowReads() ?? 0
+  let settledAt = feeds.rowReads()
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
     methodology: entry.methodology,
@@ -412,7 +415,7 @@ export async function runFenceStep(
       flush()
       // A handle that turns lazy inside the step is asked here too.
       await loadHooks(mounted.handle, feeds, step)?.settleLoads()
-      settledAt = feeds?.rowReads() ?? 0
+      settledAt = feeds.rowReads()
     },
     expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
     views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
@@ -425,7 +428,7 @@ export async function runFenceStep(
   if (pendingLoads > 0) {
     throw new Error(`${step} left ${pendingLoads} load(s) pending after the step`)
   }
-  const late = (feeds?.rowReads() ?? 0) - settledAt
+  const late = feeds.rowReads() - settledAt
   if (late > 0) {
     throw new Error(
       `${step} loaded ${late} row(s) after the step settled its loads: charged to no step`,

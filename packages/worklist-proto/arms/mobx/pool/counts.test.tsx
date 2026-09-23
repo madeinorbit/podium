@@ -232,23 +232,24 @@ describe('fence steps #1-#4', () => {
       ctx.engine.destroy()
     }
   }, 120_000)
-  it('a lazy arm without the load hooks, or with a no-op settle, is refused (G2)', async () => {
-    for (const [name, strip, message] of [
-      [
-        'no hooks',
-        (handle: MobxPoolHandle) => {
-          const bare: Partial<MobxPoolHandle> = { ...handle }
-          delete bare.settleLoads
-          delete bare.pendingLoads
-          return bare as MobxPoolHandle
-        },
-        'but has no settleLoads() and pendingLoads()',
-      ],
+  it('a lazy arm without the load hooks, or with a no-op settle, is refused (G2); so is a wrapped flush (N9)', async () => {
+    const noHooks = (handle: MobxPoolHandle): MobxPoolHandle => {
+      const bare: Partial<MobxPoolHandle> = { ...handle }
+      delete bare.settleLoads
+      delete bare.pendingLoads
+      return bare as MobxPoolHandle
+    }
+    for (const [name, strip, wrapFlush, message] of [
+      ['no hooks', noHooks, false, 'but has no settleLoads() and pendingLoads()'],
       [
         'a no-op settle',
         (handle: MobxPoolHandle) => ({ ...handle, settleLoads: () => {} }),
+        false,
         'did not settle',
       ],
+      // N9: the fence finds the feeds by the flush's identity. A wrapper
+      // found none, and a lazy arm without hooks passed unrefused.
+      ['no hooks, wrapped flush', noHooks, true, 'the flush is not an openFenceFeeds flush'],
     ] as const) {
       const stripped: CheckableArm = {
         create: (source, locals, reads) =>
@@ -259,7 +260,8 @@ describe('fence steps #1-#4', () => {
       const mounted = mountArmForCounts(stripped, feeds.rows.source, feeds.locals)
       try {
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === '#1')!
-        await expect(runFenceStep(mounted, ctx, feeds.flush, entry), name).rejects.toThrow(message)
+        const flush = wrapFlush ? () => feeds.flush() : feeds.flush
+        await expect(runFenceStep(mounted, ctx, flush, entry), name).rejects.toThrow(message)
       } finally {
         mounted.unmount()
         feeds.dispose()
