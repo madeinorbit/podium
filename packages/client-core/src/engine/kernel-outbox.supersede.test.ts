@@ -92,7 +92,7 @@ afterEach(() => {
 })
 
 describe('the supersede scan is gated on an observer', () => {
-  it('no onSuperseded: a collapsible enqueue reads pending() no more than one that cannot collapse', async () => {
+  it('no onSuperseded: no scan before the enqueue, and the kernel still collapses', async () => {
     const outbox = await openOffline({})
     expect(await scansBeforeEnqueue(outbox)).toBe(0)
     // The kernel still collapsed: one mark-read queued, not two.
