@@ -1733,6 +1733,52 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           },
           false,
         )
+      } else if (
+        adapter.capabilities.observationProtocol === 'claude-causal' &&
+        observationLease !== undefined &&
+        observationLease.providerSessionId !== null &&
+        msg.type === 'spawn' &&
+        msg.resume?.value === observationLease.providerSessionId
+      ) {
+        // A RESUME SPAWN BOOTSTRAPS THE SAME WAY, OR NOTHING EVER DOES (POD-4663).
+        // `claude --resume` posts no hook at boot; its first hook is the
+        // UserPromptSubmit of whatever is typed next. Waiting for that hook left
+        // the phase `unknown` and the new lease with no bootstrap, so the daemon's
+        // durable queue — which types only into `idle` — held the send that woke
+        // the session until it failed, and the server rejected that failure (and
+        // every other event of the resumed process) for want of a bootstrap.
+        // Spawns carry no recorded path, so the conversation is found by its
+        // native id; real hooks racing the lookup queue behind it.
+        const lease = causalLeases.get(msg.sessionId)
+        const providerSessionId = observationLease.providerSessionId
+        claudeStarting.set(msg.sessionId, [])
+        void locateClaudeSessionFile({
+          cwd: msg.cwd,
+          resumeValue: providerSessionId,
+          ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        })
+          .catch(() => null)
+          .then((transcriptPath) => {
+            if (causalLeases.get(msg.sessionId) !== lease || claudeCausal.has(msg.sessionId)) return
+            if (transcriptPath) {
+              void startClaudeCausal(
+                msg.sessionId,
+                {
+                  hook_event_name: 'SessionStart',
+                  session_id: providerSessionId,
+                  transcript_path: transcriptPath,
+                  cwd: msg.cwd,
+                },
+                false,
+              )
+              return
+            }
+            // Nothing on disk to bootstrap from: fall back to the first real
+            // hook, exactly as if the lookup had never held them.
+            const held = claudeStarting.get(msg.sessionId) ?? []
+            if (held.length === 0) claudeStarting.delete(msg.sessionId)
+            else void startClaudeCausal(msg.sessionId, held[0])
+          })
       }
     }
     // Causal leases (Claude, Grok) skip this: bootEvents would emit on the

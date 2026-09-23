@@ -45,9 +45,13 @@ process.stdin.on('data', (buf) => {
 
 const hostMachineId = (): string => readOrCreateLocalMachineId()
 
-async function waitFor(pred: () => boolean, timeoutMs = 15_000, what = 'condition'): Promise<void> {
+async function waitFor(
+  pred: () => boolean | Promise<boolean>,
+  timeoutMs = 15_000,
+  what = 'condition',
+): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() - start > timeoutMs) throw new Error(`waitFor: timed out waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
@@ -102,7 +106,8 @@ describe('e2e: a send to an ended claude-code session', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ session_id: nativeId, transcript_path: transcriptPath, cwd: tmp, ...payload }),
       })
-    const row = (sessionId: string) => sessions.listSessions().find((s) => s.sessionId === sessionId)
+    const row = async (sessionId: string) =>
+      (await sessions.listSessions()).find((s) => s.sessionId === sessionId)
     const typed = (): string => (existsSync(record) ? readFileSync(record, 'utf8') : '')
     const transcriptTurn = (prompt: string, answer: string): void => {
       const at = new Date().toISOString()
@@ -115,12 +120,14 @@ describe('e2e: a send to an ended claude-code session', () => {
 
     try {
       await waitFor(
-        () => srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())?.online === true,
+        async () =>
+          (await srv.registry.modules.machines.listMachines()).find((m) => m.id === hostMachineId())
+            ?.online === true,
         15_000,
         'machine online',
       )
-      const { sessionId } = sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
-      await waitFor(() => row(sessionId)?.status === 'live', 15_000, 'first launch live')
+      const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
+      await waitFor(async () => (await row(sessionId))?.status === 'live', 15_000, 'first launch live')
 
       // One ordinary turn, so the session is idle with a resume ref — the state
       // the tester ended it from.
@@ -135,13 +142,13 @@ describe('e2e: a send to an ended claude-code session', () => {
       // ---- End session ------------------------------------------------------
       const ended = await sessions.hibernateSession({ sessionId })
       expect(ended).toMatchObject({ ok: true })
-      await waitFor(() => row(sessionId)?.status === 'hibernated', 15_000, 'hibernated')
+      await waitFor(async () => (await row(sessionId))?.status === 'hibernated', 15_000, 'hibernated')
       writeFileSync(record, '')
 
       // ---- the phone send wakes it ------------------------------------------
       const phoneText = 'phone message after the end'
       const sent = sessions.receiptSend('wake', { sessionId, text: phoneText })
-      await waitFor(() => row(sessionId)?.status === 'live', 20_000, 'resumed live')
+      await waitFor(async () => (await row(sessionId))?.status === 'live', 20_000, 'resumed live')
       // NO hook here, and that is the case under test: Claude Code posts nothing
       // at interactive boot, `--resume` included — its first hook is the
       // UserPromptSubmit of the prompt somebody types. A resumed session that
