@@ -583,3 +583,24 @@ mapping, audit §3.3 shapes, seed-1 coverage table, findings).
 - **Budget.** The summary gives `visibleHeartbeat` the hot-path allowance
   (noop p95 + 8 ms at 1x), stated before any measurement: a one-row redraw
   like the rename. The coordinator may overrule; `heartbeat` keeps its 2 ms.
+
+### Evidence (browser check mode, 1x, counts only: load 13-14.6, no walls)
+
+`run.ts --check --samples 3 --warmup 1 --scenarios heartbeat,visibleHeartbeat,clock`
+at `2efe456d7`. Targets: heartbeat `s2623` (invisible), visibleHeartbeat `i921`.
+
+| arm | heartbeat | visibleHeartbeat | clock |
+|---|---|---|---|
+| control | 276 commits, oracle changed 0 | 276 commits, oracle changed 1 (`i921`), over 271 | 276 commits, oracle changed 0 |
+| hand | 0 commits | 0 commits, under 1 (`i921` not redrawn) | 0 commits |
+| mobx | 0 commits | 0 commits, under 1 (`i921` not redrawn) | 0 commits |
+
+- Control parity ok on every sample; the control's clock row is a whole-list
+  redraw (276 commits) off the engine tick, so it is a measurement.
+- hand and mobx fail parity from their first sample (hand `i1026` phase
+  queued vs waiting; mobx `i3117` missing), identical hashes on a clean
+  checkout of the base `164b9ae7d` with `heartbeat,clock` only: not this
+  issue's. Their `visibleHeartbeat` under-draw (the row's `activityAt` moved,
+  nothing redrew) is new information, reported to the coordinator.
+- FINDING filed as POD-4652: a driver crash (page never ready) writes the JSON
+  as `status: ok` with 0 records; seen while proving the base.
