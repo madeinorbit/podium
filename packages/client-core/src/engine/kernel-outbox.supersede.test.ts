@@ -4,9 +4,9 @@
  * write path. It runs only when `onSuperseded` is registered AND
  * `observingSupersede` does not say no.
  *
- * The instrument counts `KernelOutbox.pending()` calls during one enqueue and
- * compares against an enqueue of a kind with NO collapse key, which never
- * scanned: equal means no scan, one more means exactly the scan.
+ * The instrument counts `KernelOutbox.pending()` calls made between the
+ * adapter's enqueue starting and its call into `kernel.enqueue`: zero means no
+ * scan, one means exactly the scan.
  */
 
 import type { MutationId } from '@podium/model'
@@ -59,20 +59,32 @@ async function openOffline(extra: Partial<EngineOutboxCallbacks>): Promise<Engin
   })
 }
 
-/** `pending()` reads during one enqueue: [collapsible mark-read, no-collapse update]. */
-async function readsPerEnqueue(
-  outbox: EngineOutbox,
-): Promise<{ markRead: number; update: number }> {
-  const spy = vi.spyOn(KernelOutbox.prototype, 'pending')
+/**
+ * `pending()` reads that happen BEFORE the adapter hands the entry to
+ * `kernel.enqueue`, for a second mark-read on the same issue (one to collapse).
+ * Only the supersede scan reads in that window; the reads after it (the
+ * size publication each event triggers) are the kernel's own and unchanged.
+ */
+async function scansBeforeEnqueue(outbox: EngineOutbox): Promise<number> {
   await outbox.enqueue('issueMarkRead', { id: 'i1' }, { mutationId: tx(1) })
-  spy.mockClear()
+  const log: string[] = []
+  const pending = KernelOutbox.prototype.pending
+  const enqueue = KernelOutbox.prototype.enqueue
+  vi.spyOn(KernelOutbox.prototype, 'pending').mockImplementation(function (this: KernelOutbox) {
+    log.push('pending')
+    return pending.call(this)
+  })
+  vi.spyOn(KernelOutbox.prototype, 'enqueue').mockImplementation(function (
+    this: KernelOutbox,
+    request,
+  ) {
+    log.push('enqueue')
+    return enqueue.call(this, request)
+  })
   await outbox.enqueue('issueMarkRead', { id: 'i1' }, { mutationId: tx(2) })
-  const markRead = spy.mock.calls.length
-  spy.mockClear()
-  await outbox.enqueue('issueUpdate', { id: 'i2', patch: { title: 'T' } }, { mutationId: tx(3) })
-  const update = spy.mock.calls.length
-  spy.mockRestore()
-  return { markRead, update }
+  vi.restoreAllMocks()
+  expect(log).toContain('enqueue')
+  return log.indexOf('enqueue')
 }
 
 afterEach(() => {
@@ -82,10 +94,9 @@ afterEach(() => {
 describe('the supersede scan is gated on an observer', () => {
   it('no onSuperseded: a collapsible enqueue reads pending() no more than one that cannot collapse', async () => {
     const outbox = await openOffline({})
-    const reads = await readsPerEnqueue(outbox)
-    expect(reads.markRead).toBe(reads.update)
+    expect(await scansBeforeEnqueue(outbox)).toBe(0)
     // The kernel still collapsed: one mark-read queued, not two.
-    expect(outbox.pending().map((e) => e.mutationId)).toEqual([tx(2), tx(3)])
+    expect(outbox.pending().map((e) => e.mutationId)).toEqual([tx(2)])
   })
 
   it('onSuperseded registered but not observing: no scan, and the report carries no entry', async () => {
@@ -94,8 +105,7 @@ describe('the supersede scan is gated on an observer', () => {
       onSuperseded: (id, entry) => reported.push([id, entry]),
       observingSupersede: () => false,
     })
-    const reads = await readsPerEnqueue(outbox)
-    expect(reads.markRead).toBe(reads.update)
+    expect(await scansBeforeEnqueue(outbox)).toBe(0)
     expect(reported).toEqual([[tx(1), undefined]])
   })
 
@@ -105,8 +115,7 @@ describe('the supersede scan is gated on an observer', () => {
       onSuperseded: (id, entry) => reported.push([id, entry]),
       observingSupersede: () => true,
     })
-    const reads = await readsPerEnqueue(outbox)
-    expect(reads.markRead).toBe(reads.update + 1)
+    expect(await scansBeforeEnqueue(outbox)).toBe(1)
     expect(reported).toEqual([
       [tx(1), { mutationId: tx(1), kind: 'issueMarkRead', input: { id: 'i1' }, queuedAt: 1_000 }],
     ])
