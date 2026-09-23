@@ -29,7 +29,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { userDockShell, userLayout } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
@@ -344,10 +344,14 @@ export class UserDockShellRepository {
   }
 
   /**
-   * {@link worktreeForSession} for many shells at once — one statement per 500
-   * ids instead of one per shell (POD-4627). The host sample asks this for
-   * every live shell four to six times a sample; per-shell reads were ~5,000
-   * statements per sample on a real 1,000-shell database.
+   * {@link worktreeForSession} for many shells in ONE statement (POD-4627).
+   * The host sample asks this four to six times a sample; per-shell reads were
+   * ~5,000 statements a sample on a real 1,000-shell database.
+   *
+   * The ids travel as one JSON parameter, not an `IN (?, ?, …)` list: the
+   * driver caches one prepared statement per SQL text, and a list sized by the
+   * live-shell count would mint a new text for every count it ever sees. One
+   * parameter also has no `SQLITE_MAX_VARIABLE_NUMBER` ceiling to chunk under.
    *
    * Each session's rows come back in rowid order, the order the single-session
    * read walks `idx_user_dock_shell_session` in, so `rows[0]` is the same row
@@ -357,26 +361,24 @@ export class UserDockShellRepository {
     sessionIds: readonly SessionId[],
   ): Promise<Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>> {
     const out = new Map<SessionId, Array<{ userId: UserId; worktreeKey: string }>>()
-    const unique = [...new Set(sessionIds)]
-    // SQLITE_MAX_VARIABLE_NUMBER is 999 on the builds this ships against.
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const rows = await this.db
-        .select({
-          sessionId: userDockShell.sessionId,
-          userId: userDockShell.userId,
-          worktreeKey: userDockShell.worktreeKey,
-        })
-        .from(userDockShell)
-        .where(inArray(userDockShell.sessionId, unique.slice(i, i + CHUNK)))
-        .orderBy(sql`rowid`)
-        .all()
-      for (const r of rows) {
-        const bucket = out.get(r.sessionId)
-        const row = { userId: r.userId, worktreeKey: r.worktreeKey }
-        if (bucket) bucket.push(row)
-        else out.set(r.sessionId, [row])
-      }
+    if (sessionIds.length === 0) return out
+    const rows = await this.db
+      .select({
+        sessionId: userDockShell.sessionId,
+        userId: userDockShell.userId,
+        worktreeKey: userDockShell.worktreeKey,
+      })
+      .from(userDockShell)
+      .where(
+        sql`${userDockShell.sessionId} in (select value from json_each(${JSON.stringify([...new Set(sessionIds)])}))`,
+      )
+      .orderBy(sql`rowid`)
+      .all()
+    for (const r of rows) {
+      const bucket = out.get(r.sessionId)
+      const row = { userId: r.userId, worktreeKey: r.worktreeKey }
+      if (bucket) bucket.push(row)
+      else out.set(r.sessionId, [row])
     }
     return out
   }

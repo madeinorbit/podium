@@ -112,7 +112,7 @@ describe('UserDockShellRepository', () => {
     expect((await shells.worktreesForSessions([])).size).toBe(0)
   })
 
-  it('worktreesForSessions chunks past the SQLite variable limit', async () => {
+  it('worktreesForSessions takes more ids than SQLite has bind variables', async () => {
     const ids = Array.from({ length: 1200 }, (_, i) =>
       asSessionId(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`))
     for (const [i, id] of ids.entries()) await shells.set(ALICE, `/repo/.worktrees/w${i}`, id, AT)
