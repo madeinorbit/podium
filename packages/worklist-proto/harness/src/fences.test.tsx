@@ -229,8 +229,9 @@ describe('wall-clock independence of the #9 steps', () => {
 const PENDING_ROSTER: Readonly<Record<string, string>> = {
   mobx: 'POD-4572 (Mb4) adds the MobX pool with every scenario and parity, and removes this exception',
   // Coordinator ruling on POD-4578 (symmetric with POD-4565): the a1 hand pool
-  // has no order or roll-ups either.
-  hand: 'POD-4581 (Ha4) adds the hand-rolled pool to the roster, and removes this exception',
+  // has no order or roll-ups either. Moved from Ha4 to Hb4 by the coordinator's
+  // correction of 2026-09-23 (parity needs the b phase's worklist).
+  hand: 'POD-4585 (Hb4) adds the hand-rolled pool with every scenario and parity, and removes this exception',
 }
 
 describe('roster', () => {

@@ -33,8 +33,13 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
 - **A row view is a cell per part** (`pool/views.ts` `PART_RULES`,
   `pool/pool.ts` `IssueCells`): `own` (row-only fields and the clock),
   `repoId` → `prefix` → `displayRef`, `displayTitle`, `originRef` →
-  `originId` → `originTick`, `activityAt`, `loading`, then `view` assembles
-  them and reads no row.
+  `originId` → `originTick`, `sessionIds` → `activityAt` and `loading`,
+  then `view` assembles them and reads no row.
+  A roll-up over members re-composes from cached values (Ha4, POD-4581):
+  `sessionIds` is the one reader of the `issue.sessions` bucket, each
+  session's contribution is its own cell (`HandPool.sessionActivity`,
+  disposed when the session leaves), and `activityAt` combines them, so a
+  member's change re-reads that member's row only, never its siblings'.
   A single-valued relation is its own part, read through the relation
   accessor (`relations.one`: the engine's forward slot plus the target's
   presence), never resolved off the own row, so a rename moves no relation
@@ -174,11 +179,16 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
   on first read with the list mounted, the loader, lazy relations with the
   pending marker, every transition) and `pool/bootstrap.test.ts` (counts at
   1x and 4x; walls with `POD_POOL_BOOT_WALLS=1`).
-- **Fence steps** #1, #3, #4, #8, #8b, `pool/counts.test.tsx`: the shared
-  `assertCommits` (where the a1 list can meet it), `assertReads` and
-  `assertNoCopies`, no parity; the roster entry with parity is Ha4's
-  (`harness/src/fences.test.tsx` names it pending). The mount's queued loads
-  are settled before counting (the window never closes on its own there).
+- **Fence steps** #1, #2, #3, #4, #8, #8b, `pool/counts.test.tsx`: the
+  shared `assertCommits` (where the a1 list can meet it), `assertReads` and
+  `assertNoCopies`, no parity; the roster entry with parity is Hb4's
+  (POD-4585; `harness/src/fences.test.tsx` names it pending). The mount's
+  queued loads are held pending (the window never closes on its own there),
+  so none lands inside a counted step's reads; the harness's `snapshot()`
+  after the step settles them, which shows in #1's `rowsDerived` (not in
+  its reads or commits). A second test plants the sibling re-read (member
+  activity read from the rows inside `activityAt`) and must fail #2's reads
+  fence on its own (a-phase note: `docs/measurements/POD-4581-a.md`).
 - Relations: `pool/relations.test.ts` — per relation, the §4.5 worked
   example, the write record per change kind, the fixture schema with an
   extra relation, the resume twins against the legacy dedupe, and seeded
