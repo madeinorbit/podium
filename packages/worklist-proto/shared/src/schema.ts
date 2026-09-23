@@ -714,6 +714,48 @@ export function expectedLazy(schema: ModelSchema, relation: RelationSpec): boole
   return schema[relation.to].cold.kind !== 'never'
 }
 
+/**
+ * The row a `via` entity inherits residency from (its `cold.relation`'s
+ * RAW foreign key: residency follows the reference, not the relation's
+ * `where`, so a headless session of a closed issue is cold too), or null.
+ */
+export function viaTargetOf(
+  schema: ModelSchema,
+  entity: EntityName,
+  row: object,
+): { readonly to: EntityName; readonly id: string } | null {
+  const spec = schema[entity].cold
+  if (spec.kind !== 'via') return null
+  const relation = schema[entity].relations[spec.relation]
+  if (relation?.kind !== 'belongsTo') {
+    throw new Error(`[schema] ${entity}.cold.via must name a belongsTo (got ${relation?.kind})`)
+  }
+  const key = (row as Readonly<Record<string, unknown>>)[relation.foreignKey]
+  return typeof key === 'string' && key.length > 0 ? { to: relation.to, id: key } : null
+}
+
+/**
+ * Whether `row` of `entity` may stay out of memory, by `schema[entity].cold`:
+ * `never` is always resident, `own` is the entity's predicate over its row,
+ * `via` is cold when the row it inherits from ({@link viaTargetOf}) is known
+ * and cold by rule, which `coldTarget` answers (a pool asks what it holds;
+ * a rebuild asks the feed). POD-4580 (Ha3) shares it so a pool, its rebuild
+ * and the gate's partition check apply one rule; the MobX arm carries its
+ * own copy (`arms/mobx/pool/residency.ts`) until it next changes.
+ */
+export function coldByRule(
+  schema: ModelSchema,
+  entity: EntityName,
+  row: object,
+  coldTarget: (to: EntityName, id: string) => boolean,
+): boolean {
+  const spec = schema[entity].cold
+  if (spec.kind === 'never') return false
+  if (spec.kind === 'own') return spec.predicate(row as Readonly<Record<string, unknown>>)
+  const target = viaTargetOf(schema, entity, row)
+  return target !== null && coldTarget(target.to, target.id)
+}
+
 /** Every relation in the schema, with the entity and name it is declared under. */
 export function allRelations(
   schema: ModelSchema = SCHEMA,

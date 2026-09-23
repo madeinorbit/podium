@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 import {
   allRelations,
   collapseLosers,
+  coldByRule,
   type EntityName,
   expectedLazy,
   longestPrefixPath,
@@ -25,6 +26,7 @@ import {
   type RelationSpec,
   SCHEMA,
   validateStructure,
+  viaTargetOf,
 } from './schema'
 import { fieldsOf, validateSources } from './schema-sources'
 
@@ -407,5 +409,34 @@ describe('the resume-twin collapse (session.collapse)', () => {
   it('collapses the all-inactive group and keeps the active one, both directions', () => {
     expect(keptByRule(cases['rank beats recency (all inactive: collapses)']!)).toEqual(['a'])
     expect(keptByRule(cases['a group with a live row is kept in full (does NOT collapse)']!)).toEqual(['a', 'b'])
+  })
+})
+
+describe('the cold rule (coldByRule, POD-4580)', () => {
+  const closed = { id: 'i1', closedAt: '2026-01-01T00:00:00Z' }
+  const open = { id: 'i2', closedAt: null }
+  const issues: Record<string, object> = { i1: closed, i2: open }
+  const coldTarget = (to: EntityName, id: string): boolean => {
+    const row = to === 'issue' ? issues[id] : undefined
+    return row !== undefined && coldByRule(SCHEMA, to, row, coldTarget)
+  }
+
+  it('applies own, via and never from the declaration', () => {
+    expect(coldByRule(SCHEMA, 'issue', closed, coldTarget)).toBe(true)
+    expect(coldByRule(SCHEMA, 'issue', open, coldTarget)).toBe(false)
+    expect(coldByRule(SCHEMA, 'session', { sessionId: 's', issueId: 'i1' }, coldTarget)).toBe(true)
+    expect(coldByRule(SCHEMA, 'session', { sessionId: 's', issueId: 'i2' }, coldTarget)).toBe(false)
+    // An unknown issue, or none: nothing makes the session cold.
+    expect(coldByRule(SCHEMA, 'session', { sessionId: 's', issueId: 'i9' }, coldTarget)).toBe(false)
+    expect(coldByRule(SCHEMA, 'session', { sessionId: 's' }, coldTarget)).toBe(false)
+    expect(coldByRule(SCHEMA, 'worktree', { path: '/a' }, () => true)).toBe(false)
+    expect(coldByRule(SCHEMA, 'repo', { id: 'r' }, () => true)).toBe(false)
+  })
+
+  it('follows the raw reference: a headless session of a closed issue is cold', () => {
+    const headless = { sessionId: 's', issueId: 'i1', headless: true }
+    expect(viaTargetOf(SCHEMA, 'session', headless)).toEqual({ to: 'issue', id: 'i1' })
+    expect(coldByRule(SCHEMA, 'session', headless, coldTarget)).toBe(true)
+    expect(viaTargetOf(SCHEMA, 'issue', closed)).toBeNull()
   })
 })

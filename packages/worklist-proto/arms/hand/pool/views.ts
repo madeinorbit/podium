@@ -27,6 +27,11 @@
  *   title;
  * - locals: `selected`, and the clock through deadlines (`band`'s defer
  *   lapse, `closed`'s grace crossing).
+ * - residency (POD-4580, Ha3): `loading` while the origin or a member session
+ *   is known but not resident (`ViewInputs.loading` queues it). `originTick`,
+ *   `activityAt` and a draft's title read only resident rows, so they are
+ *   provisional exactly while `loading` is set; the row renders that, never
+ *   the half-built value as data. The rebuild holds every row: never loading.
  *
  * STUBS UNTIL THE WORKLIST PHASE. The roll-ups over own sessions and
  * children — `phase`, `progressDone`, `progressTotal`, `working`, `asking`,
@@ -96,9 +101,17 @@ export interface IssueParts {
   readonly prefix: string | null
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
+  /**
+   * `issue.discoveredFrom` through the engine: a KNOWN origin (in the live
+   * pool it may be cold), or null. The loading check reads this.
+   */
+  readonly originRef: string | null
+  /** The origin when it is resident. */
   readonly originId: string | null
   readonly originTick: RowOriginTick | null
   readonly activityAt: number
+  /** A lazy input (the origin, a member session) is known but not resident yet. */
+  readonly loading: boolean
 }
 
 export type PartName = keyof IssueParts
@@ -111,6 +124,11 @@ export interface ViewInputs {
   repo(id: string): RepoRow | undefined
   /** Whether a row of `entity` is in the pool (its slot only). */
   present(entity: EntityName, id: string): boolean
+  /**
+   * Whether a row of `entity` is known but not resident (POD-4580): the live
+   * pool queues its load. Always false where every row is held (the rebuild).
+   */
+  loading(entity: EntityName, id: string): boolean
   /** Another issue's parts (the origin of a spin-off); undefined when absent. */
   parts(id: string): IssueParts | undefined
   /** The selection local: `selectedIssueId === id`. */
@@ -290,9 +308,14 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
     const issue = input.issue(id)
     return issue === undefined ? undefined : displayTitleOf(issue, () => firstMemberOf(input, id))
   },
-  /** The spin-off's origin (`issue.discoveredFrom`), when it is in the pool. */
-  originId(input, id) {
+  /** The spin-off's origin (`issue.discoveredFrom`) when it is known, resident or cold. */
+  originRef(input, id) {
     return input.relations.one('issue', id, 'discoveredFrom')
+  },
+  /** The origin when it is resident (a cold one is `loading`). */
+  originId(input, _id, self) {
+    const originRef = self.originRef
+    return originRef !== null && input.present('issue', originRef) ? originRef : null
   },
   /** The ⤷ tick: a flat copy of the origin's parts (spec §3 R-ORIGIN). */
   originTick(input, _id, self) {
@@ -316,6 +339,20 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
       if (at !== null && (latest === null || at > latest)) latest = at
     }
     return latest ?? parseMs(input.issue(id)?.updatedAt) ?? 0
+  },
+  /**
+   * Whether a lazy input the parts read is still loading: the origin and
+   * every member session. Asks about EVERY member, so all of them are queued
+   * in one window, not one per window. Reads residency and the bucket, never
+   * a row.
+   */
+  loading(input, id, self) {
+    const originRef = self.originRef
+    let loading = originRef !== null && input.loading('issue', originRef)
+    for (const sessionId of input.relations.many('issue', id, 'sessions')) {
+      if (input.loading('session', sessionId)) loading = true
+    }
+    return loading
   },
 }
 
@@ -351,5 +388,6 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
     selected: input.selected(id),
     originTick: self.originTick,
     activityAt: self.activityAt,
+    ...(self.loading ? { loading: true as const } : {}),
   }
 }

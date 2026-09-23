@@ -10,11 +10,21 @@
  * `directParts`, then `buildRowView`) as the live cells, with the clock and
  * selection read as plain values. Only the memo differs (none here, a cell
  * per part there), which is what the checker holds the live pool to.
+ *
+ * RESIDENCY (POD-4580). The live pool's output holds its RESIDENT issues, and
+ * which cold rows it has loaded is the user's history, like the selection, so
+ * it comes in as an input: `resident`, the pool's resident issue ids. The
+ * rebuild's rows are every issue the schema's rule keeps hot (`coldByRule`
+ * over the feed's rows, the rule the pool partitions with) plus the resident
+ * ones that still exist. A hot issue the pool failed to hold, or a removed one
+ * it kept, is a row-set difference. Every row reads full data (`loading` is
+ * always false): the live `snapshot()` settles its loads first. The gate's
+ * full-residency checkpoint calls it without `resident`: every row.
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { sliceRowOf } from '../../../shared/src/row-view'
-import { type ModelSchema, SCHEMA } from '../../../shared/src/schema'
+import { coldByRule, type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { PoolRelations } from './relations'
 import { createTables, ingestOut, ingestRecord } from './tables'
@@ -23,6 +33,7 @@ import { buildRowView, directParts, type RepoRow, type ViewInputs } from './view
 export function rebuildSnapshot(
   source: RowSource,
   locals: LocalsSource,
+  resident?: ReadonlySet<string>,
   schema: ModelSchema = SCHEMA,
 ): SliceSnapshot {
   const tables = createTables()
@@ -46,13 +57,19 @@ export function rebuildSnapshot(
     session: (id) => tables.session.get(id) as SliceSession | undefined,
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,
     present: (entity, id) => tables[entity].has(id),
+    loading: () => false,
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
+  const coldTarget = (to: EntityName, id: string): boolean => {
+    const row = tables[to].get(id)
+    return row !== undefined && coldByRule(schema, to, row, coldTarget)
+  }
   const rowsById: SliceSnapshot['rowsById'] = {}
   for (const { id } of issues) {
+    if (resident !== undefined && !resident.has(id) && coldTarget('issue', id)) continue
     const view = buildRowView(inputs, id, directParts(inputs, id))
     if (view !== undefined) rowsById[id] = sliceRowOf(view)
   }

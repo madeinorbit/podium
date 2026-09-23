@@ -5,9 +5,11 @@
  *
  * `create` seeds the pool from the feed's snapshot (one `replace`), then
  * follows the feed (`RowSource`) and the locals channel (`LocalsSource`),
- * waking only what each notification names. Every row is resident at a1;
- * cold rows are Ha3 (POD-4580). No JSX here: this module builds the pool,
- * and the lint fence keeps store modules out of component files.
+ * waking only what each notification names. Cold rows (closed issues and
+ * their sessions) load through the feed's per-row read (`RowSource.row`,
+ * POD-4580); a feed without one is refused rather than silently holding
+ * every row. No JSX here: this module builds the pool, and the lint fence
+ * keeps store modules out of component files.
  */
 
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
@@ -20,7 +22,7 @@ import type {
 } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
-import { HandPool } from './pool'
+import { HandPool, type PoolLazyOptions } from './pool'
 import { PoolList } from './react/list'
 import { rebuildSnapshot } from './rebuild'
 
@@ -37,8 +39,16 @@ export const handPoolArm = {
     source: RowSource,
     locals: LocalsSource,
     reads: ReadFence = DISABLED_READ_FENCE,
+    /** Tests: the load window and its timer (default 50 ms, `setTimeout`). */
+    loader: Omit<PoolLazyOptions, 'load'> = {},
   ): HandPoolHandle {
-    const pool = new HandPool(reads, locals.get())
+    const row = source.row?.bind(source)
+    if (row === undefined) {
+      throw new Error(
+        '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
+      )
+    }
+    const pool = new HandPool(reads, locals.get(), undefined, { ...loader, load: row })
     pool.apply({
       type: 'replace',
       rows: [
@@ -54,7 +64,7 @@ export const handPoolArm = {
       pool,
       stats: pool.stats,
       snapshot: () => pool.snapshot(),
-      rebuildFromScratch: () => rebuildSnapshot(source, locals),
+      rebuildFromScratch: () => rebuildSnapshot(source, locals, pool.residentIssueIds()),
       dispose(): void {
         offRows()
         offLocals()

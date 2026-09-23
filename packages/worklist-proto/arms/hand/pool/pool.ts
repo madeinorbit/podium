@@ -25,6 +25,17 @@
  * rename does not re-run the issues that point at it, only the parts that
  * read its row.
  *
+ * RESIDENCY (POD-4580, Ha3; `residency.ts`). With a per-row read (`lazy.load`,
+ * the feed's `RowSource.row`), rows the schema lets be cold (closed issues and
+ * their sessions) never enter the tables: ingest registers their ids and the
+ * relation engine links them. A cell that reaches one through a lazy relation
+ * asks `inputs.loading`, which records it under the row's `coldness` key and
+ * queues the row; the 50 ms window's batch installs every queued row in ONE
+ * commit (`hydrate`). A registry entry that appears or leaves is a
+ * `residency` delta, handled like every other. `snapshot()` settles the
+ * loader before it answers. Without `lazy` every row is resident (the Ha1/Ha2
+ * tests that build the pool directly).
+ *
  * READ PATH. Every table read goes through the reads fence
  * (`reads.wrapTables`) behind a tracked door (`tracked`), every relation read
  * through `reads.wrapRelations`; with the fence disabled both are the raw
@@ -56,9 +67,11 @@ import { DeadlineClock } from './clock'
 import { issueIdsOf, reseed } from './enumerate'
 import { type EntityRecord, RECORD_CLASSES, type RecordOf } from './records'
 import { PoolRelations } from './relations'
+import { type LoadRow, Residency, type Schedule } from './residency'
 import {
   createTables,
   ENTITIES,
+  type IngestOut,
   type IngestTarget,
   ingestOut,
   ingestRecord,
@@ -88,6 +101,8 @@ export type Delta =
   | ({ readonly kind: 'row' } & RowDelta)
   /** A relation slot the engine wrote: `relation` is `${entity}.${name}`, keyed by `id`. */
   | { readonly kind: 'relation'; readonly relation: string; readonly id: string }
+  /** A cold row entered or left the registry (POD-4580): its `coldness` readers re-run. */
+  | { readonly kind: 'residency'; readonly entity: EntityName; readonly id: string }
   | { readonly kind: 'selection'; readonly to: string | null }
   | { readonly kind: 'clock'; readonly to: number }
 
@@ -109,7 +124,7 @@ export interface PoolCounters extends CellCounters {
 
 export type PoolStats = ArmStats & { readonly counters: PoolCounters }
 
-function createStats(graph: CellGraph): PoolStats {
+function createStats(graph: CellGraph, residency: () => Residency | null): PoolStats {
   const counters = Object.assign(graph.counters, {
     tableWrites: 0,
     rowsRemoved: 0,
@@ -128,10 +143,31 @@ function createStats(graph: CellGraph): PoolStats {
       stats.indexUpdates = 0
       stats.notifications = 0
       for (const key of Object.keys(counters) as (keyof PoolCounters)[]) counters[key] = 0
+      const cold = residency()?.counters
+      if (cold !== undefined) for (const key of Object.keys(cold) as (keyof typeof cold)[]) cold[key] = 0
     },
   }
   return stats
 }
+
+/** Residency options: the per-row read, and (tests) the window and timer. */
+export interface PoolLazyOptions {
+  readonly load: LoadRow
+  readonly windowMs?: number
+  readonly schedule?: Schedule
+}
+
+/** Where a row stands (`HandPool.resident`). */
+export type Residence = 'resident' | 'loading' | 'absent'
+
+/** A lazy collection: its resident members, and how many are still loading. */
+export interface LazyMembers {
+  readonly ready: readonly string[]
+  readonly pending: number
+}
+
+/** Load rounds `snapshot()` settles before it gives up (a load that queues another, and so on). */
+const MAX_SETTLE_ROUNDS = 64
 
 /** The worklist's order until Hb1 builds the visible collection. */
 const EMPTY_ORDER: SliceSnapshot['order'] = Object.freeze({
@@ -210,6 +246,10 @@ export class HandPool {
   readonly relationReaders: DepIndex<string>
   /** The relation engine; derivations read it only through `relations` (the fence). */
   readonly engine: PoolRelations
+  /** The cells that asked whether a row is cold, keyed `${entity}:${id}` (POD-4580). */
+  readonly coldness: DepIndex<string>
+  /** Residency (POD-4580); null when the pool holds every row. */
+  readonly residency: Residency | null
   /** The cells that read a table's membership (its id list). */
   readonly membership: DepIndex<EntityName>
   /** The cells that asked whether an issue is the selected one. */
@@ -234,11 +274,14 @@ export class HandPool {
   /** Keys whose value changed in this commit; published once at its end. */
   private readonly changedIds = new Set<string>()
   private idsChanged = false
+  /** Registry moves since the last commit, as deltas (residency reports them mid-ingest). */
+  private readonly coldMoves: Delta[] = []
 
   constructor(
     readonly reads: ReadFence,
     locals: SliceLocals,
     schema: ModelSchema = SCHEMA,
+    lazy?: PoolLazyOptions,
   ) {
     const graph = new CellGraph()
     this.graph = graph
@@ -248,6 +291,8 @@ export class HandPool {
     this.presence = tablesOf((entity) => new DepIndex<string>(`presence.${entity}`))
     this.relationReaders = new DepIndex<string>('relations')
     this.membership = new DepIndex<EntityName>('membership')
+    const coldness = new DepIndex<string>('coldness')
+    this.coldness = coldness
     this.selection = new DepIndex<string>('selection')
     this.clock = new DeadlineClock(graph, locals.coarseNow)
     this.selectedId = locals.selectedIssueId
@@ -263,13 +308,37 @@ export class HandPool {
       },
     }))
     const tracked = this.tracked
-    this.stats = createStats(graph)
+    const coldMoves = this.coldMoves
+    const residency =
+      lazy === undefined
+        ? null
+        : new Residency({
+            schema,
+            hot: fenced,
+            load: lazy.load,
+            ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
+            ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
+            asked: (entity, id) => graph.track(coldness, `${entity}:${id}`),
+            changed: (entity, id) => coldMoves.push({ kind: 'residency', entity, id }),
+          })
+    this.residency = residency
+    this.stats = createStats(graph, () => this.residency)
     const stats = this.stats
+    // The engine sees every KNOWN row: a resident one in its table, a cold one
+    // by id (read back through the feed only when maintenance needs its fields).
+    const known: TableSet<ReadableTable> =
+      residency === null
+        ? fenced
+        : tablesOf((entity) => ({
+            get: (id: string) => fenced[entity].get(id) ?? residency.read(entity, id),
+            has: (id: string) => fenced[entity].has(id) || residency.isCold(entity, id),
+          }))
     this.engine = new PoolRelations({
       schema,
-      rows: fenced,
+      rows: known,
       roots: this.tables,
-      present: (entity, id) => tracked[entity].has(id),
+      present: (entity, id) =>
+        tracked[entity].has(id) || (residency?.known(entity, id) ?? false),
       touch: (entity, id) => reads.touch(entity, id, 'get'),
       read: (relation, id) => graph.track(relationReaders, `${relation}:${id}`),
       onWrite: (elements) => {
@@ -283,6 +352,7 @@ export class HandPool {
       session: (id) => tracked.session.get(id) as SliceSession | undefined,
       repo: (id) => tracked.repo.get(id) as RepoRow | undefined,
       present: (entity, id) => tracked[entity].has(id),
+      loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => (tracked.issue.has(id) ? this.cellsOf(id) : undefined),
       selected: (id) => {
         graph.track(this.selection, id)
@@ -292,7 +362,12 @@ export class HandPool {
       passed: (t) => this.clock.passed(t),
     }
     this.records = tablesOf(() => new Map<string, EntityRecord>())
-    this.target = { read: this.fenced, write: this.tables, relations: this.engine }
+    this.target = {
+      read: this.fenced,
+      write: this.tables,
+      relations: this.engine,
+      ...(residency === null ? {} : { residency }),
+    }
     this.idsCell = graph.cell<readonly string[]>(
       'ids:issue',
       () => {
@@ -304,6 +379,7 @@ export class HandPool {
         this.idsChanged = true
       },
     )
+    residency?.onDue(() => this.hydrate())
   }
 
   // ---------------------------------------------------------------- reads
@@ -368,14 +444,74 @@ export class HandPool {
     return record as RecordOf[E]
   }
 
-  /** The a1 slice output: every pool issue's row, no order yet (Hb1). */
-  snapshot(): SliceSnapshot {
-    const rowsById: SliceSnapshot['rowsById'] = {}
-    for (const id of this.issueIds()) {
-      const view = this.view(id)
-      if (view !== undefined) rowsById[id] = sliceRowOf(view)
+  /**
+   * TRACKED: where the row `entity:id` stands. A cold row answers `loading`
+   * and is queued (first access); a reader renders that as loading, never as
+   * an empty row.
+   */
+  resident(entity: EntityName, id: string): Residence {
+    if (this.tracked[entity].has(id)) return 'resident'
+    return this.residency?.loading(entity, id) === true ? 'loading' : 'absent'
+  }
+
+  /**
+   * TRACKED: a lazy collection (Rule L) as its resident members plus the
+   * count still loading, every cold one queued. The shape a roll-up reads
+   * (Hb3): a parent's progress derives from `ready` and it reports loading
+   * while `pending > 0`. `ready` is in bucket order, which is none.
+   */
+  lazyMany(from: EntityName, id: string, relation: string): LazyMembers {
+    const to = this.engine.schema[from].relations[relation]?.to
+    if (to === undefined) throw new Error(`[pool] ${from}.${relation} is not a declared relation`)
+    const ready: string[] = []
+    let pending = 0
+    for (const member of this.relations.many(from, id, relation)) {
+      if (this.tracked[to].has(member)) ready.push(member)
+      else if (this.residency?.loading(to, member) === true) pending += 1
     }
-    return { order: EMPTY_ORDER, rowsById }
+    return { ready, pending }
+  }
+
+  /**
+   * Close the load window now: install every queued cold row, read by id
+   * through the feed, in ONE commit. The window's timer calls this; so does
+   * `snapshot()` while settling.
+   */
+  hydrate(): void {
+    const residency = this.residency
+    if (residency === null) return
+    const batch = residency.take()
+    if (batch.length === 0) return
+    const out = ingestOut()
+    this.engine.begin()
+    for (const [entity, id] of batch) residency.hydrate(this.target, entity, id, out)
+    this.commitIngest(out)
+  }
+
+  /** The resident issue ids, untracked (the rebuild's residency input). */
+  residentIssueIds(): ReadonlySet<string> {
+    return new Set(this.tables.issue.keys())
+  }
+
+  /**
+   * The a1 slice output: every RESIDENT issue's row, no order yet (Hb1).
+   * Settled: reading the rows queues the cold rows they reach, and those are
+   * loaded and the rows read again until nothing is queued, as a reader that
+   * waits out its loading state would see them.
+   */
+  snapshot(): SliceSnapshot {
+    for (let round = 0; ; round += 1) {
+      const rowsById: SliceSnapshot['rowsById'] = {}
+      for (const id of this.issueIds()) {
+        const view = this.view(id)
+        if (view !== undefined) rowsById[id] = sliceRowOf(view)
+      }
+      if (this.residency?.hasQueued() !== true) return { order: EMPTY_ORDER, rowsById }
+      if (round >= MAX_SETTLE_ROUNDS) {
+        throw new Error(`[pool] snapshot() did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
+      }
+      this.hydrate()
+    }
   }
 
   // --------------------------------------------------------------- writes
@@ -384,11 +520,18 @@ export class HandPool {
   apply(event: RowSourceEvent): void {
     const out = ingestOut()
     this.engine.begin()
-    if (event.type === 'replace') reseed(this.target, event.rows, out)
+    if (event.type === 'replace') reseed(this.target, event.rows, out, this.residency ?? undefined)
     else for (const record of event.rows) ingestRecord(this.target, record, out)
+    this.commitIngest(out)
+  }
+
+  /** One ingest's table, relation and registry writes as deltas, then one commit. */
+  private commitIngest(out: IngestOut): void {
     this.stats.counters.tableWrites += out.deltas.length
     const deltas: Delta[] = out.deltas.map((delta) => ({ kind: 'row', ...delta }))
     for (const write of this.engine.lastWrites) deltas.push({ kind: 'relation', ...write })
+    deltas.push(...this.coldMoves)
+    this.coldMoves.length = 0
     this.commit(deltas)
   }
 
@@ -420,6 +563,9 @@ export class HandPool {
     }
     this.engine.clear()
     this.relationReaders.clear()
+    this.residency?.clear()
+    this.coldness.clear()
+    this.coldMoves.length = 0
     this.membership.clear()
     this.selection.clear()
     this.clock.clear()
@@ -453,6 +599,9 @@ export class HandPool {
         return
       case 'relation':
         this.graph.invalidateKey(this.relationReaders, `${delta.relation}:${delta.id}`)
+        return
+      case 'residency':
+        this.graph.invalidateKey(this.coldness, `${delta.entity}:${delta.id}`)
         return
       case 'selection': {
         const from = this.selectedId
@@ -492,6 +641,7 @@ export class HandPool {
         return
       }
       case 'relation':
+      case 'residency':
       case 'selection':
       case 'clock':
         return

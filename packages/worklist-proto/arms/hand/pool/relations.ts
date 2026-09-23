@@ -162,11 +162,19 @@ export interface RelationWrite {
 
 export interface PoolRelationsOptions {
   readonly schema?: ModelSchema
-  /** Rows maintenance reads besides the changed one (collapse groups, flipped rows). */
+  /**
+   * Rows maintenance reads besides the changed one (collapse groups, flipped
+   * rows): every KNOWN row, so in a lazy pool a cold one is read back by id
+   * (POD-4580).
+   */
   readonly rows: TableSet<ReadableTable>
   /** The raw tables, for `prefix` root probes: a miss reads no row. */
   readonly roots: TableSet<{ has(id: string): boolean }>
-  /** Whether `id` is present, for `one()` (tracked in the live pool). */
+  /**
+   * Whether `id` is present, for `one()` (tracked in the live pool). In a lazy
+   * pool a KNOWN row is present, cold or not: `one()` names a cold target and
+   * the reader decides whether it needs it loaded (POD-4580).
+   */
   present(entity: EntityName, id: string): boolean
   /** A root probe hit (the reads fence counts it). */
   touch?(entity: EntityName, id: string): void
@@ -318,6 +326,31 @@ export class PoolRelations implements RelationReader {
     }
   }
 
+  /**
+   * What the engine holds (the bootstrap count, POD-4580): forward entries,
+   * bucket `Set`s and their members, prefix-index entries, collapse entries.
+   * Ids only, plain, and the same whatever the rows' residency.
+   */
+  footprint(): {
+    forward: number
+    buckets: number
+    members: number
+    under: number
+    collapse: number
+  } {
+    const out = { forward: 0, buckets: 0, members: 0, under: 0, collapse: 0 }
+    for (const link of this.links.values()) {
+      out.forward += link.forward.size
+      out.buckets += link.buckets.size
+      for (const bucket of link.buckets.values()) out.members += bucket.size
+      for (const set of link.under?.values() ?? []) out.under += set.size
+    }
+    for (const collapse of this.collapses.values()) {
+      out.collapse += collapse.groupOf.size + collapse.collapsed.size
+    }
+    return out
+  }
+
   /** Forget everything (the pool's dispose). */
   clear(): void {
     for (const link of this.links.values()) {
@@ -396,10 +429,13 @@ export class PoolRelations implements RelationReader {
       let losers: ReadonlySet<string> = this.none
       if (group.size > 1) {
         const table = this.options.rows[entity]
-        const members = [...group].map((member) => ({
-          id: member,
-          row: (member === id ? after : table.get(member)) as Row,
-        }))
+        const members: { id: string; row: Row }[] = []
+        for (const member of group) {
+          const row = (member === id ? after : table.get(member)) as Row | undefined
+          // A cold peer read back by id may already be gone from the kernel,
+          // its removal later in this event: it re-decides the group then.
+          if (row !== undefined) members.push({ id: member, row })
+        }
         losers = new Set(collapseLosers(rule, members))
       }
       for (const member of group) {

@@ -11,7 +11,8 @@
  *   as its one input: a rename does not re-run it; an add or a removal does.
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, as one
- *   event.
+ *   event. With residency (POD-4580) it re-partitions: it walks the cold
+ *   registry for the ids the slice no longer names.
  * - `scanRelations` / `diffRelations` (POD-4579): every declared relation
  *   resolved FROM SCRATCH by walking the tables — the collapse by grouping
  *   every row, the prefix relation by `longestPrefixPath` over every root —
@@ -19,21 +20,29 @@
  *   and `relationRef`. The gate and `relations.test.ts` hold the engine to it
  *   after every step; the pool itself never calls it.
  *
+ * - `knownTables` / `diffResidency` (POD-4580): every row a lazy pool KNOWS,
+ *   from the feed, for the relation check; and the hot/cold partition held to
+ *   the feed's rows. The gate's, never the pool's.
+ *
  * Ha1's `otherLaneOf` (a walk of the worktree table when a repo's lane left)
  * is gone: the maintained `repo.worktrees` collection answers it (`tables.ts`).
  */
 
+import type { RowSource } from '../../../shared/src/arm'
 import type { RelationReader } from '../../../shared/src/instrument/reads'
 import {
   type CollapseMember,
+  coldByRule,
   collapseLosers,
   type EntityName,
   longestPrefixPath,
   type ModelSchema,
   SCHEMA,
+  viaTargetOf,
 } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { isLinkSpec, relationRef } from './relations'
+import type { Residency } from './residency'
 import {
   createTables,
   drop,
@@ -43,7 +52,9 @@ import {
   ingestOut,
   ingestRecord,
   put,
+  type StoredRow,
   type TableSet,
+  type Tables,
 } from './tables'
 
 /** Every issue id in `issue`, in table order; the fence counts each id. */
@@ -60,7 +71,12 @@ export function issueIdsOf(issue: { keys(): IterableIterator<string> }): string[
  * The staging tables keep no relations, so a record named twice is staged
  * once, as its last value: no lane in staging ever hands its repo over.
  */
-export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: IngestOut): void {
+export function reseed(
+  target: IngestTarget,
+  rows: readonly RowRecord[],
+  out: IngestOut,
+  residency?: Residency,
+): void {
   const incoming = createTables()
   const staging: IngestTarget = { read: incoming, write: incoming }
   const scratch = ingestOut()
@@ -71,11 +87,19 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
     last.set(key, record)
   }
   for (const record of last.values()) ingestRecord(staging, record, scratch)
+  const staged = (to: EntityName, id: string): object | undefined => incoming[to].get(id)
   for (const entity of ENTITIES) {
     const next = incoming[entity]
     const gone: string[] = []
     for (const id of target.write[entity].keys()) if (!next.has(id)) gone.push(id)
     for (const id of gone) drop(target, entity, id, out)
+    if (residency?.capable(entity) === true) {
+      // POD-4580: re-partition. Cold rows the slice no longer names are
+      // forgotten; every named row is placed by the rule (a resident row stays).
+      for (const id of residency.ids(entity)) if (!next.has(id)) residency.forget(target, entity, id)
+      for (const [id, row] of next) residency.place(target, entity, id, row, staged, out)
+      continue
+    }
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
 }
@@ -195,6 +219,85 @@ export function diffRelations(
           )
         }
       }
+    }
+  }
+  return out
+}
+
+/**
+ * Every row a lazy pool KNOWS, in plain tables (POD-4580): for an entity that
+ * can be cold, the feed's current rows (cold ones included, which the engine
+ * links by id though the pool's tables never hold them); for one that never
+ * is, the feed's rows too, routed through the same ingest (a lane carries its
+ * repo), so nothing here leans on the pool's own state. What the gate's
+ * relation check holds the live engine to.
+ */
+export function knownTables(source: RowSource): Tables {
+  const tables = createTables()
+  const target: IngestTarget = { read: tables, write: tables }
+  const out = ingestOut()
+  for (const kind of ['session', 'issue', 'worktree'] as const) {
+    for (const record of source.snapshot(kind)) ingestRecord(target, record, out)
+  }
+  return tables
+}
+
+/**
+ * The pool's residency against the feed's CURRENT rows, as problems (up to
+ * 12 lines): every row of a cold-capable entity is resident or cold, never
+ * both, never neither; a cold row is cold by the rule (over the feed's rows)
+ * and registered under the row it inherits from; nothing resident or cold is
+ * gone from the feed. A resident row the rule calls cold is fine: it was
+ * looked at (`residency.ts`). The gate's partition check.
+ */
+export function diffResidency(
+  pool: { readonly tables: Tables; readonly residency: Residency | null },
+  source: RowSource,
+  schema: ModelSchema = SCHEMA,
+): string[] {
+  const residency = pool.residency
+  if (residency === null) return ['the pool has no residency']
+  const out: string[] = []
+  const say = (line: string): void => {
+    if (out.length < 12) out.push(line)
+  }
+  const feed = new Map<EntityName, Map<string, StoredRow>>()
+  for (const kind of ['issue', 'session'] as const) {
+    const rows = new Map<string, StoredRow>()
+    for (const record of source.snapshot(kind)) {
+      if (record.value !== undefined) rows.set(record.id, record.value as StoredRow)
+    }
+    feed.set(kind, rows)
+  }
+  const coldTarget = (to: EntityName, id: string): boolean => {
+    const row = feed.get(to)?.get(id)
+    return row !== undefined && coldByRule(schema, to, row, coldTarget)
+  }
+  for (const entity of Object.keys(schema) as EntityName[]) {
+    if (!residency.capable(entity)) continue
+    const rows = feed.get(entity)
+    if (rows === undefined) {
+      say(`${entity}: can be cold, but the feed has no per-row kind for it`)
+      continue
+    }
+    for (const [id, row] of rows) {
+      const hot = pool.tables[entity].has(id)
+      const cold = residency.isCold(entity, id)
+      if (hot && cold) say(`${entity}:${id} is both resident and cold`)
+      else if (!hot && !cold) say(`${entity}:${id} is in the feed but neither resident nor cold`)
+      else if (cold && !coldByRule(schema, entity, row, coldTarget)) {
+        say(`${entity}:${id} is cold but the rule keeps it resident`)
+      } else if (cold) {
+        const want = viaTargetOf(schema, entity, row)?.id ?? null
+        const got = residency.registeredTarget(entity, id) ?? null
+        if (want !== got) say(`${entity}:${id} is registered under ${got}, its row names ${want}`)
+      }
+    }
+    for (const id of pool.tables[entity].keys()) {
+      if (!rows.has(id)) say(`${entity}:${id} is resident but gone from the feed`)
+    }
+    for (const id of residency.ids(entity)) {
+      if (!rows.has(id)) say(`${entity}:${id} is cold but gone from the feed`)
     }
   }
   return out

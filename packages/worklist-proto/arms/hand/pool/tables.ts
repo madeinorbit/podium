@@ -43,6 +43,12 @@
  * REMOVAL. `value: undefined` deletes the row (evict and remove look the same,
  * spec §2); the delta says membership moved, and the pool disposes the row's
  * cells and accessor.
+ *
+ * RESIDENCY (POD-4580, Ha3). In the live pool a row of an entity that can be
+ * cold (`schema[entity].cold`) is routed through `IngestTarget.residency`
+ * (`residency.ts`): a cold row is registered by id and linked, never stored.
+ * The rebuild and a `replace`'s staging tables have no residency and store
+ * every row.
  */
 
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
@@ -99,16 +105,31 @@ export interface RelationMaintenance {
   members(from: EntityName, id: string, relation: string): ReadonlySet<string>
 }
 
+/** What ingest needs from residency (`residency.ts` `Residency`). */
+export interface ResidencyRouting {
+  /** Whether rows of `entity` can be cold. */
+  capable(entity: EntityName): boolean
+  /** One record of a cold-capable entity: stored, registered cold, or forgotten. */
+  ingest(
+    target: IngestTarget,
+    entity: EntityName,
+    id: string,
+    value: StoredRow | undefined,
+    out: IngestOut,
+  ): void
+}
+
 /**
  * Reads go through `read` (the fenced view in the live pool); writes go to
  * `write`, and each write to `relations`. Without `relations` (the staging
  * tables of a `replace`, `enumerate.ts` `reseed`) no relation is kept, and a
- * lane may not hand its repo over.
+ * lane may not hand its repo over. Without `residency` every row is stored.
  */
 export interface IngestTarget {
   readonly read: TableSet<ReadableTable & { keys(): IterableIterator<string> }>
   readonly write: Tables
   readonly relations?: RelationMaintenance
+  readonly residency?: ResidencyRouting
 }
 
 /** Store `row` under `id` unless the slot already holds that very object. */
@@ -198,6 +219,10 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
   const value = record.value as StoredRow | undefined
   if (record.kind === 'worktree') {
     ingestWorktree(target, record.id, value, out)
+    return
+  }
+  if (target.residency?.capable(record.kind) === true) {
+    target.residency.ingest(target, record.kind, record.id, value, out)
     return
   }
   if (value === undefined) drop(target, record.kind, record.id, out)
