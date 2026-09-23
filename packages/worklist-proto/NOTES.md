@@ -1,5 +1,54 @@
 # worklist-proto — package notes
 
+## POD-4561 (L5e) — lifecycle walls in the browser · 2026-09-23
+
+What landed: `docs/plans/pod-4441-harness.md`, "Lifecycle walls". Code:
+`harness/web/entrylib.ts` (held pages, `timeWindow`, the lifecycle hooks, the
+survivor `WeakRef`s), the four entries (`createArm(boot)`, no top-level await),
+`harness/web/noop-arm.tsx` (plants `build:<ms>`, `leak:<mb>`, `retain:1`),
+`harness/browser/run.ts` (a fresh context and page per lifecycle sample),
+`records.ts` (`LIFECYCLE_SCENARIOS`, `lifecycle` on the record), `complete.ts`
+(the lifecycle grid: arms + control at the planned scales), `summarize.ts`
+(lifecycle table and control-relative verdicts). Tests: `browser/lifecycle.test.ts`.
+
+### Decisions
+
+- **Lifecycle scenarios are never in the default set.** `SCENARIOS` stays the
+  hot path, so existing matrices and summaries are unchanged; lifecycle runs
+  are named with `--scenarios` and run as their own matrix at `--scales 1`.
+- **coldBootstrap's `actionMs` = `scriptMs` + the build window.** The page's
+  literal "load to first painted list" (`loadToPaintMs`) includes the fixture
+  build and the engine boot with its settle sleeps, identical on every page and
+  ~1.8 s of the ~2 s, which would compress every ratio to ~1. Reported, not
+  budgeted. `drainMs`/`frameMs` count from navigation too, like `actionMs`.
+- **principalSwitch boots the next runtime untimed** (the kernel's, frozen) and
+  times dispose + rebuild; the old runtime is destroyed after the window.
+- **rescope stages the 2x corpus rows untimed** and times the two installs.
+- **Heap budgets on the page total, growth as a ratio above the control's.**
+  Every page grows ~15% on a rescope (the no-op included): kernel and harness,
+  not arms. The retained-heap check is §1a's literal "retained heap ≤ 1.1×
+  control"; the arm's own delta (`heapAfter − heapBefore` on coldBootstrap) is
+  in the records.
+- **p50, not p95, for lifecycle.** One page load per sample; the tail is
+  compile and GC noise the control shares.
+- **Survivors fail the run** (enforcement that throws, pitfall k): an arm that
+  keeps the old principal alive has no lifecycle numbers.
+
+### Findings
+
+- The page, not the kernel, held the old runtime after a switch: the entries'
+  top-level `await` kept the boot in the module generator's registers. Fixed
+  (see the doc). Worth knowing for any page that must drop a runtime.
+- At the integration tip (66364c8a3) the round-two hand and mobx pages already
+  fail boot parity (hand: i1026 phase queued vs waiting; mobx: i3117 missing),
+  so their lifecycle runs fail. Only the control and the no-op floor time
+  clean until the round-three arms land.
+
+### Open
+
+- The round-three arms' lifecycle numbers: run this matrix with them once
+  Ma/Ha land; the control's numbers in the doc ("Lifecycle walls") are the reference.
+
 ## POD-4562 (L5f) — complete-or-fail runs · 2026-09-23
 
 What landed: `docs/plans/pod-4441-harness.md`, "Complete or fail" and

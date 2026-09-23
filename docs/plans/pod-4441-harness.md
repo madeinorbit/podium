@@ -269,8 +269,8 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 | Any other hot-path event (rename, stage move, clock, visible heartbeat) | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
 | Row click, engine selection write to the arm's commit (POD-4559; was the pointer event) | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
 | Cost follows the change, not the corpus | (arm p50 − floor p50) at 4x over the same at 1x ≤ 1.2, per scenario; the 1x excess taken as at least 1 ms (restated, see "Instrument floor") | `summarize.ts` slope table; counts must match at all three scales. A low read count is not proof of constant work (see "Instrument floor") |
-| Bootstrap / principal switch | ≤ 1.1x / ≤ 2x control | driver `coldBootstrap`/`principalSwitch` vs control JSON |
-| Memory | retained heap ≤ 1.1x control, no growth after rescope | `heapAfter` vs control; rescope disposal check |
+| Bootstrap / principal switch | `actionMs` p50 ≤ 1.1x / ≤ 2x the control's, at 1x (POD-4561) | driver `coldBootstrap`/`principalSwitch` on held pages; `summarize.ts` lifecycle verdicts (see "Lifecycle walls") |
+| Memory | coldBootstrap `heapAfter` p50 ≤ 1.1x the control's; principalSwitch and rescope `heapAfter/heapBefore` p50 ≤ the control's + 0.05; no object of the old principal alive after the switch's forced GC (POD-4561) | same; the survivor check fails the run |
 | Bundle | ≤ +60 KB gzip on web, no native-incompatible dep | entry chunk sizes in build output; native lane mount |
 
 Per-scenario row budgets are methodology §5.8 (#1: 0 rows; #2: 1 + ancestors;
@@ -552,6 +552,111 @@ views at the advanced clock by design and now derives there too; and the
 round-two MobX `+60d jump` test (`mobx.clock.test.tsx`, an `it.fails`), which
 jumps only the arm's clock, so its expected snapshot was built on two clocks.
 No live candidate's parity check was among them.
+
+## Lifecycle walls (POD-4561)
+
+Round two measured the lifecycle scenarios (#11 principal switch, #12 cold
+bootstrap, #13 rescope) by counts only, in happy-dom; its browser walls and
+heap were withheld. The driver now measures them in Chromium, the control the
+same way as every arm.
+
+```bash
+# its own matrix, at 1x: the hot-path grid needs 1x/2x/4x, rescope refuses 4x
+bun packages/worklist-proto/harness/browser/matrix.ts --host flatblock --remote-dir <checkout> \
+  --arms control,noop,<arms> --scales 1 --rounds 4 --samples 5 \
+  --scenarios coldBootstrap,principalSwitch,rescope --tag lifecycle
+bun packages/worklist-proto/harness/browser/summarize.ts packages/worklist-proto/harness/browser/results/lifecycle
+```
+
+**One page load per sample.** A killed or repeated lifecycle step poisons
+later renders in the same page, so every lifecycle sample (warm-ups included)
+loads its own page in a fresh browser context: a fresh renderer, nothing
+cached, a heap of its own. The page is HELD (`?hold=1`): the entry builds
+the fixture and boots the engine, then the arm waits for the driver, and a
+held page refuses hot-path changes and a second lifecycle step. The timer is
+the hot path's (`timeWindow` in `entrylib.ts`: dispatch, drain, settle, last
+commit signal).
+
+| Step | Untimed setup | Timed window (`actionMs`) | `heapBefore` → `heapAfter` (forced GC) |
+|---|---|---|---|
+| `coldBootstrap` | — | navigation to the entry's first statement (`scriptMs`: the bundle fetched, parsed, evaluated) + build: row source, locals, the arm's store, its list, to the last commit signal (`buildMs`). The fixture and engine boot between the two (`engineMs`) are the harness's and the kernel's, the same on every page, reported and not charged; `loadToPaintMs` (navigation to the first frame after the list, the hold removed) is reported | engine booted, no arm → list drawn |
+| `principalSwitch` | build the arm; boot the next principal's runtime over a FRESH replica and cache on the same corpus (`engineMs`) | dispose the arm (list, store, locals, source: `disposeMs`) and build it over the new runtime, to the new list's last commit signal; the old runtime is destroyed after the window (the kernel's) | built arm, next runtime booted → switched, old runtime destroyed |
+| `rescope` | build the arm; stage the corpus at 2x the page's | the kernel's rescope install onto the 2x rows (`growMs`) + the install back onto the page's own rows (`backMs`); the cache writes before each install are untimed | built arm, 2x rows staged → back at 1x |
+
+Page hooks (`window.__proto`): `build()`, `coldBootstrap()`,
+`prepareRebuild(principal)`, `rebuild(principal)`, `prepareRescope(scale)`,
+`rescope(scale)`, `lateSignals()`, `survivors()`. Every entry page builds its
+arm through `createArm(boot)`, so the rebuild is the entry's own recipe over
+the new runtime.
+
+**A lifecycle run FAILS** on a parity mismatch after the step (rescope: also
+at the grown state, `midParity`), on commit signals outside the step's window
+(`strayCommits`, before it plus `lateSignals()` after `heapAfter`), and when
+any object of the old principal — runtime, store, replica, cache, arm handle,
+row source, watched through `WeakRef`s — is alive after the switch's forced
+GC (`survivors`). An arm that keeps the old principal fails lifecycle outright.
+
+**The harness held the old runtime, not the kernel (found here).** The first
+switch measurements grew the heap by ~5 MB on the control and the no-op page.
+A heap snapshot's retaining path showed the entry module's top-level `await
+startEngineOnCorpus(...)`: an async module's generator keeps its awaited
+values in registers after it completes, so the old `ScenarioEngine` (and
+through its replica, client-core's store-stats `aliases` WeakMap, the old
+runtime) stayed alive. The entries now boot with `.then(...)`, no top-level
+await and no module binding, and `mountPage` keeps no reference to the old
+runtime after a switch. After the fix, both runtimes are collected and a
+switch shrinks the heap (control 24.6 → 22.9 MB).
+
+**Budgets** (methodology §1a, set in `summarize.ts` before any lifecycle run,
+each against the CONTROL's measured p50 at 1x from the same matrix; one page
+load per sample, so the p50, the typical load, is compared, not its
+compile/GC tail):
+
+| Check | Budget |
+|---|---|
+| coldBootstrap wall | `actionMs` p50 ≤ 1.1 × control |
+| principalSwitch wall | `actionMs` p50 ≤ 2 × control |
+| Retained heap | coldBootstrap `heapAfter.usedSize` p50 ≤ 1.1 × control |
+| No growth (principalSwitch, rescope) | `heapAfter / heapBefore` p50 ≤ control's + 0.05: the kernel and harness grow on a rescope under every page (the no-op too), so growth is judged above the control's |
+| rescope wall | reported; §1a sets no budget |
+
+**Control numbers — flatblock, THE REFERENCE THE LIFECYCLE BUDGETS USE**
+(POD-4561, 2026-09-23, `879fc74d8`, Chromium 148.0.7778.96, 8 cores, the
+reshaped 1x fixture: 4,867 issues). `matrix.ts --host flatblock --remote-dir
+podium-timing-4561 --arms control,noop,noop+build:300,noop+leak:8 --scales 1
+--rounds 4 --samples 5 --scenarios coldBootstrap,principalSwitch,rescope --tag
+lifecycle-4561`, interleaved, `bench:flatblock` per invocation: 16 runs `ok`,
+none retried, n = 20 per cell, the 1-minute load on every record ≤ 5.39.
+Every record: parity ok (the no-op's frozen list exempt), 0 stray commits, no
+survivor after a switch. p50 (p95), ms and MB:
+
+| Step | control `actionMs` | phases p50 | heap before → after | growth | no-op `actionMs` |
+|---|---|---|---|---|---|
+| coldBootstrap | 202.0 (245.1) | script 94.4 + build 108.7; engine 1,728.6 (not charged); load to paint 1,944.3 | 20.90 → 22.56 | — | 207.1 (270.3) |
+| principalSwitch | 236.7 (286.5) | dispose 4.1, build 233.7; next runtime boot 1,246.7 (untimed) | 24.57 → 22.94 | 0.934 | 286.8 (371.7) |
+| rescope | 795.1 (892.3) | grow 483.9, back 308.7 | 37.06 → 43.84 | 1.183 | 275.7 (330.2) |
+
+**The lifecycle budgets, on these numbers:** coldBootstrap `actionMs` p50
+≤ 222.2 ms; principalSwitch ≤ 473.4 ms; coldBootstrap retained heap ≤ 24.82
+MB; heap growth ≤ 0.984 after a switch and ≤ 1.233 after a rescope. They are
+recomputed from the control in every lifecycle matrix, never typed in; a
+matrix without the control is refused.
+
+**Each check can say NO** (same matrix; the plants are no-op pages, so their
+verdict is on the instrument, not an arm). The unplanted no-op passes all
+five checks. `build:300` (300 ms busy in the store's construction): cold
+507.9 ms and switch 596.0 ms, both OVER; heap within. `leak:8` (an 8 MB
+block dropped to a global at dispose and at every replace): retained heap
+30.26 MB OVER; switch growth 1.203 and rescope growth 1.497 OVER; its cold
+wall 250.8 ms is OVER too (building the block costs ~45 ms). `retain:1` (the
+disposed store kept in a global), one run on flatblock: FAILED, "after the
+switch and a forced GC the old principal's runtime, store, replica, cache,
+armHandle, scenarioEngine still alive".
+
+**Arms.** At the integration tip the round-two hand and mobx pages fail boot
+parity (hand: `i1026` phase queued vs waiting; mobx: `i3117` missing), on the
+base pages too, so their lifecycle runs fail and they are not in this matrix.
+The round-three arms run the same command beside the control when they land.
 
 ## Reads per change (POD-4557)
 
