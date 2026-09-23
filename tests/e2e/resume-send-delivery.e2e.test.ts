@@ -61,7 +61,10 @@ describe('e2e: a send to an ended claude-code session', () => {
     const recorder = join(tmp, 'recorder.cjs')
     writeFileSync(recorder, RECORDER)
     const nativeId = 'e2e-resume-send-native'
-    const transcriptPath = join(tmp, `${nativeId}.jsonl`)
+    // Where Claude really keeps it: `<home>/.claude/projects/<slug(cwd)>/<id>.jsonl`.
+    const projectDir = join(tmp, '.claude', 'projects', tmp.replace(/[^a-zA-Z0-9]/g, '-'))
+    mkdirSync(projectDir, { recursive: true })
+    const transcriptPath = join(projectDir, `${nativeId}.jsonl`)
     writeFileSync(transcriptPath, '')
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
     process.env.PODIUM_TEST_RECORD = record

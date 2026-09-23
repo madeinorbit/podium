@@ -1105,6 +1105,64 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
   })
 
+  it('bootstraps a resumed Claude from its transcript before any hook [POD-4663]', async () => {
+    // `claude --resume` posts nothing at boot: its first hook is the prompt
+    // somebody types. A resumed session that waited for that hook sat at
+    // `unknown` with no lease bootstrap, and the daemon's durable queue — which
+    // types only into `idle` — held the very send that woke it.
+    const home = await mkdtemp(join(tmpdir(), 'podium-claude-resume-boot-'))
+    const cwd = join(home, 'repo')
+    const projectDir = join(home, '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, 'claude-resumed.jsonl'),
+      `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'earlier turn' } })}\n` +
+        `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } })}\n`,
+    )
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      homeDir: home,
+    })
+    const sessionId = asSessionId('podium-resumed')
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId,
+          agentKind: 'claude-code',
+          cwd,
+          geometry: G,
+          durableLabel: 'podium-podium-resumed',
+          resume: { kind: 'claude-session', value: 'claude-resumed' },
+          observationGeneration: 2,
+          observationBindingVersion: 1,
+          observationProviderSessionId: 'claude-resumed',
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      // No hook is posted — that is the case under test.
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      expect(sent.find((message) => message.type === 'agentObservation')!.observation).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        observerGeneration: 2,
+        providerSessionId: 'claude-resumed',
+        nextPhase: 'idle',
+      })
+      expect(observers.trackedState(sessionId)?.phase).toBe('idle')
+    } finally {
+      observers.clearSession(sessionId)
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('follows a transcript Claude re-buckets mid-turn instead of latching the phase [POD-390]', async () => {
     // Claude stores a conversation under ~/.claude/projects/<slug(cwd)>/ and
     // RENAMES the file into a new bucket when the session's cwd changes. The
