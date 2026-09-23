@@ -870,10 +870,10 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
       try {
         // The kernel knows repo r1 (its prefix) before discovery reports it.
         const repoRow = { id: 'r1', prefix: 'POD' }
-        cache.put('repos', 'r1', repoRow)
+        cache.put('repo', 'r1', repoRow)
         replica.onKernelEvent({
           type: 'upserted',
-          record: { entity: 'repos', entityId: 'r1', value: repoRow, provenance: { seq: 1 } },
+          record: { entity: 'repo', entityId: 'r1', value: repoRow, provenance: { seq: 1 } },
           readmitted: false,
         } as never)
         await settle(40)

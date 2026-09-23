@@ -106,10 +106,22 @@
  * WORKTREE LANES. One `SliceWorktree` per repo root plus one per scanned
  * worktree, from `EngineState.repos` (`GitRepositoryWire`, engine-local, not a
  * replica kind) joined with the replica `repos` row's prefix, read by id. A
- * `repos` address emits only that repo's lanes. The repoId → repos index is
- * built when the engine's `repos` array identity moves (discovery), counted
- * in `enumerations`; a new `repos` array from discovery alone emits no event
- * (inherited from round two: discovery is not a kernel row).
+ * top-level entry whose path is another entry's linked worktree is dropped,
+ * as legacy `reposToViews` does: a real scan reports each linked worktree
+ * twice, and the lane belongs to its parent root. A `repos` address emits
+ * only that repo's lanes.
+ *
+ * DISCOVERY LANES (POD-4606). Discovery is not a kernel row: `refreshRepos`
+ * publishes a whole new `repos` array, with no address. A flush that sees the
+ * array's identity move (O(1), in both modes: truth mode subscribes to the
+ * runtime for this check alone) diffs the lanes of the new answer against the
+ * lanes the arms hold, by path, and emits each lane that appeared or changed
+ * value, and `value: undefined` for each that left. Lane objects are memoized
+ * by value signature, so a routine refresh that moves nothing visible emits
+ * nothing. The discovery answer is the batch: the flush visits every lane it
+ * names plus every lane that left, and counts one `enumerations` pass. That
+ * pass happens only when the array moves, never on an ordinary publication.
+ * Lanes carry no optimism, so `overlaid` and `truth` emit the same rows.
  *
  * DISPOSAL. `dispose()` unsubscribes from both the runtime and the replica; a
  * disposed source never emits again (principal switch, methodology #11).
@@ -137,7 +149,8 @@ interface RepoEntry {
 /** The runtime surface the row source reads. Structural so tests can drive it
  *  with a fake; the real `ClientRuntime` satisfies it by shape. The snapshot is
  *  read for `repos` (worktree lanes) only — entity rows come from the replica
- *  and the ledger, by id. */
+ *  and the ledger, by id. Both modes subscribe: `truth` only to see the
+ *  `repos` array move (discovery). */
 export interface RowSourceRuntime {
   subscribe(listener: () => void): () => void
   getSnapshot(): { repos: readonly RepoEntry[] }
@@ -155,9 +168,11 @@ export interface RowSourceReplica {
 
 /** Counts-first instrumentation (methodology §5.7). `rowsVisited` counts slice
  *  rows resolved (one per session, issue or lane read); per flush it equals
- *  the addressed rows plus the pending-overlay rows. `enumerations` counts
- *  whole-slice passes — one per replace, one per `snapshot()` call, one per
- *  lane-index build — and is 0 on every ordinary publication. `flushes`
+ *  the addressed rows plus the pending-overlay rows, plus, on a discovery,
+ *  the lanes the new answer names and the lanes that left. `enumerations`
+ *  counts whole-list passes — one per replace, one per `snapshot()` call, one
+ *  per discovery (a `repos` address before any lane was indexed counts the
+ *  index build instead) — and is 0 on every ordinary publication. `flushes`
  *  counts drains that had a signal, emitting or not. */
 export interface RowSourceStats {
   rowsVisited: number
@@ -252,6 +267,7 @@ export function createRowSource(
   const pendingAddresses = new Map<string, { kind: ReplicaKind; id: string }>()
   let pendingReplace: 'bootstrap' | 'rescope' | null = null
   let runtimeDirty = false
+  let discoveryDirty = false
   let scheduled = false
 
   /** The value last emitted for each slice row that had overlays at the last
@@ -261,8 +277,13 @@ export function createRowSource(
 
   // Worktree lanes memoized by path signature (path|repoId|repoPath|name|prefix).
   const laneCache = new Map<string, { sig: string; lane: SliceWorktree }>()
-  let reposIndexedFrom: readonly RepoEntry[] | null = null
-  let reposById = new Map<string, RepoEntry[]>()
+  /** The latest repo index, memoized by the `repos` array it was built from. */
+  let repoIndex: RepoIndex | null = null
+  /** The lanes the arms hold, by path, and the `repos` array they come from.
+   *  `held === null` means "the lanes of `heldFrom`, not derived yet": the
+   *  source starts that way, so creation reads no repo. */
+  let heldFrom: readonly RepoEntry[] = EMPTY
+  let held: Map<string, SliceWorktree> | null = null
 
   const stats: RowSourceStats = {
     rowsVisited: 0,
@@ -304,6 +325,14 @@ export function createRowSource(
   function onRuntimePublication(): void {
     if (disposed) return
     runtimeDirty = true
+    schedule()
+  }
+
+  /** Truth mode reads nothing else the runtime publishes: only a discovery
+   *  (the `repos` array moved) is a signal. */
+  function onTruthPublication(): void {
+    if (disposed || currentRepos() === heldFrom) return
+    discoveryDirty = true
     schedule()
   }
 
@@ -398,32 +427,52 @@ export function createRowSource(
     }
   }
 
-  /** repoId → the engine's repo entries, rebuilt only when discovery hands the
-   *  engine a new `repos` array. Counted: it is a whole-list pass. */
-  function reposFor(repoId: string): readonly RepoEntry[] {
-    const repos = currentRepos()
-    if (repos !== reposIndexedFrom) {
-      reposIndexedFrom = repos
-      reposById = new Map()
-      for (const repo of repos) {
-        const id = repoIdOf(repo)
-        if (id === null) continue
-        const list = reposById.get(id)
-        if (list) list.push(repo)
-        else reposById.set(id, [repo])
-      }
-      stats.enumerations += 1
+  /** The repo roots (standalone duplicates of linked worktrees dropped) and
+   *  the repoId → roots index, rebuilt only when discovery hands the engine a
+   *  new `repos` array. A whole-list pass: callers count it. */
+  function indexFor(repos: readonly RepoEntry[]): RepoIndex {
+    if (repoIndex?.from === repos) return repoIndex
+    const linked = new Set<string>()
+    for (const repo of repos) for (const wt of repo.worktrees ?? []) linked.add(wt.path)
+    const roots: RepoEntry[] = []
+    const byId = new Map<string, RepoEntry[]>()
+    for (const repo of repos) {
+      if (linked.has(repo.path)) continue
+      roots.push(repo)
+      const id = repoIdOf(repo)
+      if (id === null) continue
+      const list = byId.get(id)
+      if (list) list.push(repo)
+      else byId.set(id, [repo])
     }
-    return reposById.get(repoId) ?? EMPTY
+    repoIndex = { from: repos, roots, byId }
+    return repoIndex
+  }
+
+  /** Every lane of `repos`, by path, each one resolved (and counted). */
+  function lanesByPath(repos: readonly RepoEntry[]): Map<string, SliceWorktree> {
+    const out = new Map<string, SliceWorktree>()
+    for (const repo of indexFor(repos).roots) {
+      for (const lane of lanesOf(repo)) {
+        stats.rowsVisited += 1
+        out.set(lane.path, lane)
+      }
+    }
+    return out
   }
 
   /** Lanes of the repo whose `repos` row moved — bounded by that repo's lanes. */
   function resolveReposFanout(repoId: string): RowRecord[] {
+    const repos = currentRepos()
+    const fresh = repoIndex?.from !== repos
+    const index = indexFor(repos)
+    if (fresh) stats.enumerations += 1
     const out: RowRecord[] = []
-    for (const repo of reposFor(repoId)) {
+    for (const repo of index.byId.get(repoId) ?? EMPTY) {
       for (const lane of lanesOf(repo)) {
         stats.rowsVisited += 1
         out.push({ kind: 'worktree', id: lane.path, value: lane })
+        if (held !== null && repos === heldFrom) held.set(lane.path, lane)
       }
     }
     // No lane yet (a repo the scan has not reported): the prefix change is
@@ -439,6 +488,27 @@ export function createRowSource(
       out.push({ kind: 'worktree', id: repoId, value: raw as unknown as SliceWorktree | undefined })
     }
     return out
+  }
+
+  /** A discovery since the last flush: the lanes that appeared, changed value
+   *  or left, diffed by path against what the arms hold (POD-4606). */
+  function discoveryRows(into: Map<string, RowRecord>): void {
+    const repos = currentRepos()
+    if (repos === heldFrom) return
+    stats.enumerations += 1
+    const before = held ?? lanesByPath(heldFrom)
+    const after = lanesByPath(repos)
+    for (const [path, lane] of after) {
+      if (before.get(path) !== lane) into.set(`worktree:${path}`, { kind: 'worktree', id: path, value: lane })
+    }
+    for (const path of before.keys()) {
+      if (after.has(path)) continue
+      stats.rowsVisited += 1
+      laneCache.delete(path)
+      into.set(`worktree:${path}`, { kind: 'worktree', id: path, value: undefined })
+    }
+    heldFrom = repos
+    held = after
   }
 
   /** The issue a dep edge belongs to, read through the edge row by id. */
@@ -496,14 +566,15 @@ export function createRowSource(
     return out
   }
 
+  /** Every current lane, inside a replace or a `snapshot()` (whose one
+   *  enumeration covers it). Derived for the array the arms hold, it is that
+   *  array's lanes: kept, so a later discovery diffs without re-deriving. */
   function allLanes(): RowRecord[] {
+    const repos = currentRepos()
+    const lanes = lanesByPath(repos)
+    if (held === null && repos === heldFrom) held = lanes
     const out: RowRecord[] = []
-    for (const repo of currentRepos()) {
-      for (const lane of lanesOf(repo)) {
-        stats.rowsVisited += 1
-        out.push({ kind: 'worktree', id: lane.path, value: lane })
-      }
-    }
+    for (const [path, lane] of lanes) out.push({ kind: 'worktree', id: path, value: lane })
     return out
   }
 
@@ -511,10 +582,11 @@ export function createRowSource(
     if (disposed) return null
     const hadReplace = pendingReplace
     const addresses = [...pendingAddresses.values()]
-    const hadRuntime = runtimeDirty
+    const hadRuntime = runtimeDirty || discoveryDirty
     pendingAddresses.clear()
     pendingReplace = null
     runtimeDirty = false
+    discoveryDirty = false
     if (!hadReplace && addresses.length === 0 && !hadRuntime) return null
 
     const pending = readPending()
@@ -522,15 +594,21 @@ export function createRowSource(
     stats.flushes += 1
     if (hadReplace) {
       stats.enumerations += 1
+      const lanes = allLanes()
+      // Every subscriber now holds these lanes.
+      heldFrom = currentRepos()
+      held = new Map(lanes.map((row) => [row.id, row.value as SliceWorktree]))
       const event: RowSourceEvent = {
         type: 'replace',
-        rows: [...enumerate('session', pending), ...enumerate('issue', pending), ...allLanes()],
+        rows: [...enumerate('session', pending), ...enumerate('issue', pending), ...lanes],
       }
       emit(event)
       return event
     }
 
     const byKey = new Map<string, RowRecord>()
+    // 0. Discovery: lanes the new `repos` answer moved (O(1) when it did not).
+    discoveryRows(byKey)
     // 1. Kernel-addressed rows: always emitted.
     const addressed = new Map<string, { kind: 'session' | 'issue'; id: string }>()
     for (const address of addresses) {
@@ -626,9 +704,10 @@ export function createRowSource(
 
   const offs: Array<() => void> = []
   offs.push(subscribeAddressed(onAddressed))
-  // Truth mode reads nothing the runtime publishes: kernel addresses alone
-  // name its rows, so a runtime publication is not a signal.
-  if (mode === 'overlaid') offs.push(runtime.subscribe(onRuntimePublication))
+  // Truth mode reads nothing the runtime publishes but discovery: kernel
+  // addresses name its rows, so only a moved `repos` array is a signal.
+  heldFrom = currentRepos()
+  offs.push(runtime.subscribe(mode === 'overlaid' ? onRuntimePublication : onTruthPublication))
 
   // Seed the overlaid memo with the rows already painted at creation, so the
   // first flush compares against what `snapshot()` would have served. O(pending).
@@ -661,8 +740,16 @@ export function createRowSource(
       listeners.clear()
       pendingAddresses.clear()
       overlaid.clear()
+      held = null
+      repoIndex = null
     },
   }
 }
 
 const EMPTY: readonly never[] = [] as const
+
+interface RepoIndex {
+  from: readonly RepoEntry[]
+  roots: RepoEntry[]
+  byId: Map<string, RepoEntry[]>
+}
