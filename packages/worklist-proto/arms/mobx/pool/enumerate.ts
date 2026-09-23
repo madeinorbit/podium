@@ -16,7 +16,9 @@
  *   caller's single action. In the live pool it re-partitions residency
  *   (POD-4567): a named row resident before stays; the rest follow the rule.
  *
- * And one walk that is not the pool's: `scanRelations` (POD-4566) resolves
+ * And two walks that are not the pool's: `diffResidency` (POD-4567) holds the
+ * pool's hot/cold partition to the feed (the gate runs it every step), and
+ * `scanRelations` (POD-4566) resolves
  * every declared relation FROM SCRATCH over whole tables — the declared
  * resolvers applied to every row, no maintenance — for the rebuild
  * (`rebuild.ts`) and as the oracle the relation tests hold the live engine
@@ -24,6 +26,8 @@
  * declared resolvers (`longestPrefixPath`, `collapseLosers`).
  */
 
+import { runInAction } from 'mobx'
+import type { RowSource } from '../../../shared/src/arm'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import {
   type CollapseMember,
@@ -35,6 +39,7 @@ import {
 } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { isLinkSpec, relationRef } from './relations'
+import { coldByRule, type Residency, viaTargetOf } from './residency'
 import {
   createPlainTables,
   drop,
@@ -212,6 +217,80 @@ export function diffRelations(
           )
         }
       }
+    }
+  }
+  return out
+}
+
+/**
+ * The pool's residency against the feed's CURRENT rows, as problems (bounded
+ * to 12 lines): every row of an entity that can be cold is resident or cold,
+ * never both, never neither; a cold row is cold by the rule (over the feed's
+ * rows) and registered under the row it inherits from; nothing resident or
+ * cold is gone from the feed. A resident row that the rule calls cold is
+ * fine: it was looked at (`residency.ts`). The gate's partition check.
+ */
+export function diffResidency(
+  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
+  source: RowSource,
+  schema: ModelSchema = SCHEMA,
+): string[] {
+  // In an action: a check, not a derivation; it subscribes to nothing.
+  return runInAction(() => residencyProblems(pool, source, schema))
+}
+
+function residencyProblems(
+  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
+  source: RowSource,
+  schema: ModelSchema,
+): string[] {
+  const residency = pool.residency
+  if (residency === null) return ['the pool has no residency']
+  const out: string[] = []
+  const say = (line: string): void => {
+    if (out.length < 12) out.push(line)
+  }
+  const feed = new Map<EntityName, Map<string, object>>()
+  for (const entity of ['issue', 'session'] as const) {
+    feed.set(
+      entity,
+      new Map(
+        source
+          .snapshot(entity)
+          .filter((record) => record.value !== undefined)
+          .map((record) => [record.id, record.value as object]),
+      ),
+    )
+  }
+  const coldTarget = (to: EntityName, id: string): boolean => {
+    const row = feed.get(to)?.get(id)
+    return row !== undefined && coldByRule(schema, to, row, coldTarget)
+  }
+  for (const entity of Object.keys(schema) as EntityName[]) {
+    if (!residency.capable(entity)) continue
+    const rows = feed.get(entity)
+    if (rows === undefined) {
+      say(`${entity}: can be cold, but the feed has no per-row kind for it`)
+      continue
+    }
+    for (const [id, row] of rows) {
+      const hot = pool.tables[entity].has(id)
+      const cold = residency.isCold(entity, id)
+      if (hot && cold) say(`${entity}:${id} is both resident and cold`)
+      else if (!hot && !cold) say(`${entity}:${id} is in the feed but neither resident nor cold`)
+      else if (cold && !coldByRule(schema, entity, row, coldTarget)) {
+        say(`${entity}:${id} is cold but the rule keeps it resident`)
+      } else if (cold) {
+        const want = viaTargetOf(schema, entity, row)?.id ?? null
+        const got = residency.registeredTarget(entity, id) ?? null
+        if (want !== got) say(`${entity}:${id} is registered under ${got}, its row names ${want}`)
+      }
+    }
+    for (const id of pool.tables[entity].keys()) {
+      if (!rows.has(id)) say(`${entity}:${id} is resident but gone from the feed`)
+    }
+    for (const id of residency.ids(entity)) {
+      if (!rows.has(id)) say(`${entity}:${id} is cold but gone from the feed`)
     }
   }
   return out
