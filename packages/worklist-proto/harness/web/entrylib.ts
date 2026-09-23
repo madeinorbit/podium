@@ -27,7 +27,7 @@
  * against an arm doing nothing. Every row target is therefore picked by rule,
  * identically for every arm, from the FIRST WINDOW: the oracle's first
  * `FIRST_WINDOW_ROWS` rows of the list as it stands before the change (never
- * an arm's own draw order), pinned rows excluded. The rules are the scenario
+ * an arm's own draw order), root rows only. The rules are the scenario
  * library's (`pickTargets`): the rename takes the first open human root with
  * children; the stage move the first childless open root (`childlessRoot`);
  * each click the first row neither rule wants, then any. Before every write
@@ -160,6 +160,10 @@ export interface ProtoPage {
   verify(): ProtoOracleCheck | null
   /** The oracle's first window now (diagnostics). */
   firstWindow(): string[]
+  /** The oracle's first `n` rows with the target-rule facts (diagnostics). */
+  describeTop(
+    n: number,
+  ): { id: string; pinned: boolean; root: boolean; rename: boolean; stagemove: boolean }[]
   /** Wait (untimed) until the page is quiet; the driver calls it before the first change. */
   settle(): Promise<void>
   /** The settle's quiet window, ms. */
@@ -240,12 +244,16 @@ function createTimedCommitLog(): TimedCommitLog {
 }
 
 /**
- * The rows every arm draws with no scroll: hand and MobX mount 14 rows of
- * 56 px above the fold at 1600×1000 (17 with overscan), the control and the
- * no-op page more. Targets come from the oracle's first rows, so an arm that
- * draws fewer fails the mounted assertion instead of timing an undrawn row.
+ * The first window: the oracle's first rows, which every arm draws with no
+ * scroll in the driver's viewport (`run.ts`, `VIEWPORT`: 1600×2400; hand and
+ * MobX draw ~40 rows of 56 px there). The pinned section grows with the
+ * corpus (6 rows at 1x, 12 at 2x, 24 at 4x), and at 4x the first childless
+ * open root is row 33; round two's 1600×1000 (17 rows) held nothing but
+ * pinned rows at 4x, so #5 had no drawn target there. One viewport for every
+ * arm and scale. An arm that draws fewer rows fails the mounted assertion
+ * instead of timing an undrawn row.
  */
-export const FIRST_WINDOW_ROWS = 14
+export const FIRST_WINDOW_ROWS = 36
 
 type IssueFacts = {
   id: string
@@ -263,6 +271,7 @@ const ACTIVE_STAGES = new Set(['in_progress', 'planning', 'review'])
 
 /** The scenario library's target rules (`pickTargets`), over the corpus facts. */
 function targetRules(boot: ScenarioEngine): {
+  root: (id: string) => boolean
   openRootWithChildren: (id: string) => boolean
   childlessRoot: (id: string) => boolean
 } {
@@ -285,6 +294,7 @@ function targetRules(boot: ScenarioEngine): {
     )
   }
   return {
+    root: (id) => byId.get(id) !== undefined && !byId.get(id)?.parentId,
     openRootWithChildren: (id) => openRoot(id) && parents.has(id),
     childlessRoot: (id) => openRoot(id) && !parents.has(id),
   }
@@ -358,13 +368,14 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
   const checkMode = params.get('check') === '1'
   const rules = targetRules(boot)
 
-  /** The oracle's first window of the list as it stands now, pinned rows out. */
+  /** The oracle's first window of the list as it stands now, root rows only:
+   *  the control nests formal children inside their parent's row (no row of
+   *  their own to draw), so a child is never a target. */
   function firstWindow(): string[] {
     const { order } = oracleSnapshot(engine.getSnapshot())
-    const pinned = new Set(order.pinnedIds)
     return [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
       .slice(0, FIRST_WINDOW_ROWS)
-      .filter((id) => !pinned.has(id))
+      .filter(rules.root)
   }
   const mountedIds = (): Set<string> =>
     new Set(
@@ -389,11 +400,6 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     params.get('offwindow') === '1'
       ? boot.targets.visibleRootId
       : bootWindow.find(rules.openRootWithChildren)
-  if (renameTarget === undefined) {
-    throw new Error(
-      `[proto] rename: no open root with children in the first window ${bootWindow.join(',')}`,
-    )
-  }
   let renames = 0
   function rename(): void {
     const id = renameTarget as string
@@ -500,7 +506,12 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
           dispatch: () => void applyHeartbeat(boot),
         }
       case 'rename':
-        return { target: renameTarget as string, row: true, dispatch: rename }
+        if (renameTarget === undefined) {
+          throw new Error(
+            `[proto] rename: no open root with children in the first window ${bootWindow.join(',')}`,
+          )
+        }
+        return { target: renameTarget, row: true, dispatch: rename }
       case 'stagemove': {
         const id = nextStageMove()
         // Server truth before the move, for the untimed reopen in the next `prepare`.
@@ -677,6 +688,19 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     runScenario,
     verify,
     firstWindow,
+    describeTop: (n: number) => {
+      const { order } = oracleSnapshot(engine.getSnapshot())
+      const pinned = new Set(order.pinnedIds)
+      return [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
+        .slice(0, n)
+        .map((id) => ({
+          id,
+          pinned: pinned.has(id),
+          root: rules.root(id),
+          rename: rules.openRootWithChildren(id),
+          stagemove: rules.childlessRoot(id),
+        }))
+    },
     settle: async () => {
       await settleQuiet()
     },
@@ -700,6 +724,7 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     runScenario: () => Promise.reject(new Error(`[proto] ${arm} not implemented: ${reason}`)),
     verify: () => null,
     firstWindow: () => [],
+    describeTop: () => [],
     settle: () => Promise.resolve(),
     quietMs: 0,
     snapshotHash: () => 'pending',

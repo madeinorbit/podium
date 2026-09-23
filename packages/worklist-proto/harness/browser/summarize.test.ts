@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { distribution, MIN_SAMPLES_FOR_P95, type RunOutput, type TimingRecord } from './records'
-import { allowanceMs, cells, loadRuns } from './summarize'
+import { allowanceMs, cells, loadRuns, targetMismatches } from './summarize'
 
 function record(overrides: Partial<TimingRecord>): TimingRecord {
   return {
@@ -113,5 +113,31 @@ describe('allowanceMs', () => {
     expect(allowanceMs('click', 1)).toBe(16)
     expect(allowanceMs('click', 4)).toBe(32)
     expect(allowanceMs('click', 2)).toBeNull()
+  })
+})
+
+describe('targetMismatches', () => {
+  it('passes when every arm aimed each change at the same row', () => {
+    const noop = run([
+      record({ arm: 'noop', target: 'i23' }),
+      record({ arm: 'noop', scenario: 'click', target: 'i50' }),
+    ])
+    const hand = run([
+      record({ arm: 'hand', target: 'i23' }),
+      record({ arm: 'hand', scenario: 'click', target: 'i50' }),
+    ])
+    expect(targetMismatches([noop, hand])).toEqual([])
+  })
+
+  it('names the cell where two arms timed different rows', () => {
+    const noop = run([record({ arm: 'noop', scenario: 'click', target: 'i50' })])
+    const control = run([record({ arm: 'control', scenario: 'click', target: 'i17' })])
+    expect(targetMismatches([noop, control])).toEqual(['1x click#0: i50 (noop) vs i17 (control)'])
+  })
+
+  it('keeps warm-up and measured samples apart', () => {
+    const a = run([record({ arm: 'noop', warmup: true, sample: -1, target: 'i1' })])
+    const b = run([record({ arm: 'hand', warmup: false, sample: -1, target: 'i2' })])
+    expect(targetMismatches([a, b])).toEqual([])
   })
 })

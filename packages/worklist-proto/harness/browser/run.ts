@@ -52,6 +52,11 @@ import {
   type TimingRecord,
 } from './records'
 
+/** One viewport for every arm and scale, tall enough that the first window
+ *  (`FIRST_WINDOW_ROWS`, `entrylib.ts`) holds a drawn target for every
+ *  scenario at 4x, below a pinned section that grows with the corpus. */
+const VIEWPORT = { width: 1600, height: 2400 }
+
 /** The arms held to the oracle in check mode; the control (whole-list redraw)
  *  and the no-op page (draws nothing) exist to fail it and are reported only. */
 const CANDIDATE_ARMS = new Set<ArmName>(['hand', 'mobx'])
@@ -227,7 +232,7 @@ async function main(): Promise<number> {
   output.browser = browser.version()
   try {
     server = await serveDist(args.serve, args.port)
-    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
+    const page = await browser.newPage({ viewport: VIEWPORT })
     page.on('pageerror', (error) => fail(`page error: ${error.message}`))
     const plant = args.plant === null ? '' : `&plant=${encodeURIComponent(args.plant)}`
     const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}`

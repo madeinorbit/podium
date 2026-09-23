@@ -106,6 +106,36 @@ export function cells(runs: RunOutput[]): Cell[] {
   })
 }
 
+/**
+ * Every arm must aim each change at the same target (POD-4558: targets are
+ * picked by rule from the oracle's first window, never from an arm's draw
+ * order). Per (scale, scenario, sample, warm-up) the target must be one value
+ * across every arm and every round; each disagreement is returned, and the
+ * summary refuses to compare arms that timed different rows.
+ */
+export function targetMismatches(runs: RunOutput[]): string[] {
+  const seen = new Map<string, Map<string | null, string[]>>()
+  for (const run of runs) {
+    for (const record of run.records) {
+      const key = `${record.scale}x ${record.scenario}#${record.sample}${record.warmup ? ' (warm-up)' : ''}`
+      const byTarget = seen.get(key) ?? new Map<string | null, string[]>()
+      const arms = byTarget.get(record.target) ?? []
+      arms.push(record.plant ? `${record.arm}+${record.plant}` : record.arm)
+      byTarget.set(record.target, arms)
+      seen.set(key, byTarget)
+    }
+  }
+  const out: string[] = []
+  for (const [key, byTarget] of seen) {
+    if (byTarget.size <= 1) continue
+    const parts = [...byTarget].map(
+      ([target, arms]) => `${target} (${[...new Set(arms)].join(',')})`,
+    )
+    out.push(`${key}: ${parts.join(' vs ')}`)
+  }
+  return out
+}
+
 export function allowanceMs(scenario: ScenarioName, scale: Scale): number | null {
   if (scenario === 'click') return CLICK_ALLOWANCE_MS[scale] ?? null
   return scale === 1 ? HOT_PATH_ALLOWANCE_MS : null
@@ -121,6 +151,12 @@ function main(): void {
   const { ok, failed } = loadRuns(paths)
   for (const { path, run } of failed) {
     console.log(`FAILED RUN (not summarised): ${path} — ${run.failures.join('; ')}`)
+  }
+  const mismatches = targetMismatches(ok)
+  if (mismatches.length > 0) {
+    for (const m of mismatches) console.log(`TARGETS DIFFER (not summarised): ${m}`)
+    process.exitCode = 2
+    return
   }
   const table = cells(ok).sort(
     (a, b) =>
