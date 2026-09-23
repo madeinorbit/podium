@@ -73,6 +73,26 @@ the schema".
    removed root re-homes none → 12; the collapse shortcut on the new row's
    state only → 6; `one()` ignoring presence → 21; collapse flips not
    relinked → 10. None survived.
+4. **The engine's own element count cannot see a copy-and-sort.** F1's plant
+   (every membership change replaces the touched buckets with a sorted copy,
+   the MobX shape) still reports 2 elements per add and per remove through
+   `indexUpdates`, because the copy bypasses the counted path. The F1 test
+   therefore counts with an instrument the engine cannot under-report to:
+   every `Set` add/delete/iterator step and every element handed to
+   `Array.prototype.sort`, process-wide, for the one ingest. Honest engine:
+   8 ops per add and per remove at b = 4,000 AND at b = 8,000. Plant: 12,012 /
+   12,009 at 4,000 and 24,012 / 24,009 at 8,000. Any review of bucket upkeep
+   should count this way, not trust the arm's own counter.
+5. **Listener-level relation tests (Ha1's item 4).** A mounted row hears:
+   a session joining and leaving its issue, and evict then re-add of the
+   session and of the issue (`relations.test.ts`, "a relation write dirties
+   only..."); its origin evicted, re-added and renamed (`pool.test.tsx`,
+   "re-seats a spin-off..."); its repo's prefix changing and its repo
+   leaving (`relations.test.ts`, "a mounted row hears its repo's prefix
+   change..."); its repo's lane handover (`pool.test.tsx`). Child
+   added/removed has NO listener test because no a2 view reads
+   `issue.children`; the worklist phase (Hb1-Hb3) owns it, and its listener
+   test belongs with the first cell that reads the bucket.
 
 ### Measured (OLD FIXTURE 1x and hand-built rows, counts only; no walls)
 
@@ -101,6 +121,27 @@ for the whole ingest.
 The lane moves' extra elements are the path index (one entry per ancestor
 of the old and new cwd). Upkeep vs bucket size: one new issue in a repo of
 1,000 = one in a repo of 1 (2 elements, 1 row, same `Set` object; asserted).
+
+**F1 bound: O(1) per edge, independent of the bucket size b** (`relations.test.ts`,
+"bucket upkeep is O(1) in the bucket (M3 F1)"; `hand-pool-bucket-upkeep.json`,
+`hand-pool-bucket-upkeep-plant.json`):
+
+| b | add: elements / ops | remove: elements / ops |
+| --- | --- | --- |
+| 4,000 | 2 / 8 | 2 / 8 |
+| 8,000 | 2 / 8 | 2 / 8 |
+| 4,000, copy-and-sort plant | 2 / 12,012 | 2 / 12,009 |
+| 8,000, copy-and-sort plant | 2 / 24,012 | 2 / 24,009 |
+
+Asserted: the 4,000 and 8,000 rows are equal, elements ≤ 4, ops < 100; the
+plant's ops exceed b and grow with it.
+
+**F2 plant** (`relations.test.ts`, "row views resolve single-valued
+relations through the engine (M3 F2)"): a wrong forward entry planted for
+`issue.repo` and `issue.discoveredFrom` is exactly what the row view shows
+(`OTH-1` for `POD-1`; the origin tick names I3, not I1), and `diffRelations`
+names both slots. A view that re-resolved from its own row would still show
+the truth, so the test fails if the views stop reading through `one()`.
 
 Fence steps (`counts.test.tsx`, 1x engine, OLD FIXTURE, shared budgets):
 

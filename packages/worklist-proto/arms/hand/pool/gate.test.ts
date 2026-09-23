@@ -21,7 +21,9 @@
  * already holds (inserts and removals still maintained) must fail every seed.
  *
  * Defaults are 3 seeds x 200 steps; `POD_POOL_GATE_SEEDS=<n>` runs seeds
- * 1..n and `POD_POOL_GATE_STEPS=<n>` sets the length (`README.md`, "Gates").
+ * 1..n, `POD_POOL_GATE_FIRST_SEED=<k>` starts at k instead (a long run in
+ * chunks), and `POD_POOL_GATE_STEPS=<n>` sets the length (`README.md`,
+ * "Gates").
  *
  * FIDELITY. The fields a1 derives from the row, one hop and the locals are
  * compared with the oracle's row views (`rowViewsFromStore`) for every
@@ -44,9 +46,10 @@ import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'
 import { diffRelations } from './enumerate'
 
+const FIRST_SEED = Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1)
 const SEEDS = Array.from(
-  { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
-  (_, i) => i + 1,
+  { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) - FIRST_SEED + 1 },
+  (_, i) => i + FIRST_SEED,
 )
 const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
 
@@ -149,7 +152,8 @@ describe('correctness gate (L4b), rebuild-only', () => {
         relinkPlantStep: relinkStep,
       })
     }
-    writeResult('hand-pool-gate-1x', { seeds: SEEDS, steps: STEPS, cells })
+    const name = FIRST_SEED === 1 ? 'hand-pool-gate-1x' : `hand-pool-gate-1x-from-${FIRST_SEED}`
+    writeResult(name, { seeds: SEEDS, steps: STEPS, cells })
     expect(plantedFailures).toBe(SEEDS.length)
     expect(relinkFailures).toBe(SEEDS.length)
   }, 3_600_000)
