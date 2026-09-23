@@ -45,7 +45,7 @@ import { oracleSnapshot, rowViewsFromStore } from '../src/oracle/index'
 
 /** Rows drawn: the first window (`FIRST_WINDOW_ROWS`) plus the rows a page's
  *  stage moves pull into it (one per round), like a windowed arm's overscan. */
-const DRAWN_ROWS = 48
+const DRAWN_ROWS = 108
 
 const NOOP_ACTIONS: RowActions = { select: () => {} }
 

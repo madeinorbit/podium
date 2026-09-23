@@ -355,15 +355,17 @@ function createTimedCommitLog(): TimedCommitLog {
 
 /**
  * The first window: the oracle's first rows, which every arm draws with no
- * scroll in the driver's viewport (`run.ts`, `VIEWPORT`: 1600×2400; hand and
- * MobX draw ~40 rows of 56 px there). The pinned section grows with the
- * corpus (6 rows at 1x, 12 at 2x, 24 at 4x), and at 4x the first childless
- * open root is row 33; round two's 1600×1000 (17 rows) held nothing but
- * pinned rows at 4x, so #5 had no drawn target there. One viewport for every
- * arm and scale. An arm that draws fewer rows fails the mounted assertion
- * instead of timing an undrawn row.
+ * scroll in the driver's viewport (`run.ts`, `VIEWPORT`: 1600×5800; hand and
+ * MobX draw ~103 rows of 56 px there). The pinned section grows with the
+ * corpus: on the reshaped fixture (POD-4635) 21 rows at 1x, 42 at 2x, 84 at
+ * 4x, and the first open root with children and the first childless open
+ * root are rows 84 and 85 at 4x (POD-4560). The old 36-row window at
+ * 1600×2400 held nothing but pinned rows at 2x and 4x, so rename and stage
+ * move had no drawn target there (as round two's 1600×1000 at 4x before it).
+ * One viewport for every arm and scale. An arm that draws fewer rows fails
+ * the mounted assertion instead of timing an undrawn row.
  */
-export const FIRST_WINDOW_ROWS = 36
+export const FIRST_WINDOW_ROWS = 96
 
 export interface MountPageOptions {
   arm: string

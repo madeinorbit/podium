@@ -64,8 +64,10 @@ import {
 
 /** One viewport for every arm and scale, tall enough that the first window
  *  (`FIRST_WINDOW_ROWS`, `entrylib.ts`) holds a drawn target for every
- *  scenario at 4x, below a pinned section that grows with the corpus. */
-const VIEWPORT = { width: 1600, height: 2400 }
+ *  scenario at 4x, below a pinned section that grows with the corpus (84 rows
+ *  at 4x on the reshaped fixture: 96 rows of 56 px plus two 40 px headers is
+ *  5,456 px; POD-4560). */
+const VIEWPORT = { width: 1600, height: 5800 }
 
 /** The arms held to the oracle in check mode; the control (whole-list redraw)
  *  and the no-op page (draws nothing) exist to fail it and are reported only. */
