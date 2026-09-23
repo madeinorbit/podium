@@ -32,6 +32,7 @@ import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { mobxPoolArm, type MobxPoolHandle } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
+import { tracked } from '../../arms/mobx/pool/pool'
 import type { Schedule } from '../../arms/mobx/pool/residency'
 import type { CheckableArm } from '../../shared/src/arm'
 import { startScenarioEngine } from '../../shared/src/scenarios'
@@ -131,8 +132,13 @@ async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
     let target: string | null = null
     for (const [issueId, sessions] of byIssue) {
       if (sessions.length !== 2) continue
-      if (!residency.known('issue', issueId)) continue
-      if (!sessions.every((s) => residency.known('session', s))) continue
+      // `known` is TRACKED: ask inside a reactive context, as a reader would.
+      const cold = tracked(
+        () =>
+          residency.known('issue', issueId) &&
+          sessions.every((s) => residency.known('session', s)),
+      )
+      if (!cold) continue
       target = issueId
       break
     }
