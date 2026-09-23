@@ -20,11 +20,11 @@ import { deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
 import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
+import { INLINE_BODY_MAX } from '../../store/messages'
 import { sanitizeForInjection } from '../sessions/paste'
 
-/** Bodies past this render as a pointer, not inline (issue-addressed only —
- *  they are readable via `podium issue mail inbox`). */
-export const INLINE_BODY_MAX = 6_000
+/** Bodies past this render as a pointer, not inline (issue-addressed only). */
+export { INLINE_BODY_MAX }
 
 /** How a rendered message is confirmed as reaching the agent [POD-834]:
  *   - `echo`      enveloped body carrying the msg id → confirmed by transcript echo;

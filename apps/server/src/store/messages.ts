@@ -48,6 +48,29 @@ import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/s
 import { currentTransaction } from './executor/sync-drizzle'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
+/** Bodies past this render as a pointer, not inline (issue-addressed only —
+ *  they are readable via `podium issue mail inbox`). Here, below the renderer,
+ *  so the pending-mail count can tell a pointer row from an inline one. */
+export const INLINE_BODY_MAX = 6_000
+
+/** A pointer row — fyi, or a body too long to paste — shows no body inline, so
+ *  only an inbox read confirms it and it keeps nagging until then. */
+const isPointerRow = (): SQL =>
+  or(eq(messagesTable.urgency, 'fyi'), sql`length(${messagesTable.body}) > ${INLINE_BODY_MAX}`) as SQL
+
+/** Still worth a "you have mail" nag: not an INLINE row that is queued only
+ *  because it was handed to `handedTo` (any session when omitted) and is on its
+ *  way into that session's context as a turn [POD-4661]. Written branch by
+ *  branch so a NULL column reads as "not handed on", never as "exclude". */
+const notOnItsWay = (handedTo?: SessionId): SQL =>
+  or(
+    ne(messagesTable.status, 'queued'),
+    isNull(messagesTable.injectedAt),
+    isNull(messagesTable.deliveredTo),
+    ...(handedTo ? [ne(messagesTable.deliveredTo, handedTo)] : []),
+    isPointerRow(),
+  ) as SQL
+
 /** RETAINED EXTERNAL/POLYMORPHIC BRAND CASTS: delivery receipt methods accept
  * reader ids as strings, while actor_id is decoded by actor_kind. All
  * monomorphic selected message ids flow from the schema without casts. */
@@ -433,7 +456,7 @@ export class MessagesRepository {
   /** Count and group one queued slice in one statement for the inbox nag. */
   async pendingSummary(to: MessagePrincipalRef): Promise<PendingMessageSummary> {
     return await this.pendingSummaryForPredicate(
-      and(...addressedTo(to), eq(messagesTable.status, 'queued')),
+      and(...addressedTo(to), eq(messagesTable.status, 'queued'), notOnItsWay()),
     )
   }
 
@@ -558,6 +581,7 @@ export class MessagesRepository {
         isNull(messagesTable.deliveredTo),
         ne(messagesTable.deliveredTo, sessionId),
       ),
+      notOnItsWay(sessionId),
       or(
         eq(messagesTable.status, 'queued'),
         gte(

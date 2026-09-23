@@ -29,7 +29,7 @@ import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
-import { MessagesRepository } from './messages'
+import { INLINE_BODY_MAX, MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
 /**
@@ -565,6 +565,55 @@ describe('per-reader pending', () => {
     expect(summary.senders).toEqual([
       { fromKind: 'agent', fromIssue: null, fromSession: String(PEER) },
     ])
+  })
+
+  // MAIL ALREADY ON ITS WAY DOES NOT NAG [POD-4661]. The server hands every
+  // send to the daemon at once, so a busy agent's inline mail sits `queued`
+  // with injected_at stamped until the daemon delivers it as a turn. Telling the
+  // agent "you have mail" for it makes it read the same mail twice. A pointer
+  // row (fyi, or a body too long to paste) stays counted: only a read confirms it.
+  it('pendingSummaryForSession skips inline mail already handed to this reader', async () => {
+    await add({ id: 'waiting', fromSession: PEER, createdAt: 't5', urgency: 'next-turn' })
+    await add({
+      id: 'handed-on',
+      fromSession: PEER,
+      createdAt: 't5',
+      urgency: 'next-turn',
+    })
+    await add({
+      id: 'pointer-handed-on',
+      fromSession: PEER,
+      createdAt: 't5',
+      urgency: 'fyi',
+    })
+    await add({
+      id: 'oversized-handed-on',
+      fromSession: PEER,
+      createdAt: 't5',
+      urgency: 'next-turn',
+      body: 'x'.repeat(INLINE_BODY_MAX + 1),
+    })
+
+    // Handed to ANOTHER session: it never reaches this reader as a turn, so it
+    // still nags here.
+    await add({ id: 'handed-to-peer', fromIssue: asIssueId('iss_x'), createdAt: 't5', urgency: 'next-turn' })
+    // Handed on the way production does it: stamped injected to the reader.
+    for (const id of ['handed-on', 'pointer-handed-on', 'oversized-handed-on']) {
+      await messages.markInjected(id, READER, 't6')
+    }
+    await messages.markInjected('handed-to-peer', PEER, 't6')
+    const summary = await messages.pendingSummaryForSession(asIssueId(TARGET) as IssueId, READER)
+    expect(summary.count).toBe(4)
+    const issue = asIssueId(TARGET) as IssueId
+    expect(await messages.countPendingForSession(issue, READER)).toBe(4)
+  })
+
+  it('pendingSummary skips inline mail already handed to a session', async () => {
+    await add({ id: 'waiting', urgency: 'next-turn' })
+    await add({ id: 'handed-on', urgency: 'next-turn' })
+    await add({ id: 'pointer-handed-on', urgency: 'fyi' })
+    for (const id of ['handed-on', 'pointer-handed-on']) await messages.markInjected(id, READER, 't6')
+    expect((await messages.pendingSummary({ kind: 'issue', id: TARGET })).count).toBe(2)
   })
 
   it('countPendingForSession and listPendingSendersForSession agree with the summary', async () => {
