@@ -27,6 +27,7 @@ import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
+import { EMPTY_FIRST_TASK_DRAFT, persistFirstTaskDraft } from './first-task-draft'
 
 const spawnDraftAgent = vi.fn(() => ({ sessionId: 'session-new', issueId: 'issue-new' }))
 const create = vi.fn()
@@ -172,4 +173,37 @@ it('hides stale offline names while preserving distinct online machine IDs', asy
     expect(rows.filter((row) => row.textContent?.includes('mine'))).toHaveLength(1)
     expect(rows.some((row) => row.textContent?.includes('offline'))).toBe(false)
   } finally { store.machines = before }
+})
+
+/**
+ * A REMEMBERED OFFLINE HOST IS NOT THE DEFAULT (POD-4630).
+ *
+ * The draft's `machineId` is written back on every resolution, not only by an
+ * explicit pick, so yesterday's default outlives the machine going offline. An
+ * offline host cannot launch (readiness needs it online), so defaulting to it
+ * while a usable machine is on the list is a dead box. An explicit pick in this
+ * box still wins: it is shown with its `(offline)` label and Launch stays dead.
+ */
+describe('the default host skips a remembered offline machine', () => {
+  const chip = () => screen.getByRole('button', { name: /Choose machine|mine|theirs|asleep/ })
+
+  it('lands on the usable machine, not the offline one the draft remembers', () => {
+    persistFirstTaskDraft(store.uiState, {
+      ...EMPTY_FIRST_TASK_DRAFT,
+      repoPath: '/work/podium',
+      machineId: 'asleep',
+    })
+    render(<ColdStartComposer first={false} />)
+    expect(chip().textContent).toContain('mine')
+    expect(screen.queryByText(/do not have access to run work on this machine/)).toBeNull()
+  })
+
+  it('an explicit pick of the offline machine is kept, reads offline, and is not called no-access', async () => {
+    render(<ColdStartComposer first={false} />)
+    const rows = await machineRows()
+    fireEvent.click(rows.find((row) => row.textContent?.startsWith('asleep')) as HTMLElement)
+    await waitFor(() => expect(chip().textContent).toContain('asleep'))
+    expect(screen.queryByText(/do not have access to run work on this machine/)).toBeNull()
+    expect(launchButton().disabled).toBe(true)
+  })
 })

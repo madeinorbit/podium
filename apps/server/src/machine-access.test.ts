@@ -9,7 +9,7 @@
  */
 
 import type { MachineId } from '@podium/model'
-import { asMachineId, asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
+import { agentCapabilityRejection, asMachineId, asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
 import type { MachineGrant, MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
@@ -32,6 +32,7 @@ import {
   ownershipFromMachines as ownershipFromGrantEdges,
   type MachineRowSource,
 } from './machine-access'
+import { machinesForPrincipal } from './modules/sessions/command-ctx'
 
 /** Seed the same behavioral matrix with the Stage 2 representation. The fixture
  * names its custodian, but the production gate receives only explicit edges. */
@@ -631,4 +632,96 @@ it('custody alone never implies use and an owner field cannot invent rights', ()
   expect(machineVerbsFor(user(OWNER), id, { rowFor: () => row })).toEqual(new Set(['manage', 'see']))
   row.grants = []
   expect(machineVerbsFor(user(OWNER), id, { rowFor: () => row })).toEqual(new Set())
+})
+
+/**
+ * OFFLINE IS NOT UNAUTHORIZED (POD-4630).
+ *
+ * `use` is a grant fact. Whether the daemon is attached right now — and whether
+ * one is assigned at all — are reported by the model's own axes (`offline`,
+ * `no-daemon`), AFTER authorization. Dropping `use` for a disconnected daemon
+ * turned every offline machine into "you do not have access… ask its owner"
+ * for the very admin who owns it, and waiting would never have fixed that
+ * message. The control arm keeps the real refusal: a principal with no `use`
+ * edge is `unauthorized` whether the machine is online or offline.
+ */
+describe('offline is reachability, never authorization', () => {
+  const ADMIN = OWNER
+  const OTHER_OWNER: UserId = asUserId('other-owner')
+  const machineRows = [
+    { id: asMachineId('ludovico'), name: 'ludovico', daemonAssigned: true, daemonAvailable: false },
+    { id: asMachineId('sbx'), name: 'sbx', daemonAssigned: true, daemonAvailable: true },
+    { id: asMachineId('coordinator'), name: 'coordinator', daemonAssigned: false, daemonAvailable: false },
+    { id: asMachineId('theirs-offline'), name: 'theirs-offline', daemonAssigned: true, daemonAvailable: false },
+    { id: asMachineId('theirs-online'), name: 'theirs-online', daemonAssigned: true, daemonAvailable: true },
+  ]
+  const ownership = ownershipFromGrantEdges({
+    ownershipRows: () => machineRows,
+    grantsForMachine: (id) =>
+      id.startsWith('theirs')
+        ? [
+            { grantee: OTHER_OWNER, verb: 'use' },
+            { grantee: OTHER_OWNER, verb: 'manage', custody: true },
+            { grantee: COLLEAGUE, verb: 'see' },
+          ]
+        : [
+            { grantee: ADMIN, verb: 'use' },
+            { grantee: ADMIN, verb: 'manage', custody: true },
+            { grantee: COLLEAGUE, verb: 'see' },
+          ],
+  })
+  const admin = user(ADMIN, 'admin')
+
+  it('the owning admin keeps `use` on an offline machine, exactly as on an online one', () => {
+    expect(checkMachineUse(admin, asMachineId('ludovico'), ownership)).toBeUndefined()
+    expect(machineUseDecision(admin, asMachineId('ludovico'), ownership)).toBe('granted')
+    expect(machineVerbsFor(admin, asMachineId('ludovico'), ownership)).toEqual(
+      machineVerbsFor(admin, asMachineId('sbx'), ownership),
+    )
+    // No daemon assigned is structure, not access: the model says `no-daemon`.
+    expect(checkMachineUse(admin, asMachineId('coordinator'), ownership)).toBeUndefined()
+  })
+
+  it('control arm: without a `use` edge the answer stays unauthorized, online AND offline', () => {
+    for (const id of ['ludovico', 'sbx', 'theirs-offline', 'theirs-online']) {
+      expect(checkMachineUse(user(COLLEAGUE), asMachineId(id), ownership)).toBe('unauthorized')
+    }
+    // An admin holds see + manage on every machine, never `use` by role (D19.4b).
+    expect(checkMachineUse(admin, asMachineId('theirs-offline'), ownership)).toBe('unauthorized')
+    expect(checkMachineUse(admin, asMachineId('theirs-online'), ownership)).toBe('unauthorized')
+  })
+
+  it('on the wire, the offline machine reads `offline` to its owner and `unauthorized` to a see-only colleague', async () => {
+    const machines = {
+      listMachines: async (useOf: (id: MachineId) => 'granted' | 'denied') =>
+        machineRows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          hostname: `${row.name}.local`,
+          online: row.daemonAvailable,
+          serviceAssignment: { agentExecution: row.daemonAssigned },
+          availability: { daemon: row.daemonAvailable },
+          use: useOf(row.id),
+        })),
+    } as unknown as Parameters<typeof machinesForPrincipal>[0]['machines']
+    const rejectionsFor = async (principal: CommandPrincipal) =>
+      Object.fromEntries(
+        (await machinesForPrincipal({ machines }, principal, ownership)).map((row) => [
+          row.id,
+          agentCapabilityRejection(row as Parameters<typeof agentCapabilityRejection>[0], 'claude-code') ?? 'ok',
+        ]),
+      )
+
+    expect(await rejectionsFor(admin)).toMatchObject({
+      ludovico: 'offline',
+      coordinator: 'no-daemon',
+      'theirs-offline': 'unauthorized',
+      'theirs-online': 'unauthorized',
+    })
+    expect(await rejectionsFor(user(COLLEAGUE))).toMatchObject({
+      ludovico: 'unauthorized',
+      sbx: 'unauthorized',
+      'theirs-offline': 'unauthorized',
+    })
+  })
 })
