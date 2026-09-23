@@ -606,3 +606,26 @@ at `2efe456d7`. Targets: heartbeat `s2623` (invisible), visibleHeartbeat `i921`.
   already showed they fail parity), so neither finding is an Hx/Mx action.
 - FINDING filed as POD-4652: a driver crash (page never ready) writes the JSON
   as `status: ok` with 0 records; seen while proving the base.
+
+### Addendum items 2 and 3 (coordinator, 2026-09-23)
+
+- **Viewport 1600×5800, first window 96 rows, no-op draws 108.** The
+  reshaped fixture pins 21 / 42 / 84 rows at 1x / 2x / 4x; the first open
+  root with children and first childless open root are rows 42/43 at 2x and
+  84/85 at 4x. The 36-row window at 2400 px held only pinned rows there: the
+  4x no-op smoke failed at its first rename ("no open root with children in
+  the first window"). Same fix, same reasoning as POD-4558's 1000 → 2400.
+- **Floor**: flatblock, `fe1745142`, 36 runs ok, n = 20 per cell, load ≤ 7.99
+  (four load-crossing attempts retried, never summarised). Own flatblock
+  worktree `~/podium-timing-4560` (detached at the pushed ref, its own copy of
+  `.toolchain`) so no other lane's `~/podium-timing` checkout moved. Table and
+  budgets in `docs/plans/pod-4441-harness.md` "Instrument floor".
+- **Reads budgets** re-derived arm-free: each `FENCE_SCENARIOS` entry's
+  `readsBudget(ctx)` before its write, the writes applied in order on one
+  `startScenarioEngine(scale)` engine (what `runFenceStep` computes). #8b 144 /
+  288 / 576 (crossings 6 / 12 / 24), #10 168 / 177 / 180 (levels 56 / 59 / 60);
+  everything else unchanged. Matches L2d's mail, derived independently.
+- **Open, sent to the coordinator**: (a) `placeOne` 12 and #5's 24 were
+  derived from ~850 visible rows at 4x; the fixture now has 2,928 (log2 ≈
+  11.5). (b) `sync:5`'s rename p95 at 1x is 18.7 against a 16.1 budget that a
+  constant 5 ms should meet: p95 jitter at loads up to 8. Neither re-read.
