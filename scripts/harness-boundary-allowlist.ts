@@ -115,10 +115,12 @@ export interface HarnessBoundaryAllowlistEntry {
  *  POD-4612 deleted the bespoke Claude adopt/resume arm in
  *  control/session.ts (the Claude engine rebinds through the generic
  *  server-family arm): that file 5 → 2, leak 253 → 250, total 289 → 286.
+ *  POD-4661 deleted the server's Grok exit-patch hold in
+ *  messages/service.ts, its one literal: leak 250 → 249, total 286 → 285.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 250
+export const HARNESS_BASELINE_LEAK_COUNT = 249
 export const HARNESS_BASELINE_POLICY_COUNT = 36
-export const HARNESS_BASELINE_TOTAL = 286
+export const HARNESS_BASELINE_TOTAL = 285
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -136,7 +138,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/server/src/gateway/daemon-socket.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/llm.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/modules/messages/characterization-support.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/server/src/modules/messages/service.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/modules/sessions/inbox.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/modules/sessions/oracle-support.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/modules/sessions/session-lifecycle-types.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
