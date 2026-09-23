@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createTranscriptController,
   mergeTranscriptFrame,
+  TRANSCRIPT_ACTIVITY_SETTLE_MS,
+  TRANSCRIPT_LIVE_HEARTBEAT_MS,
   type TranscriptPage,
   type TranscriptReadRequest,
 } from './controller'
@@ -399,4 +401,153 @@ it('replaces a live window when paging switches to archive history', async () =>
     items: [item('archived', 'archive-item')], head: 'archive-head', hasMoreOlder: true,
   })
   controller.dispose()
+})
+
+/**
+ * An authority that answers every read from what the agent has written so far,
+ * over a live stream that delivers NOTHING — the acceptance run's phone after a
+ * daemon restart, where the server never forwarded the turn's answer.
+ */
+function silentStreamAuthority(initial: TranscriptItem[]) {
+  const written = [...initial]
+  const reads: TranscriptReadRequest[] = []
+  return {
+    written,
+    reads,
+    port: {
+      async read(request: TranscriptReadRequest): Promise<TranscriptPage> {
+        reads.push(request)
+        const end = request.anchor
+          ? written.findIndex((entry) => entry.cursor === request.anchor)
+          : written.length
+        const start = Math.max(0, end - request.limit)
+        const items = written.slice(start, end)
+        return { items, head: items[0]?.cursor, tail: items.at(-1)?.cursor, hasMore: start > 0 }
+      },
+      subscribe: () => () => {},
+    },
+  }
+}
+
+describe('a live window that the stream stopped feeding heals itself (POD-4643)', () => {
+  const question = item('q', 'c2', 'What is 7 times 7?')
+  const answer = item('answer', 'c3', '49 LEMON')
+
+  async function started(options: { visible?: () => boolean; initial?: TranscriptItem[] } = {}) {
+    vi.useFakeTimers()
+    const authority = silentStreamAuthority(options.initial ?? [item('a', 'c1'), question])
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: authority.port,
+      initialLimit: 2,
+      pageLimit: 2,
+      ...(options.visible ? { visible: options.visible } : {}),
+    })
+    controller.observeActivity({ signal: 'row-1', live: true })
+    await controller.start()
+    return { authority, controller }
+  }
+
+  function ids(controller: ReturnType<typeof createTranscriptController>) {
+    return controller.getSnapshot().items.map((entry) => entry.id)
+  }
+
+  it('re-reads once the session row moves and the stream said nothing', async () => {
+    const { authority, controller } = await started({ visible: () => false })
+    try {
+      authority.written.push(answer)
+      controller.observeActivity({ signal: 'row-2', live: false })
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_ACTIVITY_SETTLE_MS - 1)
+      expect(ids(controller)).not.toContain('answer')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(ids(controller)).toContain('answer')
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a live session is probed on a heartbeat even when the row does not move', async () => {
+    const { authority, controller } = await started()
+    try {
+      authority.written.push(answer)
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS)
+      expect(ids(controller)).toContain('answer')
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('an unchanged row and a current window cost nothing', async () => {
+    const { authority, controller } = await started()
+    try {
+      const readsAfterStart = authority.reads.length
+      controller.observeActivity({ signal: 'row-1', live: false })
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 3)
+      expect(authority.reads).toHaveLength(readsAfterStart)
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a heartbeat on an equal tail reads one item and keeps the window', async () => {
+    const { authority, controller } = await started()
+    try {
+      const before = controller.getSnapshot().items
+      const readsAfterStart = authority.reads.length
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS)
+      expect(authority.reads.slice(readsAfterStart)).toEqual([
+        expect.objectContaining({ limit: 1 }),
+      ])
+      expect(controller.getSnapshot().items).toBe(before)
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a hidden reader is not probed', async () => {
+    const { authority, controller } = await started({ visible: () => false })
+    try {
+      authority.written.push(answer)
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 2)
+      expect(ids(controller)).not.toContain('answer')
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('stands down while the reader has older pages loaded, and keeps them', async () => {
+    const { authority, controller } = await started({
+      initial: [item('old', 'c0'), item('a', 'c1'), question],
+    })
+    try {
+      expect(await controller.loadOlder()).toBe(true)
+      expect(ids(controller)).toEqual(['old', 'a', 'q'])
+      authority.written.push(answer)
+      controller.observeActivity({ signal: 'row-2', live: true })
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 2)
+      expect(ids(controller)).toEqual(['old', 'a', 'q'])
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a stopped controller schedules nothing', async () => {
+    const { authority, controller } = await started()
+    try {
+      controller.stop()
+      const readsAtStop = authority.reads.length
+      controller.observeActivity({ signal: 'row-2', live: true })
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 2)
+      expect(authority.reads).toHaveLength(readsAtStop)
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
 })
