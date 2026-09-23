@@ -454,9 +454,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         // Only a bucket that does not exist yet is placed by residency.
         const observed = link.buckets.get(target)
         const plain =
-          observed === undefined &&
-          this.cold !== null &&
-          !this.cold.resident(link.spec.to, target)
+          observed === undefined && this.cold !== null && !this.cold.resident(link.spec.to, target)
         let bucket: Set<string> | ObservableSet<string> | undefined = plain
           ? link.coldBuckets.get(target)
           : observed
