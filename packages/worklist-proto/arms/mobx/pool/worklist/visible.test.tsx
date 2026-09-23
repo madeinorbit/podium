@@ -43,7 +43,7 @@ import {
 } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
-import { diffSnapshots } from '../../../../shared/src/gen/check'
+import { checkArm, diffSnapshots } from '../../../../shared/src/gen/check'
 import { CommitLogContext, currentCommitLog, RowShell } from '../../../../shared/src/row-shell'
 import {
   type ScenarioEngine,
@@ -263,6 +263,23 @@ describe('visible collection and order (Mb1)', () => {
       feeds.dispose()
       ctx.engine.destroy()
     }
+  }, 300_000)
+
+  it('an evicted parent re-added places its descendants again (gate seed 1, step 112)', async () => {
+    // The L4b gate's shrunk sequence: with an untracked node registry the
+    // descendants' nest parents never looked for the re-added node.
+    const plain: CheckableArm = {
+      create: (source, locals, reads) => mobxPoolArm.create(source, locals, reads),
+    }
+    const result = await checkArm(
+      plain,
+      [
+        { kind: 'evict', id: 'i234' },
+        { kind: 'reAdd', id: 'i234' },
+      ] as never,
+      { oracleEvery: 0, shrink: false },
+    )
+    expect(result.ok ? null : `${result.against}: ${result.diff}`).toBeNull()
   }, 300_000)
 
   it('a list that draws hidden rows fails the commit fence on #1 and #4', async () => {

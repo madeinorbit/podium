@@ -69,6 +69,7 @@ import {
   computedStruct,
   type IReactionDisposer,
   makeObservable,
+  type ObservableMap,
   type ObservableSet,
   observable,
   reaction,
@@ -776,14 +777,28 @@ export class IssueNode implements IssueVisibility {
 export class VisibleCollection {
   /** The visible ids, maintained by the nodes' reactions. Unordered. */
   readonly ids: ObservableSet<string>
-  private readonly issues = new Map<string, { node: IssueNode; stop: IReactionDisposer }>()
+  /**
+   * The issue nodes, OBSERVABLE: a part that looks up another issue's node
+   * (a parent, a child, a starter's owner) tracks that id's slot, so a node
+   * that appears later (an evicted parent re-added) re-runs it. A plain map
+   * here was untracked state read inside a derivation (POD-4569 gate, seed 1
+   * step 112: evict then re-add a parent left its descendants unplaced).
+   */
+  private readonly nodes: ObservableMap<string, IssueNode>
+  /** Each node's reaction, by id (maintenance only, never read by a derivation). */
+  private readonly stops = new Map<string, IReactionDisposer>()
   private readonly sessions = new Map<string, SessionNode>()
 
   constructor(private readonly host: VisibleHost) {
     this.ids = observable.set<string>(undefined, { deep: false, name: 'pool.visible' })
-    makeObservable<VisibleCollection, 'issues' | 'sessions' | 'host'>(this, {
+    this.nodes = observable.map<string, IssueNode>(undefined, {
+      deep: false,
+      name: 'pool.visible.nodes',
+    })
+    makeObservable<VisibleCollection, 'nodes' | 'stops' | 'sessions' | 'host'>(this, {
       ids: false,
-      issues: false,
+      nodes: false,
+      stops: false,
       sessions: false,
       host: false,
       order: computed({ equals: compareShallow }),
@@ -806,12 +821,12 @@ export class VisibleCollection {
     const counters = this.host.counters
     counters.orderSorts += 1
     counters.orderElements += this.ids.size
-    return sortByRank(this.ids, (id) => this.issues.get(id)?.node.rank)
+    return sortByRank(this.ids, (id) => this.nodes.get(id)?.rank)
   }
 
   /** The node of a known issue (hot or cold), else undefined. */
   issue(id: string): IssueNode | undefined {
-    return this.issues.get(id)?.node
+    return this.nodes.get(id)
   }
 
   /** The node of a session, built on first access. */
@@ -832,7 +847,7 @@ export class VisibleCollection {
    */
   sync(ids: Iterable<string>, known: (id: string) => boolean): void {
     for (const id of ids) {
-      const held = this.issues.get(id)
+      const held = this.stops.get(id)
       if (known(id)) {
         if (held !== undefined) continue
         const node = new IssueNode(id, this.host)
@@ -847,13 +862,15 @@ export class VisibleCollection {
           },
           { fireImmediately: true, name: `pool.visible.${id}` },
         )
-        this.issues.set(id, { node, stop })
+        this.nodes.set(id, node)
+        this.stops.set(id, stop)
         counters.issueNodes += 1
         continue
       }
       if (held === undefined) continue
-      held.stop()
-      this.issues.delete(id)
+      held()
+      this.stops.delete(id)
+      this.nodes.delete(id)
       if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
     }
   }
@@ -870,18 +887,19 @@ export class VisibleCollection {
 
   /** The issue ids holding a node (a `replace` re-syncs them with the known ids). */
   heldIds(): string[] {
-    return [...this.issues.keys()]
+    return [...this.stops.keys()]
   }
 
   /** Nodes held, per kind (tests: lifecycle). */
   size(kind: 'issue' | 'session'): number {
-    return kind === 'issue' ? this.issues.size : this.sessions.size
+    return kind === 'issue' ? this.stops.size : this.sessions.size
   }
 
   /** Stop every reaction and forget every node (the pool's dispose; call inside an action). */
   clear(): void {
-    for (const { stop } of this.issues.values()) stop()
-    this.issues.clear()
+    for (const stop of this.stops.values()) stop()
+    this.stops.clear()
+    this.nodes.clear()
     this.sessions.clear()
     this.ids.clear()
   }
