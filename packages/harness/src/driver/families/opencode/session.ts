@@ -317,8 +317,15 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
        * the session row already exists and its id is on the spawn frame, so
        * registering the handle under anything else makes every subsequent verb
        * answer `not_running` for a session that is running perfectly.
+       *
+       * THE INITIAL PROMPT GOES OUT AFTER THE PUMP SUBSCRIBES (POD-4647), as
+       * claude-sdk's does (POD-4636). Handed to `createWithId`, its turn opened
+       * before `events('bootstrap')` was read, so the turn start went out
+       * relabelled as bootstrap — which the server's event gate refuses, with
+       * the rest of that turn, once any earlier event has set a checkpoint.
        */
-      const handle = await runtime.createWithId(input.sessionId, {
+      const { initialPrompt, ...launch } = input
+      const handle = await runtime.createWithId(launch.sessionId, {
         harness: deps.flavor.harnessKind,
         selection: {
           auth: 'api-key',
@@ -337,7 +344,6 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
         },
         mcpServers: { supported: false, reason: 'opencode MCP config rides its own config file' },
         ...(input.env ? { env: input.env } : {}),
-        ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       })
       pump(input.sessionId)
       /**
@@ -382,6 +388,9 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
       // rather than after it.
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
       reportResumeRef(input.sessionId, handle)
+      if (initialPrompt) {
+        await handle.send({ text: initialPrompt }, { origin: 'human', delivery: 'when-ready' })
+      }
     },
   }
 }
