@@ -107,6 +107,67 @@ describe('driver timing recorder', () => {
     })
   })
 
+  it('says a launch is blocked when the harness asks before its first turn (POD-4632)', () => {
+    // `session_ready` on a terminal session is the PTY bind; Claude's folder
+    // trust dialog can hold the session after it. The trace must say so rather
+    // than read as a session that was ready and silent.
+    let now = 0
+    const records: DriverTimingRecord[] = []
+    const timing = new DriverTimingRecorder({
+      now: () => now,
+      write: (record) => records.push(record),
+    })
+    const asked = (id: string) =>
+      event({
+        t: 'interaction',
+        ev: {
+          ev: 'asked',
+          interaction: {
+            id,
+            sessionId: SESSION,
+            kind: 'question',
+            payload: { v: 1, questions: [] },
+            askedAt: '2026-08-30T12:00:00.000Z',
+            source: 'screen-classifier',
+            answerable: 'keystroke-emulated',
+          },
+        },
+      })
+
+    timing.sessionRequested({
+      sessionId: SESSION,
+      harness: 'claude-code',
+      requestedDriverId: 'generic-pty',
+      initialPrompt: true,
+    })
+    now += 3
+    timing.sessionReady(binding('terminal'))
+    now += 400
+    timing.runtimeEvent(binding('terminal'), asked('ask:1'))
+    now += 5_000
+    timing.runtimeEvent(
+      binding('terminal'),
+      event({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }),
+    )
+    // Once the first turn ran, a later ask is an ordinary mid-session wait.
+    timing.runtimeEvent(binding('terminal'), asked('ask:2'))
+
+    expect(
+      records
+        .filter(({ lane }) => lane === 'launch')
+        .map(({ stage, durationMs }) => [stage, durationMs]),
+    ).toEqual([
+      ['session_requested', 0],
+      ['session_ready', 3],
+      ['session_blocked', 403],
+    ])
+    expect(records.find(({ stage }) => stage === 'session_blocked')).toMatchObject({
+      interactionKind: 'question',
+      source: 'screen-classifier',
+      runtimeMode: 'headed',
+    })
+  })
+
   it('records headed process and first output once on the launch clock', () => {
     let now = 100
     const records: DriverTimingRecord[] = []

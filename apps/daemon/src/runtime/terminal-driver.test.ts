@@ -3042,6 +3042,119 @@ describe('interactions', () => {
     // attribution above.
     expect(answeredEvents(world)).toEqual([expect.objectContaining({ answeredBy: 'human' })])
   })
+
+  /**
+   * A DIALOG ONLY THE SCREEN CAN SEE (POD-4632). Claude's first-run folder
+   * trust runs before any hook or transcript exists, so the tracked state is
+   * the only channel that knows the session is blocked. The server leaves a
+   * driver-routed session's asks to the driver, so a state with no ask behind
+   * it rendered as nothing at all: a Chat-view session that looked idle.
+   */
+  describe('a screen-classified wait', () => {
+    const trustState = (since: string): AgentRuntimeState => ({
+      phase: 'needs_user',
+      since,
+      nativeSubagentCount: 0,
+      stateSource: 'classifier',
+      need: { kind: 'question', summary: 'Claude Code asks whether you trust this folder' },
+    })
+
+    it('opens an option-less ask the clients render as "answer in the terminal"', async () => {
+      const world = makeWorld()
+      const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+      const sessionId = session.binding.sessionId
+      world.runtime.observeState({
+        sessionId,
+        state: trustState('2026-08-14T00:00:01.000Z'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+      })
+
+      const open = await session.interactions()
+      expect(open).toHaveLength(1)
+      expect(open[0]).toMatchObject({
+        kind: 'question',
+        source: 'screen-classifier',
+        answerable: 'keystroke-emulated',
+        askedAt: '2026-08-14T00:00:01.000Z',
+        payload: {
+          v: 1,
+          questions: [
+            {
+              question: 'Claude Code asks whether you trust this folder',
+              multiSelect: false,
+              previewLayout: false,
+              options: [],
+            },
+          ],
+        },
+      })
+      // A re-published identical wait is the same ask, not a second one.
+      world.runtime.observeState({
+        sessionId,
+        state: trustState('2026-08-14T00:00:01.000Z'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+      })
+      expect(await session.interactions()).toHaveLength(1)
+      // Nothing may be typed at it: trust is the user's decision.
+      const outcome = await session.answer(open[0]!.id, {
+        kind: 'question',
+        selections: [{ optionIndices: [1] }],
+      })
+      expect(outcome).toMatchObject({ ok: false, reason: 'not-yet-supported' })
+      expect(world.written).toEqual([])
+    })
+
+    it('closes as answered at the terminal when the screen clears', async () => {
+      const world = makeWorld()
+      const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+      const sessionId = session.binding.sessionId
+      world.runtime.observeState({
+        sessionId,
+        state: trustState('2026-08-14T00:00:01.000Z'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+      })
+      world.runtime.observeState({
+        sessionId,
+        state: { phase: 'idle', since: '2026-08-14T00:00:05.000Z', nativeSubagentCount: 0 },
+        observerGeneration: 1,
+        bindingVersion: 1,
+      })
+      expect(await session.interactions()).toHaveLength(0)
+      expect(answeredEvents(world)).toEqual([expect.objectContaining({ answeredBy: 'human' })])
+    })
+
+    it('closes when the causal stream reports the turn the dialog was holding', async () => {
+      // The screen's own "cleared" can arrive after Claude has already started
+      // the held prompt; the first causal transition out of a wait closes it.
+      const world = makeWorld()
+      const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+      const sessionId = session.binding.sessionId
+      world.runtime.observeState({
+        sessionId,
+        state: trustState('2026-08-14T00:00:01.000Z'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+      })
+      world.observe(sessionId, { transitionKind: 'turn_opened', priorPhase: 'idle', nextPhase: 'working' })
+      expect(await session.interactions()).toHaveLength(0)
+      expect(answeredEvents(world)).toEqual([expect.objectContaining({ answeredBy: 'human' })])
+    })
+
+    it('leaves a hook-reported wait to the causal stream that owns it', async () => {
+      const world = makeWorld()
+      const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+      world.runtime.observeState({
+        sessionId: session.binding.sessionId,
+        state: { ...trustState('2026-08-14T00:00:01.000Z'), stateSource: 'hook' },
+        observerGeneration: 1,
+        bindingVersion: 1,
+      })
+      expect(await session.interactions()).toHaveLength(0)
+    })
+  })
 })
 
 describe('capabilities', () => {
