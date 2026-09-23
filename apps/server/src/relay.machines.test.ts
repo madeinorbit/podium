@@ -214,6 +214,7 @@ describe('multi-daemon routing', () => {
   it('stamps the reporting machine when a remote session adopts its worktree', async () => {
     const { reg } = await regWithTwoDaemons()
     try {
+      await reg.sessionStore.repos.addRepo('/repo', asMachineId('m2'))
       const issue = await reg.modules.issues.create({
         repoPath: '/repo',
         title: 'Remote adoption',

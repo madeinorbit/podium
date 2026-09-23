@@ -36,7 +36,7 @@ import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
-import { attachHostDaemon } from './test-support/host-daemon'
+import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -98,6 +98,7 @@ describe('SessionRegistry', () => {
     const stalePath = '/project/subagents/stale-name.jsonl'
     const seeded = await SessionStore.open(file, TEST_MACHINE)
     const seededRegistry = await SessionRegistry.create(seeded, undefined, { instanceId: 'seed' })
+    await attachHostDaemon(seededRegistry)
     const { sessionId } = await seededRegistry.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/project',
@@ -228,6 +229,8 @@ describe('SessionRegistry', () => {
     })
     const inventory = fixtureInventory({
       agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+      // Issue start requests a headed driver (fb68d2f05); a real daemon advertises it.
+      runtimeDrivers: [{ harness: 'claude-code', id: 'claude-pty', family: 'terminal' }],
     })
     await store.machines.setMachineInventory(asMachineId('remote-first'), JSON.stringify(inventory))
     await store.machines.setMachineInventory(store.hostMachineId, JSON.stringify(inventory))
@@ -603,7 +606,7 @@ describe('SessionRegistry', () => {
       experimental: { workflows: true, specs: true },
     })
     const daemon: ControlMessage[] = []
-    await attachHostDaemon(reg, (message) => daemon.push(message))
+    await attachHostDaemon(reg, (message) => daemon.push(message), { repos: ['/w'] })
     const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
     const operator = {
       actor: { kind: 'operator' as const, id: null },
@@ -1434,6 +1437,8 @@ describe('SessionRegistry', () => {
   it('scopes machine bootstrap and broadcasts to each authenticated principal', async () => {
     const colleague = asUserId('colleague')
     const store = await openTestStore(':memory:', TEST_MACHINE)
+    // The host's own row, as setup enrollment writes it (boot no longer does, 6fd4f7221).
+    await assignHostMachine(store)
     await store.machines.upsertMachine({
       id: 'shared',
       name: 'Shared but denied',
@@ -5247,8 +5252,10 @@ describe('reconnect identity (hello reclaim)', () => {
      * after the gate landed, because its assertion is that NO broadcast happens and
      * a refused write broadcasts nothing either. It was green for the wrong reason.
      */
-    const seedSession = async (reg: SessionRegistry): Promise<SessionId> =>
-      (await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })).sessionId
+    const seedSession = async (reg: SessionRegistry): Promise<SessionId> => {
+      await attachHostDaemon(reg)
+      return (await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })).sessionId
+    }
     // POD-2045 changed the AUDIENCE: the sender is included now, because it is
     // the only way it learns which rev its edit became. See the flag-off
     // describe below for why that is load-bearing rather than merely tidy.
@@ -5600,12 +5607,11 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
  * user is in.
  */
 describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
-  const plainReg = async (store?: SessionStore) => {
+  const plainReg = async (store?: SessionStore, attachDaemon = true) => {
     store ??= await openTestStore(':memory:', TEST_MACHINE)
-    return {
-      reg: await SessionRegistry.create(store, undefined, { instanceId: 'default' }),
-      store,
-    }
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    if (attachDaemon) await attachHostDaemon(reg)
+    return { reg, store }
   }
 
   it('stamps a rev on a legacy setSessionDraft frame', async () => {
@@ -5699,7 +5705,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
   it('never drives the native composer while the experiment is off', async () => {
     vi.useFakeTimers()
     try {
-      const { reg } = await plainReg()
+      const { reg } = await plainReg(undefined, false)
       const daemonMsgs: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemonMsgs.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({

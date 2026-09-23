@@ -29,6 +29,7 @@
 import { asMachineId, HarnessAgent, type Inventory, type MachineId } from '@podium/model'
 import type { DaemonControlPeer } from '../gateway/daemon-ports'
 import type { SessionRegistry } from '../relay'
+import { confirmingRetirement } from './host-daemon'
 
 /**
  * What a fully provisioned machine reports: every harness kind installed and
@@ -50,13 +51,22 @@ export function fixtureInventory(over: Partial<Inventory> = {}): Inventory {
   }
 }
 
-/** Attach a fake daemon AND file the inventory report a real one would send. */
+/**
+ * Attach a fake daemon AND file the inventory report a real one would send. It
+ * also confirms process retirement the way a real daemon does (see
+ * `confirmingRetirement`); pass `confirmRetirement: false` for a test about an
+ * unconfirmed retirement.
+ */
 export async function attachDaemonWithInventory(
   registry: SessionRegistry,
   machineId: MachineId | string,
   transport: DaemonControlPeer = () => {},
   inventory: Inventory = fixtureInventory(),
+  opts: { confirmRetirement?: boolean } = {},
 ): Promise<void> {
-  await registry.gateway.attachDaemon(machineId, transport)
+  await registry.gateway.attachDaemon(
+    machineId,
+    opts.confirmRetirement === false ? transport : confirmingRetirement(registry, machineId, transport),
+  )
   await registry.modules.machines.recordInventory(asMachineId(machineId), inventory)
 }

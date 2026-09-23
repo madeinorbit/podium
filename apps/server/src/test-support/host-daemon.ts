@@ -15,10 +15,18 @@
  * The same commit resolves an issue's repo only through a machine that REPORTED
  * it ("no reporting machine for repo path"), so `repos` are registered on the
  * host the way its daemon's repo scan would register them.
+ *
+ * Since 722704624 a park, stop, kill or handoff waits for the daemon to confirm
+ * the process is retired (`runtimeLifecycleRequest` → `runtimeLifecycleResult`
+ * with `retirement: 'confirmed'`). A real daemon always answers; a transport
+ * that only records frames never does, and every such teardown then fails with
+ * "process retirement was not confirmed". So this daemon answers the way a real
+ * one does. A test ABOUT an unconfirmed retirement passes
+ * `confirmRetirement: false` and answers (or does not) itself.
  */
 
-import { firstAdminMemberId } from '@podium/model'
-import type { DaemonControlPeer } from '../gateway/daemon-ports'
+import { firstAdminMemberId, type MachineId } from '@podium/model'
+import type { ControlSend, DaemonControlPeer } from '../gateway/daemon-ports'
 import type { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 
@@ -39,10 +47,39 @@ export async function assignHostMachine(store: SessionStore): Promise<void> {
 export async function attachHostDaemon(
   registry: SessionRegistry,
   transport: DaemonControlPeer = () => {},
-  opts: { repos?: readonly string[] } = {},
+  opts: { repos?: readonly string[]; confirmRetirement?: boolean } = {},
 ): Promise<void> {
   const store = registry.sessionStore
+  const machineId = store.hostMachineId
   await assignHostMachine(store)
-  for (const path of opts.repos ?? []) await store.repos.addRepo(path, store.hostMachineId)
-  await registry.gateway.attachDaemon(store.hostMachineId, transport)
+  for (const path of opts.repos ?? []) await store.repos.addRepo(path, machineId)
+  const peer = opts.confirmRetirement === false ? transport : confirmingRetirement(registry, machineId, transport)
+  await registry.gateway.attachDaemon(machineId, peer)
+}
+
+/**
+ * Wrap a fake daemon's transport so it answers `runtimeLifecycleRequest` the way
+ * a real daemon does: the process is retired, confirmed. Every frame still
+ * reaches `transport` first, so a test's recorded frames are unchanged.
+ */
+export function confirmingRetirement(
+  registry: SessionRegistry,
+  machineId: MachineId | string,
+  transport: DaemonControlPeer,
+): DaemonControlPeer {
+  const send = typeof transport === 'function' ? transport : transport.send.bind(transport)
+  const answering: ControlSend = (message) => {
+    send(message)
+    if (message.type === 'runtimeLifecycleRequest') {
+      void registry.gateway.routeDaemonFrame(machineId, {
+        type: 'runtimeLifecycleResult',
+        requestId: message.requestId,
+        sessionId: message.sessionId,
+        result: { ok: true, retirement: 'confirmed' },
+      })
+    }
+  }
+  return typeof transport === 'function'
+    ? answering
+    : { send: answering, sendInput: (input) => transport.sendInput(input) }
 }
