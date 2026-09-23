@@ -80,12 +80,23 @@ export interface PoolCounters {
   tableWrites: number
   /** Rows removed (evict or remove), each with its model dropped. */
   rowsRemoved: number
+  /**
+   * Relation bucket ELEMENTS touched: each member added to or removed from a
+   * bucket, and each member moved when a cold bucket turns resident (M3 F1).
+   * `indexUpdates` counts slots; this counts the work inside them.
+   */
+  bucketElements: number
 }
 
 export type PoolStats = ArmStats & { readonly counters: PoolCounters }
 
 function createStats(residency: Residency | null): PoolStats {
-  const counters: PoolCounters = { modelsCreated: 0, tableWrites: 0, rowsRemoved: 0 }
+  const counters: PoolCounters = {
+    modelsCreated: 0,
+    tableWrites: 0,
+    rowsRemoved: 0,
+    bucketElements: 0,
+  }
   const stats: PoolStats = {
     rowsDerived: 0,
     rollupsDerived: 0,
@@ -100,6 +111,7 @@ function createStats(residency: Residency | null): PoolStats {
       counters.modelsCreated = 0
       counters.tableWrites = 0
       counters.rowsRemoved = 0
+      counters.bucketElements = 0
       if (residency !== null) {
         const r = residency.counters
         r.coldWrites = 0
@@ -221,6 +233,9 @@ export class MobxPool {
       ...(schema === undefined ? {} : { schema }),
       onWrite: (slots) => {
         stats.indexUpdates += slots
+      },
+      onElements: (elements) => {
+        stats.counters.bucketElements += elements
       },
       ...(residency === null
         ? {}

@@ -230,6 +230,8 @@ export interface PoolRelationsOptions {
   readonly schema?: ModelSchema
   /** Bumped once per slot written (forward entries and buckets). */
   readonly onWrite?: (slots: number) => void
+  /** Bumped by the bucket elements a write touched (POD-4568 rework, M3 F1). */
+  readonly onElements?: (elements: number) => void
   /** Residency (POD-4567): slots of rows that are not resident stay plain. */
   readonly cold?: ColdSlots
 }
@@ -245,10 +247,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   readonly schema: ModelSchema
   /** The slots the current (or last) action wrote, `collection:key` / `from.name→id`. */
   readonly lastWrites: string[] = []
+  /** Bucket elements the current (or last) action touched. */
+  lastElements = 0
   private readonly tables: ReadableTables
   private readonly probe: ProbeTables
   private readonly reads: ReadFence
   private readonly onWrite: (slots: number) => void
+  private readonly onElements: (elements: number) => void
   private readonly cold: ColdSlots | null
   private readonly links = new Map<string, Link>()
   /** Links by the entity their collection belongs to (buckets keyed by its ids). */
@@ -266,6 +271,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.probe = options.probe
     this.reads = options.reads
     this.onWrite = options.onWrite ?? (() => {})
+    this.onElements = options.onElements ?? (() => {})
     this.cold = options.cold ?? null
     for (const from of Object.keys(this.schema) as EntityName[]) {
       const entity = this.schema[from]
@@ -377,6 +383,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   /** Start an action: forget the previous action's write record. */
   begin(): void {
     this.lastWrites.length = 0
+    this.lastElements = 0
   }
 
   /** One table write happened: maintain every relation it touches (doc §4). */
@@ -433,6 +440,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         } else if (next.length === 0) link.buckets.delete(target)
         else link.buckets.set(target, next)
         this.wrote(`${link.collection}:${target}`)
+        this.touched(next.length)
       }
     }
     this.pending.clear()
@@ -651,6 +659,11 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       targets.set(target, members)
     }
     return members
+  }
+
+  private touched(elements: number): void {
+    this.lastElements += elements
+    this.onElements(elements)
   }
 
   private wrote(slot: string): void {

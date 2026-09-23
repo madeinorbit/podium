@@ -769,6 +769,46 @@ describe('the reads fence and the write record', () => {
   })
 })
 
+// ------------------------------------------- bucket upkeep (M3 F1, POD-4568 rework)
+
+describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)', () => {
+  // The live export's largest buckets: repo.issues 4,574, worktree.sessions
+  // 2,263 (docs/decisions/pod-4545-round-three-shape-review.md §2.3). One
+  // bucket per relation kind (belongsTo, prefix) at 4,000 members.
+  const B = 4000
+  /** The bound: one element per edge moved, whatever the bucket's size. */
+  const PER_EDGE = 1
+  const big: RowRecord[] = [lane('/repo')]
+  for (let i = 0; i < B; i += 1) {
+    big.push(issue(`B${i}`), session(`BS${i}`, { cwd: `/repo/x${i}` }))
+  }
+
+  it(`one insert and one delete touch ${PER_EDGE} element each in a bucket of ${B}`, () => {
+    const r = rig(big)
+    try {
+      expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
+      expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
+      const touched = (...change: RowRecord[]): number => {
+        const before = r.pool.stats.counters.bucketElements
+        r.push(...change)
+        expect(r.pool.graph.lastElements).toBe(r.pool.stats.counters.bucketElements - before)
+        return r.pool.graph.lastElements
+      }
+      // belongsTo (issue.repo → repo.issues)
+      expect(touched(issue('N1')), 'new issue').toBe(PER_EDGE)
+      expect(touched(gone('issue', 'B7')), 'removed issue').toBe(PER_EDGE)
+      // prefix (session.worktree → worktree.sessions)
+      expect(touched(session('NS1', { cwd: '/repo/y' })), 'new session').toBe(PER_EDGE)
+      expect(touched(gone('session', 'BS7')), 'removed session').toBe(PER_EDGE)
+      expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
+      expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
+      r.check({ issue: ['B7'], session: ['BS7'] })
+    } finally {
+      r.dispose()
+    }
+  }, 120_000)
+})
+
 // ------------------------------------------------- a relation added to the schema
 
 describe('a relation added to the schema needs no arm code', () => {
