@@ -7,12 +7,16 @@
  * are listed as failed and never enter a table. Warm-up records are dropped.
  *
  * Budgets (methodology §1a, restated on the floor before any round-three arm
- * is measured — `docs/plans/pod-4441-harness.md`, "Instrument floor"):
- * - hot-path event (heartbeat, rename, stagemove, clock): actionMs p95 at 1x
- *   <= noop actionMs p95 at 1x + 8 ms;
+ * is measured — `docs/plans/pod-4441-harness.md`, "Instrument floor"). Every
+ * wall budget is on the arm's time ABOVE the no-op page's (coordinator ruling
+ * on POD-4558 finding (a): the no-op alone failed the raw slope and the 2 ms
+ * publish, so those budgets failed every arm before it did anything):
+ * - unrelated heartbeat (publish): actionMs p95 at 1x <= noop p95 + 2 ms;
+ * - other hot-path events (rename, stagemove, clock): p95 at 1x <= noop p95 + 8 ms;
  * - click: actionMs p95 <= noop p95 + 16 ms at 1x, + 32 ms at 4x;
- * - slope: actionMs p50 at 4x / p50 at 1x <= 1.2 (the raw ratio); the ratio of
- *   the excess over the floor is printed beside it, not budgeted.
+ * - slope: (arm p50 - noop p50) at 4x over the same at 1x <= 1.2, the 1x
+ *   excess taken as at least `SLOPE_MIN_EXCESS_MS`. The raw p50 ratio is
+ *   printed beside it, not budgeted.
  *
  * A low read count (the reads fence) is not proof of constant work: the fence
  * counts entity rows, not an arm's walks over its own per-row caches. The
@@ -32,8 +36,31 @@ import {
 } from './records'
 
 export const HOT_PATH_ALLOWANCE_MS = 8
+/** #1's publish budget, restated from "publish <= 2 ms" to 2 ms above the no-op. */
+export const HEARTBEAT_ALLOWANCE_MS = 2
 export const CLICK_ALLOWANCE_MS: Partial<Record<Scale, number>> = { 1: 16, 4: 32 }
 export const SLOPE_BUDGET = 1.2
+/**
+ * The smallest 1x excess over the floor the slope divides by. The no-op's
+ * per-round p50 moves by at most 0.3 ms on the sub-millisecond scenarios
+ * (clock, click, rename at 1x), so an excess below 1 ms is timer noise, and a
+ * ratio over it would turn a 0.2 ms wobble into a verdict.
+ */
+export const SLOPE_MIN_EXCESS_MS = 1
+
+/**
+ * The restated slope: the arm's excess over the no-op at 4x divided by its
+ * excess at 1x (at least `SLOPE_MIN_EXCESS_MS`). Null when a cell is missing.
+ */
+export function excessSlope(
+  arm1x: number | null,
+  arm4x: number | null,
+  floor1x: number | null,
+  floor4x: number | null,
+): number | null {
+  if (arm1x === null || arm4x === null || floor1x === null || floor4x === null) return null
+  return (arm4x - floor4x) / Math.max(arm1x - floor1x, SLOPE_MIN_EXCESS_MS)
+}
 
 export interface Cell {
   /** The arm, or `noop+<plant>` for a timer self-test run. */
@@ -138,25 +165,29 @@ export function targetMismatches(runs: RunOutput[]): string[] {
 
 export function allowanceMs(scenario: ScenarioName, scale: Scale): number | null {
   if (scenario === 'click') return CLICK_ALLOWANCE_MS[scale] ?? null
-  return scale === 1 ? HOT_PATH_ALLOWANCE_MS : null
+  if (scale !== 1) return null
+  return scenario === 'heartbeat' ? HEARTBEAT_ALLOWANCE_MS : HOT_PATH_ALLOWANCE_MS
 }
 
 const f = (v: number | null, digits = 2): string => (v === null ? '—' : v.toFixed(digits))
 
-function main(): void {
-  const argv = process.argv.slice(2)
+/**
+ * The summary's entry point: prints the tables through `print` and returns the
+ * exit code. 2 (and no table) when the runs' arms aimed a change at different
+ * targets; 0 otherwise. Failed runs are listed and never summarised.
+ */
+export function runSummary(argv: string[], print: (line: string) => void): number {
   const jsonIndex = argv.indexOf('--json')
   const jsonOut = jsonIndex >= 0 ? argv[jsonIndex + 1] : undefined
   const paths = argv.filter((_, i) => jsonIndex < 0 || (i !== jsonIndex && i !== jsonIndex + 1))
   const { ok, failed } = loadRuns(paths)
   for (const { path, run } of failed) {
-    console.log(`FAILED RUN (not summarised): ${path} — ${run.failures.join('; ')}`)
+    print(`FAILED RUN (not summarised): ${path} — ${run.failures.join('; ')}`)
   }
   const mismatches = targetMismatches(ok)
   if (mismatches.length > 0) {
-    for (const m of mismatches) console.log(`TARGETS DIFFER (not summarised): ${m}`)
-    process.exitCode = 2
-    return
+    for (const m of mismatches) print(`TARGETS DIFFER (not summarised): ${m}`)
+    return 2
   }
   const table = cells(ok).sort(
     (a, b) =>
@@ -165,12 +196,12 @@ function main(): void {
   const floor = (scenario: ScenarioName, scale: Scale): Cell | undefined =>
     table.find((c) => c.arm === 'noop' && c.scenario === scenario && c.scale === scale)
   const shas = [...new Set(ok.map((r) => r.runtimeSha))]
-  console.log(`runtimeSha ${shas.join(', ')}; ${ok.length} ok runs, ${failed.length} failed`)
-  console.log('')
-  console.log(
+  print(`runtimeSha ${shas.join(', ')}; ${ok.length} ok runs, ${failed.length} failed`)
+  print('')
+  print(
     '| Arm | Scenario | Scale | n | actionMs p50 / p95 / max | drainMs p50 | frameMs p50 | commits (median) | long tasks | stray | floor p95 | budget p95 | verdict | max load |',
   )
-  console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
+  print('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
   for (const c of table) {
     const fl = floor(c.scenario, c.scale)
     const allowance = allowanceMs(c.scenario, c.scale)
@@ -184,18 +215,18 @@ function main(): void {
           : c.actionMs.p95 <= budget
             ? 'within'
             : 'OVER'
-    console.log(
+    print(
       `| ${c.arm} | ${c.scenario} | ${c.scale}x | ${c.actionMs.n} | ` +
         `${f(c.actionMs.p50)} / ${f(c.actionMs.p95)} / ${f(c.actionMs.max)} | ${f(c.drainMs.p50)} | ` +
         `${f(c.frameMs.p50, 1)} | ${f(c.commitsMedian, 0)} | ${c.longTasks} | ${c.strayCommits} | ` +
         `${f(fl?.actionMs.p95 ?? null)} | ${f(budget)} | ${verdict} | ${c.maxLoad.toFixed(2)} |`,
     )
   }
-  console.log('')
-  console.log(
-    '| Arm | Scenario | p50 1x / 2x / 4x | slope 4x/1x (budget ≤ 1.2) | excess over floor 4x/1x |',
+  print('')
+  print(
+    '| Arm | Scenario | p50 1x / 2x / 4x | raw p50 4x/1x | excess over floor 4x/1x (budget ≤ 1.2) |',
   )
-  console.log('|---|---|---|---|---|')
+  print('|---|---|---|---|---|')
   const slopes: {
     arm: string
     scenario: ScenarioName
@@ -214,15 +245,11 @@ function main(): void {
     const slope = p1 !== null && p4 !== null && p1 > 0 ? p4 / p1 : null
     const f1 = floorAt(1)
     const f4 = floorAt(4)
-    const excessSlope =
-      arm !== 'noop' && p1 !== null && p4 !== null && f1 !== null && f4 !== null && p1 - f1 > 0
-        ? (p4 - f4) / (p1 - f1)
-        : null
-    slopes.push({ arm, scenario, slope, excessSlope })
-    const verdict =
-      arm === 'noop' || slope === null ? '' : slope <= SLOPE_BUDGET ? ' within' : ' OVER'
-    console.log(
-      `| ${arm} | ${scenario} | ${f(p1)} / ${f(at(2))} / ${f(p4)} | ${f(slope)}${verdict} | ${f(excessSlope)} |`,
+    const excess = arm === 'noop' ? null : excessSlope(p1, p4, f1, f4)
+    slopes.push({ arm, scenario, slope, excessSlope: excess })
+    const verdict = excess === null ? '' : excess <= SLOPE_BUDGET ? ' within' : ' OVER'
+    print(
+      `| ${arm} | ${scenario} | ${f(p1)} / ${f(at(2))} / ${f(p4)} | ${f(slope)} | ${f(excess)}${verdict} |`,
     )
   }
   if (jsonOut !== undefined) {
@@ -235,6 +262,7 @@ function main(): void {
       ),
     )
   }
+  return 0
 }
 
-if (import.meta.main) main()
+if (import.meta.main) process.exitCode = runSummary(process.argv.slice(2), console.log)

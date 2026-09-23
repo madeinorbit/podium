@@ -20,6 +20,10 @@
  * from a timer that long after every notification, so the commit lands in a
  * later task. The timer must charge both to `actionMs`, and a `late` longer
  * than the settle must surface as `strayCommits` on the next record.
+ * `walk:<passes>` walks every issue and session row of the feed that many
+ * times inside every notification and commits nothing: work that grows with
+ * the corpus (O(N) per change), which the restated slope budget (excess over
+ * the floor, 4x over 1x) must fail while `sync:<ms>` (constant) passes it.
  */
 
 import { createElement, type ReactElement } from 'react'
@@ -66,15 +70,15 @@ function zeroStats(): ArmStats {
   }
 }
 
-export type NoopPlant = { kind: 'sync' | 'late'; ms: number } | null
+export type NoopPlant = { kind: 'sync' | 'late' | 'walk'; ms: number } | null
 
-/** `?plant=sync:<ms>` / `late:<ms>`; null when absent. */
+/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>`; null when absent. */
 export function readPlant(): NoopPlant {
   const raw = new URLSearchParams(window.location.search).get('plant')
   if (raw === null) return null
   const [kind, ms] = raw.split(':')
-  if ((kind !== 'sync' && kind !== 'late') || !Number.isFinite(Number(ms))) {
-    throw new Error(`[noop] bad plant ${raw} (want sync:<ms> or late:<ms>)`)
+  if ((kind !== 'sync' && kind !== 'late' && kind !== 'walk') || !Number.isFinite(Number(ms))) {
+    throw new Error(`[noop] bad plant ${raw} (want sync:<ms>, late:<ms> or walk:<passes>)`)
   }
   return { kind, ms: Number(ms) }
 }
@@ -85,7 +89,15 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
       let redraw = (): void => {}
       const onChange = (): void => {
         if (plant === null) return
-        if (plant.kind === 'sync') {
+        if (plant.kind === 'walk') {
+          let sink = 0
+          for (let pass = 0; pass < plant.ms; pass += 1) {
+            for (const record of source.snapshot('issue')) sink += record.id.length
+            for (const record of source.snapshot('session')) sink += record.id.length
+          }
+          // Observable, so the walk cannot be optimised away.
+          ;(globalThis as { __noopWalked?: number }).__noopWalked = sink
+        } else if (plant.kind === 'sync') {
           const until = performance.now() + plant.ms
           while (performance.now() < until) {
             // planted synchronous work

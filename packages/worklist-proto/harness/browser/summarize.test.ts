@@ -4,7 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { distribution, MIN_SAMPLES_FOR_P95, type RunOutput, type TimingRecord } from './records'
-import { allowanceMs, cells, loadRuns, targetMismatches } from './summarize'
+import {
+  allowanceMs,
+  cells,
+  excessSlope,
+  loadRuns,
+  runSummary,
+  SLOPE_BUDGET,
+  SLOPE_MIN_EXCESS_MS,
+  targetMismatches,
+} from './summarize'
 
 function record(overrides: Partial<TimingRecord>): TimingRecord {
   return {
@@ -109,6 +118,8 @@ describe('loadRuns', () => {
 describe('allowanceMs', () => {
   it('budgets the hot path at live corpus and the click at 1x and 4x', () => {
     expect(allowanceMs('rename', 1)).toBe(8)
+    // #1's publish budget: 2 ms above the no-op (was "publish <= 2 ms" absolute).
+    expect(allowanceMs('heartbeat', 1)).toBe(2)
     expect(allowanceMs('rename', 4)).toBeNull()
     expect(allowanceMs('click', 1)).toBe(16)
     expect(allowanceMs('click', 4)).toBe(32)
@@ -139,5 +150,54 @@ describe('targetMismatches', () => {
     const a = run([record({ arm: 'noop', warmup: true, sample: -1, target: 'i1' })])
     const b = run([record({ arm: 'hand', warmup: false, sample: -1, target: 'i2' })])
     expect(targetMismatches([a, b])).toEqual([])
+  })
+})
+
+describe('runSummary (the entry point)', () => {
+  function write(runs: RunOutput[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-4558-entry-'))
+    runs.forEach((r, i) => writeFileSync(join(dir, `r${i}.json`), JSON.stringify(r)))
+    return dir
+  }
+
+  it('refuses runs whose arms timed different rows: exit 2, no table', () => {
+    const dir = write([
+      run([record({ arm: 'noop', scenario: 'click', target: 'i50' })]),
+      run([record({ arm: 'hand', scenario: 'click', target: 'i17' })]),
+    ])
+    const lines: string[] = []
+    expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
+    expect(lines).toEqual(['TARGETS DIFFER (not summarised): 1x click#0: i50 (noop) vs i17 (hand)'])
+    expect(lines.some((line) => line.startsWith('|'))).toBe(false)
+  })
+
+  it('summarises runs whose arms timed the same rows: exit 0, tables printed', () => {
+    const dir = write([
+      run([record({ arm: 'noop', scenario: 'click', target: 'i50' })]),
+      run([record({ arm: 'hand', scenario: 'click', target: 'i50', actionMs: 3 })]),
+    ])
+    const lines: string[] = []
+    expect(runSummary([dir], (line) => lines.push(line))).toBe(0)
+    expect(lines.some((line) => line.startsWith('| hand | click | 1x |'))).toBe(true)
+  })
+})
+
+describe('excessSlope (the restated slope budget)', () => {
+  it('passes constant work above a corpus-growing floor that the raw ratio fails', () => {
+    // The measured no-op heartbeat: 14.2 ms at 1x, 34.5 ms at 4x (raw 2.43).
+    // An arm adding a constant 5 ms: raw 39.5/19.2 = 2.06, excess 5/5 = 1.
+    expect(39.5 / 19.2).toBeGreaterThan(SLOPE_BUDGET)
+    expect(excessSlope(19.2, 39.5, 14.2, 34.5)).toBeCloseTo(1, 5)
+  })
+
+  it('fails work that grows with the corpus', () => {
+    // An arm adding 5 ms per 1x corpus: 5 ms at 1x, 20 ms at 4x.
+    expect(excessSlope(19.2, 54.5, 14.2, 34.5)).toBeCloseTo(4, 5)
+  })
+
+  it('divides by at least the minimum excess, so noise is not a verdict', () => {
+    // 0.2 ms above the floor at 1x and 0.5 ms at 4x: 0.5 / 1, not 0.5 / 0.2.
+    expect(excessSlope(0.6, 0.9, 0.4, 0.4)).toBeCloseTo(0.5 / SLOPE_MIN_EXCESS_MS, 5)
+    expect(excessSlope(null, 0.9, 0.4, 0.4)).toBeNull()
   })
 })
