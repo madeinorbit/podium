@@ -11,8 +11,11 @@ import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { READ_BUDGETS } from '../../harness/src/count-harness'
-import { expectedSnapshot } from '../../harness/src/oracle/index'
+import { localsOfEngine } from '../../harness/src/engine-locals'
+import { expectedSnapshot, oracleSnapshot, rowViewsFromStore } from '../../harness/src/oracle/index'
+import { FIRST_WINDOW_ROWS } from '../../harness/web/entrylib'
 import {
+  applyHeartbeat,
   applyStageMove,
   archiveIssue,
   burst50,
@@ -28,12 +31,14 @@ import {
   PHASE_FAMILY_FLOOR,
   parentReassignment,
   pickTargets,
+  pickVisibleHeartbeat,
   principalSwitch,
   rescopeGrowth,
   SCENARIOS,
   selectionClick,
   startScenarioEngine,
   stageMoveAcrossGroups,
+  targetRules,
   unrelatedHeartbeat,
   visibleSessionPhaseChange,
   visibleTitleRename,
@@ -482,6 +487,58 @@ describe('per-row feed on every scenario (POD-4553)', () => {
       )
     }
   }, 300_000)
+})
+
+describe('browser heartbeats: unrelated and visible (POD-4560)', () => {
+  // The page's two heartbeat scenarios over the page's own pick: the oracle's
+  // first window (`FIRST_WINDOW_ROWS`, root rows only) and the library's
+  // `pickVisibleHeartbeat`. The unrelated bump must change no row view; the
+  // visible bump must change exactly its row's `activityAt`, the same way on
+  // every sample (the page never restores it).
+  it.each([1, 2, 4] as const)('%ix', async (scale) => {
+    const ctx = await startScenarioEngine(scale)
+    try {
+      const rules = targetRules(ctx.corpus)
+      const { order } = oracleSnapshot(ctx.engine.getSnapshot())
+      const window = [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
+        .slice(0, FIRST_WINDOW_ROWS)
+        .filter(rules.root)
+      const pick = pickVisibleHeartbeat(rules, window)
+      expect(pick, 'a drawn root with a bound session').toBeDefined()
+      const { issueId, sessionId } = pick!
+      console.info(`[scenarios] ${scale}x visible heartbeat: ${sessionId} on ${issueId}`)
+      const views = () => rowViewsFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine))
+      const changes = async (write: () => void): Promise<string[]> => {
+        const before = views()
+        write()
+        await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
+        const after = views()
+        expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort())
+        return Object.keys(after).flatMap((id) =>
+          Object.keys(after[id]!)
+            .filter(
+              (field) =>
+                JSON.stringify((before[id] as unknown as Record<string, unknown>)[field]) !==
+                JSON.stringify((after[id] as unknown as Record<string, unknown>)[field]),
+            )
+            .map((field) => `${id}.${field}`),
+        )
+      }
+      const orderBefore = JSON.stringify(oracleSnapshot(ctx.engine.getSnapshot()).order)
+      for (let sample = 0; sample < 3; sample += 1) {
+        expect(await changes(() => applyHeartbeat(ctx)), `unrelated #${sample}`).toEqual([])
+        expect(
+          await changes(() => applyHeartbeat(ctx, sessionId)),
+          `visible #${sample}`,
+        ).toEqual([`${issueId}.activityAt`])
+      }
+      expect(JSON.stringify(oracleSnapshot(ctx.engine.getSnapshot()).order), 'order').toBe(
+        orderBefore,
+      )
+    } finally {
+      ctx.engine.destroy()
+    }
+  }, 120_000)
 })
 
 describe('heartbeat cost on the fixture at 1x, 2x, 4x (counts only)', () => {

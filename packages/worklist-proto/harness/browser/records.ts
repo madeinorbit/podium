@@ -8,7 +8,14 @@ import type { ProtoScenarioResult } from '../web/entrylib'
 export const ARMS = ['control', 'hand', 'mobx', 'noop'] as const
 export type ArmName = (typeof ARMS)[number]
 export type Scale = 1 | 2 | 4
-export const SCENARIOS = ['heartbeat', 'rename', 'stagemove', 'clock', 'click'] as const
+export const SCENARIOS = [
+  'heartbeat',
+  'visibleHeartbeat',
+  'rename',
+  'stagemove',
+  'clock',
+  'click',
+] as const
 export type ScenarioName = (typeof SCENARIOS)[number]
 
 export interface HeapUsage {

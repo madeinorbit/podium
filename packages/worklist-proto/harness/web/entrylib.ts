@@ -9,6 +9,14 @@
  * in Chromium cover the hot path):
  * - `heartbeat`: lastActiveAt bump on the scenario library's heartbeat
  *   target, a session on a row the worklist never shows (methodology #1).
+ * - `visibleHeartbeat`: the same bump on a DRAWN row's session (POD-4560):
+ *   the library's `pickVisibleHeartbeat` over the first window, fixed for the
+ *   page; the row's `activityAt` moves, so exactly that row must redraw.
+ *   Nothing is restored: a heartbeat only moves forward, and `activityAt` is
+ *   display only (no band, order or group reads it), so every sample is the
+ *   same one-field change of the same row. A click never selects the row.
+ *   Heartbeat and visible heartbeat together price "a session nobody sees"
+ *   against "a session on screen".
  * - `rename`: title dual-write on a DRAWN open root (#4), from its server
  *   title to `<title> (renamed)`; the next `prepare` restores its server rows
  *   untimed, so every sample is the same rename of the same row and titles
@@ -125,6 +133,7 @@ import {
   applyTitleRename,
   echoAcknowledgedMarkReads,
   pendingWrites,
+  pickVisibleHeartbeat,
   type ScenarioEngine,
   targetRules,
   upsert,
@@ -133,7 +142,13 @@ import type { SliceSnapshot } from '../../shared/src/slice-types'
 import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
 import { oracleSnapshot, type RowViews, rowViewsFromStore } from '../src/oracle/index'
 
-export type ProtoScenarioName = 'heartbeat' | 'rename' | 'stagemove' | 'clock' | 'click'
+export type ProtoScenarioName =
+  | 'heartbeat'
+  | 'visibleHeartbeat'
+  | 'rename'
+  | 'stagemove'
+  | 'clock'
+  | 'click'
 
 export interface ProtoCorpusCounts {
   issues: number
@@ -174,7 +189,7 @@ export interface ProtoScenarioResult {
   longTasks: ProtoLongTask[]
   /** Rows currently mounted in the windowed list. */
   mountedRows: number
-  /** The row the change aimed at (rename, stagemove, click); the session for heartbeat; null for clock. */
+  /** The row the change aimed at (rename, stagemove, click, visibleHeartbeat); the session for heartbeat; null for clock. */
   target: string | null
 }
 
@@ -466,6 +481,8 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     params.get('offwindow') === '1'
       ? boot.targets.visibleRootId
       : bootWindow.find(rules.openRootWithChildren)
+  /** The visible heartbeat: fixed for the page, a drawn row's session. */
+  const visibleHeartbeat = pickVisibleHeartbeat(rules, bootWindow)
   /** The row's server rows now, restored by the returned undo (untimed, next `prepare`). */
   function restorer(id: string): () => void {
     const wire = boot.cache.read('issue', id)?.value
@@ -483,7 +500,10 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     if (wire?.title === undefined) throw new Error(`[proto] issue ${id} missing`)
     applyTitleRename(boot, id, `${wire.title} (renamed)`)
   }
-  const fresh = (id: string): boolean => id !== renameTarget && !moved.has(id) && !clicked.has(id)
+  /** Rows another scenario owns for the page: a click never selects them. */
+  const reserved = (id: string): boolean =>
+    id === renameTarget || id === visibleHeartbeat?.issueId
+  const fresh = (id: string): boolean => !reserved(id) && !moved.has(id) && !clicked.has(id)
   /** #5: the first drawn childless open root no click selected. Each move is
    *  undone before the next change (`prepare`), so every sample moves the same
    *  row from the same place across the same groups. */
@@ -491,7 +511,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     const window = firstWindow()
     const id = window.find(
       (candidate) =>
-        candidate !== renameTarget && !clicked.has(candidate) && rules.childlessRoot(candidate),
+        !reserved(candidate) && !clicked.has(candidate) && rules.childlessRoot(candidate),
     )
     if (id === undefined) {
       throw new Error(
@@ -611,6 +631,19 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
           row: false,
           dispatch: () => void applyHeartbeat(boot),
         }
+      case 'visibleHeartbeat': {
+        if (visibleHeartbeat === undefined) {
+          throw new Error(
+            `[proto] visibleHeartbeat: no drawn root with a bound session in the first window ${bootWindow.join(',')}`,
+          )
+        }
+        const { issueId, sessionId } = visibleHeartbeat
+        return {
+          target: issueId,
+          row: true,
+          dispatch: () => void applyHeartbeat(boot, sessionId),
+        }
+      }
       case 'rename':
         if (renameTarget === undefined) {
           throw new Error(

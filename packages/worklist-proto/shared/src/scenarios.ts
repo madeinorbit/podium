@@ -416,6 +416,10 @@ export function targetRules(corpus: FixtureCorpus): {
   phaseRoot: (id: string) => boolean
   /** The live working session a #2 target's phase change flips. */
   phaseSession: (id: string) => SessionMeta | undefined
+  /** The visible heartbeat's session on a drawn row (POD-4560): the row's
+   *  lowest-numbered bound session, headless excepted. Its `lastActiveAt` is
+   *  the row's recency anchor (`activityAt`), so bumping it redraws the row. */
+  heartbeatSession: (id: string) => SessionMeta | undefined
 } {
   const issues = corpus.issues as unknown as IssueFacts[]
   const byId = new Map(issues.map((i) => [i.id, i]))
@@ -479,7 +483,30 @@ export function targetRules(corpus: FixtureCorpus): {
       )
     },
     phaseSession: (id) => (sessionsOf.get(id) ?? []).find(isLiveWorking),
+    heartbeatSession: (id) =>
+      (sessionsOf.get(id) ?? [])
+        .filter((s) => (s as { headless?: boolean }).headless !== true)
+        .sort((a, b) => numericId(a.sessionId) - numericId(b.sessionId))[0],
   }
+}
+
+/**
+ * The browser page's visible heartbeat target (POD-4560): among `window` (the
+ * drawn roots, in the oracle's list order), the first row with a
+ * {@link targetRules} `heartbeatSession` that neither the rename nor the stage
+ * move rule wants, else the first with one. One definition for the page and
+ * the test that proves the bump redraws exactly that row.
+ */
+export function pickVisibleHeartbeat(
+  rules: ReturnType<typeof targetRules>,
+  window: readonly string[],
+): { issueId: string; sessionId: string } | undefined {
+  const withSession = window.filter((id) => rules.heartbeatSession(id) !== undefined)
+  const issueId =
+    withSession.find((id) => !rules.openRootWithChildren(id) && !rules.childlessRoot(id)) ??
+    withSession[0]
+  if (issueId === undefined) return undefined
+  return { issueId, sessionId: (rules.heartbeatSession(issueId) as SessionMeta).sessionId }
 }
 
 /**
