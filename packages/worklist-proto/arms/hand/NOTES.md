@@ -115,7 +115,10 @@ the same rule, transitions, window and shared seams (`RowSource.row`,
    closed origins on the live-shaped fixture. The a1 list then DRAWS those
    origins (it lists every resident issue) and they ask for their own cold
    sessions: a cascade of load windows that Hb1's visible collection ends.
-   The counts test and the native test settle them before counting.
+   The counts test and the native test hold the load window shut, so none
+   lands inside a counted step (no test-side settle; the shared fence's drain
+   hook, POD-4568's G2, will drain and charge them per step through the
+   arm's `drainLoads()`).
 7. **Ma4's seed-8 shape has no counterpart here**: buckets are keyed by the
    reference and never placed by residency, so there is no second place to
    go stale. The sequence (evict a parent, move a child away, re-add the
@@ -199,7 +202,48 @@ settled before counting):
 | #8 tick | — | — | asserted | 0 / 0 |
 | #8b grace | 6 rows | the 3 resident ones | missed rows asserted cold | 3 / 144 |
 
-GATE_OF_RECORD_PLACEHOLDER
+**Gate of record (L4b, rebuild-only, live-shaped 1x), 2026-09-23: GREEN.**
+Seeds 1-20 x 300 steps at c83711642,  "correctness gate", in
+four sequential chunks of five seeds (`POD_POOL_GATE_FIRST_SEED`) under the
+heavy lease, 17:53-19:50 (the chunks took 21-24 min each; box load 9-21:
+pass/fail and counts only, no walls). Every step compared the settled
+snapshot with the rebuild, every relation of every known row (cold included)
+with a scan of the feed, and the hot/cold partition with the feed (301
+checks per seed); step 299 ran the full-residency checkpoint on every seed.
+Every plant failed every seed, each caught by the check it targets (step
+numbers are the checker's; "checkpoint" is step 299):
+
+| seed | cold writes | loads | warmed | removal-deaf | relink-skipped | cold-deaf | cold relink (checkpoint off) | registry kept (per-step off) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 115 | 8281 | 32 | rebuild 15 | relations 14 | partition 9 | relations 24 | checkpoint |
+| 2 | 154 | 9707 | 21 | rebuild 32 | relations 0 | relations 20 | relations 20 | checkpoint |
+| 3 | 134 | 4164 | 18 | rebuild 19 | relations 14 | relations 3 | relations 3 | checkpoint |
+| 4 | 129 | 6916 | 15 | rebuild 3 | relations 20 | relations 29 | relations 22 | checkpoint |
+| 5 | 109 | 5519 | 14 | rebuild 1 | relations 1 | partition 1 | relations 7 | checkpoint |
+| 6 | 142 | 9664 | 27 | rebuild 19 | relations 73 | relations 9 | relations 10 | checkpoint |
+| 7 | 129 | 4163 | 36 | rebuild 53 | relations 5 | relations 8 | relations 9 | checkpoint |
+| 8 | 138 | 9708 | 12 | rebuild 0 | relations 4 | relations 8 | relations 5 | checkpoint |
+| 9 | 108 | 8319 | 16 | rebuild 3 | relations 87 | relations 9 | relations 9 | checkpoint |
+| 10 | 129 | 11077 | 8 | rebuild 53 | relations 31 | relations 18 | relations 1 | checkpoint |
+| 11 | 128 | 5556 | 12 | rebuild 22 | relations 49 | relations 12 | relations 15 | checkpoint |
+| 12 | 129 | 6933 | 13 | rebuild 7 | relations 3 | partition 0 | relations 9 | checkpoint |
+| 13 | 114 | 9697 | 18 | rebuild 21 | relations 15 | partition 3 | relations 9 | checkpoint |
+| 14 | 112 | 12470 | 19 | rebuild 6 | relations 4 | partition 10 | relations 29 | checkpoint |
+| 15 | 108 | 4159 | 13 | rebuild 7 | relations 33 | partition 14 | relations 36 | checkpoint |
+| 16 | 138 | 5544 | 22 | rebuild 9 | relations 8 | relations 0 | relations 6 | checkpoint |
+| 17 | 116 | 13824 | 14 | rebuild 44 | relations 0 | partition 2 | relations 5 | checkpoint |
+| 18 | 137 | 9688 | 21 | rebuild 3 | relations 64 | partition 9 | relations 16 | checkpoint |
+| 19 | 131 | 12506 | 15 | rebuild 47 | relations 41 | partition 42 | relations 0 | checkpoint |
+| 20 | 109 | 17960 | 13 | rebuild 36 | relations 26 | relations 0 | relations 2 | checkpoint |
+
+Cold-row work counts rows after each arm's bootstrap, summed over every arm
+a seed created (reloads re-bootstrap); "loads" include the cascades of
+finding 6 (a loaded origin drawn by the a1 list asks for its sessions).
+Commits after c83711642 add the loader drain (`pendingLoads`/`drainLoads`,
+additive), remove the counts test's settle loop and patch `Map` in the F1
+counter; the focused suites and a 3 x 200 gate re-ran on the landed tip
+(below).
+
 
 ### Open
 
@@ -343,7 +387,11 @@ of the old and new cwd). Upkeep vs bucket size: one new issue in a repo of
 | 8,000, copy-and-sort plant | 2 / 24,012 | 2 / 24,009 |
 
 Asserted: the 4,000 and 8,000 rows are equal, elements ≤ 4, ops < 100; the
-plant's ops exceed b and grow with it.
+plant's ops exceed b and grow with it. POD-4580 (the coordinator's G3):
+the counter now patches  set/delete/iterator too; honest engine 11 / 12
+ops per add / remove at b = 4,000 and 8,000 (equal), the copy-and-sort plant
+12,016 / 24,016, and a new plant copying the forward  per change 16,023
+/ 32,023, so the  patch is proven armed.
 
 **F2 plant** (`relations.test.ts`, "row views resolve single-valued
 relations through the engine (M3 F2)"): a wrong forward entry planted for
