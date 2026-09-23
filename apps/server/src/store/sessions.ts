@@ -469,7 +469,13 @@ export class SessionsRepository {
       .run()
   }
 
-  /** Tombstone sessions without destroying their metadata or UI satellites. */
+  /** Tombstone sessions without destroying their metadata or UI satellites.
+   *
+   *  A tombstone KILLS a running process, and it records that exit in the same
+   *  write (POD-4634). Nothing else can: the session leaves the live map at the
+   *  commit, so the daemon's `agentExit` finds no session to stamp, and the row
+   *  kept `status='live'` with no stop reason for as long as it existed. Only a
+   *  RUNNING row changes; a hibernated or exited one already says how it stopped. */
   async softDeleteSessions(
     ids: string[],
     deletedAt: string,
@@ -477,10 +483,16 @@ export class SessionsRepository {
     deletedByIssueId: IssueId | null = null,
   ): Promise<void> {
     for (const id of ids) {
+      const untombstoned = and(eq(sessionsTable.id, id as SessionId), isNull(sessionsTable.deletedAt))
+      await this.db
+        .update(sessionsTable)
+        .set({ status: 'exited', stoppedAt: deletedAt, stopReason: 'forced' })
+        .where(and(untombstoned, inArray(sessionsTable.status, ['starting', 'live', 'reconnecting'])))
+        .run()
       await this.db
         .update(sessionsTable)
         .set({ deletedAt, deletionSource: source, deletedByIssueId })
-        .where(and(eq(sessionsTable.id, id as SessionId), isNull(sessionsTable.deletedAt)))
+        .where(untombstoned)
         .run()
     }
   }
