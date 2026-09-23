@@ -239,8 +239,18 @@ describe('bootstrap', () => {
       row.getAttribute('data-issue-row'),
     )
     expect(drawn.length).toBe(hotIssues.length)
-    expect(pool.stats.counters.modelsCreated).toBe(drawn.length)
+    // A drawn row's activity re-composes from its member sessions' cached
+    // values (POD-4568), so its resident members get a model too: models ==
+    // rows drawn + their resident member sessions, nothing else.
+    const members = new Set(
+      tracked(() => drawn.flatMap((id) => pool.issue(id!)?.sessionIds ?? [])).filter(
+        (id) => tracked(() => pool.resident('session', id)) === 'resident',
+      ),
+    )
+    expect(members.size).toBeGreaterThan(0)
     expect(pool.modelCount('issue')).toBe(drawn.length)
+    expect(pool.modelCount('session')).toBe(members.size)
+    expect(pool.stats.counters.modelsCreated).toBe(drawn.length + members.size)
     // No cold row got a model, and none was drawn.
     for (const issue of corpus.sliceIssues) {
       if (isClosed(issue)) expect(tracked(() => pool.resident('issue', issue.id))).toBe('loading')

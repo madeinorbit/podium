@@ -76,12 +76,19 @@ import { rebuildSnapshot } from './rebuild'
 
 installMobxWarnTrap()
 
-/** Three seeds by default (~8 min at load 8 with the per-step relation check); `POD_POOL_GATE_SEEDS=<n>` runs seeds 1..n. */
+/**
+ * Three seeds of 200 steps by default (~8 min at load 8 with the per-step
+ * relation check); `POD_POOL_GATE_SEEDS=<n>` runs seeds 1..n and
+ * `POD_POOL_GATE_STEPS=<n>` sets the steps per seed. The gate of record
+ * (POD-4568) is 20 x 300: `docs/measurements/POD-4568-a.md` has the command.
+ */
 const SEEDS = Array.from(
   { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
   (_, i) => i + 1,
 )
-const STEPS = 200
+const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
+/** 2.5 s per seed-step: the default run's 25 min, scaled. */
+const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 2_500)
 
 /** The planted mistake: removals never reach the pool. */
 function deafToRemovals(source: RowSource): RowSource {
@@ -363,12 +370,12 @@ describe('correctness gate (L4b), rebuild-only', () => {
           : checkpointPlant.diff.split('\n').slice(0, 2).join(' | '),
       })
     }
-    writeResult('mobx-pool-gate-1x', { seeds: SEEDS, cells })
+    writeResult(`mobx-pool-gate-1x-${SEEDS.length}x${STEPS}`, { seeds: SEEDS, steps: STEPS, cells })
     expect(plantedFailures).toBe(SEEDS.length)
     expect(coldPlantFailures).toBe(SEEDS.length)
     expect(relinkPlantFailures).toBe(SEEDS.length)
     expect(checkpointPlantFailures).toBe(SEEDS.length)
-  }, 1_500_000)
+  }, GATE_TIMEOUT_MS)
 })
 
 describe('own-row fields against the oracle', () => {
