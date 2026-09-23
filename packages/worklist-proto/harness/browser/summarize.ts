@@ -6,6 +6,16 @@
  * Refuses any failed run (load over the limit, an errored cell): its numbers
  * are listed as failed and never enter a table. Warm-up records are dropped.
  *
+ * Complete or nothing (POD-4562): the ok runs must fill the whole grid — every
+ * arm present plus the no-op floor, × 1x/2x/4x, × every scenario — with the
+ * same sample count in every cell, at least `MIN_SAMPLES_FOR_P95`, and no
+ * record above load 8. A matrix directory (`matrix-plan.json` beside the runs)
+ * must also hold an ok output for every planned (round, arm, scale), and each
+ * cell exactly rounds × samples. Otherwise the summary prints each missing
+ * cell and exits 2 with no table: a cell is never withheld, provisional, or
+ * shown with a p95 it does not have. A failed attempt the matrix retried is
+ * listed and does not by itself refuse the set.
+ *
  * Budgets (methodology §1a, restated on the floor before any round-three arm
  * is measured — `docs/plans/pod-4441-harness.md`, "Instrument floor"). Every
  * wall budget is on the arm's time ABOVE the no-op page's (coordinator ruling
@@ -26,11 +36,13 @@
  *
  *   bun packages/worklist-proto/harness/browser/summarize.ts <result dir or files...> [--json out.json]
  */
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
+import { gridShortfalls, MATRIX_PLAN_FILE, type MatrixPlan } from './complete'
 import {
   type Distribution,
   distribution,
+  MIN_SAMPLES_FOR_P95,
   type RunOutput,
   type Scale,
   type ScenarioName,
@@ -85,23 +97,32 @@ function median(values: number[]): number | null {
 
 export function loadRuns(paths: string[]): {
   ok: RunOutput[]
+  /** File names of the ok runs, parallel to `ok`. */
+  okFiles: string[]
   failed: { path: string; run: RunOutput }[]
+  /** One `matrix-plan.json` per directory given. */
+  plans: MatrixPlan[]
 } {
-  const files = paths.flatMap((p) =>
-    statSync(p).isDirectory()
-      ? readdirSync(p)
-          .filter((f) => f.endsWith('.json'))
-          .map((f) => join(p, f))
-      : [p],
-  )
+  const plans: MatrixPlan[] = []
+  const files = paths.flatMap((p) => {
+    if (!statSync(p).isDirectory()) return [p]
+    const planPath = join(p, MATRIX_PLAN_FILE)
+    if (existsSync(planPath)) plans.push(JSON.parse(readFileSync(planPath, 'utf-8')) as MatrixPlan)
+    return readdirSync(p)
+      .filter((f) => f.endsWith('.json') && f !== MATRIX_PLAN_FILE)
+      .map((f) => join(p, f))
+  })
   const ok: RunOutput[] = []
+  const okFiles: string[] = []
   const failed: { path: string; run: RunOutput }[] = []
   for (const path of files) {
     const run = JSON.parse(readFileSync(path, 'utf-8')) as RunOutput
-    if (run.status === 'ok') ok.push(run)
-    else failed.push({ path, run })
+    if (run.status === 'ok') {
+      ok.push(run)
+      okFiles.push(basename(path))
+    } else failed.push({ path, run })
   }
-  return { ok, failed }
+  return { ok, okFiles, failed, plans }
 }
 
 export function cells(runs: RunOutput[]): Cell[] {
@@ -175,16 +196,32 @@ const f = (v: number | null, digits = 2): string => (v === null ? '—' : v.toFi
 
 /**
  * The summary's entry point: prints the tables through `print` and returns the
- * exit code. 2 (and no table) when the runs come from more than one machine or
- * their arms aimed a change at different targets; 0 otherwise. Failed runs are listed and never summarised.
+ * exit code. 2 (and no table) when a cell is missing or short, a record ran
+ * above load 8, the runs come from more than one machine, or their arms aimed
+ * a change at different targets; 0 otherwise. Failed runs are listed and never
+ * summarised.
  */
 export function runSummary(argv: string[], print: (line: string) => void): number {
   const jsonIndex = argv.indexOf('--json')
   const jsonOut = jsonIndex >= 0 ? argv[jsonIndex + 1] : undefined
   const paths = argv.filter((_, i) => jsonIndex < 0 || (i !== jsonIndex && i !== jsonIndex + 1))
-  const { ok, failed } = loadRuns(paths)
+  const { ok, okFiles, failed, plans } = loadRuns(paths)
   for (const { path, run } of failed) {
     print(`FAILED RUN (not summarised): ${path} — ${run.failures.join('; ')}`)
+  }
+  if (plans.length > 1) {
+    print(`SEVERAL MATRICES (not summarised): ${plans.length} plans; summarise one matrix directory`)
+    return 2
+  }
+  // Complete or nothing: no cell is withheld or provisional (POD-4562).
+  const shortfalls = gridShortfalls(ok, {
+    minSamples: MIN_SAMPLES_FOR_P95,
+    plan: plans[0],
+    files: okFiles,
+  })
+  if (shortfalls.length > 0) {
+    for (const s of shortfalls) print(`INCOMPLETE (not summarised): ${s}`)
+    return 2
   }
   // Anything compared must be timed on the same machine (POD-4286 ruling).
   const hosts = [...new Set(ok.map((r) => r.host ?? 'unrecorded'))]
@@ -217,14 +254,12 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
     const allowance = allowanceMs(c.scenario, c.scale)
     const budget =
       fl?.actionMs.p95 != null && allowance !== null ? fl.actionMs.p95 + allowance : null
+    if (c.actionMs.p95 === null) {
+      // Unreachable past `gridShortfalls` (every cell holds >= MIN_SAMPLES_FOR_P95).
+      throw new Error(`${c.arm} ${c.scenario} ${c.scale}x has no p95 (n ${c.actionMs.n})`)
+    }
     const verdict =
-      c.arm === 'noop' || budget === null
-        ? '—'
-        : c.actionMs.p95 === null
-          ? 'n < 20'
-          : c.actionMs.p95 <= budget
-            ? 'within'
-            : 'OVER'
+      c.arm === 'noop' || budget === null ? '—' : c.actionMs.p95 <= budget ? 'within' : 'OVER'
     print(
       `| ${c.arm} | ${c.scenario} | ${c.scale}x | ${c.actionMs.n} | ` +
         `${f(c.actionMs.p50)} / ${f(c.actionMs.p95)} / ${f(c.actionMs.max)} | ${f(c.drainMs.p50)} | ` +

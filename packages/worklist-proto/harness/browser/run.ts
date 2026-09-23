@@ -26,10 +26,12 @@
  * that the comparison fails a wrong arm).
  *
  * A run FAILS (status `failed`, exit 2) when the 1-minute load is above
- * `--max-load` (default 8) before or during it, when any cell errors (a
- * missing cell is never a gap), on a parity mismatch, or on stray commits.
- * Its records stay in the JSON for diagnosis; `summarize.ts` refuses to
- * print them as results.
+ * `--max-load` (default and ceiling 8) before it or at any record, when any
+ * cell errors or is short of its planned records (POD-4562: a missing cell
+ * fails the run, it is never withheld or provisional), on a parity mismatch,
+ * or on stray commits. A failed run writes NO results file: its records go to
+ * `<out>.failed.json` for diagnosis, and any earlier file at `--out` is
+ * removed first. `--dry-run` prints the plan and exits without a browser.
  *
  * Timing runs under the bench lease of the machine it runs on (`bench:<hostname>`);
  * round three times on flatblock through `matrix.ts --host flatblock`, which
@@ -45,12 +47,20 @@
  *     --arm noop --scale 1 --samples 5 --out packages/worklist-proto/harness/browser/results/noop-1x.json
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { hostname, loadavg, uptime } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { chromium } from '@playwright/test'
 import type { ProtoOracleCheck, ProtoScenarioResult } from '../web/entrylib'
+import {
+  checkMaxLoad,
+  describePlan,
+  failedPathFor,
+  MAX_LOAD,
+  plannedRounds,
+  runShortfalls,
+} from './complete'
 import {
   ARMS,
   type ArmName,
@@ -92,6 +102,7 @@ interface Args {
   offwindow: boolean
   strictParity: boolean
   markSettle: boolean
+  dryRun: boolean
 }
 
 function parseArgs(argv: string[]): Args {
@@ -124,7 +135,7 @@ function parseArgs(argv: string[]): Args {
     // Per page load: each click takes a fresh mounted row (a window holds ~17).
     samples: Number(get('--samples', '5')),
     warmup: Number(get('--warmup', '1')),
-    maxLoad: Number(get('--max-load', '8')),
+    maxLoad: checkMaxLoad(Number(get('--max-load', String(MAX_LOAD)))),
     out:
       get('--out', `packages/worklist-proto/harness/browser/results/${arm}-${scale}x.json`) ?? '',
     port: Number(get('--port', '8751')),
@@ -143,6 +154,8 @@ function parseArgs(argv: string[]): Args {
     strictParity: argv.includes('--strict-parity'),
     // Proof plant: drop the step's mark-read settle; the control's strays return.
     markSettle: !argv.includes('--no-mark-settle'),
+    // Print the plan (rounds, rotated scenario order, what complete means) and exit.
+    dryRun: argv.includes('--dry-run'),
   }
 }
 
@@ -207,8 +220,33 @@ function write(out: string, output: RunOutput): void {
   writeFileSync(out, JSON.stringify(output, null, 2))
 }
 
+/**
+ * The only writer of run output: a complete, passing run goes to `out`; any
+ * other run (a failure, a short cell, a record over the load ceiling) goes to
+ * `<out>.failed.json` and leaves no file at `out`.
+ */
+function finish(out: string, output: RunOutput): void {
+  for (const shortfall of runShortfalls(output)) {
+    if (!output.failures.includes(shortfall)) {
+      output.status = 'failed'
+      output.failures.push(shortfall)
+      console.error(`[browser] FAILED: ${shortfall}`)
+    }
+  }
+  const path = output.status === 'ok' ? out : failedPathFor(out)
+  write(path, output)
+  console.log(`[browser] wrote ${path} (${output.records.length} records, ${output.status})`)
+}
+
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2))
+  if (args.dryRun) {
+    for (const line of describePlan(args, args.out)) console.log(line)
+    return 0
+  }
+  // A results file at `out` must come from THIS run, and only if it completes.
+  rmSync(args.out, { force: true })
+  rmSync(failedPathFor(args.out), { force: true })
   const runtimeSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
     encoding: 'utf-8',
   }).trim()
@@ -238,7 +276,7 @@ async function main(): Promise<number> {
   const load0 = loadavg()[0] ?? 0
   if (load0 > args.maxLoad) {
     fail(`load ${load0.toFixed(2)} > ${args.maxLoad} before the run; nothing timed`)
-    write(args.out, output)
+    finish(args.out, output)
     return 2
   }
   if (args.lease && !acquireBenchLease()) {
@@ -280,15 +318,8 @@ async function main(): Promise<number> {
       await cdp.send('HeapProfiler.collectGarbage')
       return (await cdp.send('Runtime.getHeapUsage')) as HeapUsage
     }
-    const rounds = args.warmup + args.samples
-    for (let round = 0; round < rounds; round += 1) {
-      const warmup = round < args.warmup
-      // Warm-up rounds number -warmup..-1; measured samples 0..samples-1.
-      const sample = round - args.warmup
-      // Rotate the scenario order per round so drift hits every scenario.
-      const order = args.scenarios.map(
-        (_, i) => args.scenarios[(i + round) % args.scenarios.length] as ScenarioName,
-      )
+    // The same rounds `--dry-run` prints (`complete.ts`).
+    for (const { sample, warmup, order } of plannedRounds(args)) {
       for (const scenario of order) {
         let result: ProtoScenarioResult
         let heapBefore: HeapUsage
@@ -384,14 +415,13 @@ async function main(): Promise<number> {
         )
       }
     }
-    return output.status === 'ok' ? 0 : 2
   } finally {
-    write(args.out, output)
-    console.log(`[browser] wrote ${args.out} (${output.records.length} records, ${output.status})`)
+    finish(args.out, output)
     await browser.close()
     server?.close()
     if (args.lease) releaseBenchLease()
   }
+  return output.status === 'ok' ? 0 : 2
 }
 
 process.exitCode = await main()

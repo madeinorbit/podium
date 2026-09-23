@@ -9,11 +9,16 @@
  * bench lease (`bench:<machine>`) is taken around each invocation and released
  * between them, never held across the matrix. An invocation that failed ONLY
  * on load is retried after the load drops (up to `--load-retries`, default 3;
- * the failed file stays beside it as `.tryN.json`, listed and never summarised
- * by `summarize.ts`). Any other failure fails the matrix (exit 2): a missing
- * cell is a failed run, not a gap. `--resume` (same `--tag`) keeps every
- * pair whose output already passed and runs only the rest, in the same
- * rotated order; the SHA check in `summarize.ts` still sees every file.
+ * its `.failed.json` stays beside it as `.tryN.failed.json`, listed and never
+ * summarised by `summarize.ts`). Any other failure fails the matrix (exit 2):
+ * a missing cell is a failed run, not a gap (POD-4562). `--max-load` may lower
+ * the ceiling of 8, never raise it. The matrix writes its plan to
+ * `matrix-plan.json` beside the runs; `summarize.ts` refuses the directory
+ * unless every planned run passed with every cell full. `--dry-run` prints
+ * the plan and the rotated pair order and runs nothing. `--resume` (same
+ * `--tag`, same plan) keeps every pair whose output already passed and runs
+ * only the rest, in the same rotated order; the SHA check in `summarize.ts`
+ * still sees every file.
  *
  * `--host <ssh host>` times on another machine (round three's timing machine
  * is flatblock; POD-4286): the load is read there, each invocation runs there
@@ -32,10 +37,19 @@
  *     packages/worklist-proto/harness/browser/results/floor
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hostname, loadavg } from 'node:os'
 import { dirname, join } from 'node:path'
-import { ARMS, type ArmName, type RunOutput, type Scale } from './records'
+import {
+  checkMaxLoad,
+  failedPathFor,
+  isLoadOnlyFailure,
+  MATRIX_PLAN_FILE,
+  MAX_LOAD,
+  type MatrixPlan,
+  matrixRunFile,
+} from './complete'
+import { ARMS, type ArmName, type RunOutput, SCENARIOS, type Scale, type ScenarioName } from './records'
 
 function arg(argv: string[], flag: string, fallback: string): string {
   const index = argv.indexOf(flag)
@@ -56,7 +70,7 @@ const rounds = Number(arg(argv, '--rounds', '4'))
 const samples = arg(argv, '--samples', '5')
 const warmup = arg(argv, '--warmup', '1')
 const scenarios = arg(argv, '--scenarios', '')
-const maxLoad = Number(arg(argv, '--max-load', '8'))
+const maxLoad = checkMaxLoad(Number(arg(argv, '--max-load', String(MAX_LOAD))))
 const loadWaitMs = Number(arg(argv, '--load-wait-min', '20')) * 60_000
 const loadRetries = Number(arg(argv, '--load-retries', '3'))
 const resume = argv.includes('--resume')
@@ -88,6 +102,37 @@ function load1(): number {
 }
 
 const pairs = arms.flatMap((arm) => scales.map((scale) => ({ arm, scale })))
+const orderOf = (round: number): typeof pairs => [
+  ...pairs.slice(round % pairs.length),
+  ...pairs.slice(0, round % pairs.length),
+]
+
+const plan: MatrixPlan = {
+  arms,
+  scales,
+  rounds,
+  samples: Number(samples),
+  warmup: Number(warmup),
+  scenarios: (scenarios ? scenarios.split(',') : [...SCENARIOS]) as ScenarioName[],
+  maxLoad,
+}
+if (argv.includes('--dry-run')) {
+  console.log(`[matrix] dry run: ${outDir}${host ? ` on ${host}` : ''}`)
+  console.log(JSON.stringify(plan))
+  for (let round = 0; round < rounds; round += 1) {
+    console.log(`  round ${round}: ${orderOf(round).map((p) => `${p.arm} ${p.scale}x`).join(', ')}`)
+  }
+  console.log(
+    `  complete = ${arms.length * scales.length * rounds} ok runs; per (arm, scale, scenario) ${rounds * plan.samples} samples, every record at load <= ${maxLoad}`,
+  )
+  process.exit(0)
+}
+mkdirSync(outDir, { recursive: true })
+const planPath = join(outDir, MATRIX_PLAN_FILE)
+if (existsSync(planPath) && readFileSync(planPath, 'utf-8') !== JSON.stringify(plan, null, 2)) {
+  throw new Error(`${planPath} holds a different plan: use a new --tag`)
+}
+writeFileSync(planPath, JSON.stringify(plan, null, 2))
 
 function waitForLoad(): boolean {
   const deadline = Date.now() + loadWaitMs
@@ -118,9 +163,9 @@ function lease(verb: 'acquire' | 'release'): boolean {
 
 let failed = false
 outer: for (let round = 0; round < rounds; round += 1) {
-  const order = [...pairs.slice(round % pairs.length), ...pairs.slice(0, round % pairs.length)]
-  for (const { arm, scale } of order) {
-    const out = join(outDir, `r${round}-${arm}-${scale}x.json`)
+  for (const { arm, scale } of orderOf(round)) {
+    const out = join(outDir, matrixRunFile(round, arm, scale))
+    const failedOut = failedPathFor(out)
     if (
       resume &&
       existsSync(out) &&
@@ -129,11 +174,13 @@ outer: for (let round = 0; round < rounds; round += 1) {
       console.log(`[matrix] round ${round} ${arm} ${scale}x already passed; kept`)
       continue
     }
-    if (existsSync(out)) {
+    for (const earlier of [out, failedOut]) {
+      if (!existsSync(earlier)) continue
       // A failed output from an earlier matrix: keep it beside the rerun.
       let n = 0
-      while (existsSync(out.replace(/\.json$/, `.prior${n}.json`))) n += 1
-      renameSync(out, out.replace(/\.json$/, `.prior${n}.json`))
+      const prior = (k: number): string => failedPathFor(out).replace(/\.failed\.json$/, `.prior${k}.failed.json`)
+      while (existsSync(prior(n))) n += 1
+      renameSync(earlier, prior(n))
     }
     for (let attempt = 0; ; attempt += 1) {
       if (!waitForLoad() || !lease('acquire')) {
@@ -162,16 +209,18 @@ outer: for (let round = 0; round < rounds; round += 1) {
       let result: ReturnType<typeof spawnSync>
       if (host) {
         // Never copy back an earlier attempt's file: the remote output goes first.
-        result = ssh(`rm -f '${out}' && bun ${runArgs.map((a) => `'${a}'`).join(' ')}`, true)
+        result = ssh(
+          `rm -f '${out}' '${failedOut}' && bun ${runArgs.map((a) => `'${a}'`).join(' ')}`,
+          true,
+        )
         mkdirSync(dirname(out), { recursive: true })
-        const copy = spawnSync('scp', [
-          '-q',
-          '-o',
-          'BatchMode=yes',
-          `${host}:${remoteDir}/${out}`,
-          out,
-        ])
-        if (copy.status !== 0) console.error(`[matrix] could not copy ${out} back from ${host}`)
+        // The run wrote exactly one of the two: the result, or its failure.
+        const copied = [out, failedOut].some(
+          (file) =>
+            spawnSync('scp', ['-q', '-o', 'BatchMode=yes', `${host}:${remoteDir}/${file}`, file])
+              .status === 0,
+        )
+        if (!copied) console.error(`[matrix] could not copy ${out} back from ${host}`)
       } else {
         // Each invocation takes the heavy-test lease itself (a browser run is heavy).
         result = spawnSync('bun', ['scripts/test-heavy.ts', '--', 'bun', ...runArgs], {
@@ -179,23 +228,24 @@ outer: for (let round = 0; round < rounds; round += 1) {
         })
       }
       lease('release')
-      if (result.status === 0) break
+      if (result.status === 0 && existsSync(out) && !existsSync(failedOut)) break
       let loadOnly = false
       try {
-        const run = JSON.parse(readFileSync(out, 'utf-8')) as RunOutput
-        loadOnly = run.failures.length > 0 && run.failures.every((f) => f.startsWith('load '))
+        const run = JSON.parse(readFileSync(failedOut, 'utf-8')) as RunOutput
+        loadOnly = isLoadOnlyFailure(run.failures)
       } catch {
-        // no output: not a load failure
+        // no failure output: not a load failure
       }
       if (loadOnly && attempt < loadRetries) {
         let n = attempt
-        while (existsSync(out.replace(/\.json$/, `.try${n}.json`))) n += 1
-        renameSync(out, out.replace(/\.json$/, `.try${n}.json`))
+        const tried = (k: number): string => failedOut.replace(/\.failed\.json$/, `.try${k}.failed.json`)
+        while (existsSync(tried(n))) n += 1
+        renameSync(failedOut, tried(n))
         console.log(`[matrix] round ${round} ${arm} ${scale}x failed on load; retrying`)
         continue
       }
       console.error(
-        `[matrix] round ${round} ${arm} ${scale}x FAILED (exit ${result.status}); see ${out}`,
+        `[matrix] round ${round} ${arm} ${scale}x FAILED (exit ${result.status}); see ${failedOut}`,
       )
       failed = true
       break outer
