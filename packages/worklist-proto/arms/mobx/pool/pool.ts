@@ -222,6 +222,18 @@ export class MobxPool {
       onWrite: (slots) => {
         stats.indexUpdates += slots
       },
+      ...(residency === null
+        ? {}
+        : {
+            cold: {
+              resident: (entity: EntityName, id: string) =>
+                !residency.capable(entity) || this.tables[entity].has(id),
+              observe: (entity: EntityName, id: string) => {
+                residency.known(entity, id)
+              },
+              changed: (entity: EntityName, id: string) => residency.notify(entity, id),
+            },
+          }),
     })
     this.relations = reads.wrapRelations(this.graph)
     this.selection = observable.map<string, true>(undefined, {

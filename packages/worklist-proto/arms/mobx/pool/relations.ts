@@ -49,6 +49,16 @@
  * row) and counts the hit. Bucket moves count no row; `indexUpdates` counts
  * the slots they write.
  *
+ * COLD ROWS (POD-4567). With a residency hook, a link's slots for a row that
+ * is not resident (a cold source's `forward` entry, a bucket keyed by a cold
+ * or absent target) live in PLAIN twins (`coldForward`, `coldBuckets`): no
+ * observable is built for a row nobody has looked at. A reader that reaches
+ * a plain slot observes that row's residency atom, and every plain write
+ * reports it changed, so the read is tracked like any other. When the row
+ * becomes resident (`changed` with the row in its table) its slots move into
+ * the observable maps (`promote`), each move one slot written. Nothing moves
+ * back: a removed resident row keeps its buckets observable, as before.
+ *
  * THE READER. `one` = `forward.get` + the target's presence (one counted
  * read: the target); `many` = the bucket (one counted read per member);
  * `size` = the bucket's length (free). Derivations read buckets only through
@@ -181,6 +191,23 @@ interface Link {
   readonly under: Map<string, Set<string>> | null
   /** `prefix` only: member → its indexed normalized source path. */
   readonly placed: Map<string, string> | null
+  /** Forward entries of sources that are not resident (POD-4567). */
+  readonly coldForward: Map<string, string>
+  /** Buckets keyed by targets that are not resident (POD-4567). */
+  readonly coldBuckets: Map<string, readonly string[]>
+}
+
+/**
+ * Residency, as the engine needs it (POD-4567, `residency.ts`). Without it
+ * every slot is observable (the Ma2 engine).
+ */
+export interface ColdSlots {
+  /** Whether `id` is resident (in its table; always, for an entity that is never cold). */
+  resident(entity: EntityName, id: string): boolean
+  /** Track a read of a plain slot that belongs to `id` (a derivation reached it). */
+  observe(entity: EntityName, id: string): void
+  /** A plain slot of `id` was written. */
+  changed(entity: EntityName, id: string): void
 }
 
 /** One entity's collapse state. */
@@ -203,6 +230,8 @@ export interface PoolRelationsOptions {
   readonly schema?: ModelSchema
   /** Bumped once per slot written (forward entries and buckets). */
   readonly onWrite?: (slots: number) => void
+  /** Residency (POD-4567): slots of rows that are not resident stay plain. */
+  readonly cold?: ColdSlots
 }
 
 /** What ingest needs from the engine. */
@@ -220,7 +249,10 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly probe: ProbeTables
   private readonly reads: ReadFence
   private readonly onWrite: (slots: number) => void
+  private readonly cold: ColdSlots | null
   private readonly links = new Map<string, Link>()
+  /** Links by the entity their collection belongs to (buckets keyed by its ids). */
+  private readonly incoming = new Map<EntityName, Link[]>()
   private readonly collections = new Map<string, Link>()
   private readonly outgoing = new Map<EntityName, Link[]>()
   private readonly prefixTargets = new Map<EntityName, Link[]>()
@@ -234,9 +266,11 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.probe = options.probe
     this.reads = options.reads
     this.onWrite = options.onWrite ?? (() => {})
+    this.cold = options.cold ?? null
     for (const from of Object.keys(this.schema) as EntityName[]) {
       const entity = this.schema[from]
       this.outgoing.set(from, [])
+      this.incoming.set(from, [])
       if (entity.collapse !== undefined) {
         this.collapses.set(from, {
           rule: entity.collapse,
@@ -266,10 +300,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           }),
           under: prefix ? new Map() : null,
           placed: prefix ? new Map() : null,
+          coldForward: new Map(),
+          coldBuckets: new Map(),
         }
         this.links.set(`${from}.${name}`, link)
         this.collections.set(link.collection, link)
         this.outgoing.get(from)?.push(link)
+        this.incoming.get(spec.to)?.push(link)
         if (prefix)
           this.prefixTargets.set(spec.to, [...(this.prefixTargets.get(spec.to) ?? []), link])
       }
@@ -292,7 +329,11 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       specOf(this.schema, from, relation)
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
-    const target = link.forward.get(id)
+    let target = link.forward.get(id)
+    if (target === undefined && this.cold !== null && !this.cold.resident(from, id)) {
+      this.cold.observe(from, id)
+      target = link.coldForward.get(id)
+    }
     if (target === undefined) return null
     return this.tables[link.spec.to].has(target) ? target : null
   }
@@ -311,7 +352,12 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       specOf(this.schema, from, relation)
       throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
     }
-    return link.buckets.get(id) ?? NONE
+    const bucket = link.buckets.get(id)
+    if (bucket !== undefined || this.cold === null || this.cold.resident(from, id)) {
+      return bucket ?? NONE
+    }
+    this.cold.observe(from, id)
+    return link.coldBuckets.get(id) ?? NONE
   }
 
   // ------------------------------------------------------------- maintenance
@@ -325,7 +371,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) throw new Error(`[pool] ${from}.${relation} is not a collection`)
     const pending = this.pending.get(link)?.get(id)
-    return pending !== undefined ? [...pending] : (link.buckets.get(id) ?? NONE)
+    return pending !== undefined ? [...pending] : peekBucket(link, id)
   }
 
   /** Start an action: forget the previous action's write record. */
@@ -342,6 +388,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   ): void {
     const before = prev as Row | undefined
     const after = next as Row | undefined
+    if (after !== undefined) this.promote(entity, id)
     const flipped = this.recollapse(entity, id, before, after)
     const selfFlipped = flipped.delete(id)
     for (const link of this.outgoing.get(entity) ?? []) {
@@ -368,10 +415,14 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   flush(): void {
     for (const [link, targets] of this.pending) {
       for (const [target, members] of targets) {
-        const current = link.buckets.get(target) ?? NONE
+        const current = peekBucket(link, target)
         const next = Object.freeze([...members].sort())
         if (sameArray(current, next)) continue
-        if (next.length === 0) link.buckets.delete(target)
+        if (this.cold !== null && !this.cold.resident(link.spec.to, target)) {
+          if (next.length === 0) link.coldBuckets.delete(target)
+          else link.coldBuckets.set(target, next)
+          this.cold.changed(link.spec.to, target)
+        } else if (next.length === 0) link.buckets.delete(target)
         else link.buckets.set(target, next)
         this.wrote(`${link.collection}:${target}`)
       }
@@ -384,6 +435,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     for (const link of this.links.values()) {
       link.forward.clear()
       link.buckets.clear()
+      link.coldForward.clear()
+      link.coldBuckets.clear()
       link.under?.clear()
       link.placed?.clear()
     }
@@ -475,16 +528,18 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   /** Point source `id` at `target` (null: nothing): detach, then attach. */
   private point(link: Link, id: string, target: string | null): void {
-    const old = link.forward.get(id)
+    const old = peekForward(link, id)
     if ((old ?? null) === target) return
     if (old !== undefined) {
       this.pendingSet(link, old).delete(id)
-      link.forward.delete(id)
+      if (!link.forward.delete(id)) link.coldForward.delete(id)
     }
     if (target !== null) {
       this.pendingSet(link, target).add(id)
-      link.forward.set(id, target)
+      if (this.cold !== null && !this.cold.resident(link.from, id)) link.coldForward.set(id, target)
+      else link.forward.set(id, target)
     }
+    if (this.cold !== null && !this.cold.resident(link.from, id)) this.cold.changed(link.from, id)
     this.wrote(`${link.from}.${link.name}→${id}`)
   }
 
@@ -532,7 +587,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     const candidates = link.under?.get(normalized)
     if (candidates === undefined) return
     for (const id of [...candidates]) {
-      const current = link.forward.get(id)
+      const current = peekForward(link, id)
       if (current !== undefined && normalizeRootPath(current).length >= normalized.length) continue
       this.point(link, id, root)
     }
@@ -550,6 +605,32 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     for (const id of members) this.point(link, id, next)
   }
 
+  /**
+   * `id` is resident now: move its plain slots (its forward entries, the
+   * buckets keyed by it) into the observable maps, one slot write each.
+   */
+  private promote(entity: EntityName, id: string): void {
+    if (this.cold === null || !this.cold.resident(entity, id)) return
+    let moved = false
+    for (const link of this.outgoing.get(entity) ?? []) {
+      const target = link.coldForward.get(id)
+      if (target === undefined) continue
+      link.coldForward.delete(id)
+      link.forward.set(id, target)
+      this.wrote(`${link.from}.${link.name}→${id}`)
+      moved = true
+    }
+    for (const link of this.incoming.get(entity) ?? []) {
+      const bucket = link.coldBuckets.get(id)
+      if (bucket === undefined) continue
+      link.coldBuckets.delete(id)
+      link.buckets.set(id, bucket)
+      this.wrote(`${link.collection}:${id}`)
+      moved = true
+    }
+    if (moved) this.cold.changed(entity, id)
+  }
+
   private pendingSet(link: Link, target: string): Set<string> {
     let targets = this.pending.get(link)
     if (targets === undefined) {
@@ -558,7 +639,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     }
     let members = targets.get(target)
     if (members === undefined) {
-      members = new Set(link.buckets.get(target) ?? NONE)
+      members = new Set(peekBucket(link, target))
       targets.set(target, members)
     }
     return members
@@ -568,6 +649,16 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.lastWrites.push(slot)
     this.onWrite(1)
   }
+}
+
+/** A source's forward entry, wherever it lives (maintenance: untracked). */
+function peekForward(link: Link, id: string): string | undefined {
+  return link.forward.get(id) ?? link.coldForward.get(id)
+}
+
+/** A target's bucket, wherever it lives (maintenance: untracked). */
+function peekBucket(link: Link, target: string): readonly string[] {
+  return link.buckets.get(target) ?? link.coldBuckets.get(target) ?? NONE
 }
 
 function sameInputs(fields: readonly string[], a: Row, b: Row): boolean {

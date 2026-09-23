@@ -246,6 +246,11 @@ export class Residency {
     return this.isCold(entity, id)
   }
 
+  /** Something a derivation may have read about `id` changed (a plain relation slot). */
+  notify(entity: EntityName, id: string): void {
+    this.atoms.get(`${entity}:${id}`)?.reportChanged()
+  }
+
   /** Queue `id` for the next load window (arms it if none is open). */
   request(entity: LoadableEntity, id: string): void {
     let ids = this.queue.get(entity)
