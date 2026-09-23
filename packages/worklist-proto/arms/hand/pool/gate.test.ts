@@ -45,12 +45,16 @@
  *   which reads no residency from the pool, must catch a relation error
  *   confined to cold rows. (The checkpoint cannot: loading a row relinks it
  *   from its current value, so this error heals when everything loads.)
- * - `coldForgotten`: a cold SESSION's update that leaves it cold drops it
- *   from the registry instead of keeping it (a row the pool no longer knows
- *   and will never load). Checked with the per-step relation and partition
- *   checks OFF: the checkpoint must catch it (the row never loads). The
- *   hand pool has no promotion step (its relation maps are plain whatever
- *   the residency), so this is its error that survives loading.
+ * - `registryKept`: a SESSION loaded on access is installed but keeps its
+ *   cold-registry entry (a promotion done by half: the hand pool has no
+ *   relation twins to promote, so this is its error that survives loading).
+ *   Checked with the per-step relation and partition checks OFF: the
+ *   checkpoint must catch it (a row that never leaves the registry). The
+ *   per-step rebuild cannot: the row's data is resident, and the stray
+ *   `loading` flag is not a slice field. Session loads happen on every seed
+ *   (loaded closed origins read their sessions), so the plant always fires;
+ *   the first version (a cold session's update forgotten) did not fire on
+ *   seed 5 of the 20 x 300 run, whose last arm saw no such update.
  * The cells count cold-row work AFTER each bootstrap and before the
  * checkpoint: registry writes, loads on access, rows warmed by a reopen or
  * removal.
@@ -161,18 +165,27 @@ const coldRelinkSkipped: CheckableArm = {
   },
 }
 
-/** Once bootstrapped, a cold session's update that keeps it cold forgets it instead. */
-const coldForgotten: CheckableArm = {
+/** A session loaded on access is installed, but its registry entry stays. */
+const registryKept: CheckableArm = {
   create(source, locals, reads) {
     const handle = handPoolArm.create(source, locals, reads)
     const residency = handle.pool.residency as unknown as {
-      keepCold: (target: unknown, entity: string, id: string, value: object) => void
-      forget: (target: unknown, entity: string, id: string) => void
+      hydrate: (target: unknown, entity: string, id: string, out: unknown) => void
+      unregister: (entity: string, id: string) => void
     }
-    const keepCold = residency.keepCold.bind(residency)
-    residency.keepCold = (target, entity, id, value) => {
-      if (entity === 'session') residency.forget(target, entity, id)
-      else keepCold(target, entity, id, value)
+    const hydrate = residency.hydrate.bind(residency)
+    const unregister = residency.unregister.bind(residency)
+    let loadingSession = false
+    residency.unregister = (entity, id) => {
+      if (!loadingSession) unregister(entity, id)
+    }
+    residency.hydrate = (target, entity, id, out) => {
+      loadingSession = entity === 'session'
+      try {
+        hydrate(target, entity, id, out)
+      } finally {
+        loadingSession = false
+      }
     }
     return handle
   },
@@ -369,11 +382,11 @@ describe('correctness gate (L4b), rebuild-only', () => {
           sequence,
         )
         if (!coldRelink.ok && coldRelink.against === 'relations') failures.coldRelink += 1
-        const forgotten = await plantOutcome(
-          checked(coldForgotten, { perStep: false, full: true }),
+        const kept = await plantOutcome(
+          checked(registryKept, { perStep: false, full: true }),
           sequence,
         )
-        if (!forgotten.ok && forgotten.against === 'checkpoint') failures.checkpoint += 1
+        if (!kept.ok && kept.against === 'checkpoint') failures.checkpoint += 1
         cells.push({
           seed,
           steps: STEPS,
@@ -386,7 +399,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
             relinkSkipped: brief(relink),
             coldDeaf: brief(deaf),
             coldRelinkSkipped: brief(coldRelink),
-            coldForgotten: brief(forgotten),
+            registryKept: brief(kept),
           },
         })
       }
