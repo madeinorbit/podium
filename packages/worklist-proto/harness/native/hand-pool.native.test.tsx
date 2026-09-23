@@ -2,10 +2,14 @@
 /**
  * POD-4578 (Ha1) — the round-three hand-rolled pool on the native renderer:
  * `mountNative()` through `mountNativeForCounts`, one RowShell per pool
- * issue, a heartbeat redraws nothing (no a1 view reads a session) and a
- * rename redraws the renamed row. Parity and the counted scenarios are the
- * web lane's (`arms/hand/pool/counts.test.tsx`) until the pool has an order
- * (Hb1).
+ * issue, a heartbeat redraws no VISIBLE row and a rename redraws the
+ * renamed row. Parity and the counted scenarios are the web lane's
+ * (`arms/hand/pool/counts.test.tsx`) until the pool has an order (Hb1).
+ *
+ * Ha2 (POD-4579): `activityAt` reads `issue.sessions`, so the heartbeat
+ * moves its session's issue and the a1 list, which draws every issue,
+ * redraws that row. The oracle hides it (the web lane's #1 finding); the
+ * commit fence for #1 moves to Hb1.
  */
 
 import { act } from 'react'
@@ -13,10 +17,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { handPoolArm } from '../../arms/hand/pool/arm'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
-import { openFenceFeeds } from '../src/fence-scenarios'
+import { engineLocals, openFenceFeeds } from '../src/fence-scenarios'
+import { rowViewsFromStore } from '../src/oracle/index'
 
 describe('hand pool on the native renderer', () => {
-  it('mounts every row; a heartbeat redraws nothing, a rename redraws the renamed row', async () => {
+  it('mounts every row; a heartbeat redraws no visible row, a rename redraws the renamed row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source)
@@ -42,7 +47,11 @@ describe('hand pool on the native renderer', () => {
         await writeHeartbeat(ctx)
         feeds.flush()
       })
-      expect([...mounted.log.counts.keys()]).toEqual([])
+      const visible = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      expect(
+        [...mounted.log.counts.keys()].filter((id) => visible[id] !== undefined),
+        'a heartbeat drew a VISIBLE row',
+      ).toEqual([])
 
       await act(async () => {
         await writeTitleRename(ctx)

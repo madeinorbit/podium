@@ -68,8 +68,8 @@ import {
   type ModelSchema,
   normalizeRootPath,
   type PrefixSpec,
-  prefixCandidates,
   prefixAncestors,
+  prefixCandidates,
   type RelationSpec,
   SCHEMA,
 } from '../../../shared/src/schema'

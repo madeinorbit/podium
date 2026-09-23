@@ -14,17 +14,17 @@
 import { dedupeSessionsByResume } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
-  SCHEMA,
   allRelations,
   collapseLosers,
+  type EntityName,
   expectedLazy,
   longestPrefixPath,
+  type ModelSchema,
   normalizeRootPath,
   prefixCandidates,
-  validateStructure,
-  type EntityName,
-  type ModelSchema,
   type RelationSpec,
+  SCHEMA,
+  validateStructure,
 } from './schema'
 import { fieldsOf, validateSources } from './schema-sources'
 
