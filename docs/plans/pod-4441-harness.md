@@ -214,12 +214,44 @@ is stated as **floor p95 + allowance**, per scenario and scale (table above);
 the allowances are methodology §1a's numbers, fixed here before any
 round-three arm is timed and not re-read on another dimension afterwards.
 
-**Floor numbers: not yet measured** (2026-09-23). Every matrix attempt so
-far failed on load: the box's background load sits at 7.7–11, and a browser
-run adds about one, so runs cross 8 and are recorded failed, never
-published. The floor table lands here from a clean `matrix.ts` run
-(`--arms noop,control --scales 1,2,4 --rounds 4 --samples 5`, n = 20 per
-cell), with its SHA; until then no wall budget can be evaluated.
+**Floor numbers** (2026-09-23, `f33022e5f`, pages built from `4a870d0dc`
+— the commits between touch docs and notes only; drawn targets, viewport
+1600×2400). `matrix.ts --arms noop --scales 1,2,4 --rounds 4 --samples 5`,
+one page load per (round, scale), bench lease per invocation: 12 runs, all
+`ok`, n = 20 per cell, 1-minute load ≤ 7.73 on every record. Four attempts
+crossed load 8 part-way and were recorded failed and retried, never
+summarised (`r0-noop-2x.try0`, `r0-noop-4x.try0`, `r3-noop-2x.try0/.try1`).
+`actionMs`, ms:
+
+| Scenario | 1x p50 / p95 | 2x p50 / p95 | 4x p50 / p95 | slope p50 4x/1x |
+|---|---|---|---|---|
+| #1 heartbeat | 14.2 / 29.0 | 23.6 / 37.1 | 34.5 / 55.8 | 2.43 |
+| #4 rename | 1.5 / 2.7 | 1.3 / 2.2 | 6.7 / 27.0 | 4.47 |
+| #5 stage move | 2.2 / 9.6 | 2.5 / 4.6 | 4.5 / 8.7 | 2.05 |
+| #8 clock | 0.4 / 0.5 | 0.4 / 0.6 | 0.4 / 0.9 | 1.00 |
+| #3 click | 0.5 / 1.3 | 0.5 / 1.2 | 0.6 / 3.2 | 1.20 |
+
+Every no-op record commits 0 rows with 0 stray commits; `endedBy` is `drain`
+throughout (the kernel write, the feed and the settle hop, nothing drawn).
+The wall budgets on this floor (floor p95 + allowance): hot path at 1x —
+heartbeat 37.0, rename 10.7, stage move 17.6, clock 8.5; click 17.3 at 1x and
+35.2 at 4x.
+
+**The floor itself grows with the corpus.** The shared write path (kernel
+write, replica, engine publish, row-source drain) costs 2.4x more at 4x for a
+heartbeat, 4.5x at p50 for a rename, 2.0x for a stage move, before any arm
+does anything. A raw `actionMs` slope budget of 1.2 cannot be met on those
+scenarios by any arm; the excess over the floor (`summarize.ts` prints it
+beside the raw ratio) is where an arm's own growth shows. Reported to the
+coordinator; the budget is not re-read here.
+
+**The control's walls are not published.** Its 1x and 2x round-0 runs
+passed, but its 4x run FAILED: a click's whole-list redraw (1384 row commits)
+landed after the 250 ms settle and arrived as stray commits on the next
+change. Two other 4x clicks committed nothing inside their window. The
+control's click sets the engine selection, whose eager mark-read round trip
+republishes the whole list later; observed, not diagnosed. That is work the
+timer cannot attribute to the click, and the run fails by design.
 
 **The timer can say NO** (planted mistakes on the no-op page, `--plant`,
 summarised under their own label, never a floor run; 1x, functional runs):
