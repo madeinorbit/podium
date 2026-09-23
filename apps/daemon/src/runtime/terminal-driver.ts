@@ -348,6 +348,8 @@ interface DriverSession {
   }>
   answerScript?: { cancel(detail: string): void }
   answered: Set<string>
+  /** The open ask a screen-classified wait opened, if any (POD-4632). */
+  screenAskId?: string
   lease: SessionLease | null
   draft: string | undefined
   metadata: Map<SessionMetadataChange['kind'], SessionMetadataObservation>
@@ -781,7 +783,117 @@ export function createTerminalRuntime(
    */
   function askFromObservation(session: DriverSession, observation: AgentObservation): void {
     const profile = profiles.get(session.sessionId)
-    const need = observation.state.need
+    const kindAndPayload = askSpecFor(observation.state.need)
+    const interaction: PendingInteraction = {
+      id: `ask:${observation.transitionId}`,
+      sessionId: session.sessionId,
+      ...kindAndPayload,
+      askedAt: observation.providerAt ?? observation.receivedAt,
+      source: profile?.acceptCorrelation?.hook ? 'hook' : 'screen-classifier',
+      // Even a hook-SOURCED ask is answered by typing digits into a native menu,
+      // and a keystroke cannot prove which menu it acted on.
+      answerable: 'keystroke-emulated',
+    }
+    if (session.interactions.has(interaction.id) || session.answered.has(interaction.id)) return
+    closeOpenInteractions(session, interaction.askedAt, observation.provenance, null)
+    openAsk(session, interaction, observation.provenance, observation.providerCursor)
+    if (interaction.kind === 'question' && interaction.payload.questions.every((q) => q.options.length === 0)) {
+      const generation = session.observerGeneration
+      const bridge = host.bridge(session.sessionId)
+      void host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
+        cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) }, { limit: 50 })
+        .then((page) => {
+          const items = page.items
+          if (session.disposed || session.answerScript || session.observerGeneration !== generation ||
+              host.bridge(session.sessionId) !== bridge || session.interactions.get(interaction.id) !== interaction) return
+          const item = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+          if (!item?.toolInputJson) return
+          const parsed = JSON.parse(item.toolInputJson) as { questions?: NonNullable<NonNullable<AgentRuntimeState['need']>['interview']>['questions'] }
+          if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return
+          // A historical tool call cannot enrich a different on-screen prompt.
+          const summary = interaction.payload.questions[0]?.question
+          if (!summary || !parsed.questions.some((q) => q.question === summary)) return
+          const questions = interviewPrompts({ kind: 'question', summary, interview: { questions: parsed.questions } })
+          if (!questions) return
+          const enriched: PendingInteraction = { ...interaction, payload: { v: 1, questions } }
+          session.interactions.set(interaction.id, enriched)
+          emit(session, { t: 'interaction', ev: { ev: 'asked', interaction: enriched } }, interaction.askedAt, observation.provenance)
+        }).catch(() => { /* The observed menu remains authoritative when enrichment fails. */ })
+    }
+  }
+
+  /**
+   * A WAIT ONLY THE SCREEN SAW (POD-4632).
+   *
+   * Asks otherwise open from the causal stream, and the server leaves a
+   * driver-routed session's asks to the driver. A dialog the CLI draws before
+   * any hook or transcript exists — Claude's first-run folder trust — reaches
+   * the driver only as a tracked `needs_user` state from the screen classifier,
+   * so without this it was a state with no ask behind it: nothing in Chat, and
+   * a session that read as idle. Only the classifier channel opens one; a
+   * hook-reported wait belongs to the causal stream that already asks for it.
+   *
+   * The identity is the wait's `since`, so a re-published identical wait is the
+   * same ask and a new wait is a new one.
+   */
+  function syncScreenAsk(
+    session: DriverSession,
+    state: AgentRuntimeState,
+    provenance: ObservationProvenance,
+  ): void {
+    if (state.phase !== 'needs_user') {
+      closeScreenAsk(session, state.stateObservedAt ?? state.since, provenance)
+      return
+    }
+    if (state.stateSource !== 'classifier') return
+    const id = `ask:screen:${state.since}`
+    if (session.interactions.has(id) || session.answered.has(id)) return
+    const interaction: PendingInteraction = {
+      id,
+      sessionId: session.sessionId,
+      ...askSpecFor(state.need),
+      askedAt: state.since,
+      source: 'screen-classifier',
+      answerable: 'keystroke-emulated',
+    }
+    closeOpenInteractions(session, interaction.askedAt, provenance, null)
+    openAsk(session, interaction, provenance)
+    session.screenAskId = id
+  }
+
+  /** Close a screen-opened ask once the session left that wait. Nobody typed
+   *  through the contract, so a person at the terminal answered it. */
+  function closeScreenAsk(session: DriverSession, at: string, provenance: ObservationProvenance): void {
+    const id = session.screenAskId
+    if (id === undefined) return
+    session.screenAskId = undefined
+    if (!session.interactions.has(id)) return
+    session.interactions.delete(id)
+    session.interactionOwners.delete(id)
+    session.answered.add(id)
+    emit(session, { t: 'interaction', ev: { ev: 'answered', id, answeredBy: 'human', at } }, at, provenance)
+  }
+
+  function openAsk(
+    session: DriverSession,
+    interaction: PendingInteraction,
+    provenance: ObservationProvenance,
+    cursor?: ProviderCursor,
+  ): void {
+    session.interactions.set(interaction.id, interaction)
+    const bridge = host.bridge(session.sessionId)
+    session.interactionOwners.set(interaction.id, { bridge, pid: bridge?.pid,
+      generation: session.observerGeneration, bindingVersion: session.bindingVersion })
+    emit(
+      session,
+      { t: 'interaction', ev: { ev: 'asked', interaction } },
+      interaction.askedAt,
+      provenance,
+      cursor,
+    )
+  }
+
+  function askSpecFor(need: AgentRuntimeState['need']): InteractionAskSpec {
     // THE PAYLOAD IS TYPED PER KIND (POD-2020 replaced the opaque record), so
     // the two arms are built separately rather than from one merged bag.
     //
@@ -794,8 +906,7 @@ export function createTerminalRuntime(
     // is honest: the ask exists, the session is blocked, and the options are
     // not knowable here. The server aggregate reads the transcript tail and
     // fills them in.
-    const kindAndPayload: InteractionAskSpec =
-      need?.kind === 'permission'
+    return need?.kind === 'permission'
         ? {
             kind: 'permission',
             payload: {
@@ -824,52 +935,6 @@ export function createTerminalRuntime(
               ],
             },
           }
-    const interaction: PendingInteraction = {
-      id: `ask:${observation.transitionId}`,
-      sessionId: session.sessionId,
-      ...kindAndPayload,
-      askedAt: observation.providerAt ?? observation.receivedAt,
-      source: profile?.acceptCorrelation?.hook ? 'hook' : 'screen-classifier',
-      // Even a hook-SOURCED ask is answered by typing digits into a native menu,
-      // and a keystroke cannot prove which menu it acted on.
-      answerable: 'keystroke-emulated',
-    }
-    if (session.interactions.has(interaction.id) || session.answered.has(interaction.id)) return
-    closeOpenInteractions(session, interaction.askedAt, observation.provenance, null)
-    session.interactions.set(interaction.id, interaction)
-    const bridge = host.bridge(session.sessionId)
-    session.interactionOwners.set(interaction.id, { bridge, pid: bridge?.pid,
-      generation: session.observerGeneration, bindingVersion: session.bindingVersion })
-    emit(
-      session,
-      { t: 'interaction', ev: { ev: 'asked', interaction } },
-      interaction.askedAt,
-      observation.provenance,
-      observation.providerCursor,
-    )
-    if (interaction.kind === 'question' && interaction.payload.questions.every((q) => q.options.length === 0)) {
-      const generation = session.observerGeneration
-      const bridge = host.bridge(session.sessionId)
-      void host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
-        cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) }, { limit: 50 })
-        .then((page) => {
-          const items = page.items
-          if (session.disposed || session.answerScript || session.observerGeneration !== generation ||
-              host.bridge(session.sessionId) !== bridge || session.interactions.get(interaction.id) !== interaction) return
-          const item = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
-          if (!item?.toolInputJson) return
-          const parsed = JSON.parse(item.toolInputJson) as { questions?: NonNullable<NonNullable<AgentRuntimeState['need']>['interview']>['questions'] }
-          if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return
-          // A historical tool call cannot enrich a different on-screen prompt.
-          const summary = interaction.payload.questions[0]?.question
-          if (!summary || !parsed.questions.some((q) => q.question === summary)) return
-          const questions = interviewPrompts({ kind: 'question', summary, interview: { questions: parsed.questions } })
-          if (!questions) return
-          const enriched: PendingInteraction = { ...interaction, payload: { v: 1, questions } }
-          session.interactions.set(interaction.id, enriched)
-          emit(session, { t: 'interaction', ev: { ev: 'asked', interaction: enriched } }, interaction.askedAt, observation.provenance)
-        }).catch(() => { /* The observed menu remains authoritative when enrichment fails. */ })
-    }
   }
 
   /**
@@ -1015,6 +1080,7 @@ export function createTerminalRuntime(
         msg.state.stateObservedAt ?? msg.state.since,
         bootstrap ? 'bootstrap' : 'live',
       )
+      syncScreenAsk(session, msg.state, bootstrap ? 'bootstrap' : 'live')
       return
     }
     const claimedId =
@@ -1373,6 +1439,10 @@ export function createTerminalRuntime(
     if (observation.nextPhase === 'needs_user') askFromObservation(session, observation)
     else if (observation.priorPhase === 'needs_user') {
       closeOpenInteractions(session, at, observation.provenance, 'human')
+    } else {
+      // The causal stream's prior phase never saw a screen-only wait, so the
+      // first transition out of it (the held prompt starting) closes that ask.
+      closeScreenAsk(session, at, observation.provenance)
     }
   }
 

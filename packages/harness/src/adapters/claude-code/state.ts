@@ -114,6 +114,32 @@ function autoModeVisible(text: string): boolean {
   )
 }
 
+/** What a person reads for Claude Code's first-run folder-trust dialog. */
+export const CLAUDE_FOLDER_TRUST_SUMMARY = 'Claude Code asks whether you trust this folder'
+/** The dialog's question, current copy first (2.1.280), then the older one. */
+const FOLDER_TRUST_QUESTIONS = [
+  'Is this a project you created or one you trust?',
+  'Do you trust the files in this folder?',
+] as const
+/** Its accept rows. A menu row is a line of its own, which is what keeps a
+ *  transcript that merely quotes the labels from matching. */
+const FOLDER_TRUST_ACCEPT_ROW = /^(?:❯ )?(?:\d+\. )?Yes, (?:I trust this folder|proceed)$/
+
+/**
+ * Claude Code's first-run folder-trust dialog (POD-4632). It blocks the session
+ * before any hook fires or any transcript exists, so the screen is the only
+ * channel that can see it. It is reported as a wait WITHOUT options on purpose:
+ * trust is the user's security decision, and 2.1.280 draws the menu unnumbered,
+ * so a digit typed from Chat would not move it. The ask reads "answer in the
+ * terminal", which is the truth.
+ */
+function folderTrustVisible(text: string, visibleLines: readonly string[]): boolean {
+  return (
+    FOLDER_TRUST_QUESTIONS.some((question) => text.includes(question)) &&
+    visibleLines.some((line) => FOLDER_TRUST_ACCEPT_ROW.test(line))
+  )
+}
+
 /**
  * Classify the small amount of Claude UI that has no hook or transcript
  * representation yet. This intentionally recognizes the title plus one of
@@ -123,9 +149,11 @@ function autoModeVisible(text: string): boolean {
 export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObservation {
   const text = plainScreen(lines)
   const visibleLines = screenLines(lines)
-  const interactionVisible = autoModeVisible(text)
+  const autoMode = autoModeVisible(text)
+  const folderTrust = !autoMode && folderTrustVisible(text, visibleLines)
+  const interactionVisible = autoMode || folderTrust
   const transcriptDisabled = visibleLines.some((line) => line.includes(CLAUDE_TRANSCRIPT_DISABLED))
-  const events: AgentStateEvent[] = interactionVisible
+  const events: AgentStateEvent[] = autoMode
     ? [
         {
           kind: 'needs_user',
@@ -134,7 +162,9 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
           interview: AUTO_MODE_INTERVIEW,
         },
       ]
-    : transcriptDisabled
+    : folderTrust
+      ? [{ kind: 'needs_user', need: 'question', summary: CLAUDE_FOLDER_TRUST_SUMMARY }]
+      : transcriptDisabled
       ? [{ kind: 'observation_gap', reason: 'transcript_disabled' }]
       : []
 

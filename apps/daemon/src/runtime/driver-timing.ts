@@ -27,6 +27,7 @@ export type DriverTimingStage =
   | 'session_requested'
   | 'driver_selected'
   | 'session_ready'
+  | 'session_blocked'
   | 'session_failed'
   | 'prompt_requested'
   | 'prompt_accepted'
@@ -84,6 +85,8 @@ interface SessionClock {
   attachAttempts: number
   headedProcessStarted?: boolean
   headedFirstOutput?: boolean
+  /** A turn has started, so a later ask is a mid-session wait, not a launch block. */
+  turnStarted?: boolean
 }
 
 export interface DriverTimingRecorderOptions {
@@ -296,7 +299,21 @@ export class DriverTimingRecorder {
       return claimed
     }
 
+    // `session_ready` on a terminal session is the PTY bind (see
+    // tests/native-cli-lifecycle/driver-comparison.ts), and a first-run dialog
+    // such as Claude's folder trust can hold the session after it (POD-4632).
+    // An ask before the first turn is that hold, stated on the launch clock.
+    if (event.t === 'interaction' && event.ev.ev === 'asked') {
+      if (session.turnStarted) return
+      this.#emit(binding.sessionId, 'session_blocked', 'launch', session.requestedAt ?? this.#now(), {
+        interactionKind: event.ev.interaction.kind,
+        source: event.ev.interaction.source,
+      })
+      return
+    }
+
     if (event.t === 'turn' && event.ev.ev === 'started') {
+      session.turnStarted = true
       prompt ??= claimPending()
       if (prompt) {
         this.#emit(binding.sessionId, 'turn_started', 'turn', prompt.startedAt, {
