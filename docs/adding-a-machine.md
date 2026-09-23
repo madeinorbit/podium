@@ -186,3 +186,15 @@ Run `podium join-config <TOKEN>` as that user first so the daemon has its config
   server's port isn't reachable on the tailnet interface, either bind the server to the tailnet
   address (or `0.0.0.0`), or put the server's `/daemon` WebSocket behind your reverse proxy so
   the daemon's `wss://…/daemon` URL resolves.
+- **"This machine cannot start sessions."** The daemon is connected but found no podium-host,
+  the program that keeps sessions running across daemon restarts. Podium starts no agent,
+  shell or login session without it. Reinstall Podium on the machine, or make a C compiler
+  available so podium-host can be built, then restart the daemon.
+
+## Known limitations
+
+- **Windows preview starts no sessions.** podium-host does not run on Windows yet, and Podium
+  refuses to start any session on a machine without it (decided 2026-09-23). A Windows daemon
+  still pairs, reports its inventory and credentials, and shows the "This machine cannot start
+  sessions" warning, but every agent, shell and login session is refused until podium-host
+  exists for Windows.
