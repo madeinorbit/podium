@@ -144,13 +144,16 @@ Before every write the page asserts the target is mounted in THAT arm and
 throws if not, so the run FAILS instead of recording a zero. `prepare` picks
 (untimed, before the driver's forced GC); `runScenario` times; `summarize.ts`
 refuses to compare runs whose arms aimed a (scale, scenario, sample) at
-different targets.
+different targets: its entry point (`runSummary`) prints `TARGETS DIFFER`,
+prints no table and exits 2. `summarize.test.ts` drives the entry point over
+such runs; with the call to `targetMismatches` removed that test goes red.
 
 **Viewport 1600×2400, for every arm and scale.** The pinned section grows
 with the corpus (6 rows at 1x, 12 at 2x, 24 at 4x) and at 4x the first
 childless open root is row 33 of the list. Round two's 1600×1000 (17 rows on
 hand/MobX) held only pinned rows at 4x: #5 had no drawn target there. At
-2400 px hand and MobX draw about 40 rows.
+2400 px hand and MobX draw about 40 rows. Accepted by the coordinator
+(POD-4286, 2026-09-23): without it #5 has no drawn target at 4x.
 
 **Check mode** (`run.ts --check`, page `?check=1`): after each change the page
 compares, over the rows mounted before and after, the rows whose oracle row
@@ -188,10 +191,10 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 | Goal | Budget | Asserted where |
 |---|---|---|
 | Idle client | zero derivation work except on the clock tick | count harness (`notifications` on settle-only runs) |
-| Unrelated heartbeat | 0 rows committed, 0 derivations, ≤ 3 rows read, publish ≤ 2 ms | counts in CI (`assertIsolation` + `rollupsDerived` + `assertReads`); publish wall in Chromium |
-| Any single hot-path event | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
+| Unrelated heartbeat | 0 rows committed, 0 derivations, ≤ 3 rows read, publish `actionMs` p95 ≤ floor p95 + 2 ms at 1x (restated, see "Instrument floor") | counts in CI (`assertIsolation` + `rollupsDerived` + `assertReads`); publish wall in Chromium (`summarize.ts`) |
+| Any other hot-path event | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
 | Row click, pointer event to the arm's commit | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
-| Cost follows the change, not the corpus | `actionMs` p50 at 4x / p50 at 1x ≤ 1.2, per scenario | `summarize.ts` slope table; counts must match at all three scales. A low read count is not proof of constant work (see "Instrument floor") |
+| Cost follows the change, not the corpus | (arm p50 − floor p50) at 4x over the same at 1x ≤ 1.2, per scenario; the 1x excess taken as at least 1 ms (restated, see "Instrument floor") | `summarize.ts` slope table; counts must match at all three scales. A low read count is not proof of constant work (see "Instrument floor") |
 | Bootstrap / principal switch | ≤ 1.1x / ≤ 2x control | driver `coldBootstrap`/`principalSwitch` vs control JSON |
 | Memory | retained heap ≤ 1.1x control, no growth after rescope | `heapAfter` vs control; rescope disposal check |
 | Bundle | ≤ +60 KB gzip on web, no native-incompatible dep | entry chunk sizes in build output; native lane mount |
@@ -233,17 +236,35 @@ summarised (`r0-noop-2x.try0`, `r0-noop-4x.try0`, `r3-noop-2x.try0/.try1`).
 
 Every no-op record commits 0 rows with 0 stray commits; `endedBy` is `drain`
 throughout (the kernel write, the feed and the settle hop, nothing drawn).
-The wall budgets on this floor (floor p95 + allowance): hot path at 1x —
-heartbeat 37.0, rename 10.7, stage move 17.6, clock 8.5; click 17.3 at 1x and
-35.2 at 4x.
+The wall budgets on this floor (floor p95 + allowance): at 1x heartbeat 31.0
+(publish, + 2), rename 10.7, stage move 17.6, clock 8.5 (+ 8); click 17.3 at
+1x and 35.2 at 4x.
 
-**The floor itself grows with the corpus.** The shared write path (kernel
-write, replica, engine publish, row-source drain) costs 2.4x more at 4x for a
-heartbeat, 4.5x at p50 for a rename, 2.0x for a stage move, before any arm
-does anything. A raw `actionMs` slope budget of 1.2 cannot be met on those
-scenarios by any arm; the excess over the floor (`summarize.ts` prints it
-beside the raw ratio) is where an arm's own growth shows. Reported to the
-coordinator; the budget is not re-read here.
+**Two budgets restated as excess over the floor** (coordinator ruling on
+POD-4558 finding (a), 2026-09-23). The shared write path (kernel write,
+replica, engine publish, row-source drain) grows with the corpus before any
+arm does anything: the no-op's p50 is 2.4x at 4x for a heartbeat, 4.5x for a
+rename, 2.0x for a stage move, and its heartbeat alone takes 14 ms. Two
+budgets therefore failed every arm, the no-op included — the same class of
+defect as round two's `taskMs` budget with two frame waits inside it:
+
+| Budget | Old | New | Why |
+|---|---|---|---|
+| Growth slope (#14), per scenario | `actionMs` p50 4x / p50 1x ≤ 1.2 | (arm p50 − no-op p50) at 4x / (arm p50 − no-op p50) at 1x ≤ 1.2; the 1x excess taken as at least 1 ms (`SLOPE_MIN_EXCESS_MS`) | the no-op's own raw slope is 2.43 (heartbeat), 4.47 (rename), 2.05 (stage move) |
+| Unrelated heartbeat publish (#1) | publish ≤ 2 ms | `actionMs` p95 ≤ no-op p95 + 2 ms at 1x (31.0 ms on this floor) | the no-op's heartbeat is 14.2 ms p50, 29.0 ms p95 |
+
+The 1 ms minimum: the no-op's per-round p50 moves by at most 0.3 ms on the
+sub-millisecond scenarios (clock, click, rename at 1x), so a smaller 1x
+excess is timer noise, and dividing by it would turn a 0.2 ms wobble into a
+verdict. **This is a correction before measurement, not a re-reading after
+it**: no round-three arm has been timed against either budget; the floor
+that exposed them is the no-op page's. `summarize.ts` prints the raw ratio
+beside the budgeted one, unbudgeted. Unit tests (`summarize.test.ts`,
+"excessSlope"): constant work above the measured floor passes (raw 2.06,
+excess 1.0) and work that grows with the corpus fails (excess 4.0); a mutant
+that restores the raw ratio turns three of them red.
+
+SLOPE_PROOF
 
 **The control's walls are not published.** Its 1x and 2x round-0 runs
 passed, but its 4x run FAILED: a click's whole-list redraw (1384 row commits)

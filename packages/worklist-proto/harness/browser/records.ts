@@ -56,6 +56,8 @@ export interface RunOutput {
   status: 'ok' | 'failed'
   failures: string[]
   runtimeSha: string
+  /** The machine that timed the run: only runs from one machine are compared. */
+  host?: string
   browser: string | null
   capturedAt: string
   arm: ArmName

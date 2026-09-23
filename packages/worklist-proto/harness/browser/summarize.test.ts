@@ -174,6 +174,17 @@ describe('runSummary (the entry point)', () => {
     expect(lines.some((line) => line.startsWith('|'))).toBe(false)
   })
 
+  it('refuses runs timed on two machines: exit 2, no table', () => {
+    const dir = write([
+      { ...run([record({ arm: 'noop' })]), host: 'ludovico' },
+      { ...run([record({ arm: 'hand' })]), host: 'flatblock' },
+    ])
+    const lines: string[] = []
+    expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^MACHINES DIFFER \(not summarised\): /)
+  })
+
   it('summarises runs whose arms timed the same rows: exit 0, tables printed', () => {
     const dir = write([
       run([record({ arm: 'noop', scenario: 'click', target: 'i50' })]),

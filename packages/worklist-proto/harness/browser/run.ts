@@ -37,7 +37,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { loadavg, uptime } from 'node:os'
+import { hostname, loadavg, uptime } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { chromium } from '@playwright/test'
 import type { ProtoOracleCheck, ProtoScenarioResult } from '../web/entrylib'
@@ -195,6 +195,7 @@ async function main(): Promise<number> {
     status: 'ok',
     failures: [],
     runtimeSha,
+    host: hostname(),
     browser: null,
     capturedAt: new Date().toISOString(),
     arm: args.arm,

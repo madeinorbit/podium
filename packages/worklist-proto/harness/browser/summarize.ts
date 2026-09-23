@@ -173,8 +173,8 @@ const f = (v: number | null, digits = 2): string => (v === null ? '—' : v.toFi
 
 /**
  * The summary's entry point: prints the tables through `print` and returns the
- * exit code. 2 (and no table) when the runs' arms aimed a change at different
- * targets; 0 otherwise. Failed runs are listed and never summarised.
+ * exit code. 2 (and no table) when the runs come from more than one machine or
+ * their arms aimed a change at different targets; 0 otherwise. Failed runs are listed and never summarised.
  */
 export function runSummary(argv: string[], print: (line: string) => void): number {
   const jsonIndex = argv.indexOf('--json')
@@ -183,6 +183,12 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
   const { ok, failed } = loadRuns(paths)
   for (const { path, run } of failed) {
     print(`FAILED RUN (not summarised): ${path} — ${run.failures.join('; ')}`)
+  }
+  // Anything compared must be timed on the same machine (POD-4286 ruling).
+  const hosts = [...new Set(ok.map((r) => r.host ?? 'unrecorded'))]
+  if (hosts.length > 1) {
+    print(`MACHINES DIFFER (not summarised): ${hosts.join(', ')}`)
+    return 2
   }
   const mismatches = targetMismatches(ok)
   if (mismatches.length > 0) {
@@ -196,7 +202,9 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
   const floor = (scenario: ScenarioName, scale: Scale): Cell | undefined =>
     table.find((c) => c.arm === 'noop' && c.scenario === scenario && c.scale === scale)
   const shas = [...new Set(ok.map((r) => r.runtimeSha))]
-  print(`runtimeSha ${shas.join(', ')}; ${ok.length} ok runs, ${failed.length} failed`)
+  print(
+    `host ${hosts.join(', ')}; runtimeSha ${shas.join(', ')}; ${ok.length} ok runs, ${failed.length} failed`,
+  )
   print('')
   print(
     '| Arm | Scenario | Scale | n | actionMs p50 / p95 / max | drainMs p50 | frameMs p50 | commits (median) | long tasks | stray | floor p95 | budget p95 | verdict | max load |',
