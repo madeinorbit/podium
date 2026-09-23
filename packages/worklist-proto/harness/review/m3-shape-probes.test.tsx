@@ -15,6 +15,7 @@
  *    issue and one new session. Counts only: no walls, no load rule needed.
  */
 
+import { appendFileSync } from 'node:fs'
 import { autorun, computed, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
@@ -28,6 +29,13 @@ import { createReplaySource } from '../src/count-harness'
 import { buildCorpus } from '../src/fixture/index'
 
 const trap = installMobxWarnTrap()
+
+/** Where the counts go: `M3_PROBE_OUT` (the runner hides console output), else the console. */
+function report(text: string): void {
+  const out = process.env['M3_PROBE_OUT']
+  if (out === undefined) console.log(text)
+  else appendFileSync(out, `${text}\n`)
+}
 
 describe('M3 probe: the enforcement trap', () => {
   it('an untracked computed read throws on the caller (computedRequiresReaction)', () => {
@@ -147,7 +155,7 @@ describe('M3 probe: bucket-sized work per membership change', () => {
         rows: [{ kind: 'session', id: newSession.sessionId, value: newSession }],
       })
       const sessionInsert = copied()
-      console.log(
+      report(
         `M3 bucket probe ${scale}x: issues=${known.issue.length} sessions=${known.session.length} ` +
           `lanes=${known.worktree.length} repos=${known.repo.length}\n` +
           `  largest buckets: ${JSON.stringify(largest)}\n` +
