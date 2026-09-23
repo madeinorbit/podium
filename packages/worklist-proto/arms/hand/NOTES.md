@@ -74,7 +74,13 @@ document, POD-4597, is not written yet).
    side): the repo takeover path never runs on the fixture; the test adds a
    second lane to exercise it.
 
-### Measured (1x, counts only; no walls taken at a1)
+### Measured (OLD FIXTURE 1x, counts only; no walls taken at a1)
+
+Every count below is on the old 1x fixture, which is not live-shaped
+(`docs/measurements/POD-4441-fixture-shape.md`, "Fixture vs live"): it
+spreads issues over ~500 repos with one lane each, where the live export has
+9 repos and one holds 88% of the issues. POD-4635 (L2d) reshapes it; these
+numbers are provisional until re-measured there.
 
 Gate of record so far, `POD_POOL_GATE_SEEDS=5` (seeds 1-5 × 200 steps,
 every change kind, 1,005 rebuild comparisons, 2-7 arm creations per seed
@@ -85,7 +91,7 @@ shape: `evictThenReAdd` 30, `twoRankMovesInOneBatch` 19, `clockDecay` 46,
 `offerRemovedOnFinishedChild` 49, `rankMoveWithinGroup` 10 — though at a1
 no view reads what most of them move (members, children, order).
 
-Fence steps (`counts.test.tsx`, live 1x engine, shared budgets):
+Fence steps (`counts.test.tsx`, 1x engine on the old fixture, shared budgets):
 
 | step | oracle changed | drawn | commit fence | reads / budget | rows derived |
 | --- | --- | --- | --- | --- | --- |
@@ -95,7 +101,7 @@ Fence steps (`counts.test.tsx`, live 1x engine, shared budgets):
 | #8 tick | — | — | asserted | 0 / 0 | 0 |
 | #8b grace | i300-i303 | i300-i303 | asserted | 4 / 96 | 4 |
 
-Replay corpus tick (`pool.test.tsx`): 30 deadlines waited on over 4,867
+Replay corpus tick (`pool.test.tsx`, old fixture): 30 deadlines waited on over 4,867
 issues; the 24 h tick crossed 4, re-derived 4 views, changed 4 (12 cell
 runs); a rewind restores them and the rebuild agrees both ways.
 
