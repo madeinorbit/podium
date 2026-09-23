@@ -23,7 +23,8 @@
  *   `createdAt`, `seq`, `foldAt`, `dismissed`;
  * - one hop through a declared relation (`relations.ts`): `displayRef`
  *   (`issue.repo`'s prefix), `originTick` (`issue.discoveredFrom`), and the
- *   own explicit sessions (`issue.sessions`) for `activityAt` and a draft's
+ *   own explicit sessions (`issue.sessions`, read once into `sessionIds`) for
+ *   `activityAt` (from each member's cached `sessionActivity`) and a draft's
  *   title;
  * - locals: `selected`, and the clock through deadlines (`band`'s defer
  *   lapse, `closed`'s grace crossing).
@@ -109,6 +110,12 @@ export interface IssueParts {
   /** The origin when it is resident. */
   readonly originId: string | null
   readonly originTick: RowOriginTick | null
+  /**
+   * The own explicit sessions (`issue.sessions`), lowest id first: the one
+   * reader of the bucket. Re-runs only when the bucket moves, so a member's
+   * own change never re-walks its siblings (POD-4581).
+   */
+  readonly sessionIds: readonly string[]
   readonly activityAt: number
   /** A lazy input (the origin, a member session) is known but not resident yet. */
   readonly loading: boolean
@@ -122,6 +129,14 @@ export interface ViewInputs {
   issue(id: string): SliceIssue | undefined
   session(id: string): SliceSession | undefined
   repo(id: string): RepoRow | undefined
+  /**
+   * One session's contribution to its issue's `activityAt`
+   * ({@link sessionActivityOf} over its row). The live pool caches it per
+   * session (a cell), so a roll-up re-composes from its members' cached
+   * values and re-reads only the member that changed; the rebuild computes it
+   * directly.
+   */
+  sessionActivity(id: string): number | null
   /** Whether a row of `entity` is in the pool (its slot only). */
   present(entity: EntityName, id: string): boolean
   /**
@@ -246,18 +261,9 @@ export function foldAtOf(issue: SliceIssue): string {
   return issue.tuckedAt ?? issue.closedAt ?? issue.updatedAt
 }
 
-/**
- * A draft's first member: the lowest session id among its explicit sessions.
- * A bucket has no order (`relations.ts`), and the legacy runtime's is replica
- * order, which no pool has; the lowest id is the MobX pool's answer too (its
- * buckets are sorted). Reads the ids, then one session row.
- */
-function firstMemberOf(input: ViewInputs, id: string): SliceSession | undefined {
-  let first: string | null = null
-  for (const sessionId of input.relations.many('issue', id, 'sessions')) {
-    if (first === null || sessionId < first) first = sessionId
-  }
-  return first === null ? undefined : input.session(first)
+/** A session's `lastActiveAt` in ms; null when it is absent (or cold) or never active. */
+export function sessionActivityOf(session: SliceSession | undefined): number | null {
+  return parseMs(session?.lastActiveAt)
 }
 
 // ------------------------------------------------------------------- parts
@@ -304,9 +310,19 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
     const own = self.own
     return own === undefined ? undefined : displayRefOf(own.seq, self.prefix)
   },
-  displayTitle(input, id) {
+  /**
+   * A draft wears its first member's label: the lowest session id (`sessionIds`).
+   * A bucket has no order (`relations.ts`), and the legacy runtime's is
+   * replica order, which no pool has; the lowest id is the MobX pool's answer
+   * too. Only a draft asks for the member.
+   */
+  displayTitle(input, id, self) {
     const issue = input.issue(id)
-    return issue === undefined ? undefined : displayTitleOf(issue, () => firstMemberOf(input, id))
+    if (issue === undefined) return undefined
+    return displayTitleOf(issue, () => {
+      const first = self.sessionIds[0]
+      return first === undefined ? undefined : input.session(first)
+    })
   },
   /** The spin-off's origin (`issue.discoveredFrom`) when it is known, resident or cold. */
   originRef(input, id) {
@@ -331,11 +347,20 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
       ref: origin.displayRef ?? '',
     }
   },
-  /** Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec R-BAND). */
-  activityAt(input, id) {
+  /** `issue.sessions`, sorted: the order a draft's title needs, applied at view time. */
+  sessionIds(input, id) {
+    return [...input.relations.many('issue', id, 'sessions')].sort()
+  },
+  /**
+   * Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec
+   * R-BAND). Re-composed from each member's cached contribution
+   * (`sessionActivity`) over the cached member list: a member's change
+   * re-reads that member only (POD-4581, the #2 fence).
+   */
+  activityAt(input, id, self) {
     let latest: number | null = null
-    for (const sessionId of input.relations.many('issue', id, 'sessions')) {
-      const at = parseMs(input.session(sessionId)?.lastActiveAt)
+    for (const sessionId of self.sessionIds) {
+      const at = input.sessionActivity(sessionId)
       if (at !== null && (latest === null || at > latest)) latest = at
     }
     return latest ?? parseMs(input.issue(id)?.updatedAt) ?? 0
@@ -343,13 +368,13 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
   /**
    * Whether a lazy input the parts read is still loading: the origin and
    * every member session. Asks about EVERY member, so all of them are queued
-   * in one window, not one per window. Reads residency and the bucket, never
-   * a row.
+   * in one window, not one per window. Reads residency and `sessionIds`,
+   * never a row.
    */
-  loading(input, id, self) {
+  loading(input, _id, self) {
     const originRef = self.originRef
     let loading = originRef !== null && input.loading('issue', originRef)
-    for (const sessionId of input.relations.many('issue', id, 'sessions')) {
+    for (const sessionId of self.sessionIds) {
       if (input.loading('session', sessionId)) loading = true
     }
     return loading

@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 /**
- * POD-4578 (Ha1) — the fence steps that need no relation, on the live 1x
- * engine: #1 (an unrelated heartbeat), #3 (a selection click), #4 (a visible
- * title rename), #8 (a clock tick) and #8b (a tick across the finished
- * grace).
+ * POD-4578 (Ha1) — the fence steps on the live 1x engine: #1 (an unrelated
+ * heartbeat), #2 (a visible session phase change, added at Ha4, POD-4581),
+ * #3 (a selection click), #4 (a visible title rename), #8 (a clock tick) and
+ * #8b (a tick across the finished grace).
  *
  * ONLY THE SHARED FENCES (coordinator ruling on Ma1, applied symmetrically):
  * `assertCommits`, `assertReads` with the shared budgets
@@ -11,8 +11,8 @@
  * arm-local budget or assertion.
  *
  * WHAT a1 CANNOT MEET, and where it lands. Parity: the a1 snapshot has no
- * order and stubs the roll-ups; the roster entry with parity is Ha4's
- * (POD-4581). The commit fence where a step changes a HIDDEN row: the fence
+ * order and stubs the roll-ups; the roster entry with parity is Hb4's
+ * (POD-4585; coordinator correction of 2026-09-23). The commit fence where a step changes a HIDDEN row: the fence
  * compares against the oracle's VISIBLE rows and the a1 list draws every
  * issue (the visible collection is Hb1, POD-4582). A step whose commit cell
  * is written but not asserted says so in its `commitFence` cell, and is held
@@ -32,6 +32,18 @@
  * (Hb1's visible collection loads them on first paint, as Mb1's must). Its
  * commit cell is written, not asserted, and it is held instead to: every row
  * the oracle changed that was not drawn is a row the pool holds cold.
+ *
+ * #2 BEFORE AND AFTER (POD-4581, Ma4's lesson). Before this issue an issue's
+ * `activityAt` walked its `issue.sessions` bucket and read every member's
+ * ROW whenever any member changed: at cc666f264 #2 read 7 sessions (the
+ * target's whole family, POD-4635) against a budget of 3, and failed. The
+ * bucket is now read once into the `sessionIds` part, each member's
+ * contribution is its own cell (`HandPool.sessionActivity`), and `activityAt`
+ * re-composes from those cached values: #2 reads 1.
+ *
+ * THE SIBLING RE-READ, planted below: the same pool with member activity read
+ * from the rows again inside `activityAt`. The target's family is larger than
+ * one level's budget, so the plant must FAIL #2's reads fence on its own.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -47,6 +59,7 @@ import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm } from '../../../shared/src/arm'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'
+import { sessionActivityOf } from './views'
 
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
@@ -64,7 +77,7 @@ const STEPS: readonly { methodology: string; commits: boolean }[] = [
   { methodology: '#8b', commits: false },
 ]
 
-describe('fence steps #1, #3, #4, #8, #8b', () => {
+describe('fence steps #1-#4, #8, #8b', () => {
   it('meets the shared reads budget and holds no copy; the commit fence where a1 can', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -123,6 +136,48 @@ describe('fence steps #1, #3, #4, #8, #8b', () => {
         })
       }
       writeResult('hand-pool-counts-1x', { scale: 1, cells })
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+
+  it('a sibling re-read alone fails #2: the target family is larger than the budget', async () => {
+    const planted: CheckableArm = {
+      create(source, locals, reads) {
+        const handle = arm.create(source, locals, reads) as HandPoolHandle
+        const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
+        // The pre-POD-4581 activity: each member's row, read again on every run.
+        inputs.sessionActivity = (id) => sessionActivityOf(handle.pool.inputs.session(id))
+        return handle
+      },
+    }
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
+    try {
+      for (const methodology of ['#1', '#2']) {
+        const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
+        expect(entry, methodology).toBeDefined()
+        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
+        assertCommits(result)
+        if (methodology !== '#2') {
+          assertReads(result, { readsPerChange: readsBudget })
+          continue
+        }
+        // The whole family of the changed session, and nothing else: more
+        // than one level's budget, so the fence names it.
+        const family = ctx.corpus.sessions.filter(
+          (s) => s.issueId === ctx.targets.visibleRootId,
+        ).length
+        expect(readsBudget).toBe(3)
+        expect(family).toBeGreaterThan(readsBudget)
+        expect(result.reads?.byEntity).toEqual({ session: family })
+        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
+          `read ${family} rows, budget ${readsBudget}`,
+        )
+      }
     } finally {
       mounted.unmount()
       feeds.dispose()

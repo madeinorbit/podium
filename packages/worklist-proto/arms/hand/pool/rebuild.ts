@@ -28,7 +28,13 @@ import { coldByRule, type EntityName, type ModelSchema, SCHEMA } from '../../../
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { PoolRelations } from './relations'
 import { createTables, ingestOut, ingestRecord } from './tables'
-import { buildRowView, directParts, type RepoRow, type ViewInputs } from './views'
+import {
+  buildRowView,
+  directParts,
+  type RepoRow,
+  sessionActivityOf,
+  type ViewInputs,
+} from './views'
 
 export function rebuildSnapshot(
   source: RowSource,
@@ -56,6 +62,7 @@ export function rebuildSnapshot(
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,
+    sessionActivity: (id) => sessionActivityOf(tables.session.get(id) as SliceSession | undefined),
     present: (entity, id) => tables[entity].has(id),
     loading: () => false,
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),

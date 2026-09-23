@@ -89,6 +89,7 @@ import {
   PART_RULES,
   type PartName,
   type RepoRow,
+  sessionActivityOf,
   type ViewInputs,
 } from './views'
 
@@ -263,6 +264,12 @@ export class HandPool {
   readonly stats: PoolStats
   /** Per issue: its cells, created on first read, disposed with the row. */
   readonly issues = new Map<string, IssueCells & IssueParts>()
+  /**
+   * Per session: its contribution to its issue's `activityAt`, a cell created
+   * when an issue's part first asks, disposed when the session leaves the pool
+   * (POD-4581).
+   */
+  readonly sessionCells = new Map<string, Cell<number | null>>()
   /** Per entity: records built on first access, dropped with the row. */
   readonly records: TableSet<Map<string, EntityRecord>>
   /** Per issue id: the listeners of its row view. */
@@ -351,6 +358,7 @@ export class HandPool {
       issue: (id) => tracked.issue.get(id) as SliceIssue | undefined,
       session: (id) => tracked.session.get(id) as SliceSession | undefined,
       repo: (id) => tracked.repo.get(id) as RepoRow | undefined,
+      sessionActivity: (id) => this.sessionActivity(id),
       present: (entity, id) => tracked[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => (tracked.issue.has(id) ? this.cellsOf(id) : undefined),
@@ -429,6 +437,26 @@ export class HandPool {
       this.issues.set(id, cells)
     }
     return cells
+  }
+
+  /**
+   * TRACKED: session `id`'s contribution to `activityAt`, from its cell. The
+   * cell reads the session's row (a cold or absent one reads as null, and its
+   * arrival re-runs the cell); a reader of the cell re-runs only when the
+   * value moves. It asks nothing else, so a roll-up over N members that
+   * re-composes after one member's change reads that one row, not N.
+   */
+  sessionActivity(id: string): number | null {
+    let cell = this.sessionCells.get(id)
+    if (cell === undefined) {
+      cell = this.graph.cell(
+        `activity:${id}`,
+        () => sessionActivityOf(this.inputs.session(id)),
+        Object.is,
+      )
+      this.sessionCells.set(id, cell)
+    }
+    return this.graph.read(cell)
   }
 
   /** The schema record of a row in the pool, built on first access; undefined when absent. */
@@ -578,6 +606,8 @@ export class HandPool {
   dispose(): void {
     for (const cells of this.issues.values()) cells.dispose()
     this.issues.clear()
+    for (const cell of this.sessionCells.values()) this.graph.dispose(cell)
+    this.sessionCells.clear()
     this.graph.dispose(this.idsCell)
     for (const entity of ENTITIES) {
       this.tables[entity].clear()
@@ -656,6 +686,7 @@ export class HandPool {
         if (this.fenced[delta.entity].has(delta.id)) return
         this.stats.counters.rowsRemoved += 1
         this.records[delta.entity].delete(delta.id)
+        if (delta.entity === 'session') this.releaseSession(delta.id)
         if (delta.entity !== 'issue') return
         const cells = this.issues.get(delta.id)
         if (cells !== undefined) {
@@ -664,14 +695,31 @@ export class HandPool {
         }
         return
       }
-      case 'relation':
       case 'residency':
+        // A session removed while cold leaves the registry and no table.
+        if (
+          delta.entity === 'session' &&
+          !this.tables.session.has(delta.id) &&
+          this.residency?.isCold('session', delta.id) !== true
+        ) {
+          this.releaseSession(delta.id)
+        }
+        return
+      case 'relation':
       case 'selection':
       case 'clock':
         return
       default:
         unhandled(delta)
     }
+  }
+
+  /** A session left the pool: its activity cell goes (its readers re-run). */
+  private releaseSession(id: string): void {
+    const cell = this.sessionCells.get(id)
+    if (cell === undefined) return
+    this.graph.dispose(cell)
+    this.sessionCells.delete(id)
   }
 
   /** Handler 4 (after the drain): each changed key's listeners, once. */
