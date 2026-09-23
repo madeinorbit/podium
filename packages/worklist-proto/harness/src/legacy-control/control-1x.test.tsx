@@ -20,7 +20,7 @@ import {
   mountArmForCounts,
   runCountScenario,
 } from '../count-harness'
-import { snapshotFromStore } from '../oracle/index'
+import { expectedSnapshot, snapshotFromStore } from '../oracle/index'
 import { writeHeartbeat } from '../../../shared/src/scenarios'
 import { legacyControlArmFor } from './arm'
 import { fixedLocals } from '../../../shared/src/locals-source'
@@ -52,10 +52,16 @@ describe('legacy control at 1x', () => {
           `stats=${JSON.stringify(result.stats)} parity=${result.parity} ` +
           `elapsedMs=${Math.round(elapsedMs)}`,
       )
-      // The fixture's visible set at 1x (POD-4550: one corpus). The retired
-      // synthetic corpus showed 3,230 rows here; the live installation the
-      // budgets were measured on shows ~211.
-      expect(result.visibleRows).toBe(211)
+      // The fixture's visible set at 1x (POD-4550: one corpus), as the
+      // oracle computes it over the corpus: 732 on the live-shaped fixture
+      // (POD-4635; live 759). The old fixture showed 211, the retired
+      // synthetic corpus 3,230.
+      expect(result.visibleRows).toBe(
+        Object.keys(
+          expectedSnapshot(ctx.corpus, { selectedIssueId: null, coarseNow: ctx.corpus.fixedNow })
+            .rowsById,
+        ).length,
+      )
       expect(result.parityDiff).toBeNull()
       expect(result.parity).toBe(true)
       expect(result.rowsCommitted).toBeGreaterThan(0)

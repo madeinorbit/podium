@@ -107,8 +107,9 @@ reads budget"): the floor equals the harness budget; the family exceeds it at
 rule-picked targets; control: the same root with its family trimmed to 3 is
 refused. And the planted arm (`arms/mobx/pool/counts.test.tsx`, member
 activity read from the rows again) now FAILS #2's reads fence: it reads the
-whole family (5 sessions at 1x) against a budget of 3. On the old target
-(`i17`, 3 sessions) it passed at exactly 3.
+whole family (7 sessions at 1x: five that keep the row, two historical)
+against a budget of 3. On the old target (`i17`, 3 sessions) it passed at
+exactly 3.
 
 **The live export still cannot boot the engine.** At 06:38Z it had 6 live
 working sessions and none on an open root with children whose subtree is
@@ -124,7 +125,7 @@ anything is compared against it:
 
 - **Ma4 fence cells** (`docs/measurements/POD-4568-a.md`, "Fence steps #1–#4
   at 1x"): the targets moved (old `i17` / `s34` / `s2135`, new at 1x: root
-  `i235`, phase session `s15`, heartbeat `s2623`), so every cell there
+  `i214`, phase session `s15`, heartbeat `s2284`), so every cell there
   (changed rows, drawn rows, reads, rows committed, pool counters) and the
   finding in its "#2 cannot catch a sibling re-read" section are old-fixture
   numbers. The finding is resolved by the target rule above.
@@ -152,13 +153,18 @@ anything is compared against it:
 - **Oracle and build time** (next line) and every wall time taken on the
   old fixture.
 
-**Oracle time on the reshaped fixture** (in-process, bun, NOT under the
-bench lock: load average 22–34 during the run, so these are only an order of
-magnitude): build 0.3 / 0.6 / 1.0 s and oracle 0.8 / 4.2 / **46 s** at 1x /
-2x / 4x (old fixture, quiet box: oracle 0.16 / 0.66 / 2.2 s). The legacy
-derivation's cost grows much faster than its rows; that growth is what round
-three measures. `oracle.test.ts`'s budgets (4x build < 10 s, 1x oracle < 5 s)
-still hold; tests that run the oracle at 4x need minutes under load.
+**Oracle time, and a harness fix it forced.** The oracle's projection
+(`projectRow`, `harness/src/oracle/oracle.ts`) rebuilt
+`indexMissionSessions(sessions)` for every row without a stamped roll-up, that
+is every nested row: O(rows × sessions). The old fixture had 65 nested rows;
+this one has 460 per unit, and a CPU profile at 2x put 76% of the oracle's
+time there. The index is now built once per projection (a pure function of
+the sessions, so the result is identical; every parity test is unchanged).
+In-process under bun, NOT under the bench lock, load average 19–22, so only
+an order of magnitude: build 0.7 / 0.8 / 1.6 s and oracle 1.2 / 1.8 / 4.7 s
+at 1x / 2x / 4x after the fix, against 46 s at 4x before it (old fixture,
+quiet box: oracle 0.16 / 0.66 / 2.2 s). On the live export the same oracle
+takes ~2 s at 1x, the fixture ~0.8 s, in the same run.
 
 ## Shape at every scale, old fixture (POD-4551)
 

@@ -231,8 +231,21 @@ function tinyArm(planted: boolean): CheckableArm {
 
 describe('checkArm on the tiny reference arm', () => {
   // A random run with the default weights: whatever it draws, the planted
-  // bucket leak shows at the first session removal.
-  const sequence = gen(7, 200)
+  // bucket leak shows at the first session removal. The run must draw one:
+  // the first seed from 7 that does (7 itself stopped drawing one on the
+  // live-shaped corpus, POD-4635), asserted below so the test cannot pass
+  // on a run with nothing to catch.
+  const removesSession = (changes: unknown): boolean =>
+    JSON.stringify(changes).includes('"entity":"session"')
+  const seed = Array.from({ length: 20 }, (_, k) => 7 + k).find((s) =>
+    removesSession(gen(s, 200)),
+  )
+  const sequence = gen(seed ?? 7, 200)
+
+  it('draws a session removal for the planted leak to show at', () => {
+    expect(seed).toBeDefined()
+    expect(removesSession(sequence)).toBe(true)
+  })
 
   it('passes the correct arm, fails the planted one and shrinks to at most 5 steps', async () => {
     const correct = await checkArm(tinyArm(false), sequence, { oracleEvery: 0 })

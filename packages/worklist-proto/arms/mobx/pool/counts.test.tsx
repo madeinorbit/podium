@@ -36,6 +36,7 @@
  * must FAIL #2's reads fence on its own.
  */
 
+import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { assertCommits, assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
 import {
@@ -74,10 +75,26 @@ describe('fence steps #1-#4', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      // At 1x no drawn row reaches a cold one (no open issue has a closed
-      // origin; an open issue's sessions are hot by rule), so nothing is
-      // queued and the counted steps see a settled pool.
-      expect((mounted.handle as MobxPoolHandle).pool.residency?.hasQueued()).toBe(false)
+      // Drawn rows reach cold ones on the live-shaped fixture (open issues
+      // with closed spin-off origins: live has 842 such edges, POD-4635), so
+      // the mount queues loads. The window never closes on its own here:
+      // close it before counting, so the counted steps see a settled pool
+      // and no load lands inside one.
+      // Settle as the mount does: the redraw commits under act, then the
+      // log, stats and reads start from zero.
+      const { pool } = mounted.handle as MobxPoolHandle
+      let rounds = 0
+      while (pool.residency?.hasQueued() && rounds < 100) {
+        act(() => {
+          pool.hydrate()
+        })
+        rounds += 1
+      }
+      console.info(`[mobx-counts] settled after ${rounds} load windows`)
+      expect(pool.residency?.hasQueued()).toBe(false)
+      mounted.log.reset()
+      mounted.handle.stats.reset()
+      mounted.reads.reset()
       const cells = []
       for (const step of STEPS) {
         const entry = FENCE_SCENARIOS.find(

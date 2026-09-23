@@ -308,8 +308,13 @@ describe('ingest', () => {
     const r = rig()
     try {
       const { pool } = r.handle
-      // The 1x fixture gives each repo one lane; the live feed adds root lanes. Add a second.
-      const lane = corpus.sliceWorktrees.find((candidate) => candidate.repoId)!
+      // A repo with one lane (the live-shaped fixture's small repos have
+      // one; the feed adds root lanes). Add a second.
+      const lane = corpus.sliceWorktrees.find(
+        (candidate) =>
+          candidate.repoId &&
+          corpus.sliceWorktrees.filter((other) => other.repoId === candidate.repoId).length === 1,
+      )!
       const repoId = lane.repoId!
       const second = { ...lane, path: `${lane.path}/.worktrees/second` }
       const issue = corpus.sliceIssues.find((candidate) => candidate.repoId === repoId)!

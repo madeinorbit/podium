@@ -71,7 +71,11 @@ class PendingTitles {
 
 describe('mobx write-path spike: optimistic title rename', () => {
   // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
-  it.fails('pending commits one row, echo reconciles, rejection restores the prior row', async () => {
+  // POD-4635: on the live-shaped fixture (732 visible rows at 1x, was 211)
+  // this retired arm's worker grows past 4.3 GB and is SIGKILLed instead of
+  // failing (2.7 GB on the old fixture), which takes the run down with it.
+  // Skipped, not deleted: the deletion is the round-two removal's.
+  it.skip('pending commits one row, echo reconciles, rejection restores the prior row', async () => {
     const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {

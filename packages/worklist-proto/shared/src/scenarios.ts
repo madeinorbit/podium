@@ -318,7 +318,9 @@ function manualClock(start: number): ManualClock {
  *  the same rows. */
 export interface ScenarioTargets {
   /** #1: a session bound to a closed agent root (a row the worklist never
-   *  shows) — its heartbeat must move no visible row. */
+   *  shows) that no issue names as its spin-off origin, so no visible row
+   *  reads it (POD-4635: origins are common on the live-shaped fixture) —
+   *  its heartbeat must move no visible row. */
   heartbeatSessionId: string
   /** #2/#3/#4, #9 supplement: an open human root with children whose ONLY
    *  working session is one bound live session — no other session working
@@ -553,6 +555,13 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
       (sessionsOf.get(i.id) ?? []).some(isLiveWorking) &&
       openHuman(byId.get(i.parentId) ?? ({} as IssueFacts)),
   )
+  const origins = new Set(
+    issues.flatMap((i) =>
+      ((i as { deps?: { id: string; type: string }[] }).deps ?? [])
+        .filter((dep) => dep.type === 'discovered-from')
+        .map((dep) => dep.id),
+    ),
+  )
   const heartbeat =
     corpus.sessions
       .filter((s) => {
@@ -562,7 +571,8 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
           issue.audience === 'agent' &&
           !!issue.closedAt &&
           !issue.parentId &&
-          childless(issue)
+          childless(issue) &&
+          !origins.has(issue.id)
         )
       })
       .sort((a, b) => numericId(a.sessionId) - numericId(b.sessionId))[0] ??

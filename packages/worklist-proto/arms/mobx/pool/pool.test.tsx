@@ -273,7 +273,10 @@ describe('ingest', () => {
     const r = rig()
     try {
       const { pool } = r.handle
-      const id = openIssues.find((issue) => !issue.draft)!.id
+      // No spin-off origin: its view would build the origin's model too.
+      const id = openIssues.find(
+        (issue) => !issue.draft && !issue.deps?.some((dep) => dep.type === 'discovered-from'),
+      )!.id
       const titles: (string | undefined)[] = []
       const watch = autorun(() => {
         titles.push(pool.issue(id)?.view?.title)

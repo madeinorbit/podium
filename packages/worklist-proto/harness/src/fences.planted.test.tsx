@@ -23,7 +23,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { startScenarioEngine } from '../../shared/src/scenarios'
+import { FIXTURE_SEED, startScenarioEngine } from '../../shared/src/scenarios'
 import {
   assertCommits,
   assertIsolation,
@@ -31,6 +31,8 @@ import {
   mountArmForCounts,
 } from './count-harness'
 import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from './fence-scenarios'
+import { buildCorpus, FIXED_NOW } from './fixture/index'
+import { expectedSnapshot } from './oracle/index'
 import { type ReferencePlant, referenceArmFor } from './reference-arm/arm'
 
 async function plantedStep(
@@ -56,16 +58,26 @@ async function plantedStep(
   }
 }
 
+/** The oracle's 1x row count over the corpus the engine boots on (732 on
+ *  the live-shaped fixture, POD-4635; 211 on the old one). */
+const VISIBLE_1X = Object.keys(
+  expectedSnapshot(buildCorpus(1, FIXTURE_SEED), { selectedIssueId: null, coarseNow: FIXED_NOW })
+    .rowsById,
+).length
+
 describe('planted arms: the exact-commit fence catches what parity cannot', () => {
   it('unmemoised row slot: #1 over-commits every visible row', async () => {
     const { result } = await plantedStep(() => ({ kind: 'unmemoised' }), '#1')
     expect(result.parity, result.parityDiff ?? '').toBe(true)
     expect(result.oracleChangedRows).toEqual([])
-    expect(result.visibleRows).toBe(211)
+    expect(result.visibleRows).toBe(VISIBLE_1X)
     expect(result.drawnRows).toHaveLength(result.visibleRows)
     expect(result.remountedRows).toEqual([])
+    const n = VISIBLE_1X
     expect(() => assertCommits(result)).toThrow(
-      /\[commits\] unrelatedHeartbeat \(#1\): drew 211 rows, the oracle changed 0\. over=\[.*\(211\)\] under=\[\]/,
+      new RegExp(
+        `\\[commits\\] unrelatedHeartbeat \\(#1\\): drew ${n} rows, the oracle changed 0\\. over=\\[.*\\(${n}\\)\\] under=\\[\\]`,
+      ),
     )
   }, 60_000)
 
@@ -92,8 +104,11 @@ describe('planted arms: the exact-commit fence catches what parity cannot', () =
     // The old fence says yes ...
     expect(() => assertIsolation(result, { rowsCommitted: 0 })).not.toThrow()
     // ... the new one says no.
+    const n = VISIBLE_1X
     expect(() => assertCommits(result)).toThrow(
-      /\[commits\] unrelatedHeartbeat \(#1\): drew 211 rows, the oracle changed 0\. over=\[.*\(211\)\] under=\[\] remounted=\[.*\(211\)\] rowsCommitted=0/,
+      new RegExp(
+        `\\[commits\\] unrelatedHeartbeat \\(#1\\): drew ${n} rows, the oracle changed 0\\. over=\\[.*\\(${n}\\)\\] under=\\[\\] remounted=\\[.*\\(${n}\\)\\] rowsCommitted=0`,
+      ),
     )
   }, 60_000)
 
