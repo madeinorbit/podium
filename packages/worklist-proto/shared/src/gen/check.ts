@@ -10,7 +10,8 @@
  *   (the same arm recomputed from the feed's CURRENT `snapshot(kind)` tables),
  *   every `rebuildEvery` steps (default: every step). Comparing with the
  *   feed's snapshot, not only the events the arm heard, is what makes a change
- *   the feed never announces visible (a discovery-only worktree, POD-4606);
+ *   the feed fails to announce visible (a discovery-only worktree was one
+ *   until POD-4606 made the feed announce it);
  * - `arm.snapshot()` with the legacy oracle over the engine store
  *   (`oracleSnapshot`: derived and projected with the engine's own clock),
  *   every `oracleEvery` steps (default 10, and always after the last step;
