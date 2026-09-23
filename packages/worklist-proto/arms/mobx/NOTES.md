@@ -89,6 +89,15 @@ the rebuild, 0 own-row field differences.
 | #4 rename | i214 | i214 | 1 / 3 | 0 | 0 |
 | #5 stage move | i5 | i5 | 1 / 24 | 0 | 0 |
 
+L4b gate (`pool/gate.test.ts`, 3 seeds x 200 steps, heavy lease, 984 s;
+`results/mobx-pool-gate-1x-3x200.json`): green. Every seed compares the
+settled snapshot (the visible rows, pinned order) with the from-scratch
+rebuild at 201 steps and scans every relation at each; the full-residency
+checkpoint passes; the removal-deaf, cold-deaf, relink-skipped and
+promote-skipped plants fail on every seed. It found two bugs on the way (the
+residency atom and the node registry, above). The 20 x 300 gate of record
+was not re-run here.
+
 Rank change (pin the last unpinned visible row): one sort of the visible
 count, the row moves up, only that row commits. A list that draws every
 known issue (the plant) fails the commit fence on #1 and #4 and nothing else.
