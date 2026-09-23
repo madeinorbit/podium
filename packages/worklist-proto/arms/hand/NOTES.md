@@ -42,6 +42,13 @@ kept and now naming Hb4 (POD-4585), and #3 budgeted at 3 reads (POD-4619).
    session of a drawn row (829, cold members included).
    `residency.test.tsx` now holds them to the members of drawn rows.
 
+### Lease log (coordinator order: MobX first on shared leases)
+
+- 2026-09-23 21:21:51Z: `test:heavy` released after gate chunk 3 (seeds
+  11-15, green); Mb1 (POD-4569) took it at 21:21:51Z. The chunk loop was
+  stopped before chunk 4 so it could not re-acquire; chunk 4 (seeds 16-20)
+  re-queues with `--wait` behind Mb1 and runs watched from the foreground.
+
 ### Open
 
 - None of this issue's own. Parity and the roster entry are Hb4's.
