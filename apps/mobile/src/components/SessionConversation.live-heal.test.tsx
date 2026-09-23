@@ -73,7 +73,12 @@ const working = {
   agentState: { phase: 'working', since: '2026-09-23T07:47:56.000Z' },
 } as unknown as SessionMeta
 
-function entry(id: string, cursor: string, role: 'user' | 'assistant', text: string): TranscriptItem {
+function entry(
+  id: string,
+  cursor: string,
+  role: 'user' | 'assistant',
+  text: string,
+): TranscriptItem {
   return { id, cursor, role, text }
 }
 
@@ -85,16 +90,14 @@ function authority() {
     entry('a1', 'c2', 'assistant', '100 DATE'),
     entry('u2', 'c3', 'user', 'What is 7 times 7?'),
   ]
-  const transcriptRead = vi.fn(
-    async (request: { anchor?: string; limit: number }) => {
-      const end = request.anchor
-        ? written.findIndex((item) => item.cursor === request.anchor)
-        : written.length
-      const start = Math.max(0, end - request.limit)
-      const items = written.slice(start, end)
-      return { items, head: items[0]?.cursor, tail: items.at(-1)?.cursor, hasMore: start > 0 }
-    },
-  )
+  const transcriptRead = vi.fn(async (request: { anchor?: string; limit: number }) => {
+    const end = request.anchor
+      ? written.findIndex((item) => item.cursor === request.anchor)
+      : written.length
+    const start = Math.max(0, end - request.limit)
+    const items = written.slice(start, end)
+    return { items, head: items[0]?.cursor, tail: items.at(-1)?.cursor, hasMore: start > 0 }
+  })
   return { written, transcriptRead }
 }
 
