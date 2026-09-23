@@ -98,6 +98,8 @@ interface ArmResult {
   after: number
   afterByEntity: Record<string, number>
   hydratedInStep: number
+  /** Rows loaded after the harness sampled the step's reads: charged to no step. */
+  hydratedAfterSample: number
   rowsCommitted: number
   plantRuns: number
   plantLoadedRuns: number
@@ -190,6 +192,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
       after: after.rows,
       afterByEntity: after.byEntity,
       hydratedInStep,
+      hydratedAfterSample: residency.counters.hydrated - hydratedBefore - hydratedInStep,
       rowsCommitted: result.rowsCommitted,
       plantRuns: plant.runs,
       plantLoadedRuns: plant.loadedRuns,
@@ -224,9 +227,8 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
     // that fence.
     expect(a.hydratedInStep).toBeGreaterThan(0)
     expect(a.fence).not.toBe('pass')
-    // Nothing lands after the sample: what the fence reads after the step is
-    // what the step was charged.
-    expect(a.after).toBe(a.charged)
+    // Nothing lands after the sample (the fence also refuses that itself).
+    expect(a.hydratedAfterSample).toBe(0)
     // The window no longer decides what a step is charged.
     expect(a.charged).toBe(b.charged)
     expect(b.hydratedInStep).toBeGreaterThan(0)
