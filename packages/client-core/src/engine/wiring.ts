@@ -17,11 +17,14 @@ import {
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {
   ENQUEUEABLE_DELIVERY,
+  normalizeRefusal,
   type OutboxCommand,
+  type OutboxRejectionReason,
   type RetrySatisfaction,
 } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import {
+  classifyRefusal,
   type OnlineEvents,
   Outbox,
   type OutboxDeadLetterEntry,
@@ -187,8 +190,18 @@ export interface EngineOutboxCallbacks {
    *  chat send waits on (POD-4762). Fires for entries `onApplied` never sees:
    *  a terminal verdict retires in the same commit that applies it. */
   readonly onSettled?: (mutationId: MutationId, settlement: OutboxSettlement) => void
-  readonly onDropped?: (entry: OutboxEntry) => void
+  /** `reason` is the normalized refusal when the queue knows one (POD-4554:
+   *  the receipts stream reports it; nothing else reads it). */
+  readonly onDropped?: (entry: OutboxEntry, reason?: OutboxRejectionReason) => void
   readonly onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
+  /**
+   * The queue collapsed this still-queued entry into a later one with the same
+   * collapse key (POD-785), so it will never be sent and never get an outcome.
+   * `entry` is what it carried when the queue could still see it. Observation
+   * only (POD-4554): the receipts stream reports it. Only the kernel queue
+   * collapses; the compatibility queue never calls it.
+   */
+  readonly onSuperseded?: (mutationId: MutationId, entry: OutboxEntry | undefined) => void
   /**
    * PLATFORM CONNECTIVITY (POD-2055 WP-C2), when the composition root knows it
    * better than the browser globals below do. Native mobile passes NetInfo:
@@ -830,8 +843,9 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     // A refused write with no typed words is reverted (overlay drops) and
     // toasted. Authored prose is parked so the words are not lost — a toast
     // that said they were gone would teach people to re-type instead of look.
-    onPoison: (entry) => {
-      args.onDropped?.(entry)
+    onPoison: (entry, error) => {
+      const refusal = classifyRefusal(error)
+      args.onDropped?.(entry, refusal === undefined ? undefined : normalizeRefusal(refusal))
       if (
         !shouldParkDeadLetter(entry.kind, entry.input) &&
         deadLetterHandlingFor(entry.kind) !== 'discard-automatic'

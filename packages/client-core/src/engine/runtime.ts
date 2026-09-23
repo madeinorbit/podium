@@ -54,9 +54,11 @@ import { createHostMetricsStore } from './host-metrics'
 import { machinesMaterialSignature } from './machines-material'
 
 import { createLogger } from '@podium/logger'
+import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import type {
   IssueId,
   LayoutSnapshot,
+  MutationId,
   LayoutWire,
   ReadPositionWire,
   SessionId,
@@ -134,8 +136,36 @@ import {
   createEngineOutbox,
   type EngineOutbox,
   type OutboxKinds,
+  shouldParkDeadLetter,
 } from './wiring'
 import { OutboxSettlements } from './chat-send'
+
+/**
+ * One outbox entry's outcome, for listeners outside the kernel (POD-4554: the
+ * round-three receipts stream, keyed by mutation id). Observation only: it
+ * fires AFTER the runtime's own handling of the same event, a throwing
+ * listener is logged and skipped, and nothing a listener does reaches the
+ * queue or the optimism ledger.
+ *
+ * - `applied`: the Authority applied the mutation (the drain's success). It
+ *   says nothing about the echo: the wire row carries no mutation id.
+ * - `rejected`: a definitive refusal took the entry out of the queue. `parked`
+ *   says whether it went to the dead-letter recovery surface (authored text)
+ *   or was discarded; `reason` is the normalized refusal when the queue knows it.
+ * - `superseded`: the queue collapsed this still-queued entry into a later one
+ *   with the same collapse key (POD-785). It is never sent and gets no other
+ *   outcome. `entry` is absent when the queue could no longer see it.
+ */
+export type OutboxOutcome =
+  | { readonly type: 'applied'; readonly mutationId: MutationId; readonly entry: OutboxEntry }
+  | {
+      readonly type: 'rejected'
+      readonly mutationId: MutationId
+      readonly entry: OutboxEntry
+      readonly parked: boolean
+      readonly reason?: OutboxRejectionReason
+    }
+  | { readonly type: 'superseded'; readonly mutationId: MutationId; readonly entry?: OutboxEntry }
 
 const LOCAL_ONLY_ONLINE_EVENTS: OnlineEvents = {
   add: () => {},
@@ -424,7 +454,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // the awaiting-truth stage; a poison drop repaints without it.
       onApplied: (entry) => this.onMutationApplied(entry),
       onSettled: (mutationId, settlement) => this.outboxSettlements.settle(mutationId, settlement),
-      onDropped: (entry) => this.onMutationDropped(entry),
+      onDropped: (entry, reason) => this.onMutationDropped(entry, reason),
+      onSuperseded: (mutationId, entry) => {
+        if (this.destroyed) return
+        this.emitOutcome({ type: 'superseded', mutationId, ...(entry ? { entry } : {}) })
+      },
       // The queue-size subscription is not the dead-letter event: a definitive
       // refusal can park before start() installs that subscription. Publish the
       // recovery projection at the event's own boundary so a live park cannot
@@ -601,6 +635,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly pendingOverlaysByRow = (
     entity: OverlayEntity,
   ): ReadonlyMap<string, readonly PendingOverlay[]> => this.optimism.pendingByRow(entity)
+
+  // ----------------------------------------------------------------- write seam
+
+  /**
+   * The optimistic enqueue every queued action goes through, for a caller
+   * that must name the mutation id itself (POD-4554: a round-three prototype
+   * returns it from `edit()` synchronously, and the drain can report the entry
+   * before this promise resolves). Same paint, same queue, same outcome as the
+   * `EngineActions` wrappers; `opts.mutationId` omitted mints one.
+   */
+  readonly enqueueOverlayed = <K extends keyof OutboxKinds & string>(
+    kind: K,
+    input: OutboxKinds[K],
+    opts?: { mutationId?: MutationId },
+  ): Promise<void> => this.optimism.enqueueOverlayed(kind, input, opts)
 
   // ------------------------------------------------------------------ lifecycle
 
@@ -1338,14 +1387,42 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private onMutationApplied(entry: OutboxEntry): boolean {
     if (this.destroyed) return false
     const actionHold = this.reconcileActionState(entry, 'applied')
-    if (actionHold !== null) return actionHold
-    return this.optimism.mutationApplied(entry)
+    const hold = actionHold !== null ? actionHold : this.optimism.mutationApplied(entry)
+    this.emitOutcome({ type: 'applied', mutationId: entry.mutationId, entry })
+    return hold
   }
 
-  private onMutationDropped(entry: OutboxEntry): void {
+  private onMutationDropped(entry: OutboxEntry, reason?: OutboxRejectionReason): void {
     if (this.destroyed) return
     this.reconcileActionState(entry, 'dropped')
     this.optimism.mutationDropped(entry)
+    this.emitOutcome({
+      type: 'rejected',
+      mutationId: entry.mutationId,
+      entry,
+      parked: shouldParkDeadLetter(entry.kind, entry.input),
+      ...(reason ? { reason } : {}),
+    })
+  }
+
+  private readonly outcomeListeners = new Set<(outcome: OutboxOutcome) => void>()
+
+  /** Per-entry outbox outcomes (POD-4554). See {@link OutboxOutcome}. Bound so
+   *  it can be passed bare. */
+  readonly subscribeOutboxOutcomes = (listener: (outcome: OutboxOutcome) => void): (() => void) => {
+    this.outcomeListeners.add(listener)
+    return () => this.outcomeListeners.delete(listener)
+  }
+
+  private emitOutcome(outcome: OutboxOutcome): void {
+    for (const listener of [...this.outcomeListeners]) {
+      try {
+        listener(outcome)
+      } catch (err) {
+        // An observer must never wedge the drain that called us.
+        log.warn('outbox outcome listener threw', { err, type: outcome.type })
+      }
+    }
   }
 
   /** Kinds whose truth is a tRPC read rather than a replicated row: the drain

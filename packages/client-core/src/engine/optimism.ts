@@ -574,15 +574,20 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    * see. The id has to be minted here rather than read off the enqueue's result
    * because the drain can fire `onApplied` before that promise resolves.
    * See {@link overlayFor}.
+   *
+   * `opts.mutationId` lets a caller that must know the id synchronously name it
+   * (POD-4554: a round-three prototype returns it from its `edit()` as the
+   * transaction id). Omitted, it is minted here, as before.
    */
   async enqueueOverlayed<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
+    enqueueOpts?: { mutationId?: MutationId },
   ): Promise<void> {
     // Enqueue-time baseline (#263 review finding 2): fingerprint the target
     // row's REPLICA truth (unpainted — the replica is server truth only) so
     // resolution can tell whether truth already moved while in flight.
-    const mutationId = asMutationId(randomUUID())
+    const mutationId = enqueueOpts?.mutationId ?? asMutationId(randomUUID())
     const queuedAt = Date.now()
     const probe = overlayForOutboxEntry({ mutationId, kind, input, queuedAt })
     let baseline: string | undefined

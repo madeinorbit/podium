@@ -154,6 +154,13 @@ function submit(
 
 class KernelEngineOutbox implements EngineOutbox {
   private readonly metadata = new Map<string, { baseline?: string; chained?: boolean }>()
+  /**
+   * Queued entries an in-flight enqueue may collapse (POD-4554). The kernel
+   * removes a superseded record before its event fires, so what it carried is
+   * captured here, under the enqueue that could collapse it, for
+   * `onSuperseded`. Empty outside an enqueue.
+   */
+  private readonly collapsible = new Map<string, OutboxEntry>()
   private readonly subscribers = new Set<(size: number) => void>()
   /**
    * WHERE "THE NETWORK CAME BACK" AND "AM I ONLINE" COME FROM (POD-2073).
@@ -274,6 +281,13 @@ class KernelEngineOutbox implements EngineOutbox {
     // POD-785: routed per TARGET, not into one global partition. See
     // OUTBOX_ROUTING for why the single `client-outbox` key wedged the queue.
     const route = outboxRoutingFor(kind, input, mutationId)
+    const candidates =
+      route.collapseKey === undefined
+        ? []
+        : this.kernel
+            .pending()
+            .filter((r) => r.state === 'queued' && r.collapseKey === route.collapseKey)
+    for (const record of candidates) this.collapsible.set(record.mutationId, this.toEntry(record))
     try {
       const record = await this.kernel.enqueue({
         mutationId,
@@ -294,6 +308,8 @@ class KernelEngineOutbox implements EngineOutbox {
     } catch (error) {
       this.metadata.delete(mutationId)
       throw error
+    } finally {
+      for (const record of candidates) this.collapsible.delete(record.mutationId)
     }
   }
 
@@ -373,7 +389,7 @@ class KernelEngineOutbox implements EngineOutbox {
       }
     } else if (event.type === 'dead-lettered') {
       const entry = this.toEntry(event.record)
-      this.callbacks.onDropped?.(entry)
+      this.callbacks.onDropped?.(entry, event.record.reason)
       if (shouldDiscardDeadLetter(event.record)) {
         if (deadLetterHandlingFor(entry.kind) !== 'discard-automatic') {
           this.callbacks.notices.error(couldNotSaveNotice(entry.kind, entry.input))
@@ -398,6 +414,9 @@ class KernelEngineOutbox implements EngineOutbox {
       event.type === 'superseded'
     ) {
       this.metadata.delete(event.mutationId)
+      if (event.type === 'superseded') {
+        this.callbacks.onSuperseded?.(event.mutationId, this.collapsible.get(event.mutationId))
+      }
     }
     // Queue membership moved (a new entry, a re-issue, a park, a retirement), so
     // the next expiry instant may have too.
