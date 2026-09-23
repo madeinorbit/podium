@@ -169,6 +169,20 @@ describe('#2 target family is larger than one level of the reads budget (POD-463
     expect(familyOf(corpus, visibleRootId).length).toBeGreaterThan(PHASE_FAMILY_FLOOR)
   })
 
+  it.each([1, 2, 4] as const)(
+    'startEngineOnCorpus boots on the live-shaped fixture at %ix with the rule-picked targets',
+    async (scale) => {
+      const ctx = await startScenarioEngine(scale)
+      try {
+        expect(ctx.targets).toEqual(pickTargets(ctx.corpus))
+        expect(ctx.engine.getSnapshot().issues).toHaveLength(ctx.corpus.issues.length)
+      } finally {
+        ctx.engine.destroy()
+      }
+    },
+    120_000,
+  )
+
   it('control: the same root with its family trimmed to the floor is refused', () => {
     const corpus = buildCorpus(1, FIXTURE_SEED)
     const targets = pickTargets(corpus)

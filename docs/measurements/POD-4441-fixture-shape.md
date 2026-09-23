@@ -1,23 +1,169 @@
-# POD-4441 fixture shape (G2: POD-4443)
+# POD-4441 fixture shape (G2: POD-4443; reshaped by POD-4635)
 
 Deterministic live-shaped corpus + parity oracle. Code:
 `packages/worklist-proto/harness/src/fixture/` (`buildCorpus`),
 `packages/worklist-proto/harness/src/oracle/` (`expectedSnapshot`).
 Seed default 4443; `FIXED_NOW` = 2026-09-20T12:00:00Z.
 
-## Counts per scale (seed 4443)
+**Every count in this document before POD-4635 is the OLD fixture's.** The
+old fixture was not live-shaped on most structural dimensions ("Fixture vs
+live (POD-4552)" below). POD-4635 reshaped it to the live table; the current
+numbers are in the next section.
 
-| scale | issues | sessions | repos | worktrees | machines | visible rows | groups | pinned |
-|---|---|---|---|---|---|---|---|---|
-| 1x | 4,867 | 4,304 | 500 | 468 | 6 | **211** | 165 | 6 |
-| 2x | 9,734 | 8,608 | 1,000 | 936 | 6 | 422 | 350 | 12 |
-| 4x | 19,468 | 17,216 | 2,000 | 1,872 | 6 | 844 | 691 | 24 |
+## The reshaped fixture (POD-4635, seed 4443)
 
-Visible rows scale linearly (211 × scale): the corpus is shape-identical at
-every scale, which is what the growth-slope measurement wants. POD-4551
-asserts this at every scale (next section).
+`buildCorpus(scale)` is `scale` units of one workspace plan: 4,867 issues,
+4,304 sessions and 468 worktrees per unit, in ONE set of 9 kernel repos and 17
+repo roots. A bigger workspace is more work in the same repos, so repo rows,
+roots and groups stay while issues, sessions, worktrees and everything
+counted over them multiply; shares and depths stay. The unit plan is the live
+export's per-kind table (POD-4552, 5,170 issues, 2026-09-23T06:38Z) scaled to
+4,867 issues: counts per issue kind (audience × stage × archived/deleted),
+depth weights, edge shares and session means per kind. Only the export's
+shape is used. None of its content is copied.
 
-## Shape at every scale (POD-4551, seed 4443)
+| scale | issues | sessions | scan entries | worktrees | repo rows / roots | visible rows | top / nested | groups | pinned |
+|---|---|---|---|---|---|---|---|---|---|
+| 1x | 4,867 | 4,304 | 485 | 468 | 9 / 17 | **732** | 272 / 460 | 8 | 21 |
+| 2x | 9,734 | 8,608 | 953 | 936 | 9 / 17 | 1,465 | 543 / 922 | 8 | 42 |
+| 4x | 19,468 | 17,216 | 1,889 | 1,872 | 9 / 17 | 2,928 | 1,085 / 1,843 | 8 | 84 |
+
+Scan entries are the 17 roots plus the standalone entry a real scan reports
+for every linked worktree (live: 541 = 34 root entries + 507), dropped by
+legacy `reposToViews` and by the row source alike.
+
+### Against the live table, at every scale
+
+Measured by `measureShape` (`harness/src/fixture/shape.ts`), the instrument
+the live comparison uses. Asserted in `harness/src/fixture/corpus.test.ts`,
+"buildCorpus shape at %ix": one named case per dimension, each within 20% of
+live (counts times the scale; shares and depths as they are; repo rows, roots
+and groups unscaled), so a drift fails the dimension that drifted.
+
+{table}
+
+**Chosen, not copied (one moment).** The export is 06:38Z, the quiet end of
+the operator's day: 32 live sessions, 5 working rows. A benchmark fixture at
+that level would give #2 and the working roll-up almost nothing to move, so
+the fixture keeps a working-day level instead: about 2% of sessions live and
+6–7% of rows working (the old fixture had 15% and 67%). The phase shares
+(queued, waiting, done) follow live within 20%; the working share is held to
+2–10% of rows and live sessions to 1–4% of sessions. Pinned rows (21) are
+matched to the export.
+
+**Not matched (not in the brief, recorded):** resume-twin groups stay at
+the planted three per unit (live 10), so the twin collapse removes 2 sessions
+per unit (live 10). Depth 6 holds 3 issues at 1x (live 4). The per-issue
+extremes differ: live's largest `issue.sessions` bucket is 190 and its largest
+`issue.children` 245 (M3, POD-4591); the fixture's missions carry at most
+~100 children and ~6 sessions.
+
+**What the generator keeps from before.** Resume twins (one group of each kind
+per unit), hidden askers (20 per unit), valid sort keys (`spreadSortKeys`),
+the unscanned worktree (POD-4550) and the rescue/keeper pair (#6d), all
+asserted as before. The named fork trap (`/w/alpha` vs `/w/alpha-fork`,
+`/w/beta` vs `/w/beta-fork`) is two of the 19 pairs per unit.
+
+**Deliberate limits** (each tested, so a later change is loud):
+
+- *A visible row is never blocked by unfinished work.* `blocks` edges are
+  live-shaped (32–33% of issues), but a `blocks` edge from a visible row only
+  ever points at finished work. A blocked row changes what the row asks
+  (`issuePendingDecision`), and spec §6 keeps dependency semantics out of the
+  comparison. On the live export that costs 4 of 759 rows (phase and asking;
+  measured by stripping the edges and re-running the oracle). Test: "never
+  blocks a visible row on open work".
+- *No visible review row is a spin-off origin.* A review row whose work
+  continued in a live spin-off stops asking (`issueContinuation`,
+  `row-attention.ts:150`); spec §6 keeps the continuation walk out. On the
+  live export, stripping `discovered-from` changes 10 rows' phase and asking
+  and 44 rows' progress.
+- *`needsHuman` sits on hidden open issues only* (44 per unit, live 46).
+- *`startedBySession` nests exactly the 12 planted top-level issues per unit*
+  (live 12). Every other visible top-level row that carries a starter is a
+  spin-off, which legacy keeps top-level (`rows.ts:288`), as live's 55 are.
+- *Pins state stays empty* (live: 8 panels, 10 worktrees). The scenario
+  engine answers `pins.list` empty, so the oracle and the engine would
+  disagree on pinned lanes. `issue.pinned` covers the PINNED section.
+- *A `shipping` cover* (5 per unit): a system-owned stage the derivation
+  skips, not seen live.
+- *Ids follow creation order*: a child is created after its parent and gets
+  a later id, as live `seq` does. Rule-picked targets ("first by id") are the
+  oldest that qualify.
+
+### The #2 target (from Ma4, POD-4568)
+
+`pickTargets` now requires the #2 root's family (every session bound to it,
+the schema's `issue.sessions`) to be larger than one level of the #2 reads
+budget (`PHASE_FAMILY_FLOOR` = `READ_BUDGETS.phaseChangePerLevel` = 3). Every
+unit's first five open missions with children carry one working session
+among five. The rules live once, in `targetRules` (`phaseRoot` is the rename's
+`openRootWithChildren` plus #2's session condition); `pickTargets` and the
+browser page both call it.
+
+Proof (`scenarios.test.ts`, "#2 target family is larger than one level of the
+reads budget"): the floor equals the harness budget; the family exceeds it at
+1x, 2x and 4x; `startEngineOnCorpus` boots at 1x, 2x and 4x with the
+rule-picked targets; control: the same root with its family trimmed to 3 is
+refused. And the planted arm (`arms/mobx/pool/counts.test.tsx`, member
+activity read from the rows again) now FAILS #2's reads fence: it reads the
+whole family (5 sessions at 1x) against a budget of 3. On the old target
+(`i17`, 3 sessions) it passed at exactly 3.
+
+**The live export still cannot boot the engine.** At 06:38Z it had 6 live
+working sessions and none on an open root with children whose subtree is
+otherwise idle, so no #2 target exists at that moment (`targetRules` finds 39
+open roots with children, 130 childless open roots, 0 `phaseRoot`). The #2
+rule needs a working session by design; an export taken during a working day
+would be expected to satisfy it.
+
+### What moves (re-run before comparing)
+
+Every number measured on the old fixture must be re-run on this one before
+anything is compared against it:
+
+- **Ma4 fence cells** (`docs/measurements/POD-4568-a.md`, "Fence steps #1–#4
+  at 1x"): the targets moved (old `i17` / `s34` / `s2135`, new at 1x: root
+  `i235`, phase session `s15`, heartbeat `s2623`), so every cell there
+  (changed rows, drawn rows, reads, rows committed, pool counters) and the
+  finding in its "#2 cannot catch a sibling re-read" section are old-fixture
+  numbers. The finding is resolved by the target rule above.
+- **The flatblock no-op floor (POD-4558)** was measured on the old fixture's
+  211-row list; the list is now 732 / 1,465 / 2,928 rows.
+- **Reads budgets that depend on the corpus**, replayed exactly as
+  `runFenceScenarios` computes them (budget before each write, one engine per
+  scale, steps in order):
+
+| step | old 1x / 2x / 4x | new 1x / 2x / 4x |
+|---|---|---|
+| #8b clock grace crossing | **0 / 0 / 0** | **144 / 288 / 576** |
+| #10 burst (50 issues, 3 × (ancestors + 1) each) | 171 / 195 / 243 | 168 / 177 / 156 |
+| every other step (#1–#8, #9a–c) | unchanged | unchanged |
+
+  #8b had no row crossing the 24 h grace window on the old fixture, so its
+  budget was 0 and the step exercised nothing; now 6 rows per unit cross.
+  The burst's chain mix now follows creation order; its budget no longer
+  grows with scale, because a bigger workspace does not deepen the oldest
+  issues' chains.
+- **The #5, #6 and #7 constants rest on "~850 visible rows at 4x"**
+  (`READ_BUDGETS` comments, log2 ≈ 10 probes). The list is now 2,928 rows at
+  4x: log2 ≈ 11.5, about two more probes per binary search. The constants
+  did not change; their premise did.
+- **Oracle and build time** (next line) and every wall time taken on the
+  old fixture.
+
+**Oracle time on the reshaped fixture** (in-process, bun, NOT under the
+bench lock: load average 22–34 during the run, so these are only an order of
+magnitude): build 0.3 / 0.6 / 1.0 s and oracle 0.8 / 4.2 / **46 s** at 1x /
+2x / 4x (old fixture, quiet box: oracle 0.16 / 0.66 / 2.2 s). The legacy
+derivation's cost grows much faster than its rows; that growth is what round
+three measures. `oracle.test.ts`'s budgets (4x build < 10 s, 1x oracle < 5 s)
+still hold; tests that run the oracle at 4x need minutes under load.
+
+## Shape at every scale, old fixture (POD-4551)
+
+Kept as history; superseded by the section above.
+
 
 Asserted in `harness/src/fixture/corpus.test.ts`, "buildCorpus shape at %ix".
 Measured with the resume twins and hidden askers in place (below). No
@@ -121,7 +267,10 @@ then a stage move lands on the same row. The written row carries the
 server's title. Mutation: building from the snapshot again makes it carry
 "Pending title" and fail.
 
-## Shape at 1x
+## Shape at 1x, old fixture
+
+Kept as history (before POD-4635).
+
 
 - Open issues (no `closedAt`): 2,170 (~2,230).
 - With parent (`parentId`): 1,976 / 4,867 = 40.6% (~40% children; 1,963 before POD-4551 reparented the 13 askers that were roots).
@@ -144,6 +293,9 @@ server's title. Mutation: building from the snapshot again makes it carry
   spans two paths (`/repo-5`, `/other-path-5`) for the group-merge rule.
 
 ## Fixture vs live (POD-4552)
+
+**This table is the OLD fixture against live.** The reshaped fixture's
+comparison is "Fixture vs live after POD-4635" below.
 
 The fixture's realism, measured instead of asserted. One anonymised export of
 the live workspace (ludovico, backend `:18787`) at **2026-09-23T06:38:21Z**,
@@ -361,7 +513,80 @@ which to take.
 Within 20%: issues, sessions, scan repos, open share, depth 2, worktree lanes
 and closed-fold rows.
 
-## Timings under load below 8 (POD-4551, as of ae70508a3)
+## Fixture vs live after POD-4635
+
+The same command on the reshaped fixture, against the same export:
+
+```
+bun --conditions=@podium/source packages/worklist-proto/harness/src/fixture/export-snapshot.ts --compare <export.json.gz>
+```
+
+| measure | fixture 1x | live | deviation | follow-up |
+|---|---|---|---|---|
+| issues | 4,867 | 5,170 | 6% |  |
+| sessions | 4,304 | 4,624 | 7% |  |
+| repo prefixes (kernel `repo` rows) | 9 | 9 | 0% |  |
+| scan repos (`GitRepositoryWire`) | 485 | 541 | 12% |  |
+| largest repo / issues | 4,055 (83.3%) | 4,574 (88.5%) | 6% |  |
+| visible rows (oracle `rowsById`) | 732 | 759 | 4% |  |
+| top-level rows | 272 | 283 | 4% |  |
+| nested (started-by) rows | 460 | 476 | 3% |  |
+| worktree-kind rows (dropped) | 4 | 4 | 0% |  |
+| open issues / issues | 2,166 (44.5%) | 2,284 (44.2%) | 1% |  |
+| with parent / issues | 2,969 (61.0%) | 3,159 (61.1%) | 0% |  |
+| depth 1 / issues | 1,898 (39.0%) | 2,011 (38.9%) | 0% |  |
+| depth 2 / issues | 1,620 (33.3%) | 1,699 (32.9%) | 1% |  |
+| depth 3 / issues | 797 (16.4%) | 889 (17.2%) | 5% |  |
+| depth 4 / issues | 485 (10.0%) | 506 (9.8%) | 2% |  |
+| depth 5 / issues | 64 (1.3%) | 61 (1.2%) | 10% |  |
+| depth 6 / issues | 3 (0.1%) | 4 (0.1%) | 26% | **yes** |
+| max depth | 6 | 6 | 0% |  |
+| discovered-from edges / issues | 1,697 (34.9%) | 1,788 (34.6%) | 1% |  |
+| `blocked-by` deps / issues | 12 (0.2%) | 13 (0.3%) | 2% |  |
+| `blocks` deps / issues | 1,597 (32.8%) | 1,751 (33.9%) | 3% |  |
+| `bogus` deps / issues | 1 (0.0%) | 1 (0.0%) | 6% |  |
+| `duplicate` deps / issues | 15 (0.3%) | 16 (0.3%) | 0% |  |
+| `duplicates` deps / issues | 3 (0.1%) | 3 (0.1%) | 6% |  |
+| `related` deps / issues | 234 (4.8%) | 249 (4.8%) | 0% |  |
+| `supersedes` deps / issues | 25 (0.5%) | 27 (0.5%) | 2% |  |
+| `waits-on` deps / issues | 10 (0.2%) | 11 (0.2%) | 4% |  |
+| prefix-owned sessions / sessions | 654 (15.2%) | 701 (15.2%) | 0% |  |
+| lanes | 485 | 521 | 7% |  |
+| repo-root lanes | 17 | 17 | 0% |  |
+| worktree lanes | 468 | 504 | 8% |  |
+| nested lanes (inside another lane) | 202 | 202 | 0% |  |
+| fork-trap lane pairs | 19 | 19 | 0% |  |
+| prefix-owned → repo-root lane / sessions | 142 (3.3%) | 152 (3.3%) | 0% |  |
+| prefix-owned → worktree lane / sessions | 38 (0.9%) | 40 (0.9%) | 2% |  |
+| prefix-owned → no lane / sessions | 474 (11.0%) | 509 (11.0%) | 0% |  |
+| sessions in repo-root lanes / sessions | 1,129 (26.2%) | 1,287 (27.8%) | 6% |  |
+| `startedBySession` / issues | 3,577 (73.5%) | 3,770 (72.9%) | 1% |  |
+| `coordinatorSessionId` / issues | 1,291 (26.5%) | 1,315 (25.4%) | 4% |  |
+| `needsHuman` / issues | 44 (0.9%) | 46 (0.9%) | 2% |  |
+| sessions with `resume` / sessions | 3,279 (76.2%) | 3,493 (75.5%) | 1% |  |
+| live sessions / sessions | 84 (2.0%) | 32 (0.7%) | 65% | **yes** |
+| resume-twin groups (2+ sessions, one ref) | 3 | 10 | 233% | **yes** |
+| sessions removed by the twin collapse | 2 | 10 | 400% | **yes** |
+| discovery-only lanes | 193 | 200 | 4% |  |
+| scan repos on hidden machines | 0 | 0 | 0% |  |
+| closed issues in the 24 h grace window | 70 | 68 | 3% |  |
+| `PREFIX-seq` rows / visible | 730 (99.7%) | 757 (99.7%) | 0% |  |
+| groups | 8 | 8 | 0% |  |
+| pinned rows | 21 | 21 | 0% |  |
+| closed-fold rows / visible | 73 (10.0%) | 71 (9.4%) | 6% |  |
+| asking rows / visible | 269 (36.7%) | 281 (37.0%) | 1% |  |
+| working rows / visible | 50 (6.8%) | 9 (1.2%) | 83% | **yes** |
+| phase queued / visible | 264 (36.1%) | 284 (37.4%) | 4% |  |
+| phase working / visible | 29 (4.0%) | 5 (0.7%) | 83% | **yes** |
+| phase waiting / visible | 269 (36.7%) | 281 (37.0%) | 1% |  |
+| phase done / visible | 170 (23.2%) | 189 (24.9%) | 7% |  |
+
+Above 20%: the chosen time-dependent measures (live sessions, working rows,
+phase working), the planted twin count (3 groups against live's 10) and
+depth 6 (3 issues against 4). Every follow-up the POD-4552 table raised for
+structure (1–6 in "Fixture follow-ups") is within 20%.
+
+## Timings under load below 8 (POD-4551, as of ae70508a3, old fixture)
 
 Measured at 2ef9f6606 before the landing rebase. Its corpus, oracle and
 scenario code is byte-identical at ae70508a3 on the integration branch.
@@ -385,7 +610,7 @@ then 3.3x). That is the legacy derivation's own cost growth, the thing round
 three measures, not a property of the corpus. Budgets in `oracle.test.ts`
 (4x build < 10 s, 1x oracle < 5 s) hold with wide margin.
 
-## Timings, round two (bench lock held; box heavily loaded — see uptime)
+## Timings, round two (old fixture; bench lock held; box heavily loaded — see uptime)
 
 `uptime: 22:57:14 up 9 days, 5:35, 4 users, load average: 23.67, 20.18, 15.74`.
 Load was above 8 throughout, so counts carry the verdict; walls are recorded
@@ -430,19 +655,10 @@ them:
 
 ## Deliberate fixture divergences (realism notes, not defects)
 
-- The fixture mints no `startedBySession`, so top-level agent-audience rows
-  are dropped by the legacy nesting pass (`rows.ts:354`) and their live
-  sessions surface as worktree-kind rows, which the slice drops. Arms must
-  reproduce the drop. (In the live corpus, agent issues typically carry
-  `startedBySession` and nest; nesting would add ~200 visible rows here and
-  break the 211 budget, so the drop path is the budgeted one.)
-- `needsHuman` is always false; `coordinatorSessionId` is absent;
-  `supersededBy`/`duplicateOf` are absent.
-- Pins are empty (`issue.pinned` still covers the PINNED section + band 0).
-- Repos are unstamped (`machineId` absent ⇒ visible) except five stamped
-  `m0` (stamped-but-visible path); no repo is machine-hidden.
-- No `blocks` edges ⇒ `blocked` is always false and `issuePendingDecision`
-  is `review`-only.
+Superseded by POD-4635: see "Deliberate limits" under "The reshaped fixture".
+The old fixture minted no `startedBySession`, no `coordinatorSessionId`, no
+`blocks` edges and no `needsHuman`, and kept pins empty; only the last of
+those still holds.
 
 ## LOUD: two spec §3.9 errata (oracle follows legacy in both)
 

@@ -113,11 +113,11 @@ function projectRow(
   row: UnifiedIssueRow,
   derivation: LegacyDerivation,
   locals: SliceLocals,
+  sessionIndex: () => ReturnType<typeof indexMissionSessions>,
 ): SliceRow {
   const { models, sessions, allWorktreePaths } = derivation
   const rollup =
-    row.missionRollup ??
-    missionRollup(models, sessions, row.issue.id, indexMissionSessions(sessions))
+    row.missionRollup ?? missionRollup(models, sessions, row.issue.id, sessionIndex())
   const band = unifiedRowBand(row, locals.coarseNow)
   return {
     id: row.issue.id,
@@ -168,8 +168,17 @@ export function projectSnapshot(derivation: LegacyDerivation, locals: SliceLocal
   )
   const order: SliceOrder = { pinnedIds, groups }
   const rowsById: Record<string, SliceRow> = {}
+  // The progress fallback's session index, built once per projection: a
+  // pure function of the sessions, so one index serves every row. Rebuilt
+  // per nested row it cost O(rows x sessions), 76% of the oracle's time on
+  // the live-shaped fixture (POD-4635: 460 nested rows at 1x, was 65).
+  let index: ReturnType<typeof indexMissionSessions> | undefined
+  const sessionIndex = () => {
+    index ??= indexMissionSessions(derivation.sessions)
+    return index
+  }
   for (const row of flat) {
-    rowsById[row.issue.id] = projectRow(row, derivation, locals)
+    rowsById[row.issue.id] = projectRow(row, derivation, locals, sessionIndex)
   }
   return { order, rowsById }
 }

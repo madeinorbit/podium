@@ -91,7 +91,7 @@ import {
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
-import { asIssueId, asUserId } from '@podium/model'
+import { asIssueId, asUserId, type SessionMeta } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { createRowSource } from './row-source'
@@ -400,28 +400,83 @@ function parentIds(issues: readonly IssueFacts[]): Set<string> {
 }
 
 /**
- * The target rules as predicates over issue ids, for callers that pick among
- * rows drawn on screen rather than the whole corpus (the browser page,
- * POD-4558/POD-4559): the same `isOpenHuman`, childless and unpinned rules
- * {@link pickTargets} applies. `openRootWithChildren` is the rename's rule
- * without its session condition (a drawn row need not be the #2 row).
+ * The target rules as predicates over issue ids, ONE definition for every
+ * caller: `pickTargets` below, and the browser page (POD-4558/POD-4559), which
+ * picks among rows drawn on screen rather than the whole corpus. The page
+ * and the engine must pick identical targets, so neither restates a rule.
+ * `openRootWithChildren` is the rename's rule; `phaseRoot` is the same rule
+ * plus #2's session condition (a drawn row need not be the #2 row).
  */
 export function targetRules(corpus: FixtureCorpus): {
   root: (id: string) => boolean
   openRootWithChildren: (id: string) => boolean
   childlessRoot: (id: string) => boolean
+  phaseRoot: (id: string) => boolean
+  /** The live working session a #2 target's phase change flips. */
+  phaseSession: (id: string) => SessionMeta | undefined
 } {
   const issues = corpus.issues as unknown as IssueFacts[]
   const byId = new Map(issues.map((i) => [i.id, i]))
   const parents = parentIds(issues)
+  const children = new Map<string, string[]>()
+  for (const issue of issues) {
+    if (!issue.parentId) continue
+    const list = children.get(issue.parentId) ?? []
+    list.push(issue.id)
+    children.set(issue.parentId, list)
+  }
+  const sessionsOf = new Map<string, SessionMeta[]>()
+  for (const s of corpus.sessions) {
+    if (!s.issueId) continue
+    const list = sessionsOf.get(s.issueId) ?? []
+    list.push(s)
+    sessionsOf.set(s.issueId, list)
+  }
+  const isLiveWorking = (s: SessionMeta): boolean =>
+    s.status === 'live' && s.agentState?.phase === 'working' && s.agentKind !== 'shell'
+  const liveOrphanCwds = corpus.sessions
+    .filter((s) => !s.issueId && isLiveWorking(s))
+    .map((s) => s.cwd)
+  const seatsOrphans = (i: IssueFacts): boolean => {
+    const wt = (i as { worktreePath?: string | null }).worktreePath
+    return !!wt && liveOrphanCwds.some((cwd) => cwd === wt || cwd.startsWith(`${wt}/`))
+  }
+  const workingIn = (i: IssueFacts): number =>
+    (sessionsOf.get(i.id) ?? []).filter(isLiveWorking).length + (seatsOrphans(i) ? 1 : 0)
+  const subtreeWorking = (id: string): number =>
+    (children.get(id) ?? []).reduce((sum, child) => {
+      const issue = byId.get(child)
+      return sum + (issue ? workingIn(issue) + subtreeWorking(child) : 0)
+    }, 0)
+  // The family is every session bound to the issue (`issue.sessions`, the
+  // schema's R2 membership: headless sessions excepted).
+  const familyOf = (id: string): number =>
+    (sessionsOf.get(id) ?? []).filter((s) => (s as { headless?: boolean }).headless !== true)
+      .length
   const openRoot = (id: string): boolean => {
     const i = byId.get(id)
     return i !== undefined && isOpenHuman(i) && !i.parentId && !i.pinned
   }
+  const openRootWithChildren = (id: string): boolean => openRoot(id) && parents.has(id)
   return {
     root: (id) => byId.get(id) !== undefined && !byId.get(id)?.parentId,
-    openRootWithChildren: (id) => openRoot(id) && parents.has(id),
+    openRootWithChildren,
     childlessRoot: (id) => openRoot(id) && !parents.has(id),
+    // #2: one bound live working session and nothing else working in the
+    // subtree, bound or seated by prefix (a row reads working if any
+    // descendant does), and a family larger than one level of the budget.
+    phaseRoot: (id) => {
+      const i = byId.get(id)
+      return (
+        i !== undefined &&
+        openRootWithChildren(id) &&
+        workingIn(i) === 1 &&
+        !seatsOrphans(i) &&
+        subtreeWorking(id) === 0 &&
+        familyOf(id) > PHASE_FAMILY_FLOOR
+      )
+    },
+    phaseSession: (id) => (sessionsOf.get(id) ?? []).find(isLiveWorking),
   }
 }
 
@@ -465,41 +520,13 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
     return hit
   }
 
-  const liveOrphanCwds = corpus.sessions
-    .filter((s) => !s.issueId && isLiveWorking(s))
-    .map((s) => s.cwd)
-  const seatsOrphans = (i: IssueFacts): boolean => {
-    const wt = (i as { worktreePath?: string | null }).worktreePath
-    return !!wt && liveOrphanCwds.some((cwd) => cwd === wt || cwd.startsWith(`${wt}/`))
-  }
-  const workingIn = (i: IssueFacts): number =>
-    (sessionsOf.get(i.id) ?? []).filter(isLiveWorking).length + (seatsOrphans(i) ? 1 : 0)
-  const subtreeWorking = (id: string): number =>
-    (children.get(id) ?? []).reduce((sum, child) => {
-      const issue = byId.get(child)
-      return sum + (issue ? workingIn(issue) + subtreeWorking(child) : 0)
-    }, 0)
-  // The family is every session bound to the issue (`issue.sessions`, the
-  // schema's R2 membership: headless sessions excepted).
-  const familyOf = (i: IssueFacts): number =>
-    (sessionsOf.get(i.id) ?? []).filter((s) => (s as { headless?: boolean }).headless !== true)
-      .length
+  const rules = targetRules(corpus)
   const root = take(
     `open human root with children, exactly one working session and a family over ${PHASE_FAMILY_FLOOR}`,
-    (i) => {
-      if (!openHuman(i) || i.parentId || childless(i)) return false
-      return (
-        workingIn(i) === 1 &&
-        !seatsOrphans(i) &&
-        subtreeWorking(i.id) === 0 &&
-        familyOf(i) > PHASE_FAMILY_FLOOR
-      )
-    },
+    (i) => rules.phaseRoot(i.id),
   )
-  const phaseSession =
-    (sessionsOf.get(root.id) ?? []).find(isLiveWorking) ?? fail('working session on the root')
-  const childlessRoot = (rule: string): IssueFacts =>
-    take(rule, (i) => openHuman(i) && !i.parentId && childless(i) && !i.pinned)
+  const phaseSession = rules.phaseSession(root.id) ?? fail('working session on the root')
+  const childlessRoot = (rule: string): IssueFacts => take(rule, (i) => rules.childlessRoot(i.id))
   const stageMove = childlessRoot('childless open root for the stage move')
   const archive = childlessRoot('childless open root to archive')
   const evict = childlessRoot('childless open root to evict')

@@ -42,23 +42,30 @@ const HOUR_MS = 60 * MIN_MS
 const DAY_MS = 24 * HOUR_MS
 const iso = (ms: number): string => new Date(ms).toISOString()
 
-/** Per-unit (1x) counts. 2x and 4x multiply every line but `machines`. */
+/** 1x counts. 2x and 4x multiply issues, sessions and worktrees; the repos,
+ *  their roots and the machines stay (a bigger workspace is more work in the
+ *  same repos, so the largest repo's share stays live's 89%). */
 export const BASE_COUNTS = {
   issues: 4867,
   sessions: 4304,
-  /** Discovery scan entries (`GitRepositoryWire`): the 17 repo roots plus the
-   *  standalone entry a real scan reports for each linked worktree. */
+  /** Discovery scan entries (`GitRepositoryWire`) at 1x: the 17 repo roots
+   *  plus the standalone entry a real scan reports for each linked worktree
+   *  (`scanEntries(scale)`). */
   repos: 485,
   /** Linked worktrees (the static `sliceWorktrees` lanes). */
   worktrees: 468,
   machines: 6,
-  /** Kernel `repo` entity rows (the prefix join). Live: 9. */
+  /** Kernel `repo` entity rows (the prefix join), at every scale. Live: 9. */
   repoRows: 9,
-  /** Repo roots in the scan (a lane each). Live: 17. */
+  /** Repo roots in the scan (a lane each), at every scale. Live: 17. */
   rootLanes: 17,
 } as const
 
 export type CorpusScale = 1 | 2 | 4
+
+/** Discovery scan entries at a scale: the roots, and one per worktree. */
+export const scanEntries = (scale: CorpusScale): number =>
+  BASE_COUNTS.rootLanes + BASE_COUNTS.worktrees * scale
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0
@@ -241,10 +248,10 @@ const BLOCK_LIFT = 1.07
 /** Live: 46 of 5,170 issues. */
 const NEEDS_HUMAN_1X = 44
 
-const DEPTH_AGENT_DONE = [640, 408, 286, 42, 2]
+const DEPTH_AGENT_DONE = [640, 408, 286, 42, 4]
 const DEPTH_AGENT_REVIEW = [58, 11, 69, 8]
 const DEPTH_AGENT_ACTIVE = [29, 11, 8]
-const DEPTH_HUMAN_DONE = [173, 108, 87, 4, 2]
+const DEPTH_HUMAN_DONE = [173, 108, 87, 4, 4]
 
 const H = 'human'
 const A = 'agent'
@@ -483,8 +490,8 @@ const ROOT_NESTED = [60, 90, 30, 4, 8, 3, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0]
 const FORK_TRAP_EXTRA = 17
 /** Issue repo weights for hidden roots (live: one repo holds 89%). */
 const HIDDEN_REPO_WEIGHTS: Array<[number | 'a' | 'b', number]> = [
-  [0, 850],
-  [1, 100],
+  [0, 935],
+  [1, 40],
   [2, 20],
   [3, 10],
   [4, 5],
@@ -602,37 +609,64 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     goneSeq: number
   }> = []
 
+  // -- kernel repos and repo roots: one set for the whole corpus ---------------
+  // A bigger workspace is more work in the same repos, so repo rows, roots
+  // and groups do not multiply with the scale; worktrees, issues and
+  // sessions do.
+  const repoId = (j: number | 'a' | 'b'): string => (typeof j === 'number' ? `r${j}` : `rx${j}`)
+  for (let j = 0; j < BASE_COUNTS.repoRows; j++)
+    repoProjections.push({ id: repoId(j), prefix: PREFIXES[j] } as RepoProjection)
+  const rootPaths: string[] = []
+  const primaryRoot = new Map<string, string>()
+  const rootsOf = new Map<string, string[]>()
+  const roots = ROOT_REPO.map((j, r) => {
+    const path = `/repo-${pad(r, 3)}`
+    const rid = repoId(j)
+    rootPaths.push(path)
+    if (!primaryRoot.has(rid)) primaryRoot.set(rid, path)
+    rootsOf.set(rid, [...(rootsOf.get(rid) ?? []), path])
+    return {
+      path,
+      rid,
+      machineId: `m${r % 3 === 0 ? 0 : r % 3 === 1 ? 1 : 2 + (r % 4)}`,
+      worktrees: [] as Array<{ path: string; branch: string }>,
+    }
+  })
+  if (roots.length !== BASE_COUNTS.rootLanes) fail('root plan drift')
+  const standalone: GitRepositoryWire[] = []
+  let wtSeq = 0
+
   for (let unit = 0; unit < scale; unit++) mintUnit(unit)
+
+  // The scan: every root with all its worktrees, then the standalone entry a
+  // real scan reports for each linked worktree.
+  for (const root of roots)
+    repos.push({
+      path: root.path,
+      kind: 'repository',
+      branch: 'main',
+      worktrees: root.worktrees,
+      machineId: root.machineId,
+      repoId: root.rid,
+    } as GitRepositoryWire)
+  repos.push(...standalone)
 
   // -------------------------------------------------------------------------
   // One workspace unit.
   // -------------------------------------------------------------------------
   function mintUnit(unit: number): void {
     const first = mints.length
-    const repoId = (j: number | 'a' | 'b'): string =>
-      typeof j === 'number' ? `r${unit * BASE_COUNTS.repoRows + j}` : `rx${unit}${j}`
-    // -- kernel repo rows ---------------------------------------------------
-    for (let j = 0; j < BASE_COUNTS.repoRows; j++)
-      repoProjections.push({ id: repoId(j), prefix: PREFIXES[j] } as RepoProjection)
-
-    // -- roots and worktrees (the discovery scan) -----------------------------
-    const rootPaths: string[] = []
-    const primaryRoot = new Map<string, string>()
-    const rootsOf = new Map<string, string[]>()
+    // -- worktrees (the discovery scan) -----------------------------------------
+    // Each unit adds its worktrees under the SAME roots: the workspace grows
+    // inside its repos (live: one repo holds 89% of the issues).
     const freeLanes = new Map<string, string[]>()
     const lanes: string[] = []
-    const standalone: GitRepositoryWire[] = []
-    let wtSeq = 0
     const named = unit === 0 ? ['alpha', 'beta'] : [`u${unit}alpha`, `u${unit}beta`]
     let forkBudget = FORK_TRAP_EXTRA
-    for (let r = 0; r < BASE_COUNTS.rootLanes; r++) {
-      const path = `/repo-${pad(unit * BASE_COUNTS.rootLanes + r, 3)}`
-      const rid = repoId(ROOT_REPO[r]!)
-      const machineId = `m${r % 3 === 0 ? 0 : r % 3 === 1 ? 1 : 2 + (r % 4)}`
-      rootPaths.push(path)
-      if (!primaryRoot.has(rid)) primaryRoot.set(rid, path)
-      rootsOf.set(rid, [...(rootsOf.get(rid) ?? []), path])
-      const worktrees: Array<{ path: string; branch: string }> = []
+    roots.forEach((root, r) => {
+      const { path, rid, machineId } = root
+      const worktrees = root.worktrees
+      const unitStart = worktrees.length
       for (let w = 0; w < ROOT_WORKTREES[r]!; w++) {
         const nested = w < ROOT_NESTED[r]!
         let wt = nested ? `${path}/.worktrees/w${pad(wtSeq, 5)}` : `/w/${unit}t${pad(wtSeq, 5)}`
@@ -642,7 +676,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
         const namedAt = r === 0 && !nested ? w - ROOT_NESTED[0]! : -1
         if (namedAt >= 0 && namedAt < 4)
           wt = `/w/${named[namedAt >> 1]}${namedAt % 2 === 1 ? '-fork' : ''}`
-        const prev = worktrees.at(-1)?.path
+        const prev = worktrees.length > unitStart ? worktrees.at(-1)?.path : undefined
         if (
           namedAt < 0 || namedAt >= 5
             ? forkBudget > 0 &&
@@ -671,21 +705,12 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
           path: wt,
           repoId: rid,
           repoPath: path,
-          repoName: `repo-${pad(unit * BASE_COUNTS.rootLanes + r, 3)}`,
+          repoName: path.slice(1),
           prefix: typeof ROOT_REPO[r] === 'number' ? PREFIXES[ROOT_REPO[r] as number] : null,
         })
       }
-      repos.push({
-        path,
-        kind: 'repository',
-        branch: 'main',
-        worktrees,
-        machineId,
-        repoId: rid,
-      } as GitRepositoryWire)
-    }
+    })
     if (forkBudget !== 0) fail(`fork-trap budget left ${forkBudget}`)
-    repos.push(...standalone)
     // Lanes an issue can name: shuffled per repo so naming is spread out.
     for (const [rid, list] of freeLanes) freeLanes.set(rid, shuffle(list))
 
@@ -884,7 +909,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     // -- timestamps and close reasons -------------------------------------------------------
     const recentFinish = new Set<number>([
       ...roleList('topClosed').slice(0, 6),
-      ...roleList('nAgentDone').filter(() => rng() < 0.2),
+      ...roleList('nAgentDone').filter(() => rng() < 0.3),
     ])
     const doneReasons: Array<[string, number]> = [
       ['done', 90],
@@ -1194,7 +1219,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     }
     // Four unbound runs in a repo root that never stopped: the worktree rows
     // live shows (4) — a root lane no issue names.
-    for (let k = 0; k < 4; k++) rowSession(null, 'retained', u.rootPaths[3 + k]!)
+    for (let k = 0; k < 4; k++)
+      rowSession(null, 'retained', u.rootPaths[(3 + 4 * unit + k) % u.rootPaths.length]!)
     const rootCwd = (): string => `${pick(u.rootPaths)}${rng() < 0.5 ? '' : '/packages/app'}`
     for (let k = 0; k < 68; k++) history(null, rootCwd())
     for (let k = 0; k < 11; k++) history(null, `${pick(u.lanes)}/tmp`)
@@ -1801,13 +1827,28 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       setWire(i, 'gitState', { shared: false, merged: false, ahead: 2 })
     }
   }
-  // Read cursors: everything historical reads as read; open issues read
+  // Read cursors: everything historical reads as read, after its last
+  // session activity too (an unread finished child stays visible for 7 days,
+  // visibility.ts:36, and hidden history must stay hidden); open issues read
   // within two days.
+  const lastActivity = new Map<string, number>()
+  for (const s of sessions) {
+    const id = s['issueId']
+    if (typeof id !== 'string') continue
+    const at = Date.parse(s['lastActiveAt'] as string)
+    if (at > (lastActivity.get(id) ?? 0)) lastActivity.set(id, at)
+  }
   mints.forEach((m, i) => {
+    if (!(m.closed || m.archived || m.deleted)) {
+      setWire(i, 'readAt', ago(30 * MIN_MS, 2 * DAY_MS))
+      return
+    }
+    const last = lastActivity.get(idOf(i)) ?? 0
+    const updated = Date.parse(m.updatedAt)
     setWire(
       i,
       'readAt',
-      m.closed || m.archived || m.deleted ? m.updatedAt : ago(30 * MIN_MS, 2 * DAY_MS),
+      !VISIBLE_ROLES.has(m.role) && last > updated ? iso(last + MIN_MS) : m.updatedAt,
     )
   })
 
@@ -1938,7 +1979,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   }
   if (stats.issues !== BASE_COUNTS.issues * scale) fail('issue count drift')
   if (stats.sessions !== BASE_COUNTS.sessions * scale) fail('session count drift')
-  if (stats.repos !== BASE_COUNTS.repos * scale) fail('repo count drift')
+  if (stats.repos !== scanEntries(scale)) fail('repo count drift')
+  if (stats.repoRows !== BASE_COUNTS.repoRows) fail('repo row drift')
   if (stats.worktrees !== BASE_COUNTS.worktrees * scale) fail('worktree count drift')
 
   return {

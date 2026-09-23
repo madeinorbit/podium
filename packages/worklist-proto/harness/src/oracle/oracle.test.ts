@@ -22,11 +22,11 @@ describe('expectedSnapshot at 1x', () => {
   const corpus = buildCorpus(1, 4443)
   const snapshot = expectedSnapshot(corpus, locals())
 
-  it('shows 211 +/- 10% visible rows', () => {
+  it("shows the live table's 759 +/- 20% visible rows (POD-4635)", () => {
     const count = Object.keys(snapshot.rowsById).length
     console.info(`[fixture-shape] visible rows at 1x: ${count}`)
-    expect(count).toBeGreaterThanOrEqual(190)
-    expect(count).toBeLessThanOrEqual(232)
+    expect(count).toBeGreaterThanOrEqual(Math.ceil(759 * 0.8))
+    expect(count).toBeLessThanOrEqual(Math.floor(759 * 1.2))
   })
 
   it('keeps order ids resolving to rows with bands in range', () => {

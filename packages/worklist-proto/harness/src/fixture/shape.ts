@@ -34,6 +34,9 @@ export interface ShapeMeasures {
   sessions: number
   repoPrefixes: number
   scanRepos: number
+  /** Issues in the repo that holds the most (`issue.repoId`): the size of the
+   *  largest `repo.issues` bucket (M3, POD-4591, F1). */
+  largestRepoIssues: number
   /** Oracle rows (the parity surface): top-level rows plus every nested
    *  started-by descendant (`flattenIssueRows`). */
   visibleRows: number
@@ -199,6 +202,12 @@ export function measureShape(
     else byWorktree++
   }
 
+  const perRepo = new Map<string, number>()
+  for (const i of corpus.issues) {
+    const repo = str(i, 'repoId')
+    if (repo !== null) perRepo.set(repo, (perRepo.get(repo) ?? 0) + 1)
+  }
+
   const work = derivation.slice.work
   const topLevelRows = work.filter((r) => r.kind === 'issue').length
   const rows = Object.values(snapshot.rowsById)
@@ -225,6 +234,7 @@ export function measureShape(
     sessions: corpus.sessions.length,
     repoPrefixes: corpus.repoProjections.length,
     scanRepos: corpus.repos.length,
+    largestRepoIssues: Math.max(0, ...perRepo.values()),
     visibleRows: rows.length,
     topLevelRows,
     nestedRows: rows.length - topLevelRows,
@@ -362,6 +372,7 @@ export function comparisonPickers(fixture: ShapeMeasures, live: ShapeMeasures): 
     { measure: 'sessions', value: (m) => m.sessions },
     { measure: 'repo prefixes (kernel `repo` rows)', value: (m) => m.repoPrefixes },
     { measure: 'scan repos (`GitRepositoryWire`)', value: (m) => m.scanRepos },
+    { measure: 'largest repo / issues', value: (m) => m.largestRepoIssues, per: perIssue },
     { measure: 'visible rows (oracle `rowsById`)', value: (m) => m.visibleRows },
     { measure: 'top-level rows', value: (m) => m.topLevelRows },
     { measure: 'nested (started-by) rows', value: (m) => m.nestedRows },

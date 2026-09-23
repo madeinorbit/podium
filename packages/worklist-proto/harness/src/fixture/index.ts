@@ -1,4 +1,4 @@
-export { BASE_COUNTS, FIXED_NOW, buildCorpus } from './corpus'
+export { BASE_COUNTS, FIXED_NOW, buildCorpus, scanEntries } from './corpus'
 export type {
   CorpusScale,
   CorpusStats,

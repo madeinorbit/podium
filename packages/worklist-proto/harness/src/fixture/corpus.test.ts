@@ -6,7 +6,14 @@ import { isSortKey } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import { expectedSnapshot } from '../oracle/index'
-import { BASE_COUNTS, buildCorpus, type CorpusStats, FIXED_NOW, type FixtureCorpus } from './index'
+import {
+  BASE_COUNTS,
+  buildCorpus,
+  type CorpusStats,
+  FIXED_NOW,
+  type FixtureCorpus,
+  scanEntries,
+} from './index'
 import { measureShape, type ShapeMeasures } from './shape'
 
 describe('buildCorpus determinism', () => {
@@ -24,19 +31,20 @@ describe('buildCorpus determinism', () => {
 })
 
 describe('buildCorpus counts', () => {
-  it.each([1, 2, 4] as const)('scale %i multiplies all four collections', (scale) => {
+  it.each([1, 2, 4] as const)('scale %i multiplies issues, sessions and worktrees; repos stay', (scale) => {
     const corpus = buildCorpus(scale, 4443)
     expect(corpus.stats.issues).toBe(BASE_COUNTS.issues * scale)
     expect(corpus.stats.sessions).toBe(BASE_COUNTS.sessions * scale)
-    expect(corpus.stats.repos).toBe(BASE_COUNTS.repos * scale)
+    expect(scanEntries(1)).toBe(BASE_COUNTS.repos)
+    expect(corpus.stats.repos).toBe(scanEntries(scale))
     expect(corpus.stats.worktrees).toBe(BASE_COUNTS.worktrees * scale)
-    expect(corpus.stats.repoRows).toBe(BASE_COUNTS.repoRows * scale)
-    expect(corpus.stats.rootLanes).toBe(BASE_COUNTS.rootLanes * scale)
-    expect(corpus.repoProjections).toHaveLength(BASE_COUNTS.repoRows * scale)
+    expect(corpus.stats.repoRows).toBe(BASE_COUNTS.repoRows)
+    expect(corpus.stats.rootLanes).toBe(BASE_COUNTS.rootLanes)
+    expect(corpus.repoProjections).toHaveLength(BASE_COUNTS.repoRows)
     expect(corpus.issues).toHaveLength(BASE_COUNTS.issues * scale)
     expect(corpus.sessions).toHaveLength(BASE_COUNTS.sessions * scale)
     expect(corpus.issueProjections).toHaveLength(BASE_COUNTS.issues * scale)
-    expect(corpus.repos).toHaveLength(BASE_COUNTS.repos * scale)
+    expect(corpus.repos).toHaveLength(scanEntries(scale))
     expect(corpus.sliceIssues).toHaveLength(BASE_COUNTS.issues * scale)
     expect(corpus.sliceSessions).toHaveLength(BASE_COUNTS.sessions * scale)
     expect(corpus.sliceWorktrees).toHaveLength(BASE_COUNTS.worktrees * scale)
@@ -141,6 +149,13 @@ function liveTargets(scale: number): LiveTarget[] {
     value,
     band: within(live * scale),
   })
+  /** A count of repos and what they group: the same at every scale. */
+  const fixed = (name: string, live: number, value: (m: ShapeMeasures) => number): LiveTarget => ({
+    name,
+    live,
+    value,
+    band: within(live),
+  })
   /** A share of issues, sessions or visible rows: the same at every scale. */
   const share = (
     name: string,
@@ -163,7 +178,7 @@ function liveTargets(scale: number): LiveTarget[] {
     count('nested rows', 476, (m) => m.nestedRows),
     count('worktree-kind rows', 4, (m) => m.worktreeRows),
     count('pinned rows', 21, (m) => m.pinnedRows),
-    count('groups', 8, (m) => m.groups),
+    fixed('groups', 8, (m) => m.groups),
     share('closed-fold rows / visible', 71, 'visible', (m) => m.closedFoldRows),
     // Hierarchy.
     share('with parent / issues', 3159, 'issues', (m) => m.withParent),
@@ -181,8 +196,10 @@ function liveTargets(scale: number): LiveTarget[] {
     share('coordinatorSessionId / issues', 1315, 'issues', (m) => m.withCoordinator),
     share('needsHuman / issues', 46, 'issues', (m) => m.needsHuman),
     // Repos and lanes.
-    count('kernel repo prefixes', 9, (m) => m.repoPrefixes),
-    count('repo-root lanes', 17, (m) => m.rootLanes),
+    fixed('kernel repo prefixes', 9, (m) => m.repoPrefixes),
+    fixed('repo-root lanes', 17, (m) => m.rootLanes),
+    // M3 (POD-4591) F1: one repo's bucket is the cost the old fixture hid.
+    share('largest repo / issues', 4574, 'issues', (m) => m.largestRepoIssues),
     count('nested lanes', 202, (m) => m.nestedLanes),
     count('fork-trap lane pairs', 19, (m) => m.forkTrapPairs),
     // Sessions and seating.
@@ -342,7 +359,9 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551, POD-4635)
     for (const { rootId } of corpus.edgedAskers) {
       expect(shown.rowsById[rootId]!.asking, `root ${rootId} asks once its child shows`).toBe(true)
     }
-  })
+    // One full oracle run: ~1 s at 1x, tens of seconds at 4x under load
+    // (the legacy derivation's own growth on the live-shaped corpus).
+  }, 300_000)
 
   it('carries one resume-twin group of each kind per scale unit, on visible roots', () => {
     expect(corpus.resumeTwins).toHaveLength(3 * scale)
