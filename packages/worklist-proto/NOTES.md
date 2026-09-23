@@ -81,6 +81,9 @@ Numbers and follow-ups: `docs/measurements/POD-4441-fixture-shape.md`,
   client-core's own `activityAfterRead(readAt, issueActivityAt(...))` — the
   pair `fireMarkIssueRead` uses — never a local copy.
 
+All counts in this section and the harness doc are OLD FIXTURE (pre-POD-4635):
+provisional.
+
 ### Findings (reported to the coordinator)
 
 - Round-two hand and MobX fail browser parity from the first record at 1x

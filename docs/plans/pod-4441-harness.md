@@ -386,7 +386,8 @@ i300,i301,i23,…); refusing to time an undrawn row`. Nothing is recorded.
 
 All on flatblock (`bench:flatblock` held, load 2.0–6.8), warm-up + 5 samples
 per scenario, one page per arm and scale, at `48ef61692`; counts and
-verdicts, not walls. Records in the POD-4559 issue artifacts.
+verdicts, not walls. OLD FIXTURE: every count here is on the pre-POD-4635
+1x/4x fixture (not live-shaped) and is provisional. Records in the POD-4559 issue artifacts.
 
 | Run | Result |
 |---|---|
