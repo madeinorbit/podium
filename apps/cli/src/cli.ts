@@ -133,6 +133,7 @@ const HELP_DELEGATED = new Set([
   'agent',
   'workflow',
   'telemetry',
+  'tunnel',
   'quota',
   'machine',
   'instance',
@@ -221,6 +222,8 @@ export type LaunchPlan =
   | { kind: 'channel'; target: string | undefined }
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
+  /** `podium tunnel run|enable|disable`: the opt-in supervised quick tunnel (POD-4640). */
+  | { kind: 'tunnel'; args: string[] }
   | { kind: 'quota'; args: string[] }
   /** `podium machine [list|show]`: read the fleet an agent may place work on. */
   | { kind: 'machine'; args: string[] }
@@ -638,6 +641,15 @@ export function resolvePlan(
       return { kind: 'approval-request', op: { kind: 'update' } }
     }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
+    // Not brokered either: it puts this box on the public internet, which is
+    // the operator's decision to make at their own shell, not an agent's.
+    if (argv[0] === 'tunnel') {
+      return {
+        kind: 'usage-error',
+        message:
+          'podium tunnel exposes this box on the public internet; run it outside a managed agent session',
+      }
+    }
     if (argv[0] === 'channel' && argv[1]) {
       // Validated against the WIRE enum, not a repeated literal list: the broker
       // is what refuses, so the planner must range over exactly what it accepts.
@@ -723,6 +735,8 @@ export function resolvePlan(
   // Deliberately NOT an approval-brokered op: it only touches config.json, and a
   // user (or their agent) must always be able to turn it off without asking anyone.
   if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
+  // `podium tunnel [...]`: the opt-in supervised Cloudflare quick tunnel (POD-4640).
+  if (argv[0] === 'tunnel') return { kind: 'tunnel', args: argv.slice(1) }
   // `podium quota`: the same live harness plan limits shown in the web panel.
   if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
   // `podium machine [list|show]`: which machines exist, which are usable, and what
@@ -978,6 +992,8 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  join-config <TOKEN>   Write daemon join config from a token (no start)',
     '  set-server <url|join-code>',
     '                        Rotate the server URL without re-pairing',
+    '  tunnel run|enable|disable',
+    '                        Keep a Cloudflare quick tunnel up and its URL recorded (opt-in)',
     '',
     'Lifecycle:',
     '  status                Show what is running (run registry + systemd)',
@@ -1633,6 +1649,12 @@ export async function main(
     case 'telemetry': {
       const { telemetryCliMain } = await import('./telemetry-cli')
       const code = telemetryCliMain(plan.args)
+      if (code !== 0) process.exit(code)
+      return
+    }
+    case 'tunnel': {
+      const { tunnelCliMain } = await import('./tunnel-cli')
+      const code = await tunnelCliMain(plan.args)
       if (code !== 0) process.exit(code)
       return
     }

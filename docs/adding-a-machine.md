@@ -75,6 +75,26 @@ Replace `18787` with your port if you changed it (`port` in `~/.podium/config.js
 After you paste the URL, setup saves it as `publicUrl` in `~/.podium/config.json` and asks
 you to restart `podium` to apply.
 
+### Keeping a quick tunnel's URL current
+
+A Cloudflare quick tunnel gets a new `https://<random>.trycloudflare.com` address every time
+`cloudflared` restarts. If you chose it, you can hand `cloudflared` to Podium instead of
+running it yourself:
+
+```sh
+podium tunnel enable     # a systemd user service: podium-tunnel.service
+podium tunnel run        # or run it in the foreground, under your own supervisor
+podium tunnel disable    # stop it and remove the service
+```
+
+The service starts `cloudflared`, restarts it (with backoff) whenever it dies, and writes each
+new URL into `publicUrl`. The server notices within seconds and publishes it to Podium Connect,
+where joined machines look it up when their connection fails. It never runs unless you start
+it, it refuses to run unless setup's reachability choice is the Cloudflare quick tunnel, and it
+refuses when `PODIUM_PUBLIC_URL` is set (the deployment owns the URL then). It is separate from
+the Podium service on purpose, so restarting or updating Podium keeps the tunnel, and its URL,
+as they are.
+
 ### Why the tunnel only needs to reach the server
 
 The **daemon dials out to the server** over the tailnet (or your tunnel) — the connection is

@@ -23,6 +23,7 @@
     "./join": "./src/join.ts",
     "./workspace-target": "./src/workspace-target.ts",
     "./setup": "./src/setup.ts",
+    "./quick-tunnel": "./src/quick-tunnel.ts",
     "./setup-enrollment": "./src/setup-enrollment.ts",
     "./vps-bootstrap": "./src/vps-bootstrap.ts",
     "./transfer-lifecycle": "./src/transfer-lifecycle.ts",

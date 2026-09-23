@@ -12,6 +12,7 @@ import {
   renderParentUnit,
   renderServerUnit,
   renderSystemdFiles,
+  renderTunnelUnit,
   userUnitDir,
 } from './cli-systemd'
 
@@ -366,5 +367,35 @@ describe('installSystemd update-timer retirement', () => {
     })
     expect(readdirSync(dir)).not.toContain(fixture.timer)
     expect(readdirSync(dir)).not.toContain(fixture.service)
+  })
+})
+
+describe('renderTunnelUnit (POD-4640)', () => {
+  it('runs the wrapper, restarts it, and never restarts a refused precondition', () => {
+    const u = renderTunnelUnit({ instanceId: 'default', port: 18787 })
+    expect(u).toContain('ExecStart=%h/.local/bin/podium tunnel run')
+    expect(u).toContain('Environment=PODIUM_PORT=18787')
+    expect(u).toContain('Restart=always')
+    expect(u).toContain('RestartPreventExitStatus=78')
+    // Stopping the unit must take cloudflared with it.
+    expect(u).not.toMatch(/KillMode=(process|none)/)
+  })
+
+  it('is not bound to the parent, so a Podium restart or update keeps the tunnel URL', () => {
+    const u = renderTunnelUnit({ instanceId: 'default', port: 18787 })
+    expect(u).not.toMatch(/^(PartOf|BindsTo|Requires)=/m)
+  })
+
+  it('is instance-scoped', () => {
+    const u = renderTunnelUnit({ instanceId: 'blue', port: 23000 })
+    expect(u).toContain('ExecStart=%h/.local/bin/podium-blue tunnel run')
+    expect(u).toContain('Environment=PODIUM_INSTANCE=blue')
+  })
+
+  it('is OFF by default: no install profile renders it; only `podium tunnel enable` writes it', () => {
+    for (const profile of ['packaged', 'dev'] as const) {
+      const units = Object.keys(renderSystemdFiles({ profile, instanceId: 'default' }).units)
+      expect(units.some((name) => name.includes('tunnel'))).toBe(false)
+    }
   })
 })
