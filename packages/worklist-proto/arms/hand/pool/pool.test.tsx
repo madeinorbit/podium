@@ -195,8 +195,16 @@ describe('ingest', () => {
       for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
       expect(pool.worklist.held('member')).toBe(residentIssues.length)
       expect(pool.groups.held()).toBe(visible.length)
+      const rollupCells = pool.rollup.heldCells()
       expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
-        1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size + pool.groups.held(),
+        1 +
+          visible.length +
+          pool.worklist.cellCount() +
+          pool.sessionCells.size +
+          pool.groups.held() +
+          rollupCells.filings +
+          rollupCells.verdicts +
+          rollupCells.rollupParts,
       )
       expect(pool.stats.rowsDerived).toBe(0)
     } finally {

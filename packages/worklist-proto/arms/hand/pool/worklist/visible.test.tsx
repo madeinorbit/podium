@@ -329,7 +329,7 @@ describe('visible collection and order (Hb1)', () => {
     expect(result.ok ? null : `${result.against}: ${result.diff}`).toBeNull()
   }, 300_000)
 
-  it('a list that draws hidden rows fails the commit fence on #1 and #4', async () => {
+  it('a list that draws hidden rows fails the commit fence on a hidden spin-off rename (#1 no longer moves a hidden row)', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as HandPoolHandle
@@ -376,9 +376,10 @@ describe('visible collection and order (Hb1)', () => {
         failures['#4 hidden spin-off'] = (error as Error).message
       }
       // #4's corpus target has no spin-off, so only the #4-shaped rename of
-      // an origin with a hidden spin-off can show it.
-      expect(Object.keys(failures).sort()).toEqual(['#1', '#4 hidden spin-off'])
-      expect(failures['#1']).toMatch(/over=\[\w+/)
+      // an origin with a hidden spin-off can show it. #1's heartbeat lands
+      // on a member that retains nothing, so since Hb3 reads activityAt off
+      // the retained seats (as the legacy does), it moves no hidden row.
+      expect(Object.keys(failures).sort()).toEqual(['#4 hidden spin-off'])
       expect(failures['#4 hidden spin-off']).toContain(`over=[${renamed.spinOff}`)
     } finally {
       mounted.unmount()
