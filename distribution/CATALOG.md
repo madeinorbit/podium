@@ -14,7 +14,7 @@ Recovered on 2026-09-24 from the “Research Launch Directories” conversation.
 | A | FutureTools | https://futuretools.io/submit-a-tool | Released, usable AI tool; curated catalog. |
 | B | SourceForge Software | https://sourceforge.net/software/vendors/new | Software profile; keep source hosting on GitHub. Check free route. |
 | B | G2 | https://sell.g2.com/create-a-profile | Free profile request; verify category and avoid unrelated Podium namesake. |
-| B | Capterra / GetApp / Software Advice | https://www.capterra.com/vendors/ | Coordinate related catalogs; free profile differs from paid outbound buttons. |
+| B | Capterra / GetApp / Software Advice | https://www.capterra.com/vendors/ | Live listing CTA routes to G2 /products/new (verified 2026-09-24). Handle once with G2; avoid duplicate requests. |
 | B | Alternative.me | https://alternative.me/how-to/submit-software/ | Account dashboard submission. |
 | B | Crozdesk | https://vendor.revleads.com/user/signup | Free listing advertised; confirm self-hosted developer-tool eligibility. |
 | B | Softpedia for Mac | https://mac.softpedia.com/user/submit.shtml | Release and download metadata, assets, ongoing version maintenance. |
