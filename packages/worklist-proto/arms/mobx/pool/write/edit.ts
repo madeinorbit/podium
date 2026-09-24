@@ -134,6 +134,16 @@ export interface MobxWriteApi {
    */
   expire(): void
   /**
+   * Mirror a kernel-side retirement of one receipted entry: the ledger
+   * dropped its overlay (TTL, cover or moved-past-baseline prune) and the
+   * oracle shows server truth, so this entry drops too, showing server truth
+   * — without surfacing an error (expiry is not a refusal). Unknown or
+   * already-settled txIds are no-ops. The gate adapter calls this when the
+   * kernel retires an entry the arm logged, which is the only signal a
+   * TTL retirement sends (it emits no outcome).
+   */
+  expireOne(txId: TxId): void
+  /**
    * Re-apply the kernel outbox's pending entries on creation (W11): queued
    * then awaiting-truth, in queue order, painted under their own mutation ids
    * without re-sending; receipted ones settled at once; then each affected
@@ -323,6 +333,17 @@ export function createMobxWriteApi(
     expire() {
       runInAction(() => {
         for (const outcome of log.expire()) refreshOverlay(outcome.kind, outcome.id)
+      })
+    },
+
+    expireOne(txId) {
+      runInAction(() => {
+        // Reject-semantics removal (drop the entry, fall back to the next
+        // pending value or server truth) without notifying rejection
+        // listeners: the kernel did not refuse anything.
+        const outcome = log.reject({ txId, error: { message: 'retired without echo', parked: false } })
+        if (outcome === null) return
+        refreshOverlay(outcome.kind, outcome.id)
       })
     },
 

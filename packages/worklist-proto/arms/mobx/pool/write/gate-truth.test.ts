@@ -68,6 +68,10 @@ function armWithAdapter(
       create: (source, locals, reads) => {
         const handle = inner.create(source, locals, reads) as WritableMobxPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        // Mirror kernel-side retirements (TTL/cover/baseline prune, which
+        // emit no outcome) so the arm never shows a pending overlay the
+        // oracle dropped.
+        adapter.currentExpire = (armTx) => handle.write.expireOne(armTx)
         plant?.(handle)
         return handle
       },
@@ -187,6 +191,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentExpire = (armTx) => handle.write.expireOne(armTx)
         if (planted) staleRewind(handle)
         try {
           const id = run.ctx.targets.visibleRootId
@@ -236,6 +241,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentExpire = (armTx) => handle.write.expireOne(armTx)
         if (planted) dropPendingOnRemote(handle)
         try {
           const id = run.ctx.targets.visibleRootId
