@@ -2694,7 +2694,8 @@ describe('grok Stop-hook cancel fast path (slow Stop clear: 17s -> seconds)', ()
 
     // The durable gate accepts the hook terminal as the turn end.
     accept(observations[1]!)
-    expect(checkpoint?.turnState).toMatchObject({
+    const finalCheckpoint = checkpoint as SessionObservationCheckpointV1 | null
+    expect(finalCheckpoint?.turnState).toMatchObject({
       phase: 'idle',
       idle: { kind: 'interrupted' },
     })
