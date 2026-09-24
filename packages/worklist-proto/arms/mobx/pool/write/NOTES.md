@@ -1,4 +1,86 @@
 # Mc1 MobX edits on the model (POD-4573) · 2026-09-24
+# Mc2 MobX receipts and remote updates (POD-4574) · 2026-09-24
+
+Code: `arms/mobx/pool/write/edit.ts` (+`handleAccepted`/`handleSuperseded`/
+`expire`/`bootstrap`/`pendingDisplay`), `arm.ts` (receipt subscription,
+bootstrap on create, optimism-aware `rebuildFromScratch`), `shared/src/gen/
+arm-edits.ts` (the gate adapter, shared with Hc2), `shared/src/gen/run.ts`
+(`editViaArm`: edit + supersede branches), `shared/src/gen/check.ts`
+(`editViaArm`/`onStep` forwarding), `shared/src/receipts.ts` (`baseOf`
+exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
+(a)/(c) plants). README: `arms/mobx/README.md` "Write path (phase c)".
+
+## Decisions
+
+- **Reference log as-is, no fork (coordinator ruling).** `handleAccepted`
+  records the receipt; the entry stays until the echo confirms every field
+  (W7). Dropping on receipt alone would flicker (revert, then re-paint on
+  the echo). The brief's "drop on accepted" is what the observer sees once
+  receipt AND echo have arrived.
+- **Echo equality isolates the stamp.** A real server write bumps
+  `updatedAt`, which moves the view's `foldAt` and redraws the row once —
+  that is the server's change, not the settle's. The echo-equality step
+  preserves the stamp so it tests the settle rule alone (editable values
+  equal → zero commits). Debug trace that found it: echo step committed
+  `i214` with moved view field `foldAt` only.
+- **Gateway edits go through the arm (coordinator ruling, mode b).** The
+  adapter's transport invokes the SAME runtime action, so the kernel mints
+  the mutation id and the runner claims it from the outbox as today; the
+  arm logs under its own txId and the adapter pairs them per step
+  (`detail.armTxId` + `detail.mutationId` via `onStep`). Outcomes and
+  `pending()` entries are translated kernel↔arm for receipts, rejections
+  and bootstrap across reloads. The gate compares the truth-feed arm with
+  the overlaid oracle. One adapter for MobX now, Hc2 later.
+- **(b) and (d) are commit-count plants.** Equal values are invisible to any
+  snapshot comparison by construction, and MobX's `view: computedStruct`
+  absorbs equal notifications, so their catching checks are the
+  `settle.test.tsx` count cells (echo 0, dup 0 + no re-send), proven red by
+  mutation below — not the L4b gate. (a) and (c) corrupt values and fail the
+  gate's rebuild/oracle on fixed sequences (+ (c) on a random run).
+- **(a)'s MobX shape is a stale-table restore.** The overlay never renders
+  the log's rewind target (it mirrors newest-pending-per-field; with no
+  entries left the table shows), so "remote never reaches the log" is
+  invisible here. The plant snapshots the server row at edit time and puts
+  it back on reject, clobbering the remote value. First version (noop
+  `handleRemote`) passed — kept as the lesson, not the plant.
+
+## Evidence
+
+- `settle.test.tsx` 5/5: echo 0 commits (edit 1, receipt 0); remote 1 commit
+  with stage kept local and title taken; dup receipt 0 commits + `sent`
+  stays 1 + late/unknown no-ops; rebuild equals snapshot with pending;
+  bootstrap re-applies one queued entry with no re-send.
+- `gate-truth.test.ts` fixed plants: clean green + planted red for (a)
+  (live stale vs rebuild/oracle server) and (c) (live server vs oracle
+  pending).
+- Truth-gate smoke: 1 seed × 50 steps green (rebuild + overlaid oracle,
+  `mobx-write-truth-gate` result file).
+- Mutations (planted alone with `cp` aside, restored after; prod files
+  verified byte-identical via `git diff`):
+  - (b) `handleRemote` skipping `log.remote`: the echo never confirms, the
+    entry never settles — the echo step goes red (`log.size` 1, not 0).
+    Attempted `IssueModel.view: computedStruct → computed` stayed GREEN:
+    observer rows track fields, so equal values redraw nothing even with a
+    fresh view identity; the zero-commit property rests on field-level
+    observation plus never writing an equal echo, not on view equality alone.
+  - (d) `handleAccepted` re-sending on a duplicate receipt: `transport.sent`
+    grows to 2 — red on the no-resend assertion.
+- `edit.test.tsx` + `gate-with-edits.test.ts` still green with the layer
+  changes (8/8): the idle layer stays invisible.
+
+## Open
+
+- 20 × 300 gate of record on flatblock under `bench:flatblock` (lease held
+  by another session at time of writing; ludovico OOM-killed a 3 × 200
+  worker at load ~21). Whole package suite likewise on flatblock through
+  the package config.
+- TTL expiry has the `expire()` API but no gate exercise (the kernel's
+  awaiting-truth expiry runs on the wall clock, which the gate does not
+  drive); reference-log level is covered by L1c.
+- Shared diff (`gen/run.ts`, `gen/check.ts`, `receipts.ts` export) is
+  additive; flag for the L4a/L4b/L3b owners at review. The gate-only
+  kernel-minted path differs from production W2 (arm-minted via
+  `createWriteTransport`); noted, per the ruling.
 
 Write layer at `arms/mobx/pool/write/` (the brief's `arms/mobx/write` is the
 frozen round-two layout; coordinator addendum 2026-09-24).

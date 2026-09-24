@@ -140,21 +140,57 @@ the relation tests and the gate), plus the gate's residency walks:
 `knownTables` (every row the pool knows, cold ones from the feed) and
 `diffResidency` (the hot/cold partition against the feed).
 
-### Write path
+### Write path (phase c: optimism on the model, Mc1/Mc2)
 
-`RowSourceEvent` → `MobxPool.apply` → one `runInAction`: an `update` runs
-`ingestRecord` per record (the same object is a no-op; `value: undefined`
-removes the row and drops its model; a row that can be cold is routed
-through `Residency.ingest`); a `replace` runs `reseed` (the new slice
-through the same ingest into plain maps, then kept rows untouched, named rows
-written or registered cold, the rest removed) — observers see one
-transition. A closed load window → `MobxPool.hydrate` → one `runInAction`
-installing every queued cold row. A
-locals notification → `MobxPool.applyLocals` → one `runInAction` over only
-the keys it names. `rebuildFromScratch` (`pool/rebuild.ts`) replays the
-feed's `snapshot(kind)` through the same ingest and the same part functions
-over plain maps, with relations resolved from scratch (`scanRelations`), not
-by the engine.
+`pool/write/` holds the pending display beside the pool; the kernel stays the
+transport, the durable queue and the authority on outcomes, and the pool's
+tables go on holding BORROWED server rows, never a copy.
+
+- **Where pending lives.** An observable map of per-row overlays
+  (`write.overlays`: the newest pending value per editable field —
+  title/stage/readAt only, never a full row), mirrored from the reference
+  pending log (`shared/src/write-contract.ts` `createPendingLog`, re-exported
+  by `pool/write/pending.ts`; the arm owns no log of its own). It is overlaid
+  at the row-reader boundary (`pool.inputs.issue`,
+  `pool.visibleInputs.issueRow` / `progressFacts` / `loadedIssue`): no pending
+  edit returns the server object unchanged (identity-preserving, idle layer
+  invisible); with one a transient `{...server, ...pending}` is returned
+  (never stored, so the copy sweep never sees it).
+- **What the kernel still owns.** The command (`commandFor`: title/stage ride
+  `issues.update`, `readAt` rides `issues.markRead`), the queue and its
+  persistence, the receipt (`accepted` = outbox `applied`, L3b), the echo
+  (the server row, recognised by value: exact for title/stage, the server's
+  own stamp for `readAt`), the refusal (parked or discarded) and the collapse
+  (mark-read supersede). The arm never reads the kernel's fold (W12): its
+  feed runs in `truth` mode, server rows only.
+- **The loop.** `edit` paints in one action and sends without awaiting;
+  `handleAccepted` records the receipt (the entry stays until its echo
+  confirms every field — dropping on receipt alone would flicker); the echo
+  arrives as an ordinary feed row and settles with zero extra commits when
+  its values equal the pending ones (no equal rewrite, PITFALL); a remote on
+  a pending row keeps the local value and takes the rest; `reject` rewinds
+  from the log and surfaces the error; `handleSuperseded` drops a collapsed
+  mark-read without repainting; `expire` drops receipted edits past the TTL;
+  a duplicate receipt is a no-op. `bootstrap` re-applies the outbox's pending
+  entries on creation under their own mutation ids without re-sending, so
+  pending edits survive a principal-preserving rebuild.
+- **The rebuild is optimism-aware.** `rebuildFromScratch` overlays the pending
+  display onto the feed's server rows before deriving, so a gate with pending
+  edits outstanding compares pending with pending — never with server truth.
+- **The gate adapter** (`shared/src/gen/arm-edits.ts`, shared with the hand
+  arm's Hc2): generated edits call the live arm's `write.edit` while its
+  transport invokes the same runtime action, so the kernel mints the mutation
+  id and the runner learns it from the outbox as before; outcomes and
+  `pending()` entries are translated between kernel and arm ids for receipts,
+  rejections and bootstrap across reloads.
+
+Tests: `pool/write/edit.test.tsx` (paint, rewind, order, mark-read,
+stacking), `pool/write/settle.test.tsx` (echo zero-commit, remote-on-pending
+one commit, duplicate no-op, rebuild and bootstrap re-apply),
+`pool/write/gate-truth.test.ts` (L4b on the truth feed with arm edits, plus
+the (a)/(c) write-path plants on fixed sequences), `pool/write/gate-with-
+edits.test.ts` (the phase-a/b gate still passes with the layer attached but
+idle).
 
 ### Stats (what each counter counts)
 

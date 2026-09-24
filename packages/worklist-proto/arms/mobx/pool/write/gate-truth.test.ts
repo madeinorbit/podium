@@ -48,7 +48,7 @@ installMobxWarnTrap()
 
 const SEEDS = Array.from(
   { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
-  (_, i) => i + 1,
+  (_, i) => i + Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1),
 )
 const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
 const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 5_000)
