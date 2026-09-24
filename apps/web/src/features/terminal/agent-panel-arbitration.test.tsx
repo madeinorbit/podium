@@ -65,6 +65,7 @@ vi.mock('@/lib/voice', () => ({
 }))
 
 let storeSessions: SessionMeta[] = []
+let storeMachines: Array<{ id: string; name: string; hostname: string; online: boolean }> = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
 let storePendingSpawnIds = new Set<string>()
 let storePendingSpawnPrompts = new Map<string, string>()
@@ -108,7 +109,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({
     hub: fakeHub,
     sessions: storeSessions,
-    machines: [],
+    machines: storeMachines,
     pendingSpawnIds: storePendingSpawnIds,
     pendingSpawnPrompts: storePendingSpawnPrompts,
     repos: [],
@@ -168,6 +169,7 @@ let root: Root
 
 beforeEach(() => {
   storeSessions = [meta({})]
+  storeMachines = []
   storePanelMode = { s1: 'native' }
   storePendingSpawnIds = new Set<string>()
   storePendingSpawnPrompts = new Map<string, string>()
@@ -628,5 +630,53 @@ describe('AgentPanel while the machine is away (POD-2290)', () => {
     const headline = container.querySelector('[data-testid="startup-headline"]')?.textContent
     expect(headline).not.toContain('machine')
     expect(headline).toContain('hasn\u2019t started')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-4629 — the CLI pane of a session whose MACHINE is offline was an empty
+// terminal with a blinking cursor. The server answers the attach without the
+// daemon, and a PTY that spoke before reads `outputSeen`, so the startup overlay
+// correctly steps aside — and nothing else said why there was no screen. The
+// phone said "Session is not running"; the desktop said nothing at all.
+// ---------------------------------------------------------------------------
+describe('AgentPanel on a session whose machine is offline (POD-4629)', () => {
+  const offline = { id: 'm-lud', name: 'ludovico', hostname: 'ludovico', online: false }
+  const onMachine = (status: 'live' | 'reconnecting') =>
+    meta({ status, driverFamily: 'terminal', machineId: 'm-lud', machineName: 'ludovico' } as never)
+
+  it('names the offline machine over the CLI of a reconnecting session', async () => {
+    storeMachines = [offline]
+    storeSessions = [onMachine('reconnecting')]
+    await render({ active: true })
+    const bar = container.querySelector('[data-testid="machine-offline-bar"]')
+    expect(bar?.classList.contains('pane-state-bar')).toBe(true)
+    expect(bar?.textContent).toContain('ludovico is offline')
+    // The way forward is the view that still works.
+    expect(bar?.querySelector('[data-testid="machine-offline-open-chat"]')).toBeTruthy()
+  })
+
+  it('names it for a row still marked live, which is how the copied DB carried it', async () => {
+    storeMachines = [offline]
+    storeSessions = [onMachine('live')]
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="machine-offline-bar"]')?.textContent).toContain(
+      'ludovico is offline',
+    )
+  })
+
+  it('says nothing about a machine that is online', async () => {
+    storeMachines = [{ ...offline, online: true }]
+    storeSessions = [onMachine('reconnecting')]
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="machine-offline-bar"]')).toBeNull()
+  })
+
+  it('leaves the chat view to its composer, which already says the session is not running', async () => {
+    storeMachines = [offline]
+    storeSessions = [onMachine('reconnecting')]
+    storePanelMode = { s1: 'chat' }
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="machine-offline-bar"]')).toBeNull()
   })
 })
