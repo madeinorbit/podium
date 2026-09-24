@@ -502,7 +502,9 @@ describe('the windowed web list (Mb2)', () => {
         () => pool.worklist.order.filter((id) => pool.residency?.isCold('issue', id)).length,
       )
       expect(queuedAtPaint).toBeLessThan(coldVisible)
+      const hydratedBefore = pool.residency?.counters.hydrated ?? 0
       settle(pool)
+      const loadedSettlingFirstWindow = (pool.residency?.counters.hydrated ?? 0) - hydratedBefore
       phase = 'later'
       const byKind = (set: Set<string>) => {
         const out: Record<string, number> = { distinct: set.size }
@@ -557,6 +559,7 @@ describe('the windowed web list (Mb2)', () => {
         coldQueuedAtFirstPaint: queuedAtPaint,
         feedReadsAtBootstrap: byKind(feedReads.bootstrap),
         feedReadsSettlingFirstWindow: byKind(feedReads.firstWindow),
+        rowsLoadedSettlingFirstWindow: loadedSettlingFirstWindow,
       })
     } finally {
       act(() => root.unmount())
