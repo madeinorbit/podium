@@ -27,8 +27,11 @@
  * no open-ended exception.
  *
  * FENCES: each step commits exactly the oracle-changed rows and reads within
- * its budget (the shared `assertCommits` / `assertReads`); the layout re-runs
- * only when the order or a visible row's placement moved
+ * its budget (the shared `assertCommits` / `assertReads`) — except #7, whose
+ * reparented parents change only in Hb3's stubbed roll-ups: there the pool
+ * must draw exactly the oracle-changed rows whose own fields moved, and miss
+ * only roll-up-only changes (oracle-derived, no arm-local budget); the layout
+ * re-runs only when the order or a visible row's placement moved
  * (`counters.groupRuns`, `counters.groupElements`: the elements one run
  * touches, counted from outside the pool); a group header is notified
  * exactly when its own lanes changed, never on a row-internal change.
@@ -213,6 +216,24 @@ function checkParity(ctx: ScenarioEngine, handle: HandPoolHandle, at: string): G
   }
 }
 
+/** Ids present before and after whose own-row fields (Hb2's ground) changed. */
+function changedOwnFields(
+  before: Record<string, Record<string, unknown>>,
+  after: Record<string, Record<string, unknown>>,
+): string[] {
+  const changed: string[] = []
+  for (const id of Object.keys(before)) {
+    if (!(id in after)) continue
+    for (const field of OWN_FIELDS) {
+      if (JSON.stringify(before[id]![field]) !== JSON.stringify(after[id]![field])) {
+        changed.push(id)
+        break
+      }
+    }
+  }
+  return changed.sort()
+}
+
 /** Each group's UI lanes, as the headers observe them. */
 function lanes(pool: HandPool): Map<string, readonly (readonly string[])[]> {
   return new Map(
@@ -263,10 +284,37 @@ describe('groups and closed folds (Hb2)', () => {
         )
         const viewNotices: number[] = []
         const offView = pool.subscribeGroups(() => viewNotices.push(1))
+        const viewsBefore = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)) as Record<
+          string,
+          Record<string, unknown>
+        >
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         for (const off of offs) off()
         offView()
-        assertCommits(result)
+        if (methodology === '#7') {
+          // Hb3's gap, named: the reparent changes the old and new parents'
+          // roll-ups, which are stubs here, so the exact-commit fence cannot
+          // hold. The pool must draw exactly the oracle-changed rows whose
+          // OWN fields moved, and miss only roll-up-only changes.
+          const viewsAfter = rowViewsFromStore(
+            ctx.engine.getSnapshot(),
+            engineLocals(ctx),
+          ) as Record<string, Record<string, unknown>>
+          expect(result.drawnRows?.slice().sort()).toEqual(changedOwnFields(viewsBefore, viewsAfter))
+          for (const id of result.oracleChangedRows ?? []) {
+            if ((result.drawnRows ?? []).includes(id)) continue
+            expect(
+              JSON.stringify(viewsBefore[id]) !== JSON.stringify(viewsAfter[id]),
+              `${methodology}: ${id} changed in the oracle`,
+            ).toBe(true)
+            expect(
+              changedOwnFields({ [id]: viewsBefore[id]! }, { [id]: viewsAfter[id]! }),
+              `${methodology}: ${id} missed on own fields`,
+            ).toEqual([])
+          }
+        } else {
+          assertCommits(result)
+        }
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         const counters = { ...pool.stats.counters }
