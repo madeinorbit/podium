@@ -101,6 +101,7 @@ import {
   type RollupInputs,
   type RollupParts,
   rollupPartOf,
+  seatActivityPartOf,
   type SeatVerdict,
   seatVerdictOf,
   tipPartOf,
@@ -431,6 +432,7 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
     formalChildren: (id) => input.formalChildren(id),
     rollupNode: (id) => input.issue(id),
     seat: (id) => input.session(id).verdict,
+    seatActivity: (id) => input.session(id).activityMs,
     presence: (id) => {
       const retention = input.session(id).retention
       return retention === null
@@ -774,6 +776,9 @@ export function directVisibility(
     get unitsBelow() {
       return once('unitsBelow', () => unitsBelowPartOf(rollupInputs, id))
     },
+    get seatActivity() {
+      return once('seatActivity', () => seatActivityPartOf(rollupInputs, id, parts))
+    },
     get openOwn() {
       return once('openOwn', () => openOwnPartOf(rollupInputs, id, parts))
     },
@@ -932,6 +937,7 @@ export class IssueNode implements IssueVisibility {
       aggregate: computedStruct,
       unitOwn: computedStruct,
       unitsBelow: computedStruct,
+      seatActivity: computed,
       openOwn: computed,
       tip: computedStruct,
       rollup: computedStruct,
@@ -1061,6 +1067,10 @@ export class IssueNode implements IssueVisibility {
 
   get unitsBelow(): Units {
     return unitsBelowPartOf(this.rollupInput, this.id)
+  }
+
+  get seatActivity(): number | null {
+    return seatActivityPartOf(this.rollupInput, this.id, this)
   }
 
   get openOwn(): boolean {
