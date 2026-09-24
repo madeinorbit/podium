@@ -343,7 +343,15 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     const coldDone = (childId: string): boolean => {
       if (!residency.isCold('issue', childId)) return false
       const row = pool.visibleInputs.issueRow(childId)
-      return row !== undefined && row.stage !== 'proposed' && !issueAbandoned(row) && row.closedReason != null
+      // A UNIT: accepted, and not a vacated origin (no spin-off), so
+      // abandoning it moves the total.
+      return (
+        row !== undefined &&
+        row.stage !== 'proposed' &&
+        !issueAbandoned(row) &&
+        row.closedReason != null &&
+        pool.relations.size('issue', childId, 'spinOffs') === 0
+      )
     }
     const found = tracked(() => {
       for (const id of pool.worklist.order) {
