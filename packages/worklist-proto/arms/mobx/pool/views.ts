@@ -43,7 +43,7 @@
  */
 
 import type { RelationReader } from '../../../shared/src/instrument/reads'
-import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
+import { isDraftNameSession, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
 import type { Rollup } from './worklist/rollup'
@@ -282,19 +282,14 @@ export function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
 }
 
 /**
- * The member a draft is named after: the legacy's `draftIssueLabel` takes
- * `sessionsForIssueNav(...)[0]`, which leaves out shells, archived and
- * headless sessions (`session-ownership.ts:282-310`). POD-4572: taking the
- * first member of any kind named three 4x drafts after a shell (`i10142`
- * "New Shell session" against the oracle's "New Codex session"); at 1x no
- * draft's first member is a shell, so parity there could not see it.
+ * The member a draft is named after: the first session of the sorted member
+ * list the shared rule admits (legacy `draftIssueLabel` over
+ * `sessionsForIssueNav`, shared `isDraftNameSession`).
  */
 function firstMemberOf(input: ViewInputs, sessionIds: readonly string[]): SliceSession | undefined {
   for (const sessionId of sessionIds) {
     const session = input.session(sessionId)
-    if (session === undefined) continue
-    if (session.agentKind === 'shell' || session.archived === true || session.headless === true)
-      continue
+    if (!isDraftNameSession(session)) continue
     return session
   }
   return undefined

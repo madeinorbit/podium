@@ -49,7 +49,7 @@
  */
 
 import type { RelationReader } from '../../../shared/src/instrument/reads'
-import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
+import { isDraftNameSession, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
 
@@ -311,17 +311,22 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
     return own === undefined ? undefined : displayRefOf(own.seq, self.prefix)
   },
   /**
-   * A draft wears its first member's label: the lowest session id (`sessionIds`).
-   * A bucket has no order (`relations.ts`), and the legacy runtime's is
-   * replica order, which no pool has; the lowest id is the MobX pool's answer
-   * too. Only a draft asks for the member.
+   * A draft wears its first member's label: the lowest session id the shared
+   * draft-name rule admits (`isDraftNameSession`: legacy `draftIssueLabel`
+   * over `sessionsForIssueNav`). A bucket has no order (`relations.ts`), and
+   * the legacy runtime's is replica order, which no pool has; the lowest id
+   * is the MobX pool's answer too. Only a draft asks for the member.
    */
   displayTitle(input, id, self) {
     const issue = input.issue(id)
     if (issue === undefined) return undefined
     return displayTitleOf(issue, () => {
-      const first = self.sessionIds[0]
-      return first === undefined ? undefined : input.session(first)
+      for (const sessionId of self.sessionIds) {
+        const session = input.session(sessionId)
+        if (!isDraftNameSession(session)) continue
+        return session
+      }
+      return undefined
     })
   },
   /** The spin-off's origin (`issue.discoveredFrom`) when it is known, resident or cold. */

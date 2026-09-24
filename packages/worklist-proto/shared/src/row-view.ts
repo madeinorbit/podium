@@ -285,6 +285,27 @@ export function isRowSeat(session: Pick<SliceSession, 'archived' | 'agentKind'>)
   return session.archived !== true && session.agentKind !== 'shell'
 }
 
+/**
+ * Whether a member session can name a draft: the legacy's `draftIssueLabel`
+ * takes `sessionsForIssueNav(...)[0]`, which leaves out shells, archived and
+ * headless sessions (client-core `session-ownership.ts:282-310`). POD-4572:
+ * taking the first member of any kind named three 4x drafts after a shell
+ * (`i10142` "New Shell session" against the oracle's "New Codex session");
+ * at 1x no draft's first member is a shell, so parity there could not see
+ * it. Both pools filter their sorted member list through this; the rule
+ * lives here once (round-three trap: one arm-local copy each).
+ */
+export function isDraftNameSession(
+  session: Pick<SliceSession, 'archived' | 'agentKind' | 'headless'> | undefined,
+): boolean {
+  return (
+    session !== undefined &&
+    session.archived !== true &&
+    session.agentKind !== 'shell' &&
+    session.headless !== true
+  )
+}
+
 /** The oracle projection of a view: exactly the `SliceRow` fields (spec §7). */
 export function sliceRowOf(view: RowView): SliceRow {
   return {
@@ -396,7 +417,10 @@ export type RowPlacement =
  * unless the fold is the operator's own dismissal. Selection itself arrives as
  * `row.selected`; the rest of `locals` is ignored by design.
  */
-export function groupKeyOf(row: RowView, locals: Pick<SliceLocals, 'selectedIssueWasFolded'>): RowPlacement {
+export function groupKeyOf(
+  row: RowView,
+  locals: Pick<SliceLocals, 'selectedIssueWasFolded'>,
+): RowPlacement {
   if (row.pinned) return { section: 'pinned' }
   const latchedOpen = row.selected && locals.selectedIssueWasFolded !== true && !row.dismissed
   const lane = row.closed && !latchedOpen ? 'closed' : 'open'
