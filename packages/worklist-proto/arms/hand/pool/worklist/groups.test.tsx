@@ -67,6 +67,7 @@ import {
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
+import { compareRank } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from '../arm'
@@ -142,7 +143,7 @@ function waitingKept(
 /** The pool's grouped order with the waiting-kept rows held open at their rank, like the latch does. */
 function unwaited(pool: HandPool, kept: ReadonlySet<string>): SliceOrder {
   const layout = pool.groups.snapshot()
-  const rank = layout.rankIndex
+  const rankOf = (id: string) => pool.worklist.placedRankOf(id)
   return {
     pinnedIds: [...layout.pinnedIds],
     groups: layout.groups.map((group) => {
@@ -152,8 +153,14 @@ function unwaited(pool: HandPool, kept: ReadonlySet<string>): SliceOrder {
       const open = [...group.rowIds]
       for (const id of group.closedIds) {
         if (!kept.has(id)) continue
-        const at = rank.get(id) ?? 0
-        const index = open.findIndex((other) => (rank.get(other) ?? 0) > at)
+        const at = rankOf(id)
+        const index =
+          at === undefined
+            ? -1
+            : open.findIndex((other) => {
+                const rank = rankOf(other)
+                return rank !== undefined && compareRank(rank, at) > 0
+              })
         open.splice(index === -1 ? open.length : index, 0, id)
       }
       return {
