@@ -763,6 +763,46 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     }
   })
 
+  it("passes Podium's Stop key to the session's observation [POD-4653]", () => {
+    // Grok's Stop hook is the cancel's earliest signal, but only once the
+    // observation knows Podium sent the Stop: the daemon must arm it.
+    const onInterruptRequested = vi.fn()
+    const grok = harnessAdapterFor('grok')
+    if (!grok) throw new Error('Grok adapter missing')
+    const observers = createSessionObservers({
+      send: vi.fn(),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      harnessAdapterFor: (kind) =>
+        kind === 'grok'
+          ? { ...grok, observer: supported(() => ({ stop: vi.fn(), onInterruptRequested })) }
+          : harnessAdapterFor(kind),
+    })
+    const sessionId = asSessionId('podium-grok-stop')
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId,
+          durableLabel: 'podium-podium-grok-stop',
+          agentKind: 'grok',
+          cwd: '/repo',
+          lastKnownGeometry: G,
+          observationGeneration: 1,
+          observationBindingVersion: 1,
+        },
+        { onFrame: () => () => {} } as never,
+        { instrumentation: () => ({ args: [] }), translate: vi.fn(async () => []) },
+        { seedOnFrame: false },
+      )
+      expect(onInterruptRequested).not.toHaveBeenCalled()
+      observers.onInterruptRequested(sessionId)
+      expect(onInterruptRequested).toHaveBeenCalledOnce()
+    } finally {
+      observers.clearSession(sessionId)
+    }
+  })
+
   it('ignores late old hooks before transcript or binding mutation', () => {
     const sent: DaemonMessage[] = []
     const statTick = new ManualStatTick()
