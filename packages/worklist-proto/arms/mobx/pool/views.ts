@@ -439,7 +439,6 @@ const NO_ROLLUP: Rollup = {
   asking: false,
   workingSince: null,
   loading: false,
-  seatActivity: null,
 }
 
 /**
@@ -450,7 +449,7 @@ const NO_ROLLUP: Rollup = {
 export function buildRowView(input: ViewInputs, id: string, self: IssueParts): RowView | undefined {
   const own = self.own
   if (own === undefined) return undefined
-  const { loading, seatActivity, ...rollup } = input.rollup(id) ?? NO_ROLLUP
+  const { loading, ...rollup } = input.rollup(id) ?? NO_ROLLUP
   const waiting = rollup.asking
   return {
     id,
@@ -462,9 +461,7 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
     dismissed: own.dismissed && !waiting,
     selected: input.selected(id),
     originTick: self.originTick,
-    // The own-row stamp, raised by the latest seat below (`rows.ts:336-339`).
-    activityAt:
-      seatActivity !== null && seatActivity > self.activityAt ? seatActivity : self.activityAt,
+    activityAt: self.activityAt,
     ...(self.loading || loading ? { loading: true as const } : {}),
   }
 }

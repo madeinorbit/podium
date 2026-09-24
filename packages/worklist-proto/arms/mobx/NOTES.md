@@ -63,8 +63,8 @@ round-two layout; the round-three pool lives under `pool/`.
   filings, which `one()` would: it reads the target's presence). #7 re-parent:
   1 read against 21 (re-listing read 32).
 - **`activityAt` is a roll-up too** (`rows.ts:336-339`, `attach`): the view
-  takes the max of Ma1's own-row stamp (POD-4679 for its own gap) and the
-  latest seat of the visible subtree (`seatActivity`, its own composition, so a phase change never runs
+  takes the max of Ma1's own-row stamp and the latest seat of the visible
+  subtree (`seatActivity`, its own composition, so a phase change never runs
   it). Ma1's value already disagreed with the oracle at bootstrap on rows with
   newer nested seats; the exact commit fence found it on #10 (`i937`).
 - **Mb1 fix in passing:** `memberIds` = explicit members + `laneMemberIds`
@@ -83,13 +83,6 @@ round-two layout; the round-three pool lives under `pool/`.
   its issue's `sessions` bucket (91 other sessions). Fix is a design choice
   (a filing per known session at bootstrap, or a fence rule). `rollup.test`
   allows exactly that family term, counted before the step.
-
-- **POD-4679** — the own-row half of `activityAt` is still Ma1's (every
-  explicit session, where the legacy takes the retained seats). Making it
-  exact (b28ee7b85) matched the oracle on every visible row but broke five
-  Ma1/Mb1 tests encoding the current semantics; reverted (6fb0b1e59) and
-  filed. The gate's row-fields test records the count of rows it moves
-  (`mobx-pool-row-fields-1x.json`) instead of asserting it.
 
 ### Numbers (1x, `FIXED_NOW`, counts; `harness/browser/results/mobx-rollups-*.json`)
 

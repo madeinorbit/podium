@@ -458,13 +458,6 @@ describe('row fields against the oracle', () => {
         if (want.originTick === null) expect(got!.originTick, `${id}.originTick`).toBeNull()
         else expect(got!.originTick?.ref, `${id}.originTick`).toBe(want.originTick.ref)
       }
-      // `activityAt` is MEASURED, not asserted: its subtree half is Mb3's
-      // (`seatActivity`), its own-row half Ma1's, which takes every explicit
-      // session where the legacy takes the retained seats (POD-4679).
-      const activityOff = ids.filter(
-        (id) => id !== gap && actual[id]!.activityAt !== expected[id]!.activityAt,
-      )
-      writeResult('mobx-pool-row-fields-1x', { rows: ids.length, activityOff: activityOff.length, sample: activityOff.slice(0, 10) })
       expect(closedByOracle).toBeGreaterThan(0)
       // Every roll-up value the fixture can show is exercised.
       expect(new Set(ids.map((id) => expected[id]!.phase)).size).toBe(4)
