@@ -143,9 +143,11 @@ const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
  * 5 s per seed-step (was 2.5 s): since Mb3 (POD-4571) every snapshot and
  * every rebuild of the five arms per seed also derives the roll-ups, and the
  * gate's arms are unobserved, so each snapshot re-derives them. At load ~9
- * the default 3 x 200 ran past the old 25 min.
+ * the default 3 x 200 ran past the old 25 min. 8 s since POD-4674: eight
+ * arms per seed (three view plants), each compared step also rebuilding the
+ * whole views.
  */
-const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 5_000)
+const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 8_000)
 
 /** The planted mistake: removals never reach the pool. */
 function deafToRemovals(source: RowSource): RowSource {
