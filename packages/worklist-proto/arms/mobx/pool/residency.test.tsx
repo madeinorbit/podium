@@ -340,8 +340,17 @@ describe('the loader', () => {
     expect(pool.residency?.counters.requests).toBe(2)
     pool.stats.reset()
     r.fire()
-    // One read per row, one action, both resident.
-    expect([...r.loads].sort()).toEqual([`issue:${a!.id}`, `issue:${b!.id}`].sort())
+    // One read per row, one action, both resident. Since POD-4571 (option A)
+    // the watched row's view, redrawn once `a` lands, also reads each of its
+    // cold formal children by id for its progress (`coldRow`): per-row feed
+    // reads, never loads (`hydrated` below stays 2, and they stay cold).
+    const loaded = [`issue:${a!.id}`, `issue:${b!.id}`]
+    const coldChildren = tracked(() => [...pool.worklist.formalChildren(a!.id)]).filter((id) =>
+      pool.residency?.isCold('issue', id),
+    )
+    const byId = r.loads.filter((key) => !loaded.includes(key))
+    expect(r.loads.filter((key) => loaded.includes(key)).sort()).toEqual(loaded.sort())
+    expect(byId.every((key) => coldChildren.includes(key.slice('issue:'.length)))).toBe(true)
     expect(pool.stats.notifications).toBe(1)
     expect(pool.residency?.counters.batches).toBe(1)
     expect(pool.residency?.counters.hydrated).toBe(2)
