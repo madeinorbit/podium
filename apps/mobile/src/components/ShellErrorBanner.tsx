@@ -1,5 +1,6 @@
+import { useContext } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import { useMobileShell } from '../client/shell'
 import { color, elevation, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -22,11 +23,17 @@ import { PressableScale } from './PressableScale'
  */
 export function ShellErrorBanner() {
   const { error } = useMobileShell()
-  const insets = useSafeAreaInsets()
+  // The context, not `useSafeAreaInsets`: that hook THROWS outside a
+  // SafeAreaProvider, and this is mounted by the composition root for every
+  // route — a missing provider must cost the notice its inset, not the app.
+  const insets = useContext(SafeAreaInsetsContext)
   if (!error) return null
 
   return (
-    <View pointerEvents="box-none" style={[styles.host, { paddingTop: insets.top + space.xs }]}>
+    <View
+      pointerEvents="box-none"
+      style={[styles.host, { paddingTop: (insets?.top ?? 0) + space.xs }]}
+    >
       <View accessibilityRole="alert" style={styles.card} testID="shell-error-banner">
         <View style={styles.tint}>
           <Icon as={AlertTriangle} size={17} color={color.dangerText} />

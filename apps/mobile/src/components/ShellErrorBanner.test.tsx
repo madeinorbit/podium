@@ -14,8 +14,8 @@
  * shows here is shown by the shell, not by a screen.
  */
 
-import { type SessionMeta, asSessionId, UNADDRESSABLE_SEND_REASON } from '@podium/model'
 import { useStoreSelector } from '@podium/client-core/react'
+import { asSessionId, type SessionMeta, UNADDRESSABLE_SEND_REASON } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { Text } from 'react-native'
@@ -28,9 +28,11 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(),
 }))
-vi.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 47, right: 0, bottom: 34, left: 0 }),
-}))
+vi.mock('react-native-safe-area-context', async () => {
+  const { createContext } = await import('react')
+  const insets = { top: 47, right: 0, bottom: 34, left: 0 }
+  return { SafeAreaInsetsContext: createContext(insets), useSafeAreaInsets: () => insets }
+})
 
 const GONE = asSessionId('s-gone')
 

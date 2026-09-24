@@ -175,7 +175,9 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     const channel = useShellErrorChannel()
     return (
       <Store notices={channel.notices}>
-        <MobileShellSurface value={{ error: channel.error, notice, eraseLocalData: async () => {} }}>
+        <MobileShellSurface
+          value={{ error: channel.error, notice, eraseLocalData: async () => {} }}
+        >
           <Capture inner={inner} />
         </MobileShellSurface>
       </Store>

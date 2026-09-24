@@ -43,12 +43,12 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreSelector } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
-  parseReplicaNamespaceKey,
   createKernelReplica,
   createReplica,
   createSideCache,
   FeedSink,
   isTranscriptWindowStorageKey,
+  parseReplicaNamespaceKey,
   preparePrincipalNamespace,
   REPLICA_KEY_PREFIX,
   type Replica,
@@ -782,7 +782,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       authExpiryHandled.current = false
       reportError(cause instanceof Error ? cause.message : String(cause))
     })
-  }, [bearer, updateCredential])
+  }, [bearer, updateCredential, reportError])
   const verifyLiveCredential = useCallback(() => {
     if (activation === 'offline-cache') {
       void revalidateOfflineProfile?.().catch((cause: unknown) => {
@@ -801,6 +801,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     config.workspaceId,
     config.workspaceSlug,
     expireLiveCredential,
+    reportError,
     revalidateOfflineProfile,
   ])
   const trpc = useMemo(
