@@ -237,6 +237,8 @@ export interface Aggregate {
 export interface OwnAttention extends Aggregate {
   /** The earliest working seat's start on THIS row (not rolled up: the oracle reads own seats). */
   readonly workingSince: number | null
+  /** Its row is cold: the part is only a pending marker, and nothing below it is composed yet. */
+  readonly cold: boolean
 }
 
 const NO_FLAGS: PhaseFlags = { waiting: false, working: false, allDone: true }
@@ -250,10 +252,11 @@ export const EMPTY_OWN: OwnAttention = {
   finished: NO_FLAGS,
   pending: 0,
   workingSince: null,
+  cold: false,
 }
 
 /** A row whose own row is cold: nothing known yet, one marker pending. */
-export const PENDING_OWN: OwnAttention = { ...EMPTY_OWN, pending: 1 }
+export const PENDING_OWN: OwnAttention = { ...EMPTY_OWN, pending: 1, cold: true }
 
 function flagsWith(flags: PhaseFlags, phase: SlicePhase): PhaseFlags {
   return {
@@ -594,12 +597,14 @@ export function ownAttentionPartOf(input: RollupInputs, id: string, self: Rollup
 /** The visible-subtree aggregate: own part plus each nest child's cached aggregate. */
 export function aggregatePartOf(input: RollupInputs, id: string, self: RollupSelf): Aggregate {
   input.counted()
+  const own = self.ownAttention
+  if (own.cold) return aggregate({ own, children: [] })
   const children: Aggregate[] = []
   for (const childId of input.nested(id)) {
     const child = input.rollupNode(childId)
     if (child !== undefined) children.push(child.aggregate)
   }
-  return aggregate({ own: self.ownAttention, children })
+  return aggregate({ own, children })
 }
 
 /** This issue's own contribution to its formal ancestors' progress. */
@@ -617,6 +622,8 @@ export function unitOwnPartOf(input: RollupInputs, id: string, self: RollupSelf)
 /** The formal closure's counts: each formal child's own contribution and its own closure. */
 export function unitsBelowPartOf(input: RollupInputs, self: RollupSelf): Units {
   input.counted()
+  // A cold row's own marker stands for its closure until it lands.
+  if (self.unitOwn.pending) return NO_UNITS
   const children: { own: UnitOwn; below: Units }[] = []
   for (const childId of self.childIds) {
     const child = input.rollupNode(childId)

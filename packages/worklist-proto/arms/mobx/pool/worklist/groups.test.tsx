@@ -8,28 +8,18 @@
  * (`groups.layout`, no selection) equals the legacy oracle's `SliceOrder`
  * (`snapshotFromStore` at the unselected baseline: pinned ids, group keys,
  * labels, open lanes, closed folds), the visible rows equal the oracle's flat
- * rows, and the settled snapshot equals the pool's own rebuild, which groups
+ * rows, and the settled snapshot equals BOTH the oracle's (every row field,
+ * the roll-ups included since Mb3) and the pool's own rebuild, which groups
  * with L1b's `groupKeyOf` / `compareClosedFold` instead of the live layout.
- * The row roll-ups stay Mb3's stubs, so rows are compared with the rebuild,
- * not the oracle (Mb1's own-field comparison is `visible.test.tsx`).
  *
- * THE ONE NAMED DIFFERENCE. The fold verdict's "nothing in the subtree waits"
- * conjunct is Mb3's roll-up (`STUB_WAITING`, as the row's own `closed`), so a
- * settled closed top-level row whose subtree has a waiting session folds here
- * and stays open in the oracle (1x: i103, i2377, i4446, each `asking` with
- * phase `waiting` in the oracle's views). `stubMoved` derives that set from the
- * ORACLE (rows the fold rule closes with waiting ignored, that the oracle
- * keeps open, and that ask) and the parity check requires the difference to be
- * exactly those rows moved into their group's fold, nothing else. It is also a
- * tripwire: once Mb3 wires waiting in, the set no longer moves and this check
- * fails until it is replaced by exact parity.
- *
- * The same stub on the commit fence: a row the oracle changes ONLY in the
- * roll-up fields (`STUB_ROLLUPS`: #7's old and new parents' progress and
- * phase) cannot redraw before Mb3. Such a row may be missing from the redraw
- * (`stubUnder`, checked against the oracle's own before/after views); a row
- * drawn that the oracle did not change never may. #7 must show one, the
- * tripwire again.
+ * MB3 (POD-4571) REPLACED THE NAMED DIFFERENCE. Before the roll-ups, the fold
+ * verdict's "nothing in the subtree waits" conjunct was a stub, so three
+ * settled closed roots whose subtree asks (1x: i103, i2377, i4446) folded
+ * here and stayed open in the oracle, and #7's re-parented child's old and
+ * new parents could not redraw their progress. Both were tripwires; parity
+ * and the commit fence are exact now, and `waitingKept` records the rows the
+ * waiting conjunct holds open (the stub's three, from the oracle), so a
+ * regression to the stub shows by name.
  *
  * FENCES: each step commits exactly the oracle-changed rows and reads within
  * its budget (the shared `assertCommits` / `assertReads`); the layout re-runs
@@ -69,7 +59,7 @@ import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
-import { closedOf, STUB_ROLLUPS } from '../views'
+import { closedOf } from '../views'
 import { sliceOrderOf } from './groups'
 
 installMobxWarnTrap()
@@ -95,101 +85,35 @@ function settle(pool: MobxPool): number {
   return rounds
 }
 
-/** The oracle's row views at the engine's locals (selection included, as the fence's). */
-function oracleViews(ctx: ScenarioEngine): Record<string, unknown> {
-  return rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)) as Record<string, unknown>
-}
-
-/**
- * The shared commit fence, with Mb3's stub named: rows the oracle changed in
- * the stubbed roll-up fields only may be missing from the redraw. Returns them.
- */
-function assertCommitsBeforeRollups(
-  result: Parameters<typeof assertCommits>[0],
-  before: Record<string, unknown>,
-  after: Record<string, unknown>,
-): string[] {
-  try {
-    assertCommits(result)
-    return []
-  } catch (error) {
-    const drawn = new Set(result.drawnRows ?? [])
-    const changed = new Set(result.oracleChangedRows ?? [])
-    const over = [...drawn].filter((id) => !changed.has(id))
-    const under = [...changed].filter((id) => !drawn.has(id))
-    if (over.length > 0) throw error
-    const stubbed = new Set(Object.keys(STUB_ROLLUPS))
-    for (const id of under) {
-      const a = (before[id] ?? {}) as Record<string, unknown>
-      const b = (after[id] ?? {}) as Record<string, unknown>
-      const fields = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(
-        (field) => JSON.stringify(a[field]) !== JSON.stringify(b[field]),
-      )
-      if (before[id] === undefined || after[id] === undefined || fields.some((f) => !stubbed.has(f))) {
-        throw error
-      }
-    }
-    return under.sort()
-  }
-}
-
 /** An order-only snapshot, so `diffSnapshots` names group differences alone. */
 function orderDiff(actual: SliceOrder, expected: SliceOrder): string | null {
   return diffSnapshots({ order: actual, rowsById: {} }, { order: expected, rowsById: {} })
 }
 
 /**
- * Rows the stub folds and the oracle keeps open: visible, closed by the fold
- * rule with waiting ignored, open in the oracle's views, and asking there.
+ * Rows the waiting conjunct holds open: visible, closed by the fold rule with
+ * waiting ignored, open in the oracle's order, and asking in its views.
  */
-function stubMoved(ctx: ScenarioEngine, expected: SliceOrder): Set<string> {
+function waitingKept(ctx: ScenarioEngine, expected: SliceOrder): Set<string> {
   const store = ctx.engine.getSnapshot()
   const coarseNow = parityLocals(ctx).coarseNow
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
-  const moved = new Set<string>()
+  const kept = new Set<string>()
   for (const issue of store.issues as unknown as SliceIssue[]) {
     if (!open.has(issue.id)) continue
     const view = views[issue.id]
     if (view === undefined || view.closed) continue
     if (!closedOf(issue, false, { passed: (t) => coarseNow > t })) continue
     expect(view.asking, `${issue.id}: open in the oracle only because it asks`).toBe(true)
-    moved.add(issue.id)
+    kept.add(issue.id)
   }
-  return moved
-}
-
-/** The oracle's order with `moved` folded: out of the open lane, into the fold by stamp. */
-function withStubMoves(
-  ctx: ScenarioEngine,
-  expected: SliceOrder,
-  moved: ReadonlySet<string>,
-): SliceOrder {
-  const store = ctx.engine.getSnapshot()
-  const byId = new Map((store.issues as unknown as SliceIssue[]).map((i) => [i.id, i]))
-  const foldMs = (id: string) => {
-    const issue = byId.get(id) as SliceIssue
-    return Date.parse(issue.tuckedAt ?? issue.closedAt ?? issue.updatedAt) || 0
-  }
-  return {
-    pinnedIds: expected.pinnedIds,
-    groups: expected.groups.map((group) => {
-      const add = group.rowIds.filter((id) => moved.has(id))
-      if (add.length === 0) return group
-      // Rank order among the moved, then a stable merge by stamp (ties keep rank).
-      const closedIds = [...group.closedIds]
-      for (const id of add) {
-        const at = closedIds.findIndex((other) => foldMs(other) < foldMs(id))
-        closedIds.splice(at === -1 ? closedIds.length : at, 0, id)
-      }
-      return { ...group, rowIds: group.rowIds.filter((id) => !moved.has(id)), closedIds }
-    }),
-  }
+  return kept
 }
 
 interface GroupParity {
   readonly at: string
-  readonly stubMoved: readonly string[]
+  readonly waitingKept: readonly string[]
   readonly visible: number
   readonly pinned: number
   readonly groups: number
@@ -201,14 +125,11 @@ function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): G
   const { pool } = handle
   const locals = parityLocals(ctx)
   const store = ctx.engine.getSnapshot()
-  const oracle = snapshotFromStore(store, locals).order
-  const moved = stubMoved(ctx, oracle)
-  const expected = withStubMoves(ctx, oracle, moved)
+  const expected = snapshotFromStore(store, locals)
+  const oracle = expected.order
+  const kept = waitingKept(ctx, oracle)
   const live = tracked(() => sliceOrderOf(pool.groups.layout))
-  expect(orderDiff(live, expected), `${at}: groups against the oracle`).toBeNull()
-  // The tripwire: the stub still moves rows, and they are why live differs.
-  expect(moved.size, `${at}: rows the waiting stub folds`).toBeGreaterThan(0)
-  expect(orderDiff(live, oracle), `${at}: the stub's rows differ`).not.toBeNull()
+  expect(orderDiff(live, oracle), `${at}: groups against the oracle`).toBeNull()
   const flat = visibleIssueRows(legacyDerivationFromStore(store, locals.coarseNow), locals).map(
     (row) => row.issue.id,
   )
@@ -217,10 +138,11 @@ function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): G
     `${at}: visible order`,
   ).toEqual(flat)
   const snapshot = handle.snapshot()
+  expect(diffSnapshots(snapshot, expected), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
   return {
     at,
-    stubMoved: [...moved].sort(),
+    waitingKept: [...kept].sort(),
     visible: flat.length,
     pinned: live.pinnedIds.length,
     groups: live.groups.length,
@@ -296,13 +218,12 @@ describe('groups and closed folds (Mb2)', () => {
         expect(entry, methodology).toBeDefined()
         const orderBefore = tracked(() => [...pool.worklist.order])
         const lanesBefore = lanes(pool)
-        const viewsBefore = oracleViews(ctx)
         let step: Awaited<ReturnType<typeof runFenceStep>> | undefined
         const headerRenders = await countHeaderRenders(async () => {
           step = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         })
         const { result, readsBudget } = step!
-        const stubUnder = assertCommitsBeforeRollups(result, viewsBefore, oracleViews(ctx))
+        assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         const counters = { ...pool.stats.counters }
@@ -320,7 +241,6 @@ describe('groups and closed folds (Mb2)', () => {
           scenario: result.scenario,
           oracleChanged: result.oracleChangedRows,
           rowsCommitted: result.rowsCommitted,
-          stubUnder,
           readsPerChange: result.readsPerChange,
           readsBudget,
           orderMoved,
@@ -339,8 +259,10 @@ describe('groups and closed folds (Mb2)', () => {
       // #2 and #4 redraw a row and no header (the brief's pitfall).
       expect(cells[1]!.rowsCommitted).toBeGreaterThan(0)
       expect(cells[3]!.rowsCommitted).toBeGreaterThan(0)
-      // #7 moves a child between parents: their progress changes (Mb3's stub).
-      expect(cells.find((cell) => cell.methodology === '#7')?.stubUnder.length).toBeGreaterThan(0)
+      // #7 moves a child between parents: their progress changes, and they redraw (Mb3).
+      expect(cells.find((cell) => cell.methodology === '#7')?.rowsCommitted).toBeGreaterThan(0)
+      // The waiting conjunct holds some closed root open (the stub's three at 1x).
+      expect(parity[0]!.waitingKept.length).toBeGreaterThan(0)
       // The header counter can say yes: some step changed a group's lanes.
       expect(cells.some((cell) => cell.headerRenders > 0)).toBe(true)
       writeResult('mobx-groups-1x', { scale: 1, parity, cells })

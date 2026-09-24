@@ -10,7 +10,7 @@
  * snapshot equals the pool's own rebuild from scratch, and the fields Mb1's
  * rows carry from the own row and one hop equal the oracle's row views. The
  * roll-ups (`phase`, progress, `working`, `asking`) and `closed` are Mb3's
- * stubs and stay out of the field comparison.
+ * (compared in `rollup.test.tsx` and the gate) and stay out of this one.
  *
  * FENCES the brief names: a heartbeat reads nothing of the visible set and
  * re-sorts nothing; a rank change sorts at most the visible count and commits
@@ -65,7 +65,7 @@ const arm: CheckableArm = {
     mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
-/** The row fields Mb1's rows carry from the own row and one hop (the roll-ups are Mb3's stubs). */
+/** The row fields Mb1's rows carry from the own row and one hop (the roll-ups are Mb3's, `rollup.test.tsx`). */
 const OWN_FIELDS = [
   'displayRef',
   'title',

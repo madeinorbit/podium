@@ -57,10 +57,11 @@
  * checkpoint: registry writes (a cold row's update, insert or removal), loads
  * on access, rows warmed by a reopen or removal.
  *
- * FIDELITY. The fields Ma1 derives from the row, one hop and the locals are
- * compared with the oracle's row views (`rowViewsFromStore`) for every
- * visible row. `closed` is compared one way only (oracle closed ⇒ pool
- * closed): the pool's "nothing waiting" conjunct is the Mb3 stub.
+ * FIDELITY. The fields Ma1 derives from the row, one hop and the locals, and
+ * the roll-ups Mb3 derives (`phase`, progress, `working`, `asking`,
+ * `workingSince`, and `closed` / `dismissed` with their "nothing waiting"
+ * conjunct), are compared with the oracle's row views (`rowViewsFromStore`)
+ * for every visible row.
  */
 
 import { runInAction } from 'mobx'
@@ -397,7 +398,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
   )
 })
 
-describe('own-row fields against the oracle', () => {
+describe('row fields against the oracle', () => {
   it('matches the oracle on every visible row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -426,6 +427,15 @@ describe('own-row fields against the oracle', () => {
         'createdAt',
         'seq',
         'foldAt',
+        // Mb3's roll-ups (POD-4571).
+        'phase',
+        'progressDone',
+        'progressTotal',
+        'working',
+        'asking',
+        'workingSince',
+        'closed',
+        'dismissed',
       ]
       let closedByOracle = 0
       for (const id of ids) {
@@ -434,14 +444,16 @@ describe('own-row fields against the oracle', () => {
         expect(got, id).toBeDefined()
         for (const field of same) expect(got![field], `${id}.${field}`).toEqual(want[field])
         if (!got!.title.startsWith('New ')) expect(got!.title, `${id}.title`).toBe(want.title)
-        if (want.closed) {
-          closedByOracle += 1
-          expect(got!.closed, `${id}.closed`).toBe(true)
-        }
+        if (want.closed) closedByOracle += 1
+        expect(got!.loading, `${id}.loading`).toBeUndefined()
         if (want.originTick === null) expect(got!.originTick, `${id}.originTick`).toBeNull()
         else expect(got!.originTick?.ref, `${id}.originTick`).toBe(want.originTick.ref)
       }
       expect(closedByOracle).toBeGreaterThan(0)
+      // Every roll-up value the fixture can show is exercised.
+      expect(new Set(ids.map((id) => expected[id]!.phase)).size).toBe(4)
+      expect(ids.some((id) => expected[id]!.asking && expected[id]!.working)).toBe(true)
+      expect(ids.some((id) => expected[id]!.progressTotal > 1)).toBe(true)
       expect(ids.filter((id) => expected[id]!.originTick !== null).length).toBeGreaterThan(0)
       expect(new Set(ids.map((id) => expected[id]!.band)).size).toBeGreaterThan(1)
     } finally {
