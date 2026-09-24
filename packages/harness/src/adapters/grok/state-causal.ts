@@ -72,6 +72,15 @@ export class GrokCausalObserver {
   private inFlight: AgentObservation | null = null
   private nextRetryAt = 0
   private draining = false
+  /**
+   * Podium asked this session to stop (Ctrl+C) while this epoch was open.
+   * Grok's Stop hook fires when the turn ends — including on cancel, where
+   * updates.jsonl only flushes `turn_completed`/`cancelled` ~17s later — so
+   * the hook is the cancel's earliest reliable signal. The epoch guards it:
+   * only a Stop for the interrupted epoch may end it as interrupted.
+   */
+  private pendingInterruptEpoch: number | null = null
+  private pendingInterruptAt = 0
 
   constructor(private readonly lease: GrokObservationLease) {
     const checkpoint = lease.acceptedCheckpoint
@@ -171,6 +180,18 @@ export class GrokCausalObserver {
   }
 
   /**
+   * Podium sent this session its Stop key. Records the open epoch so the Stop
+   * hook arriving for it can close it as interrupted on the causal path,
+   * instead of waiting for the delayed `turn_completed`/`cancelled` file tail.
+   * A no-op when no turn is open (Ctrl+C on an idle prompt does nothing).
+   */
+  noteInterruptRequested(nowMs?: number): void {
+    if (!this.epochOpen) return
+    this.pendingInterruptEpoch = this.turnEpoch
+    this.pendingInterruptAt = nowMs ?? this.lease.retryNow?.() ?? Date.now()
+  }
+
+  /**
    * HTTP SessionStart / UserPromptSubmit arrive seconds before Grok flushes
    * the matching updates.jsonl record. Open the turn from the hook so Working
    * is not gated on that write. Later JSONL `prompt_submitted` is skipped
@@ -179,6 +200,7 @@ export class GrokCausalObserver {
    */
   observeHook(payload: unknown, segment?: GrokSegmentIdentity): boolean {
     const name = grokHookName(payload)
+    if (name === 'stop') return this.observeStopHook(payload, segment)
     if (name !== 'session_start' && name !== 'user_prompt_submit') return false
     if (name === 'session_start') return true
     if (this.epochOpen) return true
@@ -202,6 +224,43 @@ export class GrokCausalObserver {
 
   fold(record: GrokRecordEvidence): void {
     this.apply(record, false)
+  }
+
+  /**
+   * A Stop hook for the epoch Podium interrupted. The hook carries no
+   * stop_reason — but Podium sent the Stop, the epoch is still open, and a
+   * cancel writes no assistant record for the chat tail to classify, so the
+   * verdict is `interrupted` without reading any file. Any other Stop (a
+   * natural turn end, a stale flag, a closed epoch) returns false so the
+   * existing poll/legacy path owns it unchanged.
+   */
+  private observeStopHook(payload: unknown, segment?: GrokSegmentIdentity): boolean {
+    if (!this.epochOpen) return false
+    if (this.pendingInterruptEpoch !== this.turnEpoch) return false
+    // Stale-flag guard: hook delivery is bounded (curl -m 2, 5s hook
+    // timeout), so a flag older than this never names the current turn.
+    const now = this.lease.retryNow?.() ?? Date.now()
+    if (now - this.pendingInterruptAt > 60_000) {
+      this.pendingInterruptEpoch = null
+      return false
+    }
+    const base =
+      this.acceptedCursor ??
+      (segment ? this.cursorFor(segment, segment.integrityBytes ?? 0) : null)
+    if (!base) return false
+    this.pendingInterruptEpoch = null
+    this.hookSequence = Math.max(this.hookSequence, base.components.hook ?? 0) + 1
+    const record = isHookRecord(payload) ? payload : {}
+    return this.enqueue({
+      record,
+      cursor: {
+        ...base,
+        components: { ...base.components, hook: this.hookSequence },
+      },
+      events: [{ kind: 'turn_completed', verdict: { kind: 'interrupted' } }],
+      sourceEventKind: 'hook:stop',
+      providerAt: this.now(),
+    })
   }
 
   finishBootstrap(cursor: ProviderCursor): void {
@@ -388,7 +447,13 @@ export class GrokCausalObserver {
       if (next === prior) continue
       this.state = next
       this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId']) ?? this.providerTurnId
-      if (terminal) this.epochOpen = false
+      if (terminal) {
+        this.epochOpen = false
+        // The epoch the interrupt named is over; a later turn must not
+        // inherit its flag (the epoch guard already scopes it, this just
+        // keeps the field honest).
+        this.pendingInterruptEpoch = null
+      }
       if (live) {
         result = this.observation({
           cursor: this.transitionCursor(record.cursor),

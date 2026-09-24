@@ -471,6 +471,7 @@ export const grokManifest: AgentManifest = {
       },
       onObservationAck: (ack) => active?.onObservationAck?.(ack),
       onHookPayload: (payload) => active?.onHookPayload?.(payload) ?? false,
+      onInterruptRequested: () => active?.onInterruptRequested?.(),
       onProviderRebindAck(ack) {
         const pending = pendingRebind
         const priorLease = lease

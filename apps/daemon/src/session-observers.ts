@@ -636,6 +636,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   /** Podium sent this session its Stop key. Claude may take the turn back
    *  without leaving a record, so look at the screen once it has had time to. */
   const onInterruptRequested = (sessionId: SessionId): void => {
+    // Grok's Stop hook is the cancel's earliest signal: its updates.jsonl
+    // `turn_completed`/`cancelled` flush lands ~17s after Ctrl+C, while the
+    // hook POST fires when the turn ends. Arm the adapter so that hook can
+    // close the open epoch as interrupted on the causal path. No-op for
+    // adapters without the method (Claude and the poll-only rest).
+    observations.get(sessionId)?.observation.onInterruptRequested?.()
     const causal = claudeCausal.get(sessionId)
     const epoch = causal?.observer.openTurnEpoch
     if (!causal || epoch === null || epoch === undefined) return

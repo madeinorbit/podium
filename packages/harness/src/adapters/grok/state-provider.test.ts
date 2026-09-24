@@ -2606,6 +2606,222 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
   })
 })
 
+describe('grok Stop-hook cancel fast path (slow Stop clear: 17s -> seconds)', () => {
+  const stopHook = (sessionId: string) => ({ hookEventName: 'Stop', sessionId })
+
+  it('a Stop hook with no Podium interrupt stays on the existing path', () => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: asSessionId('podium-stop-noint'),
+      providerSessionId: 'g-stop-noint',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-09-24T00:00:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    // No open epoch and no interrupt: the hook is not ours to close.
+    expect(causal.observeHook(stopHook('g-stop-noint'))).toBe(false)
+    expect(observations).toEqual([])
+  })
+
+  it('a Stop hook after Podium sent Stop ends the open turn as interrupted on the causal path', async () => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: asSessionId('podium-stop-fast'),
+      providerSessionId: 'g-stop-fast',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-09-24T00:00:01.000Z',
+      retryNow: () => 1_000,
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-stop-fast:1:2:/tmp/stop-fast.jsonl',
+      pathHint: '/tmp/stop-fast.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    const lease: ObservationLease = {
+      provider: 'grok',
+      providerSessionId: 'g-stop-fast',
+      bindingVersion: 1,
+      observationGeneration: 1,
+    }
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const accept = (observation: AgentObservation): void => {
+      const result = acceptAgentObservation(checkpoint, lease, observation, '2026-09-24T00:00:02.000Z')
+      if (result.kind === 'rejected') throw new Error(result.rejectionReason)
+      checkpoint = result.checkpoint
+      causal.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: asSessionId('podium-stop-fast'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: result.kind,
+        acceptedCursor: result.checkpoint.providerCursor,
+        checkpoint: result.checkpoint,
+      })
+    }
+
+    // Open the turn the way a live headed session does: hook first.
+    expect(
+      causal.observeHook(
+        { hookEventName: 'UserPromptSubmit', sessionId: 'g-stop-fast' },
+        segment,
+      ),
+    ).toBe(true)
+    await waitFor(() => observations.length === 1)
+    expect(observations[0]).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
+    accept(observations[0]!)
+
+    // A Stop hook with no interrupt requested is still the old path.
+    expect(causal.observeHook(stopHook('g-stop-fast'), segment)).toBe(false)
+    expect(observations).toHaveLength(1)
+
+    // Podium sends Ctrl+C mid-turn; Grok's Stop hook then ends it.
+    causal.noteInterruptRequested(2_000)
+    expect(causal.observeHook(stopHook('g-stop-fast'), segment)).toBe(true)
+    await waitFor(() => observations.length === 2)
+    expect(observations[1]).toMatchObject({
+      transitionKind: 'turn_terminal',
+      nextPhase: 'idle',
+      sourceEventKind: 'hook:stop',
+      state: { phase: 'idle', idle: { kind: 'interrupted' } },
+    })
+
+    // The durable gate accepts the hook terminal as the turn end.
+    accept(observations[1]!)
+    expect(checkpoint?.turnState).toMatchObject({
+      phase: 'idle',
+      idle: { kind: 'interrupted' },
+    })
+  })
+
+  it('a stale interrupt flag never ends a later turn', async () => {
+    const observations: AgentObservation[] = []
+    let nowMs = 1_000
+    const causal = new GrokCausalObserver({
+      podiumSessionId: asSessionId('podium-stop-stale'),
+      providerSessionId: 'g-stop-stale',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-09-24T00:00:01.000Z',
+      retryNow: () => nowMs,
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-stop-stale:1:2:/tmp/stop-stale.jsonl',
+      pathHint: '/tmp/stop-stale.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    expect(
+      causal.observeHook(
+        { hookEventName: 'UserPromptSubmit', sessionId: 'g-stop-stale' },
+        segment,
+      ),
+    ).toBe(true)
+    await waitFor(() => observations.length === 1)
+
+    // Interrupt requested, but the Stop hook arrives over a minute later
+    // (hook delivery is bounded by curl -m 2 + the 5s hook timeout).
+    causal.noteInterruptRequested()
+    nowMs += 61_000
+    expect(causal.observeHook(stopHook('g-stop-stale'), segment)).toBe(false)
+    expect(observations).toHaveLength(1)
+  })
+
+  it('the observer arms the fast path on interrupt and closes the turn from the Stop hook', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-stop-fast-'))
+    const cwd = '/repo/grok-stop-fast'
+    const sessionId = 'g-stop-fast-obs'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    const observations: AgentObservation[] = []
+    const lease: ObservationLease = {
+      provider: 'grok',
+      providerSessionId: sessionId,
+      bindingVersion: 1,
+      observationGeneration: 1,
+    }
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const observer = observeGrokState({
+      cwd,
+      homeDir: home,
+      resumeValue: sessionId,
+      pollMs: 10,
+      causal: {
+        podiumSessionId: asSessionId('podium-stop-fast-obs'),
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        onObservation: (observation) => observations.push(observation),
+      },
+    })
+    const accept = (observation: AgentObservation): void => {
+      const result = acceptAgentObservation(checkpoint, lease, observation, '2026-09-24T00:00:02.000Z')
+      if (result.kind === 'rejected') throw new Error(result.rejectionReason)
+      checkpoint = result.checkpoint
+      observer.onObservationAck?.({
+        type: 'agentObservationAck',
+        sessionId: asSessionId('podium-stop-fast-obs'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: result.kind,
+        acceptedCursor: result.checkpoint.providerCursor,
+        checkpoint: result.checkpoint,
+      })
+    }
+    try {
+      await waitFor(() => observations.length === 1)
+      accept(observations[0]!)
+      expect(
+        observer.onHookPayload?.({ hookEventName: 'UserPromptSubmit', sessionId }),
+      ).toBe(true)
+      await waitFor(() => observations.length === 2)
+      expect(observations[1]).toMatchObject({
+        transitionKind: 'turn_opened',
+        nextPhase: 'working',
+      })
+      accept(observations[1]!)
+
+      // No interrupt yet: the Stop hook is not handled on the causal path.
+      expect(observer.onHookPayload?.(stopHook(sessionId))).toBe(false)
+      expect(observations).toHaveLength(2)
+
+      // Podium's Stop key arms it; the hook then ends the turn as
+      // interrupted without waiting for the updates.jsonl tail.
+      observer.onInterruptRequested?.()
+      expect(observer.onHookPayload?.(stopHook(sessionId))).toBe(true)
+      await waitFor(() => observations.length === 3)
+      expect(observations[2]).toMatchObject({
+        transitionKind: 'turn_terminal',
+        nextPhase: 'idle',
+        sourceEventKind: 'hook:stop',
+        state: { phase: 'idle', idle: { kind: 'interrupted' } },
+      })
+      const result = acceptAgentObservation(
+        checkpoint,
+        lease,
+        observations[2]!,
+        '2026-09-24T00:00:03.000Z',
+      )
+      expect(result.kind).toBe('live_transition_accepted')
+    } finally {
+      observer.stop()
+    }
+  })
+})
+
 async function waitFor(fn: () => boolean): Promise<void> {
   const start = Date.now()
   while (!fn()) {

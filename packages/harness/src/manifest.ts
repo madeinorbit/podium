@@ -742,6 +742,10 @@ export interface HarnessObservation {
   /** HTTP hook payload. Return true when the adapter handled it on the causal
    *  path so the host does not emit a legacy unfenced agentState. */
   onHookPayload?(payload: unknown): boolean
+  /** Podium sent this session its Stop key. Adapters whose turn end is a
+   *  delayed file flush (grok) arm their hook fast path so the provider's own
+   *  Stop report can close the open epoch instead of waiting for the tail. */
+  onInterruptRequested?(): void
 }
 
 /** Start this harness's per-session native-store observation: the state

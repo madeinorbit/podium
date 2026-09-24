@@ -63,6 +63,8 @@ export interface GrokStateObserver {
   onObservationAck?(ack: AgentObservationAckMessage): void
   /** HTTP SessionStart / UserPromptSubmit. True = handled on the causal path. */
   onHookPayload?(payload: unknown): boolean
+  /** Podium sent this session its Stop key; arms the Stop-hook fast path. */
+  onInterruptRequested?(): void
 }
 
 type GrokCausalOptions = Omit<GrokObservationLease, 'providerSessionId'> & {
@@ -317,6 +319,9 @@ export function observeGrokState(opts: {
     },
     onHookPayload(payload) {
       return updateTail?.onHookPayload?.(payload) ?? false
+    },
+    onInterruptRequested() {
+      updateTail?.onInterruptRequested?.()
     },
   }
 }
@@ -725,6 +730,9 @@ function tailGrokUpdates(
       causal?.acknowledge(ack)
     },
     onHookPayload: ingestHook,
+    onInterruptRequested() {
+      causal?.noteInterruptRequested()
+    },
   }
 }
 
