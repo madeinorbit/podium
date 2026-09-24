@@ -504,7 +504,7 @@ function orderChecked(): ((ctx: ScenarioEngine) => CheckableArm) & { compared: n
           const settled = handle.snapshot()
           const coarseNow = parityLocals(ctx).coarseNow
           const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), coarseNow)
-          const expected = visibleIssueRows(derivation, parityLocals(ctx)).map(
+          const expected: string[] = visibleIssueRows(derivation, parityLocals(ctx)).map(
             (row) => row.issue.id,
           )
           const order = [...handle.pool.order()]
