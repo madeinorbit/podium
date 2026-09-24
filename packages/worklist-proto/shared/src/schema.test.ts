@@ -13,6 +13,7 @@
 
 import { dedupeSessionsByResume } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { buildCorpus } from '../../harness/src/fixture/index'
 import {
   allRelations,
   collapseLosers,
@@ -562,5 +563,132 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     expect(keeperOf(SCHEMA, 'session', session('s', 'i1', { headless: true }))).toBeNull()
     expect(keeperOf(SCHEMA, 'session', { sessionId: 's', cwd: '/w' })).toBeNull()
     expect(keeperOf(SCHEMA, 'issue', child('i1', 1))).toBeNull()
+  })
+})
+
+/**
+ * POD-4675 (H3-F4): the declared input lists are complete. Both relation
+ * engines skip re-resolving a link when none of `where.fields` (and the key)
+ * moved, and skip re-deciding a collapse group when none of
+ * `collapse.fields` moved (`arms/*\/pool/relations.ts`). Those lists are
+ * written by hand beside the functions they describe; `validateStructure`
+ * only checks that each named field exists. A `where.test` or collapse
+ * function that starts reading an unlisted field would leave relations stale
+ * on changes of that field, seen by the gate only if the generator moves it.
+ * So every `where.test` and every collapse function (`groupKey`,
+ * `keepsGroup`, `rank`, the `recency` field) runs over every row of the 1x
+ * corpus through a recording proxy, and any top-level field read outside its
+ * list is named. It sees the branches the corpus takes (1x holds every
+ * session status, shells and archived rows); H3's probe
+ * (`harness/review/h3-shape-probes.test.ts`) also runs it over a live export.
+ */
+describe('declared input lists (POD-4675)', () => {
+  type Row = Readonly<Record<string, unknown>>
+  const corpus = buildCorpus(1)
+  const rowsOf = (entity: EntityName): Row[] =>
+    entity === 'issue'
+      ? (corpus.sliceIssues as unknown as Row[])
+      : entity === 'session'
+        ? (corpus.sliceSessions as unknown as Row[])
+        : entity === 'worktree'
+          ? (corpus.sliceWorktrees as unknown as Row[])
+          : []
+
+  /** The top-level fields `fn` reads from each row, beyond `declared`. */
+  function undeclaredReads(
+    declared: readonly string[],
+    rows: readonly Row[],
+    fn: (row: Row) => unknown,
+  ): string[] {
+    const allowed = new Set(declared)
+    const extra = new Set<string>()
+    for (const row of rows) {
+      fn(
+        new Proxy(row, {
+          get(target, key, receiver) {
+            if (typeof key === 'string' && !allowed.has(key)) extra.add(key)
+            return Reflect.get(target, key, receiver)
+          },
+        }),
+      )
+    }
+    return [...extra].sort()
+  }
+
+  /** Every declared filter's and collapse function's undeclared reads, one line each. */
+  function inputGaps(schema: ModelSchema): { gaps: string[]; checked: string[] } {
+    const gaps: string[] = []
+    const checked: string[] = []
+    for (const { from, name, relation } of allRelations(schema)) {
+      const where = (relation as { where?: { fields: readonly string[]; test: (r: Row) => boolean } })
+        .where
+      if (where === undefined) continue
+      const rows = rowsOf(from)
+      expect(rows.length, `${from} rows for ${from}.${name}.where`).toBeGreaterThan(0)
+      checked.push(`${from}.${name}.where`)
+      const extra = undeclaredReads(where.fields, rows, (row) => where.test(row))
+      if (extra.length > 0) gaps.push(`${from}.${name}.where reads ${extra.join(', ')}`)
+    }
+    for (const entity of Object.keys(schema) as EntityName[]) {
+      const rule = schema[entity].collapse
+      if (rule === undefined) continue
+      const rows = rowsOf(entity)
+      expect(rows.length, `${entity} rows for ${entity}.collapse`).toBeGreaterThan(0)
+      const fns: [string, (row: Row) => unknown][] = [
+        ['groupKey', (row) => rule.groupKey(row)],
+        ['keepsGroup', (row) => rule.keepsGroup(row)],
+        ['rank', (row) => rule.rank(row)],
+        ['recency', (row) => row[rule.recency]],
+      ]
+      for (const [label, fn] of fns) {
+        checked.push(`${entity}.collapse.${label}`)
+        const extra = undeclaredReads(rule.fields, rows, fn)
+        if (extra.length > 0) gaps.push(`${entity}.collapse.${label} reads ${extra.join(', ')}`)
+      }
+    }
+    return { gaps, checked }
+  }
+
+  it('every where.test and collapse function reads only its declared fields', () => {
+    const { gaps, checked } = inputGaps(SCHEMA)
+    // The declared filters and the one collapse rule were all run.
+    expect(checked).toEqual(expect.arrayContaining(['session.collapse.groupKey']))
+    expect(checked.filter((line) => line.endsWith('.where')).length).toBeGreaterThan(0)
+    expect(gaps).toEqual([])
+  })
+
+  it('names a where.test that reads an undeclared field (the check is armed)', () => {
+    const issue = SCHEMA.session.relations['issue'] as unknown as {
+      where: { fields: readonly string[]; test: (r: Row) => boolean; why: string }
+    }
+    const planted = {
+      ...SCHEMA,
+      session: {
+        ...SCHEMA.session,
+        relations: {
+          ...SCHEMA.session.relations,
+          issue: {
+            ...issue,
+            where: {
+              ...issue.where,
+              test: (row: Row) => issue.where.test(row) && row['status'] !== 'deleted',
+            },
+          },
+        },
+      },
+    } as unknown as ModelSchema
+    expect(inputGaps(planted).gaps).toContain('session.issue.where reads status')
+  })
+
+  it('names a collapse function that reads an undeclared field (the check is armed)', () => {
+    const rule = SCHEMA.session.collapse!
+    const planted = {
+      ...SCHEMA,
+      session: {
+        ...SCHEMA.session,
+        collapse: { ...rule, rank: (row: Row) => rule.rank(row) + (row['cwd'] === '' ? 1 : 0) },
+      },
+    } as unknown as ModelSchema
+    expect(inputGaps(planted).gaps).toContain('session.collapse.rank reads cwd')
   })
 })
