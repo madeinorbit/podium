@@ -628,12 +628,23 @@ export function directVisibleParts(
   const held = memo.get(id)
   if (held !== undefined) return held
   const values = new Map<VisiblePartName, unknown>()
+  const running = new Set<VisiblePartName>()
   const parts = {} as VisibleParts
   for (const name of VISIBLE_PART_NAMES) {
     Object.defineProperty(parts, name, {
       enumerable: true,
       get: () => {
-        if (!values.has(name)) values.set(name, VISIBLE_RULES[name](input, id, parts))
+        // A part that reads itself through a cycle in the data reads
+        // undefined, as a live cell on its first run does (`cells.ts`).
+        if (running.has(name)) return undefined
+        if (!values.has(name)) {
+          running.add(name)
+          try {
+            values.set(name, VISIBLE_RULES[name](input, id, parts))
+          } finally {
+            running.delete(name)
+          }
+        }
         return values.get(name)
       },
     })
@@ -896,6 +907,14 @@ export class VisibleCollection {
     if (kind === 'issue') return this.issueCells.size
     if (kind === 'session') return this.sessionCells.size
     return this.members.size
+  }
+
+  /** Cells held: every part cell, `visible` cell and rank cell (tests: lifecycle, counts). */
+  cellCount(): number {
+    let cells = this.members.size + this.ranks.size
+    for (const held of this.issueCells.values()) cells += held.cells.size
+    for (const held of this.sessionCells.values()) cells += held.cells.size
+    return cells
   }
 
   /** An issue left the pool entirely: its cells go (their readers re-run and find it gone). */

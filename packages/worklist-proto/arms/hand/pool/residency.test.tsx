@@ -66,8 +66,15 @@ interface Rig {
   pool: HandPool
   /** Timers the loader armed, in order. */
   timers: Timer[]
-  /** Per-row reads the pool made through the feed, `kind:id`. */
+  /** Per-row reads the pool made through the feed to LOAD a row, `kind:id`. */
   loads: string[]
+  /**
+   * Per-row reads that load nothing: the worklist reading a cold row's own
+   * fields by id (`Residency.peek`, POD-4582). The bootstrap's are in
+   * `bootstrapPeeks`; these are the ones after it.
+   */
+  peeks: string[]
+  bootstrapPeeks: readonly string[]
   /** Fire the open window (the one armed, not cancelled). */
   fire(): void
   push(event: RowSourceEvent): void
@@ -92,10 +99,12 @@ function rig(options: { realTimer?: boolean } = {}): Rig {
   const replay = createReplaySource(records())
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   const loads: string[] = []
+  const peeks: string[] = []
+  const peeking = { now: true }
   const counted: RowSource = {
     snapshot: (kind) => replay.source.snapshot(kind),
     row: (kind, id) => {
-      loads.push(`${kind}:${id}`)
+      ;(peeking.now ? peeks : loads).push(`${kind}:${id}`)
       return replay.source.row?.(kind, id)
     },
     subscribe: (listener) => replay.source.subscribe(listener),
@@ -118,6 +127,20 @@ function rig(options: { realTimer?: boolean } = {}): Rig {
           },
         },
   )
+  // The bootstrap loads nothing (asserted below); from here on a read is a
+  // peek only while `Residency.peek` runs.
+  const residency = handle.pool.residency!
+  const peek = residency.peek.bind(residency)
+  residency.peek = (entity, id) => {
+    peeking.now = true
+    try {
+      return peek(entity, id)
+    } finally {
+      peeking.now = false
+    }
+  }
+  peeking.now = false
+  const bootstrapPeeks = peeks.splice(0)
   const r: Rig = {
     replay,
     reads,
@@ -125,6 +148,8 @@ function rig(options: { realTimer?: boolean } = {}): Rig {
     pool: handle.pool,
     timers,
     loads,
+    peeks,
+    bootstrapPeeks,
     fire() {
       const armed = timers.filter((timer) => !timer.cancelled)
       expect(armed.length).toBe(1)
@@ -208,12 +233,27 @@ describe('bootstrap', () => {
     // Every table slot written at bootstrap is a hot row, a lane or a repo.
     const slots = ENTITIES.reduce((sum, entity) => sum + pool.tables[entity].size, 0)
     expect(pool.stats.counters.tableWrites).toBe(slots)
-    // Nothing derived, nothing built per row, nothing loaded.
-    expect(pool.issues.size).toBe(0)
-    expect(pool.stats.counters.cellsCreated).toBe(1) // the id list, not yet run
+    // Nothing loaded, no record built. Derived (POD-4582): the worklist's
+    // visibility cells, one `visible` cell per resident issue, and of the row
+    // views only the `own` part of each VISIBLE row (its rank reads it).
+    const visible = pool.order()
+    expect(visible.length).toBeGreaterThan(0)
+    expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
+    for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
+    expect(pool.worklist.held('member')).toBe(hotIssues.length)
+    expect(pool.stats.counters.cellsCreated).toBe(
+      1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size,
+    )
     expect(pool.stats.counters.recordsCreated).toBe(0)
     expect(pool.residency?.counters.requests).toBe(0)
     expect(r.loads).toEqual([])
+    // The cold rows it read by id: each once, none installed.
+    expect(r.bootstrapPeeks.length).toBe(pool.residency?.counters.peeks)
+    expect(new Set(r.bootstrapPeeks).size).toBe(r.bootstrapPeeks.length)
+    for (const key of r.bootstrapPeeks) {
+      const [entity, id] = key.split(':') as ['issue' | 'session', string]
+      expect(pool.residency?.isCold(entity, id), key).toBe(true)
+    }
     expect(diffResidency(pool, r.replay.source)).toEqual([])
     // Relations hold every row's ids, hot or cold: the same as with every row resident.
     const eager = new HandPool(DISABLED_READ_FENCE, {
@@ -235,12 +275,18 @@ describe('bootstrap', () => {
         sessions: corpus.sliceSessions.length - hotSessions.length,
       },
       tableSlots: { lazy: slots, allResident: eagerSlots },
+      worklist: {
+        visible: visible.length,
+        visibleCells: pool.worklist.held('member'),
+        cells: pool.worklist.cellCount(),
+        coldReadsById: r.bootstrapPeeks.length,
+      },
       relationFootprint: pool.engine.footprint(),
     })
     eager.dispose()
   })
 
-  it('builds cells on first read only: cells exist for exactly the rows the mounted list drew', async () => {
+  it('builds view cells on first read only: they exist for exactly the rows the mounted list drew', async () => {
     const r = rig()
     const { pool } = r
     const el = document.createElement('div')
@@ -252,22 +298,26 @@ describe('bootstrap', () => {
     const drawn = [...el.querySelectorAll('[data-issue-row]')].map(
       (row) => row.getAttribute('data-issue-row') as string,
     )
-    expect(drawn.length).toBe(hotIssues.length)
+    // POD-4582: the list draws the VISIBLE rows, in rank order.
+    expect(drawn).toEqual([...pool.order()])
     // One IssueCells per drawn row, none for a cold one.
     expect(pool.issues.size).toBe(drawn.length)
     expect([...pool.issues.keys()].sort()).toEqual([...drawn].sort())
     for (const id of pool.issues.keys()) expect(pool.residency?.isCold('issue', id)).toBe(false)
-    // Every cell created belongs to a drawn row: its parts, and (POD-4581)
+    // Every view cell created belongs to a drawn row: its parts, and (POD-4581)
     // one activity cell per member session its `activityAt` asked about,
-    // cold members included; plus the id list.
+    // cold members included (the worklist's unread rollup asks for more);
+    // plus the id list and the worklist's own cells.
     let cells = 0
     const members = new Set<string>()
     for (const issue of pool.issues.values()) {
       cells += issue.cells.size
       for (const sessionId of issue.sessionIds) members.add(sessionId)
     }
-    expect([...pool.sessionCells.keys()].sort()).toEqual([...members].sort())
-    expect(pool.stats.counters.cellsCreated).toBe(cells + pool.sessionCells.size + 1)
+    for (const member of members) expect(pool.sessionCells.has(member)).toBe(true)
+    expect(pool.stats.counters.cellsCreated).toBe(
+      cells + pool.sessionCells.size + 1 + pool.worklist.cellCount(),
+    )
     expect(pool.stats.counters.recordsCreated).toBe(0)
     // Cold rows were drawn as nothing and are asked for only when read.
     const closed = corpus.sliceIssues.filter(isCold)

@@ -43,6 +43,7 @@ import {
   validateStructure,
 } from '../../../shared/src/schema'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
+import type { Cell, CellGraph } from './cells'
 import { diffRelations } from './enumerate'
 import { HandPool } from './pool'
 
@@ -810,16 +811,31 @@ describe('the reads fence and the write record', () => {
       )
       expect(r.pool.view('I1')?.activityAt).toBe(Date.parse(at(5)))
       expect(r.pool.view('I2')?.activityAt).toBe(Date.parse(at(0)))
-      const runs = r.pool.stats.counters.cellRuns
+      const ran = cellsRun(r.pool.graph)
       // S2 joins I2: I2's `activityAt` re-runs (and its view); nothing of I1 does.
       r.push(session('S2', { issueId: 'I2', lastActiveAt: at(7) }))
       expect(heard).toEqual(['I2'])
       expect(r.pool.view('I2')?.activityAt).toBe(Date.parse(at(7)))
-      // sessionIds:I2 (the one reader of the bucket, POD-4581), activity:S2
-      // (the new member's contribution, its first run), activityAt:I2,
-      // loading:I2 (POD-4580: it asks each member's residency) and view:I2
-      // only: a non-draft's title reads no member.
-      expect(r.pool.stats.counters.cellRuns - runs).toBe(5)
+      // The view: sessionIds:I2 (its one reader of the bucket, POD-4581),
+      // activity:S2 (the new member's contribution, its first run),
+      // activityAt:I2, loading:I2 (POD-4580: it asks each member's residency)
+      // and view:I2 only: a non-draft's title reads no member. The worklist
+      // (POD-4582): I2's seats, its members, whether one retains it, and S2's
+      // own parts on their first read. Nothing of I1.
+      expect(ran.stop().sort()).toEqual(
+        [
+          'sessionIds:I2',
+          'activity:S2',
+          'activityAt:I2',
+          'loading:I2',
+          'view:I2',
+          'seatIds:I2',
+          'memberIds:I2',
+          'retained:I2',
+          'resident:S2',
+          'retention:S2',
+        ].sort(),
+      )
       // Evict S1 then re-add it: I1 falls back to its own time and comes back.
       heard.length = 0
       r.push(gone('session', 'S1'))
@@ -1236,3 +1252,20 @@ describe('random sequences against the from-scratch scan', () => {
     }
   })
 })
+
+/** The names of the cells `graph` runs until `stop()` (a spy on its private `run`). */
+function cellsRun(graph: CellGraph): { stop(): string[] } {
+  const target = graph as unknown as { run(cell: Cell<unknown>): void }
+  const original = target.run
+  const names: string[] = []
+  target.run = function (this: unknown, cell: Cell<unknown>) {
+    names.push(cell.name)
+    return original.call(this, cell)
+  }
+  return {
+    stop() {
+      target.run = original
+      return names
+    },
+  }
+}

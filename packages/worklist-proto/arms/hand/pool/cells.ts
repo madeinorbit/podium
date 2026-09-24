@@ -23,6 +23,15 @@
  * drain keeps it current, so nothing is ever read stale outside a drain;
  * disposing its row (or the pool) unlinks it from every index.
  *
+ * A CELL THAT READS ITSELF (POD-4582). A recursive rule over data with a
+ * cycle (an issue that is its own ancestor: `parent_id` has no cycle
+ * constraint, `model/src/entities/cost.ts:327`) reaches a cell that is still
+ * running. The read returns the cell's value from BEFORE this run (undefined
+ * on its first run), records the dependency as usual and is counted
+ * (`cycleReads`): the drain terminates and nothing throws mid-commit. On
+ * such a cycle the value is not guaranteed to be the one a single legacy walk
+ * gives; the counter says when that happened.
+ *
  * WHAT IS NOT TRACKED. A read that bypasses the doors — a plain field, a
  * closure, `Date.now()` — is invisible here, which is pitfall (j); the lint
  * fence forbids module state and wall clocks in `pool/`, and the L4b gate's
@@ -92,6 +101,8 @@ export class Cell<T> {
   disposed = false
   /** One above the deepest cell read on the last run; drain order. */
   level = 0
+  /** Its body is on the stack (a read now is a cycle). */
+  running = false
   /** The last run's reads: `sourceIndexes[i]` is null when `sourceKeys[i]` is a cell. */
   readonly sourceIndexes: (DepIndex<unknown> | null)[] = []
   readonly sourceKeys: unknown[] = []
@@ -120,10 +131,17 @@ export interface CellCounters {
   cellRuns: number
   /** Re-runs whose value differed from the previous one. */
   cellsChanged: number
+  /** Reads of a cell whose own body was running (a cycle in the data); see the header. */
+  cycleReads: number
 }
 
 export class CellGraph {
-  readonly counters: CellCounters = { cellsCreated: 0, cellRuns: 0, cellsChanged: 0 }
+  readonly counters: CellCounters = {
+    cellsCreated: 0,
+    cellRuns: 0,
+    cellsChanged: 0,
+    cycleReads: 0,
+  }
   /** The cell whose body is running; reads record into it. */
   private running: Cell<unknown> | null = null
   private runningLevel = 0
@@ -149,7 +167,8 @@ export class CellGraph {
   /** The cell's current value, running it first when dirty; tracked. */
   read<T>(cell: Cell<T>): T {
     if (cell.disposed) throw new Error(`[pool] read of disposed cell ${cell.name}`)
-    if (cell.dirty) this.run(cell)
+    if (cell.running) this.counters.cycleReads += 1
+    else if (cell.dirty) this.run(cell)
     const reader = this.running
     if (reader !== null && reader !== (cell as Cell<unknown>)) {
       if (!cell.readers.has(reader)) {
@@ -225,10 +244,12 @@ export class CellGraph {
     const outerLevel = this.runningLevel
     this.running = cell
     this.runningLevel = 0
+    cell.running = true
     let next: unknown
     try {
       next = cell.compute()
     } finally {
+      cell.running = false
       cell.level = this.runningLevel
       this.running = outer
       this.runningLevel = outerLevel
