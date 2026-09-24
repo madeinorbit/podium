@@ -1002,6 +1002,26 @@ describe('session pane links open that session (POD-4642)', () => {
     engine.dispose()
   })
 
+  it("a late session opens under its own issue, not only the linked worktree's strip", async () => {
+    const storage = await restoredWith([session(OTHER, '/tmp/known-repo')])
+    const { engine, rw } = makeEngine({
+      url: `/workspace?wt=${encodeURIComponent(FOREIGN)}&pane=${LINKED}`,
+      storage,
+    })
+    engine.start()
+    await settle(60)
+    engine.replica.applyChanges(
+      'sessions',
+      [{ ...session(LINKED, FOREIGN), issueId: asIssueId('iss_late') }],
+      [],
+    )
+    await settle(40)
+    expect(engine.getSnapshot().selectedIssueId).toBe('iss_late')
+    expect(activeTab(engine)).toBe(LINKED)
+    expect(rw.url()).toContain(`pane=${LINKED}`)
+    engine.dispose()
+  })
+
   it("a warm link to another issue's session selects that issue and makes the tab active", async () => {
     const storage = await restoredWith([
       { ...session(OTHER, '/tmp/known-repo'), issueId: asIssueId('iss_a') },

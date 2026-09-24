@@ -1247,15 +1247,16 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const meta = this.state.sessions.find((s) => s.sessionId === sessionId)
     if (!meta) return false
     this.dropPaneLink()
-    // Already the active tab on screen (a plain reload): nothing to move.
-    const onScreen = workspaceFor(this.state, workspaceKeyForState(this.state))
-    if (workspaceMirrorPatch(onScreen).paneA === sessionId) return true
-    this.navigate({
-      view: 'workspace',
-      ...sessionLinkSelection(this.state, meta, worktree),
-      tabId: sessionId,
-      history: 'view',
-    })
+    const selection = sessionLinkSelection(this.state, meta, worktree)
+    // Already the active tab of the workspace it lands in (a plain reload):
+    // nothing to move, and a split's focus stays where it was.
+    const key = workspaceKeyForState(this.state)
+    if (
+      key === workspaceKeyForState({ ...this.state, ...selection }) &&
+      workspaceMirrorPatch(workspaceFor(this.state, key)).paneA === sessionId
+    )
+      return true
+    this.navigate({ view: 'workspace', ...selection, tabId: sessionId, history: 'view' })
     return true
   }
 
