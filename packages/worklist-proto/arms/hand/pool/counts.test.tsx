@@ -10,28 +10,21 @@
  * (`FenceScenario.readsBudget`, from `READ_BUDGETS`) and `assertNoCopies`. No
  * arm-local budget or assertion.
  *
- * WHAT a1 CANNOT MEET, and where it lands. Parity: the a1 snapshot has no
- * order and stubs the roll-ups; the roster entry with parity is Hb4's
- * (POD-4585; coordinator correction of 2026-09-23). The commit fence where a step changes a HIDDEN row: the fence
- * compares against the oracle's VISIBLE rows and the a1 list draws every
- * issue (the visible collection is Hb1, POD-4582). A step whose commit cell
- * is written but not asserted says so in its `commitFence` cell, and is held
- * instead to the narrower claim a1 CAN meet: every row it drew that the
- * oracle did not change is a row the oracle does not show.
+ * PARITY is not here: the roll-ups are stubs until Hb3, and the visible
+ * order's parity is `worklist/visible.test.tsx`; the roster entry with parity
+ * is Hb4's (POD-4585; coordinator correction of 2026-09-23). A step whose
+ * commit cell is written but not asserted (`commits: false`, none since Hb1)
+ * is held to the narrower claims in the loop below.
  *
- * #1 joined that set at Ha2 (POD-4579): its session is bound to a closed
- * agent root the worklist never shows, and now that `issue.sessions` is
- * maintained the heartbeat really moves that hidden row's `activityAt`, so
- * the a1 list redraws it.
+ * #1: its session is bound to a closed agent root the worklist never shows;
+ * the root and its session are cold (Ha3, POD-4580), so the heartbeat is a
+ * registry write and nothing is drawn.
  *
- * RESIDENCY (POD-4580, Ha3). The pool is lazy: the a1 list draws RESIDENT
- * issues. #1's closed root and its session are cold, so the heartbeat is a
- * registry write and nothing is drawn: its commit fence is asserted again.
- * #8b's grace rows are closed issues inside the 24 h grace window: visible,
- * yet cold by the schema's rule, so the a1 list does not draw the cold ones
- * (Hb1's visible collection loads them on first paint, as Mb1's must). Its
- * commit cell is written, not asserted, and it is held instead to: every row
- * the oracle changed that was not drawn is a row the pool holds cold.
+ * HB1 (POD-4582): the list draws the visible collection in rank order, and
+ * since POD-4665 every visible row is resident, so the commit fence is
+ * asserted on every step: #4's hidden spin-off re-derives its tick but is not
+ * drawn, and #8b's grace rows are resident and drawn. A list that draws
+ * hidden rows failing #1 and a #4-shaped rename is `worklist/visible.test.tsx`.
  *
  * #2 BEFORE AND AFTER (POD-4581, Ma4's lesson). Before this issue an issue's
  * `activityAt` walked its `issue.sessions` bucket and read every member's
@@ -72,9 +65,9 @@ const STEPS: readonly { methodology: string; commits: boolean }[] = [
   { methodology: '#1', commits: true },
   { methodology: '#2', commits: true },
   { methodology: '#3', commits: true },
-  { methodology: '#4', commits: false },
+  { methodology: '#4', commits: true },
   { methodology: '#8', commits: true },
-  { methodology: '#8b', commits: false },
+  { methodology: '#8b', commits: true },
 ]
 
 describe('fence steps #1-#4, #8, #8b', () => {
@@ -122,7 +115,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
           scenario: result.scenario,
           commitFence: step.commits
             ? 'asserted'
-            : 'Hb1 (the a1 list draws resident rows, hidden ones included); extra drawn rows asserted hidden, missed rows asserted cold',
+            : 'not asserted; extra drawn rows asserted hidden, missed rows asserted cold',
           oracleChanged: result.oracleChangedRows,
           drawn: result.drawnRows,
           oracleVisible: Object.fromEntries(

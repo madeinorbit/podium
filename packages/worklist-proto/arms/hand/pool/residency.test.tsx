@@ -314,9 +314,9 @@ describe('bootstrap', () => {
     // plus the id list and the worklist's own cells.
     let cells = 0
     const members = new Set<string>()
-    for (const issue of pool.issues.values()) {
-      cells += issue.cells.size
-      for (const sessionId of issue.sessionIds) members.add(sessionId)
+    for (const issue of pool.issues.values()) cells += issue.cells.size
+    for (const id of drawn) {
+      for (const sessionId of pool.issues.get(id)?.sessionIds ?? []) members.add(sessionId)
     }
     for (const member of members) expect(pool.sessionCells.has(member)).toBe(true)
     expect(pool.stats.counters.cellsCreated).toBe(

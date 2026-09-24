@@ -169,7 +169,7 @@ function readersNaming(pool: HandPool, id: string): string[] {
 }
 
 describe('ingest', () => {
-  it('bootstraps every resident row into its table and derives nothing until a view is read', () => {
+  it('bootstraps every resident row into its table and derives no row view until one is read', () => {
     const r = rig()
     try {
       const { pool } = r.handle
@@ -184,9 +184,17 @@ describe('ingest', () => {
       ])
       expect(pool.tables.issue.size).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
-      expect(pool.issues.size).toBe(0)
-      expect(pool.stats.counters.cellsCreated).toBe(1) // the id list, not yet run
-      expect(pool.stats.counters.cellRuns).toBe(0)
+      // POD-4582: the worklist decides visibility at bootstrap (a `visible`
+      // cell per resident issue) and ranks the visible rows, which reads
+      // each one's `own` part and nothing else of its view.
+      const visible = pool.order()
+      expect(visible.length).toBeGreaterThan(0)
+      expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
+      for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
+      expect(pool.worklist.held('member')).toBe(residentIssues.length)
+      expect(pool.stats.counters.cellsCreated).toBe(
+        1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size,
+      )
       expect(pool.stats.rowsDerived).toBe(0)
     } finally {
       r.dispose()
@@ -476,16 +484,19 @@ describe('dispose', () => {
       unmount = r.handle.mountWeb(el)
     })
     const { pool } = r.handle
-    expect(el.querySelectorAll('[data-issue-row]').length).toBe(residentIssues.length)
+    // POD-4582: the list draws the visible rows, in rank order.
+    const visible = pool.order()
+    expect(el.querySelectorAll('[data-issue-row]').length).toBe(visible.length)
     const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
     expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(
-      residentIssues.length / 2,
+      visible.length / 2,
     )
-    expect(pool.listeners.size).toBe(residentIssues.length)
-    expect(pool.idsListeners.size).toBe(1)
+    expect(pool.listeners.size).toBe(visible.length)
+    expect(pool.orderListeners.size).toBe(1)
+    expect(pool.worklist.cellCount()).toBeGreaterThan(0)
 
     // A selection click reaches the mounted rows.
-    const first = pool.issueIds()[0]!
+    const first = visible[0]!
     await act(async () => {
       r.locals.set({ selectedIssueId: first })
       r.locals.flush()
@@ -500,7 +511,7 @@ describe('dispose', () => {
       unmount()
     })
     expect(pool.listeners.size).toBe(0)
-    expect(pool.idsListeners.size).toBe(0)
+    expect(pool.orderListeners.size).toBe(0)
 
     await act(async () => {
       r.dispose()
@@ -515,6 +526,12 @@ describe('dispose', () => {
     expect(pool.issues.size).toBe(0)
     expect(pool.membership.size).toBe(0)
     expect(pool.coldness.size).toBe(0)
+    expect(pool.coldRows.size).toBe(0)
+    expect(pool.relationReaders.size).toBe(0)
+    for (const entity of ENTITIES) expect(pool.presence[entity].size, entity).toBe(0)
+    expect(pool.worklist.cellCount()).toBe(0)
+    expect(pool.worklist.size).toBe(0)
+    expect(pool.order()).toEqual([])
     expect(pool.residency?.size('issue')).toBe(0)
     expect(pool.residency?.size('session')).toBe(0)
     expect(pool.residency?.hasQueued()).toBe(false)
@@ -524,6 +541,7 @@ describe('dispose', () => {
     expect(pool.graph.pending).toBe(0)
     expect(pool.listeners.size).toBe(0)
     expect(pool.idsListeners.size).toBe(0)
+    expect(pool.orderListeners.size).toBe(0)
     // After disposal the feed can publish; nothing listens.
     r.push({ type: 'update', rows: [issueRecord(first, { title: 'after dispose' })] })
     expect(pool.tables.issue.size).toBe(0)
