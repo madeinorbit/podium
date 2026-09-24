@@ -183,7 +183,12 @@ kept and now naming Hb4 (POD-4585), and #3 budgeted at 3 reads (POD-4619).
 - **`loading` and a draft's title read `sessionIds` too**, so no part walks
   the bucket but that one.
 - **The rebuild computes `sessionActivity` directly**, over the same
-  `sessionActivityOf`, so L4b holds both paths to one rule.
+  `sessionActivityOf`. This note used to say that this made L4b "hold both
+  paths to one rule". That was false (POD-4598, H3-F3): the checker compares
+  `sliceRowOf(view)`, and `activityAt` is not a slice field, so no
+  incremental `activityAt` ever reached the comparison. POD-4674 added the
+  per-step whole-view check (`gate.test.ts`, `rebuildViews`) and the
+  `activityCached` plant, which that check must catch on every seed.
 - **The sibling re-read is a plant in `counts.test.tsx`**: member activity
   read from the rows inside `activityAt`. It must read `{ session: 7 }` and
   fail #2's reads fence on its own (POD-4635 made the #2 family larger than
