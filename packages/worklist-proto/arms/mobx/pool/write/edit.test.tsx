@@ -119,13 +119,19 @@ describe('Mc1 MobX edits on the model', () => {
       })
 
       let tx: TxId | null = null
+      // The pre-edit snapshot: the pending paint must move it, the rewind
+      // must restore it exactly (the engine oracle carries the known
+      // unscanned-worktree gap, so it cannot serve as the restore target).
+      const baseline = mounted.handle.snapshot()
       await runCountScenario(mounted, {
         scenario: 'mobxOptimisticRenamePending',
         methodology: '#4-write',
         apply: () => {
           tx = write.edit('issue', id, { title: 'Rejected title' })
         },
-        expected: () => mounted.handle.snapshot(),
+        expected: () => baseline,
+      }).then((pending) => {
+        expect(pending.parity).toBe(false)
       })
       expect(tx).not.toBeNull()
       expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(
@@ -138,7 +144,7 @@ describe('Mc1 MobX edits on the model', () => {
         apply: () => {
           write.reject({ txId: tx!, error: { message: 'refused (CONFLICT)', code: 'CONFLICT', parked: true } })
         },
-        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
+        expected: () => baseline,
       })
       expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(priorTitle)
       expect(rewound.rowsCommitted).toBe(1)
@@ -180,7 +186,7 @@ describe('Mc1 MobX edits on the model', () => {
       expect(relationsOf()).toEqual([])
 
       let tx: TxId = '' as TxId
-      act(() => {
+      await act(async () => {
         tx = write.edit('issue', id, { stage: nextStage })
       })
       expect(transport.sent[0]!.command.kind).toBe('issueUpdate')
@@ -189,7 +195,7 @@ describe('Mc1 MobX edits on the model', () => {
       expect(orderOf()).toEqual(oracleOrderOf())
       expect(relationsOf()).toEqual([])
 
-      act(() => {
+      await act(async () => {
         write.reject({ txId: tx, error: { message: 'refused (CONFLICT)', parked: false } })
       })
       expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.stage)).toBe(serverStage)
@@ -221,13 +227,13 @@ describe('Mc1 MobX edits on the model', () => {
 
       const stamp = new Date(ctx.engine.getSnapshot().coarseNow).toISOString()
       let tx: TxId = '' as TxId
-      act(() => {
+      await act(async () => {
         tx = write.edit('issue', id, { readAt: stamp })
       })
       expect(transport.sent[0]!.command.kind).toBe('issueMarkRead')
       expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.readAt)).toBe(stamp)
 
-      act(() => {
+      await act(async () => {
         write.reject({ txId: tx, error: { message: 'discarded', parked: false } })
       })
       const after = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.readAt ?? null)
@@ -256,22 +262,22 @@ describe('Mc1 MobX edits on the model', () => {
       const prior = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
       let t1: TxId = '' as TxId
       let t2: TxId = '' as TxId
-      act(() => {
+      await act(async () => {
         t1 = write.edit('issue', id, { title: 'First pending' })
       })
-      act(() => {
+      await act(async () => {
         t2 = write.edit('issue', id, { title: 'Second pending' })
       })
       expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(
         'Second pending',
       )
-      act(() => {
+      await act(async () => {
         write.reject({ txId: t2, error: { message: 'refused', parked: true } })
       })
       expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(
         'First pending',
       )
-      act(() => {
+      await act(async () => {
         write.reject({ txId: t1, error: { message: 'refused', parked: true } })
       })
       expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(prior)
@@ -296,7 +302,9 @@ describe('Mc1 MobX edits on the model', () => {
       expect(transport.sent).toHaveLength(0)
       expect(write.log.size).toBe(0)
       expect(() => write.edit('issue', ctx.targets.visibleRootId, {} as never)).toThrow()
-      expect(tracked(() => handle.pool.snapshot())).toBeDefined()
+      // snapshot() settles through its own tracked context; wrapping it in
+      // another tracked() would observe nothing and trip enforcement.
+      expect(handle.pool.snapshot()).toBeDefined()
     } finally {
       mounted.unmount()
       feeds.dispose()
