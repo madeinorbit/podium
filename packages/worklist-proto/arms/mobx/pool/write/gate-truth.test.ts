@@ -13,9 +13,11 @@
  *
  * PLANTS (coordinator addendum). Two write-path plants on fixed sequences
  * (an edit, a remote on its pending field, then the rejection / comparison):
- * - (a) a remote never reaches the log: rejecting rewinds to the stale prior
- *   instead of the server value the log should have kept. Caught by the
- *   rebuild (live stale vs rebuilt server) and the oracle.
+ * - (a) the rejection restores the server row captured at edit time instead
+ *   of keeping current server truth — the MobX shape of "rewinding to the
+ *   stale prior" (the overlay never renders the log's rewind target, so the
+ *   plant clobbers the table). Caught by the rebuild (live stale vs rebuilt
+ *   server) and the oracle.
  * - (c) a remote drops the pending entry: the object takes the server value
  *   on a pending field instead of keeping the local one. Caught by the
  *   oracle (the kernel's ledger still shows the pending value); a random run
