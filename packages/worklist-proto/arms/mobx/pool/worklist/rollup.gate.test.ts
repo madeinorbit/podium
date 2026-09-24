@@ -12,13 +12,18 @@
  * seated the orphan and the row differs in those fields alone, and counts
  * each time it did; the exception throws once the seat exists.
  *
+ * OBSERVED: each gated arm is kept alive by one reaction over every visible
+ * row's view and the layout, as the mounted list keeps it; otherwise every
+ * computed re-runs on each snapshot and a stale cache cannot show (the first
+ * run of this gate caught the plant on 0 of 3 seeds for exactly that reason).
+ *
  * THE NO: an arm whose attention aggregate reads its nest children's SET
  * untracked (pitfall j: untracked state inside a derivation) keeps serving a
  * cached aggregate after a row nests or un-nests under it. It must fail
  * every seed.
  */
 
-import { untracked } from 'mobx'
+import { reaction, untracked } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
@@ -51,11 +56,22 @@ const untrackedNest: CheckableArm = {
   },
 }
 
-/** `base` with POD-4671's one row taken from the oracle, counted. */
+/**
+ * `base` OBSERVED as a mounted list observes it (every visible row's view and
+ * the grouped layout kept alive by one reaction), with POD-4671's one row
+ * taken from the oracle, counted. Without the observer every computed would
+ * re-run on each snapshot read, and no caching mistake could ever show.
+ */
 function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
   return (ctx: ScenarioEngine) => ({
     create(source, locals, reads) {
       const handle = base.create(source, locals, reads) as MobxPoolHandle
+      const { pool } = handle
+      const stop = reaction(
+        () => [pool.worklist.order.map((id) => pool.issue(id)?.view), pool.groups.layout],
+        () => {},
+        { name: 'gate.observer' },
+      )
       const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
         const oracle = oracleSnapshot(ctx.engine.getSnapshot())
         const { applied } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
@@ -70,6 +86,10 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
         ...handle,
         snapshot: () => patch(handle.snapshot()),
         rebuildFromScratch: () => patch(handle.rebuildFromScratch()),
+        dispose() {
+          stop()
+          handle.dispose()
+        },
       }
     },
   })
