@@ -370,6 +370,8 @@ export interface IssueVisibility extends RollupParts {
   readonly standing: Standing | undefined
   readonly seatIds: readonly string[]
   readonly memberIds: readonly string[]
+  /** R3 alone: the lane's sessions with no `issueId`. */
+  readonly laneMemberIds: readonly string[]
   readonly childIds: readonly string[]
   /** `issue.spinOffs` (R4, the inverse edge), id order: the roll-ups' vacated and continuation tests. */
   readonly spinOffIds: readonly string[]
@@ -428,23 +430,34 @@ export function seatIdsPartOf(input: VisibleInputs, id: string): readonly string
 }
 
 /**
- * R2 then R3: the explicit members, then the sessions of the issue's
- * worktree that carry no `issueId` (`indexSessionOwnership`,
- * `session-ownership.ts:152-165`). Unfiltered: each reader applies its seat
- * rule.
+ * R3 alone: the sessions of the issue's worktree that carry no `issueId`
+ * (`indexSessionOwnership`, `session-ownership.ts:152-165`), id order. Its own
+ * part (POD-4571), so a change to the EXPLICIT members never re-lists the
+ * lane's bucket (a burst of new sessions on fifty issues read every lane's
+ * sessions through `memberIds`, #10).
  */
-export function memberIdsPartOf(
-  input: VisibleInputs,
-  id: string,
-  seatIds: readonly string[],
-): readonly string[] {
+export function laneMemberIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
   const worktree = input.relations.one('issue', id, 'worktree')
-  if (worktree === null) return seatIds
-  const members = new Set(seatIds)
+  if (worktree === null) return []
+  const members: string[] = []
   for (const sessionId of input.relations.many('worktree', worktree, 'sessions')) {
     const retention = input.session(sessionId).retention
-    if (retention !== null && retention.issueId === undefined) members.add(sessionId)
+    if (retention !== null && retention.issueId === undefined) members.push(sessionId)
   }
+  return members.sort()
+}
+
+/**
+ * R2 then R3: the explicit members, then the lane's (`laneMemberIds`), id
+ * order, no duplicates. Unfiltered: each reader applies its seat rule.
+ */
+export function memberIdsPartOf(
+  seatIds: readonly string[],
+  laneMemberIds: readonly string[],
+): readonly string[] {
+  if (laneMemberIds.length === 0) return seatIds
+  const members = new Set(seatIds)
+  for (const sessionId of laneMemberIds) members.add(sessionId)
   return members.size === seatIds.length ? seatIds : [...members].sort()
 }
 
@@ -661,7 +674,10 @@ export function directVisibility(
       return once('seatIds', () => seatIdsPartOf(input, id))
     },
     get memberIds() {
-      return once('memberIds', () => memberIdsPartOf(input, id, parts.seatIds))
+      return once('memberIds', () => memberIdsPartOf(parts.seatIds, parts.laneMemberIds))
+    },
+    get laneMemberIds() {
+      return once('laneMemberIds', () => laneMemberIdsPartOf(input, id))
     },
     get childIds() {
       return once('childIds', () => childIdsPartOf(input, id))
@@ -864,6 +880,7 @@ export class IssueNode implements IssueVisibility {
       standing: computedStruct,
       seatIds: computedStruct,
       memberIds: computedStruct,
+      laneMemberIds: computedStruct,
       childIds: computedStruct,
       spinOffIds: computedStruct,
       rosterIds: computedStruct,
@@ -904,7 +921,11 @@ export class IssueNode implements IssueVisibility {
   }
 
   get memberIds(): readonly string[] {
-    return memberIdsPartOf(this.input, this.id, this.seatIds)
+    return memberIdsPartOf(this.seatIds, this.laneMemberIds)
+  }
+
+  get laneMemberIds(): readonly string[] {
+    return laneMemberIdsPartOf(this.input, this.id)
   }
 
   get childIds(): readonly string[] {

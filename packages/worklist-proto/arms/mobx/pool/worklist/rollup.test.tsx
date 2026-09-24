@@ -9,7 +9,9 @@
  * `working`, `asking`, `closed`, and the grouped order) and the pool's own
  * rebuild; each step commits exactly the rows whose oracle view changed (the
  * roll-up fields included: no stub allowance is left) and reads within its
- * budget.
+ * budget. #10 alone carries a named allowance (POD-4678): a new explicit
+ * member re-lists its issue's `sessions` bucket, so the burst also reads the
+ * burst issues' other explicit sessions, counted before the step.
  *
  * ONE NAMED EXCEPTION (POD-4671, `known-gaps.ts`): the corpus's unscanned-
  * worktree orphan has no seat in the shared schema's R3 relation, so its
@@ -257,13 +259,26 @@ describe('row roll-ups (Mb3)', () => {
       expect(gapAtBoot, 'the POD-4671 row, named').toBe(ctx.corpus.unscannedWorktree.issueId)
       const out = []
       for (const entry of FENCE_SCENARIOS) {
+        // POD-4678: a new explicit member re-lists its issue's `sessions`
+        // bucket, so #10 also reads each burst issue's other explicit
+        // sessions. That family term, counted before the step, is the only
+        // allowance, named.
+        const family =
+          entry.methodology === '#10'
+            ? tracked(() =>
+                ctx.targets.burstIssueIds.reduce(
+                  (sum, id) => sum + (handle.pool.worklist.issue(id)?.seatIds.length ?? 0),
+                  0,
+                ),
+              )
+            : 0
         mounted.log.reset()
         handle.stats.reset()
         mounted.reads.reset()
         const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, entry)
         const rollupsDerived = handle.stats.rollupsDerived
         assertCommits(result)
-        assertReads(result, { readsPerChange: readsBudget })
+        assertReads(result, { readsPerChange: readsBudget + family })
         mounted.reads.assertNoCopies(mounted.handle)
         const gap = checkParity(ctx, handle, entry.methodology)
         out.push({
@@ -274,6 +289,7 @@ describe('row roll-ups (Mb3)', () => {
           rowsCommitted: result.rowsCommitted,
           readsPerChange: result.readsPerChange,
           readsBudget,
+          familyAllowance: family,
           rollupsDerived,
         })
       }
