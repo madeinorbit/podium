@@ -465,6 +465,24 @@ cold row is hidden at bootstrap, but not afterwards, because R3 and a clock
 rewind are outside the bound. A drawn row whose data arrives a moment later
 (`RowView.loading`) is still a case every list handles.
 
+**The cold-bootstrap wall under (b)** (POD-4572, the first browser run of the
+round-three MobX pool; `docs/measurements/POD-4572-b.md` §4). L5e
+`coldBootstrap` at 1x on flatblock, 20 held page loads per arm interleaved with
+the control and the no-op floor, every record at load ≤ 8, runtimeSha
+e640f7dd9. Column (a) was not timed: the browser entry mounted the round-two
+arm until this run.
+
+| Cell (p50, 1x) | MobX pool, rule (b) | Control | No-op floor |
+|---|---|---|---|
+| `actionMs` (script + build + first list) | 775.7 ms (p95 1,043.5) | 214.5 ms | 211.8 ms |
+| `buildMs` (source, locals, pool, list) | 660.4 ms | 107.8 ms | 107.2 ms |
+| Heap after, forced GC (the list drawn) | 81.1 MB | 22.6 MB | 21.9 MB |
+
+The pool's build is ~550 ms and ~58 MB above the floor at 1x: the bootstrap
+installs 2,736 issues and 2,548 sessions resident and builds 4,867 IssueNodes
+(three reactions each) and 2,641 SessionNodes (the table above). §1a's budgets
+(wall ≤ 1.1x and retained heap ≤ 1.1x the control's) both fail.
+
 ## 6. The validation gate
 
 `packages/worklist-proto/shared/src/schema.test.ts`, 22 tests, all green.
