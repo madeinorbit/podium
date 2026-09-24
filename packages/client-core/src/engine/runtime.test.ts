@@ -37,7 +37,7 @@ import { issueViewModelsFromReplica } from '../replica/issue-view-models'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import { type Router, routeDefaults, type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
-import { allTabIds } from '../viewmodels'
+import { allTabIds, leafPaneIds } from '../viewmodels'
 import { sessionById } from '../session-index'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { Reactions } from './reactions'
@@ -902,6 +902,127 @@ describe('short session id pane links (POD-4637)', () => {
     expect(resolve).not.toHaveBeenCalled()
     expect(engine.getSnapshot().paneA).toBe(FULL)
     expect(errors).toEqual([])
+    engine.dispose()
+  })
+})
+
+/**
+ * A LINK TO ONE SESSION OPENS THAT SESSION (POD-4642).
+ *
+ * `/workspace?wt=…&pane=<session id>` seeded `paneA` from the URL, but the tab
+ * strip draws the restored LAYOUT, which never gained the linked tab. So a
+ * reload kept the previously active tab in front under the new link, and a link
+ * into a worktree the repo list does not register fell back to the first repo
+ * and dropped the pane altogether. A pane link now opens the way the
+ * jump-to-session action does: select the session's issue and worktree, open
+ * its tab, and make it the active one.
+ */
+describe('session pane links open that session (POD-4642)', () => {
+  const OTHER = 'aaaaaaaa-0000-4000-8000-000000000001'
+  const LINKED = 'bbbbbbbb-0000-4000-8000-000000000002'
+  const FOREIGN = '/tmp/elsewhere/.worktrees/issue-9'
+  const activeTab = (engine: ReturnType<typeof makeEngine>['engine']): string | null => {
+    const st = engine.getSnapshot()
+    const ws = st.workspaces[st.workspaceKey()]
+    const first = ws ? leafPaneIds(ws.root)[0] : undefined
+    return first && ws ? (ws.panes[first]?.activeTabId ?? null) : null
+  }
+  /** A reload over storage in which OTHER was the active tab of known-repo. */
+  const restoredWith = async (rows: SessionMeta[]): Promise<StorageApi> => {
+    const storage = memoryStorage()
+    const first = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', storage })
+    first.engine.start()
+    first.engine.replica.applySnapshot('sessions', rows)
+    await first.engine.replica.flush()
+    await settle(40)
+    first.engine.getSnapshot().navigateToSession(OTHER)
+    await settle(30)
+    expect(activeTab(first.engine)).toBe(OTHER)
+    first.engine.destroy()
+    return storage
+  }
+
+  it('a cold link opens the linked session, not the tab the reload restored', async () => {
+    const storage = await restoredWith([
+      session(OTHER, '/tmp/known-repo'),
+      session(LINKED, '/tmp/known-repo'),
+    ])
+    const { engine, rw, errors } = makeEngine({
+      url: `/workspace?wt=%2Ftmp%2Fknown-repo&pane=${LINKED}`,
+      storage,
+    })
+    engine.start()
+    await settle(60)
+    expect(activeTab(engine)).toBe(LINKED)
+    expect(engine.getSnapshot().paneA).toBe(LINKED)
+    expect(rw.url()).toContain(`pane=${LINKED}`)
+    expect(errors).toEqual([])
+    engine.dispose()
+  })
+
+  it('a cold link into an unregistered worktree keeps that worktree and opens the session', async () => {
+    const storage = await restoredWith([
+      session(OTHER, '/tmp/known-repo'),
+      session(LINKED, FOREIGN),
+    ])
+    const { engine, rw } = makeEngine({
+      url: `/workspace?wt=${encodeURIComponent(FOREIGN)}&pane=${LINKED}`,
+      storage,
+    })
+    engine.start()
+    await settle(60)
+    expect(engine.getSnapshot().selectedWorktree).toBe(FOREIGN)
+    expect(activeTab(engine)).toBe(LINKED)
+    expect(rw.url()).toContain(`wt=${encodeURIComponent(FOREIGN)}`)
+    expect(rw.url()).toContain(`pane=${LINKED}`)
+    engine.dispose()
+  })
+
+  it('a cold link whose session arrives after the repo list still opens it', async () => {
+    const storage = await restoredWith([session(OTHER, '/tmp/known-repo')])
+    const { engine, rw } = makeEngine({
+      url: `/workspace?wt=${encodeURIComponent(FOREIGN)}&pane=${LINKED}`,
+      storage,
+    })
+    engine.start()
+    await settle(60)
+    engine.replica.applyChanges('sessions', [session(LINKED, FOREIGN)], [])
+    await settle(40)
+    expect(engine.getSnapshot().selectedWorktree).toBe(FOREIGN)
+    expect(activeTab(engine)).toBe(LINKED)
+    expect(rw.url()).toContain(`wt=${encodeURIComponent(FOREIGN)}`)
+    expect(rw.url()).toContain(`pane=${LINKED}`)
+    engine.dispose()
+  })
+
+  it("a warm link to another issue's session selects that issue and makes the tab active", async () => {
+    const storage = await restoredWith([
+      { ...session(OTHER, '/tmp/known-repo'), issueId: asIssueId('iss_a') },
+      { ...session(LINKED, '/tmp/known-repo'), issueId: asIssueId('iss_b') },
+    ])
+    const { engine, rw } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', storage })
+    engine.start()
+    await settle(40)
+    expect(activeTab(engine)).toBe(OTHER)
+    rw.popTo(`/workspace?wt=%2Ftmp%2Fknown-repo&pane=${LINKED}`)
+    await settle(40)
+    expect(engine.getSnapshot().selectedIssueId).toBe('iss_b')
+    expect(activeTab(engine)).toBe(LINKED)
+    expect(rw.url()).toContain(`pane=${LINKED}`)
+    engine.dispose()
+  })
+
+  it('a link to a session that never arrives says so once its tab is retired', async () => {
+    const { engine, errors } = makeEngine({
+      url: `/workspace?wt=%2Ftmp%2Fknown-repo&pane=${LINKED}`,
+      workspacePruneGraceMs: 120,
+    })
+    engine.start()
+    await settle(40)
+    expect(errors).toEqual([])
+    await settle(200)
+    expect(errors).toEqual([`Couldn't open session link — no session matches '${LINKED}'`])
+    expect(engine.getSnapshot().paneA).not.toBe(LINKED)
     engine.dispose()
   })
 })
