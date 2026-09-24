@@ -361,13 +361,26 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
       rowViewsFromStore(ctx.engine.getSnapshot(), { ...parityLocals(ctx), selectedIssueId: null })[
         parent
       ] as RowView
+    // The first read, and every load it and its landings ask for (the row's
+    // own seats and origin, Ma1's), settled: the cold child is never among them.
+    tracked(() => pool.issue(parent)!.view!)
+    let childAsked = false
+    for (let round = 0; residency.hasQueued() && round < 16; round += 1) {
+      const batch = residency.take()
+      if (batch.some(([entity, rowId]) => entity === 'issue' && rowId === child)) childAsked = true
+      for (const [entity, rowId] of batch) residency.request(entity, rowId)
+      pool.hydrate()
+      tracked(() => pool.issue(parent)!.view!)
+    }
     const first = tracked(() => pool.issue(parent)!.view!)
-    const batch = residency.take()
-    for (const [entity, rowId] of batch) residency.request(entity, rowId)
     const oracleBefore = oracleOf()
     const readsBefore = feeds.rowReads()
     const wire = ctx.cache.read('issue', child)?.value as object
-    ctx.replica.batch(() => upsert(ctx, 'issue', child, { ...wire, closedReason: 'cancelled' }))
+    const projection = ctx.cache.read('issueProjection', child)?.value as object | undefined
+    ctx.replica.batch(() => {
+      upsert(ctx, 'issue', child, { ...wire, closedReason: 'cancelled' })
+      upsert(ctx, 'issueProjection', child, { ...(projection ?? {}), closedReason: 'cancelled' })
+    })
     await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
     feeds.flush()
     const after = tracked(() => pool.issue(parent)!.view!)
@@ -378,7 +391,7 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
       after,
       oracleBefore,
       oracleAfter: oracleOf(),
-      childAsked: batch.some(([entity, rowId]) => entity === 'issue' && rowId === child),
+      childAsked,
       childStillCold: residency.isCold('issue', child),
       feedRowReadsInStep: feeds.rowReads() - readsBefore,
     }
@@ -516,11 +529,21 @@ describe('row roll-ups (Mb3)', () => {
         const batch = residency.take()
         for (const [entity, rowId] of batch) residency.request(entity, rowId)
         const asked = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
+        // Cold formal children of visible rows that no OTHER path reads: not a
+        // visible row's origin (Ma1's tick loads it) and not its spin-off (the
+        // attention path's continuation loads it). A load of one of these can
+        // only be progress's.
         const coldChildren = tracked(() => {
+          const others = new Set<string>()
+          for (const id of visible) {
+            const origin = pool.relations.one('issue', id, 'discoveredFrom')
+            if (origin !== null) others.add(origin)
+            for (const spinOff of pool.worklist.issue(id)?.spinOffIds ?? []) others.add(spinOff)
+          }
           const out = new Set<string>()
           for (const id of visible) {
             for (const child of pool.worklist.formalChildren(id)) {
-              if (residency.isCold('issue', child)) out.add(child)
+              if (residency.isCold('issue', child) && !others.has(child)) out.add(child)
             }
           }
           return out
@@ -619,7 +642,12 @@ describe('row roll-ups (Mb3)', () => {
       const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
       ctx.replica.batch(() => {
         upsert(ctx, 'issue', id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
-        upsert(ctx, 'issueProjection', id, { ...(projection ?? {}), stage: 'review' })
+        upsert(ctx, 'issueProjection', id, {
+          ...(projection ?? {}),
+          stage: 'review',
+          closedReason: null,
+          closedAt: null,
+        })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()
