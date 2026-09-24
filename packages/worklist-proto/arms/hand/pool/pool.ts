@@ -47,8 +47,9 @@
  * `indexUpdates` counts relation ELEMENTS the engine touched (a bucket
  * member, a forward entry, a prefix-index entry, a collapse entry), never
  * slots, so a bucket-sized walk cannot hide behind one count;
- * `rollupsDerived` stays 0 until the worklist phase. The pool's own counters
- * are in `stats.counters`.
+ * `rollupsDerived` counts runs of the two roll-up compositions (Hb3,
+ * `worklist/rollup.ts`: a node's attention `aggregate` and its `unitsBelow`).
+ * The pool's own counters are in `stats.counters`.
  *
  * THE WORKLIST (POD-4582, Hb1; `worklist/visible.ts`). The visible
  * collection's parts are cells like every other; each resident issue has a
@@ -65,6 +66,17 @@
  * (the R-GROUP 5 latch applied) only when the layout or the selection moved.
  * The list reads the grouped view, each header its own group's lanes, each
  * row its own view.
+ *
+ * THE ROLL-UPS (POD-4584, Hb3; `worklist/rollup.ts`). Each row's `phase`,
+ * progress, `working`, `asking` and `workingSince` is a composition over
+ * declared relations: the row's own seats plus its children's cached results,
+ * never a subtree walk. Every known issue holds filing cells (its nest and
+ * formal parents), maintained into two filings the compositions read; every
+ * other part is a cell that recorded what it read, so a change re-runs its
+ * own row's part and then each ancestor's composition once. The commit syncs
+ * the filings for the issues its deltas named (or every known issue after a
+ * `replace`), then settles the reported moves before the groups run, so the
+ * fold placement reads a current `waiting`.
  */
 
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
@@ -108,7 +120,13 @@ import {
   sessionActivityOf,
   type ViewInputs,
 } from './views'
-import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
+import {
+  retainedSeatIdsOf,
+  VisibleCollection,
+  type VisibleCounters,
+  type VisibleInputs,
+} from './worklist/visible'
+import { RollupCollection } from './worklist/rollup'
 import {
   sliceOrderOf,
   type GroupsView,
@@ -310,6 +328,8 @@ export class HandPool {
   readonly idsListeners = new Set<() => void>()
   /** The visible collection and its order (POD-4582, Hb1). */
   readonly worklist: VisibleCollection
+  /** The row roll-ups over declared relations (POD-4584, Hb3). */
+  readonly rollup: RollupCollection
   /** The inputs the visibility parts read, behind the same tracked doors. */
   readonly visibleInputs: VisibleInputs
   /** Listeners of the order. */
@@ -414,6 +434,7 @@ export class HandPool {
       present: (entity, id) => tracked[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => (tracked.issue.has(id) ? this.cellsOf(id) : undefined),
+      rollup: (id) => this.rollup.rollupViewOf(id),
       selected: (id) => {
         graph.track(this.selection, id)
         return this.selectedId === id
@@ -442,9 +463,31 @@ export class HandPool {
       counters: this.stats.counters,
     })
     const worklist = this.worklist
+    this.rollup = new RollupCollection({
+      graph,
+      relations: this.relations,
+      forward: (from, id, relation) => this.engine.forward(from, id, relation),
+      issueRow: (id) => this.visibleInputs.issueRow(id),
+      sessionRow: (id) => this.visibleInputs.sessionRow(id),
+      resident: (entity, id) => this.visibleInputs.resident(entity, id),
+      loading: (entity, id) => this.inputs.loading(entity, id),
+      knownIssue: (id) => this.tables.issue.has(id) || (this.residency?.isCold('issue', id) ?? false),
+      visibleIssue: (id) => this.visibleInputs.issue(id),
+      sessionParts: (id) => this.visibleInputs.session(id),
+      rosterOf: (id) => {
+        const parts = this.visibleInputs.issue(id)
+        return parts === undefined ? [] : retainedSeatIdsOf(this.visibleInputs, id, parts, true)
+      },
+      counted: () => {
+        this.stats.rollupsDerived += 1
+      },
+    })
     this.groups = new WorklistGroups({
       graph,
-      inputs: this.visibleInputs,
+      inputs: {
+        ...this.visibleInputs,
+        waiting: (id) => this.rollup.waitingOf(id),
+      },
       order: () => worklist.order(),
       rankOf: (id) => worklist.placedRankOf(id),
       selectedId: () => this.selectedId,
@@ -704,17 +747,17 @@ export class HandPool {
     this.engine.begin()
     if (event.type === 'replace') reseed(this.target, event.rows, out, this.residency ?? undefined)
     else for (const record of event.rows) ingestRecord(this.target, record, out)
-    this.commitIngest(out)
+    this.commitIngest(out, event.type === 'replace')
   }
 
   /** One ingest's table, relation and registry writes as deltas, then one commit. */
-  private commitIngest(out: IngestOut): void {
+  private commitIngest(out: IngestOut, fullSync = false): void {
     this.stats.counters.tableWrites += out.deltas.length
     const deltas: Delta[] = out.deltas.map((delta) => ({ kind: 'row', ...delta }))
     for (const write of this.engine.lastWrites) deltas.push({ kind: 'relation', ...write })
     deltas.push(...this.coldMoves)
     this.coldMoves.length = 0
-    this.commit(deltas)
+    this.commit(deltas, fullSync)
   }
 
   /** One locals notification: only the keys it names that the pool uses. */
@@ -741,6 +784,7 @@ export class HandPool {
   /** Empty every table, cell, index, record and listener. */
   dispose(): void {
     this.worklist.clear()
+    this.rollup.clear()
     this.groups.clear()
     for (const cells of this.issues.values()) cells.dispose()
     this.issues.clear()
@@ -775,10 +819,26 @@ export class HandPool {
 
   // ------------------------------------------------------------- handlers
 
-  private commit(deltas: readonly Delta[]): void {
-    if (deltas.length === 0) return
+  private commit(deltas: readonly Delta[], fullSync = false): void {
+    if (deltas.length === 0 && !fullSync) return
     for (const delta of deltas) this.invalidate(delta)
     for (const delta of deltas) this.release(delta)
+    // Handler 2b: the roll-ups. The issues this commit named gain or lose
+    // their filing cells (a `replace` re-files every known issue: raw doors,
+    // no fence); the drain then runs the new and moved filings.
+    if (fullSync) {
+      this.rollup.syncAll([
+        ...this.tables.issue.keys(),
+        ...(this.residency?.ids('issue') ?? []),
+      ])
+    } else {
+      const named: string[] = []
+      for (const delta of deltas) {
+        if (delta.kind === 'row' && delta.entity === 'issue') named.push(delta.id)
+        else if (delta.kind === 'residency' && delta.entity === 'issue') named.push(delta.id)
+      }
+      this.rollup.sync(named)
+    }
     this.graph.flush()
     // Handler 3: the worklist. The issues this commit moved into or out of
     // the tables gain or lose their `visible` cell, then the order places
@@ -790,6 +850,10 @@ export class HandPool {
       }
     }
     this.worklist.admit(entered, (id) => this.fenced.issue.has(id))
+    this.graph.flush()
+    // Handler 3a: the filings. Move exactly the reported ids and dirty their
+    // old and new parents' slots, then run the compositions they woke.
+    this.rollup.settleFilings()
     this.graph.flush()
     this.worklist.settle()
     // Handler 3b: the groups. The layout recomputes only when the order
@@ -901,6 +965,7 @@ export class HandPool {
   /** A session left the pool: its activity cell goes (its readers re-run). */
   private releaseSession(id: string): void {
     if (this.residency?.isCold('session', id) !== true) this.worklist.forgetSession(id)
+    this.rollup.forgetSession(id)
     const cell = this.sessionCells.get(id)
     if (cell === undefined) return
     this.graph.dispose(cell)

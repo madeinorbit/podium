@@ -268,6 +268,29 @@ export class PoolRelations implements RelationReader {
     return this.bucket(from, id, relation).size
   }
 
+  /**
+   * The raw forward key of a single-valued relation (`belongsTo`, outgoing
+   * `edge`): what the engine filed this row under, WITHOUT the target's
+   * presence. The membership filter (`where`) and the collapse rule are
+   * already applied (a rejected row files nowhere); a re-added target
+   * resolves by itself, as with `one()`.
+   *
+   * Hb3's progress filing reads this, never `one()`: `one()` also reads the
+   * target's presence, so loading a parent would re-run every cold child's
+   * filing (one presence probe each). This door subscribes the running cell
+   * to the row's own forward slot only, so a re-parent re-files exactly the
+   * moved row. Not entity rows: the reads fence does not count it.
+   */
+  forward(from: EntityName, id: string, relation: string): string | null {
+    const link = this.links.get(`${from}.${relation}`)
+    if (link === undefined) {
+      specOf(this.schema, from, relation)
+      throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
+    }
+    this.options.read?.(link.relation, id)
+    return link.forward.get(id) ?? null
+  }
+
   private bucket(from: EntityName, id: string, relation: string): ReadonlySet<string> {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) {

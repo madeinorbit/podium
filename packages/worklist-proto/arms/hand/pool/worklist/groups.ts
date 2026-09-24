@@ -36,17 +36,16 @@
  * latch is recomputed with the lanes, so a click on any other row re-runs no
  * layout.
  *
- * STUBS UNTIL Hb3 (POD-4584), named as the MobX arm names them (Mb2). The
- * fold verdict's "nothing in the subtree waits" conjunct is `STUB_WAITING`
- * (a roll-up): a settled closed root whose subtree asks stays open in the
- * oracle and folds here. The groups test derives that exact exception set
- * from the oracle and fails as soon as the roll-ups are wired.
+ * THE ROLL-UP CONJUNCT (Hb3, POD-4584). The fold verdict's "nothing in the
+ * subtree waits" conjunct is the waiting roll-up (`placementRuleOf` reads it
+ * only for a row the settled placement puts in the fold, so a row that could
+ * never fold never reads its subtree).
  */
 
 import type { SliceGroup, SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
 import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import { type Cell, type CellGraph, sameData } from '../cells'
-import { closedOf, foldAtOf, issueAbandoned, STUB_WAITING } from '../views'
+import { closedOf, foldAtOf, issueAbandoned } from '../views'
 import type { VisibleCounters, VisibleInputs } from './visible'
 
 /** Where one visible row goes (R-GROUP), before selection. */
@@ -77,7 +76,7 @@ export function repoLabelOf(repoPath: string): string {
  * never fold never reads its subtree.
  */
 export function placementOf(issue: SliceIssue, input: Pick<VisibleInputs, 'passed'>): Placement {
-  const closed = closedOf(issue, STUB_WAITING, input)
+  const closed = closedOf(issue, false, input)
   return {
     pinned: issue.pinned === true,
     repoKey: issue.repoId ?? issue.repoPath,
@@ -94,9 +93,15 @@ export function withWaiting(placement: Placement): Placement {
 }
 
 /** One row's placement through the visibility inputs (hot or cold, never loaded). */
-export function placementRuleOf(input: VisibleInputs, id: string): Placement | undefined {
+export function placementRuleOf(input: PlacementInputs, id: string): Placement | undefined {
   const issue = input.issueRow(id)
-  return issue === undefined ? undefined : placementOf(issue, input)
+  if (issue === undefined) return undefined
+  const settled = placementOf(issue, input)
+  // R-GROUP 3's "nothing waiting": a fold candidate whose subtree waits on
+  // the human stays open. Read only for a row this places in the fold, so a
+  // row that could never fold never reads its subtree (as Mb3).
+  if (!settled.closed) return settled
+  return input.waiting(id) ? withWaiting(settled) : settled
 }
 
 /** One group of the layout: label, open lane and closed fold, each in its spec order. */
@@ -200,10 +205,16 @@ const EMPTY_VIEW: GroupsView = Object.freeze({
   keys: Object.freeze([]) as readonly string[],
 })
 
+/** What the placement rule reads: the visibility inputs plus the waiting roll-up. */
+export interface PlacementInputs extends VisibleInputs {
+  /** Whether anything in the issue's subtree waits on the human (Hb3). */
+  waiting(id: string): boolean
+}
+
 /** What the groups read from the pool. */
 export interface GroupsHost {
   readonly graph: CellGraph
-  readonly inputs: VisibleInputs
+  readonly inputs: PlacementInputs
   /** The visible ids in rank order (`VisibleCollection.order`). */
   order(): readonly string[]
   /** The rank an id was placed with (the order's maintained ranks, for the latch). */

@@ -358,6 +358,37 @@ type VisibleRule<K extends VisiblePartName> = (
   self: VisibleParts,
 ) => VisibleParts[K]
 
+const EMPTY_IDS: readonly string[] = Object.freeze([])
+
+/**
+ * The retained members of `self` at the clock (`rows.ts:70-76`);
+ * `retained`/`liveRoster` stop at the first, the roll-ups (Hb3) take the
+ * list. A COLD member keeps nothing and is not read: a session is cold only
+ * while its issue is cold by the shared rule, which holds only once every
+ * member's keep has passed (schema doc §5.1). `live` also drops exited ones
+ * (`sessionVisibleInLiveRoster`).
+ */
+export function retainedSeatIdsOf(
+  input: VisibleInputs,
+  id: string,
+  self: Pick<VisibleParts, 'standing' | 'memberIds'>,
+  live: boolean,
+): readonly string[] {
+  const standing = self.standing
+  if (standing === undefined) return EMPTY_IDS
+  let issue: SliceIssue | undefined
+  const out: string[] = []
+  for (const sessionId of self.memberIds) {
+    const session = input.session(sessionId)
+    if (session === undefined || !session.resident) continue
+    const retention = session.retention
+    if (retention == null || !retention.seat || (live && retention.exited)) continue
+    if (retention.finish.kind === 'idleDone' && standing.finished) issue ??= input.issueRow(id)
+    if (retains(retention, issue, standing, input)) out.push(sessionId)
+  }
+  return out
+}
+
 /**
  * The retained members of `self` at the clock, stopping at the first
  * (`rows.ts:70-76`); `live` also drops exited ones (`sessionVisibleInLiveRoster`).
@@ -367,18 +398,7 @@ type VisibleRule<K extends VisiblePartName> = (
  * (loaded on first access), so this is decided per member.
  */
 function anyRetained(input: VisibleInputs, id: string, self: VisibleParts, live: boolean): boolean {
-  const standing = self.standing
-  if (standing === undefined) return false
-  let issue: SliceIssue | undefined
-  for (const sessionId of self.memberIds) {
-    const session = input.session(sessionId)
-    if (session === undefined || !session.resident) continue
-    const retention = session.retention
-    if (retention == null || !retention.seat || (live && retention.exited)) continue
-    if (retention.finish.kind === 'idleDone' && standing.finished) issue ??= input.issueRow(id)
-    if (retains(retention, issue, standing, input)) return true
-  }
-  return false
+  return retainedSeatIdsOf(input, id, self, live).length > 0
 }
 
 /**

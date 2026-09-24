@@ -34,13 +34,13 @@
  *   provisional exactly while `loading` is set; the row renders that, never
  *   the half-built value as data. The rebuild holds every row: never loading.
  *
- * STUBS UNTIL THE WORKLIST PHASE. The roll-ups over own sessions and
- * children — `phase`, `progressDone`, `progressTotal`, `working`, `asking`,
- * `workingSince` — are Hb3 (POD-4584), and `closed`'s "zero waiting"
- * conjunct reads them (`STUB_WAITING`). Sessions owned by containment
- * (`issue.worktree` → `worktree.sessions`, slice §2 R3) join the own sessions
- * in the worklist phase; `activityAt` and a draft's title read the explicit
- * ones (`issue.sessions`, maintained since Ha2, POD-4579).
+ * THE ROLL-UPS (POD-4584, Hb3, `worklist/rollup.ts`): `phase`,
+ * `progressDone`, `progressTotal`, `working`, `asking` and `workingSince`
+ * come from the issue's roll-up parts, a composition over its own seats and
+ * its children's cached results; `closed`'s "zero waiting" conjunct is the
+ * roll-up's `asking`, applied here over the own part's settled verdict.
+ * `activityAt` and a draft's title read the explicit ones (`issue.sessions`,
+ * maintained since Ha2, POD-4579).
  *
  * Rules are re-expressed from the frozen slice spec
  * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule). No legacy
@@ -52,6 +52,7 @@ import type { RelationReader } from '../../../shared/src/instrument/reads'
 import { isDraftNameSession, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
+import type { Rollup } from './worklist/rollup'
 
 /** The finished-row grace before the closed fold (spec §3 R-GROUP). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -60,21 +61,16 @@ export const DEFER_NEXT_MESSAGE = 'next-message'
 /** A draft's placeholder title (spec §3 R-SUM). */
 export const DRAFT_TITLE = 'Draft'
 
-/** Until Hb3: the roll-ups this phase does not derive. */
-export const STUB_ROLLUPS = {
+/** The roll-up of an issue the worklist has no node for (never a visible row). */
+const NO_ROLLUP: Rollup = {
   phase: 'queued',
   progressDone: 0,
   progressTotal: 0,
   working: false,
   asking: false,
   workingSince: null,
-} as const satisfies Pick<
-  RowView,
-  'phase' | 'progressDone' | 'progressTotal' | 'working' | 'asking' | 'workingSince'
->
-
-/** Until Hb3: "nothing in the subtree waits on the human" (a roll-up). */
-export const STUB_WAITING = false
+  loading: false,
+}
 
 /** A repo row as the feed spells it (a lane, or the raw replicated row). */
 export interface RepoRow {
@@ -146,6 +142,8 @@ export interface ViewInputs {
   loading(entity: EntityName, id: string): boolean
   /** Another issue's parts (the origin of a spin-off); undefined when absent. */
   parts(id: string): IssueParts | undefined
+  /** The issue's roll-up fields (Hb3: its roll-up node's `rollup`); undefined when unknown. */
+  rollup(id: string): Rollup | undefined
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -283,7 +281,7 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
   own(input, id) {
     const issue = input.issue(id)
     if (issue === undefined) return undefined
-    const closed = closedOf(issue, STUB_WAITING, input)
+    const closed = closedOf(issue, false, input)
     return {
       band: bandOf(issue, input),
       repoKey: issue.repoId ?? issue.repoPath,
@@ -404,20 +402,25 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
 
 /**
  * The row view of issue `id` from its parts, or undefined when the issue is
- * not in the pool. Reads no row: only `self`'s parts and the selection.
+ * not in the pool. Reads no row: only `self`'s parts, its roll-up and the
+ * selection.
  */
 export function buildRowView(input: ViewInputs, id: string, self: IssueParts): RowView | undefined {
   const own = self.own
   if (own === undefined) return undefined
+  const { loading, ...rollup } = input.rollup(id) ?? NO_ROLLUP
+  const waiting = rollup.asking
   return {
     id,
     displayRef: self.displayRef ?? '',
     title: self.displayTitle ?? '',
-    ...STUB_ROLLUPS,
+    ...rollup,
     ...own,
+    closed: own.closed && !waiting,
+    dismissed: own.dismissed && !waiting,
     selected: input.selected(id),
     originTick: self.originTick,
     activityAt: self.activityAt,
-    ...(self.loading ? { loading: true as const } : {}),
+    ...(self.loading || loading ? { loading: true as const } : {}),
   }
 }

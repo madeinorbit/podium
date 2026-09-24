@@ -28,6 +28,13 @@
  * live layout's `layoutOf`: the live pool's placement cells and its layout
  * are held to the contract's own grouping.
  *
+ * ROLL-UPS (POD-4584, Hb3). The same part functions over the same parts
+ * object (`worklist/rollup.ts` `directRollupParts`, memoized per id for this
+ * one pass), composing over the nest children inverted from scratch and the
+ * scanned `children` relation: the live pool's maintained filings and its
+ * per-node cells are held to a from-scratch answer. Every row is resident
+ * here, so nothing is pending.
+ *
  * WHOLE VIEWS (POD-4674, H3-F3). `rebuildSnapshot` projects each view to the
  * slice fields (`sliceRowOf`), so the checker never compares `activityAt`,
  * `originTick`, `selected` and the other view-only fields. `rebuildViews` is
@@ -61,11 +68,19 @@ import {
 import {
   directSessionParts,
   directVisibleParts,
+  retainedSeatIdsOf,
+  retentionOf,
   type SessionVisibleParts,
   sortByRank,
   type VisibleInputs,
   type VisibleParts,
 } from './worklist/visible'
+import {
+  directRollupParts,
+  type RollupInputs,
+  type RollupSelf,
+  seatVerdictOf,
+} from './worklist/rollup'
 import { repoLabelOf } from './worklist/groups'
 
 export function rebuildSnapshot(
@@ -139,12 +154,60 @@ function rebuildViewsWithIssue(
     present: (entity, id) => tables[entity].has(id),
     loading: () => false,
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
+    rollup: (id) => (tables.issue.has(id) ? rollupPartsOf(id).rollup : undefined),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
   const memo = new Map<string, VisibleParts>()
+  const rollupMemo = new Map<string, RollupSelf>()
   const sessions = new Map<string, SessionVisibleParts>()
+  let nested: ReadonlyMap<string, readonly string[]> | null = null
+  const rollupInputs: RollupInputs = {
+    loadedIssue: (id) => tables.issue.get(id) as SliceIssue | undefined,
+    progressFacts: (id) => {
+      const row = tables.issue.get(id) as SliceIssue | undefined
+      return row === undefined ? undefined : { stage: row.stage, closedReason: row.closedReason }
+    },
+    spinOffCount: (id) => relations.size('issue', id, 'spinOffs'),
+    nested: (id) => {
+      nested ??= directNested(
+        issues.map(({ id }) => id),
+        (issueId) => directVisibleParts(visible, issueId, memo),
+      )
+      return nested.get(id) ?? []
+    },
+    // The scanned `children` relation, from scratch (the live pool files each node's parent slot).
+    formalChildren: (id) =>
+      tables.issue.has(id) ? directVisibleParts(visible, id, memo).childIds : [],
+    rollupNode: (id) => (tables.issue.has(id) ? rollupPartsOf(id) : undefined),
+    seat: (id) => {
+      const row = tables.session.get(id) as SliceSession | undefined
+      return row === undefined ? undefined : seatVerdictOf(row)
+    },
+    presence: (id) => {
+      const retention = retentionOf(tables.session.get(id) as SliceSession | undefined)
+      return retention === null
+        ? null
+        : { issueId: retention.issueId, open: !retention.archived && !retention.exited }
+    },
+    spinOffIds: (id) => [...relations.many('issue', id, 'spinOffs')].sort(),
+    counted: () => {},
+  }
+  function rollupPartsOf(id: string): RollupSelf {
+    const parts = directVisibleParts(visible, id, memo)
+    return directRollupParts(
+      rollupInputs,
+      id,
+      rollupMemo,
+      {
+        present: parts.present,
+        finished: parts.standing?.finished,
+        rosterIds: retainedSeatIdsOf(visible, id, parts, true),
+        seatIds: parts.seatIds,
+      },
+    )
+  }
   const visible: VisibleInputs = {
     relations,
     resident: (entity, id) => tables[entity].has(id),
@@ -174,4 +237,24 @@ function rebuildViewsWithIssue(
     if (view !== undefined) views.set(id, view)
   }
   return { views, issue: inputs.issue }
+}
+
+/**
+ * The nest children of every present issue, from scratch: each issue's
+ * `nestParent`, inverted. The live pool files each node's parent the same
+ * way, one move at a time.
+ */
+function directNested(
+  ids: Iterable<string>,
+  partsOf: (id: string) => VisibleParts,
+): ReadonlyMap<string, readonly string[]> {
+  const nested = new Map<string, string[]>()
+  for (const id of ids) {
+    const parent = partsOf(id).nestParent
+    if (parent === null) continue
+    const children = nested.get(parent)
+    if (children === undefined) nested.set(parent, [id])
+    else children.push(id)
+  }
+  return nested
 }
