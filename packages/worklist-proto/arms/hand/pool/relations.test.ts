@@ -38,6 +38,7 @@ import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/l
 import {
   type EntityName,
   type ModelSchema,
+  prefixAncestors,
   type RelationSpec,
   SCHEMA,
   validateStructure,
@@ -884,21 +885,40 @@ describe('the reads fence and the write record', () => {
 
   /**
    * M3 F1's bound, on the live shape (one repo holds 4,574 of 5,170 issues):
-   * one add to and one remove from a bucket of b members touch O(1) elements,
-   * independent of b. Counted twice: by the engine (`indexUpdates`, at most 4
-   * per edge: the member and the forward entry, detach or attach), and by an
-   * instrument the engine cannot under-report to — every `Set` add, delete
-   * and iterator step, every `Map` set, delete and iterator step (POD-4580,
-   * the coordinator's G3: a claim counted from outside patches plain `Map`
-   * too), and every element an `Array.prototype.sort` is handed,
-   * process-wide, for the ingest. The same count at b = 4,000 and b = 8,000
-   * is the O(1) claim; the planted copy-and-sort (the MobX shape) and a
-   * planted copy of the forward `Map` must each break it.
+   * one add to and one remove from a collection of b members touch O(1)
+   * elements, independent of b. The rig (H3-F2, POD-4673) holds b issues in
+   * repo R AND b sessions in issue E under the lane `/repo`, so every edge
+   * kind touches a b-member container: a new and a removed issue (the
+   * `repo.issues` bucket), a new and a removed session (`issue.sessions`,
+   * `worktree.sessions` and the prefix index's ancestor sets).
+   *
+   * Counted three ways per edge:
+   * - by the engine (`indexUpdates`): one element per forward entry and
+   *   bucket member a link touched, plus one prefix-index entry per ancestor
+   *   path of a placed session (`elementBound`);
+   * - by an instrument the engine cannot under-report to (`elementOps`): every
+   *   `Set` add, delete and iterator step, every `Map` set, delete and
+   *   iterator step (POD-4580, the coordinator's G3), and every element an
+   *   `Array.prototype.sort` is handed, counted INSIDE the relation engine's
+   *   entry point (`engine.changed`), where upkeep and every plant below run.
+   *   The same count for the whole push (`pushOps`, derivations included) is
+   *   recorded beside it: since Hb1 (POD-4582) the worklist's cells run in
+   *   that push, and what they cost is a derivation's, not upkeep's;
+   * - by identity (H3-F1, POD-4672; M3's G4): every container the engine
+   *   holds, top-level and nested, before and after the edge; none may be
+   *   replaced by another object. `Set.prototype.union` copies natively and
+   *   `structuredClone` calls no prototype method, so a copy made either way
+   *   escapes the counter; it cannot keep the old object.
+   *
+   * The same counts at b = 4,000 and b = 8,000 are the O(1) claim. Every
+   * copy plant below must fail: the counter catches the ones made through
+   * prototype methods, the identity check catches all of them.
    */
-  describe('bucket upkeep is O(1) in the bucket (M3 F1)', () => {
+  describe('bucket upkeep is O(1) in the bucket (M3 F1, H3-F1, H3-F2)', () => {
+    type Method = (this: unknown, ...args: unknown[]) => unknown
+
     /** Elements any `Set`, `Map` or sort touched while `run` ran. */
     function elementOps(run: () => void): number {
-      type Method = (this: unknown, ...args: unknown[]) => unknown
       type Patched = { [name: string]: Method }
       const targets: [Patched, string, (self: unknown) => number][] = [
         [Set.prototype as unknown as Patched, 'add', () => 1],
@@ -928,33 +948,192 @@ describe('the reads fence and the write record', () => {
       return ops
     }
 
-    type Edit = { elements: number; ops: number }
+    /** The engine's private containers (H3's witness, `harness/review/h3-witness.ts`). */
+    interface EngineInside {
+      links: Map<
+        string,
+        {
+          forward: Map<string, string>
+          buckets: Map<string, Set<string>>
+          under: Map<string, Set<string>> | null
+          placed: Map<string, string> | null
+        }
+      >
+      collapses: Map<
+        string,
+        { groups: Map<string, Set<string>>; groupOf: Map<string, string>; collapsed: Set<string> }
+      >
+      place(link: unknown, id: string, normalized: string | null): void
+      point(link: unknown, id: string, target: string | null): void
+      changed(...args: unknown[]): unknown
+    }
 
-    /** One add of a new issue to repo R's bucket of `size`, then one remove of an old member. */
-    function upkeep(size: number, plant?: (r: Rig) => void): { add: Edit; remove: Edit } {
-      const r = rig(
-        Array.from({ length: size }, (_, i) => issue(`I${i + 1}`)),
-        { fence: false },
-      )
+    type Held = Map<string, { object: object; size: number }>
+
+    /** Every container the engine holds, top-level and nested, by path: the object and its size. */
+    function held(pool: HandPool): Held {
+      const engine = pool.engine as unknown as EngineInside
+      const out: Held = new Map()
+      const one = (label: string, object: { readonly size: number } | null): void => {
+        if (object !== null) out.set(label, { object, size: object.size })
+      }
+      const nested = (label: string, map: Map<string, Set<string>> | null): void => {
+        if (map === null) return
+        one(label, map)
+        for (const [key, set] of map) one(`${label}:${key}`, set)
+      }
+      for (const [name, link] of engine.links) {
+        one(`${name}.forward`, link.forward)
+        one(`${name}.placed`, link.placed)
+        nested(`${name}.buckets`, link.buckets)
+        nested(`${name}.under`, link.under)
+      }
+      for (const [entity, collapse] of engine.collapses) {
+        nested(`${entity}.groups`, collapse.groups)
+        one(`${entity}.groupOf`, collapse.groupOf)
+        one(`${entity}.collapsed`, collapse.collapsed)
+      }
+      return out
+    }
+
+    /** Containers held before and after that are different objects: elements re-copied. */
+    function replaced(
+      before: Held,
+      after: Held,
+    ): { keys: number; elements: number; where: string[] } {
+      let keys = 0
+      let elements = 0
+      const where: string[] = []
+      for (const [key, was] of before) {
+        const now = after.get(key)
+        if (now === undefined || now.object === was.object) continue
+        keys += 1
+        elements += now.size
+        if (where.length < 4) where.push(key)
+      }
+      return { keys, elements, where }
+    }
+
+    type Edge = {
+      elements: number
+      ops: number
+      pushOps: number
+      replaced: ReturnType<typeof replaced>
+    }
+    type Edges = Record<'newIssue' | 'removedIssue' | 'newSession' | 'removedSession', Edge>
+
+    /** The new session's path, and the prefix-index entries its placement may touch. */
+    const NEW_CWD = '/repo/y'
+
+    /** One element per forward entry and bucket member each link touches, plus the ancestor paths. */
+    function elementBound(entity: 'issue' | 'session'): number {
+      const links = Object.values(SCHEMA[entity].relations).filter(
+        (relation) =>
+          relation.kind !== 'hasMany' && !(relation.kind === 'edge' && relation.direction === 'in'),
+      ).length
+      return 2 * links + (entity === 'session' ? [...prefixAncestors(NEW_CWD)].length : 0)
+    }
+
+    /** The four edges on a rig of `size` issues in repo R and `size` sessions in issue E under `/repo`. */
+    function upkeep(size: number, plant?: (r: Rig) => void): Edges {
+      const rows: RowRecord[] = [lane('/repo'), issue('E')]
+      for (let i = 1; i <= size; i += 1) {
+        rows.push(issue(`I${i}`), session(`S${i}`, { issueId: 'E', cwd: `/repo/x${i}` }))
+      }
+      const r = rig(rows, { fence: false })
+      const engine = r.pool.engine as unknown as EngineInside
       try {
         plant?.(r)
-        expect(r.pool.engine.members('repo', 'R', 'issues').size).toBe(size)
-        const measure = (change: RowRecord): Edit => {
-          const before = r.pool.stats.indexUpdates
-          const ops = elementOps(() => r.push(change))
-          return { elements: r.pool.stats.indexUpdates - before, ops }
+        expect(r.pool.engine.members('repo', 'R', 'issues').size).toBe(size + 1)
+        expect(r.pool.engine.members('issue', 'E', 'sessions').size).toBe(size)
+        expect(r.pool.engine.members('worktree', '/repo', 'sessions').size).toBe(size)
+        // Count inside the engine's entry point only (upkeep, and any plant in it).
+        const changed = engine.changed
+        let ops = 0
+        engine.changed = function (this: unknown, ...args: unknown[]) {
+          let out: unknown
+          ops += elementOps(() => {
+            out = changed.apply(this, args)
+          })
+          return out
         }
-        const add = measure(issue('I99999'))
-        const remove = measure(gone('issue', `I${Math.ceil(size / 2)}`))
-        expect(r.pool.engine.members('repo', 'R', 'issues').size).toBe(size)
+        const measure = (change: RowRecord): Edge => {
+          const before = r.pool.stats.indexUpdates
+          const containers = held(r.pool)
+          ops = 0
+          const pushOps = elementOps(() => r.push(change))
+          return {
+            elements: r.pool.stats.indexUpdates - before,
+            ops,
+            pushOps,
+            replaced: replaced(containers, held(r.pool)),
+          }
+        }
+        const edges: Edges = {
+          newIssue: measure(issue('I99999')),
+          removedIssue: measure(gone('issue', `I${size / 2}`)),
+          newSession: measure(session('NS1', { issueId: 'E', cwd: NEW_CWD })),
+          removedSession: measure(gone('session', `S${size / 2}`)),
+        }
+        expect(r.pool.engine.members('repo', 'R', 'issues').size).toBe(size + 1)
+        expect(r.pool.engine.members('issue', 'E', 'sessions').size).toBe(size)
         r.check()
-        return { add, remove }
+        return edges
       } finally {
         r.dispose()
       }
     }
 
-    /** The MobX shape: every membership change copies and re-sorts the buckets it touched. */
+    /** What an edge's counts say about the guard: a b-sized count, or a container replaced. */
+    function verdict(at4k: Edges, at8k: Edges): { counter: string[]; identity: string[] } {
+      const counter: string[] = []
+      const identity: string[] = []
+      for (const key of Object.keys(at4k) as (keyof Edges)[]) {
+        if (at8k[key].ops !== at4k[key].ops || at4k[key].ops >= 1_000) counter.push(key)
+        if (at4k[key].replaced.keys > 0 || at8k[key].replaced.keys > 0) identity.push(key)
+      }
+      return { counter, identity }
+    }
+
+    type Copy = (set: Set<string>) => Set<string>
+    const union: Copy = (set) =>
+      (set as unknown as { union(other: Set<string>): Set<string> }).union(new Set<string>())
+    const clone: Copy = (set) => structuredClone(set)
+    const spread: Copy = (set) => new Set(set)
+    const sorted: Copy = (set) => new Set([...set].sort())
+
+    /** A copy-on-write of the target bucket after every attach (the MobX shape when `sorted`). */
+    function bucketCopy(copy: Copy) {
+      return (r: Rig): void => {
+        const engine = r.pool.engine as unknown as EngineInside
+        const point = engine.point.bind(engine)
+        engine.point = (link, id, target) => {
+          point(link, id, target)
+          const buckets = (link as { buckets: Map<string, Set<string>> }).buckets
+          const bucket = target === null ? undefined : buckets.get(target)
+          if (target !== null && bucket !== undefined) buckets.set(target, copy(bucket))
+        }
+      }
+    }
+
+    /** A copy-on-write of the prefix index: every ancestor set of a placed path is replaced. */
+    function underCopy(copy: Copy) {
+      return (r: Rig): void => {
+        const engine = r.pool.engine as unknown as EngineInside
+        const place = engine.place.bind(engine)
+        engine.place = (link, id, normalized) => {
+          place(link, id, normalized)
+          const under = (link as { under: Map<string, Set<string>> | null }).under
+          if (under === null || normalized === null) return
+          for (const path of prefixAncestors(normalized)) {
+            const set = under.get(path)
+            if (set !== undefined) under.set(path, copy(set))
+          }
+        }
+      }
+    }
+
+    /** The old and the new bucket's copy-and-sort around every move (M3's MobX shape). */
     function copyAndSort(r: Rig): void {
       type Bucketed = { buckets: Map<string, Set<string>>; forward: Map<string, string> }
       const engine = r.pool.engine as unknown as {
@@ -972,7 +1151,7 @@ describe('the reads fence and the write record', () => {
       }
     }
 
-    /** A `Map`-shaped copy: every membership change rebuilds the link's forward map. */
+    /** A `Map`-shaped copy: every membership change rebuilds the link's forward map in place. */
     function forwardCopy(r: Rig): void {
       type Linked = { forward: Map<string, string> }
       const engine = r.pool.engine as unknown as {
@@ -987,39 +1166,60 @@ describe('the reads fence and the write record', () => {
       }
     }
 
-    it('one add and one remove in a bucket of 4,000 touch what they touch in one of 8,000, at most 4 elements each', () => {
+    it('each edge touches what it touches at 4,000 and at 8,000, in place', () => {
       const at4k = upkeep(4_000)
       const at8k = upkeep(8_000)
-      expect(at8k).toEqual(at4k)
-      expect(at4k.add.elements).toBeLessThanOrEqual(4)
-      expect(at4k.remove.elements).toBeLessThanOrEqual(4)
-      // Independent of the engine's own count: a small constant, nowhere near b.
-      // POD-4582 raised it from 100: the row's worklist cells (a `visible` cell
-      // and a dozen parts, each linked to what it read) are built on the add
-      // and unlinked on the remove, a constant per ROW (62 / 121 ops at both
-      // sizes when measured), which the equality above already holds to b.
-      expect(at4k.add.ops).toBeLessThan(200)
-      expect(at4k.remove.ops).toBeLessThan(200)
       writeResult('hand-pool-bucket-upkeep', { bound: 'O(1) per edge', at4k, at8k })
+      const upkeepOnly = (edges: Edges) =>
+        Object.fromEntries(
+          Object.entries(edges).map(([key, edge]) => [key, { ...edge, pushOps: undefined }]),
+        )
+      expect(upkeepOnly(at8k)).toEqual(upkeepOnly(at4k))
+      for (const key of ['newIssue', 'removedIssue'] as const) {
+        expect(at4k[key].elements, key).toBeLessThanOrEqual(elementBound('issue'))
+      }
+      for (const key of ['newSession', 'removedSession'] as const) {
+        expect(at4k[key].elements, key).toBeGreaterThan(0)
+        expect(at4k[key].elements, key).toBeLessThanOrEqual(elementBound('session'))
+      }
+      for (const [key, edge] of Object.entries(at4k)) {
+        // Independent of the engine's own count: a small constant, nowhere near b.
+        expect(edge.ops, key).toBeLessThan(100)
+        expect(edge.replaced, key).toEqual({ keys: 0, elements: 0, where: [] })
+      }
+      expect(verdict(at4k, at8k)).toEqual({ counter: [], identity: [] })
     })
 
-    it('the planted copy-and-sort fails the bound', () => {
-      const at4k = upkeep(4_000, copyAndSort)
-      const at8k = upkeep(8_000, copyAndSort)
-      expect(at4k.add.ops).toBeGreaterThan(4_000)
-      expect(at4k.remove.ops).toBeGreaterThan(4_000)
-      expect(at8k.add.ops).toBeGreaterThan(at4k.add.ops)
-      writeResult('hand-pool-bucket-upkeep-plant', { plant: 'copy-and-sort', at4k, at8k })
-    })
+    const PLANTS: readonly [string, (r: Rig) => void, { counter: boolean }][] = [
+      ['bucket copy-and-sort (the MobX shape)', copyAndSort, { counter: true }],
+      ['forward Map rebuilt (the Map patch is armed)', forwardCopy, { counter: true }],
+      ['bucket: set.union(empty) (H3-F1)', bucketCopy(union), { counter: false }],
+      ['bucket: structuredClone(set) (H3-F1)', bucketCopy(clone), { counter: false }],
+      ['prefix index: new Set(set) (H3-F2)', underCopy(spread), { counter: true }],
+      ['prefix index: set.union(empty) (H3-F2)', underCopy(union), { counter: false }],
+      ['prefix index: sorted copy (H3-F2)', underCopy(sorted), { counter: true }],
+    ]
 
-    it('a planted copy of the forward Map fails the bound (the Map patch is armed)', () => {
-      const at4k = upkeep(4_000, forwardCopy)
-      const at8k = upkeep(8_000, forwardCopy)
-      expect(at4k.add.ops).toBeGreaterThan(4_000)
-      expect(at4k.remove.ops).toBeGreaterThan(4_000)
-      expect(at8k.add.ops).toBeGreaterThan(at4k.add.ops)
-      writeResult('hand-pool-bucket-upkeep-map-plant', { plant: 'forward-map copy', at4k, at8k })
-    })
+    for (const [name, plant, expected] of PLANTS) {
+      it(`the planted ${name} fails the guard`, () => {
+        const at4k = upkeep(4_000, plant)
+        const at8k = upkeep(8_000, plant)
+        const caught = verdict(at4k, at8k)
+        writeResult(`hand-pool-bucket-upkeep-plant-${name.replace(/[^a-z0-9]+/gi, '-')}`, {
+          plant: name,
+          caught,
+          at4k,
+          at8k,
+        })
+        // Every plant replaces or rebuilds a b-member container on some edge.
+        expect(caught.counter.length + caught.identity.length, name).toBeGreaterThan(0)
+        // The counter sees only copies made through prototype methods.
+        expect(caught.counter.length > 0, `${name}: the counter catches it`).toBe(expected.counter)
+        // Copy-on-write plants swap the object; the in-place Map rebuild does not.
+        if (plant !== forwardCopy)
+          expect(caught.identity.length, `${name}: identity`).toBeGreaterThan(0)
+      })
+    }
   })
 })
 
