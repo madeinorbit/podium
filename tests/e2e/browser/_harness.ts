@@ -153,14 +153,24 @@ export async function newSession(
   // dispatched `New Shell` creates the shell without making it the active panel.
   if (kind === 'Grok' || kind === 'Shell') await item.click()
   else await item.dispatchEvent('click')
-  await page.waitForFunction(
-    (prior) => {
-      const active = (window as unknown as TestWindow).__podium?.state().sessionId
-      return active !== undefined && active !== prior
-    },
-    before,
-    { timeout: 20_000 },
-  )
+  const deadline = Date.now() + 20_000
+  for (;;) {
+    const active = await page.evaluate(
+      () => (window as unknown as TestWindow).__podium?.state().sessionId,
+    )
+    if (active !== undefined && active !== before) break
+    if (Date.now() > deadline) {
+      throw new Error(`newSession(${kind}): the new session's terminal test API never attached`)
+    }
+    // The test API lives on the terminal view. A panel opens in Chat when the
+    // account's view default says so, and that default is synced ui-state: the
+    // localStorage pin in openHome only seeds it, so one suite that picked Chat
+    // puts every later suite on the lane's shared server in Chat. Pick CLI, as
+    // an operator would.
+    const cli = page.locator('[data-testid="mode-native"][aria-selected="false"]:visible').first()
+    if (await cli.isVisible().catch(() => false)) await cli.click().catch(() => {})
+    await page.waitForTimeout(250)
+  }
   await page.waitForTimeout(800)
 }
 
