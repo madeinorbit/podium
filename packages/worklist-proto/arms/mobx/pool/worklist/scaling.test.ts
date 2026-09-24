@@ -5,9 +5,12 @@
  *
  * - STAGE MOVE files one id between two lanes (`counters.groupRuns` 1, and
  *   `counters.groupElements` exactly its group's lanes after the move), with
- *   no order re-sort and no membership flip. The plant runs the old whole-list
- *   layout (`layoutOf` over the visible order) and touches the visible count,
- *   failing the same bound.
+ *   no order re-sort and no membership flip. Its group-set writes (element
+ *   `add`/`delete` on the named `pool.groups.*` sets, counted from outside)
+ *   are at most four — out of one lane, into the other. The plants run the
+ *   old whole-list layout (`layoutOf` over the visible order, touching the
+ *   visible count) and re-file every visible id (touching a whole list of
+ *   sets), each failing its bound.
  * - CLICK (selection plus the app's mark-read of an unread keep row)
  *   re-validates zero per-node maintenance reactions
  *   (`pool.visible.<id>` / `pool.nested.<id>` / `pool.children.<id>`,
@@ -22,7 +25,7 @@
  * `counts.test.tsx`); this file holds the SCALING of the pool's own work.
  */
 
-import { Reaction } from 'mobx'
+import { ObservableSet, Reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../../harness/src/count-harness'
 import { buildCorpus } from '../../../../harness/src/fixture/index'
@@ -148,6 +151,37 @@ function maintenanceOf(runs: Map<string, number>): [string, number][] {
   )
 }
 
+/**
+ * Element writes (`add`/`delete`) on the groups' named maintenance sets
+ * (`pool.groups.*`) while `run` runs, counted from outside the pool
+ * (POD-4686, answering the F1 exemption: this upkeep has its own bound).
+ */
+function countGroupSets(run: () => void): number {
+  const proto = ObservableSet.prototype as unknown as Record<
+    'add' | 'delete',
+    (this: { name_?: string }, id: string) => unknown
+  >
+  const original = { add: proto.add, delete: proto.delete }
+  let touched = 0
+  const isGroups = (self: { name_?: string }): boolean =>
+    (self.name_ ?? '').startsWith('pool.groups.')
+  proto.add = function (this: { name_?: string }, id: string) {
+    if (isGroups(this)) touched += 1
+    return original.add.call(this, id)
+  }
+  proto.delete = function (this: { name_?: string }, id: string) {
+    if (isGroups(this)) touched += 1
+    return original.delete.call(this, id)
+  }
+  try {
+    run()
+  } finally {
+    proto.add = original.add
+    proto.delete = original.delete
+  }
+  return touched
+}
+
 describe('scaling: the work follows the change (POD-4686)', () => {
   for (const scale of [1, 4] as const) {
     it(`stage move files one id at ${scale}x`, () => {
@@ -159,27 +193,32 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         const base = corpusIssue(r, target)
         const now = new Date(base.updatedAt).toISOString()
         pool.stats.reset()
-        r.push({
-          type: 'update',
-          rows: [
-            {
-              kind: 'issue',
-              id: target,
-              value: {
-                ...base,
-                stage: 'done',
-                closedAt: now,
-                closedReason: 'done',
-                tuckedAt: now,
+        const sets = countGroupSets(() => {
+          r.push({
+            type: 'update',
+            rows: [
+              {
+                kind: 'issue',
+                id: target,
+                value: {
+                  ...base,
+                  stage: 'done',
+                  closedAt: now,
+                  closedReason: 'done',
+                  tuckedAt: now,
+                },
               },
-            },
-          ],
+            ],
+          })
         })
         const { groupRuns, groupElements, orderSorts, membershipFlips } = pool.stats.counters
         // Exactly one filing, no re-sort, no membership change.
         expect(groupRuns, 'filings').toBe(1)
         expect(orderSorts, 'order re-sorts').toBe(0)
         expect(membershipFlips, 'membership flips').toBe(0)
+        // The filing touches one lane's sets: out of one lane, into the
+        // other (a cross-bucket move touches both buckets' lanes: four).
+        expect(sets, 'group set writes').toBeLessThanOrEqual(4)
         // The filing re-sorts exactly its own group's lanes.
         const lane = tracked(() => {
           for (const key of pool.groups.keys) {
@@ -206,6 +245,19 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         expect(visible > lane!.open + lane!.closed, 'the corpus holds more than one group').toBe(
           true,
         )
+        // The plant re-files every visible id (out and back in), touching a
+        // whole list of sets and failing the same bound.
+        const refiled = countGroupSets(() => {
+          runInAction(() => {
+            for (const id of order) {
+              const node = pool.worklist.issue(id)
+              const placement = node?.visible === true ? node.placement : undefined
+              pool.groups.file(id, undefined)
+              pool.groups.file(id, placement)
+            }
+          })
+        })
+        expect(refiled, 'whole-group rebuild set writes').toBeGreaterThan(4)
       } finally {
         r.dispose()
       }
