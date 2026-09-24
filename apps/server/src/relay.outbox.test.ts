@@ -172,12 +172,32 @@ const advanceUntilSettled = async (
 }
 
 describe('queueText (durable outbox sends)', () => {
+  /**
+   * A new session's rows are handed to the daemon from admission (4bd403fed),
+   * so this row is already in the daemon's custody when the human is revoked.
+   * Revocation cannot erase an owner's work behind its back: the drain asks the
+   * daemon to CANCEL the row (`runtimeInterruptRequest` with `cancelRowId`) and
+   * rejects it only once the cancel is granted. A real daemon's delivery queue
+   * answers that cancel (it drops the row); a transport that only records frames
+   * never does, and the row then stays — correctly, since the daemon may still
+   * hold it. So this daemon answers the cancel the way the real one does.
+   */
   it('rejects an offline queued agent write when its human is revoked before drain', async () => {
     vi.useFakeTimers()
     try {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (message) => daemon.push(message))
+      await attachHostDaemon(reg, (message) => {
+        daemon.push(message)
+        if (message.type === 'runtimeInterruptRequest' && message.cancelRowId !== undefined) {
+          void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+            type: 'runtimeLifecycleResult',
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            result: { ok: true },
+          })
+        }
+      })
 
       const source = (await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -226,10 +246,24 @@ describe('queueText (durable outbox sends)', () => {
         .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
         .run('2026-08-01T00:00:00.000Z', firstAdminMemberId())
 
+      const handedOnBeforeRevocation = daemon.filter(
+        (message) => message.type === 'runtimeDurableSendRequest' && message.rowId === 'revoke-before-drain',
+      ).length
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
       await settle(reg, target)
 
+      // The drain asked the daemon to give the row back...
+      expect(daemon).toContainEqual(
+        expect.objectContaining({ type: 'runtimeInterruptRequest', sessionId: target, cancelRowId: 'revoke-before-drain' }),
+      )
+      // ...never handed it on again after the revocation, never typed it...
+      expect(
+        daemon.filter(
+          (message) => message.type === 'runtimeDurableSendRequest' && message.rowId === 'revoke-before-drain',
+        ),
+      ).toHaveLength(handedOnBeforeRevocation)
       expect(pastesContaining(daemon, 'must not cross revocation')).toEqual([])
+      // ...and rejected it: the durable row is gone and nothing is counted.
       expect(await reg.sessionStore.sync.listQueuedMessages(target)).toEqual([])
       expect(
         (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === target)
