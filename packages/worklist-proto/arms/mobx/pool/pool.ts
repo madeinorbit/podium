@@ -311,7 +311,6 @@ export class MobxPool {
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => this.issue(id),
       rollup: (id) => this.worklist.issue(id)?.rollup,
-      retainedSeats: (id) => this.worklist.issue(id)?.retainedSeatIds ?? [],
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),

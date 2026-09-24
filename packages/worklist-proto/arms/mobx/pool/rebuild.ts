@@ -93,8 +93,6 @@ export function rebuildSnapshot(
     loading: () => false,
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
     rollup: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).rollup : undefined),
-    retainedSeats: (id) =>
-      tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).retainedSeatIds : [],
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,

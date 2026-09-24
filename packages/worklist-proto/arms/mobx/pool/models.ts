@@ -154,7 +154,7 @@ export class IssueModel extends EntityModel implements IssueParts {
   }
 
   get activityAt(): number {
-    return activityAtPartOf(this.host.inputs, this.id)
+    return activityAtPartOf(this.host.inputs, this.id, this.sessionIds)
   }
 
   get loading(): boolean {
