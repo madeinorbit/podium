@@ -436,13 +436,15 @@ this change.
 | MobX: feed reads at bootstrap (visibility of cold rows) | 4,710 / 17,591 | 3,112 / 12,061 |
 | MobX: rows loaded settling first paint | 1,145 / 4,452 in 2 load windows | 84 / 315 in 1 window |
 | MobX: models at first paint | 991 / 4,218 | 2,085 / 8,477 |
-| MobX: models once first paint has settled (paint + loads) | 2,136 / 8,670 | 2,169 / 8,792 |
+| MobX: models once first paint has settled (counted after the loads land) | 2,169 / 8,792 | 2,169 / 8,792 |
 | MobX: visibility nodes (IssueNode / SessionNode) | 4,867 / 19,468 · 2,641 / 9,415 | unchanged |
 | Parity (Mb1 `visible.test.tsx`, #1-#5 at 1x) | green | green |
 
 The last model rows are the point. Once first paint has settled, (a) and (b)
-hold the same objects to within 2 %. (b) builds them before the paint, (a)
-builds them in two load rounds after it, behind 376 placeholders. Both pools
+hold exactly the same objects. (b) builds them before the paint, (a) builds
+them in two load rounds after it, behind 376 placeholders at 1x. The extra
+resident rows in (b) that are neither drawn nor ticked are table rows with no
+model (MobX builds a model on first access). Both pools
 hold exactly the rule's cold set at bootstrap: cold issues equal the rule's
 count, no visible row is cold, and the partition check is clean in each.
 
