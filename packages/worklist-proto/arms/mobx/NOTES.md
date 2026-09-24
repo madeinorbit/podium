@@ -65,6 +65,38 @@ the comparison both pool gates call), `pool/views.ts` (`activityAtPartOf`,
   reported); the view's subtree raise removed fails it at `i3973.activityAt`
   (pool earlier). The real code passes it on every other visible row.
 
+### Gate of record (L4b, 1x), 2026-09-24: GREEN
+
+Seeds 1-5 x 300, `gate.test.ts` "correctness gate", one seed per run through
+the package config (`POD_POOL_GATE_FIRST_SEED`), 12:59-14:40 at load 10-20
+(pass/fail and counts only, no walls). Seeds 1, 2, 3 and 5 ran on this
+branch rebased on integrate/4545-round-three at ccb9ef483 (Mb4 landed); seed
+4 on the tip rebased on 7909a416c, which changes only a comment in this
+gate and the POD-4671 test allowance (no pool code). Every compared step:
+the rebuild, every relation against the scan, the partition, the oracle
+every 10 steps (Mb4) and every visible issue's whole `RowView` against
+`rebuildViews`. Two earlier runs of seeds 1 and 3 were killed by the
+sessions slice's OOM killer (17 GB shared by every session; this run's own
+scope held about 1.9 GB) and were re-run. All seven plants failed every
+seed ("check, step"):
+
+| seed | views compared | oracle checks | removal-deaf | cold-deaf | cold relink | promote skipped | activity cached | presence untracked | chain untracked |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 190328 | 31 | rebuild 5 | partition 6 | relations 24 | checkpoint | views 13 | views, boot | views 13 |
+| 2 | 201974 | 31 | rebuild 41 | relations 20 | relations 20 | checkpoint | views 18 | views, boot | views 0 |
+| 3 | 222611 | 31 | rebuild 19 | relations 3 | relations 3 | checkpoint | views 37 | views, boot | views 14 |
+| 4 | 195594 | 31 | rebuild 26 | relations 37 | relations 96 | checkpoint | views 35 | views, boot | views 17 |
+| 5 | 213705 | 31 | rebuild 1 | relations 7 | relations 7 | checkpoint | views 0 | views, boot | views 1 |
+
+The first 5 x 300 attempt (before the plant rework) had `activityCached`
+PASS on seed 1: it cached only the model path, and since the subtree half
+the view is the max of both halves, so the worklist path carried every live
+seat's stamp past the cache. The plant now caches both paths. Its
+`chainUntracked` also passed: cutting only `originTick`'s read of the
+origin's parts rarely fires; it now also cuts the children's roll-up
+results. A first broader cut (every node read untracked) made MobX warn that
+`tip` read no observable, a crash rather than a catch.
+
 ## Round three: structural scenarios and the browser, b4 (POD-4572) · 2026-09-24
 
 Code: `harness/src/roster.ts` (the pool on the roster, `RosterAllowances`),
