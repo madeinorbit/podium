@@ -70,6 +70,7 @@ import {
   directSessionVisibility,
   directVisibility,
   type IssueVisibility,
+  readAtOf,
   type SessionVisibility,
   sortByRank,
   type VisibleInputs,
@@ -149,8 +150,7 @@ function rebuild(
     relations: inputs.relations,
     issueRow: inputs.issue,
     sessionRow: inputs.session,
-    issue: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo) : undefined),
-    session: (id) => {
+    issue: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo) : undefined),    session: (id) => {
       let parts = sessions.get(id)
       if (parts === undefined) {
         parts = directSessionVisibility(visibleInputs, id)
@@ -162,6 +162,10 @@ function rebuild(
     reached: inputs.reached,
     loadedIssue: inputs.issue,
     progressFacts: inputs.issue,
+    issueRead: (id) => {
+      const row = tables.issue.get(id) as SliceIssue | undefined
+      return row === undefined ? undefined : readAtOf(row.readAt)
+    },
     loadedSession: inputs.session,
     nested: (id) => {
       nested ??= directNested(

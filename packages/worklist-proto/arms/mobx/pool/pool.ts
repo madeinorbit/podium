@@ -78,7 +78,12 @@ import {
 import type { RepoRow, ViewInputs } from './views'
 import { sliceOrderOf, WorklistGroups } from './worklist/groups'
 import { LOADING, type Loaded } from './worklist/rollup'
-import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
+import {
+  readAtOf,
+  VisibleCollection,
+  type VisibleCounters,
+  type VisibleInputs,
+} from './worklist/visible'
 
 /** The pool's own counters, beside the shared `ArmStats`. */
 export interface PoolCounters extends VisibleCounters {
@@ -147,6 +152,41 @@ function createStats(residency: Residency | null): PoolStats {
   return stats
 }
 
+/** JSON-ish equality for one row field (a mark-read arrives as new identities for nothing it changes). */
+function fieldEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, index) => fieldEqual(item, b[index]))
+  }
+  const ka = Object.keys(a)
+  const kb = Object.keys(b)
+  if (ka.length !== kb.length) return false
+  return ka.every(
+    (key) =>
+      Object.hasOwn(b, key) && fieldEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+  )
+}
+
+/**
+ * Whether the hot issue update `previous` → `next` moves only the read
+ * cursor: the cursor differs (as a value) and every other field is equal.
+ * Content-equal, so a new identity for an unchanged `deps` array still
+ * counts; a new value anywhere else does not.
+ */
+function cursorOnlyChange(previous: object, next: object): boolean {
+  const a = previous as Record<string, unknown>
+  const b = next as Record<string, unknown>
+  if (Object.is(a['readAt'], b['readAt'])) return false
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  keys.delete('readAt')
+  for (const key of keys) {
+    if (!fieldEqual(a[key], b[key])) return false
+  }
+  return true
+}
+
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly load: LoadRow
@@ -200,6 +240,14 @@ export class MobxPool {
   readonly graph: PoolRelations
   /** The selection local: at most one entry, the selected issue id. */
   readonly selection: ObservableMap<string, true>
+  /**
+   * The read-state lane (POD-4686): each known issue's read cursor, per-key
+   * tracked, readable by id only. A mark-read writes one key; only that row's
+   * `unread` (and a decay row's `flat`) re-runs. Uncounted by the reads fence
+   * by design: it is derived state populated from the row the update arrived
+   * on (counted there), read like a cached computed.
+   */
+  readonly readStates: ObservableMap<string, string | null>
   readonly clock: DeadlineClock
   readonly inputs: ViewInputs
   /** What the visibility parts read (POD-4569, `worklist/visible.ts`). */
@@ -285,6 +333,10 @@ export class MobxPool {
       deep: false,
       name: 'pool.selection',
     })
+    this.readStates = observable.map<string, string | null>(undefined, {
+      deep: false,
+      name: 'pool.reads',
+    })
     this.clock = new DeadlineClock(locals.coarseNow)
     this.models = Object.fromEntries(
       ENTITIES.map((entity) => [entity, new Map()]),
@@ -293,6 +345,19 @@ export class MobxPool {
       read: this.fenced,
       write: this.tables,
       relations: this.graph,
+      volatile: {
+        absorbIssueRead: (id, previous, next) => {
+          if (!cursorOnlyChange(previous, next)) return false
+          this.readStates.set(id, readAtOf((next as { readAt?: unknown }).readAt))
+          return true
+        },
+        setIssueRead: (id, row) => {
+          this.readStates.set(id, readAtOf((row as { readAt?: unknown }).readAt))
+        },
+        removeIssueRead: (id) => {
+          this.readStates.delete(id)
+        },
+      },
       ...(residency === null ? {} : { residency }),
     }
     this.selectedId = null
@@ -330,6 +395,7 @@ export class MobxPool {
       loadedSession: (id) => this.loaded('session', id) as Loaded<SliceSession>,
       // Option A (POD-4571): progress reads a cold child through `coldRow`, never loading it.
       progressFacts: (id) => this.visibleInputs.issueRow(id),
+      issueRead: (id) => this.readStates.get(id),
       nested: (id) => this.worklist.nested(id),
       formalChildren: (id) => this.worklist.formalChildren(id),
       counted: () => {
@@ -339,6 +405,7 @@ export class MobxPool {
     this.worklist = new VisibleCollection({
       visibleInputs: this.visibleInputs,
       counters: stats.counters,
+      filePlacement: (id, placement) => this.groups.file(id, placement),
     })
     this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
       name: 'pool.foldLatch',
@@ -357,6 +424,7 @@ export class MobxPool {
       relations: false,
       graph: false,
       selection: false,
+      readStates: false,
       clock: false,
       inputs: false,
       visibleInputs: false,
@@ -489,7 +557,7 @@ export class MobxPool {
       this.graph.flush()
     })
     this.stats.counters.tableWrites += out.writes
-    if (out.writes > 0) this.stats.notifications += 1
+    if (out.writes > 0 || out.volatile > 0) this.stats.notifications += 1
   }
 
   /**
@@ -534,7 +602,7 @@ export class MobxPool {
     for (const [entity, id] of out.removed) this.models[entity].delete(id)
     this.stats.counters.tableWrites += out.writes
     this.stats.counters.rowsRemoved += out.removed.length
-    if (out.writes > 0 || out.cold > 0) this.stats.notifications += 1
+    if (out.writes > 0 || out.cold > 0 || out.volatile > 0) this.stats.notifications += 1
   }
 
   /**
@@ -618,6 +686,7 @@ export class MobxPool {
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
       this.selection.clear()
+      this.readStates.clear()
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()

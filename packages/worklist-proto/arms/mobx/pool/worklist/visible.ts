@@ -128,6 +128,15 @@ export interface VisibleInputs {
   issue(id: string): IssueVisibility | undefined
   /** A session's parts (its node in the live pool). */
   session(id: string): SessionVisibility
+  /**
+   * The issue's read cursor (`readAt`): a non-empty string, null when the row
+   * carries none, undefined when the issue is unknown (POD-4686). The live
+   * pool reads its read-state lane, which a mark-read writes without touching
+   * the row's slot, so a click re-validates only the clicked row; the rebuild
+   * reads the row it holds. The unread rollup derives the same `readMs` and
+   * `hasRead` from it as `standingOf` used to.
+   */
+  issueRead(id: string): string | null | undefined
   /** `coarseNow > t`. */
   passed(t: number): boolean
   /** `coarseNow >= t`. */
@@ -178,9 +187,6 @@ export interface Standing {
   readonly draftVessel: boolean
   /** `issueFinishedAt` (`issues.ts:310`): `closedAt ?? updatedAt`, epoch ms. */
   readonly finishedMs: number
-  /** The raw `readAt`, epoch ms, or null when absent or unparseable (the unread rollup). */
-  readonly readMs: number | null
-  readonly hasReadAt: boolean
   readonly updatedMs: number | null
   readonly deleted: boolean
   readonly pinned: boolean
@@ -225,7 +231,9 @@ export function standingOf(issue: SliceIssue): Standing {
           ? 'drop'
           : 'decay'
   const spinOff = issue.deps?.some((dep) => dep.type === 'discovered-from') === true
-  const readRaw = typeof issue.readAt === 'string' ? Date.parse(issue.readAt) : Number.NaN
+  // No `readAt`: the cursor lives in the read-state lane (`VisibleInputs.issueRead`,
+  // POD-4686), so a mark-read never re-runs this. `unreadPartOf` and the decay
+  // branch of `flatPartOf` read the lane through `readCursorOf` below.
   return {
     excluded,
     finished,
@@ -238,13 +246,32 @@ export function standingOf(issue: SliceIssue): Standing {
       !issue.parentId && !spinOff && issue.startedBySession ? issue.startedBySession : null,
     draftVessel: issue.draft === true && !issue.worktreePath,
     finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
-    readMs: Number.isFinite(readRaw) ? readRaw : null,
-    hasReadAt: Boolean(issue.readAt),
     updatedMs: parseMs(issue.updatedAt),
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
     formalParent: relationRef('issue', 'parent', issue),
   }
+}
+
+/**
+ * The unread rollup's cursor from the read-state lane: the epoch ms of the
+ * row's `readAt`, or null when absent or unparseable, and whether the row
+ * carries one at all. Byte-identical to what `standingOf` derived from the
+ * row before POD-4686 moved the cursor out of the slot (`''` normalizes to
+ * null: `Boolean('')` is false and `Date.parse('')` is NaN, both ways).
+ */
+export function readCursorOf(raw: string | null | undefined): {
+  readonly readMs: number | null
+  readonly hasRead: boolean
+} {
+  if (raw == null) return { readMs: null, hasRead: false }
+  const parsed = Date.parse(raw)
+  return { readMs: Number.isFinite(parsed) ? parsed : null, hasRead: true }
+}
+
+/** The cursor as the lane stores it: a non-empty string, else null. */
+export function readAtOf(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null
 }
 
 /** L1b `rankOf` over the own row: the fields it reads, band from the clock (spec R-ORDER). */
@@ -547,22 +574,23 @@ export function liveRosterPartOf(self: IssueVisibility): boolean {
  * past the cursor, or an explicit non-shell seat (archived included) active
  * past it; a deleted issue reads as read.
  */
-export function unreadPartOf(input: VisibleInputs, self: IssueVisibility): boolean {
+export function unreadPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
   const standing = self.standing
   if (standing === undefined || standing.deleted) return false
-  if (standing.readMs === null) return true
-  if (standing.updatedMs !== null && standing.updatedMs > standing.readMs) return true
+  const { readMs } = readCursorOf(input.issueRead(id))
+  if (readMs === null) return true
+  if (standing.updatedMs !== null && standing.updatedMs > readMs) return true
   for (const sessionId of self.seatIds) {
     const session = input.session(sessionId)
     if (session.retention === null || session.retention.shell) continue
     const at = session.activityMs
-    if (at !== null && at > standing.readMs) return true
+    if (at !== null && at > readMs) return true
   }
   return false
 }
 
 /** The flat pass (`rows.ts:59-107`): retained sessions, else the sessionless keep. */
-export function flatPartOf(input: VisibleInputs, self: IssueVisibility): boolean {
+export function flatPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
   const standing = self.standing
   if (standing === undefined || standing.excluded) return false
   if (self.retained) return true
@@ -574,10 +602,11 @@ export function flatPartOf(input: VisibleInputs, self: IssueVisibility): boolean
       return false
     case 'decay': {
       // `issueVisibleInSidebar` (`visibility.ts:25-41`) for a finished child.
-      if (self.unread || !standing.hasReadAt) {
+      const { readMs, hasRead } = readCursorOf(input.issueRead(id))
+      if (self.unread || !hasRead) {
         return !input.passed(standing.finishedMs + FINISHED_UNREAD_WINDOW_MS)
       }
-      return !input.passed(Math.max(standing.finishedMs, standing.readMs ?? 0) + FINISHED_GRACE_MS)
+      return !input.passed(Math.max(standing.finishedMs, readMs ?? 0) + FINISHED_GRACE_MS)
     }
   }
 }
@@ -726,10 +755,10 @@ export function directVisibility(
       return once('liveRoster', () => liveRosterPartOf(parts))
     },
     get unread() {
-      return once('unread', () => unreadPartOf(input, parts))
+      return once('unread', () => unreadPartOf(input, id, parts))
     },
     get flat() {
-      return once('flat', () => flatPartOf(input, parts))
+      return once('flat', () => flatPartOf(input, id, parts))
     },
     get keptBelow() {
       return once('keptBelow', () => keptBelowPartOf(input, parts))
@@ -834,6 +863,13 @@ export function sortByRank(
 export interface VisibleHost {
   readonly visibleInputs: VisibleInputs
   readonly counters: VisibleCounters
+  /**
+   * File one node's layout placement (POD-4686): the visible id's current
+   * placement, or undefined when it has none (invisible or unknown). Called
+   * from the node's layout reaction and when its node is forgotten; the
+   * groups file it into their maintained buckets.
+   */
+  filePlacement(id: string, placement: Placement | undefined): void
 }
 
 /** The collection's own counters (`MobxPool.stats.counters` carries them). */
@@ -848,9 +884,9 @@ export interface VisibleCounters {
   orderElements: number
   /** Visible-set membership flips (an id added or deleted). */
   membershipFlips: number
-  /** Runs of the groups' layout (POD-4570, `groups.ts`). */
+  /** Ids (re)filed into the groups' lanes (POD-4686, `groups.ts`): one per placement change. */
   groupRuns: number
-  /** Ids placed across those runs (the visible count per run). */
+  /** Lane members around those filings (the lanes a filing re-sorts), not the visible count. */
   groupElements: number
 }
 
@@ -985,11 +1021,11 @@ export class IssueNode implements IssueVisibility {
   }
 
   get unread(): boolean {
-    return unreadPartOf(this.input, this)
+    return unreadPartOf(this.input, this.id, this)
   }
 
   get flat(): boolean {
-    return flatPartOf(this.input, this)
+    return flatPartOf(this.input, this.id, this)
   }
 
   get keptBelow(): boolean {
@@ -1257,11 +1293,21 @@ export class VisibleCollection {
           (parent) => this.file('formal', id, parent),
           { fireImmediately: true, name: `pool.children.${id}` },
         )
+        // POD-4686: the layout filing. Visible rows file their placement; an
+        // invisible row files nothing, so the groups hold exactly the visible
+        // set without ever enumerating it. `placement` is structural, so a
+        // mark-read (read-state lane only) never fires this.
+        const stopLayout = reaction(
+          () => (node.visible ? node.placement : undefined),
+          (placement) => this.host.filePlacement(id, placement),
+          { fireImmediately: true, name: `pool.layout.${id}` },
+        )
         this.nodes.set(id, node)
         this.stops.set(id, () => {
           stop()
           stopNest()
           stopFormal()
+          stopLayout()
         })
         counters.issueNodes += 1
         continue
@@ -1272,6 +1318,7 @@ export class VisibleCollection {
       this.nodes.delete(id)
       this.file('nested', id, null)
       this.file('formal', id, null)
+      this.host.filePlacement(id, undefined)
       if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
     }
   }

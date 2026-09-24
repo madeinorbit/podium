@@ -384,6 +384,7 @@ export class Residency {
   /** A cold row left the slice (`replace`, or a removal): unlink and forget it. */
   forget(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
     this.unregister(entity, id)
+    if (entity === 'issue') target.volatile?.removeIssueRead(id)
     target.relations?.changed(entity, id, undefined, undefined)
     out.cold += 1
     this.counters.coldWrites += 1
@@ -490,6 +491,7 @@ export class Residency {
     out: IngestOut,
   ): void {
     this.register(entity, id, value)
+    if (entity === 'issue') target.volatile?.setIssueRead(id, value)
     target.relations?.changed(entity, id, undefined, value)
     out.cold += 1
     this.counters.coldWrites += 1

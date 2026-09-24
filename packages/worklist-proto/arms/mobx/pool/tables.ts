@@ -102,6 +102,12 @@ export interface IngestOut {
   removed: [EntityName, string][]
   /** Cold rows registered, relinked or forgotten (POD-4567): no slot written. */
   cold: number
+  /**
+   * Cursor-only issue updates absorbed without a slot write (POD-4686): the
+   * read-state lane moved, nothing else. Counts as a notification like a
+   * write (pool state changed), but wakes only the cursor's readers.
+   */
+  volatile: number
 }
 
 /** Reads go through `read` (the fenced view in the live pool, so the reads
@@ -112,11 +118,42 @@ export interface IngestTarget {
   /** Told of every write, in order (the live pool's relations). */
   readonly relations?: RelationMaintenance
   /**
+   * The live pool's volatile lane (POD-4686): an issue's read cursor, kept
+   * beside its row so a mark-read skips the slot write. Absent in the
+   * rebuild, which stores every row whole.
+   */
+  readonly volatile?: VolatileLane
+  /**
    * The live pool's residency (POD-4567, `residency.ts`): a row of an entity
    * that can be cold is routed through it, and a cold row never reaches
    * `write`. The rebuild and the replace staging hold every row.
    */
   readonly residency?: Pick<Residency, 'capable' | 'ingest' | 'place' | 'forget' | 'ids' | 'reindex'>
+}
+
+/**
+ * POD-4686 — an issue's read cursor (`readAt`) beside its row. A mark-read
+ * rewrites only the cursor: the row's slot (and every derivation reading the
+ * row for anything else — standing, rank, placement, views) stays quiet,
+ * while the cursor's own readers (`unread`, a decay row's `flat`) re-run
+ * through the lane. Skipping the slot write skips nothing else: no declared
+ * relation reads the cursor (schema `where`, collapse and edge resolvers
+ * carry no `readAt`), and residency routes only new rows by rule (a hot row
+ * stays hot whatever its cursor says). The lane holds one cursor per known
+ * issue, readable by id only, so nothing can walk the corpus through it
+ * uncounted; the reads fence keeps counting the row the update arrived on.
+ */
+export interface VolatileLane {
+  /**
+   * The hot issue update `previous` → `next`: when they differ only in the
+   * cursor, record it and return true (no slot write, no relink). Otherwise
+   * return false (the caller writes the slot and records the cursor itself).
+   */
+  absorbIssueRead(id: string, previous: StoredRow, next: StoredRow): boolean
+  /** Record the cursor of an incoming or cold-registered issue row. */
+  setIssueRead(id: string, row: StoredRow): void
+  /** Forget the cursor of a removed issue row. */
+  removeIssueRead(id: string): void
 }
 
 /** Store `row` under `id` unless the slot already holds that very object. */
@@ -129,8 +166,17 @@ export function put(
 ): void {
   const previous = target.read[entity].get(id) as StoredRow | undefined
   if (previous === row) return // unchanged: keep the borrowed object, notify nothing
+  if (
+    entity === 'issue' &&
+    previous !== undefined &&
+    target.volatile?.absorbIssueRead(id, previous, row) === true
+  ) {
+    out.volatile += 1
+    return
+  }
   target.write[entity].set(id, row)
   out.writes += 1
+  if (entity === 'issue') target.volatile?.setIssueRead(id, row)
   target.relations?.changed(entity, id, previous, row)
 }
 
@@ -140,6 +186,7 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
   if (!target.write[entity].delete(id)) return
   out.writes += 1
   out.removed.push([entity, id])
+  if (entity === 'issue') target.volatile?.removeIssueRead(id)
   target.relations?.changed(entity, id, previous as StoredRow | undefined, undefined)
 }
 
@@ -218,5 +265,5 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
 
 /** A fresh `IngestOut`. */
 export function ingestOut(): IngestOut {
-  return { writes: 0, removed: [], cold: 0 }
+  return { writes: 0, removed: [], cold: 0, volatile: 0 }
 }
