@@ -95,8 +95,8 @@ import { createEngineActions, type EngineActions, type EngineActionRuntime } fro
 import { planNavigation, type NavigationIntent } from './navigation'
 import { BootFetches } from './boot'
 import { dedupeSessions, OptimismLedger } from './optimism'
-import { Reactions } from './reactions'
-import { sessionLinkProblem } from './session-link'
+import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
+import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   createReplicaBinding,
   type ReplicaBinding,
@@ -314,6 +314,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The short-id pane link awaiting the server's answer (POD-4637); a later
    *  pane navigation supersedes it, so a slow answer never yanks the view. */
   private pendingPaneLink: string | null = null
+  /** A full session id a `?pane=` link named before this replica held the
+   *  session (POD-4642): opened when the row arrives, reported once the prune
+   *  grace gives up on it. */
+  private paneLink: {
+    sessionId: string
+    worktree: string | null
+    timer: ReturnType<typeof setTimeout>
+  } | null = null
+  private readonly paneLinkGraceMs: number
   private applyingHydratedUi = false
   /** > 0 while {@link batch} is coalescing applies into one snapshot. */
   private batchDepth = 0
@@ -462,7 +471,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       ...(init.workspacePruneGraceMs !== undefined
         ? { pruneGraceMs: init.workspacePruneGraceMs }
         : {}),
+      linkedWorktree: () => this.paneLink?.worktree ?? null,
     })
+    this.paneLinkGraceMs = init.workspacePruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
     this.reactions.seedCwds(this.baseSessions)
     this.reactions.seedIssueIds(this.baseSessions)
     // Fold queued outbox entries over the seed (#263): after an offline reload
@@ -813,9 +824,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     // Normalize the URL through the same owner that hydrates and flushes state.
     this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
-    // A cold `?pane=<short id>` link: onRouteChanged never saw it (the route was
-    // read at construction), so ask the server here.
-    this.resolvePaneLink(this.router.current().pane)
+    // A cold `?pane=` link: onRouteChanged never saw it (the route was read at
+    // construction), and hydration only seeded the pane scalar from it — the
+    // restored layout still has its own tab active. Open the link here.
+    this.followPaneLink(this.router.current())
   }
 
   /** Tear down everything start() armed. Idempotent; the runtime can re-start
@@ -830,6 +842,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.connectTimer = null
     }
     this.reactions.dispose()
+    this.dropPaneLink()
     this.optimism.dispose()
     // Drafts: drop the timers, but FLUSH the pending storage write first. A tab
     // closing is the most likely moment for a draft to be lost, and a debounce
@@ -960,6 +973,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (changed.has('sessions')) {
       this.reactions.worktreeFollow()
       this.reactions.sessionIssueFollow()
+      // A linked session that arrived after its link (POD-4642).
+      if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
     }
     // Worktree fallback selection.
     if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree'))
@@ -1115,6 +1130,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private navigate(intent: NavigationIntent): boolean {
     if (this.destroyed) return false
+    // Any navigation supersedes a link still waiting for its session, so a late
+    // row never yanks the operator off where they went since (POD-4642).
+    this.dropPaneLink()
     const plan = planNavigation(this.state, this.router.current(), intent, {
       visible: this.visibility.isVisible(), now: new Date().toISOString(),
     })
@@ -1177,19 +1195,74 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         st.sessions.some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
       if (canShow) patch.selectedWorktree = route.worktree
     }
-    if (route.pane !== prev?.pane) this.resolvePaneLink(route.pane)
-    if (route.pane && route.pane !== prev?.pane && route.pane !== st.paneA) {
-      // A deep-linked pane is an OPEN, so the workspace it lands in gains the
-      // tab; the mirror would otherwise erase it on the next layout write.
-      Object.assign(
-        patch,
-        this.openWorkspaceTab(route.pane, {
-          ...(patch.selectedWorktree ? { selectedWorktree: patch.selectedWorktree } : {}),
-        }),
-      )
-    }
+    // A pane the state is not already showing is a LINK (deep link, back/forward),
+    // not this runtime's own mirror write.
+    const linked = !!route.pane && route.pane !== prev?.pane && route.pane !== st.paneA
+    if (!linked && route.pane !== prev?.pane) this.resolvePaneLink(route.pane)
     this.apply(patch)
+    if (linked) this.followPaneLink(route)
     this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
+  }
+
+  /**
+   * A `?pane=<session id>` LINK OPENS THAT SESSION (POD-4642).
+   *
+   * Cold and warm links both land here. A known session opens the way the
+   * jump-to-session action opens it — its issue and worktree selected, its tab
+   * active — because the tab strip draws the LAYOUT, and a pane scalar seeded
+   * from the URL alone left the restored tab in front under the new link.
+   *
+   * A full id this replica does not hold yet is adopted as a tab, as before (it
+   * may be an optimistic spawn, or a row still on its way), and remembered: its
+   * arrival opens it, and the worktree fallback holds the linked worktree
+   * meanwhile instead of swapping in another repo. If the prune grace passes
+   * without it, the link SAYS so. Short ids ask the server
+   * ({@link resolvePaneLink}); a session answer comes back through here as a
+   * full id.
+   */
+  private followPaneLink(route: RouteState): void {
+    const pane = route.pane
+    this.dropPaneLink()
+    this.resolvePaneLink(pane)
+    if (!pane) return
+    const short = isShortSessionIdentifier(pane)
+    if (!short && this.openLinkedSession(pane, route.worktree ?? null)) return
+    // A deep-linked pane is an OPEN, so the workspace it lands in gains the tab;
+    // the mirror would otherwise erase it on the next layout write.
+    this.apply(this.openWorkspaceTab(pane))
+    if (short || pane.startsWith('file:')) return
+    const timer = setTimeout(() => {
+      if (this.paneLink?.sessionId !== pane) return
+      this.dropPaneLink()
+      if (this.destroyed || this.state.sessions.some((s) => s.sessionId === pane)) return
+      this.notices.error(sessionLinkProblem(pane, { kind: 'absent' }))
+      // The held worktree may name nothing now; let the fallback settle it.
+      this.reactions.worktreeFallback()
+    }, this.paneLinkGraceMs)
+    this.paneLink = { sessionId: pane, worktree: route.worktree ?? null, timer }
+  }
+
+  /** Open a linked session this replica holds; false when it holds none. */
+  private openLinkedSession(sessionId: string, worktree: string | null): boolean {
+    const meta = this.state.sessions.find((s) => s.sessionId === sessionId)
+    if (!meta) return false
+    this.dropPaneLink()
+    // Already the active tab on screen (a plain reload): nothing to move.
+    const onScreen = workspaceFor(this.state, workspaceKeyForState(this.state))
+    if (workspaceMirrorPatch(onScreen).paneA === sessionId) return true
+    this.navigate({
+      view: 'workspace',
+      ...sessionLinkSelection(this.state, meta, worktree),
+      tabId: sessionId,
+      history: 'view',
+    })
+    return true
+  }
+
+  private dropPaneLink(): void {
+    if (!this.paneLink) return
+    clearTimeout(this.paneLink.timer)
+    this.paneLink = null
   }
 
   // ----------------------------------------------------------- replica ↔ state

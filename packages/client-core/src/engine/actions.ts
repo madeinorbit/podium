@@ -32,7 +32,7 @@ import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { Router } from '../ui-state'
 import type { NavigationIntent } from './navigation'
-import { sessionLinkProblem } from './session-link'
+import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import type {
   DockTab,
   FileScope,
@@ -498,17 +498,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       if (isSessionIdPrefix(sessionIdOrRef)) void navigateToSessionLink(sessionIdOrRef)
       return
     }
-    const worktree =
-      reposToViews(state.repos)
-        .flatMap((repo) => repo.worktrees)
-        .map((candidate) => candidate.path)
-        .filter((path) => meta.cwd === path || meta.cwd.startsWith(`${path}/`))
-        .sort((a, b) => b.length - a.length)[0] ?? state.selectedWorktree
-    const selection = {
-      ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
-      ...(worktree ? { selectedWorktree: worktree } : {}),
-    }
-    rt.navigate({ view: 'workspace', ...selection, tabId: meta.sessionId, history: 'push' })
+    rt.navigate({
+      view: 'workspace',
+      ...sessionLinkSelection(state, meta),
+      tabId: meta.sessionId,
+      history: 'push',
+    })
   }
 
   const navigateToSessionLink = async (identifier: string): Promise<void> => {

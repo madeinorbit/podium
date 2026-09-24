@@ -636,8 +636,11 @@ describe('session resurrection', () => {
 
 describe('single URL writer (React #185 regression, engine-level)', () => {
   it('an unknown ?wt deep link settles on the known fallback without ping-pong', async () => {
-    const { engine, rw, fatals } = makeEngine({
+    const { engine, rw, fatals, errors } = makeEngine({
       url: '/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=00000000-0000-0000-0000-000000000000',
+      // The link names a session, so the worktree is held for it until the
+      // grace gives up on the session (POD-4642); keep that inside the settle.
+      workspacePruneGraceMs: 30,
     })
     let notifications = 0
     engine.subscribe(() => {
@@ -645,12 +648,16 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
       if (notifications > 200) throw new Error(`update loop: ${notifications} notifications`)
     })
     engine.start()
-    await settle(40)
+    await settle(80)
     const snap = engine.getSnapshot()
     expect(snap.view).toBe('workspace')
     // The unknown worktree cannot be shown; the selection settles on the one
     // known worktree (a deterministic fallback, not a loop) …
     expect(snap.selectedWorktree).toBe('/tmp/known-repo')
+    // … and the link said why it opened nothing.
+    expect(errors).toEqual([
+      "Couldn't open session link — no session matches '00000000-0000-0000-0000-000000000000'",
+    ])
     // … and the settled state is mirrored back into the URL.
     expect(rw.url()).toContain('wt=%2Ftmp%2Fknown-repo')
     // Fully settled: no further URL writes after quiescence.

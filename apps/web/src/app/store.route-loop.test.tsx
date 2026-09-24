@@ -155,7 +155,7 @@ async function mountAt(url: string): Promise<void> {
 
 describe('workspace deep link with unknown wt/pane', () => {
   it('settles without an update loop and falls back to a known worktree', async () => {
-    await mountAt('/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=00000000-0000-0000-0000-000000000000')
+    await mountAt('/workspace?wt=%2Fhome%2Fnobody%2Fgone')
     // Bounded render count — the URL↔state sync must converge, not ping-pong.
     expect(renderCount).toBeLessThan(60)
     expect(snapshot?.view).toBe('workspace')
@@ -165,6 +165,20 @@ describe('workspace deep link with unknown wt/pane', () => {
     // And the settled state is mirrored back into the URL exactly once.
     expect(window.location.pathname).toBe('/workspace')
     expect(new URLSearchParams(window.location.search).get('wt')).toBe('/tmp/known-repo')
+  })
+
+  it('a session link into an unknown wt converges and holds that wt while the session is due (POD-4642)', async () => {
+    const pane = '00000000-0000-0000-0000-000000000000'
+    await mountAt(`/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=${pane}`)
+    expect(renderCount).toBeLessThan(60)
+    expect(snapshot?.view).toBe('workspace')
+    // The link is never rewritten to another repo while its session may still
+    // arrive; the runtime falls back, and says why, once the grace gives up.
+    expect(snapshot?.selectedWorktree).toBe('/home/nobody/gone')
+    expect(snapshot?.paneA).toBe(pane)
+    const params = new URLSearchParams(window.location.search)
+    expect(params.get('wt')).toBe('/home/nobody/gone')
+    expect(params.get('pane')).toBe(pane)
   })
 
   it('navigating (popstate) to an unknown wt settles without a loop (React #185 regression)', async () => {

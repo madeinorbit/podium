@@ -84,6 +84,9 @@ export interface ReactionPorts {
   readonly isVisible: () => boolean
   /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
   readonly pruneGraceMs?: number
+  /** The worktree a `?pane=` link named while its session has not arrived yet
+   *  (POD-4642). The fallback holds it rather than swapping in another repo. */
+  readonly linkedWorktree?: () => string | null
 }
 
 export class Reactions {
@@ -291,8 +294,8 @@ export class Reactions {
    *  persisted selection would be wiped against a still-empty repo list), keep
    *  an explicit selection alive when it's a registered worktree OR a session
    *  actually runs there (containment, not equality — a session stamped with a
-   *  subdirectory still anchors the selection), else fall back to the first
-   *  known worktree. */
+   *  subdirectory still anchors the selection) or a session link is waiting
+   *  for its session there, else fall back to the first known worktree. */
   worktreeFallback(): void {
     const st = this.ports.state()
     if (!st.reposLoaded) return
@@ -306,6 +309,7 @@ export class Reactions {
       (s) => s.cwd === st.selectedWorktree || s.cwd.startsWith(`${st.selectedWorktree}/`),
     )
     if (known || hasSession) return
+    if (st.selectedWorktree === this.ports.linkedWorktree?.()) return
     this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
   }
 
