@@ -144,7 +144,9 @@ function instrument<T>(run: () => T): T {
   try {
     return run()
   } catch (error) {
-    throw new InstrumentError(`instrument crashed: ${error instanceof Error ? error.message : error}`)
+    throw new InstrumentError(
+      `instrument crashed: ${error instanceof Error ? error.message : error}`,
+    )
   }
 }
 

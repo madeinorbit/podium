@@ -1,5 +1,53 @@
 # arms/hand — notes
 
+## Round three: b1 SENT BACK and fixed (POD-4582) · 2026-09-24
+
+The coordinator's verification at 5cc8af7b9 found two reds on the
+integration branch. Rebased on c9ebbed20.
+
+1. **`pool/bootstrap.test.ts` expected 1 cell, got 35,182.** By design since
+   Hb1: the worklist is built at bootstrap. Restated: every live cell is
+   NAMED and the sum must be exact (id list 1 + the `own` part of each
+   visible row + session activity cells + one `visible` cell per RESIDENT
+   issue + one rank per visible row + the visibility parts), per arm, at 1x
+   and 4x; plus a growth bound (live cells per known issue at 4x within 10%
+   of 1x). Numbers (lazy pool, counts need no quiet box):
+
+   | | 1x | 4x |
+   |---|---|---|
+   | live cells | 35,182 | 140,121 |
+   | per known issue | 7.23 | 7.20 |
+   | `visible` cells (resident issues) | 2,736 | 10,977 |
+   | visible rows = rank cells = `own` parts | 732 | 2,928 |
+   | issue part sets / parts | 3,240 / 27,638 | 13,103 / 111,469 |
+   | session part sets / parts | 1,657 / 3,325 | 5,837 / 11,721 |
+   | session activity cells | 18 | 97 |
+
+   Against MobX (Mb1, one IssueNode per KNOWN issue): 4,867 / 19,468 issue
+   nodes, 2,641 / 9,415 session nodes. The hand pool holding every row builds
+   exactly that (4,867 / 19,468 issue sets, 2,641 / 9,415 session sets,
+   asserted); the lazy one builds sets only for the known rows a resident
+   row's rule reached (3,240 / 13,103).
+2. **H3's full-view probe "caught" the clean hand arm on seed 1.** No field of
+   the arm differed. Two instrument defects in
+   `harness/review/h3-gate-plants.test.ts`:
+   - it called the shared cold rule with a bare function where POD-4665 made
+     the argument a `ColdContext` (`now`, `coldTarget`, `keeps`), so it threw
+     `ctx.keeps is not a function` on the first cold row, and `outcome`
+     recorded the TypeError as a catch. Now `tableColdRule`, and a crash of
+     the probe's own check is an `InstrumentError` that fails the run (guard
+     test: "a crash of the instrument is not a catch; an arm error is").
+   - with that fixed, it read every RESIDENT row's view once at the snapshot.
+     Since Hb1 the snapshot reads only the visible rows, so a hidden row's
+     view was first read by the probe and showed `loading` for its cold
+     origin or member. One read-then-settle is not enough: a cell re-runs
+     only when read, so a landing asks for the next input on the next read.
+     The probe now reads, settles and repeats until a read queues nothing
+     (what a list drawing those rows does). Seed 1: 518 loads the first
+     round, 3 the second, then quiet.
+   Seed 1 x 300 clean with the full-view check: green (305 s, load 17). Not
+   activityAt, so nothing mailed to POD-4674.
+
 ## Round three: visible collection and order, b1 (POD-4582) · 2026-09-24
 
 Code: `pool/worklist/visible.ts` (the brief's `arms/hand/worklist/visible.ts`

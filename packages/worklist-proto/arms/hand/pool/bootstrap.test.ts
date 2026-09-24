@@ -109,8 +109,7 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     visibleOwnOnly: [...pool.issues.values()].every(
       (cells) => cells.cells.size === 1 && cells.cells.has('own'),
     ),
-    visibleSetIsViewSet:
-      [...pool.issues.keys()].sort().join() === [...pool.order()].sort().join(),
+    visibleSetIsViewSet: [...pool.issues.keys()].sort().join() === [...pool.order()].sort().join(),
   }
   const rows = Object.fromEntries(ENTITIES.map((entity) => [entity, pool.tables[entity].size]))
   const tableSlots = ENTITIES.reduce((sum, entity) => sum + pool.tables[entity].size, 0)
@@ -183,10 +182,19 @@ describe('bootstrap in the count harness', () => {
       // row, and the visibility parts of the known issues and sessions the
       // rule reached (at most one set per known row; a cold row's set only
       // when a resident one's rule asked).
-      for (const [arm, c] of [['lazy', lazy], ['allResident', all]] as const) {
+      for (const [arm, c] of [
+        ['lazy', lazy],
+        ['allResident', all],
+      ] as const) {
         const l = c.liveCells
         expect(l.live, arm).toBe(
-          l.idList + l.rowViewParts + l.sessionActivity + l.member + l.rank + l.issueParts + l.sessionParts,
+          l.idList +
+            l.rowViewParts +
+            l.sessionActivity +
+            l.member +
+            l.rank +
+            l.issueParts +
+            l.sessionParts,
         )
         expect(l.member, arm).toBe(c.rows['issue'])
         expect(l.rank, arm).toBe(l.visible)
@@ -196,8 +204,10 @@ describe('bootstrap in the count harness', () => {
         expect(l.sessionPartSets, arm).toBeLessThanOrEqual(all.rows['session']!)
         expect(l.sessionActivity, arm).toBeLessThanOrEqual(all.rows['session']!)
         // No part is built twice for one row.
-        for (const n of Object.values(l.issuePartsByName)) expect(n).toBeLessThanOrEqual(l.issuePartSets)
-        for (const n of Object.values(l.sessionPartsByName)) expect(n).toBeLessThanOrEqual(l.sessionPartSets)
+        for (const n of Object.values(l.issuePartsByName))
+          expect(n).toBeLessThanOrEqual(l.issuePartSets)
+        for (const n of Object.values(l.sessionPartsByName))
+          expect(n).toBeLessThanOrEqual(l.sessionPartSets)
       }
       // The same rule over the same rows builds the same collection either way.
       expect(lazy.liveCells.visible).toBe(all.liveCells.visible)

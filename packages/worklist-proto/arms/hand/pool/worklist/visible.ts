@@ -928,7 +928,12 @@ export class VisibleCollection {
   }
 
   /** {@link cellCount} by kind: part cells per part name, and the `member` and `rank` cells (tests: counts). */
-  cellsByPart(): { issue: Record<string, number>; session: Record<string, number>; member: number; rank: number } {
+  cellsByPart(): {
+    issue: Record<string, number>
+    session: Record<string, number>
+    member: number
+    rank: number
+  } {
     const tally = (sets: Iterable<PartCells<object>>): Record<string, number> => {
       const out: Record<string, number> = {}
       for (const held of sets) {
