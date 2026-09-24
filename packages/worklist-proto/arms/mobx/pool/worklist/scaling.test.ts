@@ -87,35 +87,37 @@ function corpusIssue(r: Rig, id: string): SliceIssue {
 
 /** A childless, unpinned open human root in the visible order (the stage-move rule). */
 function stageTarget(pool: MobxPool): string {
-  const order = tracked(() => [...pool.worklist.order])
-  const id = order.find((candidate) => {
-    const node = pool.worklist.issue(candidate)
-    const standing = node?.standing
-    return (
-      standing !== undefined &&
-      standing.activeHuman &&
-      !standing.pinned &&
-      standing.parentId === null &&
-      node.childIds.length === 0
-    )
+  return tracked(() => {
+    const id = [...pool.worklist.order].find((candidate) => {
+      const node = pool.worklist.issue(candidate)
+      const standing = node?.standing
+      return (
+        standing !== undefined &&
+        standing.activeHuman &&
+        !standing.pinned &&
+        standing.parentId === null &&
+        node.childIds.length === 0
+      )
+    })
+    if (id === undefined) throw new Error('no childless open root in the visible order')
+    return id
   })
-  if (id === undefined) throw new Error('no childless open root in the visible order')
-  return id
 }
 
 /** An unread open-human root (a keep row: its `flat` never reads the cursor). */
 function clickTarget(pool: MobxPool): string {
-  const order = tracked(() => [...pool.worklist.order])
-  const id = order.find((candidate) => {
-    const node = pool.worklist.issue(candidate)
-    return (
-      node?.standing?.activeHuman === true &&
-      node.standing.parentId === null &&
-      node.unread === true
-    )
+  return tracked(() => {
+    const id = [...pool.worklist.order].find((candidate) => {
+      const node = pool.worklist.issue(candidate)
+      return (
+        node?.standing?.activeHuman === true &&
+        node.standing.parentId === null &&
+        node.unread === true
+      )
+    })
+    if (id === undefined) throw new Error('no unread open-human root in the visible order')
+    return id
   })
-  if (id === undefined) throw new Error('no unread open-human root in the visible order')
-  return id
 }
 
 /** Maintenance reactions (`pool.visible/nested/children.<id>`) run while `run` runs. */
