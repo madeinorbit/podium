@@ -2,9 +2,11 @@
 /**
  * POD-4578 (Ha1) — the round-three hand-rolled pool on the native renderer:
  * `mountNative()` through `mountNativeForCounts`, one RowShell per VISIBLE
- * row in rank order (Hb1, POD-4582), a heartbeat redraws no row and a rename
- * redraws the renamed row and no hidden one. Parity and the counted
- * scenarios are the web lane's (`arms/hand/pool/worklist/visible.test.tsx`,
+ * row grouped (Hb2, POD-4583: the PINNED section, then each group's open
+ * lane and closed fold), a heartbeat redraws no row and a rename redraws
+ * the renamed row and no hidden one. Parity and the counted scenarios are
+ * the web lane's (`arms/hand/pool/worklist/visible.test.tsx`,
+ * `arms/hand/pool/worklist/groups.test.tsx`,
  * `arms/hand/pool/counts.test.tsx`).
  *
  * Ha2 (POD-4579): `activityAt` reads `issue.sessions`, so the heartbeat
@@ -47,7 +49,16 @@ describe('hand pool on the native renderer', () => {
       const drawnIds = [...list.querySelectorAll('[data-testid^="row-"]')].map((row) =>
         (row.getAttribute('data-testid') ?? '').slice('row-'.length),
       )
-      expect(drawnIds).toEqual([...handle.pool.order()])
+      // POD-4583: the native list draws the PINNED section, then each
+      // group's open lane and closed fold: the visible set, grouped.
+      const view = handle.pool.groupsView()
+      expect(drawnIds).toEqual([
+        ...view.pinnedIds,
+        ...view.keys.flatMap((key) => {
+          const lanes = handle.pool.groupLanes(key)
+          return [...lanes.rowIds, ...lanes.closedIds]
+        }),
+      ])
 
       mounted.log.reset()
       await act(async () => {
