@@ -9,7 +9,7 @@ import {
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { Hono } from 'hono'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
@@ -33,7 +33,16 @@ afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
 
-type TurnReq = Extract<ControlMessage, { type: 'headlessTurnRequest' }>
+/**
+ * A superagent turn as the daemon receives it. It used to be a
+ * `headlessTurnRequest` answered by a `headlessTurnResult`; since POD-4393
+ * (9b1c0e65a, 2824b653b) the turn rides the driver contract to the session's
+ * headless driver as a runtime send carrying the concierge context in
+ * `contextPrompt` and the user's words in `text`, and POD-4614 (4a91ddb52)
+ * refuses the legacy frame loudly. The seed and delta these tests pin are the
+ * same strings on the new frame.
+ */
+type TurnReq = Extract<ControlMessage, { type: 'runtimeSendRequest' | 'runtimeDurableSendRequest' }>
 
 async function harness(opts?: { eventReadLimit?: number }) {
   // The belt's search tools only exist where the full-text index does (PDM-25),
@@ -42,9 +51,29 @@ async function harness(opts?: { eventReadLimit?: number }) {
   forceFeature('command-palette', true)
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
-  // conciergeTurn flow completes without a real harness.
+  // Every headless turn the fake daemon saw. Turns auto-resolve ok, as the
+  // headless driver reports them (accepted receipt, then the turn's started and
+  // completed events, then history/snapshot reads for output and resume), so
+  // the conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
+  const host = registry.sessionStore.hostMachineId
+  const resolveTurn = (m: TurnReq, epoch: number) => {
+    void registry.gateway.routeDaemonFrame(host, {
+      type: 'runtimeSendResult',
+      requestId: m.requestId,
+      sessionId: m.sessionId,
+      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+    })
+    const turn = (ev: object, seq: number) => ({
+      sessionId: m.sessionId,
+      event: { t: 'turn', ev, cursor: { segmentId: 's', components: { seq } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at: new Date().toISOString() } as never,
+    })
+    const gateway = registry.modules.sessions.runtimeGateway
+    void (async () => {
+      await gateway.record(host, turn({ ev: 'started', turnEpoch: epoch, origin: 'system' }, epoch * 2 - 1))
+      await gateway.record(host, turn({ ev: 'completed', turnEpoch: epoch, verdict: 'done' }, epoch * 2))
+    })()
+  }
   // The host's row is assigned agent execution, as setup enrollment leaves it:
   // placement picks only an assigned, attached daemon (2b803efb5).
   await assignHostMachine(registry.sessionStore)
@@ -59,18 +88,47 @@ async function harness(opts?: { eventReadLimit?: number }) {
         }),
       )
     }
-    if (m.type === 'headlessTurnRequest') {
+    if (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') {
       turnReqs.push(m)
+      resolveTurn(m, turnReqs.length)
+    }
+    if (m.type === 'runtimeHistoryRequest') {
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-          type: 'headlessTurnResult',
+        registry.gateway.routeDaemonFrame(host, {
+          type: 'runtimeHistoryResult',
           requestId: m.requestId,
-          ok: true,
-          accountId: m.accountId,
-          requestDigest: m.requestDigest,
-          harnessSessionId: `h-${turnReqs.length}`,
-          output: 'harness says hi',
+          sessionId: m.sessionId,
+          result: { page: { items: [{ id: 'item-1', role: 'assistant', text: 'harness says hi', ts: new Date().toISOString() }], hasMore: false } },
         }),
+      )
+    }
+    if (m.type === 'runtimeSnapshotRequest') {
+      queueMicrotask(() =>
+        registry.gateway.routeDaemonFrame(host, {
+          type: 'runtimeSnapshotResult',
+          requestId: m.requestId,
+          sessionId: m.sessionId,
+          result: {
+            snapshot: {
+              binding: {
+                sessionId: m.sessionId,
+                driver: 'headless',
+                family: 'server',
+                harness: 'claude-code',
+                workdir: '/r',
+                resume: { kind: 'headless-session', value: `h-${turnReqs.length}` },
+                process: { key: 'test' },
+                bindingVersion: 1,
+              },
+              state: {},
+              cursor: { segmentId: 's', components: {} },
+              observerGeneration: 1,
+              turnEpoch: turnReqs.length,
+              interactions: [],
+              at: new Date().toISOString(),
+            },
+          },
+        } as never),
       )
     }
   }, fixtureInventory({
@@ -219,9 +277,10 @@ describe('concierge threads (issue #64)', () => {
       spawnedBy: 'user',
     })
     await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'status?' })
+    await vi.waitFor(() => expect(turnReqs).toHaveLength(1))
     const request = turnReqs[0]
     const context = request?.contextPrompt ?? ''
-    expect(request?.prompt).toBe('status?')
+    expect(request?.text).toBe('status?')
     expect(context).toContain('[CONCIERGE CONTEXT]')
     expect(context).toContain(`#${ready.seq} Fix login`)
     expect(context).toContain('Which region?')
@@ -423,6 +482,7 @@ describe('concierge threads (issue #64)', () => {
     await registry.issues.create({ repoPath: '/r', title: 'C', startNow: false })
     await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'update?' })
     await settle()
+    await vi.waitFor(() => expect(turnReqs).toHaveLength(2))
     const second = turnReqs[1]?.contextPrompt ?? ''
     expect(second).toContain('[CONCIERGE UPDATE')
     expect(second).toContain('created "A"')
@@ -431,6 +491,7 @@ describe('concierge threads (issue #64)', () => {
     // The overflowed remainder arrives on the next turn — nothing silently lost.
     await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'more?' })
     await settle()
+    await vi.waitFor(() => expect(turnReqs).toHaveLength(3))
     const third = turnReqs[2]?.contextPrompt ?? ''
     expect(third).toContain('[CONCIERGE UPDATE')
     expect(third).toContain('created "C"')
