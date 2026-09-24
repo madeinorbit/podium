@@ -24,8 +24,9 @@
  * - one hop through a declared relation (`relations.ts`): `displayRef`
  *   (`issue.repo`'s prefix), `originTick` (`issue.discoveredFrom`), and the
  *   own explicit sessions (`issue.sessions`, read once into `sessionIds`) for
- *   `activityAt` (from each member's cached `sessionActivity`) and a draft's
- *   title;
+ *   a draft's title; `activityAt` takes the stamps of the row's retained
+ *   seats (Hb3: `retainedSeats`, the visibility's retained list, exited ones
+ *   included), raised by the latest seat below (the roll-up's `seatActivity`);
  * - locals: `selected`, and the clock through deadlines (`band`'s defer
  *   lapse, `closed`'s grace crossing).
  * - residency (POD-4580, Ha3): `loading` while the origin or a member session
@@ -38,9 +39,10 @@
  * `progressDone`, `progressTotal`, `working`, `asking` and `workingSince`
  * come from the issue's roll-up parts, a composition over its own seats and
  * its children's cached results; `closed`'s "zero waiting" conjunct is the
- * roll-up's `asking`, applied here over the own part's settled verdict.
- * `activityAt` and a draft's title read the explicit ones (`issue.sessions`,
- * maintained since Ha2, POD-4579).
+ * roll-up's `asking`, applied here over the own part's settled verdict, and
+ * `activityAt` is the own-row stamp raised by the roll-up's `seatActivity`.
+ * A draft's title reads the explicit sessions (`issue.sessions`, maintained
+ * since Ha2, POD-4579).
  *
  * Rules are re-expressed from the frozen slice spec
  * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule). No legacy
@@ -70,6 +72,7 @@ const NO_ROLLUP: Rollup = {
   asking: false,
   workingSince: null,
   loading: false,
+  seatActivity: null,
 }
 
 /** A repo row as the feed spells it (a lane, or the raw replicated row). */
@@ -144,6 +147,13 @@ export interface ViewInputs {
   parts(id: string): IssueParts | undefined
   /** The issue's roll-up fields (Hb3: its roll-up node's `rollup`); undefined when unknown. */
   rollup(id: string): Rollup | undefined
+  /**
+   * The row's retained seats (the visibility `retainedSeatIds`: seat members
+   * retained at the clock, exited ones included), whose stamps the own-row
+   * `activityAt` takes (`rows.ts:98-116`). Re-composed from each seat's
+   * cached contribution, so a seat's change re-reads that seat only.
+   */
+  retainedSeats(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -355,18 +365,20 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
     return [...input.relations.many('issue', id, 'sessions')].sort()
   },
   /**
-   * Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec
-   * R-BAND). Re-composed from each member's cached contribution
-   * (`sessionActivity`) over the cached member list: a member's change
-   * re-reads that member only (POD-4581, the #2 fence).
+   * Max `lastActiveAt` of the row's retained seats, else own `updatedAt`,
+   * else 0 (`rows.ts:108-116`: `lastSession || updatedAt || 0`, so a zero
+   * stamp falls back too). Not every explicit session: archived, shell and
+   * decayed ones retain nothing. Re-composed from each seat's cached
+   * contribution (`sessionActivity`) over the cached seat list: a member's
+   * change re-reads that member only.
    */
-  activityAt(input, id, self) {
-    let latest: number | null = null
-    for (const sessionId of self.sessionIds) {
+  activityAt(input, id) {
+    let latest = 0
+    for (const sessionId of input.retainedSeats(id)) {
       const at = input.sessionActivity(sessionId)
-      if (at !== null && (latest === null || at > latest)) latest = at
+      if (at !== null && at > latest) latest = at
     }
-    return latest ?? parseMs(input.issue(id)?.updatedAt) ?? 0
+    return latest || parseMs(input.issue(id)?.updatedAt) || 0
   },
   /**
    * Whether a lazy input the parts read is still loading: the origin and
@@ -408,7 +420,7 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
 export function buildRowView(input: ViewInputs, id: string, self: IssueParts): RowView | undefined {
   const own = self.own
   if (own === undefined) return undefined
-  const { loading, ...rollup } = input.rollup(id) ?? NO_ROLLUP
+  const { loading, seatActivity, ...rollup } = input.rollup(id) ?? NO_ROLLUP
   const waiting = rollup.asking
   return {
     id,
@@ -420,7 +432,9 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
     dismissed: own.dismissed && !waiting,
     selected: input.selected(id),
     originTick: self.originTick,
-    activityAt: self.activityAt,
+    // The own-row stamp, raised by the latest seat below (`rows.ts:336-339`).
+    activityAt:
+      seatActivity !== null && seatActivity > self.activityAt ? seatActivity : self.activityAt,
     ...(self.loading || loading ? { loading: true as const } : {}),
   }
 }

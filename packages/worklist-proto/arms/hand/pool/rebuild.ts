@@ -155,6 +155,10 @@ function rebuildViewsWithIssue(
     loading: () => false,
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
     rollup: (id) => (tables.issue.has(id) ? rollupPartsOf(id).rollup : undefined),
+    retainedSeats: (id) =>
+      tables.issue.has(id)
+        ? retainedSeatIdsOf(visible, id, directVisibleParts(visible, id, memo), false)
+        : [],
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
@@ -185,6 +189,8 @@ function rebuildViewsWithIssue(
       const row = tables.session.get(id) as SliceSession | undefined
       return row === undefined ? undefined : seatVerdictOf(row)
     },
+    seatActivity: (id) =>
+      sessionActivityOf(tables.session.get(id) as SliceSession | undefined),
     presence: (id) => {
       const retention = retentionOf(tables.session.get(id) as SliceSession | undefined)
       return retention === null

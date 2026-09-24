@@ -23,7 +23,8 @@
  * parent's composition through the cell graph, and an unchanged value keeps
  * its object and stops there (`sameData`).
  *
- * TWO COMPOSITIONS, because the legacy derivation has two trees:
+ * TWO COMPOSITIONS, because the legacy derivation has two trees, plus the
+ * activity stamp the legacy raises through the same nesting:
  *
  * - ATTENTION (`phase`, `working`, `asking`) composes over the VISIBLE
  *   subtree (L1d): a row's own seats plus the aggregates of the rows NESTED
@@ -44,6 +45,11 @@
  *   `children` bucket: a re-listing reads every sibling id (the fence counts
  *   each), so a re-parent would cost both families, where the filing costs
  *   the moved row's own slot (#7's budget, POD-4609).
+ * - ACTIVITY (`seatActivity`) composes over the same nest children: the
+ *   latest seat stamp below the row, which the view takes the max with its
+ *   own-row stamp (`rows.ts:336-339`, `attach`). Its own composition, apart
+ *   from `aggregate`, so a phase change never runs it and a heartbeat never
+ *   runs `aggregate`.
  *
  * THE ROOT, WITHOUT A WALK (audit §3.3). A session's motion phase depends on
  * the ROW being derived, not on the session's own issue: on a finished row an
@@ -481,6 +487,12 @@ export interface Rollup
     'phase' | 'progressDone' | 'progressTotal' | 'working' | 'asking' | 'workingSince'
   > {
   readonly loading: boolean
+  /**
+   * The latest `lastActiveAt` among the seats of the row's visible subtree
+   * (own seats included), or null: the row view's `activityAt` is the max of
+   * this and its own-row stamp (`rows.ts:336-339`, `attach`).
+   */
+  readonly seatActivity: number | null
 }
 
 /**
@@ -494,8 +506,9 @@ export function rollupOf(input: {
   readonly agg: Aggregate
   readonly self: UnitOwn
   readonly below: Units
+  readonly seatActivity: number | null
 }): Rollup {
-  const { finished, own, agg, self, below } = input
+  const { finished, own, agg, self, below, seatActivity } = input
   const fromChildren = below.members > 0
   return {
     phase: phaseOf(agg, finished),
@@ -505,7 +518,20 @@ export function rollupOf(input: {
     progressTotal: fromChildren ? below.units : self.solo ? 1 : 0,
     workingSince: own.workingSince,
     loading: agg.pending > 0,
+    seatActivity,
   }
+}
+
+/** THE ACTIVITY COMBINE: the latest of own seats' stamps and each nest child's. No store. */
+export function latestOf(input: {
+  readonly own: readonly (number | null)[]
+  readonly children: readonly (number | null)[]
+}): number | null {
+  let latest: number | null = null
+  for (const at of [...input.own, ...input.children]) {
+    if (at !== null && (latest === null || at > latest)) latest = at
+  }
+  return latest
 }
 
 // ------------------------------------------------------------ node parts
@@ -537,6 +563,8 @@ export interface RollupInputs {
   rollupNode(id: string): RollupSelf | undefined
   /** A session's cached seat verdict (`LOADING` while its row is cold). */
   seat(id: string): Loaded<SeatVerdict>
+  /** A session's cached `lastActiveAt` (the pool's per-session activity cell). */
+  seatActivity(id: string): number | null
   /** A session's cached presence facts (hot or cold). */
   presence(
     id: string,
@@ -572,6 +600,8 @@ export interface RollupSelf {
   readonly unitsBelow: Units
   /** Some explicit session of its own is on the task (`openIssues`, `mission.ts:582-590`). */
   readonly openOwn: boolean
+  /** The latest seat activity in the visible subtree (`Rollup.seatActivity`). */
+  readonly seatActivity: number | null
   /** A live spin-off descendant that started or is staffed (`liveSpinOffTip`), and cold ones pending. */
   readonly tip: { readonly found: boolean; readonly pending: number }
   /** The row's roll-up fields; undefined when the issue is unknown. */
@@ -705,6 +735,27 @@ export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
   return unitsOf({ children })
 }
 
+/**
+ * The latest seat activity of the visible subtree: own seats' cached stamps
+ * and each nest child's result. Its own composition, apart from `aggregate`,
+ * so a phase change never runs it and a heartbeat never runs `aggregate`.
+ */
+export function seatActivityPartOf(
+  input: RollupInputs,
+  id: string,
+  self: RollupSelf,
+): number | null {
+  input.counted()
+  if (!self.present || self.ownFacts.state === 'cold') return null
+  const own = self.rosterIds.map((sessionId) => input.seatActivity(sessionId))
+  const children: (number | null)[] = []
+  for (const childId of input.nested(id)) {
+    const child = input.rollupNode(childId)
+    if (child !== undefined) children.push(child.seatActivity)
+  }
+  return latestOf({ own, children })
+}
+
 export function rollupPartOf(self: RollupSelf): Rollup | undefined {
   if (self.finished === undefined) return undefined
   return rollupOf({
@@ -713,6 +764,7 @@ export function rollupPartOf(self: RollupSelf): Rollup | undefined {
     agg: self.aggregate,
     self: self.unitOwn,
     below: self.unitsBelow,
+    seatActivity: self.seatActivity,
   })
 }
 
@@ -747,6 +799,8 @@ export interface RollupHost {
   visibleIssue(id: string): VisibleParts | undefined
   /** A known session's parts; undefined otherwise. */
   sessionParts(id: string): SessionVisibleParts | undefined
+  /** A session's cached `lastActiveAt` (the pool's per-session activity cell). */
+  seatActivity(id: string): number | null
   /** The issue's retained live roster (its seats at the clock, id order). */
   rosterOf(id: string): readonly string[]
   /** Count one composition run (the shared `ArmStats.rollupsDerived`). */
@@ -815,6 +869,10 @@ class IssueRollup implements RollupSelf {
 
   get openOwn(): boolean {
     return this.read('openOwn', () => openOwnPartOf(this.inputs, this.id, this), Object.is)
+  }
+
+  get seatActivity(): number | null {
+    return this.read('seatActivity', () => seatActivityPartOf(this.inputs, this.id, this), Object.is)
   }
 
   get tip(): { readonly found: boolean; readonly pending: number } {
@@ -886,6 +944,7 @@ export class RollupCollection {
       formalChildren: (id) => collection.formalChildren(id),
       rollupNode: (id) => collection.node(id),
       seat: (id) => collection.seat(id),
+      seatActivity: (id) => host.seatActivity(id),
       presence: (id) => collection.presence(id),
       spinOffIds: (id) => [...host.relations.many('issue', id, 'spinOffs')].sort(),
       counted: () => host.counted(),
@@ -1229,6 +1288,9 @@ export function directRollupParts(
     },
     get openOwn() {
       return once('openOwn', () => openOwnPartOf(input, id, parts))
+    },
+    get seatActivity() {
+      return once('seatActivity', () => seatActivityPartOf(input, id, parts))
     },
     get tip() {
       return once('tip', () => tipPartOf(input, id))

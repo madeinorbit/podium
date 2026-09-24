@@ -435,6 +435,10 @@ export class HandPool {
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => (tracked.issue.has(id) ? this.cellsOf(id) : undefined),
       rollup: (id) => this.rollup.rollupViewOf(id),
+      retainedSeats: (id) => {
+        const parts = this.visibleInputs.issue(id)
+        return parts === undefined ? [] : retainedSeatIdsOf(this.visibleInputs, id, parts, false)
+      },
       selected: (id) => {
         graph.track(this.selection, id)
         return this.selectedId === id
@@ -484,6 +488,7 @@ export class HandPool {
         const parts = this.visibleInputs.issue(id)
         return parts === undefined ? [] : retainedSeatIdsOf(this.visibleInputs, id, parts, true)
       },
+      seatActivity: (id) => this.sessionActivity(id),
       counted: () => {
         this.stats.rollupsDerived += 1
       },
