@@ -128,7 +128,10 @@ export interface IngestTarget {
    * that can be cold is routed through it, and a cold row never reaches
    * `write`. The rebuild and the replace staging hold every row.
    */
-  readonly residency?: Pick<Residency, 'capable' | 'ingest' | 'place' | 'forget' | 'ids' | 'reindex'>
+  readonly residency?: Pick<
+    Residency,
+    'capable' | 'ingest' | 'place' | 'forget' | 'ids' | 'reindex'
+  >
 }
 
 /**

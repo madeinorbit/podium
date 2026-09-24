@@ -28,7 +28,7 @@ import { createReplaySource, type ReplaySource } from '../../../../harness/src/c
 import { buildCorpus } from '../../../../harness/src/fixture/index'
 import type { RowSource } from '../../../../shared/src/arm'
 import { createReadFence } from '../../../../shared/src/instrument/reads'
-import { settableLocals, type SettableLocalsHandle } from '../../../../shared/src/locals-source'
+import { type SettableLocalsHandle, settableLocals } from '../../../../shared/src/locals-source'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
@@ -78,9 +78,9 @@ function rig(scale: 1 | 4): Rig {
 }
 
 function corpusIssue(r: Rig, id: string): SliceIssue {
-  const row = r.replay.source
-    .snapshot('issue')
-    .find((record) => record.id === id)?.value as SliceIssue | undefined
+  const row = r.replay.source.snapshot('issue').find((record) => record.id === id)?.value as
+    | SliceIssue
+    | undefined
   if (row === undefined) throw new Error(`no corpus issue ${id}`)
   return row
 }
@@ -203,10 +203,9 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           return touched
         })
         expect(placed, 'whole-list layout elements').toBe(visible)
-        expect(
-          visible > lane!.open + lane!.closed,
-          'the corpus holds more than one group',
-        ).toBe(true)
+        expect(visible > lane!.open + lane!.closed, 'the corpus holds more than one group').toBe(
+          true,
+        )
       } finally {
         r.dispose()
       }

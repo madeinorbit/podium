@@ -150,7 +150,8 @@ function rebuild(
     relations: inputs.relations,
     issueRow: inputs.issue,
     sessionRow: inputs.session,
-    issue: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo) : undefined),    session: (id) => {
+    issue: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo) : undefined),
+    session: (id) => {
       let parts = sessions.get(id)
       if (parts === undefined) {
         parts = directSessionVisibility(visibleInputs, id)

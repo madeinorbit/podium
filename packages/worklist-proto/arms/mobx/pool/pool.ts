@@ -165,7 +165,8 @@ function fieldEqual(a: unknown, b: unknown): boolean {
   if (ka.length !== kb.length) return false
   return ka.every(
     (key) =>
-      Object.hasOwn(b, key) && fieldEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+      Object.hasOwn(b, key) &&
+      fieldEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
   )
 }
 

@@ -48,9 +48,9 @@ import {
   compareShallow,
   computed,
   makeObservable,
-  observable,
   type ObservableMap,
   type ObservableSet,
+  observable,
 } from 'mobx'
 import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import type { SliceGroup, SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
@@ -251,9 +251,7 @@ function sortClosedFold(
     if (rank === undefined) continue
     ranked.push({ id, rank, foldMs: foldMsOfId(id) })
   }
-  ranked.sort(
-    (a, b) => b.foldMs - a.foldMs || compareRank(a.rank, b.rank),
-  )
+  ranked.sort((a, b) => b.foldMs - a.foldMs || compareRank(a.rank, b.rank))
   return ranked.map(({ id }) => id)
 }
 
@@ -422,9 +420,7 @@ export class WorklistGroups {
     // A move within one bucket re-sorts one set of lanes: count them once.
     const same =
       before !== undefined &&
-      (before.pinned
-        ? placement.pinned
-        : !placement.pinned && before.repoKey === placement.repoKey)
+      (before.pinned ? placement.pinned : !placement.pinned && before.repoKey === placement.repoKey)
     const left = before === undefined ? 0 : this.unfile(id, before)
     const around = this.enfile(id, placement)
     this.filed.set(id, placement)
