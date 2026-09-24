@@ -380,7 +380,7 @@ describe('groups and closed folds (Hb2)', () => {
         expect(handle.pool.stats.counters.groupRuns).toBe(1)
         expect(handle.pool.stats.counters.groupElements).toBe(handle.pool.order().length)
         const parity = checkParity(ctx, handle, 'bootstrap')
-        expect(parity.waitingKept.length).toBeGreaterThan(0)
+        expect(parity.waitingKept).toEqual([])
         writeResult('hand-groups-bootstrap-4x', {
           scale: 4,
           visible: handle.pool.order().length,
