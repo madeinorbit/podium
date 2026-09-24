@@ -85,6 +85,7 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   // Every cell alive after the bootstrap, by what built it (POD-4582).
   const own = [...pool.issues.values()].reduce((sum, cells) => sum + cells.cells.size, 0)
   const worklist = pool.worklist.cellsByPart()
+  const rollupCells = pool.rollup.heldCells()
   const partCells = (tally: Record<string, number>) =>
     Object.values(tally).reduce((a, b) => a + b, 0)
   const liveCells = {
@@ -101,6 +102,15 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     rank: worklist.rank,
     /** The groups (POD-4583): one `placement` cell per visible row. */
     placement: pool.groups.held(),
+    /**
+     * The roll-ups (POD-4584, Hb3): two filing cells (nest and formal
+     * parents) per known issue, filed at the bootstrap's own settle; no
+     * verdict or composition cell until a row is read.
+     */
+    filing: rollupCells.filings,
+    filedIssues: pool.rollup.held(),
+    verdicts: rollupCells.verdicts,
+    rollupParts: rollupCells.rollupParts,
     issuePartSets: pool.worklist.held('issue'),
     issueParts: partCells(worklist.issue),
     sessionPartSets: pool.worklist.held('session'),
@@ -176,14 +186,15 @@ describe('bootstrap in the count harness', () => {
       expect(lazy.rows['session']! + lazy.cold.session).toBe(all.rows['session'])
       // Relations hold every row's ids either way; only the tables shrink.
       expect(lazy.relations).toEqual(all.relations)
-      // CELLS (POD-4582, Hb1; placements POD-4583, Hb2): the worklist is
-      // built at bootstrap, as MobX builds one IssueNode per known issue
-      // (Mb1: 4,867 / 19,468). Every live cell is named: the id list, the
-      // `own` part of each visible row and nothing else of the views, a
-      // session activity cell per member asked about, a `visible` cell per
-      // RESIDENT issue, a rank and a placement per visible row, and the
-      // visibility parts of the known issues and sessions the rule reached
-      // (at most one set per known row; a cold row's set only when a
+      // CELLS (POD-4582, Hb1; placements POD-4583, Hb2; filings Hb3,
+      // POD-4584): the worklist is built at bootstrap, as MobX builds one
+      // IssueNode per known issue (Mb1: 4,867 / 19,468). Every live cell is
+      // named: the id list, the `own` part of each visible row and nothing
+      // else of the views, a session activity cell per member asked about, a
+      // `visible` cell per RESIDENT issue, a rank and a placement per visible
+      // row, two filing cells (nest and formal parents) per known issue, and
+      // the visibility parts of the known issues and sessions the rule
+      // reached (at most one set per known row; a cold row's set only when a
       // resident one's rule asked).
       for (const [arm, c] of [
         ['lazy', lazy],
@@ -197,9 +208,15 @@ describe('bootstrap in the count harness', () => {
             l.member +
             l.rank +
             l.placement +
+            l.filing +
+            l.verdicts +
+            l.rollupParts +
             l.issueParts +
             l.sessionParts,
         )
+        expect(l.filing, arm).toBe(2 * l.filedIssues)
+        expect(l.verdicts, arm).toBe(0)
+        expect(l.rollupParts, arm).toBe(0)
         expect(l.member, arm).toBe(c.rows['issue'])
         expect(l.rank, arm).toBe(l.visible)
         expect(l.placement, arm).toBe(l.visible)

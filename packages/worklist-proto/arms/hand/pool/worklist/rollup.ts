@@ -887,6 +887,11 @@ class IssueRollup implements RollupSelf {
     return this.read('waiting', () => waitingPartOf(this), Object.is)
   }
 
+  /** Cells held (tests: the bootstrap census). */
+  cellCount(): number {
+    return this.cells.size
+  }
+
   dispose(): void {
     const { graph } = this.collection.host
     for (const cell of this.cells.values()) graph.dispose(cell)
@@ -1213,6 +1218,17 @@ export class RollupCollection {
   /** Filing cells held (tests: lifecycle). */
   held(): number {
     return this.fileNestCells.size
+  }
+
+  /** Cells held, by kind (tests: the bootstrap census names every live cell). */
+  heldCells(): { filings: number; verdicts: number; rollupParts: number } {
+    let rollupParts = 0
+    for (const held of this.issues.values()) rollupParts += held.cellCount()
+    return {
+      filings: this.fileNestCells.size + this.fileFormalCells.size,
+      verdicts: this.verdicts.size,
+      rollupParts,
+    }
   }
 
   /** Dispose every cell and forget the filings (the pool's dispose). */
