@@ -81,6 +81,37 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   const pool = boot(arm, feed)
   const bootCells = pool.stats.counters.cellsCreated
   const bootRecords = pool.stats.counters.recordsCreated
+  const counters = pool.stats.counters
+  // Every cell alive after the bootstrap, by what built it (POD-4582).
+  const own = [...pool.issues.values()].reduce((sum, cells) => sum + cells.cells.size, 0)
+  const worklist = pool.worklist.cellsByPart()
+  const partCells = (tally: Record<string, number>) =>
+    Object.values(tally).reduce((a, b) => a + b, 0)
+  const liveCells = {
+    live: counters.cellsCreated - counters.cellsCollected,
+    collected: counters.cellsCollected,
+    idList: 1,
+    /** Row-view parts: the `own` part of each visible row (its rank reads it). */
+    rowViewParts: own,
+    rowViewSets: pool.issues.size,
+    /** Per-session activity cells the unread and retention parts asked for. */
+    sessionActivity: pool.sessionCells.size,
+    /** The worklist: one `visible` cell per resident issue, a rank per visible row, and the parts. */
+    member: worklist.member,
+    rank: worklist.rank,
+    issuePartSets: pool.worklist.held('issue'),
+    issueParts: partCells(worklist.issue),
+    sessionPartSets: pool.worklist.held('session'),
+    sessionParts: partCells(worklist.session),
+    issuePartsByName: worklist.issue,
+    sessionPartsByName: worklist.session,
+    visible: pool.order().length,
+    visibleOwnOnly: [...pool.issues.values()].every(
+      (cells) => cells.cells.size === 1 && cells.cells.has('own'),
+    ),
+    visibleSetIsViewSet:
+      [...pool.issues.keys()].sort().join() === [...pool.order()].sort().join(),
+  }
   const rows = Object.fromEntries(ENTITIES.map((entity) => [entity, pool.tables[entity].size]))
   const tableSlots = ENTITIES.reduce((sum, entity) => sum + pool.tables[entity].size, 0)
   const cold = {
@@ -97,6 +128,7 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     relations,
     relationEntries,
     cells: bootCells,
+    liveCells,
     records: bootRecords,
     /** Everything the bootstrap built: slots, registry entries, relation entries, cells, records. */
     built: tableSlots + cold.issue + cold.session + relationEntries + bootCells + bootRecords,
@@ -142,12 +174,38 @@ describe('bootstrap in the count harness', () => {
       expect(lazy.rows['session']! + lazy.cold.session).toBe(all.rows['session'])
       // Relations hold every row's ids either way; only the tables shrink.
       expect(lazy.relations).toEqual(all.relations)
-      expect(lazy.cells).toBe(1)
+      // CELLS (POD-4582, Hb1): the worklist is built at bootstrap, as MobX
+      // builds one IssueNode per known issue (Mb1: 4,867 / 19,468). Every
+      // live cell is named: the id list, the `own` part of each visible row
+      // and nothing else of the views, a session activity cell per member
+      // asked about, a `visible` cell per RESIDENT issue, a rank per visible
+      // row, and the visibility parts of the known issues and sessions the
+      // rule reached (at most one set per known row; a cold row's set only
+      // when a resident one's rule asked).
+      for (const [arm, c] of [['lazy', lazy], ['allResident', all]] as const) {
+        const l = c.liveCells
+        expect(l.live, arm).toBe(
+          l.idList + l.rowViewParts + l.sessionActivity + l.member + l.rank + l.issueParts + l.sessionParts,
+        )
+        expect(l.member, arm).toBe(c.rows['issue'])
+        expect(l.rank, arm).toBe(l.visible)
+        expect(l.visibleOwnOnly && l.visibleSetIsViewSet, arm).toBe(true)
+        expect(l.rowViewParts, arm).toBe(l.visible)
+        expect(l.issuePartSets, arm).toBeLessThanOrEqual(all.rows['issue']!)
+        expect(l.sessionPartSets, arm).toBeLessThanOrEqual(all.rows['session']!)
+        expect(l.sessionActivity, arm).toBeLessThanOrEqual(all.rows['session']!)
+        // No part is built twice for one row.
+        for (const n of Object.values(l.issuePartsByName)) expect(n).toBeLessThanOrEqual(l.issuePartSets)
+        for (const n of Object.values(l.sessionPartsByName)) expect(n).toBeLessThanOrEqual(l.sessionPartSets)
+      }
+      // The same rule over the same rows builds the same collection either way.
+      expect(lazy.liveCells.visible).toBe(all.liveCells.visible)
       expect(lazy.records).toBe(0)
       expect(lazy.tableSlots).toBeLessThan(all.tableSlots)
       // First read: cells for resident rows only.
       expect(lazy.firstRead.issueCellSets).toBe(lazy.rows['issue'])
       expect(lazy.firstRead.cells).toBeLessThan(all.firstRead.cells)
+      console.info(`[hand-boot] ${scale}x ${JSON.stringify({ lazy: lazy.liveCells, all: all.liveCells, rows: lazy.rows, cold: lazy.cold })}`)
       const cell: Record<string, unknown> = { scale, counts: { lazy, allResident: all } }
       if (WALLS) {
         const samples: Record<Arm, number[]> = { lazy: [], allResident: [] }

@@ -927,6 +927,23 @@ export class VisibleCollection {
     return cells
   }
 
+  /** {@link cellCount} by kind: part cells per part name, and the `member` and `rank` cells (tests: counts). */
+  cellsByPart(): { issue: Record<string, number>; session: Record<string, number>; member: number; rank: number } {
+    const tally = (sets: Iterable<PartCells<object>>): Record<string, number> => {
+      const out: Record<string, number> = {}
+      for (const held of sets) {
+        for (const name of held.cells.keys()) out[String(name)] = (out[String(name)] ?? 0) + 1
+      }
+      return out
+    }
+    return {
+      issue: tally(this.issueCells.values() as Iterable<PartCells<object>>),
+      session: tally(this.sessionCells.values() as Iterable<PartCells<object>>),
+      member: this.members.size,
+      rank: this.ranks.size,
+    }
+  }
+
   /** An issue left the pool entirely: its cells go (their readers re-run and find it gone). */
   forgetIssue(id: string): void {
     // The member and rank cells hold this issue's parts: they go first, or
