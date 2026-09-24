@@ -578,8 +578,7 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
  * So every `where.test` and every collapse function (`groupKey`,
  * `keepsGroup`, `rank`, the `recency` field) runs over every row of the 1x
  * corpus through a recording proxy, and any top-level field read outside its
- * list is named. It sees the branches the corpus takes (1x holds every
- * session status, shells and archived rows); H3's probe
+ * list is named. It sees only the branches the corpus's rows take; H3's probe
  * (`harness/review/h3-shape-probes.test.ts`) also runs it over a live export.
  */
 describe('declared input lists (POD-4675)', () => {
