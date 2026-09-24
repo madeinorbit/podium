@@ -39,8 +39,8 @@ const TRUST_QUESTION = 'Do you trust the contents of this directory?'
 const TRUST_ACCEPT_ROW = /^(?:› )?1\. Yes, continue$/
 
 /** The model-switch menu Codex opens beside a usage-limit error: its question
- *  (the model name varies) and the row that declines it. */
-const USAGE_LIMIT_QUESTION = /^Switch to \S+ for lower credit usage\?$/
+ *  (the model name varies, captured) and the row that declines it. */
+const USAGE_LIMIT_QUESTION = /^Switch to (\S+) for lower credit usage\?$/
 const USAGE_LIMIT_KEEP_ROW = /^(?:› )?\d+\. Keep current model$/
 /** The error printed above the menu when the limit is reached, not just near. */
 const USAGE_LIMIT_REACHED = /hit your usage limit\b.*?\btry again at (.+?\d{1,2}:\d{2}(?: ?[AP]M)?)/
@@ -74,35 +74,69 @@ function trustPromptVisible(text: string, visibleLines: readonly string[]): bool
  * limit (POD-4650). The turn has failed without a Stop hook, and the menu holds
  * the composer until it is answered. The error line stays in the history once
  * the menu closes, so the menu, not the error, is what marks the wait.
+ *
+ * Returns the offered model name when the menu is visible, so the caller can
+ * name the choices Chat offers.
  */
-function usageLimitMenuVisible(visibleLines: readonly string[]): boolean {
-  return (
-    visibleLines.some((line) => USAGE_LIMIT_QUESTION.test(line)) &&
-    visibleLines.some((line) => USAGE_LIMIT_KEEP_ROW.test(line))
-  )
+function usageLimitMenuModel(visibleLines: readonly string[]): string | undefined {
+  let model: string | undefined
+  let hasKeep = false
+  for (const line of visibleLines) {
+    const question = USAGE_LIMIT_QUESTION.exec(line)
+    if (question?.[1] !== undefined) model = question[1]
+    if (USAGE_LIMIT_KEEP_ROW.test(line)) hasKeep = true
+  }
+  return model !== undefined && hasKeep ? model : undefined
 }
 
 /**
- * Classify the Codex prompts that have no hook or rollout representation. Both
- * are reported as a wait WITHOUT options on purpose: trust is the user's
- * security decision and the model switch spends their credits, so neither is
- * answered from Chat. The ask reads "answer in the terminal", which is the truth.
+ * The interview Chat answers from (POD-4659). The menu's own numbered rows ARE
+ * the choices: Codex draws them as `1./2./3.` with "Press enter to confirm",
+ * the same digit-key menu every other native list uses, so the card offers
+ * them as buttons and the digit path types them. The question carries the
+ * reset time Codex printed, so the card says what is waiting — the error line
+ * and the reset time — without opening the terminal.
+ */
+function usageLimitInterview(model: string, resetsAt: string | undefined): AgentStateEvent & { interview: NonNullable<Extract<AgentStateEvent, { kind: 'needs_user' }>['interview']> } {
+  const question = resetsAt
+    ? `You’ve hit your usage limit (try again at ${resetsAt}). Switch to ${model} for lower credit usage?`
+    : `Switch to ${model} for lower credit usage?`
+  return {
+    kind: 'needs_user',
+    need: 'question',
+    summary: codexUsageLimitSummary(resetsAt),
+    interview: {
+      questions: [
+        {
+          question,
+          options: [
+            { label: `Switch to ${model}` },
+            { label: 'Keep current model' },
+            { label: 'Keep current model (never show again)' },
+          ],
+        },
+      ],
+    },
+  }
+}
+
+/**
+ * Classify the Codex prompts that have no hook or rollout representation. The
+ * directory-trust prompt is reported WITHOUT options on purpose: trust is the
+ * user's security decision, so it is never answered from Chat (like Claude's
+ * trust prompt, POD-4632). The usage-limit menu IS reported with its choices
+ * (POD-4659): its numbered rows take digit keys, and the question carries the
+ * reset time, so Chat says what is waiting.
  */
 export function classifyCodexScreen(lines: readonly string[]): AgentScreenObservation {
   const text = lines.join(' ').replace(/\s+/g, ' ').trim()
   const visibleLines = lines.map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean)
   const trust = trustPromptVisible(text, visibleLines)
-  const usageLimit = !trust && usageLimitMenuVisible(visibleLines)
+  const usageModel = !trust ? usageLimitMenuModel(visibleLines) : undefined
   const events: AgentStateEvent[] = trust
     ? [{ kind: 'needs_user', need: 'question', summary: CODEX_TRUST_SUMMARY }]
-    : usageLimit
-      ? [
-          {
-            kind: 'needs_user',
-            need: 'question',
-            summary: codexUsageLimitSummary(USAGE_LIMIT_REACHED.exec(text)?.[1]),
-          },
-        ]
+    : usageModel !== undefined
+      ? [usageLimitInterview(usageModel, USAGE_LIMIT_REACHED.exec(text)?.[1])]
       : []
-  return { events: withStateChannel(events, 'classifier'), interactionVisible: trust || usageLimit }
+  return { events: withStateChannel(events, 'classifier'), interactionVisible: trust || usageModel !== undefined }
 }

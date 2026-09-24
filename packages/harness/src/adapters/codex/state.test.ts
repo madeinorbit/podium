@@ -37,18 +37,31 @@ describe('Codex terminal screen classifier (POD-4650)', () => {
     ])
   })
 
-  it('reports the usage-limit model-switch menu as a blocking question with no options', () => {
+  it('reports the usage-limit model-switch menu as a blocking question WITH its text and options', () => {
     const observation = classifyCodexScreen(USAGE_LIMIT_SCREEN)
 
     expect(observation.interactionVisible).toBe(true)
-    expect(observation.events).toEqual([
-      {
-        kind: 'needs_user',
-        need: 'question',
-        summary: codexUsageLimitSummary(LIMIT_RESET),
-        source: 'classifier',
-        confidence: 0.3,
-      },
+    expect(observation.events).toHaveLength(1)
+    const event = observation.events[0]
+    expect(event).toMatchObject({
+      kind: 'needs_user',
+      need: 'question',
+      summary: codexUsageLimitSummary(LIMIT_RESET),
+      source: 'classifier',
+      confidence: 0.3,
+    })
+    // THE CARD CONTENT (POD-4659): the menu's own question and its three
+    // choices must reach Chat, on web and phone — not just the summary.
+    // The question carries the reset time Codex printed, so the card says
+    // what is waiting without opening the terminal.
+    const interview = (event as { interview?: { questions?: Array<{ question?: string; options?: Array<{ label?: string }> }> } }).interview
+    expect(interview?.questions).toHaveLength(1)
+    expect(interview?.questions?.[0]?.question).toContain('Switch to gpt-5.6-luna for lower credit usage?')
+    expect(interview?.questions?.[0]?.question).toContain(LIMIT_RESET)
+    expect(interview?.questions?.[0]?.options?.map((o) => o.label)).toEqual([
+      'Switch to gpt-5.6-luna',
+      'Keep current model',
+      'Keep current model (never show again)',
     ])
     expect(codexUsageLimitSummary(LIMIT_RESET)).toContain(LIMIT_RESET)
   })

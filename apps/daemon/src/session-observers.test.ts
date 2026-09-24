@@ -3908,7 +3908,25 @@ describe('Codex blocking prompts become a needs-you state [POD-4650]', () => {
           stateSource: 'classifier',
           need: { kind: 'question', summary },
         })
-        expect(session.latest()?.need?.interview).toBeUndefined()
+        if (label === 'the usage-limit modal') {
+          // POD-4659: the menu's question and choices reach Chat, so the card
+          // says what is waiting without opening the terminal.
+          expect(session.latest()?.need?.interview?.questions?.[0]?.question).toContain(
+            'Switch to gpt-5.6-luna for lower credit usage?',
+          )
+          expect(session.latest()?.need?.interview?.questions?.[0]?.question).toContain(
+            'Sep 24th, 2026 8:42 PM',
+          )
+          expect(
+            session.latest()?.need?.interview?.questions?.[0]?.options.map((o) => o.label),
+          ).toEqual([
+            'Switch to gpt-5.6-luna',
+            'Keep current model',
+            'Keep current model (never show again)',
+          ])
+        } else {
+          expect(session.latest()?.need?.interview).toBeUndefined()
+        }
       } finally {
         await session.cleanup()
         vi.useRealTimers()

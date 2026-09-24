@@ -110,6 +110,43 @@ describe('pendingInteractionCard', () => {
     expect(card.actions.map((a) => a.label)).toEqual(['Set it up', "Don't show again"])
   })
 
+  it('shows the Codex usage-limit menu text, reset time and options (POD-4659)', () => {
+    // What the daemon parses from Codex's model-switch menu must reach Chat
+    // with its text and options, on web and phone: the menu's own question,
+    // the reset time Codex printed, and the three numbered choices as buttons.
+    const card = pendingInteractionCard(
+      row({
+        kind: 'question',
+        source: 'screen-classifier',
+        answerable: 'keystroke-emulated',
+        payload: {
+          v: 1,
+          questions: [
+            {
+              question:
+                'You’ve hit your usage limit (try again at Sep 24th, 2026 8:42 PM). Switch to gpt-5.6-luna for lower credit usage?',
+              multiSelect: false,
+              previewLayout: false,
+              options: [
+                { label: 'Switch to gpt-5.6-luna' },
+                { label: 'Keep current model' },
+                { label: 'Keep current model (never show again)' },
+              ],
+            },
+          ],
+        },
+      }),
+    )
+    expect(card.surface).toBe('aggregate')
+    expect(card.detail).toContain('Switch to gpt-5.6-luna for lower credit usage?')
+    expect(card.detail).toContain('Sep 24th, 2026 8:42 PM')
+    expect(card.actions.map((a) => a.label)).toEqual([
+      'Switch to gpt-5.6-luna',
+      'Keep current model',
+      'Keep current model (never show again)',
+    ])
+  })
+
   it('takes an UNREADABLE question itself, with no buttons and a reason', () => {
     // The prompt Podium could not classify — the whole point of materializing
     // it is that somebody sees it, and the honest action is "go look".
