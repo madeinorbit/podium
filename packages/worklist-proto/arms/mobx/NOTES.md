@@ -39,14 +39,21 @@ round-two layout; the round-three pool lives under `pool/`.
   (`SessionNode.verdict`) and its own pending decision, withdrawn by a working
   seat or a continuation (superseded / duplicate, or a started or staffed live
   spin-off: `tip`, a composition over the declared `spinOffs`).
-- **Cold rows are pending markers** (Ma3 addendum). Parts read rows only as
-  resident (`MobxPool.loaded`: the row, or `LOADING` with the load queued).
-  A cold row is ONLY its marker: its own compositions do not run until it
-  lands, so a read asks for one level of cold rows per load window. The row
-  view shows `loading` while any marker is pending; progress comes from the
-  ready children. Mb1's visibility parts still read cold rows by id (its
-  accepted design); the roll-up reads their derived facts (`standing`,
-  `retention`, `nestParent`) and never a cold row.
+- **Cold rows, two ways** (coordinator ruling 2026-09-24, option A, on the
+  evidence below). PROGRESS never loads: a cold formal child gives its
+  R-ROLL facts (`ProgressFacts` = `stage`, `closedReason`, by type) through
+  the cold-read path (`coldRow`: counted, fenced, tracked by residency's
+  per-id atom), `vacated` from the `spinOffs` size and Mb1's cached session
+  presence. ATTENTION keeps Ma3's pending marker: a cold seat or a cold
+  spin-off is read only as resident (`MobxPool.loaded`: the row, or
+  `LOADING` with its load queued), a cold row is only its marker until it
+  lands, and the view shows `loading` meanwhile. Under `unlessShown` that
+  path has cases only on continuation spin-offs (and transient cold rows).
+  WHY NOT LOAD FOR PROGRESS (the first version did): 73 of 732 rows showed a
+  progress marker at first paint and the first read queued 282 closed
+  issues; and every load relinks its row, which hid the pool gate's
+  `coldRelinkSkipped` plant on two of three seeds (A/B on the same seeds:
+  base 98430f2df caught it 3/3 at steps 24, 20, 3; loading 1/3 at step 88).
 - **`closed` / `dismissed`**: the own part and the placement compute the fold
   verdict with nothing waiting assumed; the view and `IssueNode.placement`
   apply the roll-up's `asking` (`waiting`), and the placement reads it only
@@ -97,7 +104,7 @@ commits exact against the oracle's row views (roll-ups included).
 | #2 phase | 1 | 1 | 1 / 3 | 1 |
 | #3 click | 1 | 1 | 1 / 3 | 0 |
 | #4 rename | 1 | 1 | 1 / 3 | 0 |
-| #5 stage move | 1 | 1 | 1 / 24 | 2 |
+| #5 stage move | 1 | 1 | 1 / 24 | 1 |
 | #6a new issue | 0 | 0 | 5 / 16 | 2 |
 | #6b archive | 0 | 0 | 1 / 15 | 1 |
 | #6c evict | 0 | 0 | 1 / 15 | 0 |
@@ -106,7 +113,7 @@ commits exact against the oracle's row views (roll-ups included).
 | #8 tick | 0 | 0 | 0 / 0 | 0 |
 | #8b grace tick | 6 | 6 | 6 / 144 | 0 |
 | #9a/b/c mark-read | 0 | 0 | 1 / 3 | 0 |
-| #10 burst | 48 | 47 (+ `i937`, activityAt alone: POD-4674) | 192 / 168 + 92 (POD-4678) | 39 |
+| #10 burst | 48 | 47 (+ `i937`, activityAt alone: POD-4674) | 192 / 168 + 92 (POD-4678) | 37 |
 
 Chain fence (depth 4, `i2770 < i2763 < i2720 < i2666 < i2577`, a question on
 `s340`): 1 row read (the session) against 15; **5 compositions = depth + 1**.
@@ -115,20 +122,30 @@ bumps): 737 compositions, reads 1, commits and parity still exact: only the
 count sees it. At 1x both depth-4 missions already wait under an open root,
 so the test flips the finished-root flag (a question waits under both).
 
-Cold children (addendum): `i3150` (13 children, 5 cold): the first read of
-its view queues 6 rows (its cold children and one more, nothing below them),
-shows `loading` and progress 6/7; one window later 9/10 = oracle, `loading`
-clear.
+First paint, counted from outside the pool (`rollup.test.tsx`, mounted,
+before any load lands; declared rule `unlessShown`):
 
-Pending markers at first paint, counted from the row views (the
-coordinator's item 2, declared rule `unlessShown`): 0 of 732 visible rows
-cold; 155 rows `loading` at first paint, **73 of them from a roll-up marker**;
-356 rows queued; settled in 4 windows, 436 rows loaded. All 73 are PROGRESS
-markers (cold formal children), 0 attention: under the new rule cold children
-are the hidden ones, which attention never reads, but `missionRollup` counts
-every formal descendant, hidden or not, so progress reads them (282 closed
-issues queued by the first read). Reading a unit's facts through Mb1's cold
-read instead would make that 0 loads; that is the addendum's call.
+| | 1x | 4x |
+|---|---|---|
+| visible rows (cold) | 732 (0) | 2,928 (0) |
+| rows `loading` / from a roll-up marker | 87 / 0 | 318 / 0 |
+| loads queued (all Ma1's own: seats, origins) / windows | 84 / 1 | 315 / 1 |
+| cold formal children of visible rows / progress loads | 247 / **0** | 923 / **0** |
+| progress's cold reads (rows, each once) | 365 | 1,339 |
+| per-row feed reads at first paint (all paths) | 3,630 | 13,953 |
+
+Cold progress, both ways: `i3150` (hot, visible) with cold done child
+`i3195`; its first view matches the oracle (9/10) with the child never asked
+to load; the child closed as cancelled while cold moves the parent to 8/9 =
+oracle (2 feed reads in the step). The same pool with the facts kept in a
+plain map (tracking removed) stays at 9/10. (`untracked` alone could not
+plant it: the cold row's update also notifies its residency atom, which the
+part's `spinOffs` size read tracks.)
+
+Attention pending: `i4768` (no session on the task, cold started spin-off
+`i301`) reopened to review: its view shows `loading`, `asking`, `waiting`
+while `i301` is queued; one window later the continuation withdraws the ask
+(`asking` false, `queued` = oracle).
 
 L4b with the oracle EVERY step (`worklist/rollup.gate.test.ts`, 3 seeds x
 200, arms observed as a mounted list observes them): green against the
