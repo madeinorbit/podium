@@ -349,7 +349,6 @@ describe('bootstrap', () => {
         rollupCells.verdicts +
         rollupCells.rollupParts,
     )
-    )
     expect(pool.stats.counters.recordsCreated).toBe(0)
     // Cold rows were drawn as nothing and are asked for only when read.
     const closed = corpus.sliceIssues.filter(isCold)
