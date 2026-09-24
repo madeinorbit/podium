@@ -94,24 +94,24 @@ commits exact against the oracle's row views (roll-ups included).
 | step | oracle changed | committed | reads / budget | compositions |
 |---|---|---|---|---|
 | #1 heartbeat | 0 | 0 | 2 / 3 | 0 |
-| #2 phase | 1 | 1 | 1 / 3 | 2 |
+| #2 phase | 1 | 1 | 1 / 3 | 1 |
 | #3 click | 1 | 1 | 1 / 3 | 0 |
 | #4 rename | 1 | 1 | 1 / 3 | 0 |
-| #5 stage move | 1 | 1 | 1 / 24 | 3 |
-| #6a new issue | 0 | 0 | 5 / 16 | 3 |
-| #6b archive | 0 | 0 | 1 / 15 | 2 |
+| #5 stage move | 1 | 1 | 1 / 24 | 2 |
+| #6a new issue | 0 | 0 | 5 / 16 | 2 |
+| #6b archive | 0 | 0 | 1 / 15 | 1 |
 | #6c evict | 0 | 0 | 1 / 15 | 0 |
-| #6d evict keeper | 0 | 0 | 2 / 30 | 3 |
-| #7 reparent | 2 | 2 | 1 / 21 | 6 |
+| #6d evict keeper | 0 | 0 | 2 / 30 | 2 |
+| #7 reparent | 2 | 2 | 1 / 21 | 4 |
 | #8 tick | 0 | 0 | 0 / 0 | 0 |
 | #8b grace tick | 6 | 6 | 6 / 144 | 0 |
 | #9a/b/c mark-read | 0 | 0 | 1 / 3 | 0 |
-| #10 burst | 48 | 48 | 192 / 168 + 92 (POD-4678) | 87 |
+| #10 burst | 48 | 47 (+ `i937`, activityAt alone: POD-4674) | 192 / 168 + 92 (POD-4678) | 39 |
 
 Chain fence (depth 4, `i2770 < i2763 < i2720 < i2666 < i2577`, a question on
 `s340`): 1 row read (the session) against 15; **5 compositions = depth + 1**.
 Planted `everyAggregate` (every aggregate reads an epoch each feed event
-bumps): 1,469 compositions, reads 1, commits and parity still exact: only the
+bumps): 737 compositions, reads 1, commits and parity still exact: only the
 count sees it. At 1x both depth-4 missions already wait under an open root,
 so the test flips the finished-root flag (a question waits under both).
 
@@ -129,6 +129,14 @@ are the hidden ones, which attention never reads, but `missionRollup` counts
 every formal descendant, hidden or not, so progress reads them (282 closed
 issues queued by the first read). Reading a unit's facts through Mb1's cold
 read instead would make that 0 loads; that is the addendum's call.
+
+L4b with the oracle EVERY step (`worklist/rollup.gate.test.ts`, 3 seeds x
+200, arms observed as a mounted list observes them): green against the
+oracle and the rebuild; POD-4671's row taken from the oracle 402 times per
+seed (twice a step, the same row). The untracked-nest plant fails every seed
+(steps 46, 40, 106: a stale `working` / `phase` / `asking` against the
+rebuild). Unobserved, the same plant passed all three: every computed
+re-ran per snapshot, so no stale cache could show.
 
 L1d askers: every visible root over a `corpus.edgedAskers` hidden child reads
 the oracle's `asking` and `phase`.
