@@ -91,7 +91,9 @@
  * the roll-ups Mb3 derives (`phase`, progress, `working`, `asking`,
  * `workingSince`, and `closed` / `dismissed` with their "nothing waiting"
  * conjunct), are compared with the oracle's row views (`rowViewsFromStore`)
- * for every visible row.
+ * for every visible row. So is `activityAt` (POD-4674, POD-4679): the retained
+ * seats' stamps, else `updatedAt` (`rows.ts:98-116`), raised by the latest
+ * seat nested below (`rows.ts:336-339`).
  */
 
 import { reaction, runInAction, untracked } from 'mobx'
@@ -619,8 +621,9 @@ describe('row fields against the oracle', () => {
       ]
       let closedByOracle = 0
       // POD-4671 (`worklist/known-gaps.ts`): the unscanned-worktree orphan has
-      // no seat in the schema's R3 relation; its issue's seat-fed fields are
-      // left out here, and the exception itself throws once the seat exists.
+      // no seat in the schema's R3 relation; its issue's seat-fed fields
+      // (`activityAt` too: the orphan's stamp is the one it misses) are left
+      // out here, and the exception itself throws once the seat exists.
       const snapshot = handle.pool.snapshot()
       const gap = acceptUnscannedGap(
         ctx.corpus,
@@ -641,7 +644,8 @@ describe('row fields against the oracle', () => {
             (field === 'phase' ||
               field === 'working' ||
               field === 'asking' ||
-              field === 'workingSince')
+              field === 'workingSince' ||
+              field === 'activityAt')
           )
             continue
           expect(got![field], `${id}.${field}`).toEqual(want[field])

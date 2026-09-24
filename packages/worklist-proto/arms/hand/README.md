@@ -213,15 +213,19 @@ included, for the visible rows and their order.
   hot/cold partition against the feed (Ha3), and every resident issue's
   whole `RowView` against the rebuild's views (`rebuildViews`, POD-4674: the
   rebuild comparison sees only the 11 slice fields, so `activityAt`,
-  `originTick` and the other view-only fields need this check); at the last
+  `originTick` and the other view-only fields need this check; the
+  comparison is the shared `diffViews`, `shared/src/gen/check.ts`, which the
+  MobX gate uses too); at the last
   step, the full-residency checkpoint (load everything, then compare with
-  no input from the pool). Six planted NOs, each of which must fail every
+  no input from the pool). Eight planted NOs, each of which must fail every
   seed: deaf to removals (the rebuild), relation upkeep skipped on a held
   row's update (the scan), deaf to cold rows' updates (partition or scan),
   cold relinks skipped (the per-step scan, checkpoint off: the error heals
   on load), a loaded session left in the cold registry (the checkpoint,
   per-step checks off), member activity cached in a plain `Map` (the view
-  check).
+  check), and H3's `chain` (a changed cell at level >= 2 dirties none of
+  its readers) and `presence` (presence asked of the raw table, untracked)
+  plants, which passed the stock checks before the view check.
   Defaults 3 seeds x 200 steps; the gate of record is 20 x 300
   (`POD_POOL_GATE_SEEDS`, `POD_POOL_GATE_FIRST_SEED` for chunks,
   `POD_POOL_GATE_STEPS`). The same file compares the own-row and one-hop

@@ -1,5 +1,64 @@
 # arms/mobx — notes
 
+## Round three: whole-row gate and `activityAt` (POD-4674, POD-4679) · 2026-09-24
+
+Code: `pool/gate.test.ts` (whole-view check, observer, three view plants),
+`pool/rebuild.ts` (`rebuildViews`), `shared/src/gen/check.ts` (`diffViews`,
+the comparison both pool gates call), `pool/views.ts` (`activityAtPartOf`,
+`ViewInputs.retainedSeats`, the view's max with `seatActivity`),
+`pool/worklist/visible.ts` (`retainedSeatIds`), `pool/worklist/rollup.ts`
+(`seatActivity`, Mb3's composition).
+
+### Decisions
+
+- **The gate compares whole views** (H3-F3). The checker compares
+  `snapshot()`, whose rows are `sliceRowOf(view)`: 11 fields. Every compared
+  step now also holds every visible issue's whole `RowView` to
+  `rebuildViews` (the same rule table over the feed's rows), field by field,
+  with the shared `diffViews`. The hand gate calls the same function.
+- **The gated arm is OBSERVED** as a mounted list observes it (one reaction
+  over every visible row's view and the layout; Mb3's lesson from the
+  roll-up gate). Unobserved, every computed re-runs on each read and a stale
+  cache cannot show.
+- **Three view plants**, H3's in MobX terms, each must fail every seed:
+  `activityCached` (member activity in a plain `Map`; the view check must
+  be what catches it), `presenceUntracked` (presence asked of the table
+  untracked), `chainUntracked` (another issue's parts, the origin's that
+  `originTick` reads, read untracked).
+- **`activityAt` is the legacy's** (POD-4679, coordinator: POD-4674 owns it
+  in both pools). Own half: the retained seats' stamps (`retainedSeatIds`,
+  legacy `retainedSessions`: seat members retained at the clock, exited ones
+  included), else `updatedAt`, else 0, with the legacy's `||` (a zero stamp
+  falls back), `rows.ts:98-116`. It read every explicit session before
+  (archived, shell and decayed ones included). Subtree half: raised by the
+  latest roster seat nested below (`rows.ts:336-339`), Mb3's `seatActivity`
+  composition (6702973af, taken out for this issue and restored here).
+  `retained` and `rosterIds` now derive from `retainedSeatIds` (Mb3's
+  b28ee7b85 shape).
+- **Tests that encoded the old rule, changed to the oracle's:**
+  - `residency.test.tsx` "models == rows the mounted list drew": session
+    models are the drawn rows' resident RETAINED SEATS, not every explicit
+    member.
+  - `residency.test.tsx` "loads every row asked for inside one 50 ms
+    window": the watched row's view now decides its retained seats, which
+    reads each cold member's retention by id (a per-row feed read, never a
+    load; asserted to stay cold) beside Mb3's cold-children reads.
+  - `residency.test.tsx` "a row reads its cold sessions as loading": the
+    loaded closed issue has no retained seat (finished runs past their keep),
+    so its `activityAt` is its `updatedAt`, not its sessions' latest.
+  - `counts.test.tsx` "a sibling re-read alone fails #2": the family the
+    plant re-reads is the row's retained seats (5), not every session naming
+    the issue (7).
+  - `worklist/visible.test.tsx` "a list that draws hidden rows fails the
+    commit fence on #4 (a hidden spin-off)": #1 no longer catches it; the
+    heartbeat session is a retained seat of no hidden row.
+  - `worklist/rollup.test.tsx` parity: the commit fence's `activityAt`-alone
+    allowance (`assertCommitsBesideActivity`) is gone; plain `assertCommits`.
+  - `pool/gate.test.ts` "row fields against the oracle": `activityAt` is
+    asserted on every visible row (it was measured, not asserted).
+- **Control**: with only the own half's loop put back to every explicit
+  session, the row-fields test fails at `i4603.activityAt` (pool later than
+  the oracle), the row POD-4679 reported.
 ## Round three: structural scenarios and the browser, b4 (POD-4572) · 2026-09-24
 
 Code: `harness/src/roster.ts` (the pool on the roster, `RosterAllowances`),
