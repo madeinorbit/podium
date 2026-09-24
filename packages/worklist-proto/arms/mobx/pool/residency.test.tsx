@@ -273,14 +273,15 @@ describe('bootstrap', () => {
       ].filter((id) => pool.tables.issue.has(id))
     })
     expect(drawn).toEqual(visibleHot)
-    // A drawn row's activity re-composes from its member sessions' cached
-    // values (POD-4568), so its resident members get a model too: models ==
-    // rows drawn + the resident origins they tick + their resident member
-    // sessions, nothing else.
+    // A drawn row's activity re-composes from its retained seats' cached
+    // values (POD-4568; the seats, not every explicit member, since POD-4679:
+    // legacy `retainedSessions`), so its resident seats get a model too:
+    // models == rows drawn + the resident origins they tick + their resident
+    // retained seats, nothing else.
     const members = new Set(
-      tracked(() => drawn.flatMap((id) => pool.issue(id!)?.sessionIds ?? [])).filter(
-        (id) => tracked(() => pool.resident('session', id)) === 'resident',
-      ),
+      tracked(() =>
+        drawn.flatMap((id) => pool.worklist.issue(id!)?.retainedSeatIds ?? []),
+      ).filter((id) => tracked(() => pool.resident('session', id)) === 'resident'),
     )
     expect(members.size).toBeGreaterThan(0)
     // A drawn spin-off's ⤷ tick reads its origin's parts, so a RESIDENT origin
@@ -342,15 +343,27 @@ describe('the loader', () => {
     r.fire()
     // One read per row, one action, both resident. Since POD-4571 (option A)
     // the watched row's view, redrawn once `a` lands, also reads each of its
-    // cold formal children by id for its progress (`coldRow`): per-row feed
-    // reads, never loads (`hydrated` below stays 2, and they stay cold).
+    // cold formal children by id for its progress (`coldRow`), and since
+    // POD-4679 its retained seats, deciding which reads each cold member's
+    // retention by id: per-row feed reads, never loads (`hydrated` below
+    // stays 2, and they stay cold).
     const loaded = [`issue:${a!.id}`, `issue:${b!.id}`]
     const coldChildren = tracked(() => [...pool.worklist.formalChildren(a!.id)]).filter((id) =>
       pool.residency?.isCold('issue', id),
     )
+    const coldMembers = tracked(() => [...(pool.worklist.issue(a!.id)?.memberIds ?? [])]).filter(
+      (id) => pool.residency?.isCold('session', id),
+    )
     const byId = r.loads.filter((key) => !loaded.includes(key))
     expect(r.loads.filter((key) => loaded.includes(key)).sort()).toEqual(loaded.sort())
-    expect(byId.every((key) => coldChildren.includes(key.slice('issue:'.length)))).toBe(true)
+    for (const key of byId) {
+      const [kind, id] = key.split(':') as ['issue' | 'session', string]
+      expect(
+        kind === 'issue' ? coldChildren.includes(id) : coldMembers.includes(id),
+        `${key} is a cold child or a cold member of ${a!.id}`,
+      ).toBe(true)
+      expect(isColdKey(pool, key), key).toBe(true)
+    }
     expect(pool.stats.notifications).toBe(1)
     expect(pool.residency?.counters.batches).toBe(1)
     expect(pool.residency?.counters.hydrated).toBe(2)
@@ -513,8 +526,14 @@ describe('lazy relations', () => {
     watch()
     const last = views.at(-1)!
     expect(last.loading).toBeUndefined()
+    // The legacy stamp (POD-4679, `rows.ts:98-116`): the retained seats'
+    // latest, else `updatedAt`. These are finished runs of a closed issue
+    // past their keep, so none is retained, and the loaded row shows the
+    // issue's own stamp, not its sessions' (the pre-POD-4679 value).
+    expect(tracked(() => pool.worklist.issue(issue.id)?.retainedSeatIds)).toEqual([])
     const latest = Math.max(...sessions.map((session) => Date.parse(session.lastActiveAt)))
-    expect(last.activityAt).toBe(latest)
+    expect(latest).not.toBe(Date.parse(issue.updatedAt))
+    expect(last.activityAt).toBe(Date.parse(issue.updatedAt))
   })
 
   it('a spin-off of a cold origin shows loading, then its tick', () => {

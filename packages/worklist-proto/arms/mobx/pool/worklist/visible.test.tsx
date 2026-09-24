@@ -282,7 +282,7 @@ describe('visible collection and order (Mb1)', () => {
     expect(result.ok ? null : `${result.against}: ${result.diff}`).toBeNull()
   }, 300_000)
 
-  it('a list that draws hidden rows fails the commit fence on #1 and #4', async () => {
+  it('a list that draws hidden rows fails the commit fence on #4 (a hidden spin-off)', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as MobxPoolHandle
@@ -330,8 +330,10 @@ describe('visible collection and order (Mb1)', () => {
       }
       // #4's corpus target (the #2 root since POD-4635) has no spin-off, so only
       // the #4-shaped rename of an origin with a hidden spin-off can show it.
-      expect(Object.keys(failures).sort()).toEqual(['#1', '#4 hidden spin-off'])
-      expect(failures['#1']).toMatch(/over=\[\w+/)
+      // #1 no longer does (POD-4679): its heartbeat session is a retained seat
+      // of no hidden row, so no hidden row's `activityAt` moves (it did while
+      // `activityAt` read every explicit session, decayed ones included).
+      expect(Object.keys(failures).sort()).toEqual(['#4 hidden spin-off'])
       expect(failures['#4 hidden spin-off']).toContain(`over=[${renamed.spinOff}`)
     } finally {
       mounted.unmount()

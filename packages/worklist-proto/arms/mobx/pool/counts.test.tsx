@@ -130,9 +130,11 @@ describe('fence steps #1-#4', () => {
   }, 120_000)
 
   it('a sibling re-read alone fails #2: the target family is larger than the budget', async () => {
+    let plantedPool: MobxPoolHandle['pool'] | null = null
     const planted: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        plantedPool = handle.pool
         const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
         // The pre-POD-4568 activity: each member's row, read again on every run.
         inputs.sessionActivity = (id) => sessionActivityOf(handle.pool.inputs.session(id))
@@ -153,10 +155,12 @@ describe('fence steps #1-#4', () => {
           continue
         }
         // The whole family of the changed session, and nothing else: more
-        // than one level's budget, so the fence names it.
-        const family = ctx.corpus.sessions.filter(
-          (s) => s.issueId === ctx.targets.visibleRootId,
-        ).length
+        // than one level's budget, so the fence names it. The family is the
+        // row's retained seats, whose stamps `activityAt` reads (POD-4679:
+        // legacy `retainedSessions`), not every session naming the issue.
+        const family = tracked(
+          () => plantedPool!.worklist.issue(ctx.targets.visibleRootId)!.retainedSeatIds.length,
+        )
         expect(readsBudget).toBe(3)
         expect(family).toBeGreaterThan(readsBudget)
         expect(result.reads?.byEntity).toEqual({ session: family })
