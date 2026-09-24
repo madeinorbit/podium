@@ -1,4 +1,4 @@
-import { mobileEntryRedirect } from '@podium/model/browser'
+import { mobileEntryRedirect, mobileSessionRedirect } from '@podium/model/browser'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 
 /**
@@ -20,12 +20,16 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
  *
  * Runs before React mounts and returns true when it has started navigating
  * away, so main.tsx can skip rendering a desktop UI nobody will see.
+ *
+ * A workspace session link (`/workspace?pane=<id>`) is answered first: the
+ * shell served here would drop the pane at phone width instead of opening the
+ * session [POD-4689], so the phone is sent to `/mobile/session/<id>`.
  */
 export function redirectPhoneToMobileApp(): boolean {
   // The Tauri shell serves this same dist and owns its own window — it must
   // never navigate itself into the web mobile app, whatever its webview's UA.
   if (nativeDesktopBridge()) return false
-  const target = mobileEntryRedirect({
+  const req = {
     pathname: window.location.pathname,
     search: window.location.search,
     userAgent: window.navigator.userAgent,
@@ -34,7 +38,8 @@ export function redirectPhoneToMobileApp(): boolean {
     // marker suppresses this redirect on the next boot — one extra round trip
     // instead of a ping-pong (see desktopShellLocation).
     mobilePresent: true,
-  })
+  }
+  const target = mobileSessionRedirect(req) ?? mobileEntryRedirect(req)
   if (!target) return false
   // replace(), not assign(): the desktop shell must not sit in history behind
   // the mobile app, where Back would bounce straight into this redirect again.

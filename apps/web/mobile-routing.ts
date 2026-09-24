@@ -1,7 +1,10 @@
 // Imported by vite.config.ts, which Vite loads outside the app's module graph:
 // bare '@podium/model' would resolve to the package's unbuilt dist there, so
 // reach the source directly (same as the resolve.alias entries in vite.config).
-import { mobileEntryRedirect } from '../../packages/model/src/predicates/mobile-entry'
+import {
+  mobileEntryRedirect,
+  mobileSessionRedirect,
+} from '../../packages/model/src/predicates/mobile-entry'
 
 /** Return the phone entry redirect for Vite's front door, if one applies. */
 export function mobileRedirectLocation(
@@ -10,12 +13,15 @@ export function mobileRedirectLocation(
   mobilePresent: boolean,
 ): string | null {
   const url = new URL(rawUrl ?? '/', 'http://podium.local')
-  return mobileEntryRedirect({
+  const req = {
     pathname: url.pathname,
     search: url.search,
     userAgent,
     mobilePresent,
-  })
+  }
+  // A workspace session link first: on `/` the root rule would carry `?pane=`
+  // into `/mobile` and drop the session the same way the shell did [POD-4689].
+  return mobileSessionRedirect(req) ?? mobileEntryRedirect(req)
 }
 
 /**

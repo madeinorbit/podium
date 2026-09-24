@@ -15,6 +15,12 @@
  * required `Android.+Mobile`, the Vite door matched a bare `Android`, so an
  * Android tablet was redirected by one and not the other). This module is the
  * single definition.
+ *
+ * A phone's desktop session link (`/workspace?pane=<id>`) is the same problem
+ * one level down [POD-4689]: the shell it loads drops the pane instead of
+ * opening the session, so the same three doors answer it with
+ * `mobileSessionRedirect` — `/mobile/session/<id>` — before they try the root
+ * rule.
  */
 
 /** Query parameter that suppresses the phone redirect for one navigation. */
@@ -94,6 +100,73 @@ export function mobileEntryRedirect(req: MobileEntryRequest): string | null {
   if (hasQueryKey(req.search, DESKTOP_PARAM)) return null
   if (!isPhoneUserAgent(req.userAgent)) return null
   return '/mobile' + req.search
+}
+
+/**
+ * The FIRST `value` for query KEY `name`, or null when the key is absent.
+ *
+ * Mirrors `new URLSearchParams(search).get(name)` the way `hasQueryKey` mirrors
+ * `.has(name)` (see above for why this package hand-rolls it): a leading `?`
+ * is optional, empty segments are skipped, only the text before the first `=`
+ * is the key, a bare key reads as `''`, `+` is a space, and a malformed escape
+ * is left as written rather than throwing.
+ */
+function firstQueryValue(search: string, name: string): string | null {
+  const query = search.startsWith('?') ? search.slice(1) : search
+  for (const segment of query.split('&')) {
+    if (segment === '') continue
+    const eq = segment.indexOf('=')
+    const rawKey = eq === -1 ? segment : segment.slice(0, eq)
+    if (decodeQueryComponent(rawKey) !== name) continue
+    return decodeQueryComponent(eq === -1 ? '' : segment.slice(eq + 1))
+  }
+  return null
+}
+
+/**
+ * The request's query segments that survive a hop to the phone app, byte-for-
+ * byte: everything except the desktop workspace selector (`wt`) and the pane
+ * the redirect consumes into the path. `?server=wss://…` keeps its encoding
+ * for the same reason `mobileEntryRedirect` carries the query verbatim.
+ */
+function phoneSessionQuery(search: string): string {
+  const query = search.startsWith('?') ? search.slice(1) : search
+  const kept = query.split('&').filter((segment) => {
+    if (segment === '') return false
+    const eq = segment.indexOf('=')
+    const key = decodeQueryComponent(eq === -1 ? segment : segment.slice(0, eq))
+    return key !== 'pane' && key !== 'wt'
+  })
+  return kept.length > 0 ? `?${kept.join('&')}` : ''
+}
+
+/**
+ * Where a phone's desktop session link should be sent, or null to serve it
+ * as-is [POD-4689].
+ *
+ * A phone opening `/workspace?pane=<id>` loaded the desktop shell (the root
+ * rule above only answers `/`), which at phone width rewrote the URL to
+ * `/workspace?wt=<repo>` with no `pane=` and showed the New task composer —
+ * the linked session never opened. The phone app opens the same session at
+ * `/mobile/session/<id>`, so the link is sent there instead.
+ *
+ * Both `/workspace` and `/` are the workspace view (the router reads `pane`
+ * on either), so both are answered; the callers check this BEFORE the root
+ * rule so a `/?pane=<id>` lands on the session rather than on `/mobile?pane=`
+ * (which would drop it the same way). Full ids, short-id prefixes and birth
+ * refs all redirect — the phone resolves them through the server's own rule —
+ * while file tabs (`file:…`, which the phone has no screen for) and an empty
+ * or absent `pane` stay put, as do `?desktop`, non-phones and a missing Expo
+ * build. Desktop keeps its adopt-then-wait path (POD-4642) untouched.
+ */
+export function mobileSessionRedirect(req: MobileEntryRequest): string | null {
+  if (!req.mobilePresent) return null
+  if (req.pathname !== '/workspace' && req.pathname !== '/') return null
+  if (hasQueryKey(req.search, DESKTOP_PARAM)) return null
+  if (!isPhoneUserAgent(req.userAgent)) return null
+  const pane = firstQueryValue(req.search, 'pane')
+  if (!pane || pane.startsWith('file:')) return null
+  return `/mobile/session/${encodeURIComponent(pane)}${phoneSessionQuery(req.search)}`
 }
 
 /**

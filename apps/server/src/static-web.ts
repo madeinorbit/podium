@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, join, normalize, sep } from 'node:path'
 import { brotliCompress, gzip, constants as zlibConstants } from 'node:zlib'
 import { createLogger } from '@podium/logger'
-import { desktopShellLocation, mobileEntryRedirect } from '@podium/model'
+import { desktopShellLocation, mobileEntryRedirect, mobileSessionRedirect } from '@podium/model'
 import type { Context, Hono } from 'hono'
 
 /**
@@ -483,7 +483,8 @@ function appleTouchIcon(webDir: string, inside: string): string | null {
  * before (or without) exporting it. With a boot-time flag that ordering silently
  * disabled the phone redirect until the next restart.
  *
- * `redirectPhoneRoot: false` withholds only the `/` redirect while /mobile keeps
+ * `redirectPhoneRoot: false` withholds the phone entry redirects (the `/`
+ * redirect and the workspace session-link redirect below) while /mobile keeps
  * serving Expo — the browser harness drives both shells from one server and would
  * otherwise never reach the web shell from a phone-sized Pixel profile.
  */
@@ -521,17 +522,38 @@ export function registerMobileRouting(
   // Carries the ?desktop marker, which tells apps/web's browser-side redirect
   // that the Expo build is genuinely absent rather than bouncing back to it.
   const toDesktopShell = (c: Context) => c.redirect(desktopShellLocation(new URL(c.req.url).search))
+  // A phone's entry redirect, if one applies: a workspace session link first
+  // (on `/` the root rule would carry `?pane=` into `/mobile` and drop the
+  // session the same way the shell did [POD-4689]), then the root rule.
+  const phoneEntryRedirect = (url: URL, userAgent: string | undefined): string | null => {
+    const req = {
+      pathname: url.pathname,
+      search: url.search,
+      userAgent,
+      mobilePresent: present(),
+    }
+    return mobileSessionRedirect(req) ?? mobileEntryRedirect(req)
+  }
   app.get('/', async (c, next) => {
     const url = new URL(c.req.url)
     const away = toAppUrl(c)
     if (away) return away
     if (opts.redirectPhoneRoot !== false) {
-      const target = mobileEntryRedirect({
-        pathname: url.pathname,
-        search: url.search,
-        userAgent: c.req.header('user-agent'),
-        mobilePresent: present(),
-      })
+      const target = phoneEntryRedirect(url, c.req.header('user-agent'))
+      if (target) {
+        // A fresh server must never route a phone into either operator SPA.
+        if (opts.operatorEntryAvailable?.() === false) return c.redirect('/setup/mobile')
+        return c.redirect(target)
+      }
+    }
+    await next()
+  })
+  app.get('/workspace', async (c, next) => {
+    const url = new URL(c.req.url)
+    const away = toAppUrl(c)
+    if (away) return away
+    if (opts.redirectPhoneRoot !== false) {
+      const target = phoneEntryRedirect(url, c.req.header('user-agent'))
       if (target) {
         // A fresh server must never route a phone into either operator SPA.
         if (opts.operatorEntryAvailable?.() === false) return c.redirect('/setup/mobile')

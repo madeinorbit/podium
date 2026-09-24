@@ -25,4 +25,32 @@ describe('Vite mobile entry routing', () => {
     ).toBeNull()
     expect(mobileRedirectLocation('/session/s1', iphone, true)).toBeNull()
   })
+
+  it('sends a phone opening a workspace session link to the phone session screen [POD-4689]', () => {
+    const full = '1801ec74-1111-4222-8333-444444444444'
+    expect(mobileRedirectLocation(`/workspace?pane=${full}`, iphone, true)).toBe(
+      `/mobile/session/${full}`,
+    )
+    expect(mobileRedirectLocation('/workspace?pane=1801ec74', iphone, true)).toBe(
+      '/mobile/session/1801ec74',
+    )
+    // The desktop-only keys go; ?server/?e2e survive the hop.
+    expect(
+      mobileRedirectLocation(`/workspace?wt=%2Frepo&pane=${full}&e2e=1`, iphone, true),
+    ).toBe(`/mobile/session/${full}?e2e=1`)
+  })
+
+  it('keeps non-session workspace URLs and desktop session links on the shell [POD-4689]', () => {
+    expect(mobileRedirectLocation('/workspace?wt=%2Frepo', iphone, true)).toBeNull()
+    expect(mobileRedirectLocation('/workspace?pane=file%3A%2Fa', iphone, true)).toBeNull()
+    expect(
+      mobileRedirectLocation(
+        '/workspace?pane=1801ec74',
+        'Mozilla/5.0 (Macintosh) Safari/605.1.15',
+        true,
+      ),
+    ).toBeNull()
+    expect(mobileRedirectLocation('/workspace?pane=1801ec74&desktop=1', iphone, true)).toBeNull()
+    expect(mobileRedirectLocation('/workspace?pane=1801ec74', iphone, false)).toBeNull()
+  })
 })

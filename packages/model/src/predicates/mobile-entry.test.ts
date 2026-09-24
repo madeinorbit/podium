@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { desktopShellLocation, isPhoneUserAgent, mobileEntryRedirect } from './mobile-entry'
+import {
+  desktopShellLocation,
+  isPhoneUserAgent,
+  mobileEntryRedirect,
+  mobileSessionRedirect,
+} from './mobile-entry'
 
 const iphone =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
@@ -66,6 +71,49 @@ describe('mobileEntryRedirect', () => {
     expect(at('/', '?&&e2e=1')).toBe('/mobile?&&e2e=1')
     expect(at('/', '?%ZZ=1')).toBe('/mobile?%ZZ=1')
     expect(at('/', '?%ZZ=1&desktop=1')).toBeNull()
+  })
+})
+
+describe('mobileSessionRedirect [POD-4689]', () => {
+  const at = (pathname: string, search: string, userAgent = iphone, mobilePresent = true) =>
+    mobileSessionRedirect({ pathname, search, userAgent, mobilePresent })
+  const full = '1801ec74-1111-4222-8333-444444444444'
+
+  it('sends a phone opening a desktop session link to the phone session screen', () => {
+    // Full id, short-id prefix and birth ref alike — the phone resolves each
+    // through the server's own rule, so the predicate does not re-implement it.
+    expect(at('/workspace', `?pane=${full}`)).toBe(`/mobile/session/${full}`)
+    expect(at('/workspace', '?pane=1801ec74')).toBe('/mobile/session/1801ec74')
+    expect(at('/workspace', '?pane=POD-13-A')).toBe('/mobile/session/POD-13-A')
+  })
+
+  it('answers the root too: / is the same workspace view, and the root rule would drop the pane', () => {
+    expect(at('/', `?pane=${full}`)).toBe(`/mobile/session/${full}`)
+  })
+
+  it('drops the desktop-only keys and carries the rest across byte-for-byte', () => {
+    expect(at('/workspace', `?wt=%2Frepo&pane=${full}&e2e=1`)).toBe(
+      `/mobile/session/${full}?e2e=1`,
+    )
+    expect(at('/workspace', `?server=wss://x&pane=1801ec74`)).toBe(
+      '/mobile/session/1801ec74?server=wss://x',
+    )
+  })
+
+  it('stays put for non-session panes, ?desktop, non-phones, and a missing Expo build', () => {
+    // No pane, an empty pane, and a file tab: nothing the phone has a session
+    // screen for, so the desktop keeps its path (POD-4642) untouched.
+    expect(at('/workspace', '')).toBeNull()
+    expect(at('/workspace', '?wt=%2Frepo')).toBeNull()
+    expect(at('/workspace', '?pane=')).toBeNull()
+    expect(at('/workspace', '?pane=file%3A%2Frepo%2Fa.ts')).toBeNull()
+    // The same guards as the root rule.
+    expect(at('/workspace', `?pane=${full}&desktop=1`)).toBeNull()
+    expect(at('/workspace', `?pane=${full}`, mac)).toBeNull()
+    expect(at('/workspace', `?pane=${full}`, iphone, false)).toBeNull()
+    // Other deep links are not workspace session links.
+    expect(at('/session/s1', '')).toBeNull()
+    expect(at('/settings', `?pane=${full}`)).toBeNull()
   })
 })
 

@@ -48,9 +48,22 @@ describe('redirectPhoneToMobileApp [POD-359]', () => {
     expect(replace).not.toHaveBeenCalled()
   })
 
+  it('sends a phone that landed on a workspace session link to the phone session screen [POD-4689]', () => {
+    // The shell served here would drop the pane at phone width instead of
+    // opening the session; the phone app opens it at /mobile/session/<id>.
+    const full = '1801ec74-1111-4222-8333-444444444444'
+    const { replace, redirected } = boot(`/workspace?pane=${full}&e2e=1`, IPHONE)
+    expect(redirected).toBe(true)
+    expect(replace).toHaveBeenCalledWith(`/mobile/session/${full}?e2e=1`)
+  })
+
   it('leaves desktops, deep links, and the Tauri shell alone', () => {
     expect(boot('/', MAC).replace).not.toHaveBeenCalled()
     expect(boot('/session/s1', IPHONE).replace).not.toHaveBeenCalled()
+    // A desktop opening the same session link keeps the shell (POD-4642).
+    expect(boot('/workspace?pane=1801ec74', MAC).replace).not.toHaveBeenCalled()
+    // Non-session panes are not phone session links either.
+    expect(boot('/workspace?wt=%2Frepo', IPHONE).replace).not.toHaveBeenCalled()
 
     desktopGlobal.__PODIUM_DESKTOP__ = { platform: 'macos' } as NativeDesktopBridge
     expect(boot('/', IPHONE).replace).not.toHaveBeenCalled()

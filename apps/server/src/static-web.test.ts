@@ -419,6 +419,79 @@ describe('registerWebStatic', () => {
     expect(root.status).toBe(302)
     expect(root.headers.get('location')).toBe('/mobile?server=wss://x&e2e=1')
   })
+  it('redirects a phone opening a workspace session link to the phone session screen [POD-4689]', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobilePresent: () => true })
+    app.get('/', (c) => c.text('web shell'))
+    app.get('/workspace', (c) => c.text('web shell'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+    const full = '1801ec74-1111-4222-8333-444444444444'
+
+    // Full and short ids alike; the desktop-only wt key goes, ?e2e= survives.
+    const link = await app.request(`/workspace?wt=%2Frepo&pane=${full}&e2e=1`, {
+      headers: { 'user-agent': iphone },
+    })
+    expect(link.status).toBe(302)
+    expect(link.headers.get('location')).toBe(`/mobile/session/${full}?e2e=1`)
+    const short = await app.request('/workspace?pane=1801ec74', {
+      headers: { 'user-agent': iphone },
+    })
+    expect(short.status).toBe(302)
+    expect(short.headers.get('location')).toBe('/mobile/session/1801ec74')
+    // A pane on the root is the same workspace link; the root rule would drop it.
+    const root = await app.request(`/?pane=${full}`, { headers: { 'user-agent': iphone } })
+    expect(root.status).toBe(302)
+    expect(root.headers.get('location')).toBe(`/mobile/session/${full}`)
+  })
+  it('keeps workspace session links on the shell for desktops, ?desktop, and the dual-client harness [POD-4689]', async () => {
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15'
+
+    // Desktop keeps its adopt-then-wait path (POD-4642).
+    const desktop = new Hono()
+    registerMobileRouting(desktop, { expoMobilePresent: () => true })
+    desktop.get('/workspace', (c) => c.text('web shell'))
+    expect(
+      await (
+        await desktop.request('/workspace?pane=1801ec74', { headers: { 'user-agent': mac } })
+      ).text(),
+    ).toBe('web shell')
+    // ?desktop opts out, and a missing Expo build serves the shell.
+    const opted = new Hono()
+    registerMobileRouting(opted, { expoMobilePresent: () => true })
+    opted.get('/workspace', (c) => c.text('web shell'))
+    expect(
+      await (
+        await opted.request('/workspace?pane=1801ec74&desktop=1', {
+          headers: { 'user-agent': iphone },
+        })
+      ).text(),
+    ).toBe('web shell')
+    // The harness withholds phone entry redirects and drives the shell itself.
+    const harness = new Hono()
+    registerMobileRouting(harness, { expoMobilePresent: () => true, redirectPhoneRoot: false })
+    harness.get('/workspace', (c) => c.text('web shell'))
+    expect(
+      await (
+        await harness.request('/workspace?pane=1801ec74', { headers: { 'user-agent': iphone } })
+      ).text(),
+    ).toBe('web shell')
+  })
+  it('withholds the phone session link until the server data plane is ready', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, {
+      expoMobilePresent: () => true,
+      operatorEntryAvailable: () => false,
+    })
+    app.get('/workspace', (c) => c.text('setup-safe desktop shell'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+
+    const link = await app.request('/workspace?pane=1801ec74', {
+      headers: { 'user-agent': iphone },
+    })
+    expect(link.status).toBe(302)
+    expect(link.headers.get('location')).toBe('/setup/mobile')
+  })
   it('withholds the operator mobile entry until the server data plane is ready', async () => {
     const app = new Hono()
     registerMobileRouting(app, {
