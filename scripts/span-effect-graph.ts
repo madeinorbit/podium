@@ -645,6 +645,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'the resolver closure repoIdResolver() returns: pure over a snapshot',
   },
+  'apps/server/src/store/repos.ts#ReposRepository.issueRepoIdResolver()': {
+    kind: 'contained',
+    why: 'the resolver closure issueRepoIdResolver() returns: pure over a snapshot',
+  },
   'apps/server/src/modules/issues/service/core.ts#IssueStore.repoScopeFilter()': {
     kind: 'contained',
     why: 'the predicate repoScopeFilter() returns: pure',
