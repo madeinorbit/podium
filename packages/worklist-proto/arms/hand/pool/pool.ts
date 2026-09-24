@@ -446,6 +446,7 @@ export class HandPool {
       graph,
       inputs: this.visibleInputs,
       order: () => worklist.order(),
+      rankOf: (id) => worklist.placedRankOf(id),
       selectedId: () => this.selectedId,
       foldLatch: () => this.foldLatch,
       counters: this.stats.counters,

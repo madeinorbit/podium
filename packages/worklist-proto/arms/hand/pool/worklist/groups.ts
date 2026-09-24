@@ -44,6 +44,7 @@
  */
 
 import type { SliceGroup, SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
+import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import { type Cell, type CellGraph, sameData } from '../cells'
 import { closedOf, foldAtOf, issueAbandoned, STUB_WAITING } from '../views'
 import type { VisibleCounters, VisibleInputs } from './visible'
@@ -112,14 +113,16 @@ export interface Layout {
   readonly groups: readonly LayoutGroup[]
   /** The same groups by key (a header finds its own without a scan). */
   readonly byKey: ReadonlyMap<string, LayoutGroup>
-  /** Each placed id's position in `order` (the latch re-inserts a row at its rank). */
-  readonly rankIndex: ReadonlyMap<string, number>
 }
 
 /**
  * The grouping itself, over ids in rank order and each one's placement. The
  * live settle and the tests call it; the rebuild does not (it groups its own
  * row views with L1b's `groupKeyOf` / `compareClosedFold`).
+ *
+ * O(changed): one bucket touch per placed id, and no per-id index — the
+ * latch finds its row's rank position by binary search over the maintained
+ * ranks (`GroupsHost.rankOf`), so a push never walks the order (H3-F1).
  */
 export function layoutOf(
   order: readonly string[],
@@ -127,11 +130,9 @@ export function layoutOf(
 ): Layout {
   const pinnedIds: string[] = []
   const byKey = new Map<string, { label: string; open: string[]; closed: [string, number][] }>()
-  const rankIndex = new Map<string, number>()
-  order.forEach((id, index) => {
+  order.forEach((id) => {
     const placement = placementOfId(id)
     if (placement === undefined) return
-    rankIndex.set(id, index)
     if (placement.pinned) {
       pinnedIds.push(id)
       return
@@ -157,7 +158,7 @@ export function layoutOf(
     groups.push(group)
     groupsByKey.set(key, group)
   }
-  return { pinnedIds, groups, byKey: groupsByKey, rankIndex }
+  return { pinnedIds, groups, byKey: groupsByKey }
 }
 
 /** The layout as the frozen `SliceOrder` (copies: the snapshot must not alias live arrays). */
@@ -205,6 +206,8 @@ export interface GroupsHost {
   readonly inputs: VisibleInputs
   /** The visible ids in rank order (`VisibleCollection.order`). */
   order(): readonly string[]
+  /** The rank an id was placed with (the order's maintained ranks, for the latch). */
+  rankOf(id: string): RowRank | undefined
   /** UNTRACKED: the selected issue id, or null (the settle is told about selection moves). */
   selectedId(): string | null
   /** UNTRACKED: `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch). */
@@ -239,7 +242,6 @@ export class WorklistGroups {
     pinnedIds: EMPTY_VIEW.pinnedIds,
     groups: [],
     byKey: new Map(),
-    rankIndex: new Map(),
   }
   private view: GroupsView = EMPTY_VIEW
   private readonly lanes = new Map<string, GroupLanes>()
@@ -314,7 +316,6 @@ export class WorklistGroups {
             ),
           ),
           byKey: layout.byKey,
-          rankIndex: layout.rankIndex,
         }
       }
       this.built = true
@@ -370,11 +371,24 @@ export class WorklistGroups {
       let rowIds = entry.rowIds
       let closedIds = entry.closedIds
       if (latched !== null && entry.closedIds.includes(latched)) {
-        const rank = layout.rankIndex
-        const at = rank.get(latched) ?? 0
-        const index = entry.rowIds.findIndex((id) => (rank.get(id) ?? 0) > at)
+        // The latch re-inserts the row at its rank among the open lane: the
+        // lane is in rank order, and the maintained ranks give the position
+        // by binary search, so no index over the order is built (H3-F1).
+        const at = this.host.rankOf(latched)
+        let index = entry.rowIds.length
+        if (at !== undefined) {
+          let lo = 0
+          let hi = entry.rowIds.length
+          while (lo < hi) {
+            const mid = (lo + hi) >>> 1
+            const rank = this.host.rankOf(entry.rowIds[mid] as string)
+            if (rank !== undefined && compareRank(rank, at) < 0) lo = mid + 1
+            else hi = mid
+          }
+          index = lo
+        }
         const open = [...entry.rowIds]
-        open.splice(index === -1 ? open.length : index, 0, latched)
+        open.splice(index, 0, latched)
         rowIds = open
         closedIds = entry.closedIds.filter((id) => id !== latched)
       }
@@ -428,7 +442,6 @@ export class WorklistGroups {
       pinnedIds: EMPTY_VIEW.pinnedIds,
       groups: [],
       byKey: new Map(),
-      rankIndex: new Map(),
     }
     this.view = EMPTY_VIEW
     this.lanes.clear()

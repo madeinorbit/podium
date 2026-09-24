@@ -911,6 +911,11 @@ export class VisibleCollection {
     return this.placedRank.has(id)
   }
 
+  /** The rank an id was placed with (untracked: maintenance and tests). */
+  placedRankOf(id: string): RowRank | undefined {
+    return this.placedRank.get(id)
+  }
+
   /** Visible rows. */
   get size(): number {
     return this.placedRank.size
