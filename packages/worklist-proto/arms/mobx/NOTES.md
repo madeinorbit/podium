@@ -51,8 +51,87 @@ round-two layout; the round-three pool lives under `pool/`.
   verdict with nothing waiting assumed; the view and `IssueNode.placement`
   apply the roll-up's `asking` (`waiting`), and the placement reads it only
   for a row the fold would take.
-- **Counting**: `ArmStats.rollupsDerived` counts runs of the two compositions
-  (a node's `aggregate` and `unitsBelow`), through the shared stats.
+- **Counting**: `ArmStats.rollupsDerived` counts runs of the three
+  compositions (a node's `aggregate`, `unitsBelow` and `seatActivity`),
+  through the shared stats.
+- **Filings, not re-listings.** The fence counts every id a `many()` yields,
+  so re-listing a bucket on a membership change reads the whole family. Both
+  compositions read a FILING maintained by one reaction per node:
+  `nestedBy` (by `nestParent`) and `childrenBy` (by the declared
+  `issue.parent` key, computed with the engine's own `relationRef` over the
+  node's row, so a parent's load does not re-run its cold children's
+  filings, which `one()` would: it reads the target's presence). #7 re-parent:
+  1 read against 21 (re-listing read 32).
+- **`activityAt` is a roll-up too** (`rows.ts:336-339`, `attach`): the view
+  takes the max of Ma1's own-row stamp and the latest seat of the visible
+  subtree (`seatActivity`, its own composition, so a phase change never runs
+  it). Ma1's value already disagreed with the oracle at bootstrap on rows with
+  newer nested seats; the exact commit fence found it on #10 (`i937`).
+- **Mb1 fix in passing:** `memberIds` = explicit members + `laneMemberIds`
+  (R3 alone, its own part), so a new explicit member no longer re-lists its
+  worktree's sessions (#10: 26 worktree reads gone).
+
+### Filed while here
+
+- **POD-4671** — sessions under an issue worktree that no scan reported get no
+  R3 seat: the shared schema's prefix relation resolves against scanned lanes
+  only; the legacy adds every issue's `worktreePath` as a containment root.
+  The fixture's `unscannedWorktree` (`i3485`, `s804`) is the one row off
+  (phase/working). ONE named exception, `worklist/known-gaps.ts`, used by every
+  oracle comparison; it throws once the seat exists.
+- **POD-4678** — #10 reads 192 against 168: a new explicit session re-lists
+  its issue's `sessions` bucket (91 other sessions). Fix is a design choice
+  (a filing per known session at bootstrap, or a fence rule). `rollup.test`
+  allows exactly that family term, counted before the step.
+
+### Numbers (1x, `FIXED_NOW`, counts; `harness/browser/results/mobx-rollups-*.json`)
+
+Every fence scenario, one engine, mounted (`rollup.test.tsx`): snapshot =
+oracle (POD-4671's row excepted) = rebuild after bootstrap and every step;
+commits exact against the oracle's row views (roll-ups included).
+
+| step | oracle changed | committed | reads / budget | compositions |
+|---|---|---|---|---|
+| #1 heartbeat | 0 | 0 | 2 / 3 | 0 |
+| #2 phase | 1 | 1 | 1 / 3 | 2 |
+| #3 click | 1 | 1 | 1 / 3 | 0 |
+| #4 rename | 1 | 1 | 1 / 3 | 0 |
+| #5 stage move | 1 | 1 | 1 / 24 | 3 |
+| #6a new issue | 0 | 0 | 5 / 16 | 3 |
+| #6b archive | 0 | 0 | 1 / 15 | 2 |
+| #6c evict | 0 | 0 | 1 / 15 | 0 |
+| #6d evict keeper | 0 | 0 | 2 / 30 | 3 |
+| #7 reparent | 2 | 2 | 1 / 21 | 6 |
+| #8 tick | 0 | 0 | 0 / 0 | 0 |
+| #8b grace tick | 6 | 6 | 6 / 144 | 0 |
+| #9a/b/c mark-read | 0 | 0 | 1 / 3 | 0 |
+| #10 burst | 48 | 48 | 192 / 168 + 92 (POD-4678) | 87 |
+
+Chain fence (depth 4, `i2770 < i2763 < i2720 < i2666 < i2577`, a question on
+`s340`): 1 row read (the session) against 15; **5 compositions = depth + 1**.
+Planted `everyAggregate` (every aggregate reads an epoch each feed event
+bumps): 1,469 compositions, reads 1, commits and parity still exact: only the
+count sees it. At 1x both depth-4 missions already wait under an open root,
+so the test flips the finished-root flag (a question waits under both).
+
+Cold children (addendum): `i3150` (13 children, 5 cold): the first read of
+its view queues 6 rows (its cold children and one more, nothing below them),
+shows `loading` and progress 6/7; one window later 9/10 = oracle, `loading`
+clear.
+
+Pending markers at first paint, counted from the row views (the
+coordinator's item 2, declared rule `unlessShown`): 0 of 732 visible rows
+cold; 155 rows `loading` at first paint, **73 of them from a roll-up marker**;
+356 rows queued; settled in 4 windows, 436 rows loaded. All 73 are PROGRESS
+markers (cold formal children), 0 attention: under the new rule cold children
+are the hidden ones, which attention never reads, but `missionRollup` counts
+every formal descendant, hidden or not, so progress reads them (282 closed
+issues queued by the first read). Reading a unit's facts through Mb1's cold
+read instead would make that 0 loads; that is the addendum's call.
+
+L1d askers: every visible root over a `corpus.edgedAskers` hidden child reads
+the oracle's `asking` and `phase`.
+
 
 ## Round three: groups, closed folds and the windowed list, b2 (POD-4570) · 2026-09-24
 
