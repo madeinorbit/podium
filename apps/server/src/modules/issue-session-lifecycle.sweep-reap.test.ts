@@ -24,6 +24,17 @@ import { attachHostDaemon } from '../test-support/host-daemon'
  * The third pins the candidate filter: the sweep no longer pays an
  * `issues.get` (plus `issueAccess.getMeta` and `view.listForIssue` inside
  * `stopIssue`) for a closed issue with nothing left to do.
+ *
+ * WHAT A REAP SENDS NOW (722704624, POD-4302). Park, stop and kill go through
+ * the contract lifecycle — `runtimeLifecycle(stop)` — and succeed only on a
+ * CONFIRMED retirement receipt; the legacy `kill` frame survives only as the
+ * orphan-reaping escalation when retirement is not confirmed (and the stop then
+ * reports `ok: false`). This file used to stub a legacy daemon that refused the
+ * lifecycle verb and count the escalated kill frames; under that stub a stop
+ * can no longer park anything. The fixture now answers like a current daemon —
+ * measured retirement on the real `runtimeLifecycleRequest` frame — and the
+ * flood is counted in those frames, which is what a reap sends. No `kill` frame may
+ * appear at all: one would mean a retirement went unconfirmed.
  */
 
 const registries: SessionRegistry[] = []
@@ -36,7 +47,9 @@ afterEach(async () => {
 interface Fixture {
   reg: SessionRegistry
   daemon: ControlMessage[]
-  /** Kill frames seen so far, by session. */
+  /** Reaps sent so far, by session: the lifecycle(stop) requests. */
+  reaped: () => string[]
+  /** Legacy kill frames — only an unconfirmed retirement escalates to one. */
   killed: () => string[]
   clearDaemon: () => void
   /** Run one periodic pass, as the 15-minute interval does.
@@ -62,24 +75,20 @@ async function makeFixture(): Promise<Fixture> {
           args?: Record<string, string>,
           machineId?: string,
         ) => Promise<{ ok: boolean; output: string }>
-        runtimeLifecycle: (
-          input: { sessionId: string; verb: 'stop' | 'hibernate' | 'kill' },
-          machineId: string,
-        ) => Promise<{ sessionId: string; result: { ok: true } | { reason: string } }>
       }
     }
   ).rpc
   rpc.repoOp = async () => ({ ok: true, output: '' })
-  // Legacy-daemon answer: lifecycle(stop) refuses immediately so the stop path
-  // escalates to the kill frame without waiting out the 10s RPC timeout. The
-  // kill frame is what this file counts.
-  rpc.runtimeLifecycle = async (input) => ({
-    sessionId: input.sessionId,
-    result: { reason: 'not_running' },
-  })
+  // lifecycle(stop) goes to the fixture daemon as a real `runtimeLifecycleRequest`
+  // frame, which `attachHostDaemon` answers the way a current daemon does:
+  // retirement confirmed (722704624). That frame is what this file counts.
   return {
     reg,
     daemon,
+    reaped: () =>
+      daemon
+        .filter((m) => m.type === 'runtimeLifecycleRequest' && m.verb === 'stop')
+        .map((m) => (m as { sessionId: string }).sessionId),
     killed: () =>
       daemon.filter((m) => m.type === 'kill').map((m) => (m as { sessionId: string }).sessionId),
     clearDaemon: () => {
@@ -111,7 +120,7 @@ async function parkedSession(reg: SessionRegistry, issueId: IssueId): Promise<st
 }
 
 describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () => {
-  it('a periodic pass sends no kill for an already-parked session', async () => {
+  it('a periodic pass sends no reap for an already-parked session', async () => {
     const f = await makeFixture()
     const issue = await f.reg.modules.issues.create({
       repoPath: '/r',
@@ -133,10 +142,12 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
 
     await f.periodicSweep()
 
-    // The sweep reached this issue and stopped the live member...
-    expect(f.killed()).toContain(running)
-    // ...and left the already-dead one alone.
-    expect(f.killed()).not.toContain(parked)
+    // The sweep reached this issue and retired the live member...
+    expect(f.reaped()).toEqual([running])
+    // ...left the already-dead one alone, and confirmed every retirement it
+    // asked for (no orphan-reaping escalation).
+    expect(f.reaped()).not.toContain(parked)
+    expect(f.killed()).toEqual([])
   })
 
   it('closing an issue still reaps a session parked before the close', async () => {
@@ -153,7 +164,8 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
     // The close cleanup is deliberately fire-and-forget (afterCommit).
     await new Promise((resolve) => setTimeout(resolve, 50))
 
-    expect(f.killed()).toContain(parked)
+    expect(f.reaped()).toContain(parked)
+    expect(f.killed()).toEqual([])
   })
 
   it('the candidate filter skips a closed issue with no worktree and only parked sessions', async () => {
