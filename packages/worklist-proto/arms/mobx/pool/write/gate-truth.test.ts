@@ -38,6 +38,7 @@ import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
 import { installMobxWarnTrap } from '../mobx-trap'
+import { tracked } from '../pool'
 import { acceptUnscannedGap } from '../worklist/known-gaps'
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 
@@ -85,7 +86,9 @@ function staleRewind(handle: WritableMobxPoolHandle): void {
   const txRow = new Map<string, string>()
   const edit = write.edit.bind(write)
   write.edit = ((kind, id, patch) => {
-    const server = handle.pool.tables.issue.get(id) as SliceIssue | undefined
+    // A tracked read (the pool's own reads go through its fenced tables
+    // inside its action; the plant has neither, so it reads transiently).
+    const server = tracked(() => handle.pool.tables.issue.get(id)) as SliceIssue | undefined
     const txId = edit(kind, id, patch)
     if (server !== undefined) {
       atEdit.set(txId as string, { id, row: server })
