@@ -35,7 +35,7 @@
 
 import { compareShallow, computed, makeObservable } from 'mobx'
 import type { SliceGroup, SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
-import { closedOf, foldAtOf, issueAbandoned, STUB_WAITING } from '../views'
+import { closedOf, foldAtOf, issueAbandoned } from '../views'
 import type { IssueNode, VisibleCounters, VisibleInputs } from './visible'
 
 /** Where one visible row goes (R-GROUP), before selection. */
@@ -61,11 +61,12 @@ export function repoLabelOf(repoPath: string): string {
 
 /**
  * One row's placement from its own row, hot or cold, and the clock (the grace
- * deadline). `closed`'s "nothing waiting" conjunct is Mb3's roll-up
- * (`STUB_WAITING`, as the row's own `closed`).
+ * deadline), with "nothing in the subtree waits" ASSUMED: the node applies
+ * the waiting roll-up (Mb3) only to a row this places in the fold
+ * (`withWaiting`), so a row that could never fold never reads its subtree.
  */
 export function placementOf(issue: SliceIssue, input: Pick<VisibleInputs, 'passed'>): Placement {
-  const closed = closedOf(issue, STUB_WAITING, input)
+  const closed = closedOf(issue, false, input)
   return {
     pinned: issue.pinned === true,
     repoKey: issue.repoId ?? issue.repoPath,
@@ -74,6 +75,11 @@ export function placementOf(issue: SliceIssue, input: Pick<VisibleInputs, 'passe
     dismissed: closed && (issueAbandoned(issue) || issue.tuckedAt != null),
     foldMs: Date.parse(foldAtOf(issue)) || 0,
   }
+}
+
+/** A fold candidate whose subtree waits on the human stays open (R-GROUP 3, `folds.ts:95-100`). */
+export function withWaiting(placement: Placement): Placement {
+  return { ...placement, closed: false, dismissed: false }
 }
 
 export function placementPartOf(input: VisibleInputs, id: string): Placement | undefined {

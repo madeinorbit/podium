@@ -22,6 +22,13 @@
  * (`loading` is always false). `resident` is accepted and unused (the
  * checker's call shape).
  *
+ * ROLL-UPS (POD-4571). The same part functions over the same parts object
+ * (`directVisibility` memoizes them for this pass), composing over the nest
+ * children inverted from scratch (`directNested`) and the scanned `children`
+ * relation: the live pool's maintained nest index and its per-node memos are
+ * held to a from-scratch answer. Every row is resident here, so nothing is
+ * pending.
+ *
  * GROUPS (POD-4570). The rebuild groups its own row views with L1b's pure
  * functions (`groupKeyOf`, `compareClosedFold`, `shared/src/row-view.ts`),
  * with no selection (the oracle's unselected baseline, spec §7), not with the
@@ -52,6 +59,7 @@ import {
   type ViewInputs,
 } from './views'
 import {
+  directNested,
   directSessionVisibility,
   directVisibility,
   type IssueVisibility,
@@ -84,12 +92,14 @@ export function rebuildSnapshot(
     present: (entity, id) => tables[entity].has(id),
     loading: () => false,
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
+    rollup: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).rollup : undefined),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
   const memo = new Map<string, IssueVisibility>()
   const sessions = new Map<string, SessionVisibility>()
+  let nested: ReadonlyMap<string, readonly string[]> | null = null
   const visibleInputs: VisibleInputs = {
     relations: inputs.relations,
     issueRow: inputs.issue,
@@ -105,6 +115,16 @@ export function rebuildSnapshot(
     },
     passed: inputs.passed,
     reached: inputs.reached,
+    loadedIssue: inputs.issue,
+    loadedSession: inputs.session,
+    nested: (id) => {
+      nested ??= directNested(
+        issues.map((record) => record.id),
+        (issueId) => directVisibility(visibleInputs, issueId, memo),
+      )
+      return nested.get(id) ?? []
+    },
+    counted: () => {},
   }
   const visible = issues
     .map(({ id }) => id)

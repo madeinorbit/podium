@@ -78,7 +78,27 @@ import type { RelationReader } from '../../../../shared/src/instrument/reads'
 import { compareRank, type RowRank, type RowView, rankOf } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
 import { bandOf, parseMs } from '../views'
-import { type Placement, placementPartOf } from './groups'
+import { type Placement, placementPartOf, withWaiting } from './groups'
+import {
+  type Aggregate,
+  aggregatePartOf,
+  type Loaded,
+  openOwnPartOf,
+  type OwnAttention,
+  ownAttentionPartOf,
+  type Rollup,
+  type RollupInputs,
+  type RollupParts,
+  rollupPartOf,
+  type SeatVerdict,
+  seatVerdictOf,
+  tipPartOf,
+  type UnitOwn,
+  type Units,
+  unitOwnPartOf,
+  unitsBelowPartOf,
+  waitingPartOf,
+} from './rollup'
 
 /** `SIDEBAR_FINISHED_GRACE_MS` (`visibility.ts:18`). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -100,6 +120,14 @@ export interface VisibleInputs {
   passed(t: number): boolean
   /** `coarseNow >= t`. */
   reached(t: number): boolean
+  /** A RESIDENT issue row; `LOADING` when cold (the read queues its load): the roll-ups' read (Mb3). */
+  loadedIssue(id: string): Loaded<SliceIssue>
+  /** A RESIDENT session row; `LOADING` when cold (queued). */
+  loadedSession(id: string): Loaded<SliceSession>
+  /** The present rows whose `nestParent` is `id` (the inverse, maintained; never a walk). */
+  nested(id: string): Iterable<string>
+  /** One composition run, reported through the shared `ArmStats.rollupsDerived`. */
+  counted(): void
 }
 
 // ------------------------------------------------------------ own-row facts
@@ -266,7 +294,7 @@ export function retentionOf(session: SliceSession | undefined): Retention | null
  * Whether a session with `retention` keeps its row at the clock, its issue's
  * `standing` resolving an idle finished turn (`visibility.ts:51-69`).
  */
-function retains(
+export function retains(
   retention: Retention,
   issue: SliceIssue | undefined,
   standing: Standing | undefined,
@@ -304,11 +332,19 @@ export interface SessionVisibility {
   readonly issueLink: string | null
   /** `session.worktree` through the engine (the prefix relation). */
   readonly worktreeLink: string | null
+  /** The seat's roll-up verdict (Mb3), from the RESIDENT row; `LOADING` while it is cold. */
+  readonly verdict: Loaded<SeatVerdict>
+}
+
+/** A seat's verdict from the resident row (the roll-ups never read a cold session). */
+export function verdictPartOf(input: Pick<VisibleInputs, 'loadedSession'>, id: string): Loaded<SeatVerdict> {
+  const row = input.loadedSession(id)
+  return row === undefined || typeof row === 'symbol' ? row : seatVerdictOf(row)
 }
 
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'relations' | 'sessionRow'>,
+  input: Pick<VisibleInputs, 'relations' | 'sessionRow' | 'loadedSession'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)
@@ -317,15 +353,24 @@ export function directSessionVisibility(
     activityMs: activityMsOf(row),
     issueLink: input.relations.one('session', id, 'issue'),
     worktreeLink: input.relations.one('session', id, 'worktree'),
+    verdict: verdictPartOf(input, id),
   }
 }
 
-/** One issue's parts (see the header). */
-export interface IssueVisibility {
+/** One issue's parts (see the header), and its roll-up parts (Mb3, `rollup.ts`). */
+export interface IssueVisibility extends RollupParts {
   readonly standing: Standing | undefined
   readonly seatIds: readonly string[]
   readonly memberIds: readonly string[]
   readonly childIds: readonly string[]
+  /** `issue.spinOffs` (R4, the inverse edge), id order: the roll-ups' vacated and continuation tests. */
+  readonly spinOffIds: readonly string[]
+  /**
+   * The row's seats (`mine`, `rows.ts:71-79`): members that are seats (no
+   * shell, not archived), retained at the clock and not exited. The draft
+   * vessel's live-roster test is "any"; the roll-ups read each.
+   */
+  readonly rosterIds: readonly string[]
   readonly retained: boolean
   readonly liveRoster: boolean
   readonly unread: boolean
@@ -337,6 +382,29 @@ export interface IssueVisibility {
   readonly placed: boolean
   readonly visible: boolean
   readonly rank: RowRank | undefined
+  /** `standing.finished`, or undefined for an unknown issue (the row picks its root verdict by it). */
+  readonly finished: boolean | undefined
+  readonly present: boolean
+  /** R-GROUP 3's "nothing in the subtree waits" (Mb3): the aggregate under this row. */
+  readonly waiting: boolean
+}
+
+/** The roll-up parts' inputs over the visibility inputs: nodes for rows, seats for sessions. */
+export function rollupInputsOf(input: VisibleInputs): RollupInputs {
+  return {
+    loadedIssue: (id) => input.loadedIssue(id),
+    nested: (id) => input.nested(id),
+    rollupNode: (id) => input.issue(id),
+    seat: (id) => input.session(id).verdict,
+    presence: (id) => {
+      const retention = input.session(id).retention
+      return retention === null
+        ? null
+        : { issueId: retention.issueId, open: !retention.archived && !retention.exited }
+    },
+    spinOffIds: (id) => input.issue(id)?.spinOffIds ?? [],
+    counted: () => input.counted(),
+  }
 }
 
 export function standingPartOf(input: VisibleInputs, id: string): Standing | undefined {
@@ -374,6 +442,10 @@ export function childIdsPartOf(input: VisibleInputs, id: string): readonly strin
   return [...input.relations.many('issue', id, 'children')].sort()
 }
 
+export function spinOffIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
+  return [...input.relations.many('issue', id, 'spinOffs')].sort()
+}
+
 /** ≥1 retained member session (`rows.ts:70-76`). */
 export function retainedPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
   const standing = self.standing
@@ -390,20 +462,33 @@ export function retainedPartOf(input: VisibleInputs, id: string, self: IssueVisi
   return false
 }
 
-/** A retained member still on the live roster (`sessionVisibleInLiveRoster`): a draft vessel's test. */
-export function liveRosterPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
+/**
+ * The row's seats (`rows.ts:71-79`: retained, then `sessionVisibleInLiveRoster`):
+ * seat members retained at the clock and not exited, in id order.
+ */
+export function rosterIdsPartOf(
+  input: VisibleInputs,
+  id: string,
+  self: IssueVisibility,
+): readonly string[] {
   const standing = self.standing
-  if (standing === undefined) return false
+  if (standing === undefined) return []
   let issue: SliceIssue | undefined
+  const roster: string[] = []
   for (const sessionId of self.memberIds) {
     const retention = input.session(sessionId).retention
     if (retention === null || !retention.seat || retention.exited) continue
     if (retention.finish.kind === 'idleDone' && standing.finished) {
       issue ??= input.issueRow(id)
     }
-    if (retains(retention, issue, standing, input)) return true
+    if (retains(retention, issue, standing, input)) roster.push(sessionId)
   }
-  return false
+  return roster
+}
+
+/** A retained member still on the live roster (`sessionVisibleInLiveRoster`): a draft vessel's test. */
+export function liveRosterPartOf(self: IssueVisibility): boolean {
+  return self.rosterIds.length > 0
 }
 
 /**
@@ -571,11 +656,17 @@ export function directVisibility(
     get childIds() {
       return once('childIds', () => childIdsPartOf(input, id))
     },
+    get spinOffIds() {
+      return once('spinOffIds', () => spinOffIdsPartOf(input, id))
+    },
+    get rosterIds() {
+      return once('rosterIds', () => rosterIdsPartOf(input, id, parts))
+    },
     get retained() {
       return once('retained', () => retainedPartOf(input, id, parts))
     },
     get liveRoster() {
-      return once('liveRoster', () => liveRosterPartOf(input, id, parts))
+      return once('liveRoster', () => liveRosterPartOf(parts))
     },
     get unread() {
       return once('unread', () => unreadPartOf(input, parts))
@@ -604,9 +695,56 @@ export function directVisibility(
     get rank() {
       return once('rank', () => rankPartOf(input, id))
     },
+    get finished() {
+      return parts.standing?.finished
+    },
+    get waiting() {
+      return once('waiting', () => waitingPartOf(parts))
+    },
+    get ownAttention() {
+      return once('ownAttention', () => ownAttentionPartOf(rollupInputs, id, parts))
+    },
+    get aggregate() {
+      return once('aggregate', () => aggregatePartOf(rollupInputs, id, parts))
+    },
+    get unitOwn() {
+      return once('unitOwn', () => unitOwnPartOf(rollupInputs, id, parts))
+    },
+    get unitsBelow() {
+      return once('unitsBelow', () => unitsBelowPartOf(rollupInputs, parts))
+    },
+    get openOwn() {
+      return once('openOwn', () => openOwnPartOf(rollupInputs, id, parts))
+    },
+    get tip() {
+      return once('tip', () => tipPartOf(rollupInputs, id))
+    },
+    get rollup() {
+      return once('rollup', () => rollupPartOf(parts))
+    },
   }
+  const rollupInputs = rollupInputsOf(input)
   memo.set(id, parts)
   return parts
+}
+
+/**
+ * The nest children of every present issue, from scratch (the rebuild's
+ * `VisibleInputs.nested`): each known issue's `nestParent`, inverted.
+ */
+export function directNested(
+  ids: Iterable<string>,
+  partsOf: (id: string) => IssueVisibility,
+): ReadonlyMap<string, readonly string[]> {
+  const nested = new Map<string, string[]>()
+  for (const id of ids) {
+    const parent = partsOf(id).nestParent
+    if (parent === null) continue
+    const children = nested.get(parent)
+    if (children === undefined) nested.set(parent, [id])
+    else children.push(id)
+  }
+  return nested
 }
 
 /** Visible ids in L1b rank order (the rebuild's order; the live `order` sorts the same way). */
@@ -665,7 +803,12 @@ export class SessionNode implements SessionVisibility {
       activityMs: computed,
       issueLink: computed,
       worktreeLink: computed,
+      verdict: computedStruct,
     })
+  }
+
+  get verdict(): Loaded<SeatVerdict> {
+    return verdictPartOf(this.input, this.id)
   }
 
   get retention(): Retention | null {
@@ -687,19 +830,24 @@ export class SessionNode implements SessionVisibility {
 
 export class IssueNode implements IssueVisibility {
   private readonly input: VisibleInputs
+  private readonly rollupInput: RollupInputs
 
   constructor(
     readonly id: string,
     host: VisibleHost,
   ) {
     this.input = host.visibleInputs
-    makeObservable<IssueNode, 'input'>(this, {
+    this.rollupInput = rollupInputsOf(host.visibleInputs)
+    makeObservable<IssueNode, 'input' | 'rollupInput'>(this, {
       id: false,
       input: false,
+      rollupInput: false,
       standing: computedStruct,
       seatIds: computedStruct,
       memberIds: computedStruct,
       childIds: computedStruct,
+      spinOffIds: computedStruct,
+      rosterIds: computedStruct,
       retained: computed,
       liveRoster: computed,
       unread: computed,
@@ -711,7 +859,17 @@ export class IssueNode implements IssueVisibility {
       placed: computed,
       visible: computed,
       rank: computedStruct,
+      settledPlacement: computedStruct,
       placement: computedStruct,
+      finished: false,
+      waiting: computed,
+      ownAttention: computedStruct,
+      aggregate: computedStruct,
+      unitOwn: computedStruct,
+      unitsBelow: computedStruct,
+      openOwn: computed,
+      tip: computedStruct,
+      rollup: computedStruct,
     })
   }
 
@@ -731,12 +889,20 @@ export class IssueNode implements IssueVisibility {
     return childIdsPartOf(this.input, this.id)
   }
 
+  get spinOffIds(): readonly string[] {
+    return spinOffIdsPartOf(this.input, this.id)
+  }
+
+  get rosterIds(): readonly string[] {
+    return rosterIdsPartOf(this.input, this.id, this)
+  }
+
   get retained(): boolean {
     return retainedPartOf(this.input, this.id, this)
   }
 
   get liveRoster(): boolean {
-    return liveRosterPartOf(this.input, this.id, this)
+    return liveRosterPartOf(this)
   }
 
   get unread(): boolean {
@@ -775,9 +941,55 @@ export class IssueNode implements IssueVisibility {
     return rankPartOf(this.input, this.id)
   }
 
-  /** Where the row goes (R-GROUP, `groups.ts`): read by the groups' layout for visible rows only. */
-  get placement(): Placement | undefined {
+  /** Where the row goes from its own row alone, "nothing waiting" assumed (`groups.ts`). */
+  get settledPlacement(): Placement | undefined {
     return placementPartOf(this.input, this.id)
+  }
+
+  /**
+   * Where the row goes (R-GROUP, `groups.ts`): read by the groups' layout for
+   * visible rows only. The waiting roll-up is read only for a row the fold
+   * would take, so a row that could never fold never reads its aggregate.
+   */
+  get placement(): Placement | undefined {
+    const settled = this.settledPlacement
+    return settled === undefined || !settled.closed || !this.waiting ? settled : withWaiting(settled)
+  }
+
+  get finished(): boolean | undefined {
+    return this.standing?.finished
+  }
+
+  get waiting(): boolean {
+    return waitingPartOf(this)
+  }
+
+  get ownAttention(): OwnAttention {
+    return ownAttentionPartOf(this.rollupInput, this.id, this)
+  }
+
+  get aggregate(): Aggregate {
+    return aggregatePartOf(this.rollupInput, this.id, this)
+  }
+
+  get unitOwn(): UnitOwn {
+    return unitOwnPartOf(this.rollupInput, this.id, this)
+  }
+
+  get unitsBelow(): Units {
+    return unitsBelowPartOf(this.rollupInput, this)
+  }
+
+  get openOwn(): boolean {
+    return openOwnPartOf(this.rollupInput, this.id, this)
+  }
+
+  get tip(): { readonly found: boolean; readonly pending: number } {
+    return tipPartOf(this.rollupInput, this.id)
+  }
+
+  get rollup(): Rollup | undefined {
+    return rollupPartOf(this)
   }
 }
 
@@ -796,8 +1008,17 @@ export class VisibleCollection {
    * step 112: evict then re-add a parent left its descendants unplaced).
    */
   private readonly nodes: ObservableMap<string, IssueNode>
-  /** Each node's reaction, by id (maintenance only, never read by a derivation). */
+  /**
+   * THE NEST CHILDREN (Mb3), the inverse of each node's `nestParent`: parent
+   * id to the present rows nested under it. Maintained by one reaction per
+   * node, like `ids`, and keyed by id so it outlives a parent node that is
+   * replaced. The attention roll-up composes over it (`rollup.ts`).
+   */
+  private readonly nestedBy: ObservableMap<string, ObservableSet<string>>
+  /** Each node's reactions, by id (maintenance only, never read by a derivation). */
   private readonly stops = new Map<string, IReactionDisposer>()
+  /** The parent each id was last filed under in `nestedBy` (maintenance only). */
+  private readonly filedUnder = new Map<string, string>()
   private readonly sessions = new Map<string, SessionNode>()
 
   constructor(private readonly host: VisibleHost) {
@@ -806,14 +1027,25 @@ export class VisibleCollection {
       deep: false,
       name: 'pool.visible.nodes',
     })
-    makeObservable<VisibleCollection, 'nodes' | 'stops' | 'sessions' | 'host'>(this, {
+    this.nestedBy = observable.map<string, ObservableSet<string>>(undefined, {
+      deep: false,
+      name: 'pool.visible.nested',
+    })
+    makeObservable<
+      VisibleCollection,
+      'nodes' | 'nestedBy' | 'stops' | 'filedUnder' | 'sessions' | 'host' | 'file'
+    >(this, {
       ids: false,
       nodes: false,
+      nestedBy: false,
       stops: false,
+      filedUnder: false,
       sessions: false,
       host: false,
       order: computed({ equals: compareShallow }),
       issue: false,
+      nested: false,
+      file: false,
       session: false,
       sync: false,
       forgetSession: false,
@@ -838,6 +1070,31 @@ export class VisibleCollection {
   /** The node of a known issue (hot or cold), else undefined. */
   issue(id: string): IssueNode | undefined {
     return this.nodes.get(id)
+  }
+
+  /** TRACKED: the present rows nested under `id` (unordered). */
+  nested(id: string): Iterable<string> {
+    return this.nestedBy.get(id) ?? []
+  }
+
+  /** Move `id` in `nestedBy` to `parent` (null: out). Inside an action. */
+  private file(id: string, parent: string | null): void {
+    const before = this.filedUnder.get(id)
+    if (before === parent) return
+    if (before !== undefined) {
+      const siblings = this.nestedBy.get(before)
+      siblings?.delete(id)
+      if (siblings?.size === 0) this.nestedBy.delete(before)
+      this.filedUnder.delete(id)
+    }
+    if (parent === null) return
+    let siblings = this.nestedBy.get(parent)
+    if (siblings === undefined) {
+      siblings = observable.set<string>(undefined, { deep: false })
+      this.nestedBy.set(parent, siblings)
+    }
+    siblings.add(id)
+    this.filedUnder.set(id, parent)
   }
 
   /** The node of a session, built on first access. */
@@ -873,8 +1130,16 @@ export class VisibleCollection {
           },
           { fireImmediately: true, name: `pool.visible.${id}` },
         )
+        const stopNest = reaction(
+          () => node.nestParent,
+          (parent) => this.file(id, parent),
+          { fireImmediately: true, name: `pool.nested.${id}` },
+        )
         this.nodes.set(id, node)
-        this.stops.set(id, stop)
+        this.stops.set(id, () => {
+          stop()
+          stopNest()
+        })
         counters.issueNodes += 1
         continue
       }
@@ -882,6 +1147,7 @@ export class VisibleCollection {
       held()
       this.stops.delete(id)
       this.nodes.delete(id)
+      this.file(id, null)
       if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
     }
   }
@@ -911,6 +1177,8 @@ export class VisibleCollection {
     for (const stop of this.stops.values()) stop()
     this.stops.clear()
     this.nodes.clear()
+    this.nestedBy.clear()
+    this.filedUnder.clear()
     this.sessions.clear()
     this.ids.clear()
   }

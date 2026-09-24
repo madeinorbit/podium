@@ -35,7 +35,9 @@
  * STATS (`README.md` has the definitions): `rowsDerived` counts row-view
  * body runs; `notifications` counts actions that changed pool state;
  * `indexUpdates` counts relation slots written (forward entries and
- * buckets; `counters.bucketElements` the elements inside them); `rollupsDerived` stays 0 until the worklist phase adds roll-ups.
+ * buckets; `counters.bucketElements` the elements inside them);
+ * `rollupsDerived` counts runs of the two roll-up compositions (Mb3,
+ * `worklist/rollup.ts`: a node's attention `aggregate` and its `unitsBelow`).
  * The pool's own counters are in `counters`.
  */
 
@@ -75,6 +77,7 @@ import {
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
 import { sliceOrderOf, WorklistGroups } from './worklist/groups'
+import { type Loaded, LOADING } from './worklist/rollup'
 import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
 
 /** The pool's own counters, beside the shared `ArmStats`. */
@@ -307,6 +310,7 @@ export class MobxPool {
       present: (entity, id) => fenced[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => this.issue(id),
+      rollup: (id) => this.worklist.issue(id)?.rollup,
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
@@ -321,6 +325,12 @@ export class MobxPool {
       session: (id) => this.worklist.session(id),
       passed: (t) => this.clock.passed(t),
       reached: (t) => this.clock.reached(t),
+      loadedIssue: (id) => this.loaded('issue', id) as Loaded<SliceIssue>,
+      loadedSession: (id) => this.loaded('session', id) as Loaded<SliceSession>,
+      nested: (id) => this.worklist.nested(id),
+      counted: () => {
+        stats.rollupsDerived += 1
+      },
     }
     this.worklist = new VisibleCollection({
       visibleInputs: this.visibleInputs,
@@ -350,6 +360,7 @@ export class MobxPool {
       groups: false,
       foldLatch: false,
       coldRow: false,
+      loaded: false,
       knows: false,
       stats: false,
       models: false,
@@ -389,6 +400,17 @@ export class MobxPool {
     if (residency === null || !residency.known(entity, id)) return undefined
     this.reads.touch(entity, id, 'get')
     return residency.read(entity, id)
+  }
+
+  /**
+   * TRACKED: a RESIDENT row, or `LOADING` when the row is cold (the read
+   * queues its load, as `resident` does), or undefined. The roll-ups read
+   * rows only this way (Mb3): a cold row is a pending marker, never read.
+   */
+  loaded(entity: EntityName, id: string): Loaded<object> {
+    const row = this.fenced[entity].get(id)
+    if (row !== undefined) return row as object
+    return this.residency?.loading(entity, id) === true ? LOADING : undefined
   }
 
   /** Whether the pool knows the issue `id`, hot or cold (plain: maintenance, inside actions). */
