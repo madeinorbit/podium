@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { assertSendAccepted } from '@podium/client-core/engine'
 import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
 import {
   chatActivity,
@@ -28,6 +29,7 @@ import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { interruptSession } from '../lib/interrupt-session'
 import { sendOfferAction } from '../lib/send-offer-action'
+import { chatSendTransport, queuedDeliveryOf } from '../lib/chat-send-transport'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { PendingInteractionBand } from './PendingInteractionBand'
@@ -163,6 +165,18 @@ export function SessionConversation({
   const trpc = store.trpc
   const sessionStatusRef = useRef(session.status)
   sessionStatusRef.current = session.status
+  /**
+   * THE SEND ROUTE, READ PER SEND (POD-4688). The conversation controller is
+   * created once per session and owns the pending turns, so it must not be
+   * rebuilt when connectivity flaps — the route is a ref the deliver closure
+   * reads at call time instead of a memo input.
+   */
+  const sendRouteRef = useRef({
+    sendable: false,
+    canResume: false,
+    refusalReason: undefined as string | undefined,
+    connected: false,
+  })
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const keyboardLift = useKeyboardLift()
@@ -235,6 +249,23 @@ export function SessionConversation({
                 mutationId: asMutationId(turn.deliveryId),
               })
             } else {
+              const transport = chatSendTransport(sendRouteRef.current)
+              if (transport.kind === 'direct') {
+                // AT ONCE, ON THE DESKTOP'S TERMS (POD-4688). A live session
+                // takes text straight through, so the send is one `sendText`
+                // mutate in this tap's own async chain — no durable queue, no
+                // drain scheduling, nothing for a running turn to hold behind.
+                // The server still orders it behind its own durable queue when
+                // one exists, so two rapid taps land in order.
+                const result = await trpc.sessions.sendText.mutate({
+                  sessionId,
+                  text: turn.wire,
+                  mutationId: asMutationId(turn.deliveryId),
+                })
+                assertSendAccepted(result)
+                return queuedDeliveryOf(result) ?? { state: 'sent' }
+              }
+              if (transport.kind === 'refused') throw new Error(transport.reason)
               await store.resumeAndSend(sessionId, turn.wire, asMutationId(turn.deliveryId))
             }
             return { state: 'queued' }
@@ -454,6 +485,12 @@ export function SessionConversation({
   // the WHOLE screen rather than a header over an empty transcript [POD-1758].
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
+  sendRouteRef.current = {
+    sendable: composer.sendable,
+    canResume: composer.canResume,
+    refusalReason: composer.refusalReason,
+    connected,
+  }
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
   /**
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
