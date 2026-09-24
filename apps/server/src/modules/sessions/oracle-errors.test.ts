@@ -233,7 +233,15 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   it(`${MUST_NOT_CHANGE}: both send paths distinguish an unreachable machine from authorization refusal`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    // AWAITED, because the bind's live flip is a queued session write. Since
+    // 2a19e9c05 ("serialize overlapping whole-state session drafts") the bind
+    // cuts its draft on its own write turn and installs it when the commit
+    // returns, so an un-awaited bind lands AFTER the detach below and paints
+    // the row 'live' again with no daemon behind it. The detach itself still
+    // drops the row to 'reconnecting' synchronously (machine-reconciler
+    // `onDetached`); the fixture has to let the bind finish first for that to
+    // be the state under test. Nothing about the refusal below changed.
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
