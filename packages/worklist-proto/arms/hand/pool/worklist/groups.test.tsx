@@ -10,27 +10,22 @@
  * PARITY, after bootstrap and after every step: the pool's grouped order
  * (`groups.snapshot`, no selection) equals the legacy oracle's `SliceOrder`
  * (`snapshotFromStore` at the unselected baseline: pinned ids, group keys,
- * labels, open lanes, closed folds) MODULO the named Hb3 difference below;
- * the visible rows equal the oracle's flat rows; the settled snapshot equals
- * the pool's own rebuild, which groups with L1b's `groupKeyOf` /
- * `compareClosedFold` instead of the live layout; and the own-row fields
- * equal the oracle's row views (the roll-ups are Hb3's stubs and stay out of
- * the field comparison, as in Hb1).
+ * labels, open lanes, closed folds); the visible rows equal the oracle's
+ * flat rows; the settled snapshot equals the pool's own rebuild, which groups
+ * with L1b's `groupKeyOf` / `compareClosedFold` instead of the live layout;
+ * and the own-row fields equal the oracle's row views (the roll-ups are
+ * Hb3's and stay out of the field comparison, as in Hb1).
  *
- * THE NAMED DIFFERENCE (STUB_WAITING, as Mb2's STUB_WAITING/STUB_ROLLUPS).
- * The fold verdict's "nothing in the subtree waits" conjunct is a stub, so a
- * settled closed root whose subtree asks folds here and stays open in the
- * oracle (1x: the `waitingKept` rows below). The parity check derives that
- * exact exception set from the oracle and fails as soon as the roll-ups are
- * wired: the set is asserted non-empty at bootstrap, so wiring Hb3's waiting
- * conjunct turns this test red until the exception is removed. No `it.fails`,
- * no open-ended exception.
+ * THE EMPTIED TRIPWIRE (was STUB_WAITING, Hb2). The fold verdict's "nothing
+ * in the subtree waits" conjunct is Hb3's waiting roll-up, so no settled
+ * closed root whose subtree asks may fold here while staying open in the
+ * oracle. The parity check still derives that exception set from the oracle
+ * and now asserts it EMPTY at bootstrap and every step: a regression to the
+ * stub shows by name. No `it.fails`, no open-ended exception.
  *
  * FENCES: each step commits exactly the oracle-changed rows and reads within
- * its budget (the shared `assertCommits` / `assertReads`) — except #7, whose
- * reparented parents change only in Hb3's stubbed roll-ups: there the pool
- * must draw exactly the oracle-changed rows whose own fields moved, and miss
- * only roll-up-only changes (oracle-derived, no arm-local budget); the layout
+ * its budget (the shared `assertCommits` / `assertReads`) — #7's reparented
+ * parents included, whose progress-only changes Hb3 now draws; the layout
  * re-runs only when the order or a visible row's placement moved
  * (`counters.groupRuns`, `counters.groupElements`: the elements one run
  * touches, counted from outside the pool); a group header is notified
@@ -83,7 +78,7 @@ const arm: CheckableArm = {
 
 const STEPS = ['#1', '#2', '#3', '#4', '#5', '#6a', '#6b', '#6c', '#6d', '#7'] as const
 
-/** The row fields Hb2's rows carry from the own row and one hop (the roll-ups are Hb3's stubs). */
+/** The row fields Hb2's rows carry from the own row and one hop (the roll-ups are Hb3's). */
 const OWN_FIELDS = [
   'displayRef',
   'title',
@@ -116,8 +111,7 @@ function orderDiff(actual: SliceOrder, expected: SliceOrder): string | null {
  * Rows the waiting conjunct holds open: the pool folds them (its placement
  * says closed) while the oracle keeps them open, and the oracle says they
  * ask. Derived from the oracle, so a regression to the stub shows by name —
- * and wiring Hb3's waiting conjunct empties the set, which the bootstrap
- * assertion below turns red.
+ * and since Hb3 wires the waiting conjunct, the set must be empty.
  */
 function waitingKept(
   ctx: ScenarioEngine,
@@ -140,39 +134,6 @@ function waitingKept(
   return kept
 }
 
-/** The pool's grouped order with the waiting-kept rows held open at their rank, like the latch does. */
-function unwaited(pool: HandPool, kept: ReadonlySet<string>): SliceOrder {
-  const layout = pool.groups.snapshot()
-  const rankOf = (id: string) => pool.worklist.placedRankOf(id)
-  return {
-    pinnedIds: [...layout.pinnedIds],
-    groups: layout.groups.map((group) => {
-      if (!group.closedIds.some((id) => kept.has(id))) {
-        return { key: group.key, label: group.label, rowIds: [...group.rowIds], closedIds: [...group.closedIds] }
-      }
-      const open = [...group.rowIds]
-      for (const id of group.closedIds) {
-        if (!kept.has(id)) continue
-        const at = rankOf(id)
-        const index =
-          at === undefined
-            ? -1
-            : open.findIndex((other) => {
-                const rank = rankOf(other)
-                return rank !== undefined && compareRank(rank, at) > 0
-              })
-        open.splice(index === -1 ? open.length : index, 0, id)
-      }
-      return {
-        key: group.key,
-        label: group.label,
-        rowIds: open,
-        closedIds: group.closedIds.filter((id) => !kept.has(id)),
-      }
-    }),
-  }
-}
-
 interface GroupParity {
   readonly at: string
   readonly waitingKept: readonly string[]
@@ -190,7 +151,8 @@ function checkParity(ctx: ScenarioEngine, handle: HandPoolHandle, at: string): G
   const expected = snapshotFromStore(store, locals)
   const oracle = expected.order
   const kept = waitingKept(ctx, pool, oracle)
-  expect(orderDiff(unwaited(pool, kept), oracle), `${at}: groups against the oracle`).toBeNull()
+  expect([...kept].sort(), `${at}: the waiting conjunct holds nothing open`).toEqual([])
+  expect(orderDiff(sliceOrderOf(pool.groups.snapshot()), oracle), `${at}: groups against the oracle`).toBeNull()
   const flat = visibleIssueRows(legacyDerivationFromStore(store, locals.coarseNow), locals).map(
     (row) => row.issue.id,
   )
@@ -221,24 +183,6 @@ function checkParity(ctx: ScenarioEngine, handle: HandPoolHandle, at: string): G
     open: live.groups.reduce((n, group) => n + group.rowIds.length, 0),
     closed: live.groups.reduce((n, group) => n + group.closedIds.length, 0),
   }
-}
-
-/** Ids present before and after whose own-row fields (Hb2's ground) changed. */
-function changedOwnFields(
-  before: Record<string, Record<string, unknown>>,
-  after: Record<string, Record<string, unknown>>,
-): string[] {
-  const changed: string[] = []
-  for (const id of Object.keys(before)) {
-    if (!(id in after)) continue
-    for (const field of OWN_FIELDS) {
-      if (JSON.stringify(before[id]![field]) !== JSON.stringify(after[id]![field])) {
-        changed.push(id)
-        break
-      }
-    }
-  }
-  return changed.sort()
 }
 
 /** Each group's UI lanes, as the headers observe them. */
@@ -273,8 +217,8 @@ describe('groups and closed folds (Hb2)', () => {
     try {
       settle(handle)
       const parity: GroupParity[] = [checkParity(ctx, handle, 'bootstrap')]
-      // The stub holds some closed root open: the tripwire Hb3 must turn red.
-      expect(parity[0]!.waitingKept.length).toBeGreaterThan(0)
+      // The waiting conjunct is wired: it holds nothing open.
+      expect(parity[0]!.waitingKept).toEqual([])
       const cells = []
       for (const methodology of STEPS) {
         mounted.log.reset()
@@ -291,37 +235,10 @@ describe('groups and closed folds (Hb2)', () => {
         )
         const viewNotices: number[] = []
         const offView = pool.subscribeGroups(() => viewNotices.push(1))
-        const viewsBefore = rowViewsFromStore(
-          ctx.engine.getSnapshot(),
-          engineLocals(ctx),
-        ) as unknown as Record<string, Record<string, unknown>>
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         for (const off of offs) off()
         offView()
-        if (methodology === '#7') {
-          // Hb3's gap, named: the reparent changes the old and new parents'
-          // roll-ups, which are stubs here, so the exact-commit fence cannot
-          // hold. The pool must draw exactly the oracle-changed rows whose
-          // OWN fields moved, and miss only roll-up-only changes.
-          const viewsAfter = rowViewsFromStore(
-            ctx.engine.getSnapshot(),
-            engineLocals(ctx),
-          ) as unknown as Record<string, Record<string, unknown>>
-          expect(result.drawnRows?.slice().sort()).toEqual(changedOwnFields(viewsBefore, viewsAfter))
-          for (const id of result.oracleChangedRows ?? []) {
-            if ((result.drawnRows ?? []).includes(id)) continue
-            expect(
-              JSON.stringify(viewsBefore[id]) !== JSON.stringify(viewsAfter[id]),
-              `${methodology}: ${id} changed in the oracle`,
-            ).toBe(true)
-            expect(
-              changedOwnFields({ [id]: viewsBefore[id]! }, { [id]: viewsAfter[id]! }),
-              `${methodology}: ${id} missed on own fields`,
-            ).toEqual([])
-          }
-        } else {
-          assertCommits(result)
-        }
+        assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         const counters = { ...pool.stats.counters }
@@ -805,7 +722,9 @@ describe('plants that must fail (Hb2)', () => {
       // tables instead of placing the visible order). From outside the pool it
       // touches the known count per run, and reads hidden rows to do it.
       mounted.reads.reset()
-      const plantElements = layoutOf(known, (id) => placementRuleOf(pool.visibleInputs, id))
+      const plantElements = layoutOf(known, (id) =>
+        placementRuleOf({ ...pool.visibleInputs, waiting: (rowId) => pool.rollup.waitingOf(rowId) }, id),
+      )
       void plantElements
       const plantReads = mounted.reads.stats().rows
       expect(plantReads).toBeGreaterThan(visible)
