@@ -55,6 +55,45 @@ accepted only when the oracle's own before/after views differ in
 make `placementOf` read the waiting roll-up**, or the lanes stay wrong while
 the row's `closed` is right.
 
+### Numbers (1x, `FIXED_NOW`; `harness/browser/results/mobx-groups-*.json`, gitignored)
+
+Parity (`groups.test.tsx`), after bootstrap and after each of #1-#7: the
+grouped order equals the oracle's `SliceOrder` with the stub's three rows
+folded (21 pinned, 8 groups, 640 open, 71 closed at bootstrap), the flat
+visible order equals the oracle's, the settled snapshot equals the rebuild.
+
+| step | oracle changed | committed | reads / budget | layout runs (ids) | groups changed | header redraws |
+|---|---|---|---|---|---|---|
+| #1 heartbeat | none | 0 | 2 / 3 | 0 | none | 0 |
+| #2 phase | i214 | 1 | 1 / 3 | 0 | none | 0 |
+| #3 click | i214 | 1 | 1 / 3 | 0 | none | 0 |
+| #4 rename | i214 | 1 | 1 / 3 | 0 | none | 0 |
+| #5 stage move | i5 | 1 | 1 / 24 | 1 (732) | r1 | 1 |
+| #6a new issue | none | 0 | 5 / 16 | 1 (733) | r0 | 1 |
+| #6b archive | none | 0 | 1 / 15 | 1 (732) | r1 | 1 |
+| #6c evict | none | 0 | 1 / 15 | 1 (731) | r1 | 1 |
+| #6d evict keeper | none | 0 | 2 / 30 | 1 (729) | r0 | 1 |
+| #7 reparent | i214, i591 (roll-ups only) | 0 (stub) | 1 / 21 | 0 | none | 0 |
+
+Window (web list, container stubbed to the browser driver's 5,800 px):
+108 of 732 visible rows drawn; 59 cold rows asked for at first paint (376
+with every row drawn, Mb1); 156 rows loaded settling the first window;
+distinct per-row feed reads while it settles 482 (389 issue, 93 session)
+against Mb1's 1,145 (464, 681) drawing every row. Scrolling to the end draws
+the last row; folding a group shrinks the list by its closed rows x 56 px.
+
+L4b gate (`pool/gate.test.ts`, 3 seeds x 200 steps, package config, with the
+native lane and residency: 3 files, 21 tests, 939 s): green; the snapshot it
+compares with the rebuild now carries the groups. Native (`SectionList`):
+draws a prefix of the grouped order, fewer than visible; a heartbeat redraws
+nothing, a rename of a drawn row redraws it.
+
+Mutants (each run alone on `groups.test.tsx`, restored with `cp`), all killed:
+a header that reads its rows (reads fence, #3: 39 rows, budget 3);
+`placement` as a plain `computed` (#3 layout runs 2, expected 0); lanes
+without `compareShallow` (#5 header redraws 8, expected 1); the fold sorted
+oldest first (bootstrap parity, `r1` closedIds).
+
 ## Round three: visible collection and order, b1 (POD-4569) · 2026-09-23
 
 Code: `pool/worklist/visible.ts`. Tests: `pool/worklist/visible.test.tsx`
