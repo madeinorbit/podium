@@ -50,6 +50,7 @@ import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import { oracleSnapshot } from '../../../harness/src/oracle/index'
 import type { CheckableArm, CheckableArmHandle } from '../arm'
 import type { RowSourceMode } from '../row-source'
+import type { RowView } from '../row-view'
 import type { ScenarioEngine } from '../scenarios'
 import type { SliceGroup, SliceSnapshot } from '../slice-types'
 import type { Change } from './changes'
@@ -320,6 +321,40 @@ export function diffSnapshots(actual: SliceSnapshot, expected: SliceSnapshot): s
   if (lines.length === 0)
     lines.push(`snapshots differ outside rows and order: ${JSON.stringify(actual).slice(0, 300)}`)
   return lines.join('\n')
+}
+
+/**
+ * WHOLE VIEWS (POD-4674, H3-F3). `diffSnapshots` compares slice rows
+ * (`sliceRowOf`): `activityAt`, `originTick`, `selected`, `pinned`,
+ * `sortKey`, `createdAt`, `seq`, `foldAt` and `dismissed` reach none of
+ * them. Both pool gates hold every visible issue's whole `RowView` (`live`)
+ * to their rebuild's (`want`, the rule table run directly over the feed's
+ * rows) with this, at every compared step. Up to `limit` lines, one per
+ * differing field; a row the live side has no view for is named too. The
+ * row SET is the snapshot comparison's.
+ */
+export function diffViews(
+  live: (id: string) => RowView | undefined,
+  want: ReadonlyMap<string, RowView>,
+  limit = 6,
+): string[] {
+  const out: string[] = []
+  for (const [id, expected] of want) {
+    const got = live(id) as Record<string, unknown> | undefined
+    if (got === undefined) {
+      out.push(`${id}: live has no view`)
+    } else {
+      const direct = expected as unknown as Record<string, unknown>
+      for (const field of new Set([...Object.keys(direct), ...Object.keys(got)])) {
+        if (isDeepStrictEqual(got[field], direct[field])) continue
+        out.push(
+          `${id}.${field}: live ${JSON.stringify(got[field])}, direct ${JSON.stringify(direct[field])}`,
+        )
+      }
+    }
+    if (out.length >= limit) return out.slice(0, limit)
+  }
+  return out
 }
 
 function groupDiff(a: SliceGroup, e: SliceGroup): string[] {

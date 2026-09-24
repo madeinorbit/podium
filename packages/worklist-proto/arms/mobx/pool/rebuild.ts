@@ -29,6 +29,12 @@
  * held to a from-scratch answer. Every row is resident here, so nothing is
  * pending.
  *
+ * WHOLE VIEWS (POD-4674, H3-F3). `rebuildSnapshot` projects each view to the
+ * slice fields (`sliceRowOf`), so the checker never compares `activityAt`,
+ * `originTick`, `selected` and the other view-only fields. `rebuildViews` is
+ * the same run, keeping each whole `RowView`: the gate holds every visible
+ * issue's live view to it at every compared step (`diffViews`, `check.ts`).
+ *
  * GROUPS (POD-4570). The rebuild groups its own row views with L1b's pure
  * functions (`groupKeyOf`, `compareClosedFold`, `shared/src/row-view.ts`),
  * with no selection (the oracle's unselected baseline, spec §7), not with the
@@ -74,6 +80,42 @@ export function rebuildSnapshot(
   locals: LocalsSource,
   _resident?: ReadonlySet<string>,
 ): SliceSnapshot {
+  const { views, issue } = rebuild(source, locals)
+  const rowsById: SliceSnapshot['rowsById'] = {}
+  const pinnedIds: string[] = []
+  const groups = new Map<string, { group: SliceGroup; closed: RowView[] }>()
+  for (const [id, view] of views) {
+    rowsById[id] = sliceRowOf(view)
+    const placement = groupKeyOf({ ...view, selected: false }, {})
+    if (placement.section === 'pinned') {
+      pinnedIds.push(id)
+      continue
+    }
+    let entry = groups.get(placement.repoKey)
+    if (entry === undefined) {
+      const label = repoLabelOf((issue(id) as SliceIssue).repoPath)
+      entry = { group: { key: placement.repoKey, label, rowIds: [], closedIds: [] }, closed: [] }
+      groups.set(placement.repoKey, entry)
+    }
+    if (placement.lane === 'closed') entry.closed.push(view)
+    else entry.group.rowIds.push(id)
+  }
+  const sliceGroups = [...groups.values()].map(({ group, closed }) => ({
+    ...group,
+    closedIds: closed.sort(compareClosedFold).map((view) => view.id),
+  }))
+  return { order: { pinnedIds, groups: sliceGroups }, rowsById }
+}
+
+/** The rebuild's rows as whole views: the visible issues, keyed by id, in rank order. */
+export function rebuildViews(source: RowSource, locals: LocalsSource): Map<string, RowView> {
+  return rebuild(source, locals).views
+}
+
+function rebuild(
+  source: RowSource,
+  locals: LocalsSource,
+): { views: Map<string, RowView>; issue: ViewInputs['issue'] } {
   const tables = createPlainTables()
   const target = { read: tables, write: tables }
   const out = ingestOut()
@@ -94,6 +136,8 @@ export function rebuildSnapshot(
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
     rollup: (id) =>
       tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).rollup : undefined,
+    retainedSeats: (id) =>
+      tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).retainedSeatIds : [],
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
@@ -135,32 +179,12 @@ export function rebuildSnapshot(
     .map(({ id }) => id)
     .filter((id) => directVisibility(visibleInputs, id, memo).visible)
   const order = sortByRank(visible, (id) => directVisibility(visibleInputs, id, memo).rank)
-  const rowsById: SliceSnapshot['rowsById'] = {}
-  const pinnedIds: string[] = []
-  const groups = new Map<string, { group: SliceGroup; closed: RowView[] }>()
+  const views = new Map<string, RowView>()
   for (const id of order) {
     const view = buildRowView(inputs, id, directParts(inputs, id))
-    if (view === undefined) continue
-    rowsById[id] = sliceRowOf(view)
-    const placement = groupKeyOf({ ...view, selected: false }, {})
-    if (placement.section === 'pinned') {
-      pinnedIds.push(id)
-      continue
-    }
-    let entry = groups.get(placement.repoKey)
-    if (entry === undefined) {
-      const label = repoLabelOf((inputs.issue(id) as SliceIssue).repoPath)
-      entry = { group: { key: placement.repoKey, label, rowIds: [], closedIds: [] }, closed: [] }
-      groups.set(placement.repoKey, entry)
-    }
-    if (placement.lane === 'closed') entry.closed.push(view)
-    else entry.group.rowIds.push(id)
+    if (view !== undefined) views.set(id, view)
   }
-  const sliceGroups = [...groups.values()].map(({ group, closed }) => ({
-    ...group,
-    closedIds: closed.sort(compareClosedFold).map((view) => view.id),
-  }))
-  return { order: { pinnedIds, groups: sliceGroups }, rowsById }
+  return { views, issue: inputs.issue }
 }
 
 /** The visible ids in rank order, from scratch (tests: the live `worklist.order` against it). */

@@ -27,8 +27,10 @@
  * come from the issue's worklist node (`ViewInputs.rollup`), a composition
  * over its own seats and its children's cached results; `closed`'s "zero
  * waiting" conjunct is the roll-up's `asking`, applied here over the own
- * part's settled verdict. Fields that read own
- * sessions (`activityAt`, the draft title) read `issue.sessions` once
+ * part's settled verdict. `activityAt` takes the stamps of the row's
+ * retained seats (`ViewInputs.retainedSeats`, the worklist's
+ * `retainedSeatIds`: legacy `retainedSessions`, `rows.ts:98-116`; POD-4679),
+ * not every explicit session. The draft title reads `issue.sessions` once
  * (`sessionIds`) through the relation accessor, maintained by the pool from the schema
  * (`relations.ts`, POD-4566): explicit members, resume twins collapsed. The
  * bucket is unordered; `sessionIds` sorts it by session id (the order is the
@@ -138,6 +140,12 @@ export interface ViewInputs {
   parts(id: string): IssueParts | undefined
   /** The issue's roll-up fields (Mb3: its worklist node's `rollup`); undefined when unknown. */
   rollup(id: string): Rollup | undefined
+  /**
+   * The row's retained seats (the worklist's `retainedSeatIds`: seat members
+   * retained at the clock, exited ones included), whose stamps the own-row
+   * `activityAt` takes (`rows.ts:98-116`, POD-4679).
+   */
+  retainedSeats(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -364,21 +372,20 @@ export function sessionActivityOf(session: SliceSession | undefined): number | n
 }
 
 /**
- * Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec
- * R-BAND). Re-composed from each member's cached contribution
- * (`ViewInputs.sessionActivity`): a member's change re-reads that member only.
+ * Max `lastActiveAt` of the row's retained seats, else own `updatedAt`, else
+ * 0 (`rows.ts:108-116`: `lastSession || updatedAt || 0`, so a zero stamp
+ * falls back too). Not every explicit session: archived, shell and decayed
+ * ones retain nothing (POD-4679). Re-composed from each seat's cached
+ * contribution (`ViewInputs.sessionActivity`): a seat's change re-reads that
+ * seat only.
  */
-export function activityAtPartOf(
-  input: ViewInputs,
-  id: string,
-  sessionIds: readonly string[],
-): number {
-  let latest: number | null = null
-  for (const sessionId of sessionIds) {
+export function activityAtPartOf(input: ViewInputs, id: string): number {
+  let latest = 0
+  for (const sessionId of input.retainedSeats(id)) {
     const at = input.sessionActivity(sessionId)
-    if (at !== null && (latest === null || at > latest)) latest = at
+    if (at !== null && at > latest) latest = at
   }
-  return latest ?? parseMs(input.issue(id)?.updatedAt) ?? 0
+  return latest || parseMs(input.issue(id)?.updatedAt) || 0
 }
 
 /**
@@ -430,7 +437,7 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
       return sessionIdsPartOf(input, id)
     },
     get activityAt() {
-      return activityAtPartOf(input, id, parts.sessionIds)
+      return activityAtPartOf(input, id)
     },
     get loading() {
       return loadingPartOf(input, parts.originRef, parts.sessionIds)

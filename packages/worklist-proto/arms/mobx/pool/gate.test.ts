@@ -62,6 +62,31 @@
  * checkpoint: registry writes (a cold row's update, insert or removal), loads
  * on access, rows warmed by a reopen or removal.
  *
+ * WHOLE VIEWS (POD-4674, H3-F3). The checker compares `snapshot()`, whose
+ * rows are `sliceRowOf(view)`: the 11 slice fields. `activityAt`,
+ * `originTick`, `selected`, `pinned`, `sortKey`, `createdAt`, `seq`, `foldAt`
+ * and `dismissed` reach none of them. Every compared step also holds every
+ * visible issue's whole `RowView` to the rebuild's (`rebuildViews`, the same
+ * rule table run directly over the feed's rows), field by field (the shared
+ * `diffViews`, `check.ts`, which the hand gate uses too).
+ *
+ * OBSERVED. Each checked arm is kept alive by one reaction over every visible
+ * row's view and the grouped layout, as the mounted list keeps it (Mb3's
+ * lesson, POD-4571 1784e722f): unobserved, every computed re-runs on each
+ * snapshot read and no stale cache could ever show.
+ *
+ * H3's three view plants (`harness/review/h3-gate-plants.test.ts`), in MobX
+ * terms, each of which must fail every seed:
+ * - `activityCached`: each member's `activityAt` contribution cached in a
+ *   plain `Map` (the MobX gates' deaf plain-Map read). Only the view check
+ *   can catch it; it must be the one that does.
+ * - `presenceUntracked`: presence asked of the table untracked, so a view
+ *   does not re-run when its origin arrives or leaves.
+ * - `chainUntracked`: another issue's parts (the origin's, read by
+ *   `originTick`) read untracked, so a change two derivations down does not
+ *   reach the reader (H3's `chain`: a changed cell at level >= 2 does not
+ *   dirty its readers).
+ *
  * FIDELITY. The fields Ma1 derives from the row, one hop and the locals, and
  * the roll-ups Mb3 derives (`phase`, progress, `working`, `asking`,
  * `workingSince`, and `closed` / `dismissed` with their "nothing waiting"
@@ -69,7 +94,7 @@
  * for every visible row.
  */
 
-import { runInAction } from 'mobx'
+import { reaction, runInAction, untracked } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenarios'
 import {
@@ -85,6 +110,7 @@ import {
   checkArm,
   describeSequence,
   diffSnapshots,
+  diffViews,
 } from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
@@ -93,7 +119,7 @@ import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
-import { rebuildSnapshot } from './rebuild'
+import { rebuildSnapshot, rebuildViews } from './rebuild'
 import { acceptUnscannedGap } from './worklist/known-gaps'
 
 installMobxWarnTrap()
@@ -101,12 +127,14 @@ installMobxWarnTrap()
 /**
  * Three seeds of 200 steps by default (~8 min at load 8 with the per-step
  * relation check); `POD_POOL_GATE_SEEDS=<n>` runs seeds 1..n and
- * `POD_POOL_GATE_STEPS=<n>` sets the steps per seed. The gate of record
+ * `POD_POOL_GATE_STEPS=<n>` sets the steps per seed;
+ * `POD_POOL_GATE_FIRST_SEED=<k>` starts at seed k, so a long run goes in chunks. The gate of record
  * (POD-4568) is 20 x 300: `docs/measurements/POD-4568-a.md` has the command.
  */
+const FIRST_SEED = Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1)
 const SEEDS = Array.from(
-  { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
-  (_, i) => i + 1,
+  { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) - FIRST_SEED + 1 },
+  (_, i) => i + FIRST_SEED,
 )
 const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
 /**
@@ -189,6 +217,49 @@ const promoteSkipped: CheckableArm = {
   },
 }
 
+/** The view plant: each member's activity is cached in a plain `Map` after its first read. */
+const activityCached: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = mobxPoolArm.create(source, locals, reads)
+    const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
+    const read = inputs.sessionActivity
+    const cache = new Map<string, number | null>()
+    inputs.sessionActivity = (id) => {
+      if (!cache.has(id)) cache.set(id, read(id))
+      return cache.get(id) as number | null
+    }
+    return handle
+  },
+}
+
+/** H3's presence plant: a part asks presence of the table untracked. */
+const presenceUntracked: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = mobxPoolArm.create(source, locals, reads)
+    const { pool } = handle
+    const inputs = pool.inputs as { present: (entity: 'issue' | 'session', id: string) => boolean }
+    const present = inputs.present
+    inputs.present = (entity, id) => untracked(() => present(entity, id))
+    return handle
+  },
+}
+
+/** H3's chain plant: another issue's parts (the origin's) are read untracked. */
+const chainUntracked: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = mobxPoolArm.create(source, locals, reads)
+    const inputs = handle.pool.inputs as { parts: (id: string) => object | undefined }
+    const parts = inputs.parts
+    inputs.parts = (id) => {
+      const model = untracked(() => parts(id))
+      return model === undefined
+        ? undefined
+        : new Proxy(model, { get: (target, key) => untracked(() => Reflect.get(target, key)) })
+    }
+    return handle
+  },
+}
+
 /** What the gated arms did with cold rows, summed over every arm a run created. */
 interface ColdTally {
   coldWrites: number
@@ -243,9 +314,11 @@ function fullResidencyCheck(
 function checked(
   arm: CheckableArm,
   checks: { perStep: boolean; full: boolean } = { perStep: true, full: true },
-): CheckableArm & { snapshots: number; cold: ColdTally } {
+): CheckableArm & { snapshots: number; views: number; cold: ColdTally } {
   const wrapper = {
     snapshots: 0,
+    /** Whole views compared by the per-step view check. */
+    views: 0,
     cold: emptyTally(),
     create(
       source: RowSource,
@@ -253,6 +326,13 @@ function checked(
       reads?: Parameters<CheckableArm['create']>[2],
     ) {
       const handle = arm.create(source, locals, reads) as MobxPoolHandle
+      const { pool } = handle
+      // Kept alive as the mounted list keeps it (see OBSERVED).
+      const stop = reaction(
+        () => [pool.worklist.order.map((id) => pool.issue(id)?.view), pool.groups.layout],
+        () => {},
+        { name: 'gate.observer' },
+      )
       const tally = (count = true): void => {
         const counters = handle.pool.residency?.counters
         if (counters === undefined) return
@@ -267,7 +347,6 @@ function checked(
         ...handle,
         snapshot() {
           wrapper.snapshots += 1
-          const { pool } = handle
           // The checker snapshots once at boot and once per step.
           if (checks.full && wrapper.snapshots === STEPS + 1) {
             tally()
@@ -291,11 +370,20 @@ function checked(
               `residency diverged from the feed (snapshot ${wrapper.snapshots}):\n${partition.join('\n')}`,
             )
           }
+          const direct = rebuildViews(source, locals)
+          wrapper.views += direct.size
+          const views = tracked(() => diffViews((id) => pool.issue(id)?.view, direct))
+          if (views.length > 0) {
+            throw new Error(
+              `row views diverged from the direct rule table (snapshot ${wrapper.snapshots}):\n${views.join('\n')}`,
+            )
+          }
           tally()
           return settled
         },
         dispose() {
           tally()
+          stop()
           handle.dispose()
         },
       }
@@ -338,6 +426,7 @@ function gapped(arm: CheckableArm, tally: { applied: number }): CheckedArm {
 function caughtBy(message: string): string {
   if (message.startsWith('full residency')) return 'checkpoint'
   if (message.startsWith('residency')) return 'partition'
+  if (message.startsWith('row views')) return 'views'
   return 'relations'
 }
 
@@ -369,16 +458,18 @@ async function plantOutcome(
 
 describe('correctness gate (L4b), rebuild every step and the oracle at its default', () => {
   it(
-    'passes every seed, and the removal-deaf plant fails',
+    'passes every seed, and every plant fails every seed',
     async () => {
       const cells = []
       let plantedFailures = 0
       let coldPlantFailures = 0
       let checkpointPlantFailures = 0
       let relinkPlantFailures = 0
+      const viewPlantFailures = { activity: 0, presence: 0, chain: 0 }
       for (const seed of SEEDS) {
         const sequence = gen(seed, STEPS)
         relationChecked.snapshots = 0
+        relationChecked.views = 0
         relationChecked.cold = emptyTally()
         const gap = { applied: 0 }
         const result = await checkArm(gapped(relationChecked, gap), sequence)
@@ -391,6 +482,8 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
         expect(relationChecked.snapshots).toBeGreaterThan(STEPS)
         // Not rebuild-only: the oracle compared the run (every 10 steps, the last, the boot).
         expect(result.counts.oracleChecks).toBeGreaterThanOrEqual(Math.floor(STEPS / 10) + 1)
+        // The view check compared rows at every step, or its green says nothing.
+        expect(relationChecked.views).toBeGreaterThan(relationChecked.snapshots)
         const cold = { ...relationChecked.cold }
         // The run must have exercised cold rows, or its green says nothing about them.
         expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)
@@ -410,12 +503,33 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
         )
         if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint')
           checkpointPlantFailures += 1
+        const activity = await plantOutcome(checked(activityCached), sequence)
+        if (!activity.ok && activity.against === 'views') viewPlantFailures.activity += 1
+        const presence = await plantOutcome(checked(presenceUntracked), sequence)
+        if (!presence.ok) viewPlantFailures.presence += 1
+        const chain = await plantOutcome(checked(chainUntracked), sequence)
+        if (!chain.ok) viewPlantFailures.chain += 1
+        const brief = (outcome: typeof activity) =>
+          outcome.ok
+            ? { failed: false }
+            : {
+                failed: true,
+                step: outcome.step,
+                caughtBy: outcome.against,
+                diff: outcome.diff.split('\n').slice(0, 2).join(' | '),
+              }
         cells.push({
           seed,
           steps: STEPS,
           counts: result.counts,
           gapApplied: gap.applied,
           relationChecks: relationChecked.snapshots,
+          viewsCompared: relationChecked.views,
+          viewPlants: {
+            activityCached: brief(activity),
+            presenceUntracked: brief(presence),
+            chainUntracked: brief(chain),
+          },
           cold,
           kinds: countKinds(sequence),
           plantFailed: !plant.ok,
@@ -437,7 +551,11 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
             : checkpointPlant.diff.split('\n').slice(0, 2).join(' | '),
         })
       }
-      writeResult(`mobx-pool-gate-1x-${SEEDS.length}x${STEPS}`, {
+      const name =
+        FIRST_SEED === 1
+          ? `mobx-pool-gate-1x-${SEEDS.length}x${STEPS}`
+          : `mobx-pool-gate-1x-${SEEDS.length}x${STEPS}-from-${FIRST_SEED}`
+      writeResult(name, {
         seeds: SEEDS,
         steps: STEPS,
         cells,
@@ -446,6 +564,11 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
       expect(coldPlantFailures).toBe(SEEDS.length)
       expect(relinkPlantFailures).toBe(SEEDS.length)
       expect(checkpointPlantFailures).toBe(SEEDS.length)
+      expect(viewPlantFailures).toEqual({
+        activity: SEEDS.length,
+        presence: SEEDS.length,
+        chain: SEEDS.length,
+      })
     },
     GATE_TIMEOUT_MS,
   )
@@ -489,6 +612,10 @@ describe('row fields against the oracle', () => {
         'workingSince',
         'closed',
         'dismissed',
+        // POD-4674/POD-4679: the retained seats' stamps, else updatedAt
+        // (`rows.ts:98-116`), raised by the latest seat nested below
+        // (`rows.ts:336-339`).
+        'activityAt',
       ]
       let closedByOracle = 0
       // POD-4671 (`worklist/known-gaps.ts`): the unscanned-worktree orphan has

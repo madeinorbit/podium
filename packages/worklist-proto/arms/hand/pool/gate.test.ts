@@ -26,7 +26,7 @@
  * and `dismissed` reach none of them, so the rebuild alone holds them to
  * nothing. Every compared step also holds every visible issue's whole
  * `RowView` to the same rule table run directly over the feed's rows
- * (`rebuildViews`), field by field (`diffViews`). Its NO: member activity
+ * (`rebuildViews`), field by field (the shared `diffViews`, `check.ts`). Its NO: member activity
  * cached in a plain `Map`, which the rebuild and the scans all miss.
  *
  * RESIDENCY (POD-4580, Ha3). The pool holds only its resident rows, so the
@@ -49,6 +49,11 @@
  *   plain `Map` after its first read (the MobX gates' deaf plain-Map read,
  *   H3's `activity` plant). No slice field and no relation moves, so only
  *   the per-step view check can catch it; it must be the one that does.
+ * - `chainCut` and `presenceUntracked` (H3's `chain` and `presence`
+ *   plants, `harness/review/h3-gate-plants.test.ts`): a changed cell at
+ *   level >= 2 dirties none of its readers; a part asks presence from the raw
+ *   table, untracked. Both passed the stock checks before the view check; the
+ *   cell records which check catches each now.
  * - `planted`: deaf to removals (Ha1's; the rebuild catches it).
  * - `relinkSkipped`: an update of a row the pool HOLDS maintains no relation
  *   (Ha2's; the per-step relation check).
@@ -87,7 +92,6 @@
  * pool shows the lowest session id, `views.ts`).
  */
 
-import { isDeepStrictEqual } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { engineLocals, openFenceFeeds, parityLocals } from '../../../harness/src/fence-scenarios'
 import {
@@ -98,12 +102,16 @@ import {
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
-import { checkArm, describeSequence, diffSnapshots } from '../../../shared/src/gen/check'
+import {
+  checkArm,
+  describeSequence,
+  diffSnapshots,
+  diffViews,
+} from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
-import type { HandPool } from './pool'
 import { rebuildSnapshot, rebuildViews } from './rebuild'
 import type { Residency } from './residency'
 
@@ -226,28 +234,45 @@ const activityCached: CheckableArm = {
 }
 
 /**
- * Up to 6 lines, one per field: the visible issues whose live view differs
- * from the direct one (`want`, from `rebuildViews`). Row-set differences are
- * the rebuild comparison's; a row missing here is named too.
+ * H3's chain plant: a changed cell at level 2 or above does not dirty its
+ * readers (round two's unsound chain early-stop, in the cell graph's terms).
  */
-function diffViews(pool: HandPool, want: ReadonlyMap<string, RowView>): string[] {
-  const out: string[] = []
-  for (const [id, expected] of want) {
-    const got = pool.view(id) as Record<string, unknown> | undefined
-    if (got === undefined) {
-      out.push(`${id}: live has no view`)
-    } else {
-      const direct = expected as unknown as Record<string, unknown>
-      for (const field of new Set([...Object.keys(direct), ...Object.keys(got)])) {
-        if (isDeepStrictEqual(got[field], direct[field])) continue
-        out.push(
-          `${id}.${field}: live ${JSON.stringify(got[field])}, direct ${JSON.stringify(direct[field])}`,
-        )
+const chainCut: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = handPoolArm.create(source, locals, reads)
+    const graph = handle.pool.graph as unknown as {
+      run(cell: { level: number }): void
+      invalidate(cell: unknown): void
+    }
+    const run = graph.run.bind(graph)
+    const invalidate = graph.invalidate.bind(graph)
+    let changing: { level: number } | null = null
+    graph.run = (cell) => {
+      const outer = changing
+      changing = cell
+      try {
+        run(cell)
+      } finally {
+        changing = outer
       }
     }
-    if (out.length >= 6) return out.slice(0, 6)
-  }
-  return out
+    graph.invalidate = (cell) => {
+      if (changing !== null && changing.level >= 2) return
+      invalidate(cell)
+    }
+    return handle
+  },
+}
+
+/** H3's presence plant: a part asks presence from the raw table, untracked. */
+const presenceUntracked: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = handPoolArm.create(source, locals, reads)
+    const { pool } = handle
+    const inputs = pool.inputs as { present: (entity: 'issue' | 'session', id: string) => boolean }
+    inputs.present = (entity, id) => pool.tables[entity].has(id)
+    return handle
+  },
 }
 
 /** What the gated arms did with cold rows, summed over every arm a run created. */
@@ -366,7 +391,7 @@ function checked(
           }
           const direct = rebuildViews(source, locals)
           wrapper.views += direct.size
-          const views = diffViews(pool, direct)
+          const views = diffViews((id) => pool.view(id), direct)
           if (views.length > 0) {
             throw new Error(
               `row views diverged from the direct rule table (snapshot ${wrapper.snapshots}):\n${views.join('\n')}`,
@@ -441,6 +466,8 @@ describe('correctness gate (L4b), rebuild-only', () => {
         coldRelink: 0,
         checkpoint: 0,
         activity: 0,
+        chain: 0,
+        presence: 0,
       }
       for (const seed of SEEDS) {
         const sequence = gen(seed, STEPS)
@@ -480,6 +507,10 @@ describe('correctness gate (L4b), rebuild-only', () => {
         if (!kept.ok && kept.against === 'checkpoint') failures.checkpoint += 1
         const activity = await plantOutcome(checked(activityCached), sequence)
         if (!activity.ok && activity.against === 'views') failures.activity += 1
+        const chain = await plantOutcome(checked(chainCut), sequence)
+        if (!chain.ok) failures.chain += 1
+        const presence = await plantOutcome(checked(presenceUntracked), sequence)
+        if (!presence.ok) failures.presence += 1
         cells.push({
           seed,
           steps: STEPS,
@@ -495,6 +526,8 @@ describe('correctness gate (L4b), rebuild-only', () => {
             coldRelinkSkipped: brief(coldRelink),
             registryKept: brief(kept),
             activityCached: brief(activity),
+            chainCut: brief(chain),
+            presenceUntracked: brief(presence),
           },
         })
       }
@@ -510,6 +543,8 @@ describe('correctness gate (L4b), rebuild-only', () => {
         coldRelink: SEEDS.length,
         checkpoint: SEEDS.length,
         activity: SEEDS.length,
+        chain: SEEDS.length,
+        presence: SEEDS.length,
       })
     },
     GATE_TIMEOUT_MS,
