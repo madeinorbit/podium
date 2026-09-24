@@ -634,7 +634,35 @@ survivor after a switch. p50 (p95), ms and MB:
 |---|---|---|---|---|---|
 | coldBootstrap | 202.0 (245.1) | script 94.4 + build 108.7; engine 1,728.6 (not charged); load to paint 1,944.3 | 20.90 → 22.56 | — | 207.1 (270.3) |
 | principalSwitch | 236.7 (286.5) | dispose 4.1, build 233.7; next runtime boot 1,246.7 (untimed) | 24.57 → 22.94 | 0.934 | 286.8 (371.7) |
-| rescope | 795.1 (892.3) | grow 483.9, back 308.7 | 37.06 → 43.84 | 1.183 | 275.7 (330.2) |
+| rescope | ~~795.1 (892.3)~~ SUPERSEDED, below | grow 483.9, back 308.7 | 37.06 → 43.84 | 1.183 | 275.7 (330.2) |
+
+**Rescope cell superseded (POD-4572, 2026-09-24).** The rescope above staged
+the 2x corpus's ROWS but not its SCANS: discovery kept answering the page's
+own corpus, so every worktree the grown corpus adds was unscanned at the
+grown state (262 issue worktrees; 7 visible rows differed from the oracle on
+the round-three MobX pool). Coordinator ruling: stage both, as a real
+rescope delivers them. `harness/src/rescope.ts` now publishes the scope's
+scans through discovery (`worktreesChanged`), settles untimed, then stages the
+rows before each timed install (grow and back); `harness/src/rescope.test.ts`
+holds the grown state to one unscanned worktree (the corpus's own orphan).
+Re-measured in one interleaved matrix with the MobX pool (`--arms
+noop,control,mobx --scales 1 --rounds 4 --samples 5 --scenarios rescope --tag
+mb4-rescope`, flatblock, runtimeSha ccc4ce075, 12 runs ok, n = 20, load ≤
+6.29, parity ok at the grown state and after):
+
+| Step | control `actionMs` | phases p50 | heap before → after | growth | no-op `actionMs` |
+|---|---|---|---|---|---|
+| rescope | 972.0 (1,088.8) | grow 634.4, back 328.5 | 39.85 → 47.02 | 1.180 | 368.2 (405.9) |
+
+The rescope growth budget on these numbers is ≤ 1.230. OPEN (reported to the
+coordinator): on the control page the grown state holds 735 visible rows,
+where the oracle over the same staged state holds 1,464 on the no-op and MobX
+pages (and in the count lane with the control mounted); the control's
+mid-state parity passes because the control and the oracle read the same
+store. Its unpatched oracle hash at the grown state (`a2bbb0a3`) differs from
+the no-op page's (`ece60d30`) for the same staging, so the control page's
+grown state is not the others'. This predates the scan staging (the first
+Mb4 run recorded 735 too).
 
 **The lifecycle budgets, on these numbers:** coldBootstrap `actionMs` p50
 ≤ 222.2 ms; principalSwitch ≤ 473.4 ms; coldBootstrap retained heap ≤ 24.82
