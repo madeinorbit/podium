@@ -104,8 +104,11 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     placement: pool.groups.held(),
     /**
      * The roll-ups (POD-4584, Hb3): two filing cells (nest and formal
-     * parents) per known issue, filed at the bootstrap's own settle; no
-     * verdict or composition cell until a row is read.
+     * parents) per known issue, filed at the bootstrap's own settle. The
+     * bootstrap's layout also reads `waiting` for the rows its settled
+     * placement puts in the fold, composing their aggregates (and their
+     * rosters' verdict cells); nothing else reads a roll-up until a row is
+     * drawn.
      */
     filing: rollupCells.filings,
     filedIssues: pool.rollup.held(),
@@ -215,8 +218,8 @@ describe('bootstrap in the count harness', () => {
             l.sessionParts,
         )
         expect(l.filing, arm).toBe(2 * l.filedIssues)
-        expect(l.verdicts, arm).toBe(0)
-        expect(l.rollupParts, arm).toBe(0)
+        // Every known issue is filed: resident rows plus the cold registry.
+        expect(l.filedIssues, arm).toBe(c.rows['issue']! + c.cold.issue)
         expect(l.member, arm).toBe(c.rows['issue'])
         expect(l.rank, arm).toBe(l.visible)
         expect(l.placement, arm).toBe(l.visible)
