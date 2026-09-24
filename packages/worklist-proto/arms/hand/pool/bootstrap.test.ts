@@ -237,10 +237,13 @@ describe('bootstrap in the count harness', () => {
       // The same rule over the same rows builds the same collection either way.
       expect(lazy.liveCells.visible).toBe(all.liveCells.visible)
       // Every row resident, the rule reaches every known issue once: one part
-      // set per issue, MobX's IssueNode count (Mb1: 4,867 / 19,468). Lazily,
-      // only the sets a resident row's rule asked for (1x: 3,240).
+      // set per issue, MobX's IssueNode count (Mb1: 4,867 / 19,468). Hb3
+      // files every known issue (nest and formal parents), so the lazy pool
+      // holds every known issue's part set too, as MobX holds one node per
+      // known issue, hot or cold; sessions stay lazy (a set only when a
+      // resident row's rule asked).
       expect(all.liveCells.issuePartSets).toBe(all.rows['issue'])
-      expect(lazy.liveCells.issuePartSets).toBeLessThan(all.liveCells.issuePartSets)
+      expect(lazy.liveCells.issuePartSets).toBe(all.rows['issue'])
       perKnown.push(lazy.liveCells.live / all.rows['issue']!)
       expect(lazy.records).toBe(0)
       expect(lazy.tableSlots).toBeLessThan(all.tableSlots)
