@@ -29,9 +29,9 @@ import {
   type LaunchOptions,
   type LaunchSpec,
 } from '@podium/harness'
-import type { AgentKind } from '@podium/model'
+import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
+import { type AgentKind, asMachineId } from '@podium/model'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { ensurePodiumCodexHooks } from '../../apps/daemon/src/codex-hooks'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
@@ -131,7 +131,6 @@ if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHI
   git(['clone', '-q', SCRATCH_REPO, E2E_TARGET_REPO], SCRATCH_REPO)
 }
 
-writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT, SCRATCH_REPO]))
 // Pre-pick the deployment mode so the setup gate (SetupGate → /setup/config →
 // needsSetup) doesn't block the workspace: the harness IS an all-in-one server.
 // Without this every browser spec lands on the first-run SetupView.
@@ -243,7 +242,32 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
   })
 }
 
-let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
+/**
+ * The server, set up the way setup enrollment and the host daemon's repo scan
+ * would leave it. Since 2b803efb5 the server never invents placement: a session
+ * needs a machine ASSIGNED agent execution, and an issue's repo resolves only
+ * through a machine that REPORTED it. The enrolled-server fixture enrolls the host
+ * as a server only, and the old `repos.json` in the state dir is read by nothing,
+ * so without this `repos.list` is empty and every spec stops in setup.
+ *
+ * The machine token is fixed for the life of the harness: a relay restart
+ * re-enrolls the host, and a fresh token would lock out the daemon that is still
+ * running with the first one.
+ */
+let machineToken: string | undefined
+const startHarnessServer = async (): Promise<Awaited<ReturnType<typeof startServer>>> => {
+  const started = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
+  const machines = started.registry.modules.machines
+  const machineId = asMachineId(hostMachineId())
+  if (machineToken === undefined) machineToken = started.machineToken
+  else await machines.ensureHostMachine('transport-test-host', machineToken)
+  await machines.changeAssignment(machineId, { server: true, agentExecution: true }, 'e2e-harness')
+  const store = started.registry.sessionStore
+  for (const path of [REPO_ROOT, SCRATCH_REPO]) await store.repos.addRepo(path, machineId)
+  return Object.assign(started, { machineToken })
+}
+
+let server = await startHarnessServer()
 
 // The ordinary harness must never read authenticated provider quota just to paint
 // a health chip. Keep it deterministic (and make mixed-pool UI testable) unless
@@ -1019,7 +1043,7 @@ const restartServer = async (): Promise<void> => {
     await server.close()
     await new Promise((resolve) => setTimeout(resolve, 750))
     if (shuttingDown) return
-    server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
+    server = await startHarnessServer()
     restartSerial += 1
     writeFileSync(restartSerialFile, String(restartSerial))
   } finally {

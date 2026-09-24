@@ -468,6 +468,39 @@ export function reapStaleHarnessDirs(_now: number = Date.now()): number[] {
  * The returned `env` is the child-process boundary: Bun does not reliably observe later
  * process.env mutations, so every child launched by the harness must receive this snapshot.
  */
+/**
+ * The HOST's Podium identity, handed to every process a live Podium launches —
+ * including an agent session that then runs this harness. The daemon prefers the
+ * supervisor hand-off over its own state dir, so an inherited
+ * PODIUM_SUPERVISOR_* makes the harness daemon adopt the host's REAL machine id,
+ * token and publisher-key pin, and its handshake with the harness's own server is
+ * refused ("auth-failed", then "the publisher update key was replaced after this
+ * machine enrolled"). The rest name the host instance, its parent, or the session
+ * the harness happens to run inside. None of it describes the isolated instance.
+ */
+export const HOST_INSTANCE_ENV = [
+  'PODIUM_SUPERVISOR_MACHINE_ID',
+  'PODIUM_SUPERVISOR_MACHINE_TOKEN',
+  'PODIUM_SUPERVISOR_UPDATE_PUBKEY',
+  'PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT',
+  'PODIUM_PARENT_GENERATION',
+  'PODIUM_UNDER_PARENT',
+  'PODIUM_PARENT_HAS_SERVER',
+  'PODIUM_MACHINE_UPDATE_GRANT',
+  'PODIUM_MACHINE_UPDATE_OWNER',
+  'PODIUM_HANDOVER_DEADLINE',
+  'PODIUM_HOME',
+  'PODIUM_INSTANCE',
+  'PODIUM_INSTANCE_UUID',
+  'PODIUM_PORT',
+  'PODIUM_AGENT_RELAY',
+  'PODIUM_ISSUE_RELAY',
+  'PODIUM_SESSION_ID',
+  'PODIUM_SESSION_INSTANCE',
+  'PODIUM_SESSION_RELAY',
+  'NOTIFY_SOCKET',
+] as const
+
 export function applyHarnessEnv(
   port: number,
   requestedRunId?: string,
@@ -481,6 +514,7 @@ export function applyHarnessEnv(
     mkdirSync(d, { recursive: true, mode: 0o700 })
   }
   chmodSync(dirs.base, 0o700)
+  for (const key of HOST_INSTANCE_ENV) delete process.env[key]
   process.env.ABDUCO_SOCKET_DIR = dirs.abducoSocketDir
   process.env.PODIUM_STATE_DIR = dirs.stateDir
   // When the harness itself runs inside a Podium-launched shell (agents in a
