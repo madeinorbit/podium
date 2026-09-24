@@ -1,5 +1,87 @@
 # arms/mobx — notes
 
+## Round three: structural scenarios and the browser, b4 (POD-4572) · 2026-09-24
+
+Code: `harness/src/roster.ts` (the pool on the roster, `RosterAllowances`),
+`harness/src/fences.test.tsx` (the roster loop with named allowances),
+`pool/worklist/known-gaps.ts` (`MOBX_POOL_ALLOWANCES`), `harness/web/entries/mobx.ts`
+(the page mounts the round-three pool), `harness/web/entrylib.ts`
+(`parityAllowance`), `harness/browser/run.ts` (console trap, `--console-plant`),
+`pool/mobx-trap.ts` (`errors`), `pool/views.ts` (`firstMemberOf`),
+`pool/enumerate.ts` (`knownTables` from the feed). Tests:
+`harness/src/fences.test.tsx`, `harness/native/mobx-pool.native.test.tsx`,
+`pool/worklist/draft-title.test.tsx`. Numbers: `docs/measurements/POD-4572-b.md`.
+
+### Mechanism fixes (and whether each added a place to remember)
+
+- **None needed on the count fences.** Run first, before any change: every
+  step #1-#10 commits exactly the oracle's changed rows and reads within its
+  budget, beside Mb3's three named exceptions. The typical misses the brief
+  names were already absent: #8 (a 60 s tick) reads 0 rows and commits 0, #8b
+  (the grace crossing) reads and commits exactly its 6 crossers (the clock is
+  deadlines, `pool/clock.ts`); #5 (stage move) commits 1 row and runs the
+  layout once. No place to remember was added.
+- **A draft's title skipped nothing** (`views.ts` `firstMemberOf`). The legacy
+  names a draft after `sessionsForIssueNav(...)[0]`, which leaves out shells,
+  archived and headless sessions; the pool took its first member of any kind.
+  Invisible at 1x and 2x; the 4x browser parity caught it (`i10142`, `i13682`
+  "New Shell session" against "New Codex session", `i3081` against "New
+  Claude session"). `draft-title.test.tsx` holds every visible 4x draft to the
+  oracle and requires a shell-first draft to exist; A/B on flatblock: the old
+  rule fails it (`i13682`), the fix passes. PLACE TO REMEMBER: none new (the
+  rule lives in the one function the model and the rebuild share). The hand
+  pool has the same rule (`arms/hand/pool/views.ts`); its lane was mailed.
+- **The POD-4671 allowance covers its class, not one row**
+  (`known-gaps.ts`). The page's rescope (L5e) stages the 2x corpus's rows but
+  not its scans (`discovery.repos` stays at the page's corpus), so at the
+  grown state every 2x-only issue worktree is unscanned: seven rows of
+  POD-4671's class (`i4944`, the 2x corpus's own orphan, and `i5950`,
+  `i6651`, `i6875`, `i7502`, `i8964`, `i9549`). Reproduced in counts
+  (a scratch probe, not kept): a fresh 2x pool differs from the oracle on
+  `i4944` alone; the rescoped one on all seven, each in seat fields only,
+  each an issue whose own `worktreePath` no lane reports (`s5122` under
+  `/repo-000/.worktrees/w00477/sub` links to the repo-root lane). The
+  allowance now accepts a row only when (a) it differs in `phase` /
+  `working` / `asking` alone and (b) its own worktree is not a scanned lane;
+  the tripwire (the corpus orphan seated) is unchanged. PLACE TO REMEMBER:
+  none in the pool; it is a test exception that dies with POD-4671.
+- **`knownTables` reads lanes and repos from the feed** (`enumerate.ts`),
+  the switch its comment assigned to Mb4: the relation check no longer
+  leans on the pool's own tables for the never-cold entities.
+
+### Decisions
+
+- **Named allowances live on the roster entry** (`RosterAllowances`: parity,
+  undrawn, reads), each naming the issue that removes it, applied only by
+  `fences.test.tsx`, recorded per step in the results cell (`allowed`), and
+  FAILING the suite when no step needed one (a fixed gap takes its allowance
+  with it). The pool carries Mb3's three: POD-4671 (parity), POD-4674
+  (`activityAt` alone on #10's `i937`), POD-4678 (#10's re-listed family,
+  92 reads). The roster's pending exception for `mobx` is gone.
+- **The page's parity takes the same POD-4671 allowance**
+  (`MountPageOptions.parityAllowance`); each record's `parity.allowance`
+  names the rows when it applied.
+- **The console trap.** The pages are production builds, where MobX's
+  enforcement warnings are compiled out (`__MOBX_DEV__` is
+  `NODE_ENV !== 'production'`); a throw inside a reaction is still reported
+  through `console.error`. `run.ts` fails a candidate arm's run on ANY
+  console warning or error (other pages' are printed). Proven armed:
+  `--console-plant warn` and `--console-plant reaction` each fail a run
+  (`[plant] console warning`; `[mobx] uncaught error in 'Reaction[Reaction]'
+  Error: [plant] thrown inside a reaction`). The native lane runs under
+  `installMobxWarnTrap({ errors: true })` with a planted warning and a
+  planted reaction error; its first catch was real: React's "suspended
+  resource finished loading outside act" from the lazily imported native
+  list, fixed by awaiting that module inside an act.
+
+### Open
+
+- The page's rescope does not re-scan lanes for the grown corpus (harness
+  fidelity, L5e): mailed to the coordinator.
+- A draft's "first" member: the legacy orders by the engine's session array
+  (arrival), the pool by id. They agree on every scale here once shells are
+  skipped; on data whose ids do not sort in arrival order they could differ.
+
 ## Round three: lazy per-row roll-ups, b3 (POD-4571) · 2026-09-24
 
 Code: `pool/worklist/rollup.ts` (the combines, the per-session rules, the

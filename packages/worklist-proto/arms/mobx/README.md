@@ -223,8 +223,19 @@ by the engine.
   M3's probe (`harness/review/m3-shape-probes.test.tsx`, with
   `M3_LIVE_EXPORT`) prints the same count on the live export.
 - **Fence steps #1-#4**, `pool/counts.test.tsx`: the shared
-  `assertCommits` (#1-#3), `assertReads` and `assertNoCopies`, no parity; the
-  roster entry with parity is Mb4's (`fences.test.tsx` names it pending).
+  `assertCommits` (#1-#3), `assertReads` and `assertNoCopies`, no parity.
+- **Every fence step #1-#10 with parity**, `harness/src/fences.test.tsx`:
+  the pool is on the roster (`harness/src/roster.ts`, POD-4572) with its
+  named allowances (`worklist/known-gaps.ts` `MOBX_POOL_ALLOWANCES`: POD-4671
+  parity, POD-4674 `activityAt`, POD-4678 #10 reads), each failing the suite
+  once no step needs it.
+- **The console trap** (M3 N3): `installMobxWarnTrap({ errors: true })` also
+  fails a test on any `console.error` (MobX reports a throw inside a reaction
+  there); the native lane runs under it. The browser driver fails a candidate
+  arm's run on any console warning or error (`run.ts`; proof plants
+  `--console-plant warn|reaction`). The production pages compile MobX's
+  enforcement warnings out, so enforcement proper is asserted in the count
+  lanes.
   A STEP COUNTS ITS OWN LOADS (M3 G2): the handle's `settleLoads()` flushes
   the arm's redraws and lands what they queued until nothing is queued, and
   the shared fence (`runFenceStep`) awaits it inside each step before the
