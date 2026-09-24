@@ -85,17 +85,13 @@ function armWithAdapter(
 function staleRewind(handle: WritableMobxPoolHandle): void {
   const write = handle.write
   const atEdit = new Map<string, { id: string; row: SliceIssue }>()
-  const txRow = new Map<string, string>()
   const edit = write.edit.bind(write)
   write.edit = ((kind, id, patch) => {
     // A tracked read (the pool's own reads go through its fenced tables
     // inside its action; the plant has neither, so it reads transiently).
     const server = tracked(() => handle.pool.tables.issue.get(id)) as SliceIssue | undefined
     const txId = edit(kind, id, patch)
-    if (server !== undefined) {
-      atEdit.set(txId as string, { id, row: server })
-      txRow.set(txId as string, id)
-    }
+    if (server !== undefined) atEdit.set(txId as string, { id, row: server })
     return txId
   }) as typeof write.edit
   const reject = write.reject.bind(write)
@@ -181,7 +177,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
   )
 
   it(
-    'plant (a) on a fixed sequence: a remote that never reaches the log rewinds stale',
+    'plant (a) on a fixed sequence: restoring the edit-time row rewinds stale',
     async () => {
       for (const planted of [false, true]) {
         const adapter = new ArmEditAdapter()
