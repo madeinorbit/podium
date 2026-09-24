@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "bun ../../scripts/typecheck-project.ts && bun --conditions=@podium/source ../../scripts/check-loadable-imports.ts"
+  },
   "dependencies": {
     "@podium/client-core": "workspace:*",
     "@podium/harness": "workspace:*",

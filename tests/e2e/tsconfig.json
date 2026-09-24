@@ -1,0 +1,21 @@
+{
+  "extends": "../../tooling/tsconfig/node.json",
+  "compilerOptions": {
+    // _harness.ts hands functions to page.evaluate(), which run against `window`.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  // THE HARNESS CORE (POD-4664): what every browser suite loads before its first
+  // assertion — the Playwright config and teardown, the webServer's two commands,
+  // and the helpers 117 suites import. Everything they import is checked with them.
+  // The rest of this tree (specs, e2e vitest suites, benches) was never in a
+  // typecheck project and does not pass one; `scripts/check-loadable-imports.ts`, the
+  // other half of this package's typecheck, holds all of it to "every import it
+  // loads exists".
+  "include": [
+    "playwright.config.ts",
+    "global-teardown.ts",
+    "browser-dist-preflight.ts",
+    "serve-harness.ts",
+    "browser/_harness.ts"
+  ]
+}

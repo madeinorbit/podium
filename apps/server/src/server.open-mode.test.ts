@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { firstAdminMemberId, MemberId } from '@podium/model'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
@@ -81,6 +82,26 @@ describe('open mode acts as the earliest admin member', () => {
     // `firstAdminMemberId()` is what the boot primed from this instance's
     // database — the same member, reached the other way round.
     expect(status.userId).toBe(firstAdminMemberId())
+  })
+
+  it('opens the /client socket for a local unauthenticated browser [POD-4664]', async () => {
+    // The same principal over the other transport. Bun upgrades the request it
+    // was handed, which never carries the native peer stamp the HTTP app reads, so
+    // the locality clause judged the upgrade "not local" and every browser in open
+    // mode sat on "Syncing your workspace" behind a 401 while `/auth/status`
+    // above said it was authed.
+    const opened = await new Promise<boolean>((resolve) => {
+      const socket = new WebSocket(
+        `ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`,
+      )
+      socket.onopen = () => {
+        socket.close()
+        resolve(true)
+      }
+      socket.onerror = () => resolve(false)
+      socket.onclose = () => resolve(false)
+    })
+    expect(opened).toBe(true)
   })
 
   it('gates the data plane on the same locality, not just the principal', async () => {

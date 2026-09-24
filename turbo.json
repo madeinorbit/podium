@@ -135,6 +135,18 @@
       ],
       "outputs": ["*.tsbuildinfo"]
     },
+    "@podium/e2e#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/check-loadable-imports.ts",
+        "$TURBO_ROOT$/apps/**",
+        "$TURBO_ROOT$/packages/**",
+        "$TURBO_ROOT$/tests/**",
+        "!$TURBO_ROOT$/**/.turbo/**"
+      ],
+      "outputs": ["*.tsbuildinfo"]
+    },
     "@podium/daemon#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/server/src/**"],

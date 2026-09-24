@@ -1336,6 +1336,21 @@ export async function startServer(
   registry.sessionStore.discoverDatabaseSnapshots()
 
   const requestPeerAddresses = new WeakMap<Request, string>()
+  /**
+   * The request as the HTTP app sees it: `x-podium-peer-address` is the peer the
+   * native server reported, never whatever the client sent. The WebSocket upgrade
+   * cannot take this copy — Bun upgrades the object it was handed — so anything
+   * that judges an upgrade's locality reads it through here (POD-4664: open
+   * mode's "local request" clause read the raw upgrade, found no stamp, and
+   * refused every `/client` socket; a client-supplied stamp would have passed).
+   */
+  const observedRequest = (request: Request): Request => {
+    const headers = new Headers(request.headers)
+    const peerAddress = requestPeerAddresses.get(request)
+    if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
+    else headers.delete('x-podium-peer-address')
+    return new Request(request, { headers })
+  }
   const configuredReadiness = createServerReadiness({
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
@@ -1987,7 +2002,7 @@ export async function startServer(
             }
           }
           const credential = await resolveClientCredential(store.auth, headers)
-          const principal = await requestPrincipal(headers, request)
+          const principal = await requestPrincipal(headers, observedRequest(request))
           if (!principal) return undefined
           const userRole = await store.users.roleOf(principal.user)
           if (!userRole) return undefined
@@ -2030,11 +2045,7 @@ export async function startServer(
               ? null
               : await ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
-          const headers = new Headers(request.headers)
-          if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
-          else headers.delete('x-podium-peer-address')
-          const observedRequest = new Request(request, { headers })
-          const response = await app.fetch(observedRequest)
+          const response = await app.fetch(observedRequest(request))
           // Sync owns its streaming content coding, including identity.
           if (new URL(request.url).pathname.startsWith('/sync/')) return response
           return await compressHttpResponse(request, response)
