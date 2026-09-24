@@ -21,9 +21,12 @@
  * THE PARTS OF ONE ISSUE, each reading only its own inputs:
  * - `standing`: the own row's facts (structural exclusion, finished, the
  *   sessionless keep's inputs, the raw parent, the rank). Hot OR cold: a cold
- *   row is read by id through the feed (`VisibleInputs.issueRow`), so a closed
- *   issue's visibility is known without loading it (1x: 376 of 732 visible
- *   rows are closed, so cold; POD-4569 NOTES).
+ *   row is read by id through the feed (`VisibleInputs.issueRow`). Under the
+ *   declared cold rule (`unlessShown`, POD-4665: a closed issue is cold only
+ *   when nothing can still show it) no visible row is cold, so this read
+ *   answers the HIDDEN side: a cold row's visibility is decided (it stays
+ *   hidden) without loading it. Under the earlier rule 376 of 732 visible
+ *   rows at 1x were cold (POD-4569 NOTES).
  * - `seatIds` (R2, `issue.sessions`) and `memberIds` (R2 then R3: the
  *   sessions of `issue.worktree` with no `issueId`, `session-ownership.ts`
  *   `indexSessionOwnership`): bucket reads, cached, so a member's change never
