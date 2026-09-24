@@ -297,15 +297,36 @@ describe('SessionRegistry', () => {
     }
   })
 
-  it('buffers control messages produced before a daemon attaches, then flushes them', async () => {
+  /**
+   * PLACEMENT NEEDS A DAEMON THAT IS THERE (34aa06cf2, POD-4142).
+   *
+   * This used to pin the boot race the other way round: a session created before
+   * the daemon's socket connected was placed on the host anyway, its spawn queued,
+   * and the queue flushed on attach. Since 34aa06cf2 the server picks only a
+   * machine that is assigned agent execution AND has a daemon attached, and
+   * otherwise refuses — so nothing is created, and nothing is queued for a daemon
+   * that may never come. The control-frame queue itself still exists (frames for a
+   * KNOWN machine that is briefly away); it is pinned at its own seam in
+   * `modules/machines/service.test.ts` ("flushes queued control and canonical
+   * input in FIFO order without re-encoding").
+   */
+  it('refuses to place a session before any daemon attaches, and queues no spawn for it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    // Boot race: a starter session is created before the daemon ws has connected.
+    await assignHostMachine(reg.sessionStore)
+    // Boot race: a starter session is requested before the daemon ws has connected.
+    await expect(
+      reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' }),
+    ).rejects.toThrow('no assigned and available daemon')
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
+    expect(await reg.sessionStore.sessions.loadSessions()).toEqual([])
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m))
+    expect(daemon.filter((m) => m.type === 'spawn')).toEqual([])
+    // Once a daemon is attached, the same request places normally.
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    const daemon: ControlMessage[] = []
-    await attachHostDaemon(reg, (m) => daemon.push(m))
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
