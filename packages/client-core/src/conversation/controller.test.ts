@@ -493,7 +493,19 @@ describe.each([
     expect(controller.getSnapshot()).toMatchObject({
       draft: '',
       offer: null,
-      projected: { pending: [expect.objectContaining({ durable: { id: deliveryId } })] },
+      projected: {
+        pending: [
+          {
+            id: 'pending-1',
+            deliveryId,
+            text: 'ship',
+            wire: 'ship',
+            state: 'queued',
+            kind: 'message',
+            durable: { id: deliveryId, text: 'ship', injectedAt: null },
+          },
+        ],
+      },
     })
     await controller.retract(deliveryId)
     expect(controller.getSnapshot().projected).toEqual({ pending: [], queued: [] })
