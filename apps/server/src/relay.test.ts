@@ -3652,6 +3652,15 @@ describe('hibernation', () => {
     return sessionId
   }
 
+  /**
+   * The pressure write this defers used to be a quiet-timer PARK of an idle
+   * shell (idleShellMinutes). Since the shell lifetime policy (POD-4435,
+   * c1faa34cb/51183d9fa) quiet time alone never parks a shell: an untouched
+   * shell no tab ever held is durable by default, and quiet counts only past
+   * the multi-day backstop, which kills. So the shell here is quiet past its
+   * backstop, and the property is unchanged: nothing moves while the fence is
+   * up, and the deferred sample acts once it ends.
+   */
   it('defers daemon inventory and idle-pressure writes across the transfer fence', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-18T00:00:00.000Z'))
@@ -3669,7 +3678,7 @@ describe('hibernation', () => {
           maxIdleSessions: null,
           idleMinutes: 30,
           idleShellMinutes: 1,
-          backstopMinutes: null,
+          backstopMinutes: 60,
         },
       })
       const { sessionId } = await reg.modules.sessions.createSession({
@@ -3677,8 +3686,8 @@ describe('hibernation', () => {
         cwd: '/w',
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await vi.advanceTimersByTimeAsync(2 * 60_000)
-      const clearReadAt = vi.spyOn(store.sessions, 'clearAllReadAt')
+      await vi.advanceTimersByTimeAsync(61 * 60_000)
+      const killSession = vi.spyOn(reg.modules.sessions, 'killSession')
 
       await store.beginTransferFence()
       await expect(
@@ -3709,7 +3718,7 @@ describe('hibernation', () => {
       ).resolves.toBeUndefined()
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toBeUndefined()
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
-      expect(clearReadAt).not.toHaveBeenCalled()
+      expect(killSession).not.toHaveBeenCalled()
 
       await store.endTransferFence()
       await reg.modules.machines.resumeAfterTransferFence()
@@ -3717,8 +3726,15 @@ describe('hibernation', () => {
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toMatchObject({
         podiumVersion: 'fenced-report',
       })
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
-      expect(clearReadAt).toHaveBeenCalledOnce()
+      // The deferred sample now runs the shell lifetime policy, and the quiet
+      // shell is past its backstop: row 3 kills it, which tombstones the row.
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (session) => session.sessionId === sessionId,
+        ),
+      ).toBeUndefined()
+      expect(killSession).toHaveBeenCalledOnce()
+      expect(killSession).toHaveBeenCalledWith({ sessionId })
     } finally {
       await reg.dispose()
       await store.close()
