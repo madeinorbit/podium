@@ -522,7 +522,25 @@ describe('row roll-ups (Mb3)', () => {
       const ctx = await startScenarioEngine(scale)
       const feeds = openFenceFeeds(ctx, 'overlaid')
       const readsAtOpen = feeds.rowReads()
-      const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+      // Progress's cold reads, counted at the pool's input (each call on a
+      // cold row is one read by id through the feed).
+      const progressCold = { calls: 0, rows: new Set<string>() }
+      const counting: CheckableArm = {
+        create(source, locals, reads) {
+          const handle = arm.create(source, locals, reads) as MobxPoolHandle
+          const inputs = handle.pool.visibleInputs as { progressFacts: (id: string) => unknown }
+          const progressFacts = inputs.progressFacts
+          inputs.progressFacts = (id) => {
+            if (handle.pool.residency?.isCold('issue', id) === true) {
+              progressCold.calls += 1
+              progressCold.rows.add(id)
+            }
+            return progressFacts(id)
+          }
+          return handle
+        },
+      }
+      const mounted = mountArmForCounts(counting, feeds.rows.source, feeds.locals)
       const handle = mounted.handle as MobxPoolHandle
       const { pool } = handle
       try {
@@ -578,6 +596,8 @@ describe('row roll-ups (Mb3)', () => {
           // Per-row reads through the feed (outside the pool): cold reads by id
           // plus nothing loaded yet at first paint.
           feedRowReadsAtFirstPaint: rowReadsAtFirstPaint,
+          progressColdReads: progressCold.calls,
+          progressColdRows: progressCold.rows.size,
           windows,
           loaded: residency.counters.hydrated - hydratedBefore,
         }
