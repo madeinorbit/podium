@@ -28,15 +28,14 @@
  *
  * THE ROSTER'S ALLOWANCES (POD-4572, `MOBX_POOL_ALLOWANCES`): the pool on the
  * fence roster (`harness/src/roster.ts`) carries exactly the exceptions Mb3
- * named, each removed by its issue: this gap on parity (POD-4671), rows whose
- * oracle view moved in `activityAt` alone on the commit fence (POD-4674), and
- * the #10 burst's re-listed `sessions` family on the reads fence (POD-4678).
+ * named, each removed by its issue: this gap on parity (POD-4671) and the
+ * #10 burst's re-listed `sessions` family on the reads fence (POD-4678). The
+ * third, rows whose oracle view moved in `activityAt` alone on the commit
+ * fence, went with its fix (POD-4674: `activityAt` is the legacy's).
  * `fences.test.tsx` fails when one of them is never applied.
  */
 
-import type { CountResult } from '../../../../harness/src/count-harness'
 import type { FixtureCorpus } from '../../../../harness/src/fixture/index'
-import type { RowViews } from '../../../../harness/src/oracle/index'
 import type { RosterAllowances } from '../../../../harness/src/roster'
 import type { ArmHandle } from '../../../../shared/src/arm'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
@@ -110,33 +109,6 @@ function poolOf(handle: ArmHandle): MobxPool {
 }
 
 /**
- * POD-4674 (owns `activityAt` in both pools; the legacy raises it by the
- * nested seats, `rows.ts:336-339`): the rows the oracle changed that stayed
- * undrawn, accepted only when each one's oracle view moved in `activityAt`
- * ALONE. An over-draw, or a miss in any other field, throws the fence's own
- * error.
- */
-export function acceptActivityOnlyUndrawn(
-  result: CountResult,
-  before: RowViews,
-  after: RowViews,
-  fenceError: Error,
-): string[] {
-  const drawn = new Set(result.drawnRows ?? [])
-  const changed = new Set(result.oracleChangedRows ?? [])
-  if ([...drawn].some((id) => !changed.has(id))) throw fenceError
-  const under = [...changed].filter((id) => !drawn.has(id))
-  for (const id of under) {
-    const a = before[id] as unknown as Record<string, unknown> | undefined
-    const b = after[id] as unknown as Record<string, unknown> | undefined
-    if (a === undefined || b === undefined) throw fenceError
-    const fields = Object.keys(b).filter((f) => JSON.stringify(a[f]) !== JSON.stringify(b[f]))
-    if (fields.some((f) => f !== 'activityAt')) throw fenceError
-  }
-  return under.sort()
-}
-
-/**
  * POD-4678: a new explicit member re-lists its issue's `sessions` bucket, so
  * the #10 burst also reads each burst issue's other explicit sessions. The
  * family, counted from the pool BEFORE the step; 0 on every other step.
@@ -152,16 +124,6 @@ export const MOBX_POOL_ALLOWANCES: RosterAllowances = {
     issue: 'POD-4671',
     accept: (corpus, handle, expected, actual) =>
       acceptUnscannedGap(corpus, poolOf(handle), expected, actual),
-  },
-  undrawn: {
-    issue: 'POD-4674',
-    accept(result, before, after) {
-      const error = new Error(
-        `[commits] ${result.scenario} (${result.methodology}): beyond POD-4674's activityAt allowance: ` +
-          `changed=[${(result.oracleChangedRows ?? []).join(',')}] drawn=[${(result.drawnRows ?? []).join(',')}]`,
-      )
-      return acceptActivityOnlyUndrawn(result, before, after, error)
-    },
   },
   reads: {
     issue: 'POD-4678',
