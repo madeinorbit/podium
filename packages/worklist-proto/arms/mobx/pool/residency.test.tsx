@@ -28,6 +28,7 @@ import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
 import { LOAD_WINDOW_MS } from './residency'
+import { sliceOrderOf } from './worklist/groups'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -246,8 +247,15 @@ describe('bootstrap', () => {
     )
     // Mb1 (POD-4569): the list draws the VISIBLE rows; a cold one is a
     // loading placeholder until its load lands, so the rows drawn are the
-    // visible hot ones.
-    const visibleHot = tracked(() => pool.worklist.order.filter((id) => pool.tables.issue.has(id)))
+    // visible hot ones. Mb2 (POD-4570): in grouped order (pinned, then each
+    // group's open lane and closed fold).
+    const visibleHot = tracked(() => {
+      const order = sliceOrderOf(pool.groups.layout)
+      return [
+        ...order.pinnedIds,
+        ...order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
+      ].filter((id) => pool.tables.issue.has(id))
+    })
     expect(drawn).toEqual(visibleHot)
     // A drawn row's activity re-composes from its member sessions' cached
     // values (POD-4568), so its resident members get a model too: models ==

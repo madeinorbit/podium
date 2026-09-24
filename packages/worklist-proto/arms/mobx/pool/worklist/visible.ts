@@ -78,6 +78,7 @@ import type { RelationReader } from '../../../../shared/src/instrument/reads'
 import { compareRank, type RowRank, type RowView, rankOf } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
 import { bandOf, parseMs } from '../views'
+import { type Placement, placementPartOf } from './groups'
 
 /** `SIDEBAR_FINISHED_GRACE_MS` (`visibility.ts:18`). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -643,6 +644,10 @@ export interface VisibleCounters {
   orderElements: number
   /** Visible-set membership flips (an id added or deleted). */
   membershipFlips: number
+  /** Runs of the groups' layout (POD-4570, `groups.ts`). */
+  groupRuns: number
+  /** Ids placed across those runs (the visible count per run). */
+  groupElements: number
 }
 
 export class SessionNode implements SessionVisibility {
@@ -706,6 +711,7 @@ export class IssueNode implements IssueVisibility {
       placed: computed,
       visible: computed,
       rank: computedStruct,
+      placement: computedStruct,
     })
   }
 
@@ -767,6 +773,11 @@ export class IssueNode implements IssueVisibility {
 
   get rank(): RowRank | undefined {
     return rankPartOf(this.input, this.id)
+  }
+
+  /** Where the row goes (R-GROUP, `groups.ts`): read by the groups' layout for visible rows only. */
+  get placement(): Placement | undefined {
+    return placementPartOf(this.input, this.id)
   }
 }
 

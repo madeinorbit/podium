@@ -13,8 +13,8 @@ by the kernel feed (`shared/src/row-source.ts`, `overlaid` mode), handing
 each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4565)
 holds the tables and the row views; Ma2 (POD-4566) maintains every declared
 relation; Ma3 (POD-4567) keeps cold rows out until something reads them;
-Mb1 (POD-4569) builds the visible collection and its order; groups and
-roll-ups (Mb2-Mb3) come next.
+Mb1 (POD-4569) builds the visible collection and its order; Mb2 (POD-4570)
+groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
 
 ### Idiom
 
@@ -109,8 +109,22 @@ roll-ups (Mb2-Mb3) come next.
   The set of visible ids is MAINTAINED by one reaction per node (nodes follow
   each event's issue records, `MobxPool.syncWorklist`); the order is a
   computed `compareRank` sort of the visible nodes' cached ranks, reading no
-  row. The lists draw `worklist.order`; a cold visible row is a placeholder
-  outside `RowShell` until its load lands.
+  row. A cold visible row is drawn as a placeholder outside `RowShell` until
+  its load lands.
+
+- **Groups and closed folds** (`pool/worklist/groups.ts`, Mb2): R-GROUP over
+  the order. Each node carries a `placement` (`computedStruct`: pinned, group
+  key and label, fold verdict, fold stamp) read from the own row, hot or cold;
+  one `layout` computed over the order and the visible placements (the
+  snapshot's `SliceOrder`, no selection) re-runs only when either moves; one
+  `GroupNode` per key holds its lanes as shallow-compared computeds with the
+  R-GROUP 5 latch applied. The rebuild groups its own views with L1b's
+  `groupKeyOf` / `compareClosedFold` instead.
+- **Lists** (`pool/react/list.tsx`, `pool/native/list.tsx`, Mb2): the web list
+  windows with `@tanstack/react-virtual` (56 px rows, 40 px headers; every item
+  when the container has no height, i.e. the happy-dom count lane); the native
+  list is a `SectionList`. The list observes the grouped ids, a header its own
+  group's lanes, a slot its row's presence, the row its `view`.
 
 ### The enumeration module
 

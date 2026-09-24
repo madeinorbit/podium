@@ -9,20 +9,23 @@
  * never drew the row (Ma2 redrew it: its `activityAt` moved). Since Mb1
  * (POD-4569) the list draws the visible collection in rank order, and a
  * rename redraws visible rows only (its hidden spin-off is not drawn).
- * Parity and the counted scenarios are the web lane's
- * (`arms/mobx/pool/worklist/visible.test.tsx`).
+ * Since Mb2 (POD-4570) the list is a `SectionList` (PINNED, then one section
+ * per group): it draws a window from the top, not every row, so the renamed
+ * row is the first drawn root. Parity and the counted scenarios are the web
+ * lane's (`arms/mobx/pool/worklist/visible.test.tsx`, `groups.test.tsx`).
  */
 
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { tracked } from '../../arms/mobx/pool/pool'
+import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
 import { openFenceFeeds } from '../src/fence-scenarios'
 
 describe('mobx pool on the native renderer', () => {
-  it('mounts every resident row; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row', async () => {
+  it('draws a window of the grouped rows; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     // No load window closes on its own mid-step.
@@ -42,12 +45,23 @@ describe('mobx pool on the native renderer', () => {
         },
         { timeout: 20_000, interval: 50 },
       )
-      // Mb1 (POD-4569): the list draws the VISIBLE collection. Visible rows
-      // that are cold draw as loading placeholders until their load lands.
+      // Mb2 (POD-4570): a window of the grouped list, from the top. Visible
+      // rows that are cold draw as loading placeholders until their load lands.
       const visible = tracked(() => handle.pool.worklist.order.length)
-      const drawn = list?.querySelectorAll('[data-testid^="row-"]').length ?? 0
-      const loading = list?.querySelectorAll('[data-testid^="loading-"]').length ?? 0
-      expect(drawn + loading).toBe(visible)
+      const drawnIds = [
+        ...(list?.querySelectorAll('[data-testid^="row-"], [data-testid^="loading-"]') ?? []),
+      ].map((el) => (el.getAttribute('data-testid') ?? '').replace(/^(row|loading)-/, ''))
+      expect(drawnIds.length).toBeGreaterThan(0)
+      expect(drawnIds.length).toBeLessThan(visible)
+      const grouped = tracked(() => {
+        const order = sliceOrderOf(handle.pool.groups.layout)
+        return [
+          ...order.pinnedIds,
+          ...order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
+        ]
+      })
+      expect(drawnIds).toEqual(grouped.slice(0, drawnIds.length))
+      expect(list?.querySelector('[data-testid="group-PINNED"]')).not.toBeNull()
 
       mounted.log.reset()
       await act(async () => {
@@ -62,13 +76,18 @@ describe('mobx pool on the native renderer', () => {
       expect(handle.pool.residency?.isCold('session', ctx.targets.heartbeatSessionId)).toBe(true)
       expect([...mounted.log.counts.keys()]).toEqual([])
 
+      // Rename a drawn, resident row: the first drawn row with its data.
+      const target = drawnIds.find(
+        (id) => list?.querySelector(`[data-testid="row-${id}"]`) !== null,
+      )
+      expect(target).toBeDefined()
       await act(async () => {
-        await writeTitleRename(ctx)
+        await writeTitleRename(ctx, target)
         feeds.flush()
       })
-      // Only visible rows redraw: the rename's hidden spin-off is not drawn (#4).
+      // Only drawn visible rows redraw.
       const redrawn = [...mounted.log.counts.keys()]
-      expect(redrawn).toContain(ctx.targets.visibleRootId)
+      expect(redrawn).toContain(target)
       const shown = new Set(tracked(() => [...handle.pool.worklist.ids]))
       expect(redrawn.filter((id) => !shown.has(id))).toEqual([])
     } finally {

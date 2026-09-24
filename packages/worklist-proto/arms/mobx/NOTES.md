@@ -1,5 +1,60 @@
 # arms/mobx — notes
 
+## Round three: groups, closed folds and the windowed list, b2 (POD-4570) · 2026-09-24
+
+Code: `pool/worklist/groups.ts`, `pool/react/list.tsx`, `pool/native/list.tsx`.
+Tests: `pool/worklist/groups.test.tsx` (parity #1-#7, fences, latch, window),
+`harness/native/mobx-pool.native.test.tsx` (native window). The brief's paths
+`arms/mobx/worklist/groups.ts` and `arms/mobx/react/list.tsx` are the frozen
+round-two arm's layout; the round-three pool lives under `pool/`.
+
+### Decisions
+
+- **A row's placement is a part on its node** (`IssueNode.placement`,
+  `computedStruct`): pinned, `repoKey`, label (path tail), fold verdict
+  (views.ts `closedOf`, the same one the row's `closed` field uses),
+  `dismissed`, fold stamp. Read from the own row hot OR cold, so a closed
+  visible row is placed without loading it. A rename, phase change or
+  heartbeat leaves it equal and stops there.
+- **One layout computed** over `worklist.order` and the visible placements:
+  it re-runs only when either moves (`counters.groupRuns`,
+  `.groupElements`), at the visible count. It is the snapshot's `SliceOrder`
+  (no selection, spec §7).
+- **One `GroupNode` per key** with `rowIds` / `closedIds` as
+  `compareShallow` computeds over the layout, the R-GROUP 5 latch applied:
+  a layout run that leaves a group's lanes equal keeps their identity, so its
+  header does not redraw. The latch is one computed (`latchedOpenId`) that
+  reads the selection and that one row's placement; the pool now carries
+  `selectedIssueWasFolded` (`foldLatch`), which it ignored before.
+- **The rebuild groups with L1b's `groupKeyOf` / `compareClosedFold`** over
+  its own views, not with `layoutOf`: the gate holds the live placement and
+  layout to the contract's grouping.
+- **Windowing**: web `@tanstack/react-virtual` 3.14.13 (new dependency,
+  pinned), 56 px rows and 40 px headers (the browser driver's viewport is
+  sized to them), overscan 5; native `SectionList` (initial 24 rows). The web
+  list measures its container before paint; with no height (happy-dom, the
+  count lane) it draws every item, as round two did, because the commit fence
+  there asks for every changed visible row. The browser entry still mounts the
+  round-two arm; switching it is Mb4.
+- **Closed folds start open**; a header toggles its fold (UI state in the
+  list, never data). Folding one moves the rows out of the window's items.
+
+### The waiting stub, named (Mb3)
+
+The fold verdict's "nothing waiting in the subtree" conjunct reads Mb3's
+roll-up (`STUB_WAITING`, like the row's own `closed`). At 1x three settled
+closed roots fold here and stay open in the oracle: `i103`, `i2377`, `i4446`
+(each `asking`, phase `waiting` in the oracle's views). The parity check
+derives that set from the ORACLE and requires the difference to be exactly
+those rows moved into their fold; the check fails once Mb3 wires waiting in
+(tripwire), and must then become exact parity. The same stub hits the
+commit fence on #7: the reparent changes the old and new parents'
+(`i214`, `i591`) progress only, a roll-up; a row missing from the redraw is
+accepted only when the oracle's own before/after views differ in
+`STUB_ROLLUPS` fields alone, and an extra redraw never is. **Mb3 must also
+make `placementOf` read the waiting roll-up**, or the lanes stay wrong while
+the row's `closed` is right.
+
 ## Round three: visible collection and order, b1 (POD-4569) · 2026-09-23
 
 Code: `pool/worklist/visible.ts`. Tests: `pool/worklist/visible.test.tsx`

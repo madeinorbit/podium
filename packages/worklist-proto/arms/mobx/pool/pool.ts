@@ -43,6 +43,7 @@ import './enforce'
 import {
   autorun,
   computedStruct,
+  type IObservableValue,
   makeObservable,
   type ObservableMap,
   observable,
@@ -73,6 +74,7 @@ import {
   type PoolTables,
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
+import { sliceOrderOf, WorklistGroups } from './worklist/groups'
 import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
 
 /** The pool's own counters, beside the shared `ArmStats`. */
@@ -104,6 +106,8 @@ function createStats(residency: Residency | null): PoolStats {
     orderSorts: 0,
     orderElements: 0,
     membershipFlips: 0,
+    groupRuns: 0,
+    groupElements: 0,
   }
   const stats: PoolStats = {
     rowsDerived: 0,
@@ -125,6 +129,8 @@ function createStats(residency: Residency | null): PoolStats {
       counters.orderSorts = 0
       counters.orderElements = 0
       counters.membershipFlips = 0
+      counters.groupRuns = 0
+      counters.groupElements = 0
       if (residency !== null) {
         const r = residency.counters
         r.coldWrites = 0
@@ -156,11 +162,6 @@ export interface LazyMembers {
 
 /** Settle rounds before `snapshot()` gives up (a load that never lands). */
 const MAX_SETTLE_ROUNDS = 64
-
-/** No groups until Mb2 (POD-4570): the snapshot's order is the pinned ids alone. */
-const NO_GROUPS: SliceSnapshot['order']['groups'] = Object.freeze(
-  [],
-) as unknown as SliceSnapshot['order']['groups']
 
 /**
  * Run `read` inside a transient reaction and return its result, so reads made
@@ -202,6 +203,10 @@ export class MobxPool {
   readonly visibleInputs: VisibleInputs
   /** The visible collection and its order (POD-4569). */
   readonly worklist: VisibleCollection
+  /** The groups and closed folds over that order (POD-4570). */
+  readonly groups: WorklistGroups
+  /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch). */
+  readonly foldLatch: IObservableValue<boolean>
   readonly stats: PoolStats
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
@@ -319,6 +324,17 @@ export class MobxPool {
       visibleInputs: this.visibleInputs,
       counters: stats.counters,
     })
+    this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
+      name: 'pool.foldLatch',
+    })
+    this.groups = new WorklistGroups({
+      order: () => this.worklist.order,
+      node: (id) => this.worklist.issue(id),
+      // At most one entry (`select`): the key walk is the selection itself.
+      selectedId: () => this.selection.keys().next().value ?? null,
+      foldLatch: () => this.foldLatch.get(),
+      counters: stats.counters,
+    })
     makeObservable<MobxPool, 'models' | 'target' | 'selectedId' | 'select' | 'syncWorklist'>(this, {
       tables: false,
       fenced: false,
@@ -329,6 +345,8 @@ export class MobxPool {
       inputs: false,
       visibleInputs: false,
       worklist: false,
+      groups: false,
+      foldLatch: false,
       coldRow: false,
       knows: false,
       stats: false,
@@ -518,18 +536,20 @@ export class MobxPool {
   /** One locals notification, one action: only the keys it names. */
   applyLocals(locals: SliceLocals, changed: ReadonlySet<LocalsKey>): void {
     const selection = changed.has('selectedIssueId')
+    const latch = changed.has('selectedIssueWasFolded')
     const clock = changed.has('coarseNow')
-    if (!selection && !clock) return
+    if (!selection && !latch && !clock) return
     runInAction(() => {
       if (selection) this.select(locals.selectedIssueId)
+      if (latch) this.foldLatch.set(locals.selectedIssueWasFolded === true)
       if (clock) this.clock.advance(locals.coarseNow)
     })
     this.stats.notifications += 1
   }
 
   /**
-   * The slice output: every VISIBLE issue's row (POD-4569), the pinned ids in
-   * rank order, no groups yet (Mb2). Settled: a visible row that is cold is
+   * The slice output: every VISIBLE issue's row (POD-4569), grouped with
+   * closed folds and no selection (POD-4570, `groups.layout`). Settled: a visible row that is cold is
    * asked for (it loads, as a drawn row does), and reading the rows queues
    * the cold rows they reach; those are loaded and the rows read again until
    * nothing is queued, as a reader that waits out its loading state would
@@ -539,7 +559,6 @@ export class MobxPool {
     for (let round = 0; ; round += 1) {
       const snapshot = tracked(() => {
         const rowsById: SliceSnapshot['rowsById'] = {}
-        const pinnedIds: string[] = []
         for (const id of this.worklist.order) {
           const view = this.issue(id)?.view
           if (view === undefined) {
@@ -547,9 +566,8 @@ export class MobxPool {
             continue
           }
           rowsById[id] = sliceRowOf(view)
-          if (this.worklist.issue(id)?.standing?.pinned === true) pinnedIds.push(id)
         }
-        return { order: { pinnedIds, groups: NO_GROUPS }, rowsById }
+        return { order: sliceOrderOf(this.groups.layout), rowsById }
       })
       if (this.residency?.hasQueued() !== true) return snapshot
       if (round >= MAX_SETTLE_ROUNDS) {
@@ -568,6 +586,7 @@ export class MobxPool {
   dispose(): void {
     runInAction(() => {
       this.worklist.clear()
+      this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
       this.selection.clear()

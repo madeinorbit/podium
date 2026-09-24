@@ -107,7 +107,10 @@ async function measure(scale: 1 | 4) {
     const visibility = [...reactions].filter((r) => r.name_.startsWith('pool.visible.'))
     const nodes = objectsBehind(visibility)
     const order = tracked(() => [...pool.worklist.order])
-    const slots = [...document.querySelectorAll('[data-pool-list] > *')]
+    // The drawn rows in list order (Mb2 wraps each item and adds group headers).
+    const slots = [
+      ...document.querySelectorAll('[data-pool-list] [data-issue-row], [data-pool-list] [data-loading-row]'),
+    ]
     const loadingAt = (list: Element[]) =>
       list.filter((el) => el.hasAttribute('data-loading-row')).length
     const firstPaint = {

@@ -21,11 +21,27 @@
  * visible cold row and settles first, and every row here reads full data
  * (`loading` is always false). `resident` is accepted and unused (the
  * checker's call shape).
+ *
+ * GROUPS (POD-4570). The rebuild groups its own row views with L1b's pure
+ * functions (`groupKeyOf`, `compareClosedFold`, `shared/src/row-view.ts`),
+ * with no selection (the oracle's unselected baseline, spec §7), not with the
+ * live layout's `layoutOf`: the live pool's placement parts and its layout
+ * are held to the contract's own grouping.
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import { sliceRowOf } from '../../../shared/src/row-view'
-import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
+import {
+  compareClosedFold,
+  groupKeyOf,
+  type RowView,
+  sliceRowOf,
+} from '../../../shared/src/row-view'
+import type {
+  SliceGroup,
+  SliceIssue,
+  SliceSession,
+  SliceSnapshot,
+} from '../../../shared/src/slice-types'
 import { scanRelations } from './enumerate'
 import { createPlainTables, ingestOut, ingestRecord } from './tables'
 import {
@@ -43,6 +59,7 @@ import {
   sortByRank,
   type VisibleInputs,
 } from './worklist/visible'
+import { repoLabelOf } from './worklist/groups'
 
 export function rebuildSnapshot(
   source: RowSource,
@@ -95,13 +112,30 @@ export function rebuildSnapshot(
   const order = sortByRank(visible, (id) => directVisibility(visibleInputs, id, memo).rank)
   const rowsById: SliceSnapshot['rowsById'] = {}
   const pinnedIds: string[] = []
+  const groups = new Map<string, { group: SliceGroup; closed: RowView[] }>()
   for (const id of order) {
     const view = buildRowView(inputs, id, directParts(inputs, id))
     if (view === undefined) continue
     rowsById[id] = sliceRowOf(view)
-    if (view.pinned) pinnedIds.push(id)
+    const placement = groupKeyOf({ ...view, selected: false }, {})
+    if (placement.section === 'pinned') {
+      pinnedIds.push(id)
+      continue
+    }
+    let entry = groups.get(placement.repoKey)
+    if (entry === undefined) {
+      const label = repoLabelOf((inputs.issue(id) as SliceIssue).repoPath)
+      entry = { group: { key: placement.repoKey, label, rowIds: [], closedIds: [] }, closed: [] }
+      groups.set(placement.repoKey, entry)
+    }
+    if (placement.lane === 'closed') entry.closed.push(view)
+    else entry.group.rowIds.push(id)
   }
-  return { order: { pinnedIds, groups: [] }, rowsById }
+  const sliceGroups = [...groups.values()].map(({ group, closed }) => ({
+    ...group,
+    closedIds: closed.sort(compareClosedFold).map((view) => view.id),
+  }))
+  return { order: { pinnedIds, groups: sliceGroups }, rowsById }
 }
 
 /** The visible ids in rank order, from scratch (tests: the live `worklist.order` against it). */
