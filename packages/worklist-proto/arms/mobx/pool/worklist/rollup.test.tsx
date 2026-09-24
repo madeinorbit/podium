@@ -38,16 +38,17 @@
  * on every feed event (`everyAggregate`) must turn it red, and does, while
  * its parity stays green (the mistake is invisible to correctness checks).
  *
- * COLD CHILDREN (Ma3's lazy read, the coordinator's addendum). A hot visible
- * parent with cold formal children, read before any load lands: its row view
- * says `loading` and shows the progress of its READY children only; the one
- * read queues its cold children and nothing below them (a cold row is only
- * its pending marker until it lands: one level per window); after the
- * load window closes and the row settles, `loading` clears and every roll-up
- * field matches the oracle.
+ * COLD ROWS (coordinator ruling 2026-09-24, option A). Progress reads a
+ * cold child's R-ROLL facts by id through the cold-read path, never loading
+ * it: at first paint (1x and 4x) no cold formal child of a visible row is
+ * asked to load; a cold child's change moves its parent's progress to the
+ * oracle's, and the same pool with that read untracked stays stale.
+ * Attention keeps Ma3's pending marker: a row reopened to review whose ask
+ * depends on a cold spin-off shows `loading` until the spin-off lands, then
+ * the oracle's withdrawn ask.
  */
 
-import { observable, runInAction } from 'mobx'
+import { observable, reaction, runInAction, untracked } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
@@ -290,6 +291,105 @@ async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCe
   })
 }
 
+// ------------------------------------------------------------ cold progress
+
+const PROGRESS = ['progressDone', 'progressTotal'] as const
+
+interface ColdProgressRun {
+  readonly parent: string
+  readonly child: string
+  readonly first: RowView
+  readonly after: RowView
+  readonly oracleBefore: RowView
+  readonly oracleAfter: RowView
+  readonly childAsked: boolean
+  readonly childStillCold: boolean
+  readonly feedRowReadsInStep: number
+}
+
+function summary(run: ColdProgressRun) {
+  const pick = (view: RowView) => ({ done: view.progressDone, total: view.progressTotal })
+  return {
+    parent: run.parent,
+    child: run.child,
+    first: pick(run.first),
+    after: pick(run.after),
+    oracleBefore: pick(run.oracleBefore),
+    oracleAfter: pick(run.oracleAfter),
+    feedRowReadsInStep: run.feedRowReadsInStep,
+  }
+}
+
+/**
+ * A hot visible parent with two or more accepted members, one of them a cold
+ * closed child that counts as a done unit. Its view is observed (as a drawn
+ * row), then the cold child is closed as cancelled (abandoned: it leaves the
+ * members) and stays cold. `plant` takes the tracking away from exactly the
+ * progress facts read (`untracked`).
+ */
+async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
+  const ctx = await startScenarioEngine(1)
+  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const handle = arm.create(feeds.rows.source, feeds.locals.source) as MobxPoolHandle
+  const { pool } = handle
+  const residency = pool.residency!
+  if (plant) {
+    const inputs = pool.visibleInputs as { progressFacts: (id: string) => unknown }
+    const progressFacts = inputs.progressFacts
+    inputs.progressFacts = (id) => untracked(() => progressFacts(id))
+  }
+  let observe = () => {}
+  try {
+    const coldDone = (childId: string): boolean => {
+      if (!residency.isCold('issue', childId)) return false
+      const row = pool.visibleInputs.issueRow(childId)
+      return row !== undefined && row.stage !== 'proposed' && !issueAbandoned(row) && row.closedReason != null
+    }
+    const found = tracked(() => {
+      for (const id of pool.worklist.order) {
+        const node = pool.worklist.issue(id)!
+        if (!pool.fenced.issue.has(id) || node.unitsBelow.members < 2) continue
+        const child = [...pool.worklist.formalChildren(id)].sort().find(coldDone)
+        if (child !== undefined) return { parent: id, child }
+      }
+      return null
+    })
+    expect(found, 'a hot visible parent with a cold done child').not.toBeNull()
+    const { parent, child } = found!
+    observe = reaction(() => pool.issue(parent)?.view, () => {})
+    const oracleOf = () =>
+      rowViewsFromStore(ctx.engine.getSnapshot(), { ...parityLocals(ctx), selectedIssueId: null })[
+        parent
+      ] as RowView
+    const first = tracked(() => pool.issue(parent)!.view!)
+    const batch = residency.take()
+    for (const [entity, rowId] of batch) residency.request(entity, rowId)
+    const oracleBefore = oracleOf()
+    const readsBefore = feeds.rowReads()
+    const wire = ctx.cache.read('issue', child)?.value as object
+    ctx.replica.batch(() => upsert(ctx, 'issue', child, { ...wire, closedReason: 'cancelled' }))
+    await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
+    feeds.flush()
+    const after = tracked(() => pool.issue(parent)!.view!)
+    return {
+      parent,
+      child,
+      first,
+      after,
+      oracleBefore,
+      oracleAfter: oracleOf(),
+      childAsked: batch.some(([entity, rowId]) => entity === 'issue' && rowId === child),
+      childStillCold: residency.isCold('issue', child),
+      feedRowReadsInStep: feeds.rowReads() - readsBefore,
+    }
+  } finally {
+    observe()
+    handle.dispose()
+    feeds.dispose()
+    ctx.engine.destroy()
+  }
+}
+
 // ------------------------------------------------------------ tests
 
 describe('row roll-ups (Mb3)', () => {
@@ -387,141 +487,175 @@ describe('row roll-ups (Mb3)', () => {
     writeResult('mobx-rollups-chain-1x', { scale: 1, correct, planted })
   }, 600_000)
 
-  it('pending markers at first paint under the declared cold rule, counted from the row views', async () => {
-    const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
-    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as MobxPoolHandle
-    const { pool } = handle
-    try {
-      const residency = pool.residency!
-      // Mounted, nothing landed yet: what every drawn row shows.
-      const visible = tracked(() => [...pool.worklist.order])
-      const firstPaint = tracked(() =>
-        visible.map((id) => {
-          const view = pool.issue(id)?.view
-          return {
-            id,
-            resident: view !== undefined,
-            loading: view?.loading === true,
-            rollupLoading: pool.worklist.issue(id)?.rollup?.loading === true,
+  it('first paint at 1x and 4x: no progress load, pending markers and cold reads counted from outside', async () => {
+    const cells = []
+    for (const scale of [1, 4] as const) {
+      const ctx = await startScenarioEngine(scale)
+      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const readsAtOpen = feeds.rowReads()
+      const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+      const handle = mounted.handle as MobxPoolHandle
+      const { pool } = handle
+      try {
+        const residency = pool.residency!
+        // Mounted, nothing landed yet: what every drawn row shows.
+        const visible = tracked(() => [...pool.worklist.order])
+        const firstPaint = tracked(() =>
+          visible.map((id) => {
+            const view = pool.issue(id)?.view
+            return {
+              id,
+              resident: view !== undefined,
+              loading: view?.loading === true,
+              rollupLoading: pool.worklist.issue(id)?.rollup?.loading === true,
+            }
+          }),
+        )
+        const rowReadsAtFirstPaint = feeds.rowReads() - readsAtOpen
+        // What the first paint asked to load, looked at and put back.
+        const batch = residency.take()
+        for (const [entity, rowId] of batch) residency.request(entity, rowId)
+        const asked = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
+        const coldChildren = tracked(() => {
+          const out = new Set<string>()
+          for (const id of visible) {
+            for (const child of pool.worklist.formalChildren(id)) {
+              if (residency.isCold('issue', child)) out.add(child)
+            }
           }
-        }),
-      )
-      const queuedAtFirstPaint = residency.queued()
-      const hydratedBefore = residency.counters.hydrated
-      const windows = settle(pool)
-      const cell = {
-        visible: visible.length,
-        coldVisible: firstPaint.filter((row) => !row.resident).length,
-        loadingRows: firstPaint.filter((row) => row.loading).length,
-        rollupPendingRows: firstPaint.filter((row) => row.rollupLoading).length,
-        rollupPendingIds: firstPaint.filter((row) => row.rollupLoading).map((row) => row.id),
-        queuedAtFirstPaint,
-        windows,
-        hydrated: residency.counters.hydrated - hydratedBefore,
+          return out
+        })
+        const hydratedBefore = residency.counters.hydrated
+        const windows = settle(pool)
+        const cell = {
+          scale,
+          visible: visible.length,
+          coldVisible: firstPaint.filter((row) => !row.resident).length,
+          loadingRows: firstPaint.filter((row) => row.loading).length,
+          rollupPendingRows: firstPaint.filter((row) => row.rollupLoading).length,
+          queuedAtFirstPaint: batch.length,
+          coldFormalChildrenOfVisibleRows: coldChildren.size,
+          progressLoads: [...coldChildren].filter((id) => asked.has(id)).length,
+          // Per-row reads through the feed (outside the pool): cold reads by id
+          // plus nothing loaded yet at first paint.
+          feedRowReadsAtFirstPaint: rowReadsAtFirstPaint,
+          windows,
+          loaded: residency.counters.hydrated - hydratedBefore,
+        }
+        // The declared rule: no visible row is cold (POD-4665).
+        expect(cell.coldVisible).toBe(0)
+        // Option A: progress reads cold children by id, never loads one.
+        expect(cell.coldFormalChildrenOfVisibleRows).toBeGreaterThan(0)
+        expect(cell.progressLoads).toBe(0)
+        const settled = tracked(() => visible.filter((id) => pool.issue(id)?.view?.loading === true))
+        expect(settled).toEqual([])
+        cells.push(cell)
+      } finally {
+        mounted.unmount()
+        feeds.dispose()
+        ctx.engine.destroy()
       }
-      // The declared rule: no visible row is cold (POD-4665).
-      expect(cell.coldVisible).toBe(0)
-      // Every row that showed a pending marker settles: none left loading.
-      const settled = tracked(() => visible.filter((id) => pool.issue(id)?.view?.loading === true))
-      expect(settled).toEqual([])
-      writeResult('mobx-rollups-pending-1x', { scale: 1, ...cell })
-    } finally {
-      mounted.unmount()
-      feeds.dispose()
-      ctx.engine.destroy()
     }
+    writeResult('mobx-rollups-first-paint', { cells })
+  }, 600_000)
+
+  it('a cold child counts in its parent\'s progress by a tracked cold read: its change moves the parent, and the untracked plant stays stale', async () => {
+    const correct = await coldProgressRun(false)
+    expect(correct.first.loading, 'no loading: nothing is waited for').toBeUndefined()
+    expect(correct.childAsked, 'the cold child is never asked to load').toBe(false)
+    expect(correct.childStillCold).toBe(true)
+    for (const field of PROGRESS) {
+      expect(correct.first[field], `before: ${field}`).toBe(correct.oracleBefore[field])
+      expect(correct.after[field], `after: ${field}`).toBe(correct.oracleAfter[field])
+    }
+    expect(correct.oracleAfter.progressTotal, 'the change moves the oracle').not.toBe(
+      correct.oracleBefore.progressTotal,
+    )
+    expect(correct.feedRowReadsInStep, 'the cold read is a counted feed read').toBeGreaterThan(0)
+
+    const planted = await coldProgressRun(true)
+    expect(planted.parent).toBe(correct.parent)
+    expect(planted.after.progressTotal, 'untracked: stale').toBe(planted.first.progressTotal)
+    expect(planted.after.progressTotal).not.toBe(planted.oracleAfter.progressTotal)
+    writeResult('mobx-rollups-cold-progress-1x', { correct: summary(correct), planted: summary(planted) })
   }, 300_000)
 
-  it('cold children: loading and partial progress first, the oracle once they land (Ma3 addendum)', async () => {
+  it('attention keeps the pending marker: a review ask waits on a cold spin-off, then withdraws (Ma3 addendum)', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = arm.create(feeds.rows.source, feeds.locals.source) as MobxPoolHandle
     const { pool } = handle
+    const residency = pool.residency!
+    let observe = () => {}
     try {
-      const residency = pool.residency!
-      // A resident visible parent with a hot child and a cold one that counts
-      // as a unit (so the ready children's progress is strictly partial).
-      const coldUnit = (childId: string) => {
-        if (!residency.isCold('issue', childId)) return false
-        const row = residency.read('issue', childId) as SliceIssue | undefined
-        return row !== undefined && row.stage !== 'proposed' && !issueAbandoned(row)
-      }
-      const parent = tracked(() =>
-        pool.worklist.order.find((id) => {
-          const node = pool.worklist.issue(id)
-          return (
-            pool.fenced.issue.has(id) &&
-            node !== undefined &&
-            node.childIds.some(coldUnit) &&
-            node.childIds.some((childId) => pool.fenced.issue.has(childId))
-          )
-        }),
-      )
-      expect(parent, 'a hot visible parent with a hot child and a cold unit child').toBeDefined()
-      const id = parent as string
-      const childIds = tracked(() => pool.worklist.issue(id)!.childIds)
-      const coldChildren = childIds.filter((childId) => residency.isCold('issue', childId))
-      // Everything below the cold children: none of it may be asked for yet.
-      const deeper = new Set<string>()
-      const stack = [...coldChildren]
-      while (stack.length > 0) {
-        const next = stack.pop() as string
-        for (const grandchild of tracked(() => pool.worklist.issue(next)?.childIds ?? [])) {
-          if (deeper.has(grandchild)) continue
-          deeper.add(grandchild)
-          stack.push(grandchild)
+      // A visible human row with no session on the task and a cold spin-off
+      // that has left the mission: reopened to review, its ask is withdrawn by
+      // that continuation (`issueContinuation`), which only the spin-off's own
+      // row can tell.
+      const found = tracked(() => {
+        for (const id of pool.worklist.order) {
+          const node = pool.worklist.issue(id)!
+          const row = pool.visibleInputs.issueRow(id)
+          if (row?.audience !== 'human' || node.openOwn || node.rosterIds.length > 0) continue
+          const spinOff = node.spinOffIds.find((spinOffId) => {
+            if (!residency.isCold('issue', spinOffId)) return false
+            const spin = pool.visibleInputs.issueRow(spinOffId)
+            return (
+              spin !== undefined &&
+              spin.archived !== true &&
+              spin.deletedAt == null &&
+              spin.stage !== 'backlog' &&
+              spin.stage !== 'proposed'
+            )
+          })
+          if (spinOff !== undefined) return { id, spinOff }
         }
-      }
-
-      pool.hydrate()
-      expect(residency.hasQueued()).toBe(false)
-      const first = tracked(() => pool.issue(id)!.view!)
+        return null
+      })
+      expect(found, 'a visible row with a cold, started spin-off').not.toBeNull()
+      const { id, spinOff } = found!
+      observe = reaction(() => pool.issue(id)?.view, () => {})
+      const wire = ctx.cache.read('issue', id)?.value as object
+      const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
+      ctx.replica.batch(() => {
+        upsert(ctx, 'issue', id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
+        upsert(ctx, 'issueProjection', id, { ...(projection ?? {}), stage: 'review' })
+      })
+      await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
+      feeds.flush()
+      expect(residency.isCold('issue', spinOff), 'the spin-off stays cold').toBe(true)
+      const waiting = tracked(() => pool.issue(id)!.view!)
       const batch = residency.take()
       for (const [entity, rowId] of batch) residency.request(entity, rowId)
-      const queued = batch.length
-      expect(first.loading, 'loading while cold children are pending').toBe(true)
-      const asked = new Set(batch.filter(([entity]) => entity === 'issue').map(([, rowId]) => rowId))
-      for (const childId of coldChildren) expect(asked.has(childId), `${childId} asked for`).toBe(true)
-      // One level: no row below a cold child is asked for by this read (a row
-      // nested straight under the parent through a hidden child is its own level).
-      const nestedHere = new Set(tracked(() => [...pool.worklist.nested(id)]))
-      expect([...deeper].filter((rowId) => asked.has(rowId) && !nestedHere.has(rowId))).toEqual([])
-      const store = ctx.engine.getSnapshot()
-      const oracle = rowViewsFromStore(store, { ...parityLocals(ctx), selectedIssueId: null })[
-        id
-      ] as RowView
-      expect(oracle, `${id} in the oracle`).toBeDefined()
-      expect(first.progressTotal, 'partial progress: the ready children only').toBeLessThan(
-        oracle.progressTotal,
-      )
-
+      expect(waiting.loading, 'loading while the spin-off is pending').toBe(true)
+      expect(batch.some(([entity, rowId]) => entity === 'issue' && rowId === spinOff)).toBe(true)
       let windows = 0
-      let view = first
       while (residency.hasQueued() && windows < 16) {
         pool.hydrate()
         windows += 1
-        view = tracked(() => pool.issue(id)!.view!)
       }
-      expect(view.loading, 'loading clears once everything it reads has landed').toBeUndefined()
-      for (const field of ['phase', 'progressDone', 'progressTotal', 'working', 'asking', 'closed'] as const) {
-        expect(view[field], `${id}.${field}`).toEqual(oracle[field])
-      }
-      writeResult('mobx-rollups-cold-1x', {
-        scale: 1,
-        parent: id,
-        children: childIds.length,
-        coldChildren: coldChildren.length,
-        queuedByFirstRead: queued,
+      const landed = tracked(() => pool.issue(id)!.view!)
+      const oracle = rowViewsFromStore(ctx.engine.getSnapshot(), {
+        ...parityLocals(ctx),
+        selectedIssueId: null,
+      })[id] as RowView
+      expect(landed.loading).toBeUndefined()
+      expect(landed.asking, 'withdrawn by the continuation, as in the oracle').toBe(oracle.asking)
+      expect(landed.phase).toBe(oracle.phase)
+      expect(oracle.asking).toBe(false)
+      writeResult('mobx-rollups-attention-pending-1x', {
+        row: id,
+        spinOff,
+        waiting: { loading: waiting.loading, asking: waiting.asking, phase: waiting.phase },
         windows,
-        first: { progressDone: first.progressDone, progressTotal: first.progressTotal },
-        settled: { progressDone: view.progressDone, progressTotal: view.progressTotal },
+        landed: { asking: landed.asking, phase: landed.phase },
       })
     } finally {
+      observe()
       handle.dispose()
       feeds.dispose()
       ctx.engine.destroy()
     }
   }, 300_000)
 })
+

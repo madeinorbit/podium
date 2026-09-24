@@ -90,6 +90,7 @@ import {
   type OwnAttention,
   formalParentPartOf,
   type OwnFacts,
+  type ProgressFacts,
   ownAttentionPartOf,
   ownFactsPartOf,
   type Rollup,
@@ -130,6 +131,12 @@ export interface VisibleInputs {
   loadedIssue(id: string): Loaded<SliceIssue>
   /** A RESIDENT session row; `LOADING` when cold (queued). */
   loadedSession(id: string): Loaded<SliceSession>
+  /**
+   * R-ROLL's progress facts of a known issue, hot or cold, never loading it
+   * (the live pool: `issueRow`, whose cold read is counted, fenced and
+   * tracked). Its own member so a plant can take away exactly its tracking.
+   */
+  progressFacts(id: string): ProgressFacts | undefined
   /** The present rows whose `nestParent` is `id` (the inverse, maintained; never a walk). */
   nested(id: string): Iterable<string>
   /** The known issues whose declared `issue.parent` is `id` (filed from each one's forward slot). */
@@ -409,6 +416,8 @@ export interface IssueVisibility extends RollupParts {
 export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
     loadedIssue: (id) => input.loadedIssue(id),
+    progressFacts: (id) => input.progressFacts(id),
+    spinOffCount: (id) => input.relations.size('issue', id, 'spinOffs'),
     nested: (id) => input.nested(id),
     formalChildren: (id) => input.formalChildren(id),
     rollupNode: (id) => input.issue(id),

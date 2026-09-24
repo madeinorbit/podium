@@ -20,7 +20,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SliceSession } from '../../../../shared/src/slice-types'
+import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
 import {
   type Aggregate,
   aggregate,
@@ -30,9 +30,11 @@ import {
   NO_UNITS,
   phaseOf,
   type PhaseFlags,
+  type ProgressFacts,
   seatVerdictOf,
   type UnitOwn,
   type Units,
+  unitOwnOf,
   unitsOf,
   withSeat,
 } from './rollup'
@@ -75,6 +77,9 @@ assertType<
   >
 >()
 assertType<Equal<Parameters<typeof aggregate>['length'], 1>>()
+// A cold child gives progress exactly R-ROLL's own-row fields (coordinator condition 4).
+assertType<Equal<ProgressFacts, Pick<SliceIssue, 'stage' | 'closedReason'>>>()
+assertType<Equal<Parameters<typeof unitOwnOf>[0], ProgressFacts>>()
 // Everything that flows through them is plain data.
 assertType<PlainData<Aggregate>>()
 assertType<PlainData<PhaseFlags>>()
@@ -179,13 +184,12 @@ describe('the roll-up combine', () => {
   it('sums pending markers and progress units up the chain', () => {
     const cold = { ...EMPTY_OWN, pending: 1 }
     expect(aggregate({ own: cold, children: [aggregate({ own: cold, children: [] })] }).pending).toBe(2)
-    const unit: UnitOwn = { member: true, unit: true, done: true, solo: true, pending: false }
+    const unit: UnitOwn = { member: true, unit: true, done: true, solo: true }
     const below = unitsOf({ children: [{ own: unit, below: NO_UNITS }] })
-    expect(unitsOf({ children: [{ own: { ...NO_UNIT, pending: true }, below }] })).toEqual({
-      members: 1,
-      units: 1,
-      done: 1,
-      pending: 1,
+    expect(unitsOf({ children: [{ own: NO_UNIT, below }, { own: unit, below: NO_UNITS }] })).toEqual({
+      members: 2,
+      units: 2,
+      done: 2,
     })
   })
 })

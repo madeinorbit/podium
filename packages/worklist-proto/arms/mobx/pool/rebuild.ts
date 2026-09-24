@@ -116,6 +116,7 @@ export function rebuildSnapshot(
     passed: inputs.passed,
     reached: inputs.reached,
     loadedIssue: inputs.issue,
+    progressFacts: inputs.issue,
     loadedSession: inputs.session,
     nested: (id) => {
       nested ??= directNested(
