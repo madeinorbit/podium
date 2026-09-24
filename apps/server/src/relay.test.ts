@@ -29,6 +29,7 @@ import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
 import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
+import { feedPrincipalOf } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import type {SessionRow} from './store'
 import { SessionStore } from './store'
@@ -149,6 +150,17 @@ describe('SessionRegistry', () => {
           transitionId: `spawn:${sessionId}`,
           machineAccess: 'allowed',
           principal: { kind: 'user', userId: firstAdminMemberId() },
+          // The server-authored delegation record rides the spawn binding since
+          // 3b63a0125 (POD-3961, wire widened in 289e59734): the session acts as
+          // its own agent identity on behalf of the creating member, with the
+          // narrow default scope (no issue → none) and no parent binding.
+          delegation: {
+            actor: sessionId,
+            onBehalfOf: firstAdminMemberId(),
+            grantedScope: { kind: 'none' },
+            parentBindingId: null,
+            revision: 1,
+          },
         },
       }),
     )
@@ -1424,7 +1436,20 @@ describe('SessionRegistry', () => {
     expect(daemon2.some((m) => m.type === 'reattach' && m.sessionId === sessionId)).toBe(true)
   })
 
-  it('attachClient sends welcome plus session and conversation snapshots', async () => {
+  /**
+   * THE SNAPSHOT IS THE HTTP BOOTSTRAP NOW, NOT A SOCKET WORLD (d1052b199,
+   * 6b22a3650, da48d4c7c).
+   *
+   * This used to read the session and conversation snapshots off the socket
+   * right after `hello`. Since d1052b199 ("Remove legacy sync paths") and
+   * 6b22a3650 (a client must declare `sync.http.v1` at admission) the socket
+   * grants only a POSITION — `welcome`, then `feedResume` at the head — and the
+   * replica paints its world from the HTTP sync authority, the same range reads
+   * `issues.normalized-wire.test.ts` uses. What still holds, and what this pins:
+   * a freshly admitted client is welcomed, and the world it is entitled to
+   * contains the session and the (now podium-identified) conversation.
+   */
+  it('attachClient welcomes the client, and its HTTP bootstrap carries the session and conversation snapshots', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -1444,8 +1469,23 @@ describe('SessionRegistry', () => {
     const c = sink()
     const id = await attachCurrent(reg, c.send)
     expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
-    await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(expect.objectContaining({ sessionId }))
-    await expect.poll(() => feedValues(c.sent, 'conversation')).toContainEqual(
+    const principal = reg.clientGateway.principalOf(id)
+    if (!principal) throw new Error('missing authenticated principal')
+    const authority = reg.syncDelta.authority
+    const head = await authority.captureHead()
+    // The socket's position is the head the bootstrap is read up to.
+    expect(c.sent).toContainEqual(expect.objectContaining({ type: 'feedResume', seq: head }))
+    const world = new Map<string, unknown>()
+    for await (const page of authority.changesRange(feedPrincipalOf(principal), 0, head, 100)) {
+      if (page.kind !== 'batch') throw new Error('fresh fixture unexpectedly requires recovery')
+      for (const change of page.changes) {
+        if (change.op === 'upsert') world.set(`${change.entity}:${change.entityId}`, change.value)
+      }
+    }
+    const values = (entity: string) =>
+      [...world.entries()].filter(([key]) => key.startsWith(`${entity}:`)).map(([, value]) => value)
+    expect(values('session')).toContainEqual(expect.objectContaining({ sessionId }))
+    expect(values('conversation')).toContainEqual(
       expect.objectContaining({
         id: 'conv-1',
         agentKind: 'codex',
@@ -2033,6 +2073,16 @@ describe('SessionRegistry', () => {
           // The prober is the system; the OWNER rides alongside so the daemon
           // can adopt a survivor that has no binding record (POD-1647).
           adopt: { ownerUserId: firstAdminMemberId() },
+          // The persisted server-authored delegation rides the reattach too
+          // (3b63a0125, POD-3961): recovery re-sends the canonical record the
+          // spawn carried, surviving the restart unchanged.
+          delegation: {
+            actor: sessionId,
+            onBehalfOf: firstAdminMemberId(),
+            grantedScope: { kind: 'none' },
+            parentBindingId: null,
+            revision: 1,
+          },
         },
       }),
     )
