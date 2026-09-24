@@ -192,7 +192,7 @@ describe('ingest', () => {
       expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
       for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
       expect(pool.worklist.held('member')).toBe(residentIssues.length)
-      expect(pool.stats.counters.cellsCreated).toBe(
+      expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
         1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size,
       )
       expect(pool.stats.rowsDerived).toBe(0)

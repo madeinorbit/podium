@@ -241,7 +241,7 @@ describe('bootstrap', () => {
     expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
     for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
     expect(pool.worklist.held('member')).toBe(hotIssues.length)
-    expect(pool.stats.counters.cellsCreated).toBe(
+    expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
       1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size,
     )
     expect(pool.stats.counters.recordsCreated).toBe(0)
@@ -319,7 +319,7 @@ describe('bootstrap', () => {
       for (const sessionId of pool.issues.get(id)?.sessionIds ?? []) members.add(sessionId)
     }
     for (const member of members) expect(pool.sessionCells.has(member)).toBe(true)
-    expect(pool.stats.counters.cellsCreated).toBe(
+    expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
       cells + pool.sessionCells.size + 1 + pool.worklist.cellCount(),
     )
     expect(pool.stats.counters.recordsCreated).toBe(0)

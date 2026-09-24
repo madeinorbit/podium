@@ -32,6 +32,14 @@
  * such a cycle the value is not guaranteed to be the one a single legacy walk
  * gives; the counter says when that happened.
  *
+ * COLLECTED WHEN UNREAD (POD-4582). A cell created with `collect` exists only
+ * while some cell reads it: when its last reader stops reading it (a re-run
+ * that no longer asks, or the reader's disposal), the drain ends by calling
+ * `collect`, which disposes it, and the next read builds it again. The
+ * worklist's part cells are made this way, so a part nobody consults (a
+ * session whose issue left) is not kept up. Cells read from outside any cell
+ * (a list slot, a handler) are roots and are made without it.
+ *
  * WHAT IS NOT TRACKED. A read that bypasses the doors — a plain field, a
  * closure, `Date.now()` — is invisible here, which is pitfall (j); the lint
  * fence forbids module state and wall clocks in `pool/`, and the L4b gate's
@@ -118,6 +126,8 @@ export class Cell<T> {
     equals: Equals<T>,
     /** Called when a re-run changed the value (not on the first run). */
     readonly changed?: () => void,
+    /** Called once no cell reads this one any more (see the header); it disposes the cell. */
+    readonly collect?: () => void,
   ) {
     this.equals = equals as Equals<unknown>
   }
@@ -133,6 +143,8 @@ export interface CellCounters {
   cellsChanged: number
   /** Reads of a cell whose own body was running (a cycle in the data); see the header. */
   cycleReads: number
+  /** Cells collected once nothing read them (see the header). */
+  cellsCollected: number
 }
 
 export class CellGraph {
@@ -141,6 +153,7 @@ export class CellGraph {
     cellRuns: 0,
     cellsChanged: 0,
     cycleReads: 0,
+    cellsCollected: 0,
   }
   /** The cell whose body is running; reads record into it. */
   private running: Cell<unknown> | null = null
@@ -149,10 +162,18 @@ export class CellGraph {
   private readonly queue: Cell<unknown>[][] = []
   private queued = 0
   private draining = false
+  /** Collectable cells that lost a reader; collected at the end of the drain if still unread. */
+  private readonly unread = new Set<Cell<unknown>>()
 
-  cell<T>(name: string, compute: () => T, equals: Equals<T>, changed?: () => void): Cell<T> {
+  cell<T>(
+    name: string,
+    compute: () => T,
+    equals: Equals<T>,
+    changed?: () => void,
+    collect?: () => void,
+  ): Cell<T> {
     this.counters.cellsCreated += 1
-    return new Cell(name, compute, equals, changed)
+    return new Cell(name, compute, equals, changed, collect)
   }
 
   /** Record the running cell (if any) as a reader of `key` in `index`. */
@@ -212,8 +233,21 @@ export class CellGraph {
         this.queued -= 1
         if (cell.dirty && !cell.disposed) this.run(cell)
       }
+      this.collectUnread()
     } finally {
       this.draining = false
+    }
+  }
+
+  /** Collect every collectable cell that no cell reads any more (and what that frees in turn). */
+  private collectUnread(): void {
+    while (this.unread.size > 0) {
+      const [cell] = this.unread as Set<Cell<unknown>>
+      this.unread.delete(cell as Cell<unknown>)
+      const held = cell as Cell<unknown>
+      if (held.disposed || held.running || held.readers.size > 0) continue
+      this.counters.cellsCollected += 1
+      held.collect?.()
     }
   }
 
@@ -225,6 +259,7 @@ export class CellGraph {
     cell.value = undefined
     for (const reader of cell.readers) this.invalidate(reader)
     cell.readers.clear()
+    this.unread.delete(cell)
   }
 
   /** Dirty cells not yet drained (tests: lifecycle). */
@@ -236,6 +271,7 @@ export class CellGraph {
   clear(): void {
     this.queue.length = 0
     this.queued = 0
+    this.unread.clear()
   }
 
   private run(cell: Cell<unknown>): void {
@@ -272,9 +308,11 @@ export class CellGraph {
     const { sourceIndexes, sourceKeys } = cell
     for (let i = 0; i < sourceKeys.length; i += 1) {
       const index = sourceIndexes[i]
-      if (index === null || index === undefined)
-        (sourceKeys[i] as Cell<unknown>).readers.delete(cell)
-      else index.remove(sourceKeys[i], cell)
+      if (index === null || index === undefined) {
+        const source = sourceKeys[i] as Cell<unknown>
+        source.readers.delete(cell)
+        if (source.collect !== undefined && source.readers.size === 0) this.unread.add(source)
+      } else index.remove(sourceKeys[i], cell)
     }
     sourceIndexes.length = 0
     sourceKeys.length = 0

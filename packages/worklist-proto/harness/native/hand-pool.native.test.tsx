@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 /**
  * POD-4578 (Ha1) — the round-three hand-rolled pool on the native renderer:
- * `mountNative()` through `mountNativeForCounts`, one RowShell per pool
- * issue, a heartbeat redraws no VISIBLE row and a rename redraws the
- * renamed row. Parity and the counted scenarios are the web lane's
- * (`arms/hand/pool/counts.test.tsx`) until the pool has an order (Hb1).
+ * `mountNative()` through `mountNativeForCounts`, one RowShell per VISIBLE
+ * row in rank order (Hb1, POD-4582), a heartbeat redraws no row and a rename
+ * redraws the renamed row and no hidden one. Parity and the counted
+ * scenarios are the web lane's (`arms/hand/pool/worklist/visible.test.tsx`,
+ * `arms/hand/pool/counts.test.tsx`).
  *
  * Ha2 (POD-4579): `activityAt` reads `issue.sessions`, so the heartbeat
  * moved its session's issue and the a1 list, which drew every issue,
@@ -23,7 +24,7 @@ import { mountNativeForCounts } from '../src/count-harness'
 import { openFenceFeeds } from '../src/fence-scenarios'
 
 describe('hand pool on the native renderer', () => {
-  it('mounts every resident row; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row', async () => {
+  it('mounts the visible rows in order; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row only among drawn rows', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     // No load window closes on its own mid-step.
@@ -43,9 +44,10 @@ describe('hand pool on the native renderer', () => {
         },
         { timeout: 20_000, interval: 50 },
       )
-      expect(list.querySelectorAll('[data-testid^="row-"]').length).toBe(
-        handle.pool.issueIds().length,
+      const drawnIds = [...list.querySelectorAll('[data-testid^="row-"]')].map((row) =>
+        (row.getAttribute('data-testid') ?? '').slice('row-'.length),
       )
+      expect(drawnIds).toEqual([...handle.pool.order()])
 
       mounted.log.reset()
       await act(async () => {
@@ -66,7 +68,11 @@ describe('hand pool on the native renderer', () => {
         await writeTitleRename(ctx)
         feeds.flush()
       })
-      expect([...mounted.log.counts.keys()]).toContain(ctx.targets.visibleRootId)
+      const redrawn = [...mounted.log.counts.keys()]
+      expect(redrawn).toContain(ctx.targets.visibleRootId)
+      // Only visible rows redraw: a hidden spin-off of the renamed root is not drawn.
+      const shown = new Set(handle.pool.order())
+      expect(redrawn.filter((id) => !shown.has(id))).toEqual([])
     } finally {
       mounted.unmount()
       feeds.dispose()

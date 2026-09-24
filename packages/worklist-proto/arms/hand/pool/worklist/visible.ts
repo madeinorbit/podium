@@ -721,8 +721,20 @@ class PartCells<P extends object> {
   read(name: keyof P, self: P): unknown {
     let cell = this.cells.get(name)
     if (cell === undefined) {
-      cell = this.graph.cell(`${String(name)}:${this.id}`, () => this.rule(name, self), sameData)
-      this.cells.set(name, cell)
+      const { graph, cells } = this
+      const made: Cell<unknown> = graph.cell(
+        `${String(name)}:${this.id}`,
+        () => this.rule(name, self),
+        sameData,
+        undefined,
+        // Unread parts are collected (`cells.ts`): a part nobody consults is not kept up.
+        () => {
+          graph.dispose(made)
+          if (cells.get(name) === made) cells.delete(name)
+        },
+      )
+      cell = made
+      cells.set(name, cell)
     }
     return this.graph.read(cell)
   }
