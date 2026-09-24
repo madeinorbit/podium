@@ -25,6 +25,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { TransportTag } from '@podium/commands'
 import { asSessionId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
 import { disposeOracles, makeOracle, ptyFrames, waitFor } from '../sessions/oracle-support'
@@ -608,11 +609,11 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
 
 /**
  * Resolve once `sample()` has held the same value for `quietMs` — a settle, not
- * a target. Used where a test needs the COMPLETE set of what a write produced
- * but must not pin how big that set is: submit verification re-presses Enter a
- * configured number of times, and waiting for a number would put the retry
- * policy back into the test. A short window only observes fewer keystrokes; it
- * can never make the assertions that follow hold when they otherwise would not.
+ * a target. Used where a test needs the COMPLETE set of what a write produced:
+ * the hand-off is asynchronous (the drain's contract branch), so "exactly one
+ * request" is only a claim once a duplicate has had time to appear. A short
+ * window only observes fewer frames; it can never make the assertions that
+ * follow hold when they otherwise would not.
  */
 async function settled(
   sample: () => number,
@@ -647,7 +648,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
    * trip closes even though the two ends never share a code path above the
    * gate.
    */
-  it('delivers an issue-addressed send to the live agent and threads its reply back', async () => {
+  it('hands an issue-addressed send to the live agent\'s driver, settles it on delivery, and threads its reply back', async () => {
     // A send no longer waits on the agent [POD-4661]; the virtual clock below
     // stays so any wait that crept back in would show up as fake time, not as
     // a 25-second hang.
@@ -673,7 +674,12 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
       cwd: '/r/.worktrees/t',
       issueId: issue.id,
     })
-    // Live and idle, so the push lands rather than queueing.
+    // The spawn's observation fence, for the driver's delivery event below.
+    const spawn = o.daemon.find(
+      (m): m is Extract<ControlMessage, { type: 'spawn' }> =>
+        m.type === 'spawn' && m.sessionId === sessionId,
+    )
+    if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
@@ -698,43 +704,59 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     })) as { id: string; ok: boolean; disposition: string }
     expect(sent.ok).toBe(true)
 
-    // DELIVERY — the body reaches the agent's PTY, byte-faithful inside the
-    // server-rendered envelope.
-    await waitFor(() => ptyFrames(o.daemon).length > 0, 'the message to reach the PTY')
-    await settled(() => ptyFrames(o.daemon).length, 'the delivery keystrokes')
-    const frames = ptyFrames(o.daemon)
-
-    // THE BODY IS TYPED EXACTLY ONCE — that, and not the number of frames, is
-    // what "no duplicate delivery" means. Delivery puts the body on the wire in
-    // ONE bracketed paste and then presses Enter; submit verification re-presses
-    // Enter while the transcript has not witnessed a new user turn. POD-2116
-    // stopped dropping the unconfirmed row, and this fixture has no agent to
-    // echo the turn, so the verifier presses its whole budget where a real
-    // harness is confirmed on the first press. HOW MANY bare carriage returns
-    // that produces is a retry policy and free to change; a second copy of the
-    // body would be a delivered-twice bug, and is not.
-    //
-    // The count is taken over the joined frames on purpose: a duplicate that
-    // rode along inside one frame is the same bug as a duplicate in a second
-    // frame, and counting frames could see neither.
+    // DELIVERY — THE CONTRACT, NOT THE PTY (358ad0ffb/81460a99b POD-4427,
+    // POD-4279; 99ef2c33b; cfb9924a7 POD-4661). This used to wait for the body
+    // to be TYPED into the agent's PTY and count the submit-verification
+    // Enters. The server no longer types into an agent session: the send rides
+    // the durable queue and leaves, at once, as ONE `runtimeDurableSendRequest`
+    // keyed by the queue row, and only the driver's `delivery` runtime event
+    // settles it (4bd403fed). What "delivered exactly once" means now is one
+    // request carrying the body once, and no PTY byte at all.
     const BODY = 'please confirm you got this'
-    const bodyCopies = frames.reduce((n, f) => n + f.data.split(BODY).length - 1, 0)
-    expect(bodyCopies).toBe(1)
-    // …and every OTHER frame is submit pressure rather than content: bare
-    // carriage returns, nothing printable. This is the half that stays true
-    // whatever the retry policy does, and it is what makes the extra frames
-    // legible instead of alarming.
-    expect(frames.filter((f) => !f.data.includes(BODY) && f.data.trim() !== '')).toEqual([])
-
-    // The body is byte-faithful (the copy count above reads the literal bytes).
-    // No envelope assertion here: an OPERATOR send lands unwrapped by design
-    // ([spec:SP-34d7] deliversUnwrapped), so the id is not in the frame — the
-    // reply below uses the id the SENDER was handed, which is the operator's
-    // real affordance.
-    //
+    type DurableSend = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
+    const durableSends = () =>
+      o.daemon.filter(
+        (m): m is DurableSend => m.type === 'runtimeDurableSendRequest' && m.sessionId === sessionId,
+      )
+    await waitFor(() => durableSends().length > 0, 'the message to reach the driver')
+    await settled(() => durableSends().length, 'the durable hand-off')
+    const requests = durableSends()
+    expect(requests).toHaveLength(1)
+    const [request] = requests
+    // The body is byte-faithful and appears once. No envelope assertion here: an
+    // OPERATOR send lands unwrapped by design ([spec:SP-34d7] deliversUnwrapped),
+    // so the id is not in the text — the reply below uses the id the SENDER was
+    // handed, which is the operator's real affordance.
+    expect(request!.text.split(BODY).length - 1).toBe(1)
+    expect(request!.turnId).toBe(request!.rowId)
     // Operator bodies ride the mail substrate after POD-729 but stamp as
     // controller so a standing offer clears and the turn is user-origin (POD-552).
-    expect(frames.find((f) => f.data.includes(BODY))?.inputOrigin).toBe('controller')
+    expect(request!.origin).toBe('controller')
+    expect(ptyFrames(o.daemon).filter((f) => f.data.includes(BODY))).toEqual([])
+
+    // Handed on is not delivered: the ledger waits for the driver.
+    expect(((await o.call.messages.show({ id: sent.id })) as { status: string }).status).toBe('queued')
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: `delivery-${request!.rowId}`,
+      sessionId,
+      event: {
+        t: 'delivery',
+        rowId: request!.rowId,
+        outcome: 'delivered',
+        at: '2026-01-01T00:00:01.000Z',
+        provenance: 'live',
+        cursor: { segmentId: `delivery-${sessionId}`, components: { seq: 1 } },
+        observerGeneration: spawn.observationGeneration,
+        turnEpoch: 0,
+      },
+    })
+    await waitFor(
+      async () =>
+        ((await o.call.messages.show({ id: sent.id })) as { status: string }).status === 'delivered',
+      'the delivery event to settle the message',
+    )
+    expect(ptyFrames(o.daemon)).toEqual([])
 
     // REPLY — the recipient answers over the RELAY, the agent seam, using the
     // message id it just read out of its own envelope.
