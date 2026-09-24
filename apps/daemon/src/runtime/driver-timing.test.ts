@@ -107,6 +107,81 @@ describe('driver timing recorder', () => {
     })
   })
 
+  it('recovers a runtime send whose accepted receipt named the previous turn (POD-4655)', () => {
+    // Claude's hook proof resolves before the causal observer advances, so the
+    // receipt for the turn-2 send names turn 1. The turn it actually opens must
+    // still get its started / first-response / completed stages.
+    let now = 1_000
+    const records: DriverTimingRecord[] = []
+    const timing = new DriverTimingRecorder({
+      now: () => now,
+      write: (record) => records.push(record),
+    })
+    const terminal = binding('terminal')
+
+    timing.sessionRequested({
+      sessionId: SESSION,
+      harness: 'claude-code',
+      requestedDriverId: 'generic-pty',
+      initialPrompt: true,
+    })
+    timing.driverSelected(SESSION, 'generic-pty')
+    timing.sessionReady(terminal)
+    timing.runtimeEvent(
+      terminal,
+      event({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, 1),
+    )
+    timing.runtimeEvent(
+      terminal,
+      event({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, 1),
+    )
+    now += 10
+    timing.promptRequested(terminal, 'turn-2')
+    now += 5
+    timing.promptReceipt(terminal, 'turn-2', {
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: 'when-ready',
+      provenBy: 'hook',
+      at: '2026-08-30T12:00:00.015Z',
+    })
+    now += 50
+    timing.runtimeEvent(
+      terminal,
+      event({ t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } }, 2),
+    )
+    timing.runtimeEvent(
+      terminal,
+      event({ t: 'item', item: { kind: 'delta', itemId: 'b', textDelta: 'H' } }, 2),
+    )
+    now += 100
+    timing.runtimeEvent(
+      terminal,
+      event({ t: 'turn', ev: { ev: 'completed', turnEpoch: 2, verdict: 'done' } }, 2),
+    )
+
+    expect(
+      records.filter((record) => record.turnId === 'turn-2').map(({ stage }) => stage),
+    ).toEqual([
+      'prompt_requested',
+      'prompt_accepted',
+      'turn_started',
+      'turn_first_response',
+      'turn_completed',
+    ])
+    expect(records.find(({ stage, turnId }) => stage === 'turn_started' && turnId === 'turn-2')).toMatchObject({
+      turnId: 'turn-2',
+      source: 'runtime-send',
+      turnEpoch: 2,
+    })
+    expect(records.at(-1)).toMatchObject({
+      stage: 'turn_completed',
+      turnId: 'turn-2',
+      source: 'runtime-send',
+      turnEpoch: 2,
+    })
+  })
+
   it('says a launch is blocked when the harness asks before its first turn (POD-4632)', () => {
     // `session_ready` on a terminal session is the PTY bind; Claude's folder
     // trust dialog can hold the session after it. The trace must say so rather

@@ -292,7 +292,26 @@ export class DriverTimingRecorder {
   runtimeEvent(binding: SessionBinding, event: RuntimeEvent): void {
     if (event.provenance !== 'live') return
     const session = this.#forBinding(binding)
-    let prompt = session.turns.get(event.turnEpoch)
+    // An accepted headed receipt can name the PREVIOUS turn: the hook proof
+    // resolves before the causal observer advances, so the prompt is filed
+    // under N-1 while its turn opens as N (POD-4655). The orphaned prompt is
+    // the oldest one still filed — adopt it under the epoch that actually
+    // opened rather than dropping the turn's stages.
+    const claimFiled = (): PromptClock | undefined => {
+      const exact = session.turns.get(event.turnEpoch)
+      if (exact) return exact
+      let oldestEpoch: number | undefined
+      for (const filed of session.turns.keys()) {
+        if (oldestEpoch === undefined || filed < oldestEpoch) oldestEpoch = filed
+      }
+      if (oldestEpoch === undefined) return undefined
+      const orphan = session.turns.get(oldestEpoch)
+      if (!orphan) return undefined
+      session.turns.delete(oldestEpoch)
+      session.turns.set(event.turnEpoch, orphan)
+      return orphan
+    }
+    let prompt = claimFiled()
     const claimPending = (): PromptClock | undefined => {
       const claimed = session.pendingPrompts.shift()
       if (claimed) session.turns.set(event.turnEpoch, claimed)

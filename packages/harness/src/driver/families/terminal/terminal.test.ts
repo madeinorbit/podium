@@ -485,6 +485,30 @@ describe('row cancellation at the terminal submit boundary', () => {
 })
 
 
+describe('the receipt epoch (POD-4655)', () => {
+  it('names the epoch observed when the hook proof lands, even if the turn it opens is newer', async () => {
+    // Claude's UserPromptSubmit fires the moment the prompt lands; the
+    // turn_opened observation that advances the observer arrives hundreds of
+    // milliseconds later through deliver/ack/fence (see onHookPayload in the
+    // daemon's terminal driver). A receipt minted in between names the
+    // PREVIOUS turn — honest about what was observed, stale about what
+    // opened. Consumers must correlate by order, not by this number; the
+    // daemon's timing record proves it does, in driver-timing.test.ts.
+    const { ports } = terminal({
+      // The initial-prompt turn was observed; the runtime send's turn has not
+      // been yet, and still has not been when the hook fires below.
+      observedTurnEpoch: () => 1,
+      hookAccept: { watch: () => ({ accepted: Promise.resolve(true), cancel: () => {} }) },
+      echoAccept: { watch: () => ({ accepted: new Promise<boolean>(() => {}), cancel: () => {} }) },
+    })
+    const receipt = await createTerminalInjection(ports).deliver('second prompt', {
+      origin: 'controller',
+      delivery: 'when-ready',
+    })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook', turnEpoch: 1 })
+  })
+})
+
 describe('durable prompt confirmation', () => {
   it('keeps the original proof watch while busy, without submitting another payload', async () => {
     vi.useFakeTimers()
