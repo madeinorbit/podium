@@ -1372,6 +1372,17 @@ export class MessageDeliveryService {
    * told once, the way any dead-letter tells them — being told nothing is the
    * defect this closes.
    *
+   * DIRECT TURNS ONLY. Every `turnId` here is a MESSAGE id: a driver-local FIFO
+   * entry the daemon held in custody (an interrupt parked behind a lease, a
+   * steer queued behind a turn). A DURABLE row's `turnId` is its queue ROW id
+   * (99ef2c33b, POD-3742) and matches no message, so it falls through the
+   * lookup below, moves nothing, and is still acknowledged — teardown discards
+   * delivery state, not durable work, and the row is re-sent to the next owner
+   * as a recovery (relay.test.ts "a teardown report naming a durable row leaves
+   * it queued for the next owner"). Do not "fix" the lookup to match row ids:
+   * the server never holds messages based on agent state, and a server-side
+   * guess about durable work is exactly what that rule forbids [POD-4676].
+   *
    * REPORTS REPEAT. They are retryable, they survive restarts, and they carry turn
    * ids a previous report already moved. Dedupe is the repository's guarded write,
    * not a set kept here: `markDeliveryAbandoned` only fires on a row that is still

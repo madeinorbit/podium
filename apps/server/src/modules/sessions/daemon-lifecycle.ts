@@ -1012,6 +1012,16 @@ export class SessionDaemonLifecycle {
           // `record` is the durable boundary: it returns only after
           // the guarded queued→dead_letter update and its transition/notice work.
           // If it throws, no ack is sent and the daemon retains/replays the report.
+          //
+          // DURABLE ROWS ARE ACKED AND IGNORED HERE, BY DESIGN (99ef2c33b,
+          // POD-3742). Since daemon-owned inbox delivery the daemon's `turnId`
+          // is the queue ROW id, while `record` looks messages up by MESSAGE id:
+          // a teardown report naming a durable row matches nothing, moves
+          // nothing, and still gets its ack. Teardown discards delivery state,
+          // not durable work — the row stays visibly queued and the next owner
+          // receives it again as a recovery, which the daemon fails visibly
+          // rather than retyping. Only DIRECT turns (message-id-keyed driver
+          // FIFO entries) end in `dead_letter` through this frame.
           const completion: Promise<void> = this.ports.queueDrainAbandoned.record(msg)
           await completion
           if (msg.reportId) {

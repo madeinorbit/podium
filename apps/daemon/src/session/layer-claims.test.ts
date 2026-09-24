@@ -312,4 +312,86 @@ describe('a recovery forward of an unverified row is confirmed on the daemon, ne
       expect.objectContaining({ t: 'delivery', rowId: 'row-1', outcome: 'delivered' }),
     ])
   })
+
+  it('a NEW handle while a row is in flight on the old one fails the recovery visibly, never vanishes', async () => {
+    // POD-4669's untested case, POD-4676: teardown discards delivery state, not
+    // durable work. The old owner holds the row in flight (its driver send never
+    // resolves); a bind mints a NEW handle and the server re-forwards the row as
+    // a recovery. The recovery must fail visibly ("previous delivery could not be
+    // confirmed") — never vanish (no outcome) and never retype.
+    const sent: DaemonMessage[] = []
+    const oldTyped: string[] = []
+    const newTyped: string[] = []
+    const oldOutcomes: RuntimeEventBody[] = []
+    const newOutcomes: RuntimeEventBody[] = []
+    const oldSend = vi.fn(async (input: { text: string }) => {
+      oldTyped.push(input.text)
+      // In flight forever: the old owner's custody never settles.
+      await new Promise<never>(() => {})
+      throw new Error('unreachable')
+    })
+    const newSend = vi.fn(async (input: { text: string }) => {
+      newTyped.push(input.text)
+      return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: '' }
+    })
+    const oldInner = {
+      binding: { sessionId: SESSION, driver: 'stub', harness: 'codex' },
+      state: async () => ({ phase: 'idle' }),
+      send: oldSend,
+    } as unknown as AgentSessionHandle
+    const newInner = {
+      binding: { sessionId: SESSION, driver: 'stub', harness: 'codex' },
+      state: async () => ({ phase: 'idle' }),
+      send: newSend,
+    } as unknown as AgentSessionHandle
+    const oldHandle = withDeliveryQueue(oldInner, (event) => void oldOutcomes.push(event))
+    const newHandle = withDeliveryQueue(newInner, (event) => void newOutcomes.push(event))
+    let current: AgentSessionHandle = oldHandle
+    const ctx = {
+      agentRuntime: { handleFor: () => current },
+      send: (msg: DaemonMessage) => void sent.push(msg),
+    } as unknown as DaemonContext
+    const forward = (deliveryRecovery: boolean, requestId: string) =>
+      runtimeHandlers.runtimeSendRequest(ctx, {
+        type: 'runtimeSendRequest',
+        requestId,
+        turnId: 'row-new-handle',
+        rowId: 'row-new-handle',
+        deliveryRecovery,
+        sessionId: SESSION,
+        text: 'the queued prompt',
+        origin: 'controller',
+        delivery: 'when-ready',
+      } as never)
+
+    // The old owner admits the row; its driver send stays in flight.
+    forward(false, 'req-old')
+    await vi.waitFor(() => expect(oldSend).toHaveBeenCalledTimes(1))
+    await settle()
+    expect(oldOutcomes).toEqual([])
+
+    // A bind mints a NEW handle while the old row is still in flight; the
+    // server re-forwards the row as a recovery to the new owner.
+    current = newHandle
+    forward(true, 'req-new')
+    await vi.waitFor(() => expect(newOutcomes).toHaveLength(1))
+    await settle()
+
+    // Visible, not vanished: exactly one delivery outcome exists, on the new
+    // handle, and it is the transcript-check failure — nothing was retyped.
+    expect(newTyped).toEqual([])
+    expect(newOutcomes).toEqual([
+      expect.objectContaining({
+        t: 'delivery',
+        rowId: 'row-new-handle',
+        outcome: 'failed',
+        reason: expect.stringContaining('previous delivery could not be confirmed'),
+      }),
+    ])
+    // The old owner's in-flight custody never settles visibly — its teardown
+    // discards delivery state — so the new handle's failure is the ONLY record.
+    // A run with zero outcomes anywhere is the vanish this pins against.
+    expect(oldOutcomes).toEqual([])
+    expect([...oldOutcomes, ...newOutcomes]).toHaveLength(1)
+  })
 })
