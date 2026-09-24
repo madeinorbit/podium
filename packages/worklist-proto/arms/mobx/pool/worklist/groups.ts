@@ -215,7 +215,7 @@ function placementEqual(a: Placement, b: Placement): boolean {
 }
 
 /** One group's filed members, unordered: the lanes sort them at view time. */
-interface Bucket {
+export interface Bucket {
   readonly open: ObservableSet<string>
   readonly closed: ObservableSet<string>
 }
@@ -226,7 +226,7 @@ function laneOf(placement: Placement): 'open' | 'closed' {
 }
 
 /** Ids with a rank, in L1b rank order (unranked ids are transient and stay out, as in `order`). */
-function sortByRank(
+function rankSorted(
   ids: Iterable<string>,
   rankOfId: (id: string) => RowRank | undefined,
 ): string[] {
@@ -299,7 +299,7 @@ export class GroupNode {
   get rowIds(): readonly string[] {
     const bucket = this.bucket
     if (bucket === undefined) return EMPTY
-    const lane = sortByRank(bucket.open, (id) => this.groups.rankOf(id))
+    const lane = rankSorted(bucket.open, (id) => this.groups.rankOf(id))
     const latched = this.groups.latchedOpenId
     if (latched === null || !bucket.closed.has(latched)) return lane
     const latchedRank = this.groups.rankOf(latched)
@@ -451,7 +451,7 @@ export class WorklistGroups {
 
   /** The pinned ids in rank order: the PINNED section. */
   get pinnedIds(): readonly string[] {
-    return sortByRank(this.pinnedSet, (id) => this.rankOf(id))
+    return rankSorted(this.pinnedSet, (id) => this.rankOf(id))
   }
 
   /** The group keys in spec order: distinct filed keys in rank order of first member. */
