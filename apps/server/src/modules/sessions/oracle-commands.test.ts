@@ -13,22 +13,21 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import type { SessionId } from '@podium/model'
-import { asMachineId, asUserId, asSessionId, firstAdminMemberId } from '@podium/model'
-import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { confirmingRetirement } from '../../test-support/host-daemon'
 import {
   disposeOracles,
   MUST_NOT_CHANGE,
   makeOracle,
-  paintOracleTui,
   PASTE_END,
   PASTE_START,
   ptyFrames,
   waitFor,
   willChange,
 } from './oracle-support'
-import { confirmingRetirement } from '../../test-support/host-daemon'
 
 afterEach(() => disposeOracles())
 
@@ -44,9 +43,205 @@ const inputs = (daemon: ControlMessage[]) =>
  */
 const retirements = (daemon: ControlMessage[], sessionId: SessionId) =>
   daemon.filter(
-    (m) =>
-      (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
+    (m) => (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
   )
+
+/**
+ * THE AGENT'S CONTRACT FRAMES, AS THE DAEMON SEES THEM (358ad0ffb / 81460a99b,
+ * POD-4427 / POD-4279; the helpers mirror relay.test.ts, ceb56a21f).
+ *
+ * A queued send leaves as ONE `runtimeDurableSendRequest` keyed by the queue
+ * row (`rowId` = `turnId`, 99ef2c33b); a when-ready send (continue) as a
+ * `runtimeSendRequest`; a stop as a `runtimeInterruptRequest`; an answer as a
+ * `runtimeAnswerRequest`. Custody is the `runtimeSendResult`; only the
+ * driver's `delivery` runtime event settles a durable row (4bd403fed).
+ */
+type DurableSendRequest = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
+const durableSends = (daemon: ControlMessage[], sessionId: SessionId): DurableSendRequest[] =>
+  daemon.filter(
+    (m): m is DurableSendRequest =>
+      m.type === 'runtimeDurableSendRequest' && m.sessionId === sessionId,
+  )
+const runtimeSends = (daemon: ControlMessage[], sessionId: SessionId) =>
+  daemon.filter(
+    (m): m is Extract<ControlMessage, { type: 'runtimeSendRequest' }> =>
+      m.type === 'runtimeSendRequest' && m.sessionId === sessionId,
+  )
+const interruptRequests = (daemon: ControlMessage[], sessionId: SessionId) =>
+  daemon.filter(
+    (m): m is Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> =>
+      m.type === 'runtimeInterruptRequest' && m.sessionId === sessionId,
+  )
+type AnswerRequest = Extract<ControlMessage, { type: 'runtimeAnswerRequest' }>
+const answerRequests = (daemon: ControlMessage[]): AnswerRequest[] =>
+  daemon.filter((m): m is AnswerRequest => m.type === 'runtimeAnswerRequest')
+
+type Oracle = Awaited<ReturnType<typeof makeOracle>>
+
+/** The durable sends once `count` of them have been handed on (a predicate wait). */
+async function durableSendsOnceHandedOn(
+  o: Oracle,
+  sessionId: SessionId,
+  count: number,
+): Promise<DurableSendRequest[]> {
+  await waitFor(
+    () => durableSends(o.daemon, sessionId).length >= count,
+    `${count} durable send(s) to be handed on`,
+  )
+  return durableSends(o.daemon, sessionId)
+}
+
+async function nextInterruptRequest(o: Oracle, sessionId: SessionId) {
+  await waitFor(() => interruptRequests(o.daemon, sessionId).length > 0, 'the interrupt request')
+  // biome-ignore lint/style/noNonNullAssertion: waited for above.
+  return interruptRequests(o.daemon, sessionId).at(-1)!
+}
+
+/** The daemon takes custody of a durable row, as a real one does. Not delivery. */
+const grantCustody = (o: Oracle, send: DurableSendRequest): Promise<void> =>
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    type: 'runtimeSendResult',
+    requestId: send.requestId,
+    sessionId: send.sessionId,
+    receipt: {
+      outcome: 'queued',
+      position: 1,
+      deliveredAs: 'queue',
+      at: '2026-01-01T00:00:00.000Z',
+    },
+  })
+
+/** The driver's `delivered` outcome for one durable row, on the runtime stream. */
+const deliveryEvent = (daemon: ControlMessage[], sessionId: SessionId, rowId: string, seq = 1) => {
+  const spawn = daemon.find(
+    (m): m is Extract<ControlMessage, { type: 'spawn' }> =>
+      m.type === 'spawn' && m.sessionId === sessionId,
+  )
+  if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
+  return {
+    type: 'runtimeEvent',
+    deliveryId: `delivery-${rowId}`,
+    sessionId,
+    event: {
+      t: 'delivery',
+      rowId,
+      outcome: 'delivered',
+      at: '2026-01-01T00:00:01.000Z',
+      provenance: 'live',
+      cursor: { segmentId: `delivery-${sessionId}`, components: { seq } },
+      observerGeneration: spawn.observationGeneration,
+      turnEpoch: 0,
+    },
+  } as const
+}
+
+/**
+ * The first event of a REPLACEMENT observer generation (a woken process): a
+ * bootstrap state snapshot. The runtime event gate admits nothing live on a
+ * generation after the first until one arrives ('replacement-requires-bootstrap').
+ */
+const bootstrapSnapshot = (daemon: ControlMessage[], sessionId: SessionId) => {
+  const spawn = daemon.find(
+    (m): m is Extract<ControlMessage, { type: 'spawn' }> =>
+      m.type === 'spawn' && m.sessionId === sessionId,
+  )
+  if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
+  return {
+    type: 'runtimeEvent',
+    deliveryId: `bootstrap-${sessionId}`,
+    sessionId,
+    event: {
+      t: 'state',
+      change: {
+        kind: 'state_snapshot',
+        state: { phase: 'idle', since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0 },
+      },
+      at: '2026-01-01T00:00:00.500Z',
+      provenance: 'bootstrap',
+      cursor: { segmentId: `delivery-${sessionId}`, components: { seq: 1 } },
+      observerGeneration: spawn.observationGeneration,
+      turnEpoch: 0,
+    },
+  } as const
+}
+
+/**
+ * Open a question ask on the session the way its driver reports one: an
+ * `asked` interaction event carrying the driver's own id (terminal asks are
+ * `keystroke-emulated`). Returns that id — the identity an answer is keyed by.
+ */
+async function openAsk(
+  o: Oracle,
+  sessionId: SessionId,
+  questions: {
+    question: string
+    multiSelect: boolean
+    previewLayout: boolean
+    options: { label: string }[]
+  }[],
+): Promise<string> {
+  const id = `ask:${sessionId}:${questions.length}`
+  await o.reg.modules.interactions.onInteractionResolved({
+    sessionId,
+    ev: {
+      ev: 'asked',
+      interaction: {
+        id,
+        sessionId,
+        kind: 'question',
+        payload: { v: 1, questions },
+        askedAt: new Date().toISOString(),
+        source: 'screen-classifier',
+        answerable: 'keystroke-emulated',
+      },
+    },
+  })
+  expect((await o.reg.modules.interactions.listOpen(sessionId)).map((row) => row.id)).toEqual([id])
+  return id
+}
+
+/**
+ * Answer through the public command, and answer the resulting
+ * `runtimeAnswerRequest` the way the driver does (`outcome`, default ok).
+ */
+async function answerThroughDriver(
+  o: Oracle,
+  input: Parameters<Oracle['call']['sessions']['answerAskUserQuestion']>[0],
+  outcome: AnswerResultOutcome = { ok: true },
+): Promise<{
+  result: Awaited<ReturnType<Oracle['call']['sessions']['answerAskUserQuestion']>>
+  request: AnswerRequest
+}> {
+  const pending = o.call.sessions.answerAskUserQuestion(input)
+  await waitFor(() => answerRequests(o.daemon).length > 0, 'the answer to reach the driver')
+  // biome-ignore lint/style/noNonNullAssertion: waited for above.
+  const request = answerRequests(o.daemon).at(-1)!
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    type: 'runtimeAnswerResult',
+    requestId: request.requestId,
+    sessionId: request.sessionId,
+    outcome,
+  })
+  return { result: await pending, request }
+}
+type AnswerResultOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'not-yet-supported'; detail?: string }
+
+/** Bind a created session as a live plain shell (POD-4278): the raw PTY path. */
+async function goLiveShell(o: Oracle, sessionId: SessionId): Promise<void> {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    type: 'bind',
+    sessionId,
+    cmd: 'bash',
+    cwd: '/p',
+    agentKind: 'shell',
+    geometry: { cols: 80, rows: 24 },
+  })
+}
+
+/** A plain shell's abort key: Ctrl-C, its SIGINT (harness registry `harnessInterrupt`). */
+const SHELL_ABORT = '\x03'
 
 const confirmUserTurn = (
   o: Awaited<ReturnType<typeof makeOracle>>,
@@ -141,7 +336,10 @@ describe('oracle: create', () => {
     })
     const other: ControlMessage[] = []
     // Finish attachment (including machine-cache invalidation) before authorizing a command.
-    await o.reg.gateway.attachDaemon('other', confirmingRetirement(o.reg, 'other', (m) => other.push(m)))
+    await o.reg.gateway.attachDaemon(
+      'other',
+      confirmingRetirement(o.reg, 'other', (m) => other.push(m)),
+    )
 
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'shell',
@@ -329,9 +527,9 @@ describe('oracle: resurrect', () => {
 
     await expect(o.call.sessions.hibernate({ sessionId })).resolves.toEqual({ ok: true })
     expect(await o.meta(sessionId)).toMatchObject({ status: 'hibernated', resume })
-    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
-      'hibernated',
-    )
+    expect(
+      (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status,
+    ).toBe('hibernated')
 
     o.daemon.length = 0
     await expect(o.call.sessions.resurrect({ sessionId })).resolves.toEqual({ ok: true })
@@ -347,9 +545,9 @@ describe('oracle: resurrect', () => {
     // `starting`; neither is painted live because resurrect accepted the wake.
     await Promise.resolve()
     expect((await o.meta(sessionId)).status).toBe('starting')
-    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
-      'starting',
-    )
+    expect(
+      (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status,
+    ).toBe('starting')
 
     await o.reg.gateway.routeDaemonFrame(machineId, {
       type: 'spawnError',
@@ -357,9 +555,9 @@ describe('oracle: resurrect', () => {
       message: 'session/load timed out',
     })
     expect((await o.meta(sessionId)).status).toBe('exited')
-    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
-      'exited',
-    )
+    expect(
+      (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status,
+    ).toBe('exited')
 
     // A retry preserves the same Podium row and provider pointer, while its
     // observation fence advances so a previous attempt cannot become current.
@@ -393,7 +591,9 @@ describe('oracle: resurrect', () => {
       resume,
       driverId: 'grok-acp',
     })
-    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)).toMatchObject({
+    expect(
+      (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId),
+    ).toMatchObject({
       status: 'live',
       selectedDriverId: 'grok-acp',
     })
@@ -502,7 +702,10 @@ describe('oracle: kill', () => {
     // broadcast to everyone, which is a different behaviour.
     const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen: ControlMessage[] = []
-    o.reg.gateway.attachDaemon('other', confirmingRetirement(o.reg, 'other', (m) => otherSeen.push(m)))
+    o.reg.gateway.attachDaemon(
+      'other',
+      confirmingRetirement(o.reg, 'other', (m) => otherSeen.push(m)),
+    )
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'shell',
       cwd: '/p',
@@ -523,137 +726,101 @@ describe('oracle: kill', () => {
     )
   })
 })
-  it(`${MUST_NOT_CHANGE}: coalesces resurrection while asynchronous worktree preparation is pending`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-      type: 'agentExit',
-      sessionId,
-      code: 137,
-    })
-    o.daemon.length = 0
-
-    let release!: (result: { ok: true; cwd: string }) => void
-    const preparation = new Promise<{ ok: true; cwd: string }>((resolve) => {
-      release = resolve
-    })
-    let enter!: () => void
-    const entered = new Promise<void>((resolve) => {
-      enter = resolve
-    })
-    vi.spyOn(o.reg.modules.sessions.workspace, 'ensureSessionWorktree').mockImplementation(
-      () => {
-        enter()
-        return preparation
-      },
-    )
-
-    const first = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
-    const second = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
-    expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
-
-    await entered
-    release({ ok: true, cwd: '/p' })
-    expect(await first).toEqual({ ok: true })
-    expect(await second).toEqual({ ok: true })
-    expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+it(`${MUST_NOT_CHANGE}: coalesces resurrection while asynchronous worktree preparation is pending`, async () => {
+  const o = await makeOracle()
+  const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+  await goLive(o, sessionId)
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    type: 'agentExit',
+    sessionId,
+    code: 137,
   })
+  o.daemon.length = 0
+
+  let release!: (result: { ok: true; cwd: string }) => void
+  const preparation = new Promise<{ ok: true; cwd: string }>((resolve) => {
+    release = resolve
+  })
+  let enter!: () => void
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve
+  })
+  vi.spyOn(o.reg.modules.sessions.workspace, 'ensureSessionWorktree').mockImplementation(() => {
+    enter()
+    return preparation
+  })
+
+  const first = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+  const second = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+  expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
+
+  await entered
+  release({ ok: true, cwd: '/p' })
+  expect(await first).toEqual({ ok: true })
+  expect(await second).toEqual({ ok: true })
+  expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+})
 
 describe('oracle: sendText / resumeAndSend', () => {
   /**
-   * RE-PINNED, NOT RELAXED (POD-2792). The behaviour this characterizes — one
-   * bare Esc, no replacement text, `ok` — is unchanged for a terminal session
-   * and is still asserted here byte-for-byte. What the reply gained is
-   * `requested: 'keystroke'`, which names WHICH delivery carried the stop.
+   * THE SERVER NO LONGER TYPES FOR AN AGENT (358ad0ffb / 81460a99b, POD-4427 /
+   * POD-4279; POD-4661 cfb9924a7; POD-4666 fdc7bad1e).
    *
-   * It was added because the other delivery had been missing entirely: a
-   * server-family session has no PTY, the daemon discarded these bytes, and the
-   * call answered a bare `{ ok: true }` that a caller could not tell from this
-   * one. `ok` means the interrupt was REQUESTED, never that the turn stopped,
-   * and `requested` is what makes the two proofs distinguishable at the wire.
-   * Pinning the field here is the point: an edit that collapses them again is a
-   * red test rather than a silent return to a stop that could not be checked.
+   * These oracles used to pin PTY bytes for a claude-code session: one bare Esc
+   * for interrupt, one bracketed-paste frame stamped 'controller' for a send,
+   * typed once a readiness window had run. That design was deleted. An agent's
+   * send rides the durable queue and leaves as ONE `runtimeDurableSendRequest`
+   * keyed by the queue row (`rowId` = `turnId`, 99ef2c33b), handed on at once
+   * (the server never holds a message on its view of the agent, cfb9924a7) and
+   * settled only by the driver's `delivery` runtime event (4bd403fed). An
+   * agent's interrupt is a `runtimeInterruptRequest` to its driver, which owns
+   * the abort key and the idle guard (fdc7bad1e: no server phase gate).
+   *
+   * WHAT IS STILL PINNED, AND WHERE. The origin stamp ('controller', operator
+   * via the substrate, never 'human') rides the durable send's `origin`. A
+   * plain SHELL (POD-4278) still gets raw PTY bytes, so each PTY claim is kept
+   * on a shell session byte-for-byte, beside the agent's contract claim.
    */
-  it(`${MUST_NOT_CHANGE}: interrupt sends one bare Esc to the PTY and no replacement text`, async () => {
+  it(`${MUST_NOT_CHANGE}: interrupt of an agent hands the stop to its driver — one interrupt request, no PTY bytes, 'protocol' once accepted`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId, 'working')
+    o.daemon.length = 0
+
+    const answer = o.call.sessions.interrupt({ sessionId })
+    const request = await nextInterruptRequest(o, sessionId)
+    // A bare stop: no queued row to cancel rides along.
+    expect(request.cancelRowId).toBeUndefined()
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'runtimeLifecycleResult',
+      requestId: request.requestId,
+      sessionId,
+      result: { ok: true },
+    })
+
+    // `requested`, not `stopped` (POD-2792): the driver took the request.
+    expect(await answer).toEqual({ ok: true, requested: 'protocol' })
+    expect(interruptRequests(o.daemon, sessionId)).toHaveLength(1)
+    // No replacement text, and nothing typed: the abort key is the driver's.
+    expect(durableSends(o.daemon, sessionId)).toEqual([])
+    expect(ptyFrames(o.daemon)).toEqual([])
+  })
+
+  it(`${MUST_NOT_CHANGE}: interrupt of a plain shell sends one bare abort key to the PTY and no replacement text`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    await goLiveShell(o, sessionId)
     o.daemon.length = 0
 
     expect(await o.call.sessions.interrupt({ sessionId })).toEqual({
       ok: true,
       requested: 'keystroke',
     })
-    expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'controller', data: '\x1b' }])
+    expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'controller', data: SHELL_ABORT }])
+    expect(interruptRequests(o.daemon, sessionId)).toEqual([])
   })
 
-  /** Generous because it is a PREDICATE wait: it returns as soon as the row is typed. */
-  const READINESS_TIMEOUT_MS = 20_000
-
-  /**
-   * The frames as they stood AT THE MOMENT OF DELIVERY, snapshotted inside the
-   * predicate rather than re-read after the wait returns.
-   *
-   * The submitting CR is a SEPARATE, LATER write (`SUBMIT_CR_DELAY_MS`, POD-152),
-   * so "one paste frame and nothing else" is a claim about an instant, not about
-   * the session's whole life. Re-reading after the wait would make these two
-   * checks a race against that delay under real timers — they would still pass
-   * on a quiet host and fail on a loaded one, which is the flake this lane
-   * refuses (`retry: 0`).
-   *
-   * THIS DOES NOT PIN THE DELAY, AND SAYING SO IS THE POINT (POD-2842). Under
-   * real timers a zero-delay CR still lands on a later macrotask than the paste,
-   * and `waitFor`'s own poll is a macrotask too — so the snapshot sees the paste
-   * alone either way. MEASURED, not reasoned: `SUBMIT_CR_DELAY_MS = 0` leaves
-   * all 35 checks in this file green. What pins it is
-   * `expectSubmitStillDeferred` in `relay.test.ts` (BOUNDARY lane), on a fake
-   * clock where one millisecond tells the two apart — the same mutation kills 4
-   * there. An assertion that only LOOKS like a timing pin is worse than no
-   * assertion, because it is trusted.
-   */
-  const framesWhenTyped = async (
-    o: Awaited<ReturnType<typeof makeOracle>>,
-    what: string,
-  ): Promise<ReturnType<typeof ptyFrames>> => {
-    let snapshot: ReturnType<typeof ptyFrames> = []
-    await waitFor(
-      () => {
-        const frames = ptyFrames(o.daemon)
-        if (frames.length === 0) return false
-        snapshot = frames
-        return true
-      },
-      what,
-      READINESS_TIMEOUT_MS,
-    )
-    return snapshot
-  }
-
-  /**
-   * THE TWO CHECKS BELOW DRIVE THE READINESS QUEUE, AND THIS SAYS WHY (POD-2842).
-   *
-   * THE OPPOSING TEST IS `apps/server/src/modules/sessions/inbox.test.ts` — the
-   * unit over the same call, in THIS lane, which asserts `{ok: true, queued:
-   * true}` and nothing on the PTY until the readiness window has run. THAT ONE
-   * IS THE CONTRACT. `relay.test.ts` (BOUNDARY lane) says the same thing about
-   * the same call since POD-2837, and `relay.outbox.test.ts` since POD-2842.
-   * These two used to describe the third answer: bytes on the wire by the time
-   * the call returned, which is why they timed out at `waitFor`'s 2s default
-   * rather than failing an assertion.
-   *
-   * A bind makes a session live BEFORE its composer is mounted, and bytes typed
-   * into an unmounted composer are accepted by the pty and DROPPED by the app
-   * (POD-2116). Claude's composer readiness cannot be observed
-   * (`composerReadiness: 'confirmed-turn'`, POD-2823), so the send is held and
-   * typed once the window has run. SO IF YOU CHANGE ONE LANE, CHANGE THE OTHER.
-   *
-   * WHAT IS PINNED IS UNCHANGED: the exact frame sequence, one bracketed-paste
-   * frame stamped `controller` and nothing else. Only the moment it is asserted
-   * at moved, and `waitFor` is a predicate wait (POD-757) — never a sleep — so
-   * nothing here writes down a window POD-2836 is about to move.
-   */
-  it(`${MUST_NOT_CHANGE}: sendText to a live session reports a disposition and reaches the PTY stamped 'controller' (operator via substrate), not 'human'`, async () => {
+  it(`${MUST_NOT_CHANGE}: sendText to a live agent reports a disposition and is handed on as ONE durable send stamped 'controller' (operator via substrate), not 'human' — never typed`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
@@ -663,48 +830,75 @@ describe('oracle: sendText / resumeAndSend', () => {
 
     expect(result.ok).toBe(true)
     expect(typeof result.disposition).toBe('string')
-    // Accepted and HELD — the queue is the contract for this session, so the
-    // call returning is not the bytes being on the wire.
-    expect(inputs(o.daemon)).toEqual([])
-    paintOracleTui(o, sessionId)
     // Operator chat rides the messaging substrate (#237 / POD-729) but stamps
-    // inputOrigin 'controller' — person-origin, so standing offers clear and
-    // causal turns attribute as user input (POD-552). Agent mail stays 'mail'
-    // (POD-118). Direct keystroke paths (answerAskUserQuestion) stamp 'human'.
-    // EXACT frame sequence, not a substring: one bracketed-paste frame carrying
-    // the text and nothing else. A wrapper change (an added CR, a split write, a
-    // second frame) is a behaviour change the migration must not make silently.
-    expect(await framesWhenTyped(o, 'the text to reach the PTY')).toEqual([
+    // origin 'controller' — person-origin, so standing offers clear and causal
+    // turns attribute as user input (POD-552). Agent mail stays 'mail'
+    // (POD-118). EXACT: one request carrying the text and nothing else.
+    const [send] = await durableSendsOnceHandedOn(o, sessionId, 1)
+    expect(send).toMatchObject({
+      text: 'hello there',
+      origin: 'controller',
+      deliveryRecovery: false,
+      initialPrompt: false,
+    })
+    expect(send!.turnId).toBe(send!.rowId)
+    expect(ptyFrames(o.daemon)).toEqual([])
+  })
+
+  it(`${MUST_NOT_CHANGE}: sendText to a live shell reaches the PTY stamped 'controller' — one bracketed paste, then the submitting CR`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    await goLiveShell(o, sessionId)
+    o.daemon.length = 0
+
+    const result = await o.call.sessions.sendText({ sessionId, text: 'hello there' })
+
+    expect(result.ok).toBe(true)
+    expect(typeof result.disposition).toBe('string')
+    // EXACT frame sequence, not a substring (POD-743).
+    expect(ptyFrames(o.daemon)).toEqual([
       { inputOrigin: 'controller', data: `${PASTE_START}hello there${PASTE_END}` },
+      { inputOrigin: 'controller', data: '\r' },
     ])
+    expect(durableSends(o.daemon, sessionId)).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: sendText bypasses controller gating — a chat send is an explicit user act, not a competing keyboard`, async () => {
     const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
+    const agent = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, agent.sessionId)
+    const shell = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    await goLiveShell(o, shell.sessionId)
     // The claim is "bypasses CONTROLLER gating", so there has to BE a controller
     // that is not this caller — otherwise the test passes on a session nobody
     // controls and proves nothing about gating.
     const controllerId = attachTestClient(o.reg.clientGateway, () => {})
     await o.reg.clientGateway.routeClientFrame(controllerId, {
       type: 'hello',
-    caps: ['sync.http.v1'],
+      caps: ['sync.http.v1'],
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
-    await o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
-    expect((await o.meta(sessionId)).controllerId).toBe(controllerId)
+    for (const sessionId of [agent.sessionId, shell.sessionId]) {
+      await o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
+      expect((await o.meta(sessionId)).controllerId).toBe(controllerId)
+    }
     o.daemon.length = 0
 
-    expect((await o.call.sessions.sendText({ sessionId, text: 'still lands' })).ok).toBe(true)
-    // Held, not refused: the gating question is answered at ACCEPT time, and
-    // the queue is only where the accepted send waits for the composer.
-    expect(inputs(o.daemon)).toEqual([])
-    paintOracleTui(o, sessionId)
-    expect(await framesWhenTyped(o, 'the gated-around send to reach the PTY')).toEqual([
+    // The agent: accepted and handed to its driver, not refused.
+    expect(
+      (await o.call.sessions.sendText({ sessionId: agent.sessionId, text: 'still lands' })).ok,
+    ).toBe(true)
+    const [send] = await durableSendsOnceHandedOn(o, agent.sessionId, 1)
+    expect(send).toMatchObject({ text: 'still lands', origin: 'controller' })
+    // The shell: typed, not refused.
+    expect(
+      (await o.call.sessions.sendText({ sessionId: shell.sessionId, text: 'still lands' })).ok,
+    ).toBe(true)
+    expect(ptyFrames(o.daemon)).toEqual([
       { inputOrigin: 'controller', data: `${PASTE_START}still lands${PASTE_END}` },
+      { inputOrigin: 'controller', data: '\r' },
     ])
   })
 
@@ -725,86 +919,96 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect((await o.meta(sessionId)).status).toBe('starting')
   })
 
-  it(`${MUST_NOT_CHANGE}: sendText after process-gone resurrects once and drains concurrent/replayed sends exactly once`, async () => {
-    vi.useFakeTimers()
-    try {
-      vi.setSystemTime(new Date('2026-08-31T00:00:00.000Z'))
-      const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      await goLive(o, sessionId)
-      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-        type: 'agentExit',
-        sessionId,
-        code: 137,
-      })
-      expect((await o.meta(sessionId)).status).toBe('exited')
-      o.daemon.length = 0
+  /**
+   * RE-PINNED ON THE CONTRACT (358ad0ffb POD-4427, cfb9924a7 POD-4661,
+   * 4bd403fed, POD-4360). The wake half is unchanged: two concurrent sends to an
+   * exited agent and a replay of one of them request exactly ONE resurrection
+   * and leave exactly two durable rows. What used to follow was the server
+   * typing 'one' after the bind, holding 'two' until the transcript confirmed
+   * 'one', then typing 'two'. The server no longer types or holds: each row is
+   * handed on from admission, while the woken session is still starting, as
+   * ONE fresh durable send, in FIFO order behind the daemon's custody receipt
+   * for the row before it. The bind is a new owner, so it receives the
+   * remaining rows again — as RECOVERIES (`deliveryRecovery: true`), which a
+   * daemon confirms or fails and never retypes. A row leaves the queue only on
+   * the driver's delivery event. "Exactly once" is now asserted on the fresh
+   * sends, and on every recovery naming a row that was already handed on.
+   */
+  it(`${MUST_NOT_CHANGE}: sendText after process-gone resurrects once and hands concurrent/replayed sends on as ONE fresh write each`, async () => {
+    const o = await makeOracle()
+    const machineId = o.reg.sessionStore.hostMachineId
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId)
+    await o.reg.gateway.routeDaemonFrame(machineId, { type: 'agentExit', sessionId, code: 137 })
+    expect((await o.meta(sessionId)).status).toBe('exited')
+    o.daemon.length = 0
 
-      const [first, second] = await Promise.all([
-        o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'm-dead-1' }),
-        o.call.sessions.sendText({ sessionId, text: 'two', mutationId: 'm-dead-2' }),
-      ])
-      expect(first).toMatchObject({ ok: true, queued: true })
-      expect(second).toMatchObject({ ok: true, queued: true })
-      // Acceptance requests a wake; the asynchronous reaction dispatches it.
-      await vi.waitFor(() =>
-        expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1),
+    const [first, second] = await Promise.all([
+      o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'm-dead-1' }),
+      o.call.sessions.sendText({ sessionId, text: 'two', mutationId: 'm-dead-2' }),
+    ])
+    expect(first).toMatchObject({ ok: true, queued: true })
+    expect(second).toMatchObject({ ok: true, queued: true })
+    // Acceptance requests a wake; the asynchronous reaction dispatches it.
+    await waitFor(
+      () => o.daemon.filter((message) => message.type === 'spawn').length === 1,
+      'the one wake spawn',
+    )
+
+    await o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'm-dead-1' })
+    expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
+
+    // FIFO custody: 'two' goes only once the daemon has taken 'one'.
+    const [one] = await durableSendsOnceHandedOn(o, sessionId, 1)
+    expect(one).toMatchObject({ text: 'one', origin: 'controller', deliveryRecovery: false })
+    await grantCustody(o, one!)
+    const [, two] = await durableSendsOnceHandedOn(o, sessionId, 2)
+    expect(two).toMatchObject({ text: 'two', origin: 'controller', deliveryRecovery: false })
+    expect(two!.rowId).not.toBe(one!.rowId)
+    await grantCustody(o, two!)
+
+    // The bind: the new owner receives both rows again, as recoveries.
+    await o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    const [, , recoverOne] = await durableSendsOnceHandedOn(o, sessionId, 3)
+    await grantCustody(o, recoverOne!)
+    const [, , , recoverTwo] = await durableSendsOnceHandedOn(o, sessionId, 4)
+    await grantCustody(o, recoverTwo!)
+    expect([recoverOne, recoverTwo]).toEqual([
+      expect.objectContaining({ rowId: one!.rowId, text: 'one', deliveryRecovery: true }),
+      expect.objectContaining({ rowId: two!.rowId, text: 'two', deliveryRecovery: true }),
+    ])
+
+    // Custody is not delivery: both rows stay queued until the driver says so.
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
+    // The woken process is a REPLACEMENT observer generation, whose stream
+    // opens with a bootstrap snapshot before any live event is admitted.
+    await o.reg.gateway.routeDaemonFrame(machineId, bootstrapSnapshot(o.daemon, sessionId))
+    for (const [at, send] of [one!, two!].entries()) {
+      await o.reg.gateway.routeDaemonFrame(
+        machineId,
+        deliveryEvent(o.daemon, sessionId, send.rowId, at + 2),
       )
-
-      await o.call.sessions.sendText({
-        sessionId,
-        text: 'one',
-        mutationId: 'm-dead-1',
-      })
-      expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
-      expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
-
-      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-        type: 'bind',
-        sessionId,
-        cmd: 'claude',
-        cwd: '/p',
-        agentKind: 'claude-code',
-        geometry: { cols: 80, rows: 24 },
-      })
-      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-        type: 'agentState',
-        sessionId,
-        state: {
-          phase: 'idle',
-          since: '2026-08-31T00:00:01.000Z',
-          nativeSubagentCount: 0,
-        },
-      })
-      for (let i = 0; i < 5; i += 1) {
-        await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-          type: 'agentFrame',
-          sessionId,
-          seq: i,
-          data: 'eA==',
-        })
-        await vi.advanceTimersByTimeAsync(200)
-      }
-      await vi.advanceTimersByTimeAsync(3_000)
-
-      const delivered = ptyFrames(o.daemon).map((frame) => frame.data)
-      expect(delivered.filter((data) => data.includes('one'))).toHaveLength(1)
-      expect(delivered.filter((data) => data.includes('two'))).toHaveLength(0)
-
-      await confirmUserTurn(o, sessionId, 'one')
-      for (let i = 0; i < 50 && !ptyFrames(o.daemon).some((frame) => frame.data.includes('two')); i += 1) {
-        await vi.advanceTimersByTimeAsync(200)
-      }
-      expect(ptyFrames(o.daemon).filter((frame) => frame.data.includes('two'))).toHaveLength(1)
-
-      await confirmUserTurn(o, sessionId, 'two')
-      for (let i = 0; i < 50 && (await o.store.sync.listQueuedMessages(sessionId)).length > 0; i += 1) {
-        await vi.advanceTimersByTimeAsync(200)
-      }
-      expect(await o.store.sync.listQueuedMessages(sessionId)).toEqual([])
-    } finally {
-      vi.useRealTimers()
     }
+    await waitFor(
+      async () => (await o.store.sync.listQueuedMessages(sessionId)).length === 0,
+      'both rows to settle on their delivery events',
+    )
+    // One FRESH write per row, in order; the replay added none; never PTY bytes.
+    const sends = durableSends(o.daemon, sessionId)
+    expect(sends.filter((send) => !send.deliveryRecovery).map((send) => send.text)).toEqual([
+      'one',
+      'two',
+    ])
+    expect(sends).toHaveLength(4)
+    expect(ptyFrames(o.daemon)).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: refuses archived and unresumable dead targets before durable acceptance`, async () => {
@@ -822,7 +1026,9 @@ describe('oracle: sendText / resumeAndSend', () => {
     await archived.call.sessions.setArchived({ sessionId: archivedId, archived: true })
     archived.daemon.length = 0
 
-    expect(await archived.call.sessions.sendText({ sessionId: archivedId, text: 'do not wake' })).toEqual({
+    expect(
+      await archived.call.sessions.sendText({ sessionId: archivedId, text: 'do not wake' }),
+    ).toEqual({
       ok: false,
       reason: 'session archived',
       disposition: 'dead_letter',
@@ -855,140 +1061,189 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(await unsupported.store.sync.listQueuedMessages(unsupportedId)).toEqual([])
   })
 
-  it.each(['errored', 'idle'] as const)(`${MUST_NOT_CHANGE}: does not resurrect an already-live %s target`,
-    async (phase) => {
-      const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      await goLive(o, sessionId, phase)
-      o.daemon.length = 0
+  it.each([
+    'errored',
+    'idle',
+  ] as const)(`${MUST_NOT_CHANGE}: does not resurrect an already-live %s target`, async (phase) => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId, phase)
+    o.daemon.length = 0
 
-      const result = await o.call.sessions.sendText({ sessionId, text: 'still live' })
+    const result = await o.call.sessions.sendText({ sessionId, text: 'still live' })
 
-      expect(result.ok).toBe(true)
-      expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
-    },
-  )
+    expect(result.ok).toBe(true)
+    expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
+  })
 })
 describe('oracle: answerAskUserQuestion', () => {
-  // The missing Enter is the load-bearing half: a LONE single-select question is
-  // the one shape the native menu submits on the digit itself, so a closing CR
-  // here would arrive after the dialog closed and land in the composer.
-  it(`${MUST_NOT_CHANGE}: a single-select answer types the bare option digit (no Enter)`, async () => {
+  /**
+   * THE MENU SCRIPT IS THE DRIVER'S NOW (358ad0ffb POD-4427, POD-4279).
+   *
+   * These oracles used to pin the keystrokes the server typed at a native menu
+   * (digits one per write, Tab off a multi-select, a closing CR, 'n' for a
+   * preview's Notes field, Esc for skip) and the 'human' stamp on them. The
+   * server no longer types menu keys: an answer goes to the driver that owns
+   * the menu (`deps.contractAnswer` → the interactions aggregate →
+   * `runtimeAnswerRequest`), addressed by the ask's interaction id, as the
+   * contract's question answer. The script moved to the terminal driver
+   * (`menuScriptFor` / `questionScriptFor`, apps/daemon/src/runtime/
+   * terminal-driver.ts); the multi-select Tab+CR, preview digit+CR, preview
+   * Notes, skip Esc and stale-id refusal are exercised end to end in
+   * apps/server/src/store/terminal-answer-contract.test.ts.
+   *
+   * WHAT THE SERVER STILL OWNS, pinned here: the translation of each client
+   * choice shape into the contract's selections, the interaction id, who
+   * answered, the refusals it makes itself, and that it TYPES NOTHING. The
+   * question's shape (multi-select, preview) is not forwarded — the driver reads
+   * it from the ask it holds, not from the client.
+   */
+  const PICK = {
+    question: 'Pick',
+    multiSelect: false,
+    previewLayout: false,
+    options: [{ label: 'One' }, { label: 'Two' }, { label: 'Three' }],
+  }
+
+  it(`${MUST_NOT_CHANGE}: a single-select answer goes to the driver by its interaction id as the contract's question answer — nothing is typed`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
+    const interactionId = await openAsk(o, sessionId, [PICK])
     o.daemon.length = 0
 
-    expect(
-      await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [2] }] }),
-    ).toEqual({ ok: true })
-
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual(['2'])
-    expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
-  })
-
-  it(`${MUST_NOT_CHANGE}: two single-select questions each advance on their digit, and the pair ends on the confirm CR`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    o.daemon.length = 0
-
-    await o.call.sessions.answerAskUserQuestion({
+    const { result, request } = await answerThroughDriver(o, {
       sessionId,
-      choices: [{ optionIndices: [1] }, { optionIndices: [2] }],
+      interactionId,
+      choices: [{ optionIndices: [2] }],
     })
-    await waitFor(() => inputs(o.daemon).length === 3, 'both digits and the confirm CR')
 
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
-      '1',
-      '2',
-      '\r',
-    ])
+    expect(result).toEqual({ ok: true })
+    expect(request).toMatchObject({
+      sessionId,
+      interactionId,
+      principal: { kind: 'user' },
+      answer: { kind: 'question', selections: [{ optionIndices: [2] }] },
+    })
+    expect(answerRequests(o.daemon)).toHaveLength(1)
+    expect(inputs(o.daemon)).toEqual([])
+    // Settled on the aggregate as a HUMAN's answer (the typed script's 'human'
+    // stamp, carried by the row now).
+    const row = (await o.reg.modules.interactions.listForSession(sessionId)).find(
+      (candidate) => candidate.id === interactionId,
+    )
+    expect(row).toMatchObject({ status: 'answered', answeredBy: 'human' })
   })
 
-  // POD-609 SUPERSEDES the two characterizations below. They pinned the payload
-  // that the real menu silently ignores: a comma-joined `1,3\r` reaches the CLI
-  // as ONE key event named "1,3" (its parser folds a multi-character chunk into
-  // a single key), so no box was ever ticked, and the trailing CR then toggled
-  // whatever row happened to be focused. What is pinned now is the sequence
-  // verified against a live Claude Code 2.1.226 TUI — one keystroke per write,
-  // Tab off a multi-select, one closing CR on the confirm step.
-  it(`${MUST_NOT_CHANGE}: a multi-select answer types one digit per keystroke, then Tab off the question and CR to confirm`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    o.daemon.length = 0
-
-    await o.call.sessions.answerAskUserQuestion({
-      sessionId,
+  it.each([
+    {
+      shape: 'a multi-select answer',
+      questions: [{ ...PICK, multiSelect: true }],
       choices: [{ optionIndices: [1, 3], multiSelect: true }],
-    })
-    await waitFor(() => inputs(o.daemon).length === 4, 'the whole multi-select keystroke script')
-
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
-      '1',
-      '3',
-      '\t',
-      '\r',
-    ])
-    expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human', 'human', 'human', 'human'])
-  })
-
-  it(`${MUST_NOT_CHANGE}: a multi-question payload is typed in order, one keystroke per write, and ends with the confirm CR`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    o.daemon.length = 0
-
-    await o.call.sessions.answerAskUserQuestion({
-      sessionId,
-      choices: [{ optionIndices: [1] }, { optionIndices: [2, 3], multiSelect: true }],
-    })
-    await waitFor(() => inputs(o.daemon).length === 5, 'the whole multi-question keystroke script')
-
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
-      '1',
-      '2',
-      '3',
-      '\t',
-      '\r',
-    ])
-  })
-
-  it(`${MUST_NOT_CHANGE}: several picks alone mark a multi-select, so a client that cannot say so still lands`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    o.daemon.length = 0
-
-    await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1, 3] }] })
-    await waitFor(() => inputs(o.daemon).length === 4, 'the inferred multi-select script')
-
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
-      '1',
-      '3',
-      '\t',
-      '\r',
-    ])
-  })
-
-  it(`${MUST_NOT_CHANGE}: a lone multi-select still gets its Tab and CR when only one option is picked`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    o.daemon.length = 0
-
-    await o.call.sessions.answerAskUserQuestion({
-      sessionId,
+      selections: [{ optionIndices: [1, 3] }],
+    },
+    {
+      shape: 'several picks with no multi-select flag',
+      questions: [{ ...PICK, multiSelect: true }],
+      choices: [{ optionIndices: [1, 3] }],
+      selections: [{ optionIndices: [1, 3] }],
+    },
+    {
+      shape: 'a lone multi-select with one pick',
+      questions: [{ ...PICK, multiSelect: true }],
       choices: [{ optionIndices: [2], multiSelect: true }],
-    })
-    await waitFor(() => inputs(o.daemon).length === 3, 'the one-pick multi-select script')
+      selections: [{ optionIndices: [2] }],
+    },
+    {
+      shape: 'two single-select questions',
+      questions: [PICK, PICK],
+      choices: [{ optionIndices: [1] }, { optionIndices: [2] }],
+      selections: [{ optionIndices: [1] }, { optionIndices: [2] }],
+    },
+    {
+      shape: 'a multi-question payload, in order',
+      questions: [PICK, { ...PICK, multiSelect: true }],
+      choices: [{ optionIndices: [1] }, { optionIndices: [2, 3], multiSelect: true }],
+      selections: [{ optionIndices: [1] }, { optionIndices: [2, 3] }],
+    },
+    {
+      shape: 'free text via Other',
+      questions: [PICK],
+      choices: [{ freeText: 'ship the long path', otherIndex: 4 }],
+      selections: [{ optionIndices: [4], text: 'ship the long path' }],
+    },
+    {
+      shape: 'an option on a PREVIEW question',
+      questions: [{ ...PICK, previewLayout: true }],
+      choices: [{ optionIndices: [2], previewLayout: true }],
+      selections: [{ optionIndices: [2] }],
+    },
+    {
+      shape: 'free text on a PREVIEW question',
+      questions: [{ ...PICK, previewLayout: true }],
+      choices: [{ freeText: 'ship the long path', otherIndex: 4, previewLayout: true }],
+      selections: [{ optionIndices: [4], text: 'ship the long path' }],
+    },
+  ])(`${MUST_NOT_CHANGE}: $shape reaches the driver as its contract selections, in order, and nothing is typed`, async ({
+    questions,
+    choices,
+    selections,
+  }) => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId)
+    const interactionId = await openAsk(o, sessionId, questions)
+    o.daemon.length = 0
 
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
-      '2',
-      '\t',
-      '\r',
-    ])
+    const { result, request } = await answerThroughDriver(o, { sessionId, interactionId, choices })
+
+    expect(result).toEqual({ ok: true })
+    // EXACT: the whole answer, not a subset — an added or reordered selection
+    // is a different answer.
+    expect(request.answer).toEqual({ kind: 'question', selections })
+    expect(inputs(o.daemon)).toEqual([])
+  })
+
+  it(`${MUST_NOT_CHANGE}: skip reaches the driver as a skip — nothing is typed`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId)
+    const interactionId = await openAsk(o, sessionId, [PICK])
+    o.daemon.length = 0
+
+    const { result, request } = await answerThroughDriver(o, {
+      sessionId,
+      interactionId,
+      skip: true,
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(request.answer).toEqual({ kind: 'question', skip: true, selections: [] })
+    expect(inputs(o.daemon)).toEqual([])
+  })
+
+  it(`${MUST_NOT_CHANGE}: an answer with no interaction id, or one the session does not hold, is refused 'unknown-interaction' — nothing reaches the driver and nothing is typed`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId)
+    await openAsk(o, sessionId, [PICK])
+    o.daemon.length = 0
+
+    // Transcript-derived choices with no authoritative id fail CLOSED rather
+    // than typing blind (POD-4292).
+    expect(
+      await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1] }] }),
+    ).toEqual({ ok: false, reason: 'unknown-interaction' })
+    expect(
+      await o.call.sessions.answerAskUserQuestion({
+        sessionId,
+        interactionId: 'ask:not-this-sessions',
+        choices: [{ optionIndices: [1] }],
+      }),
+    ).toEqual({ ok: false, reason: 'unknown-interaction' })
+    expect(answerRequests(o.daemon)).toEqual([])
+    expect(inputs(o.daemon)).toEqual([])
+    expect(await o.reg.modules.interactions.listOpen(sessionId)).toHaveLength(1)
   })
 
   it(`${MUST_NOT_CHANGE}: answering a session that is not live is refused with ok:false and types nothing`, async () => {
@@ -1004,152 +1259,100 @@ describe('oracle: answerAskUserQuestion', () => {
     expect(inputs(o.daemon)).toEqual([])
   })
 
-  it(`${MUST_NOT_CHANGE}: free-text via Other types otherIndex, then text, then CR (after settle)`, async () => {
-    vi.useFakeTimers()
-    try {
-      const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      await goLive(o, sessionId)
-      o.daemon.length = 0
-
-      expect(
-        await o.call.sessions.answerAskUserQuestion({
-          sessionId,
-          choices: [{ freeText: 'ship the long path', otherIndex: 3 }],
-        }),
-      ).toEqual({ ok: true })
-
-      // Digit lands immediately so Other focuses before any free-text bytes.
-      expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual(['3'])
-      expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
-
-      await vi.advanceTimersByTimeAsync(120)
-      expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
-        '3',
-        'ship the long path',
-      ])
-
-      // A LONE single-select question auto-submits on that CR, so the script
-      // stops here — no closing confirm (POD-609).
-      await vi.advanceTimersByTimeAsync(120)
-      expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
-        '3',
-        'ship the long path',
-        '\r',
-      ])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  // POD-770. A single-select question whose options carry `preview` text draws a
-  // DIFFERENT native dialog: options in a left column, the preview on the right,
-  // a Notes field, and NO Other row. There a digit only MOVES the highlight, a
-  // digit past the last option is dropped, Enter selects the highlighted row and
-  // `n` opens Notes. Reproduced against claude 2.1.228 in a PTY — the classic
-  // script (`3`, text, CR) committed option 1 and threw the text away, and a bare
-  // digit left the dialog open forever. These two pin the scripts that work.
-  it(`${MUST_NOT_CHANGE}: an option on a PREVIEW question types the digit then a CR — the digit alone only moves the cursor`, async () => {
-    vi.useFakeTimers()
-    try {
-      const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      await goLive(o, sessionId)
-      o.daemon.length = 0
-
-      expect(
-        await o.call.sessions.answerAskUserQuestion({
-          sessionId,
-          choices: [{ optionIndices: [2], previewLayout: true }],
-        }),
-      ).toEqual({ ok: true })
-
-      const typed = () => inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())
-      expect(typed()).toEqual(['2'])
-      // The CR is the SELECT here, not a closing confirm — a lone question
-      // auto-submits on it, so the script stops.
-      await vi.advanceTimersByTimeAsync(120)
-      expect(typed()).toEqual(['2', '\r'])
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(typed()).toEqual(['2', '\r'])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it(`${MUST_NOT_CHANGE}: free text on a PREVIEW question types 'n', then the text, then CR — never the Other digit`, async () => {
-    vi.useFakeTimers()
-    try {
-      const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      await goLive(o, sessionId)
-      o.daemon.length = 0
-
-      expect(
-        await o.call.sessions.answerAskUserQuestion({
-          sessionId,
-          // otherIndex still rides along from the card; the preview layout has no
-          // Other row, so it must NOT be typed — 3 would fall off the end of a
-          // two-option list and the text would be swallowed as menu keys.
-          choices: [{ freeText: 'ship the long path', otherIndex: 3, previewLayout: true }],
-        }),
-      ).toEqual({ ok: true })
-
-      const typed = () => inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())
-      expect(typed()).toEqual(['n'])
-      await vi.advanceTimersByTimeAsync(120)
-      expect(typed()).toEqual(['n', 'ship the long path'])
-      await vi.advanceTimersByTimeAsync(120)
-      expect(typed()).toEqual(['n', 'ship the long path', '\r'])
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(typed()).toEqual(['n', 'ship the long path', '\r'])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it(`${MUST_NOT_CHANGE}: an undeliverable choice refuses with a reason and types NOTHING — not even the choices it could have typed`, async () => {
+  /**
+   * The server no longer decides deliverability itself: whether a choice can be
+   * expressed at this menu is the driver's question, answered from the ask it
+   * holds (`questionScriptFor` refuses with a reason and types nothing). What
+   * the server pins is that the refusal comes back AS ITSELF, nothing is typed
+   * on this side, and the ask stays open for a human rather than being marked
+   * answered.
+   */
+  it(`${MUST_NOT_CHANGE}: a driver's refusal of an undeliverable answer comes back as itself, the ask stays open, and nothing is typed`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
+    const interactionId = await openAsk(o, sessionId, [PICK, { ...PICK, previewLayout: true }])
     o.daemon.length = 0
 
-    // Q1 is answerable, Q2 is not. Typing Q1's digit and stopping would leave Q2
-    // on its first row for the closing CR to commit — the POD-770 substitution.
-    expect(
-      await o.call.sessions.answerAskUserQuestion({
+    const { result } = await answerThroughDriver(
+      o,
+      {
         sessionId,
+        interactionId,
         choices: [
           { optionIndices: [1] },
-          { freeText: 'a custom answer', otherIndex: 3, previewLayout: true, multiSelect: true },
+          { freeText: 'a custom answer', otherIndex: 4, previewLayout: true, multiSelect: true },
         ],
-      }),
-    ).toEqual({ ok: false, reason: 'question 2: a preview question cannot be multi-select' })
-    expect(inputs(o.daemon)).toEqual([])
-  })
+      },
+      {
+        ok: false,
+        reason: 'not-yet-supported',
+        detail: 'question 2: a preview question cannot be multi-select',
+      },
+    )
 
-  it(`${MUST_NOT_CHANGE}: skip types a bare Esc and nothing else`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    o.daemon.length = 0
-
-    expect(await o.call.sessions.answerAskUserQuestion({ sessionId, skip: true })).toEqual({
-      ok: true,
+    expect(result).toEqual({
+      ok: false,
+      reason: 'not-yet-supported',
+      detail: 'question 2: a preview question cannot be multi-select',
     })
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual(['\x1b'])
-    expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
+    expect(inputs(o.daemon)).toEqual([])
+    expect((await o.reg.modules.interactions.listOpen(sessionId)).map((row) => row.id)).toEqual([
+      interactionId,
+    ])
   })
 })
 
 describe('oracle: continue (the errored-agent retry)', () => {
-  it(`${MUST_NOT_CHANGE}: continue types 'continue' + CR stamped 'auto_continue', and ONLY when the agent phase is errored`, async () => {
+  /**
+   * RE-PINNED ON THE CONTRACT (358ad0ffb POD-4427, POD-4279). This used to pin
+   * 'continue\r' typed at the PTY stamped 'auto_continue'. An agent's continue
+   * now rides the receipt seam (`sendContinueViaContract`, session-wiring.ts):
+   * one when-ready `runtimeSendRequest` carrying 'continue' with origin
+   * 'auto_continue', crossing the errored gate it exists for (`allowErrored`).
+   * A plain shell keeps the raw keystroke, pinned byte-for-byte below. The gate
+   * — ONLY when the phase is errored — is unchanged on both.
+   */
+  it(`${MUST_NOT_CHANGE}: continue of an agent hands 'continue' to its driver stamped 'auto_continue', ONLY when the agent phase is errored, and types nothing`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId, 'idle')
     o.daemon.length = 0
 
-    // Idle is not a retryable state: refused, and nothing is typed.
+    // Idle is not a retryable state: refused, and nothing is sent.
+    expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: false })
+    expect(runtimeSends(o.daemon, sessionId)).toEqual([])
+    expect(durableSends(o.daemon, sessionId)).toEqual([])
+
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'errored', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+
+    expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: true })
+    expect(runtimeSends(o.daemon, sessionId)).toEqual([
+      expect.objectContaining({
+        text: 'continue',
+        origin: 'auto_continue',
+        delivery: 'when-ready',
+      }),
+    ])
+    expect(durableSends(o.daemon, sessionId)).toEqual([])
+    expect(ptyFrames(o.daemon)).toEqual([])
+  })
+
+  it(`${MUST_NOT_CHANGE}: continue of a plain shell types 'continue' + CR stamped 'auto_continue', and ONLY when the phase is errored`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    await goLiveShell(o, sessionId)
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+    o.daemon.length = 0
+
     expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: false })
     expect(ptyFrames(o.daemon)).toEqual([])
 
@@ -1161,6 +1364,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
 
     expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: true })
     expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'auto_continue', data: 'continue\r' }])
+    expect(runtimeSends(o.daemon, sessionId)).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: continue refuses a PARKED session even while its last known phase is errored — a dead PTY would swallow it`, async () => {
@@ -1211,9 +1415,9 @@ describe('oracle: stop (clean end, keep the branch)', () => {
 
     expect((await o.call.sessions.stop({ sessionId, force: true })).ok).toBe(true)
 
-    expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.stopReason).toBe(
-      'forced',
-    )
+    expect(
+      (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.stopReason,
+    ).toBe('forced')
   })
 
   it(`${MUST_NOT_CHANGE}: stopping an already-parked session is accepted and does not re-kill it`, async () => {
@@ -1231,6 +1435,8 @@ describe('oracle: stop (clean end, keep the branch)', () => {
 
     expect(retirements(o.daemon, sessionId)).toHaveLength(retirementsAfterFirst)
     // The row survives — stop keeps the branch, the transcript and the session.
-    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([sessionId])
+    expect(
+      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId),
+    ).toEqual([sessionId])
   })
 })

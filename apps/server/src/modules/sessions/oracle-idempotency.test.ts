@@ -18,7 +18,8 @@
  * this file characterizes the server behaviour those replays depend on.
  */
 
-import { asMutationId, asSessionId } from '@podium/model'
+import { asMutationId, asSessionId, type SessionId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -33,67 +34,43 @@ import {
 afterEach(() => disposeOracles())
 
 /**
- * WHY THESE THREE AGE THEIR BIND (POD-2828, then POD-2836).
+ * WHAT A SEND'S DEDUP IS OBSERVED ON (358ad0ffb / 81460a99b POD-4427 /
+ * POD-4279, cfb9924a7 POD-4661).
  *
- * They are about DEDUP, and they used to reach the PTY inside the helper's 2s
- * default because a chat send to a live claude-code session was typed
- * synchronously. POD-2116 changed that deliberately: a bind makes a session
- * live before its composer is mounted, typing into an unmounted composer is the
- * POD-549 no-op, so the first send after a bind rides the durable queue and
- * waits for the composer to prove itself.
- *
- * That wait cost 10s here, because the clock started at the SEND and so never
- * expired — a session bound an hour ago paid the same window as one bound a
- * second ago. POD-2836 anchored it to the BIND, which is what lets this file
- * stop paying: the fixture now moves its clock forward after binding, so the
- * send arrives at a composer that has demonstrably had its window, and the
- * drain types on its first poll.
- *
- * SO THE SETUP MOVED AND NOTHING ELSE DID. Every assertion below is the one it
- * always was — exact frame sequences, the counterfactual, the applied-mutation
- * record — because the invariant they pin is that a REPLAY does not type twice,
- * which has nothing to do with how long the FIRST send takes.
- *
- * WHAT THE BOUND BELOW NOW TOLERATES: one `READY_POLL_MS` tick (200ms) plus the
- * deferred submit CR, not a readiness window. It is the helper's own default,
- * stated explicitly only so a future regression in the clock shows up here as a
- * failure rather than as a file that quietly got slow again.
+ * These three used to watch the PTY of a claude-code session, with the bind
+ * aged past a composer-readiness window so the first send was typed promptly
+ * (POD-2828/POD-2836). The server no longer types for an agent and no longer
+ * holds a send on its view of the agent: an agent's send is ONE durable row,
+ * handed on at once as ONE `runtimeDurableSendRequest` keyed by that row
+ * (99ef2c33b). So the readiness aging is gone, and the dedup is asserted on
+ * what an agent send now IS — the durable send and the queued row. A plain
+ * shell (POD-4278) still gets raw PTY bytes, so the "does not double-type into
+ * the PTY" claim is kept, byte-for-byte, on a shell. The invariant is
+ * unchanged: a REPLAY delivers nothing a second time.
  */
-const FIRST_SEND_AFTER_BIND_MS = 2_000
+type DurableSendRequest = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
+const durableSends = (daemon: ControlMessage[], sessionId: SessionId): DurableSendRequest[] =>
+  daemon.filter(
+    (m): m is DurableSendRequest =>
+      m.type === 'runtimeDurableSendRequest' && m.sessionId === sessionId,
+  )
 
-/**
- * How far past the readiness ceiling the fixture ages a bind.
- *
- * The report was a session bound an hour ago; a minute is already ten times
- * `READY_MAX_MS` and says the same thing without pretending to a precision the
- * test does not need. Deliberately NOT tuned to just clear the ceiling: a bound
- * that only just passes would fail the day someone raises the window, and the
- * window is allowed to be raised.
- */
-const BIND_AGED_BY_MS = 60_000
-
-/** A registry whose clock the test can move — see {@link BIND_AGED_BY_MS}. */
-function agedClock(): { now: () => number; advance: (ms: number) => void } {
-  let offsetMs = 0
-  return {
-    now: () => Date.now() + offsetMs,
-    advance: (ms) => {
-      offsetMs += ms
+/** The daemon takes custody of a durable row, as a real one does. Not delivery. */
+const grantCustody = (o: Awaited<ReturnType<typeof makeOracle>>, send: DurableSendRequest) =>
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    type: 'runtimeSendResult',
+    requestId: send.requestId,
+    sessionId: send.sessionId,
+    receipt: {
+      outcome: 'queued',
+      position: 1,
+      deliveredAs: 'queue',
+      at: '2026-01-01T00:00:00.000Z',
     },
-  }
-}
+  })
 
-/**
- * Bind a claude-code session live and idle so a send is accepted for delivery,
- * then AGE the bind past the composer-readiness window (POD-2836) so the send
- * that follows is the one this file is about — a dedup replay — rather than a
- * measurement of how long a fresh CLI takes to mount a composer.
- */
-async function goIdle(
-  o: Awaited<ReturnType<typeof makeOracle>>,
-  sessionId: string,
-  clock: ReturnType<typeof agedClock>,
-): Promise<void> {
+/** Bind a claude-code session live and idle so a send is accepted for delivery. */
+async function goIdle(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: string): Promise<void> {
   await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
@@ -107,9 +84,6 @@ async function goIdle(
     sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
   })
-  // The bind is announced; now let it get old. The drain still polls on real
-  // timers — this only moves the elapsed time it asks the registry for.
-  clock.advance(BIND_AGED_BY_MS)
 }
 
 describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
@@ -272,23 +246,24 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: sessions.resumeAndSend dedupes its replay — a woken session is not messaged twice`, async () => {
-    const clock = agedClock()
-    const o = await makeOracle({ now: clock.now })
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goIdle(o, sessionId, clock)
+    await goIdle(o, sessionId)
     o.daemon.length = 0
 
     await o.call.sessions.resumeAndSend({ sessionId, text: 'wake once', mutationId: 'm-wake' })
     await waitFor(
-      () => ptyFrames(o.daemon).length > 0,
-      'the first wake send to reach the PTY',
-      FIRST_SEND_AFTER_BIND_MS,
+      () => durableSends(o.daemon, sessionId).length > 0,
+      'the first wake send to be handed on',
     )
-    const afterFirst = ptyFrames(o.daemon)
+    const afterFirst = durableSends(o.daemon, sessionId)
+    expect(afterFirst).toEqual([expect.objectContaining({ text: 'wake once' })])
 
     await o.call.sessions.resumeAndSend({ sessionId, text: 'wake once', mutationId: 'm-wake' })
 
-    expect(ptyFrames(o.daemon)).toEqual(afterFirst)
+    expect(durableSends(o.daemon, sessionId)).toEqual(afterFirst)
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    expect(ptyFrames(o.daemon)).toEqual([])
     expect(await o.store.sync.getAppliedMutation(asMutationId('m-wake'))).toBeDefined()
   })
 
@@ -307,37 +282,41 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
    * working dedup — two empty frame lists compare equal.
    */
   it(`${MUST_NOT_CHANGE}: sessions.sendText dedupes its replay — the framework envelope, with no wrapper of its own`, async () => {
-    const clock = agedClock()
-    const o = await makeOracle({ now: clock.now })
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goIdle(o, sessionId, clock)
+    await goIdle(o, sessionId)
     o.daemon.length = 0
 
     await o.call.sessions.sendText({ sessionId, text: 'run it once', mutationId: 'm-send' })
     await waitFor(
-      () => ptyFrames(o.daemon).length > 0,
-      'the first chat send to reach the PTY',
-      FIRST_SEND_AFTER_BIND_MS,
+      () => durableSends(o.daemon, sessionId).length > 0,
+      'the first chat send to be handed on',
     )
-    const afterFirst = ptyFrames(o.daemon)
-    // The instrument can say YES: something actually got delivered.
-    expect(afterFirst.length).toBeGreaterThan(0)
+    const afterFirst = durableSends(o.daemon, sessionId)
+    // The instrument can say YES: something actually got handed on.
+    expect(afterFirst).toEqual([expect.objectContaining({ text: 'run it once' })])
 
     await o.call.sessions.sendText({ sessionId, text: 'run it once', mutationId: 'm-send' })
 
-    expect(ptyFrames(o.daemon)).toEqual(afterFirst)
+    expect(durableSends(o.daemon, sessionId)).toEqual(afterFirst)
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
     expect(await o.store.sync.getAppliedMutation(asMutationId('m-send'))).toBeDefined()
 
     // THE COUNTERFACTUAL: a DIFFERENT mutationId is a different write and must
-    // deliver again. Without this the assertion above would also hold for a
-    // server that had simply stopped sending.
+    // be handed on again. Without this the assertion above would also hold for
+    // a server that had simply stopped sending. Custody of the first row is
+    // granted first: rows go on in FIFO order behind the daemon's receipt.
+    await grantCustody(o, afterFirst[0]!)
     await o.call.sessions.sendText({ sessionId, text: 'run it twice', mutationId: 'm-send-2' })
     await waitFor(
-      () => ptyFrames(o.daemon).length > afterFirst.length,
-      'the second, distinctly-keyed send to reach the PTY',
-      FIRST_SEND_AFTER_BIND_MS,
+      () => durableSends(o.daemon, sessionId).length > afterFirst.length,
+      'the second, distinctly-keyed send to be handed on',
     )
-    expect(ptyFrames(o.daemon).length).toBeGreaterThan(afterFirst.length)
+    expect(durableSends(o.daemon, sessionId).map((send) => send.text)).toEqual([
+      'run it once',
+      'run it twice',
+    ])
+    expect(ptyFrames(o.daemon)).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: a replay returns the value RECORDED at first apply, not a fresh read`, async () => {
@@ -364,27 +343,31 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     expect(replayed).not.toEqual(await o.call.snoozes.list())
   })
 
-  it(`${MUST_NOT_CHANGE}: a replayed send does not double-type into the PTY`, async () => {
-    const clock = agedClock()
-    const o = await makeOracle({ now: clock.now })
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goIdle(o, sessionId, clock)
+  it(`${MUST_NOT_CHANGE}: a replayed send does not double-type into the PTY (a plain shell, the one session the server still types for)`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'bash',
+      cwd: '/p',
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
     o.daemon.length = 0
 
     await o.call.sessions.sendText({ sessionId, text: 'only once', mutationId: 'm-send' })
-    await waitFor(
-      () => ptyFrames(o.daemon).length > 0,
-      'the first send to reach the PTY',
-      FIRST_SEND_AFTER_BIND_MS,
-    )
-
     await o.call.sessions.sendText({ sessionId, text: 'only once', mutationId: 'm-send' })
 
-    // EXACT frame sequence: one frame, once. Counting substring occurrences in a
-    // joined blob would miss a re-wrapped or re-split second delivery.
+    // EXACT frame sequence: one paste and its submitting CR, once. Counting
+    // substring occurrences in a joined blob would miss a re-wrapped or
+    // re-split second delivery.
     expect(ptyFrames(o.daemon)).toEqual([
       { inputOrigin: 'controller', data: `${PASTE_START}only once${PASTE_END}` },
+      { inputOrigin: 'controller', data: '\r' },
     ])
+    expect(durableSends(o.daemon, sessionId)).toEqual([])
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-send'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: an ASYNC proc records its RESOLVED value — a replayed create returns the same id and spawns once`, async () => {
