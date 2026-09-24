@@ -23,6 +23,7 @@ import { normalizeSettings } from '@podium/runtime'
 import type { LedgerDeps } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
+import { applyAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { StaleIssueRevisionError } from '../../../store/issue-revision'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '../service'
@@ -53,16 +54,31 @@ const open = async (): Promise<Harness> => {
   await store.repos.addRepo('/repo', store.hostMachineId)
   let during: { fn: () => Promise<void>; when: 'before' | 'after' } | null = null
   let fail = false
+  // The span is the store's REAL transaction, and installs wait for the
+  // outermost commit, exactly as production wires the ledger and the registry
+  // (relay.ts: `transact: (fn) => this.store.transact(fn)`,
+  // `applyCommit: { spanOpen, onCommit: applyAfterCommit }`). Since dda75c2be
+  // the registry map also follows the store's committed-row feed, which applies
+  // after the outermost commit; under the old pass-through span every
+  // repository write auto-committed at once, so the map showed the draft inside
+  // the very window the 'after' cases observe.
+  //
+  // 'before' runs OUTSIDE the span, after the draft was cut: a second caller's
+  // whole update lands between the first caller reading the row and opening its
+  // write, as two independent transactions. Nested inside one transaction it
+  // would roll back with the loser, which is not the interleaving at issue.
   const transact: LedgerDeps['transact'] = async (fn) => {
     const hook = during
     during = null
     const shouldFail = fail
     fail = false
     if (hook?.when === 'before') await hook.fn()
-    const result = await fn()
-    if (hook?.when === 'after') await hook.fn()
-    if (shouldFail) throw new Error('commit failed')
-    return result
+    return await store.transact(async () => {
+      const result = await fn()
+      if (hook?.when === 'after') await hook.fn()
+      if (shouldFail) throw new Error('commit failed')
+      return result
+    })
   }
   const deps: IssueDeps = {
     store,
@@ -80,6 +96,7 @@ const open = async (): Promise<Harness> => {
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}, { transact }),
     setSessionArchived: vi.fn(),
+    applyCommit: { spanOpen, onCommit: applyAfterCommit },
   }
   return {
     store,
@@ -121,6 +138,9 @@ describe('draft-then-install: two updates to the same issue', () => {
     // The winner's row survives intact: the loser never touched it, and its
     // title is not half-applied over the winner's.
     expect((await svc.get(id))?.title).toBe('from the inner write')
+    // The map serves what the store committed, not merely something plausible.
+    const stored = (await harness.store.issues.listIssueRows()).find((r) => r.id === id)
+    expect(stored?.title).toBe('from the inner write')
   })
 
   it('leaves the map row untouched while a write is open, and after it fails', async () => {
@@ -175,6 +195,9 @@ describe('draft-then-install: a rollback racing a successful update', () => {
     await expect(svc.update(id, { title: 'loser' })).rejects.toThrow(StaleIssueRevisionError)
 
     expect((await svc.get(id))?.title).toBe('winner')
+    // The map serves what the store committed, not merely something plausible.
+    const stored = (await harness.store.issues.listIssueRows()).find((r) => r.id === id)
+    expect(stored?.title).toBe('winner')
   })
 })
 
