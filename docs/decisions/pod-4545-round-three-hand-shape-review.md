@@ -344,7 +344,42 @@ passes.
   real roll-ups, and C11 against the order and groups, with the gate's
   oracle on.
 
-## 6. Completeness
+## 6. What landed after the reviewed SHA
+
+POD-4665 landed `251e484d1` on the integration branch while this review was
+running (9 commits after `c128bf833`, with POD-4570's Mb2). It changes the
+hand pool's residency: an issue's cold rule becomes `unlessShown`, meaning a
+closed issue stays resident while it or a member session can still show.
+The diffs to non-test pool code: `residency.ts` +137, `clock.ts` +5,
+`enumerate.ts` +10, `rebuild.ts` ±11 and `pool.ts` +1. I rebased onto it,
+read the diff against the checklist, and re-ran what is cheap. I did not
+re-run the 5 × 300 gate or the gate-plant runs; those are at `c128bf833`.
+
+- **Suites and probes at `251e484d1` plus my commits:** the same 12 files
+  gave `Tests 110 passed`. Bucket upkeep is unchanged: live new issue 2 / 8 /
+  0, new session 11 / 20 / 0. The identity check is green clean and red on
+  every plant. The step-load plant still fails #2, now at **3,298** reads,
+  because more closed issues are resident under the new rule (3,292
+  resident against 2,832). Clean #1–#4 are unchanged (2/1/1/1).
+- **Checklist lines re-read in the diff:**
+  - C6: `Residency.reindex` walks every member row of a `replace`'s new
+    slice outside `enumerate.ts`. It is reached only from `reseed`, and the
+    lint cannot see it (the walk is over a function's result). That is the
+    replace's own cost, so it is a note, not a fail.
+  - C8: the new member index (`keeps`, `keeperKey`, `finish`) and the clock
+    read (`now()`, the highest `coarseNow` seen) are read only in ingest,
+    never inside a cell.
+  - C4: the new rule declares two more field lists (`cold.dependsOn`,
+    `keptBy.dependsOn`, `schema.ts:640-660` at the new tip). `validateStructure`
+    checks only that each named field exists. The hand code does not trust
+    them to skip work: `member()` re-indexes on every member ingest, and
+    `coldRule` runs on every ingest of a cold-capable row. So they do not
+    widen H3-F4 today. If an engine ever starts skipping on them, H3-F4's
+    check must cover them too.
+- H3-F1 to H3-F4 are unaffected: `relations.ts`, `relations.test.ts`,
+  `views.ts` and `gate.test.ts` are unchanged by these commits.
+
+## 7. Completeness
 
 This review names every concern I have with the hand pool and its
 instruments at `c128bf833`. Each one has a plant or a probe. A later new
