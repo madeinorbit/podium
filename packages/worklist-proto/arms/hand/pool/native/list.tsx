@@ -1,6 +1,7 @@
 /**
- * POD-4578 (Ha1) — the pool's native list (React Native primitives): the same
- * per-key subscriptions as the web list (`../react/list.tsx`). Loaded lazily
+ * POD-4578 (Ha1), POD-4582 (Hb1) — the pool's native list (React Native
+ * primitives): the visible rows in rank order, with the same per-key
+ * subscriptions as the web list (`../react/list.tsx`). Loaded lazily
  * by `../arm.ts` so the node lanes never parse `react-native`.
  */
 
@@ -24,7 +25,7 @@ const PoolNativeSlot = memo(function PoolNativeSlot({
 })
 
 function PoolNativeList({ pool }: { pool: HandPool }): ReactElement {
-  const ids = useSyncExternalStore(pool.subscribeIds, pool.issueIds)
+  const ids = useSyncExternalStore(pool.subscribeOrder, pool.order)
   return (
     <ScrollView testID="hand-pool-list">
       {ids.map((id) => (

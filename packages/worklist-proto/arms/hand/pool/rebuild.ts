@@ -11,20 +11,22 @@
  * selection read as plain values. Only the memo differs (none here, a cell
  * per part there), which is what the checker holds the live pool to.
  *
- * RESIDENCY (POD-4580). The live pool's output holds its RESIDENT issues, and
- * which cold rows it has loaded is the user's history, like the selection, so
- * it comes in as an input: `resident`, the pool's resident issue ids. The
- * rebuild's rows are every issue the schema's rule keeps hot (`coldByRule`
- * over the feed's rows, the rule the pool partitions with) plus the resident
- * ones that still exist. A hot issue the pool failed to hold, or a removed one
- * it kept, is a row-set difference. Every row reads full data (`loading` is
- * always false): the live `snapshot()` settles its loads first. The gate's
- * full-residency checkpoint calls it without `resident`: every row.
+ * VISIBILITY (POD-4582, Hb1). The rows are the VISIBLE issues in L1b rank
+ * order, decided from scratch by the same rule table the live cells run
+ * (`worklist/visible.ts` `VISIBLE_RULES` through `directVisibleParts`,
+ * memoized for this one pass), over EVERY row the feed holds: a cold row's
+ * `flat` is computed from its data here, where the live parts take it from
+ * the shared cold rule's bound (schema doc §5.1), so a cold row the rule
+ * should have kept shown is a row-set difference. The pinned ids follow in
+ * rank order; no groups yet (Hb2). Residency no longer shapes the row set:
+ * the live `snapshot()` loads what it reaches and settles first, and every
+ * row here reads full data (`loading` is always false). `resident` is
+ * accepted and unused (the checker's call shape).
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { sliceRowOf } from '../../../shared/src/row-view'
-import { coldByRule, type ModelSchema, SCHEMA, tableColdContext } from '../../../shared/src/schema'
+import { type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { PoolRelations } from './relations'
 import { createTables, ingestOut, ingestRecord } from './tables'
@@ -35,11 +37,19 @@ import {
   sessionActivityOf,
   type ViewInputs,
 } from './views'
+import {
+  directSessionParts,
+  directVisibleParts,
+  type SessionVisibleParts,
+  sortByRank,
+  type VisibleInputs,
+  type VisibleParts,
+} from './worklist/visible'
 
 export function rebuildSnapshot(
   source: RowSource,
   locals: LocalsSource,
-  resident?: ReadonlySet<string>,
+  _resident?: ReadonlySet<string>,
   schema: ModelSchema = SCHEMA,
 ): SliceSnapshot {
   const tables = createTables()
@@ -70,16 +80,38 @@ export function rebuildSnapshot(
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
-  const rule = tableColdContext(schema, (entity) => tables[entity], coarseNow)
-  const coldTarget = (id: string): boolean => {
-    const row = tables.issue.get(id)
-    return row !== undefined && coldByRule(schema, 'issue', row, rule)
+  const memo = new Map<string, VisibleParts>()
+  const sessions = new Map<string, SessionVisibleParts>()
+  const visible: VisibleInputs = {
+    relations,
+    resident: (entity, id) => tables[entity].has(id),
+    issueRow: inputs.issue,
+    sessionRow: inputs.session,
+    issue: (id) => (tables.issue.has(id) ? directVisibleParts(visible, id, memo) : undefined),
+    session: (id) => {
+      if (!tables.session.has(id)) return undefined
+      let parts = sessions.get(id)
+      if (parts === undefined) {
+        parts = directSessionParts(visible, id)
+        sessions.set(id, parts)
+      }
+      return parts
+    },
+    sessionActivity: inputs.sessionActivity,
+    own: (id) => directParts(inputs, id).own,
+    passed: inputs.passed,
   }
+  const order = sortByRank(
+    issues.map(({ id }) => id).filter((id) => directVisibleParts(visible, id, memo).visible),
+    (id) => directVisibleParts(visible, id, memo).rank,
+  )
   const rowsById: SliceSnapshot['rowsById'] = {}
-  for (const { id } of issues) {
-    if (resident !== undefined && !resident.has(id) && coldTarget(id)) continue
+  const pinnedIds: string[] = []
+  for (const id of order) {
     const view = buildRowView(inputs, id, directParts(inputs, id))
-    if (view !== undefined) rowsById[id] = sliceRowOf(view)
+    if (view === undefined) continue
+    rowsById[id] = sliceRowOf(view)
+    if (view.pinned) pinnedIds.push(id)
   }
-  return { order: { pinnedIds: [], groups: [] }, rowsById }
+  return { order: { pinnedIds, groups: [] }, rowsById }
 }

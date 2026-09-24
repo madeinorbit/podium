@@ -1,11 +1,14 @@
 /**
- * POD-4578 (Ha1) — the pool's web list: every pool issue, one `RowShell` per
- * row (no visible set, order or windowing until Hb1/Hb2).
+ * POD-4578 (Ha1), POD-4582 (Hb1) — the pool's web list: the VISIBLE rows in
+ * rank order (`pool.order`, `worklist/visible.ts`), one `RowShell` per row
+ * (no groups or windowing until Hb2).
  *
- * The list subscribes to the id list only; each slot subscribes to its own
- * issue's key (`useSyncExternalStore` per key), so a change redraws exactly
- * the rows whose view changed, and a redraw looks nothing up. The pool
- * arrives through props, typed only.
+ * The list subscribes to the order only, so a reorder moves keyed slots and
+ * commits no row; each slot subscribes to its own issue's key
+ * (`useSyncExternalStore` per key), so a change redraws exactly the rows
+ * whose view changed, and a redraw looks nothing up. A visible row is always
+ * resident (only resident rows have a `visible` cell). The pool arrives
+ * through props, typed only.
  */
 
 import { memo, type ReactElement, useCallback, useSyncExternalStore } from 'react'
@@ -27,7 +30,7 @@ const PoolRowSlot = memo(function PoolRowSlot({
 })
 
 export function PoolList({ pool }: { pool: HandPool }): ReactElement {
-  const ids = useSyncExternalStore(pool.subscribeIds, pool.issueIds)
+  const ids = useSyncExternalStore(pool.subscribeOrder, pool.order)
   return (
     <div data-pool-list>
       {ids.map((id) => (

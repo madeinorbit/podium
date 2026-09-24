@@ -12,7 +12,8 @@
     "pool/relations.ts",
     "pool/residency.ts",
     "pool/tables.ts",
-    "pool/views.ts"
+    "pool/views.ts",
+    "pool/worklist/visible.ts"
   ],
   "rows": ["pool/react/row.tsx", "pool/native/row.tsx"]
 }

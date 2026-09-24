@@ -49,6 +49,14 @@
  * slots, so a bucket-sized walk cannot hide behind one count;
  * `rollupsDerived` stays 0 until the worklist phase. The pool's own counters
  * are in `stats.counters`.
+ *
+ * THE WORKLIST (POD-4582, Hb1; `worklist/visible.ts`). The visible
+ * collection's parts are cells like every other; each resident issue has a
+ * `visible` cell, created when its row enters the table (`admit`, only the
+ * ids the commit moved). A commit runs two more steps after the drain:
+ * `admit`, then the order handler (`settle`), which places exactly the ids
+ * whose `visible` or `rank` cell moved. The list and `snapshot()` read the
+ * order; order listeners are called in `publish` when it moved.
  */
 
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
@@ -92,6 +100,7 @@ import {
   sessionActivityOf,
   type ViewInputs,
 } from './views'
+import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
 
 /**
  * Everything that can change under the pool, as one closed union. Every
@@ -112,7 +121,7 @@ function unhandled(delta: never): never {
 }
 
 /** The pool's own counters, beside the shared `ArmStats` (`README.md`, "Stats"). */
-export interface PoolCounters extends CellCounters {
+export interface PoolCounters extends CellCounters, VisibleCounters {
   /** Table slots written (set to a different object, or deleted). */
   tableWrites: number
   /** Rows that left the pool, each with its cells and record disposed. */
@@ -131,7 +140,14 @@ function createStats(graph: CellGraph, residency: () => Residency | null): PoolS
     rowsRemoved: 0,
     recordsCreated: 0,
     listenerCalls: 0,
-  }) as PoolCounters
+    visibleIssues: 0,
+    visibleSessions: 0,
+    membershipFlips: 0,
+    orderMoves: 0,
+    orderShifted: 0,
+    orderSorts: 0,
+    orderSorted: 0,
+  } satisfies Omit<PoolCounters, keyof CellCounters>) as PoolCounters
   const stats: PoolStats = {
     rowsDerived: 0,
     rollupsDerived: 0,
@@ -170,12 +186,6 @@ export interface LazyMembers {
 
 /** Load rounds `snapshot()` settles before it gives up (a load that queues another, and so on). */
 const MAX_SETTLE_ROUNDS = 64
-
-/** The worklist's order until Hb1 builds the visible collection. */
-const EMPTY_ORDER: SliceSnapshot['order'] = Object.freeze({
-  pinnedIds: [],
-  groups: [],
-}) as unknown as SliceSnapshot['order']
 
 /** One issue's parts, each its own cell, plus the view cell over them. */
 export class IssueCells {
@@ -276,6 +286,12 @@ export class HandPool {
   readonly listeners = new Map<string, Set<() => void>>()
   /** Listeners of the id list. */
   readonly idsListeners = new Set<() => void>()
+  /** The visible collection and its order (POD-4582, Hb1). */
+  readonly worklist: VisibleCollection
+  /** The inputs the visibility parts read, behind the same tracked doors. */
+  readonly visibleInputs: VisibleInputs
+  /** Listeners of the order. */
+  readonly orderListeners = new Set<() => void>()
   private readonly idsCell: Cell<readonly string[]>
   private readonly target: IngestTarget
   private selectedId: string | null
@@ -370,6 +386,32 @@ export class HandPool {
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
     }
+    const knownDoor = (entity: 'issue' | 'session', id: string): boolean =>
+      tracked[entity].has(id) || (residency?.known(entity, id) ?? false)
+    this.visibleInputs = {
+      relations: this.relations,
+      resident: (entity, id) => tracked[entity].has(id),
+      issueRow: (id) => {
+        const row = tracked.issue.get(id) as SliceIssue | undefined
+        if (row === undefined) residency?.loading('issue', id)
+        return row
+      },
+      sessionRow: (id) => {
+        const row = tracked.session.get(id) as SliceSession | undefined
+        if (row === undefined) residency?.loading('session', id)
+        return row
+      },
+      issue: (id) => (knownDoor('issue', id) ? this.worklist.issue(id) : undefined),
+      session: (id) => (knownDoor('session', id) ? this.worklist.session(id) : undefined),
+      sessionActivity: (id) => this.sessionActivity(id),
+      own: (id) => (tracked.issue.has(id) ? this.cellsOf(id).own : undefined),
+      passed: (t) => this.clock.passed(t),
+    }
+    this.worklist = new VisibleCollection({
+      graph,
+      inputs: this.visibleInputs,
+      counters: this.stats.counters,
+    })
     this.records = tablesOf(() => new Map<string, EntityRecord>())
     this.target = {
       read: this.fenced,
@@ -546,20 +588,37 @@ export class HandPool {
     return new Set(issueIdsOf(this.tables.issue))
   }
 
+  /** The visible issue ids in rank order (POD-4582); a new array only when the order moved. */
+  readonly order = (): readonly string[] => this.worklist.order()
+
+  /** Listen to the order; returns the unsubscribe. */
+  readonly subscribeOrder = (listener: () => void): (() => void) => {
+    this.orderListeners.add(listener)
+    return () => {
+      this.orderListeners.delete(listener)
+    }
+  }
+
   /**
-   * The a1 slice output: every RESIDENT issue's row, no order yet (Hb1).
-   * Settled: reading the rows queues the cold rows they reach, and those are
-   * loaded and the rows read again until nothing is queued, as a reader that
-   * waits out its loading state would see them.
+   * The slice output: the VISIBLE rows in rank order, the pinned ones in rank
+   * order, no groups yet (Hb2). Settled: reading the rows (and deciding
+   * visibility) queues the cold rows they reach, and those are loaded and
+   * the rows read again until nothing is queued, as a reader that waits out
+   * its loading state would see them.
    */
   snapshot(): SliceSnapshot {
     for (let round = 0; ; round += 1) {
       const rowsById: SliceSnapshot['rowsById'] = {}
-      for (const id of this.issueIds()) {
+      const pinnedIds: string[] = []
+      for (const id of this.order()) {
         const view = this.view(id)
-        if (view !== undefined) rowsById[id] = sliceRowOf(view)
+        if (view === undefined) continue
+        rowsById[id] = sliceRowOf(view)
+        if (view.pinned) pinnedIds.push(id)
       }
-      if (this.residency?.hasQueued() !== true) return { order: EMPTY_ORDER, rowsById }
+      if (this.residency?.hasQueued() !== true) {
+        return { order: { pinnedIds, groups: [] }, rowsById }
+      }
       if (round >= MAX_SETTLE_ROUNDS) {
         throw new Error(`[pool] snapshot() did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
       }
@@ -605,6 +664,7 @@ export class HandPool {
 
   /** Empty every table, cell, index, record and listener. */
   dispose(): void {
+    this.worklist.clear()
     for (const cells of this.issues.values()) cells.dispose()
     this.issues.clear()
     for (const cell of this.sessionCells.values()) this.graph.dispose(cell)
@@ -627,6 +687,7 @@ export class HandPool {
     this.graph.clear()
     this.listeners.clear()
     this.idsListeners.clear()
+    this.orderListeners.clear()
     this.changedIds.clear()
     this.selectedId = null
   }
@@ -638,6 +699,18 @@ export class HandPool {
     for (const delta of deltas) this.invalidate(delta)
     for (const delta of deltas) this.release(delta)
     this.graph.flush()
+    // Handler 3: the worklist. The issues this commit moved into or out of
+    // the tables gain or lose their `visible` cell, then the order places
+    // exactly the ids whose `visible` or `rank` cell moved.
+    const entered: string[] = []
+    for (const delta of deltas) {
+      if (delta.kind === 'row' && delta.membership && delta.entity === 'issue') {
+        entered.push(delta.id)
+      }
+    }
+    this.worklist.admit(entered, (id) => this.fenced.issue.has(id))
+    this.graph.flush()
+    this.worklist.settle()
     this.publish()
     this.stats.notifications += 1
   }
@@ -694,6 +767,7 @@ export class HandPool {
           cells.dispose()
           this.issues.delete(delta.id)
         }
+        if (this.residency?.isCold('issue', delta.id) !== true) this.worklist.forgetIssue(delta.id)
         return
       }
       case 'residency':
@@ -704,6 +778,14 @@ export class HandPool {
           this.residency?.isCold('session', delta.id) !== true
         ) {
           this.releaseSession(delta.id)
+        }
+        // An issue removed while cold leaves the registry and no table.
+        if (
+          delta.entity === 'issue' &&
+          !this.tables.issue.has(delta.id) &&
+          this.residency?.isCold('issue', delta.id) !== true
+        ) {
+          this.worklist.forgetIssue(delta.id)
         }
         return
       case 'relation':
@@ -717,6 +799,7 @@ export class HandPool {
 
   /** A session left the pool: its activity cell goes (its readers re-run). */
   private releaseSession(id: string): void {
+    if (this.residency?.isCold('session', id) !== true) this.worklist.forgetSession(id)
     const cell = this.sessionCells.get(id)
     if (cell === undefined) return
     this.graph.dispose(cell)
@@ -727,10 +810,17 @@ export class HandPool {
   private publish(): void {
     const ids = this.idsChanged
     this.idsChanged = false
+    const orderMoved = this.worklist.takeMoved()
     const changed = [...this.changedIds]
     this.changedIds.clear()
     if (ids) {
       for (const listener of [...this.idsListeners]) {
+        this.stats.counters.listenerCalls += 1
+        listener()
+      }
+    }
+    if (orderMoved) {
+      for (const listener of [...this.orderListeners]) {
         this.stats.counters.listenerCalls += 1
         listener()
       }
