@@ -4,7 +4,7 @@ import { request as httpRequest } from 'node:http'
 import { join } from 'node:path'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { forgetConfig } from '@podium/runtime/config'
-import { decodePairingEnvelope, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { decodePairingEnvelope, CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { hashToken } from './auth-route'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 import { WebSocket } from 'ws'
@@ -78,7 +78,12 @@ afterAll(async () => {
 async function socket(cookie: string, bearer = false): Promise<boolean> {
   return await new Promise((resolve) => {
     const ws = new WebSocket(
-      url(`/client?v=${CLIENT_WIRE_VERSION}&workspace=ignored`).replace('http:', 'ws:'),
+      // 6b22a3650 requires the sync HTTP capability at /client admission; a
+      // real client sends it (socket-hub.ts), so the fixture must as well.
+      url(`/client?v=${CLIENT_WIRE_VERSION}&workspace=ignored&cap=${CAP_SYNC_HTTP_V1}`).replace(
+        'http:',
+        'ws:',
+      ),
       {
         headers: {
           cookie,
@@ -307,9 +312,12 @@ test('passes bearer credentials and request URLs to the provider on all transpor
 test('host revocation disconnects an already open provider socket', async () => {
   principalValid = true
   maintainPrincipal.mockClear()
-  const ws = new WebSocket(url(`/client?v=${CLIENT_WIRE_VERSION}`).replace('http:', 'ws:'), {
-    headers: { cookie: `cloud=yes; ${localCookie}` },
-  })
+  const ws = new WebSocket(
+    url(`/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`).replace('http:', 'ws:'),
+    {
+      headers: { cookie: `cloud=yes; ${localCookie}` },
+    },
+  )
   try {
     await new Promise<void>((resolve, reject) => {
       ws.once('open', resolve)

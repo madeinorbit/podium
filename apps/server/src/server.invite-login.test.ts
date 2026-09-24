@@ -49,7 +49,9 @@ afterAll(async () => {
 async function login(email: string, password: string, userId: string) {
   const response = await post('/auth/login', { email, password })
   expect(response.status).toBe(200)
-  expect(await response.json()).toEqual({ ok: true, userId })
+  // c710b0606 (POD-3999) extended the login body with the replica keys
+  // memberId/syncBoundaryId; the login contract this guards is ok + userId.
+  expect(await response.json()).toMatchObject({ ok: true, userId })
   const cookie = response.headers.get('set-cookie')?.split(';')[0]
   expect(cookie).toMatch(/^podium_session=.+/)
   return cookie!

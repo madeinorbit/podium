@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { FLEET_CONTRACTS } from '@podium/commands'
 import { asMachineId, asSessionId } from '@podium/model'
 import { createHandshakeDialer, type DaemonPtyOutputBatch } from '@podium/protocol'
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
@@ -183,8 +184,12 @@ describe('startServer with the hub role disabled (node shape)', () => {
       'machines.pairingCode',
       'machines.rename',
       'machines.revoke',
+      // 34aa06cf2 (POD-4142) added assignment as a hub-gated fleet write.
+      'machines.setAssignment',
       'machines.setUpdateChannel',
       'machines.share',
+      // 508b1c6c7 (POD-3965) added explicit machine supersession, hub-gated.
+      'machines.supersede',
       'machines.transferOwnership',
       'machines.unshare',
     ])
@@ -277,9 +282,12 @@ describe('startServer default role keeps hub surfaces on', () => {
     })
     const { code } = await trpc.machines.pairingCode.mutate()
     expect(code.length).toBeGreaterThan(0)
+    // 4c38e17df (POD-4155) moved daemon identity to Ed25519: pairing redeems
+    // only with a valid machine public key, so the frame carries one.
     const auth = await handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
       code,
+      publicKey: publicKeyWire(mintSigningKeyPair()),
       machineId: asMachineId('joiner'),
       hostname: 'joiner-host',
     })
@@ -302,7 +310,9 @@ describe('startServer default role keeps hub surfaces on', () => {
     expect(renamed.find((m) => m.id === host)?.name).toBe('renamed-host')
     // The schema is the contract's, and it still refuses what it always refused.
     await expect(trpc.machines.rename.mutate({ id: host, name: '' })).rejects.toThrow()
+    // 23e55a7c2 (POD-4143) retains revoked rows for audit: revoke stamps
+    // revokedAt instead of deleting, and listings keep the stamped row.
     const after = await trpc.machines.revoke.mutate({ id: 'joiner' })
-    expect(after.some((m) => m.id === 'joiner')).toBe(false)
+    expect(after.find((m) => m.id === 'joiner')?.revokedAt).toEqual(expect.any(String))
   })
 })
