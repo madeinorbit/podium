@@ -17,6 +17,7 @@ import {
   applyRealAgentCodexEnv,
   ensureHarnessRunId,
   harnessEnv,
+  HOST_INSTANCE_ENV,
   harnessPidFile,
   reapHarnessSessions,
   reapStaleHarnessDirs,
@@ -488,5 +489,40 @@ describe('harness process shutdown ordering', () => {
     expect(child.signalCode).toBe('SIGKILL')
     reapHarnessSessions(PORT)
     expect(existsSync(harnessEnv(PORT).base)).toBe(false)
+  })
+})
+
+describe('applyHarnessEnv drops the host instance (POD-4664)', () => {
+  const PORT = 9941
+  const saved = new Map(HOST_INSTANCE_ENV.map((key) => [key, process.env[key]]))
+
+  afterEach(() => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(harnessEnv(PORT, 'hostenv').base, { recursive: true, force: true })
+  })
+
+  it("runs on its own state, never the host's identity, pin or bundles", () => {
+    // What an agent session hands every process it launches. With these, the
+    // harness daemon adopted the host's machine id, token and publisher-key pin
+    // and was refused by its own server, and the phone suites were served the
+    // installed bundle.
+    process.env.PODIUM_SUPERVISOR_MACHINE_ID = 'host-machine'
+    process.env.PODIUM_SUPERVISOR_MACHINE_TOKEN = 'host-token'
+    process.env.PODIUM_SUPERVISOR_UPDATE_PUBKEY = 'host-pin'
+    process.env.PODIUM_UNDER_PARENT = '1'
+    process.env.PODIUM_MOBILE_WEB_DIR = '/installed/mobile'
+    process.env.PODIUM_WEB_DIR = '/installed/web'
+
+    const { env, stateDir } = applyHarnessEnv(PORT, 'hostenv')
+
+    for (const key of HOST_INSTANCE_ENV) {
+      expect(process.env[key], key).toBeUndefined()
+      expect(env[key], key).toBeUndefined()
+    }
+    expect(process.env.PODIUM_STATE_DIR).toBe(stateDir)
+    expect(env.PODIUM_STATE_DIR).toBe(stateDir)
   })
 })

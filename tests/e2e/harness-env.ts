@@ -475,8 +475,9 @@ export function reapStaleHarnessDirs(_now: number = Date.now()): number[] {
  * PODIUM_SUPERVISOR_* makes the harness daemon adopt the host's REAL machine id,
  * token and publisher-key pin, and its handshake with the harness's own server is
  * refused ("auth-failed", then "the publisher update key was replaced after this
- * machine enrolled"). The rest name the host instance, its parent, or the session
- * the harness happens to run inside. None of it describes the isolated instance.
+ * machine enrolled"). The rest name the host instance, its parent, the session
+ * the harness happens to run inside, or the bundles the host serves. None of it
+ * describes the isolated instance.
  */
 export const HOST_INSTANCE_ENV = [
   'PODIUM_SUPERVISOR_MACHINE_ID',
@@ -499,6 +500,12 @@ export const HOST_INSTANCE_ENV = [
   'PODIUM_SESSION_INSTANCE',
   'PODIUM_SESSION_RELAY',
   'NOTIFY_SOCKET',
+  // The INSTALLED web and phone bundles. Inherited, the harness serves the host's
+  // build instead of the apps/web/dist and apps/mobile/dist the lane just built,
+  // and a suite about new UI tests the old one (POD-4664: every phone suite ran
+  // against ~/.local/share/podium/mobile).
+  'PODIUM_WEB_DIR',
+  'PODIUM_MOBILE_WEB_DIR',
 ] as const
 
 export function applyHarnessEnv(
@@ -517,17 +524,10 @@ export function applyHarnessEnv(
   for (const key of HOST_INSTANCE_ENV) delete process.env[key]
   process.env.ABDUCO_SOCKET_DIR = dirs.abducoSocketDir
   process.env.PODIUM_STATE_DIR = dirs.stateDir
-  // When the harness itself runs inside a Podium-launched shell (agents in a
-  // Podium session), the parent exports PODIUM_WEB_DIR pointing at the
-  // INSTALLED web bundle. Inheriting it would make the e2e server serve that
-  // stale build instead of the apps/web/dist the suite just built — so drop it
-  // and let server.ts fall back to the repo-relative dist.
-  delete process.env.PODIUM_WEB_DIR
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => typeof entry[1] === 'string',
     ),
   )
-  delete env.PODIUM_WEB_DIR
   return { ...dirs, env }
 }
