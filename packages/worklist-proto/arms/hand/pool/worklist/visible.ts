@@ -806,6 +806,11 @@ export class VisibleCollection {
 
   constructor(private readonly host: VisibleHost) {}
 
+  /** A known issue's parts when already held, without creating them. */
+  peekIssue(id: string): VisibleParts | undefined {
+    return this.issueParts.get(id)
+  }
+
   /** A known issue's parts (the pool's input door checks it is known). */
   issue(id: string): VisibleParts {
     let parts = this.issueParts.get(id)
@@ -820,6 +825,11 @@ export class VisibleCollection {
       this.host.counters.visibleIssues += 1
     }
     return parts
+  }
+
+  /** A known session's parts when already held, without creating them. */
+  peekSession(id: string): SessionVisibleParts | undefined {
+    return this.sessionParts.get(id)
   }
 
   /** A known session's parts. */
