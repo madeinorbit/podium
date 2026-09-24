@@ -10,19 +10,25 @@
  * the generator's kernel-side edits arrive folded, as the oracle sees them.
  * Mc2 (c2) moves this run to `truth` with arm-side edits.
  *
- * Seeds × steps follow `gate.test.ts` (`POD_POOL_GATE_SEEDS`, default 3;
+ * Like `gate.test.ts`, the oracle comparison carries POD-4671's one-row gap
+ * (`acceptUnscannedGap`), which throws once the seat exists. Seeds × steps
+ * follow `gate.test.ts` (`POD_POOL_GATE_SEEDS`, default 3;
  * `POD_POOL_GATE_STEPS`, default 200). Timeout scales the same way (5 s per
  * seed-step).
  */
 
 import { describe, expect, it } from 'vitest'
+import { oracleSnapshot } from '../../../../harness/src/oracle/index'
+import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { gen } from '../../../../shared/src/gen/changes'
-import { checkArm } from '../../../../shared/src/gen/check'
-import { writeResult } from '../../../../harness/src/results'
+import { checkArm, type CheckedArm } from '../../../../shared/src/gen/check'
+import type { ScenarioEngine } from '../../../../shared/src/scenarios'
+import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { writableMobxPoolArm } from './arm'
+import { acceptUnscannedGap } from '../worklist/known-gaps'
+import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 
 installMobxWarnTrap()
 
@@ -63,6 +69,36 @@ function deafToRemovals(source: RowSource): RowSource {
   }
 }
 
+/**
+ * POD-4671's one-row gap patched in the snapshot and the rebuild (the same
+ * wrapper as `gate.test.ts`'s `gapped`): the oracle's row taken for each row
+ * `acceptUnscannedGap` names, counted in `tally.applied`.
+ */
+function gapped(
+  arm: CheckableArm,
+  tally: { applied: number },
+): CheckedArm {
+  return (ctx: ScenarioEngine) => ({
+    create(source, locals, reads) {
+      const handle = arm.create(source, locals, reads) as WritableMobxPoolHandle
+      const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
+        const oracle = oracleSnapshot(ctx.engine.getSnapshot())
+        const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
+        if (rows.length === 0) return snapshot
+        tally.applied += rows.length
+        const rowsById = { ...snapshot.rowsById }
+        for (const id of rows) rowsById[id] = oracle.rowsById[id]!
+        return { ...snapshot, rowsById }
+      }
+      return {
+        ...handle,
+        snapshot: () => patch(handle.snapshot()),
+        rebuildFromScratch: () => patch(handle.rebuildFromScratch()),
+      }
+    },
+  })
+}
+
 describe('L4b with optimistic edits enabled (write layer attached, idle)', () => {
   it(
     'passes every seed against the rebuild and the oracle',
@@ -72,14 +108,15 @@ describe('L4b with optimistic edits enabled (write layer attached, idle)', () =>
         const transport = fakeTransport()
         const arm = writableMobxPoolArm(transport)
         const sequence = gen(seed, STEPS)
-        const result = await checkArm(arm, sequence)
+        const gap = { applied: 0 }
+        const result = await checkArm(gapped(arm, gap), sequence)
         if (!result.ok) {
           throw new Error(
             `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}`,
           )
         }
         expect(transport.sent).toEqual([])
-        cells.push({ seed, steps: STEPS, counts: result.counts })
+        cells.push({ seed, steps: STEPS, counts: result.counts, gapApplied: gap.applied })
       }
       writeResult(`mobx-write-gate-1x-${SEEDS.length}x${STEPS}`, { seeds: SEEDS, steps: STEPS, cells })
     },
