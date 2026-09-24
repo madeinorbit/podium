@@ -389,6 +389,8 @@ export interface IssueVisibility extends RollupParts {
    * vessel's live-roster test is "any"; the roll-ups read each.
    */
   readonly rosterIds: readonly string[]
+  /** The retained seats (`retainedSessions`), exited included: the own-row `activityAt`'s sessions. */
+  readonly retainedSeatIds: readonly string[]
   readonly retained: boolean
   readonly liveRoster: boolean
   readonly unread: boolean
@@ -477,26 +479,12 @@ export function spinOffIdsPartOf(input: VisibleInputs, id: string): readonly str
 }
 
 /** ≥1 retained member session (`rows.ts:70-76`). */
-export function retainedPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
-  const standing = self.standing
-  if (standing === undefined || standing.excluded) return false
-  let issue: SliceIssue | undefined
-  for (const sessionId of self.memberIds) {
-    const retention = input.session(sessionId).retention
-    if (retention === null || !retention.seat) continue
-    if (retention.finish.kind === 'idleDone' && standing.finished) {
-      issue ??= input.issueRow(id)
-    }
-    if (retains(retention, issue, standing, input)) return true
-  }
-  return false
-}
-
 /**
- * The row's seats (`rows.ts:71-79`: retained, then `sessionVisibleInLiveRoster`):
- * seat members retained at the clock and not exited, in id order.
+ * The row's retained seats (`rows.ts:71-79`, `retainedSessions`): seat members
+ * (no shell, not archived) retained at the clock, exited ones included, in
+ * id order. The own-row `activityAt` reads their stamps (`rows.ts:98-107`).
  */
-export function rosterIdsPartOf(
+export function retainedSeatIdsPartOf(
   input: VisibleInputs,
   id: string,
   self: IssueVisibility,
@@ -504,16 +492,33 @@ export function rosterIdsPartOf(
   const standing = self.standing
   if (standing === undefined) return []
   let issue: SliceIssue | undefined
-  const roster: string[] = []
+  const retained: string[] = []
   for (const sessionId of self.memberIds) {
     const retention = input.session(sessionId).retention
-    if (retention === null || !retention.seat || retention.exited) continue
+    if (retention === null || !retention.seat) continue
     if (retention.finish.kind === 'idleDone' && standing.finished) {
       issue ??= input.issueRow(id)
     }
-    if (retains(retention, issue, standing, input)) roster.push(sessionId)
+    if (retains(retention, issue, standing, input)) retained.push(sessionId)
   }
-  return roster
+  return retained
+}
+
+/** ≥1 retained member session (`rows.ts:70-76`). */
+export function retainedPartOf(self: IssueVisibility): boolean {
+  const standing = self.standing
+  if (standing === undefined || standing.excluded) return false
+  return self.retainedSeatIds.length > 0
+}
+
+/**
+ * The row's seats (`rows.ts:71-79`: retained, then `sessionVisibleInLiveRoster`):
+ * the retained seats not exited, in id order.
+ */
+export function rosterIdsPartOf(input: VisibleInputs, self: IssueVisibility): readonly string[] {
+  const retained = self.retainedSeatIds
+  const roster = retained.filter((sessionId) => input.session(sessionId).retention?.exited !== true)
+  return roster.length === retained.length ? retained : roster
 }
 
 /** A retained member still on the live roster (`sessionVisibleInLiveRoster`): a draft vessel's test. */
@@ -693,10 +698,13 @@ export function directVisibility(
       return once('spinOffIds', () => spinOffIdsPartOf(input, id))
     },
     get rosterIds() {
-      return once('rosterIds', () => rosterIdsPartOf(input, id, parts))
+      return once('rosterIds', () => rosterIdsPartOf(input, parts))
     },
     get retained() {
-      return once('retained', () => retainedPartOf(input, id, parts))
+      return once('retained', () => retainedPartOf(parts))
+    },
+    get retainedSeatIds() {
+      return once('retainedSeatIds', () => retainedSeatIdsPartOf(input, id, parts))
     },
     get liveRoster() {
       return once('liveRoster', () => liveRosterPartOf(parts))
@@ -891,6 +899,7 @@ export class IssueNode implements IssueVisibility {
       childIds: computedStruct,
       spinOffIds: computedStruct,
       rosterIds: computedStruct,
+      retainedSeatIds: computedStruct,
       retained: computed,
       liveRoster: computed,
       unread: computed,
@@ -944,11 +953,15 @@ export class IssueNode implements IssueVisibility {
   }
 
   get rosterIds(): readonly string[] {
-    return rosterIdsPartOf(this.input, this.id, this)
+    return rosterIdsPartOf(this.input, this)
+  }
+
+  get retainedSeatIds(): readonly string[] {
+    return retainedSeatIdsPartOf(this.input, this.id, this)
   }
 
   get retained(): boolean {
-    return retainedPartOf(this.input, this.id, this)
+    return retainedPartOf(this)
   }
 
   get liveRoster(): boolean {
