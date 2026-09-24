@@ -123,8 +123,10 @@ export function isLinkSpec(spec: RelationSpec): spec is LinkSpec {
  * foreign key; the first edge of the declared type), after the declared
  * membership filter, WITHOUT checking the target is present. Reading it costs
  * the source row only. The engine computes a link's forward key with it, and
- * the from-scratch scan (`enumerate.ts`) its oracle's; derivations never call
- * it (they read `one`).
+ * the from-scratch scan (`enumerate.ts`) its oracle's; derivations read `one`
+ * instead, with one exception: the worklist files each issue under its
+ * `issue.parent` key (POD-4571, `visible.ts` `Standing.formalParent`), a
+ * maintenance key that must not depend on the parent's residency.
  */
 export function relationRef(
   from: EntityName,

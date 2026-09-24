@@ -77,6 +77,7 @@ import {
   reaction,
 } from 'mobx'
 import type { RelationReader } from '../../../../shared/src/instrument/reads'
+import { relationRef } from '../relations'
 import { compareRank, type RowRank, type RowView, rankOf } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
 import { bandOf, parseMs } from '../views'
@@ -172,6 +173,12 @@ export interface Standing {
   readonly updatedMs: number | null
   readonly deleted: boolean
   readonly pinned: boolean
+  /**
+   * The declared `issue.parent` forward key (Mb3): the relation engine's own
+   * `relationRef` over this row (foreign key and `where`), so it costs this
+   * row alone and never the parent's residency. The progress filing's key.
+   */
+  readonly formalParent: string | null
 }
 
 /** `isSystemOwnedIssueStage` (`model/src/entities/issue-vocabulary.ts:59`). */
@@ -225,6 +232,7 @@ export function standingOf(issue: SliceIssue): Standing {
     updatedMs: parseMs(issue.updatedAt),
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
+    formalParent: relationRef('issue', 'parent', issue),
   }
 }
 
@@ -404,7 +412,6 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
     loadedIssue: (id) => input.loadedIssue(id),
     nested: (id) => input.nested(id),
     formalChildren: (id) => input.formalChildren(id),
-    parentOf: (id) => input.relations.one('issue', id, 'parent'),
     rollupNode: (id) => input.issue(id),
     seat: (id) => input.session(id).verdict,
     seatActivity: (id) => input.session(id).activityMs,
@@ -731,7 +738,7 @@ export function directVisibility(
       return once('ownFacts', () => ownFactsPartOf(rollupInputs, id))
     },
     get formalParent() {
-      return once('formalParent', () => formalParentPartOf(rollupInputs, id))
+      return once('formalParent', () => formalParentPartOf(parts))
     },
     get ownAttention() {
       return once('ownAttention', () => ownAttentionPartOf(rollupInputs, parts))
@@ -1012,7 +1019,7 @@ export class IssueNode implements IssueVisibility {
   }
 
   get formalParent(): string | null {
-    return formalParentPartOf(this.rollupInput, this.id)
+    return formalParentPartOf(this)
   }
 
   get ownAttention(): OwnAttention {

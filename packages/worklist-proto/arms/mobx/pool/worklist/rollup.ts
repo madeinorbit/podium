@@ -529,8 +529,6 @@ export interface RollupInputs {
   /** A session's cached presence facts (Mb1's `retention`, hot or cold). */
   presence(id: string): { readonly issueId: string | null | undefined; readonly open: boolean } | null
   spinOffIds(id: string): readonly string[]
-  /** The declared `issue.parent` target of `id`, or null. */
-  parentOf(id: string): string | null
   /** Count one composition run (the shared `ArmStats.rollupsDerived`). */
   counted(): void
 }
@@ -548,7 +546,7 @@ export interface OwnFacts {
 export interface RollupParts {
   /** The own row's decision facts (re-run only when the own row changes). */
   readonly ownFacts: OwnFacts
-  /** The declared `issue.parent` (its forward slot): where this node is filed for progress. */
+  /** The declared `issue.parent` forward key: where this node is filed for progress. */
   readonly formalParent: string | null
   readonly ownAttention: OwnAttention
   readonly aggregate: Aggregate
@@ -661,9 +659,14 @@ export function ownAttentionPartOf(input: RollupInputs, self: RollupSelf): OwnAt
   return pending === 0 && !deciding ? own : { ...own, deciding, pending: own.pending + pending }
 }
 
-/** The declared `issue.parent`, the node's own forward slot (one read). */
-export function formalParentPartOf(input: Pick<RollupInputs, 'parentOf'>, id: string): string | null {
-  return input.parentOf(id)
+/**
+ * The declared `issue.parent` forward key, from the node's own row (Mb1's
+ * `standing`, the engine's `relationRef`): the progress filing's key. Not
+ * `one()`: that also reads the parent's presence, so loading a parent would
+ * re-run every cold child's filing (one presence probe each).
+ */
+export function formalParentPartOf(self: { readonly standing: { readonly formalParent: string | null } | undefined }): string | null {
+  return self.standing?.formalParent ?? null
 }
 
 /** The visible-subtree aggregate: own part plus each nest child's cached aggregate. */
