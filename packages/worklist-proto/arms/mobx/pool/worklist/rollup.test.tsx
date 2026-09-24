@@ -161,8 +161,12 @@ interface Chain {
 /**
  * A row with exactly four nest ancestors, each its raw `parentId` parent
  * (so the budget's ancestor count is the chain's), a seat on the row that
- * does not wait, and a root nothing waits under (so a question on the seat
- * changes every aggregate up to the root).
+ * does not wait under a finished root, and a root whose aggregate has no such
+ * seat either. A question waits under either kind of root, so it flips the
+ * finished-root flag of every aggregate up to the root: each composition
+ * re-runs and changes. (At 1x both depth-4 missions already wait under an
+ * open root, so the open-root flag would stop the propagation early, which
+ * is the early stop working, not a count to assert.)
  */
 function findChain(pool: MobxPool): Chain {
   return tracked(() => {
@@ -176,13 +180,11 @@ function findChain(pool: MobxPool): Chain {
       }
       if (rows.length !== 5 || node?.nestParent !== null) continue
       if (node.standing?.parentId !== null) continue
-      if (node.aggregate.open.waiting || node.aggregate.finished.waiting || node.aggregate.deciding) {
-        continue
-      }
+      if (node.aggregate.finished.waiting) continue
       const bottom = pool.worklist.issue(id)
       const seat = bottom?.rosterIds.find((sessionId) => {
         const verdict = pool.worklist.session(sessionId).verdict
-        return typeof verdict === 'object' && verdict.open !== 'waiting'
+        return typeof verdict === 'object' && verdict.finished !== 'waiting'
       })
       if (seat !== undefined) return { rows, sessionId: seat }
     }
@@ -314,8 +316,8 @@ describe('row roll-ups (Mb3)', () => {
     expect(correct.readsPerChange!).toBeLessThanOrEqual(correct.readsBudget)
     // The changed row and each of its four ancestors: one composition each.
     expect(correct.rollupsDerived).toBe(correct.rows.length)
-    // Every row of the chain changed in the oracle's views (the root included).
-    for (const id of correct.rows) expect(correct.oracleChanged, id).toContain(id)
+    // The asked row's own view changed; the commit fence (exact, above) held the rest.
+    expect(correct.oracleChanged).toContain(correct.rows[0])
 
     const planted = await chainStep(everyAggregate, false)
     expect(planted.rows).toEqual(correct.rows)
@@ -324,6 +326,53 @@ describe('row roll-ups (Mb3)', () => {
     expect(planted.rollupsDerived).toBeGreaterThan(planted.rows.length)
     writeResult('mobx-rollups-chain-1x', { scale: 1, correct, planted })
   }, 600_000)
+
+  it('pending markers at first paint under the declared cold rule, counted from the row views', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+    const handle = mounted.handle as MobxPoolHandle
+    const { pool } = handle
+    try {
+      const residency = pool.residency!
+      // Mounted, nothing landed yet: what every drawn row shows.
+      const visible = tracked(() => [...pool.worklist.order])
+      const firstPaint = tracked(() =>
+        visible.map((id) => {
+          const view = pool.issue(id)?.view
+          return {
+            id,
+            resident: view !== undefined,
+            loading: view?.loading === true,
+            rollupLoading: pool.worklist.issue(id)?.rollup?.loading === true,
+          }
+        }),
+      )
+      const queuedAtFirstPaint = residency.queued()
+      const hydratedBefore = residency.counters.hydrated
+      const windows = settle(pool)
+      const cell = {
+        visible: visible.length,
+        coldVisible: firstPaint.filter((row) => !row.resident).length,
+        loadingRows: firstPaint.filter((row) => row.loading).length,
+        rollupPendingRows: firstPaint.filter((row) => row.rollupLoading).length,
+        rollupPendingIds: firstPaint.filter((row) => row.rollupLoading).map((row) => row.id),
+        queuedAtFirstPaint,
+        windows,
+        hydrated: residency.counters.hydrated - hydratedBefore,
+      }
+      // The declared rule: no visible row is cold (POD-4665).
+      expect(cell.coldVisible).toBe(0)
+      // Every row that showed a pending marker settles: none left loading.
+      const settled = tracked(() => visible.filter((id) => pool.issue(id)?.view?.loading === true))
+      expect(settled).toEqual([])
+      writeResult('mobx-rollups-pending-1x', { scale: 1, ...cell })
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 300_000)
 
   it('cold children: loading and partial progress first, the oracle once they land (Ma3 addendum)', async () => {
     const ctx = await startScenarioEngine(1)
