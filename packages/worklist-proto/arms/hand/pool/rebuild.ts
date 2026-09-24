@@ -22,10 +22,16 @@
  * the live `snapshot()` loads what it reaches and settles first, and every
  * row here reads full data (`loading` is always false). `resident` is
  * accepted and unused (the checker's call shape).
+ *
+ * WHOLE VIEWS (POD-4674, H3-F3). `rebuildSnapshot` projects each view to the
+ * slice fields (`sliceRowOf`), so the checker never compares `activityAt`,
+ * `originTick`, `selected` and the other view-only fields. `rebuildViews` is
+ * the same run, keeping each whole `RowView`: the gate holds every visible
+ * issue's live view to it at every compared step.
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import { sliceRowOf } from '../../../shared/src/row-view'
+import { type RowView, sliceRowOf } from '../../../shared/src/row-view'
 import { type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { PoolRelations } from './relations'
@@ -52,6 +58,21 @@ export function rebuildSnapshot(
   _resident?: ReadonlySet<string>,
   schema: ModelSchema = SCHEMA,
 ): SliceSnapshot {
+  const rowsById: SliceSnapshot['rowsById'] = {}
+  const pinnedIds: string[] = []
+  for (const [id, view] of rebuildViews(source, locals, schema)) {
+    rowsById[id] = sliceRowOf(view)
+    if (view.pinned) pinnedIds.push(id)
+  }
+  return { order: { pinnedIds, groups: [] }, rowsById }
+}
+
+/** The rebuild's rows as whole views: the visible issues, keyed by id, in rank order. */
+export function rebuildViews(
+  source: RowSource,
+  locals: LocalsSource,
+  schema: ModelSchema = SCHEMA,
+): Map<string, RowView> {
   const tables = createTables()
   const relations = new PoolRelations({
     schema,
@@ -105,13 +126,10 @@ export function rebuildSnapshot(
     issues.map(({ id }) => id).filter((id) => directVisibleParts(visible, id, memo).visible),
     (id) => directVisibleParts(visible, id, memo).rank,
   )
-  const rowsById: SliceSnapshot['rowsById'] = {}
-  const pinnedIds: string[] = []
+  const views = new Map<string, RowView>()
   for (const id of order) {
     const view = buildRowView(inputs, id, directParts(inputs, id))
-    if (view === undefined) continue
-    rowsById[id] = sliceRowOf(view)
-    if (view.pinned) pinnedIds.push(id)
+    if (view !== undefined) views.set(id, view)
   }
-  return { order: { pinnedIds, groups: [] }, rowsById }
+  return views
 }
