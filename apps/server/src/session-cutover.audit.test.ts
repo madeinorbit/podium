@@ -115,10 +115,16 @@ function familyMutations(procedures = routerProcedures()): string[] {
     .sort()
 }
 
-const human = (id: UserId): CommandPrincipal => ({
+const human = (id: UserId, role: 'admin' | 'worker' = 'admin'): CommandPrincipal => ({
   kind: 'user',
   user: id,
-  capability: { role: 'admin', scope: { kind: 'all' } },
+  // POD-4667: POD-3960 layers admin `see` onto every owned row (D19.4b —
+  // pinned in machine-access.test.ts: "an admin holds see + manage on every
+  // machine"), so an admin principal can never be told "unknown machine" for
+  // a colleague's box and the D20 oracle pin below would be unstatable.
+  // Worker by explicit opt-in for the machine-oracle case, mirroring
+  // command-plane.test.ts. Scope stays `all`.
+  capability: { role, scope: { kind: 'all' } },
 })
 
 const agentFor = (sessionId: string, onBehalfOf: UserId): AgentCommandPrincipal => ({
@@ -918,13 +924,17 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       machineId: asMachineId('box'),
       offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
     })
-    // A machine owned by a colleague with NO grant at all: invisible.
+    // A machine owned by a colleague with NO grant at all: invisible — to a
+    // WORKER principal. An admin holds `see` on every owned row (D19.4b), so
+    // this pin is only statable below the admin floor; the worker is the
+    // principal the oracle protects.
+    const stranger = human(firstAdminMemberId(), 'worker')
     const invisible = ownershipTable(
       new Map([['box', { owner: COLLEAGUE, grants: [], name: 'The Box' }]]),
     )
     const invisibleMessage = await messageOf(async () =>
       dispatchSessionCommand(
-        await ctxFor(o, human(firstAdminMemberId()), { ownership: invisible }),
+        await ctxFor(o, stranger, { ownership: invisible }),
         'create',
         {
           agentKind: 'shell',
@@ -936,7 +946,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // Never paired: no row for this id anywhere.
     const neverPaired = await messageOf(async () =>
       dispatchSessionCommand(
-        await ctxFor(o, human(firstAdminMemberId()), { ownership: ownershipTable(new Map()) }),
+        await ctxFor(o, stranger, { ownership: ownershipTable(new Map()) }),
         'create',
         { agentKind: 'shell', cwd: '/p', machineId: 'box' },
       ),
