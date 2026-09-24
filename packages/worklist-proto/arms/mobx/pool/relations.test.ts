@@ -875,9 +875,13 @@ function countedOutside(fn: () => void): OutsideCount {
   const one = (): number => 1
   // POD-4569: the visible collection's set (`pool.visible`) is not a relation
   // bucket; a row entering the worklist adds its id there, one element per
-  // membership flip either way (`counters.membershipFlips`).
-  const bucketOnly = (self: unknown): number =>
-    (self as { name_?: string }).name_ === 'pool.visible' ? 0 : 1
+  // membership flip either way (`counters.membershipFlips`). POD-4686: the
+  // groups' filed lanes (`pool.groups.*`) are the same kind of maintenance
+  // filing, counted separately (`counters.groupRuns`, `groupElements`).
+  const bucketOnly = (self: unknown): number => {
+    const name = (self as { name_?: string }).name_ ?? ''
+    return name === 'pool.visible' || name.startsWith('pool.groups.') ? 0 : 1
+  }
   const length = (self: unknown): number => (self as unknown[]).length
   const countingIterator = (it: Iterator<unknown>, tick: () => void): IterableIterator<unknown> => {
     const counting: IterableIterator<unknown> = {

@@ -438,8 +438,8 @@ export class WorklistGroups {
     let bucket = this.buckets.get(placement.repoKey)
     if (bucket === undefined) {
       bucket = {
-        open: observable.set<string>(undefined, { deep: false }),
-        closed: observable.set<string>(undefined, { deep: false }),
+        open: observable.set<string>(undefined, { deep: false, name: 'pool.groups.lane' }),
+        closed: observable.set<string>(undefined, { deep: false, name: 'pool.groups.lane' }),
       }
       this.buckets.set(placement.repoKey, bucket)
     }
