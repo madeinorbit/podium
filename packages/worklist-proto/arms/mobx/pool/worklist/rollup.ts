@@ -734,7 +734,11 @@ export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
  * and each nest child's result. Its own composition, apart from `aggregate`,
  * so a phase change never runs it and a heartbeat never runs `aggregate`.
  */
-export function seatActivityPartOf(input: RollupInputs, id: string, self: RollupSelf): number | null {
+export function seatActivityPartOf(
+  input: RollupInputs,
+  id: string,
+  self: RollupSelf,
+): number | null {
   input.counted()
   if (!self.present || self.ownFacts.state === 'cold') return null
   const own = self.rosterIds.map((sessionId) => input.seatActivity(sessionId))

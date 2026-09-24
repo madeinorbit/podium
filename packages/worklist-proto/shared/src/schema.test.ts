@@ -16,16 +16,16 @@ import { describe, expect, it } from 'vitest'
 import { buildCorpus } from '../../harness/src/fixture/index'
 import {
   allRelations,
-  collapseLosers,
   coldByRule,
+  collapseLosers,
   type EntityName,
   expectedLazy,
+  keeperOf,
   longestPrefixPath,
   type ModelSchema,
   normalizeRootPath,
   prefixCandidates,
   type RelationSpec,
-  keeperOf,
   SCHEMA,
   tableColdContext,
   validateStructure,
@@ -84,12 +84,32 @@ describe('the declared schema', () => {
 
     // R1 — children/parent by issue.parentId.
     const parent = relationsOf('issue').parent!
-    expect(parent).toMatchObject({ kind: 'belongsTo', to: 'issue', foreignKey: 'parentId', targetKey: 'id', inverse: 'children' })
-    expect(relationsOf('issue').children).toMatchObject({ kind: 'hasMany', to: 'issue', inverse: 'parent' })
+    expect(parent).toMatchObject({
+      kind: 'belongsTo',
+      to: 'issue',
+      foreignKey: 'parentId',
+      targetKey: 'id',
+      inverse: 'children',
+    })
+    expect(relationsOf('issue').children).toMatchObject({
+      kind: 'hasMany',
+      to: 'issue',
+      inverse: 'parent',
+    })
 
     // R2 — sessions by session.issueId.
-    expect(relationsOf('session').issue).toMatchObject({ kind: 'belongsTo', to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'sessions' })
-    expect(relationsOf('issue').sessions).toMatchObject({ kind: 'hasMany', to: 'session', inverse: 'issue' })
+    expect(relationsOf('session').issue).toMatchObject({
+      kind: 'belongsTo',
+      to: 'issue',
+      foreignKey: 'issueId',
+      targetKey: 'id',
+      inverse: 'sessions',
+    })
+    expect(relationsOf('issue').sessions).toMatchObject({
+      kind: 'hasMany',
+      to: 'session',
+      inverse: 'issue',
+    })
 
     // R3 — sessions by worktree prefix. NOT a key join: the resolver is declared.
     expect(relationsOf('session').worktree).toMatchObject({
@@ -100,7 +120,11 @@ describe('the declared schema', () => {
       resolver: 'longestPrefixPath',
       inverse: 'sessions',
     })
-    expect(relationsOf('worktree').sessions).toMatchObject({ kind: 'hasMany', to: 'session', inverse: 'worktree' })
+    expect(relationsOf('worktree').sessions).toMatchObject({
+      kind: 'hasMany',
+      to: 'session',
+      inverse: 'worktree',
+    })
 
     // R4 — the discovered-from edge over issue.deps, both directions.
     expect(relationsOf('issue').discoveredFrom).toMatchObject({
@@ -111,7 +135,11 @@ describe('the declared schema', () => {
       direction: 'out',
       inverse: 'spinOffs',
     })
-    expect(relationsOf('issue').spinOffs).toMatchObject({ kind: 'edge', direction: 'in', inverse: 'discoveredFrom' })
+    expect(relationsOf('issue').spinOffs).toMatchObject({
+      kind: 'edge',
+      direction: 'in',
+      inverse: 'discoveredFrom',
+    })
   })
 
   it('declares residency: a closed issue nothing can show and its sessions are cold, lanes and repos are not', () => {
@@ -153,7 +181,9 @@ describe('validateStructure', () => {
       ...relationsOf('issue').parent!,
       inverse: 'sessions',
     } as RelationSpec
-    expect(validateStructure(schema).join('\n')).toMatch(/issue\.parent: inverse issue\.sessions points at/)
+    expect(validateStructure(schema).join('\n')).toMatch(
+      /issue\.parent: inverse issue\.sessions points at/,
+    )
   })
 
   it('fires when an inverse is missing entirely', () => {
@@ -180,7 +210,9 @@ describe('validateStructure', () => {
       ...relationsOf('issue').children!,
       inverse: 'parent',
     } as RelationSpec
-    expect(validateStructure(schema).join('\n')).toMatch(/issue\.deps: relation name collides with a declared field/)
+    expect(validateStructure(schema).join('\n')).toMatch(
+      /issue\.deps: relation name collides with a declared field/,
+    )
   })
 
   it('fires when a lazy flag contradicts Rule L', () => {
@@ -189,7 +221,9 @@ describe('validateStructure', () => {
       ...relationsOf('issue').sessions!,
       lazy: false,
     } as RelationSpec
-    expect(validateStructure(schema).join('\n')).toMatch(/issue\.sessions: lazy=false contradicts Rule L/)
+    expect(validateStructure(schema).join('\n')).toMatch(
+      /issue\.sessions: lazy=false contradicts Rule L/,
+    )
   })
 
   it('fires when a key names a field that is not declared', () => {
@@ -199,7 +233,9 @@ describe('validateStructure', () => {
       sourceField: 'worktreePath',
     } as RelationSpec
     // There is no `session.worktreePath`; the prefix relation runs off `cwd`.
-    expect(validateStructure(schema).join('\n')).toMatch(/sourceField "worktreePath" is not a declared field of session/)
+    expect(validateStructure(schema).join('\n')).toMatch(
+      /sourceField "worktreePath" is not a declared field of session/,
+    )
   })
 
   it('fires when a kind is not the dual of its inverse', () => {
@@ -223,7 +259,9 @@ describe('validateStructure', () => {
       ...schema.session,
       collapse: { ...collapse, fields: [...collapse.fields, 'resumeRef'] },
     }
-    expect(validateStructure(schema).join('\n')).toMatch(/session\.collapse names undeclared field "resumeRef"/)
+    expect(validateStructure(schema).join('\n')).toMatch(
+      /session\.collapse names undeclared field "resumeRef"/,
+    )
   })
 
   it('fires when the collapse tie-break field is not among the fields it reads', () => {
@@ -231,9 +269,14 @@ describe('validateStructure', () => {
     const collapse = SCHEMA.session.collapse!
     ;(schema as Record<string, unknown>).session = {
       ...schema.session,
-      collapse: { ...collapse, fields: collapse.fields.filter((field) => field !== 'lastActiveAt') },
+      collapse: {
+        ...collapse,
+        fields: collapse.fields.filter((field) => field !== 'lastActiveAt'),
+      },
     }
-    expect(validateStructure(schema).join('\n')).toMatch(/collapse\.recency "lastActiveAt" is not among its fields/)
+    expect(validateStructure(schema).join('\n')).toMatch(
+      /collapse\.recency "lastActiveAt" is not among its fields/,
+    )
   })
 })
 
@@ -281,9 +324,14 @@ describe('validateSources', () => {
     const agentState = SCHEMA.session.fields.agentState!
     ;(schema.session.fields as Record<string, unknown>).agentState = {
       ...agentState,
-      parts: { ...agentState.parts, tokensUsed: { type: 'number', source: { schema: 'AgentRuntimeState' } } },
+      parts: {
+        ...agentState.parts,
+        tokensUsed: { type: 'number', source: { schema: 'AgentRuntimeState' } },
+      },
     }
-    expect(validateSources(schema).join('\n')).toMatch(/agentState\.tokensUsed: "tokensUsed" is not a property of AgentRuntimeState/)
+    expect(validateSources(schema).join('\n')).toMatch(
+      /agentState\.tokensUsed: "tokensUsed" is not a property of AgentRuntimeState/,
+    )
   })
 
   it('confirms the two fields the schema deliberately does NOT declare are rollups, not model fields', () => {
@@ -322,7 +370,20 @@ describe('the prefix resolver', () => {
     // One spelling per root: with both `a` and `a/` present the resolver breaks
     // the tie by iteration order, which a keyed probe does not share.
     const pool = ['', '/', '/r', '/r/a/', '/r/a/b', '/r/ab', '/s/', 'rel', 'rel/x']
-    const probes = ['/', '/r', '/r/', '/r/a', '/r/a/b/c', '/r/ab/x', '/r/abc', '/s', '/t', 'rel/x/y', 'relx', '']
+    const probes = [
+      '/',
+      '/r',
+      '/r/',
+      '/r/a',
+      '/r/a/b/c',
+      '/r/ab/x',
+      '/r/abc',
+      '/s',
+      '/t',
+      'rel/x/y',
+      'relx',
+      '',
+    ]
     let seed = 7
     const rand = () => {
       seed = (seed * 1103515245 + 12345) % 2147483648
@@ -361,9 +422,16 @@ describe('the resume-twin collapse (session.collapse)', () => {
     }
     const lost = new Set<string>()
     for (const group of groups.values()) {
-      for (const id of collapseLosers(rule, group.map((row) => ({ id: row.sessionId, row })))) lost.add(id)
+      for (const id of collapseLosers(
+        rule,
+        group.map((row) => ({ id: row.sessionId, row })),
+      ))
+        lost.add(id)
     }
-    return rows.filter((row) => !lost.has(row.sessionId)).map((row) => row.sessionId).sort()
+    return rows
+      .filter((row) => !lost.has(row.sessionId))
+      .map((row) => row.sessionId)
+      .sort()
   }
   const keptByLegacy = (rows: Twin[]) =>
     dedupeSessionsByResume(rows as Parameters<typeof dedupeSessionsByResume>[0])
@@ -386,8 +454,18 @@ describe('the resume-twin collapse (session.collapse)', () => {
     'starting and reconnecting also keep the group': [
       { sessionId: 'a', status: 'exited', lastActiveAt: at(1), resume: ref },
       { sessionId: 'b', status: 'reconnecting', lastActiveAt: at(2), resume: ref },
-      { sessionId: 'c', status: 'exited', lastActiveAt: at(3), resume: { kind: 'codex-thread', value: 't-2' } },
-      { sessionId: 'd', status: 'starting', lastActiveAt: at(4), resume: { kind: 'codex-thread', value: 't-2' } },
+      {
+        sessionId: 'c',
+        status: 'exited',
+        lastActiveAt: at(3),
+        resume: { kind: 'codex-thread', value: 't-2' },
+      },
+      {
+        sessionId: 'd',
+        status: 'starting',
+        lastActiveAt: at(4),
+        resume: { kind: 'codex-thread', value: 't-2' },
+      },
     ],
     'a headless row neither collapses nor keeps its group': [
       { sessionId: 'a', status: 'exited', lastActiveAt: at(1), resume: ref },
@@ -413,7 +491,9 @@ describe('the resume-twin collapse (session.collapse)', () => {
 
   it('collapses the all-inactive group and keeps the active one, both directions', () => {
     expect(keptByRule(cases['rank beats recency (all inactive: collapses)']!)).toEqual(['a'])
-    expect(keptByRule(cases['a group with a live row is kept in full (does NOT collapse)']!)).toEqual(['a', 'b'])
+    expect(
+      keptByRule(cases['a group with a live row is kept in full (does NOT collapse)']!),
+    ).toEqual(['a', 'b'])
   })
 })
 
@@ -459,7 +539,12 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
   it('applies own, via and never from the declaration', () => {
     const rule = ruleAt(
       [child('i1', 30), { id: 'i2', closedAt: null, stage: 'in_progress', audience: 'human' }],
-      [session('s1', 'i1', { stoppedAt: ago(30) }), session('s2', 'i2'), session('s9', 'i9'), { sessionId: 's0', cwd: '/w' }],
+      [
+        session('s1', 'i1', { stoppedAt: ago(30) }),
+        session('s2', 'i2'),
+        session('s9', 'i9'),
+        { sessionId: 's0', cwd: '/w' },
+      ],
     )
     expect(rule.issue('i1')).toBe(true)
     expect(rule.issue('i2')).toBe(false)
@@ -469,7 +554,9 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     expect(rule.session('s9')).toBe(false)
     expect(rule.session('s0')).toBe(false)
     const ctx = tableColdContext(SCHEMA, () => undefined, NOW)
-    expect(coldByRule(SCHEMA, 'worktree', { path: '/a' }, { ...ctx, coldTarget: () => true })).toBe(false)
+    expect(coldByRule(SCHEMA, 'worktree', { path: '/a' }, { ...ctx, coldTarget: () => true })).toBe(
+      false,
+    )
     expect(coldByRule(SCHEMA, 'repo', { id: 'r' }, { ...ctx, coldTarget: () => true })).toBe(false)
   })
 
@@ -484,7 +571,14 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
   it('keeps resident a closed issue its own standing can show (R-VIS 2, the sessionless keep)', () => {
     const rule = ruleAt([
       // The closed fold: a closed top-level human issue never decays.
-      { id: 'top', audience: 'human', stage: 'done', closedReason: 'completed', closedAt: ago(400), updatedAt: ago(400) },
+      {
+        id: 'top',
+        audience: 'human',
+        stage: 'done',
+        closedReason: 'completed',
+        closedAt: ago(400),
+        updatedAt: ago(400),
+      },
       // A finished child inside the unread window (7 d), and past it.
       child('recent', 6),
       child('old', 8),
@@ -492,9 +586,24 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
       child('reread', 8, { readAt: new Date(NOW - DAY / 2).toISOString() }),
       // Agent-audience children and closed agent roots never show without a session.
       child('agent', 1, { audience: 'agent' }),
-      { id: 'agentRoot', audience: 'agent', stage: 'done', closedReason: 'completed', closedAt: ago(1), updatedAt: ago(1) },
+      {
+        id: 'agentRoot',
+        audience: 'agent',
+        stage: 'done',
+        closedReason: 'completed',
+        closedAt: ago(1),
+        updatedAt: ago(1),
+      },
       // Excluded: archived, even at the top level.
-      { id: 'archived', archived: true, audience: 'human', stage: 'done', closedReason: 'completed', closedAt: ago(1), updatedAt: ago(1) },
+      {
+        id: 'archived',
+        archived: true,
+        audience: 'human',
+        stage: 'done',
+        closedReason: 'completed',
+        closedAt: ago(1),
+        updatedAt: ago(1),
+      },
     ])
     expect(rule.issue('top')).toBe(false)
     expect(rule.issue('recent')).toBe(false)
@@ -507,7 +616,15 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
 
   it('keeps resident a closed issue a member session can keep shown (sessionRetainsWorklistRow)', () => {
     const issues = [
-      'open', 'stoppedUnread', 'stoppedRead', 'archived', 'shell', 'headless', 'idleRecent', 'idleOld', 'idleUnfinished',
+      'open',
+      'stoppedUnread',
+      'stoppedRead',
+      'archived',
+      'shell',
+      'headless',
+      'idleRecent',
+      'idleOld',
+      'idleUnfinished',
     ].map((id): Record<string, unknown> => child(id, 30, { audience: 'agent' }))
     issues[8] = { ...issues[8], stage: 'in_progress', closedReason: null }
     const idle = { agentState: { phase: 'idle', since: ago(40), idle: { kind: 'done' } } }
@@ -619,8 +736,9 @@ describe('declared input lists (POD-4675)', () => {
     const gaps: string[] = []
     const checked: string[] = []
     for (const { from, name, relation } of allRelations(schema)) {
-      const where = (relation as { where?: { fields: readonly string[]; test: (r: Row) => boolean } })
-        .where
+      const where = (
+        relation as { where?: { fields: readonly string[]; test: (r: Row) => boolean } }
+      ).where
       if (where === undefined) continue
       const rows = rowsOf(from)
       expect(rows.length, `${from} rows for ${from}.${name}.where`).toBeGreaterThan(0)

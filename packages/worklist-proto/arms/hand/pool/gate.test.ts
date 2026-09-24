@@ -102,12 +102,7 @@ import {
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
-import {
-  checkArm,
-  describeSequence,
-  diffSnapshots,
-  diffViews,
-} from '../../../shared/src/gen/check'
+import { checkArm, describeSequence, diffSnapshots, diffViews } from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'

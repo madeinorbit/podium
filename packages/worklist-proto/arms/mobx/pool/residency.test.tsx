@@ -279,9 +279,9 @@ describe('bootstrap', () => {
     // models == rows drawn + the resident origins they tick + their resident
     // retained seats, nothing else.
     const members = new Set(
-      tracked(() =>
-        drawn.flatMap((id) => pool.worklist.issue(id!)?.retainedSeatIds ?? []),
-      ).filter((id) => tracked(() => pool.resident('session', id)) === 'resident'),
+      tracked(() => drawn.flatMap((id) => pool.worklist.issue(id!)?.retainedSeatIds ?? [])).filter(
+        (id) => tracked(() => pool.resident('session', id)) === 'resident',
+      ),
     )
     expect(members.size).toBeGreaterThan(0)
     // A drawn spin-off's ⤷ tick reads its origin's parts, so a RESIDENT origin
