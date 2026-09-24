@@ -192,7 +192,16 @@ describe('cloud router', () => {
     })
 
     expect(runtime.id).toBe('cloud-runtime-1')
-    expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
+    // The park retires the local process through the driver lifecycle and waits
+    // for the daemon's confirmation (722704624, POD-4302); it used to be a raw
+    // `kill` frame. The fixture daemon confirms like a real one, so the legacy
+    // `kill` escalation for an unconfirmed retirement is not sent.
+    expect(
+      daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId),
+    ).toEqual([
+      { type: 'runtimeLifecycleRequest', requestId: expect.any(String), sessionId, verb: 'stop' },
+    ])
+    expect(daemon.filter((m) => m.type === 'kill')).toEqual([])
     expect(
       (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status,
     ).toBe('hibernated')

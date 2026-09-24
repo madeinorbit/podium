@@ -680,7 +680,17 @@ describe('session handoff orchestration', () => {
       expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
         { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
       ])
-      expect(source).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+      // The source process is retired through the driver lifecycle BEFORE the
+      // export (722704624, POD-4302) — it used to be a raw `kill` frame followed
+      // by a fixed 500ms release sleep. The source daemon here confirms the
+      // retirement like a real one (attachDaemonWithInventory), so the legacy
+      // `kill` escalation for an unconfirmed retirement must not be sent.
+      const retire = source.findIndex(
+        (m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId,
+      )
+      expect(source[retire]).toMatchObject({ type: 'runtimeLifecycleRequest', sessionId, verb: 'stop' })
+      expect(retire).toBeLessThan(source.findIndex((m) => m.type === 'handoffExportRequest'))
+      expect(source.filter((m) => m.type === 'kill')).toEqual([])
       expect(target).toContainEqual(
         expect.objectContaining({ type: 'spawn', sessionId, cwd: '/target/repo/.worktrees/x' }),
       )

@@ -3810,14 +3810,30 @@ describe('hibernation', () => {
     expect(seeded.terminal.lastOutputAtMs).toBeGreaterThan(0)
   })
 
-  it('hibernate kills the process, keeps the row, survives the agentExit echo', async () => {
+  /**
+   * THE PARK ASKS THE DRIVER TO RETIRE THE PROCESS (722704624, POD-4302).
+   *
+   * This used to pin a raw `kill` frame as the park. Since 722704624 a park goes
+   * through the contract lifecycle — one `runtimeLifecycleRequest` with verb
+   * `stop` — and `ok: true` means the daemon CONFIRMED the retirement (this
+   * fixture's daemon answers like a real one, see `test-support/host-daemon.ts`).
+   * The legacy `kill` frame survives only as the orphan-reaping escalation for an
+   * UNCONFIRMED retirement, so a confirmed park must not send one.
+   */
+  it('hibernate retires the process through the driver lifecycle, keeps the row, survives the agentExit echo', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
 
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-    expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
+    expect(
+      daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId),
+    ).toEqual([
+      { type: 'runtimeLifecycleRequest', requestId: expect.any(String), sessionId, verb: 'stop' },
+    ])
+    // Confirmed retirement: no orphan-reaping escalation.
+    expect(daemon.filter((m) => m.type === 'kill')).toEqual([])
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]).toMatchObject({
       sessionId,
       status: 'hibernated',
