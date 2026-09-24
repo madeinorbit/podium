@@ -393,17 +393,22 @@ export class WorklistGroups {
     const before = this.filed.get(id)
     if (placement === undefined) {
       if (before === undefined) return
-      const touched = this.unfile(id, before)
+      const left = this.unfile(id, before)
       this.filed.delete(id)
-      this.count(touched)
+      this.count(left)
       return
     }
     if (before !== undefined && placementEqual(before, placement)) return
-    let touched = 0
-    if (before !== undefined) touched += this.unfile(id, before)
-    touched += this.enfile(id, placement)
+    // A move within one bucket re-sorts one set of lanes: count them once.
+    const same =
+      before !== undefined &&
+      (before.pinned
+        ? placement.pinned
+        : !placement.pinned && before.repoKey === placement.repoKey)
+    const left = before === undefined ? 0 : this.unfile(id, before)
+    const around = this.enfile(id, placement)
     this.filed.set(id, placement)
-    this.count(touched)
+    this.count(same ? around : left + around)
   }
 
   /** Drop `id` filed as `placement`; returns the lane members left behind. */
@@ -487,7 +492,8 @@ export class WorklistGroups {
     const order = this.host.order()
     const rankIndex = new Map<string, number>()
     order.forEach((id, index) => {
-      rankIndex.set(id, index)
+      // `layoutOf` indexes a row exactly when it places it.
+      if (this.filed.has(id)) rankIndex.set(id, index)
     })
     const pinnedIds = [...this.pinnedIds]
     const groups: LayoutGroup[] = []

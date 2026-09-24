@@ -180,14 +180,14 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         const lane = tracked(() => {
           for (const key of pool.groups.keys) {
             const group = pool.groups.group(key)
-            if (group.closedIds.includes(target)) return group
+            if (group.closedIds.includes(target)) {
+              return { open: group.rowIds.length, closed: group.closedIds.length }
+            }
           }
           return null
         })
         expect(lane, 'the moved row is in a closed fold').not.toBeNull()
-        expect(groupElements, 'lane members re-sorted').toBe(
-          lane!.rowIds.length + lane!.closedIds.length,
-        )
+        expect(groupElements, 'lane members re-sorted').toBe(lane!.open + lane!.closed)
         // The plant touches the whole visible order, failing the same count.
         const placed = tracked(() => {
           let touched = 0
@@ -199,7 +199,7 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         })
         expect(placed, 'whole-list layout elements').toBe(visible)
         expect(
-          visible > lane!.rowIds.length + lane!.closedIds.length,
+          visible > lane!.open + lane!.closed,
           'the corpus holds more than one group',
         ).toBe(true)
       } finally {
@@ -217,11 +217,12 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         const runs = countReactions(() => {
           r.locals.set({ selectedIssueId: target })
           r.locals.flush()
-          const base = corpusIssue(r, target)
-          const readAt = new Date(base.updatedAt).toISOString()
+          // Past every seat's stamp, so the row reads as read: sessions only
+          // ever stamped 2026 and earlier on this corpus.
+          const readAt = '2027-06-01T00:00:00.000Z'
           r.push({
             type: 'update',
-            rows: [{ kind: 'issue', id: target, value: { ...base, readAt } }],
+            rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), readAt } }],
           })
         })
         const maintenance = maintenanceOf(runs)
