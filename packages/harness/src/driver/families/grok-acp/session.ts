@@ -200,7 +200,14 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
     },
 
     async launch(input) {
-      const handle = await runtime.createWithId(input.sessionId, {
+      // THE INITIAL PROMPT GOES OUT AFTER THE PUMP SUBSCRIBES (POD-4649), as
+      // claude-sdk's does (POD-4636) and opencode's does (POD-4647). Handed to
+      // `createWithId`, its turn opened before `events('bootstrap')` was read,
+      // so the turn start went out relabelled as bootstrap — which the server's
+      // event gate refuses, with the rest of that turn, once any earlier event
+      // has set a checkpoint.
+      const { initialPrompt, ...launch } = input
+      const handle = await runtime.createWithId(launch.sessionId, {
         harness: deps.facts.harnessKind,
         selection: {
           auth: 'subscription',
@@ -224,7 +231,6 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
           reason: 'Grok ACP session/new accepts an empty mcpServers list only',
         },
         ...(input.env ? { env: input.env } : {}),
-        ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       })
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
@@ -249,6 +255,9 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
         sessionId: input.sessionId,
         state: await handle.state(),
       })
+      if (initialPrompt) {
+        await handle.send({ text: initialPrompt }, { origin: 'human', delivery: 'when-ready' })
+      }
     },
   }
 }

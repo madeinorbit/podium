@@ -288,8 +288,16 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
        * into existence. Here the session row already exists and its id is on the
        * spawn frame, so registering the handle under anything else makes every
        * subsequent verb answer `not_running` for a session that is running.
+       *
+       * THE INITIAL PROMPT GOES OUT AFTER THE PUMP SUBSCRIBES (POD-4649), as
+       * claude-sdk's does (POD-4636) and opencode's does (POD-4647). Handed to
+       * `createWithId`, its turn opened before `events('bootstrap')` was read,
+       * so the turn start went out relabelled as bootstrap — which the server's
+       * event gate refuses, with the rest of that turn, once any earlier event
+       * has set a checkpoint.
        */
-      const handle = await runtime.createWithId(input.sessionId, {
+      const { initialPrompt, ...launch } = input
+      const handle = await runtime.createWithId(launch.sessionId, {
         harness: deps.facts.harnessKind,
         selection: {
           // THE HARNESS WHERE SUBSCRIPTION AUTH WORKS HEADLESS, which is the
@@ -318,7 +326,6 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
                 'the interactive spawn frame carries no MCP config; this session mounts whatever ~/.codex/config.toml declares',
             },
         ...(input.env ? { env: input.env } : {}),
-        ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       })
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
@@ -360,6 +367,9 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
       // …and the first state, so the badge is right before the first event
       // rather than after it.
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
+      if (initialPrompt) {
+        await handle.send({ text: initialPrompt }, { origin: 'human', delivery: 'when-ready' })
+      }
     },
   }
 }
