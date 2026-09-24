@@ -128,11 +128,38 @@ Cold reads by id during the runs: 6 / 7 / 9. The visible order equalled the
 legacy oracle's at all 603 comparisons (201 per seed). The 20 x 300 gate of
 record was not re-run here.
 
-Changed bound: `relations.test.ts` "bucket upkeep is O(1)": the absolute
-element-op guard went from < 100 to < 200 (measured 62 add / 121 remove,
-identical at 4,000 and 8,000 members): the row's own worklist cells are
-built and unlinked with it, a per-row constant. The O(1) claim (equal at
-both sizes) is unchanged.
+### The upkeep guard: H3-F1 (POD-4672) and H3-F2 (POD-4673), done inside Hb1
+
+`pool/relations.test.ts`, "bucket upkeep is O(1) in the bucket":
+- **Rig (F2):** b issues in repo R plus b sessions in issue E under the lane
+  `/repo`; four edges: a new and a removed issue, a new and a removed
+  session. Per edge: `indexUpdates` elements, element ops counted INSIDE the
+  engine's entry point (`engine.changed`), whole-push ops, and the identity
+  check.
+- **Identity (F1):** every container the engine holds, top-level and
+  nested (H3's `held()` / `replaced()`, moved in), must be the same object
+  after each edge.
+- **Clean, 4,000 = 8,000:** issue edges 2 elements / 4 engine ops, session
+  edges 7 / 12 (bound: 2 per forward link plus 1 per ancestor path), 0
+  containers replaced.
+- **Plants on the engine instance** (7 tests, each at 4,000 and 8,000), all
+  failing:
+  - copy-and-sort and the forward-Map rebuild: caught by the counter;
+  - bucket `union` / `structuredClone`: caught by identity only;
+  - prefix index `new Set` / sorted: caught by counter and identity;
+  - prefix index `union`: caught by identity only.
+- **The briefs' SOURCE plants** in `relations.ts` (`point()`: bucket
+  `union`, `structuredClone`; `place()`: `new Set`, `union`, sorted), each
+  applied alone and restored with `cp`: every one turns the clean guard red.
+- **Changed bound, stated in the test:** the WHOLE push on the issue edges
+  is held to < 200 (it was < 100): 62 / 121 measured, equal at both sizes;
+  the coordinator accepted this only because of that equality.
+- **Finding (POD-4683):** on the session edges the whole push is O(b):
+  8,076 ops at 4,000 and 16,076 at 8,000. The worklist's member parts
+  (`seatIds` and the same shape in `memberIds` / `childIds`) copy and sort
+  E's bucket on every membership edge. The view's `sessionIds` (Ha4) and
+  MobX's `seatIds` have the same shape. Recorded, not asserted; a decision
+  for both arms.
 
 ## Round three: a-phase gate, Ha4 (POD-4581) · 2026-09-23
 
