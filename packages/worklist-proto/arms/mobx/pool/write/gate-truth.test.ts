@@ -36,7 +36,7 @@ import { gen, type Change } from '../../../../shared/src/gen/changes'
 import { checkArm, diffSnapshots, type CheckedArm } from '../../../../shared/src/gen/check'
 import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceSnapshot } from '../../../../shared/src/slice-types'
+import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { acceptUnscannedGap } from '../worklist/known-gaps'
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
@@ -72,9 +72,37 @@ function armWithAdapter(
   }
 }
 
-/** Plant (a): server values never reach the log, so a rejection rewinds stale. */
-function staleRemote(handle: WritableMobxPoolHandle): void {
-  handle.write.handleRemote = () => {}
+/**
+ * Plant (a): the rejection restores the server row captured at edit time
+ * instead of keeping current server truth — the MobX shape of "rewinding to
+ * the stale prior" (the overlay itself never renders the log's rewind target;
+ * a stale restore has to clobber the table to show). Caught by the rebuild
+ * (live stale vs rebuilt server) and the oracle.
+ */
+function staleRewind(handle: WritableMobxPoolHandle): void {
+  const write = handle.write
+  const atEdit = new Map<string, { id: string; row: SliceIssue }>()
+  const txRow = new Map<string, string>()
+  const edit = write.edit.bind(write)
+  write.edit = ((kind, id, patch) => {
+    const server = handle.pool.tables.issue.get(id) as SliceIssue | undefined
+    const txId = edit(kind, id, patch)
+    if (server !== undefined) {
+      atEdit.set(txId as string, { id, row: server })
+      txRow.set(txId as string, id)
+    }
+    return txId
+  }) as typeof write.edit
+  const reject = write.reject.bind(write)
+  write.reject = (rejection) => {
+    reject(rejection)
+    const stale = atEdit.get(rejection.txId as string)
+    if (stale !== undefined) {
+      // The mistake: put the edit-time server row back, clobbering the
+      // remote value that landed while pending.
+      handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: stale.id, value: stale.row }] })
+    }
+  }
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
@@ -158,7 +186,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
-        if (planted) staleRemote(handle)
+        if (planted) staleRewind(handle)
         try {
           const id = run.ctx.targets.visibleRootId
           const sequence: Change[] = [
