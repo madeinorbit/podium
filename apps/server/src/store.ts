@@ -385,7 +385,7 @@ export class SessionStore {
     )
     this.issues = new IssuesRepository(
       this.queries,
-      async (repoPath, machineId) => await this.repos.resolveRepoIdForPath(repoPath, machineId),
+      async (repoPath, machineId) => await this.repos.resolveIssueRepoId(repoPath, machineId),
     )
     this.repos = new ReposRepository(
       this.queries,

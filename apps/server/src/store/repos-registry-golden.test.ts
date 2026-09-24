@@ -223,3 +223,45 @@ describe('ReposRepository.repoIdResolver', () => {
     expect(await repos.resolveRepoIdForPath('/home/u/beta/src')).not.toBe(before)
   })
 })
+
+describe('ReposRepository.issueRepoIdResolver', () => {
+  // An issue pinned to a machine keeps the repoPath of the checkout it was filed
+  // from until its start moves it onto the pin (POD-4668).
+  const PIN = asMachineId('machine-pin')
+
+  it("takes the reporting machine's identity when the pin has no checkout there", async () => {
+    await repos.addRepo('/r', HOST, 'https://example.test/podium.git', 'PO')
+    const reported = (await repos.listRepos())[0]?.repoId
+    const resolve = await repos.issueRepoIdResolver()
+
+    expect(resolve('/r', PIN)).toBe(reported)
+    expect(resolve('/r/sub', PIN)).toBe(reported)
+    // The session-side rule is unchanged: scoped to the pin, it still derives.
+    expect((await repos.repoIdResolver())('/r', PIN)).toBe(deriveRepoId({ machineId: PIN, path: '/r' }))
+  })
+
+  it("prefers the pin's own report of the same path", async () => {
+    await repos.addRepo('/same', HOST, undefined, 'AA')
+    await repos.addRepo('/same', PIN, undefined, 'BB')
+    const rows = await repos.listRepos()
+    const resolve = await repos.issueRepoIdResolver()
+
+    expect(resolve('/same', PIN)).toBe(rows.find(r => r.machineId === PIN)?.repoId)
+  })
+
+  it('derives under the pin when other machines report two identities for the path', async () => {
+    await repos.addRepo('/same', HOST, undefined, 'AA')
+    await repos.addRepo('/same', asMachineId('machine-other'), undefined, 'BB')
+    const resolve = await repos.issueRepoIdResolver()
+
+    expect(resolve('/same', PIN)).toBe(deriveRepoId({ machineId: PIN, path: '/same' }))
+  })
+
+  it('derives under the pin for a path nobody reports, and refuses without a pin', async () => {
+    const resolve = await repos.issueRepoIdResolver()
+
+    expect(resolve('/unreported', PIN)).toBe(deriveRepoId({ machineId: PIN, path: '/unreported' }))
+    expect(resolve('/unreported')).toBeNull()
+    await expect(repos.resolveIssueRepoId('/unreported')).rejects.toThrow('no reporting machine')
+  })
+})

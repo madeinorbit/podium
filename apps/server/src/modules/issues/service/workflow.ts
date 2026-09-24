@@ -209,7 +209,7 @@ export class IssueGitWorkflowModule {
    */
   private async isSameRepoIdentity(row: IssueRow, toRepoPath: string): Promise<boolean> {
     const repos = this.store.d.store.repos
-    const from = row.repoId ?? await repos.resolveRepoIdForPath(row.repoPath, row.machineId)
+    const from = row.repoId ?? await repos.resolveIssueRepoId(row.repoPath, row.machineId)
     const target = await repos.resolveRepoIdForPath(toRepoPath)
     return Boolean(target) && (!from || from === target)
   }

@@ -22,6 +22,11 @@ export function normalizeRepoPath(path: string): string {
   return trimmed.replace(/\/+$/u, '')
 }
 
+/** Is `path` the normalized root `root` or under it? Both already normalized. */
+function rootContains(root: string, path: string): boolean {
+  return path === root || path.startsWith(root === '/' ? root : `${root}/`)
+}
+
 /** The four columns the held registry read materializes, as drizzle returns them. */
 interface RegistryRow {
   machineId: MachineId
@@ -487,19 +492,65 @@ export class ReposRepository {
    * which is every caller today, all of them read-only loops.
    */
   async repoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
-    const roots = (await this.listRepos())
-      .map((r) => ({ repoId: r.repoId, machineId: r.machineId, path: normalizeRepoPath(r.path) }))
-      .sort((a, b) => b.path.length - a.path.length)
+    const roots = await this.sortedRoots()
     return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
       const normalizedRepoPath = normalizeRepoPath(repoPath)
       const match = roots.find(
-        (r) =>
-          (machineId == null || r.machineId === machineId) &&
-          (normalizedRepoPath === r.path ||
-          normalizedRepoPath.startsWith(r.path === '/' ? r.path : `${r.path}/`)),
+        (r) => (machineId == null || r.machineId === machineId) && rootContains(r.path, normalizedRepoPath),
       )
       return match?.repoId ?? (machineId ? deriveRepoId({ machineId, path: normalizedRepoPath }) : null)
     }
+  }
+
+  /**
+   * repo_id for an ISSUE's repoPath, whose machine is its PIN (POD-4668).
+   *
+   * An issue's repoPath is not always a path on its pinned machine. A pinned issue
+   * is created with the repoPath of the checkout it was filed from, and only its
+   * start moves repoPath onto the pin (`rehome`). {@link repoIdResolver} scoped to
+   * the pin found no row there and derived a (pin, path) id no machine reports, and
+   * the start then refused the pin's real checkout as "not the same repository".
+   *
+   * The rule, in order:
+   *  1. the pin's own reported root containing the path — identical paths on two
+   *     machines can be two repositories, and the pin's answer is the precise one;
+   *  2. else the ONE identity reported for that path by any machine — the checkout
+   *     the issue was filed from; two machines reporting two identities for the
+   *     same root is ambiguous and falls through rather than guessing;
+   *  3. else derive under the pin, the only machine the caller named (2b803efb5);
+   *  4. no pin and no report: null — nothing may derive under the server's host.
+   */
+  async issueRepoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
+    const roots = await this.sortedRoots()
+    return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
+      const normalizedRepoPath = normalizeRepoPath(repoPath)
+      const containing = roots.filter((r) => rootContains(r.path, normalizedRepoPath))
+      if (machineId == null) return containing[0]?.repoId ?? null
+      const derived = deriveRepoId({ machineId, path: normalizedRepoPath })
+      // A pin row without an id derives, exactly as repoIdResolver answers it.
+      const own = containing.find((r) => r.machineId === machineId)
+      if (own) return own.repoId ?? derived
+      // Longest-first, so equal-length containing roots are the SAME root string.
+      const longest = containing[0]
+      if (longest?.repoId && containing.every((r) => r.path !== longest.path || r.repoId === longest.repoId)) {
+        return longest.repoId
+      }
+      return derived
+    }
+  }
+
+  /** {@link issueRepoIdResolver} for one issue path; throws where it answers null. */
+  async resolveIssueRepoId(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
+    const id = (await this.issueRepoIdResolver())(repoPath, machineId)
+    if (!id) throw new Error(`no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`)
+    return id
+  }
+
+  /** Registered roots, normalized and longest-first — the one snapshot both resolvers read. */
+  private async sortedRoots(): Promise<Array<{ repoId: RepoId | null; machineId: MachineId; path: string }>> {
+    return (await this.listRepos())
+      .map((r) => ({ repoId: r.repoId, machineId: r.machineId, path: normalizeRepoPath(r.path) }))
+      .sort((a, b) => b.path.length - a.path.length)
   }
 
   async removeRepo(path: string, machineId: MachineId): Promise<void> {

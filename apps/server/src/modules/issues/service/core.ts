@@ -907,7 +907,7 @@ export class IssueStore {
    */
   async repoScopeFilter(repoPath: string | undefined): Promise<(row: IssueRow) => boolean> {
     if (!repoPath) return () => true
-    const resolve = await this.deps.store.repos.repoIdResolver()
+    const resolve = await this.deps.store.repos.issueRepoIdResolver()
     const scope = resolve(repoPath)
     return (row: IssueRow) => scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
   }
@@ -945,7 +945,7 @@ export class IssueStore {
         // One registry read for the scan, not one per row (POD-3257): every row
         // without a stored repo_id used to re-resolve its path through the store
         // from inside the filter.
-        const resolve = await this.deps.store.repos.repoIdResolver()
+        const resolve = await this.deps.store.repos.issueRepoIdResolver()
         const repoId = repo.repoId ?? resolve(repo.path)
         const matches = [...this.rows.values()].filter(
           (r) => r.seq === nice.seq && (r.repoId ?? resolve(r.repoPath, r.machineId)) === repoId,

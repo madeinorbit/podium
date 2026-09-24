@@ -938,7 +938,7 @@ export class IssueCrudModule {
     }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
-    const repoId = await this.store.deps.store.repos.resolveRepoIdForPath(input.repoPath, input.machineId)
+    const repoId = await this.store.deps.store.repos.resolveIssueRepoId(input.repoPath, input.machineId)
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
     const settings = await this.store.deps.getSettings()
