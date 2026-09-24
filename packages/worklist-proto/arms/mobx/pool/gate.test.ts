@@ -4,10 +4,15 @@
  *
  * GATE. Incremental versus rebuild after EVERY step, on generated sequences
  * of every change kind (the pool sees each as an upsert, a removal or a
- * `replace` on reload). `oracleEvery: 0`: the oracle compares order and
- * roll-ups, which are the worklist phase's (Mb1-Mb3). The gate's NO on this
- * arm: the same pool planted deaf to removals (the feed's `value: undefined`
- * records dropped) must fail it, on the same sequences.
+ * `replace` on reload), and versus the legacy ORACLE at `checkArm`'s default
+ * cadence (every 10 steps and after the last; POD-4572, Mb4: until the
+ * worklist phase this gate ran `oracleEvery: 0`, because the oracle compares
+ * order and roll-ups). POD-4671's rows (`worklist/known-gaps.ts`) are taken
+ * from the oracle in both snapshots, as the roll-up gate does, and counted.
+ * The gate's NO on this arm: the same pool planted deaf to removals (the
+ * feed's `value: undefined` records dropped) must fail it, on the same
+ * sequences. The plants keep `oracleEvery: 0`: each is held to the catcher
+ * it names (rebuild, per-step checks, checkpoint).
  *
  * RELATIONS (POD-4566). The gated arm also holds every relation of every row
  * to a from-scratch resolution (`diffRelations`, `enumerate.ts`) at every
@@ -67,13 +72,23 @@
 import { runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenarios'
-import { rowViewsFromStore, snapshotFromStore } from '../../../harness/src/oracle/index'
+import {
+  oracleSnapshot,
+  rowViewsFromStore,
+  snapshotFromStore,
+} from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
-import { checkArm, describeSequence, diffSnapshots } from '../../../shared/src/gen/check'
+import {
+  type CheckedArm,
+  checkArm,
+  describeSequence,
+  diffSnapshots,
+} from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
-import { startScenarioEngine } from '../../../shared/src/scenarios'
+import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
+import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
@@ -291,6 +306,34 @@ function checked(
 
 const relationChecked = checked(mobxPoolArm)
 
+/**
+ * POD-4572: `arm` with POD-4671's one-class gap patched in its snapshot and
+ * its rebuild (the oracle's row taken for each row `acceptUnscannedGap`
+ * names), counted in `tally.applied`, so the oracle comparison at its default
+ * cadence holds every other row. The exception throws once the gap is fixed.
+ */
+function gapped(arm: CheckableArm, tally: { applied: number }): CheckedArm {
+  return (ctx: ScenarioEngine) => ({
+    create(source, locals, reads) {
+      const handle = arm.create(source, locals, reads) as MobxPoolHandle
+      const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
+        const oracle = oracleSnapshot(ctx.engine.getSnapshot())
+        const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
+        if (rows.length === 0) return snapshot
+        tally.applied += rows.length
+        const rowsById = { ...snapshot.rowsById }
+        for (const id of rows) rowsById[id] = oracle.rowsById[id]!
+        return { ...snapshot, rowsById }
+      }
+      return {
+        ...handle,
+        snapshot: () => patch(handle.snapshot()),
+        rebuildFromScratch: () => patch(handle.rebuildFromScratch()),
+      }
+    },
+  })
+}
+
 /** Which check caught a plant, from the error it threw. */
 function caughtBy(message: string): string {
   if (message.startsWith('full residency')) return 'checkpoint'
@@ -324,7 +367,7 @@ async function plantOutcome(
   }
 }
 
-describe('correctness gate (L4b), rebuild-only', () => {
+describe('correctness gate (L4b), rebuild every step and the oracle at its default', () => {
   it(
     'passes every seed, and the removal-deaf plant fails',
     async () => {
@@ -337,7 +380,8 @@ describe('correctness gate (L4b), rebuild-only', () => {
         const sequence = gen(seed, STEPS)
         relationChecked.snapshots = 0
         relationChecked.cold = emptyTally()
-        const result = await checkArm(relationChecked, sequence, { oracleEvery: 0 })
+        const gap = { applied: 0 }
+        const result = await checkArm(gapped(relationChecked, gap), sequence)
         if (!result.ok) {
           throw new Error(
             `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
@@ -345,6 +389,8 @@ describe('correctness gate (L4b), rebuild-only', () => {
           )
         }
         expect(relationChecked.snapshots).toBeGreaterThan(STEPS)
+        // Not rebuild-only: the oracle compared the run (every 10 steps, the last, the boot).
+        expect(result.counts.oracleChecks).toBeGreaterThanOrEqual(Math.floor(STEPS / 10) + 1)
         const cold = { ...relationChecked.cold }
         // The run must have exercised cold rows, or its green says nothing about them.
         expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)
@@ -368,6 +414,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
           seed,
           steps: STEPS,
           counts: result.counts,
+          gapApplied: gap.applied,
           relationChecks: relationChecked.snapshots,
           cold,
           kinds: countKinds(sequence),
