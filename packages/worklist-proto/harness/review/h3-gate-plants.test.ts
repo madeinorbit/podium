@@ -52,7 +52,7 @@ import type { CheckableArm, LocalsSource, RowSource } from '../../shared/src/arm
 import { gen } from '../../shared/src/gen/changes'
 import { checkArm } from '../../shared/src/gen/check'
 import type { RowView } from '../../shared/src/row-view'
-import { coldByRule, type EntityName, SCHEMA } from '../../shared/src/schema'
+import { type EntityName, SCHEMA, tableColdRule } from '../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
 import { report } from './h3-witness'
 
@@ -98,13 +98,12 @@ function rebuildViews(
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
-  const coldTarget = (to: EntityName, id: string): boolean => {
-    const row = tables[to].get(id)
-    return row !== undefined && coldByRule(SCHEMA, to, row, coldTarget)
-  }
+  // The shared rule over the feed's rows (POD-4665: `unlessShown` needs the
+  // clock and the member keeps, so the context is built from whole tables).
+  const cold = tableColdRule(SCHEMA, (entity) => tables[entity], coarseNow)
   const views = new Map<string, RowView>()
   for (const { id } of issues) {
-    if (!resident.has(id) && coldTarget('issue', id)) continue
+    if (!resident.has(id) && cold('issue', id)) continue
     const view = buildRowView(inputs, id, directParts(inputs, id))
     if (view !== undefined) views.set(id, view)
   }
@@ -137,6 +136,18 @@ function diffViews(pool: HandPool, want: Map<string, RowView>): string[] {
 
 type Plant = (pool: HandPool) => void
 
+/** Thrown when this file's own check fails to run: never a catch. */
+class InstrumentError extends Error {}
+
+/** Run a check of this file's own; its crash is the instrument's, not the arm's. */
+function instrument<T>(run: () => T): T {
+  try {
+    return run()
+  } catch (error) {
+    throw new InstrumentError(`instrument crashed: ${error instanceof Error ? error.message : error}`)
+  }
+}
+
 /** The stock gate's per-step checks around `plant`; with `fullViews`, whole row views too. */
 function gated(plant: Plant | null, fullViews: boolean): CheckableArm & { snapshots: number } {
   const wrapper = {
@@ -157,7 +168,23 @@ function gated(plant: Plant | null, fullViews: boolean): CheckableArm & { snapsh
           if (partition.length > 0)
             throw new Error(`partition (snapshot ${wrapper.snapshots}): ${partition.join(' | ')}`)
           if (fullViews) {
-            const views = diffViews(pool, rebuildViews(source, locals, pool.residentIssueIds()))
+            // Since POD-4582 the snapshot reads only the VISIBLE rows' views,
+            // so a hidden resident row's view is first read here, and reading
+            // it asks for its cold inputs (a ⤷ origin or member: `loading`
+            // until it lands). A cell re-runs only when read, so a landing
+            // that dirties a view asks for its next input on the NEXT read:
+            // read every resident view and land what that queued until a
+            // read queues nothing, as a list that drew those rows redraws,
+            // then compare.
+            for (let round = 0; ; round += 1) {
+              for (const id of pool.residentIssueIds()) pool.view(id)
+              if (pool.pendingLoads() === 0) break
+              if (round >= 64) throw new InstrumentError('full views: loads did not settle')
+              handle.settleLoads()
+            }
+            const views = instrument(() =>
+              diffViews(pool, rebuildViews(source, locals, pool.residentIssueIds())),
+            )
             if (views.length > 0)
               throw new Error(`views (snapshot ${wrapper.snapshots}): ${views.join(' | ')}`)
           }
@@ -189,6 +216,9 @@ async function outcome(seed: number, arm: CheckableArm): Promise<Outcome> {
       diff: result.diff.slice(0, 300),
     }
   } catch (error) {
+    // The full-view check crashing (a stale call into the shared cold rule
+    // after POD-4665 did) is not the gate catching the arm (POD-4582).
+    if (error instanceof InstrumentError) throw error
     const message = error instanceof Error ? error.message : String(error)
     const step = /snapshot (\d+)/.exec(message)
     return {
@@ -264,6 +294,37 @@ const PLANTS: Record<string, Plant> = {
 }
 
 // ----------------------------------------------------------------- tests
+
+describe('the full-view instrument', () => {
+  // POD-4582: after POD-4665 changed the cold rule's context, the full-view
+  // check crashed on the first cold row and `outcome` recorded the TypeError
+  // as the gate catching the clean arm. A crash of this file's own check
+  // must fail the run instead; an arm's own throw still counts as a catch.
+  function throwing(error: Error): CheckableArm {
+    return {
+      create(source, locals, reads) {
+        const handle = handPoolArm.create(source, locals, reads)
+        return {
+          ...handle,
+          snapshot() {
+            throw error
+          },
+        }
+      },
+    }
+  }
+
+  it('a crash of the instrument is not a catch; an arm error is', async () => {
+    await expect(
+      outcome(1, throwing(new InstrumentError('instrument crashed: x'))),
+    ).rejects.toBeInstanceOf(InstrumentError)
+    expect(await outcome(1, throwing(new Error('[pool] order lost i1')))).toMatchObject({
+      caught: true,
+      by: '[pool]',
+    })
+    expect(() => instrument(() => (undefined as unknown as () => void)())).toThrow(InstrumentError)
+  })
+})
 
 describe(`the hand gate's reach (${SEEDS.length} seeds x ${STEPS} steps, rebuild-only)`, () => {
   it('clean: the stock checks and the full-view check pass every seed', async () => {
