@@ -9,7 +9,10 @@
  * `working`, `asking`, `closed`, and the grouped order) and the pool's own
  * rebuild; each step commits exactly the rows whose oracle view changed (the
  * roll-up fields included: no stub allowance is left) and reads within its
- * budget. #10 alone carries a named allowance (POD-4678): a new explicit
+ * budget, with one named allowance on the commit fence: a row whose oracle
+ * view changed in `activityAt` ALONE may be missing from the redraw
+ * (POD-4674 owns `activityAt`; the legacy raises it by nested seats). #10
+ * also carries a named reads allowance (POD-4678): a new explicit
  * member re-lists its issue's `sessions` bucket, so the burst also reads the
  * burst issues' other explicit sessions, counted before the step.
  *
@@ -55,6 +58,7 @@ import {
   phaseChangeReadBudget,
 } from '../../../../harness/src/count-harness'
 import {
+  engineLocals,
   FENCE_SCENARIOS,
   type FenceScenario,
   openFenceFeeds,
@@ -124,6 +128,42 @@ function settle(pool: MobxPool): number {
   return rounds
 }
 
+/**
+ * The shared commit fence, with ONE named allowance (POD-4674 owns
+ * `activityAt` in both pools, coordinator 2026-09-24): a row whose oracle
+ * view changed in `activityAt` alone may be missing from the redraw (the
+ * legacy raises it by the nested seats, `rows.ts:336-339`). A row drawn that
+ * the oracle did not change never may. Returns the allowed rows.
+ */
+function assertCommitsBesideActivity(
+  result: Parameters<typeof assertCommits>[0],
+  before: Record<string, RowView>,
+  after: Record<string, RowView>,
+): string[] {
+  try {
+    assertCommits(result)
+    return []
+  } catch (error) {
+    const drawn = new Set(result.drawnRows ?? [])
+    const changed = new Set(result.oracleChangedRows ?? [])
+    if ([...drawn].some((id) => !changed.has(id))) throw error
+    const under = [...changed].filter((id) => !drawn.has(id))
+    for (const id of under) {
+      const a = before[id] as unknown as Record<string, unknown> | undefined
+      const b = after[id] as unknown as Record<string, unknown> | undefined
+      if (a === undefined || b === undefined) throw error
+      const fields = Object.keys(b).filter((f) => JSON.stringify(a[f]) !== JSON.stringify(b[f]))
+      if (fields.some((f) => f !== 'activityAt')) throw error
+    }
+    return under.sort()
+  }
+}
+
+/** The oracle's row views at the engine's locals (the commit fence's). */
+function oracleViews(ctx: ScenarioEngine): Record<string, RowView> {
+  return rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+}
+
 /** The settled snapshot against the oracle and the rebuild. */
 function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): string | null {
   const snapshot = handle.snapshot()
@@ -163,8 +203,8 @@ interface Chain {
 /**
  * A row with exactly four nest ancestors, each its raw `parentId` parent
  * (so the budget's ancestor count is the chain's), a seat on the row that
- * does not wait under a finished root, and a root whose aggregate has no such
- * seat either. A question waits under either kind of root, so it flips the
+ * does not wait (under either kind of root), and a root whose aggregate has no
+ * such seat either. A question waits under either kind of root, so it flips the
  * finished-root flag of every aggregate up to the root: each composition
  * re-runs and changes. (At 1x both depth-4 missions already wait under an
  * open root, so the open-root flag would stop the propagation early, which
@@ -186,7 +226,9 @@ function findChain(pool: MobxPool): Chain {
       const bottom = pool.worklist.issue(id)
       const seat = bottom?.rosterIds.find((sessionId) => {
         const verdict = pool.worklist.session(sessionId).verdict
-        return typeof verdict === 'object' && verdict.finished !== 'waiting'
+        return (
+          typeof verdict === 'object' && verdict.finished !== 'waiting' && verdict.open !== 'waiting'
+        )
       })
       if (seat !== undefined) return { rows, sessionId: seat }
     }
@@ -270,12 +312,13 @@ describe('row roll-ups (Mb3)', () => {
                 ),
               )
             : 0
+        const viewsBefore = oracleViews(ctx)
         mounted.log.reset()
         handle.stats.reset()
         mounted.reads.reset()
         const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, entry)
         const rollupsDerived = handle.stats.rollupsDerived
-        assertCommits(result)
+        const activityOnly = assertCommitsBesideActivity(result, viewsBefore, oracleViews(ctx))
         assertReads(result, { readsPerChange: readsBudget + family })
         mounted.reads.assertNoCopies(mounted.handle)
         const gap = checkParity(ctx, handle, entry.methodology)
@@ -288,6 +331,7 @@ describe('row roll-ups (Mb3)', () => {
           readsPerChange: result.readsPerChange,
           readsBudget,
           familyAllowance: family,
+          activityOnly,
           rollupsDerived,
         })
       }

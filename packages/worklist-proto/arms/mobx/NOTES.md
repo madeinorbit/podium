@@ -51,9 +51,9 @@ round-two layout; the round-three pool lives under `pool/`.
   verdict with nothing waiting assumed; the view and `IssueNode.placement`
   apply the roll-up's `asking` (`waiting`), and the placement reads it only
   for a row the fold would take.
-- **Counting**: `ArmStats.rollupsDerived` counts runs of the three
-  compositions (a node's `aggregate`, `unitsBelow` and `seatActivity`),
-  through the shared stats.
+- **Counting**: `ArmStats.rollupsDerived` counts runs of the two
+  compositions (a node's `aggregate` and `unitsBelow`), through the shared
+  stats.
 - **Filings, not re-listings.** The fence counts every id a `many()` yields,
   so re-listing a bucket on a membership change reads the whole family. Both
   compositions read a FILING maintained by one reaction per node:
@@ -62,11 +62,12 @@ round-two layout; the round-three pool lives under `pool/`.
   node's row, so a parent's load does not re-run its cold children's
   filings, which `one()` would: it reads the target's presence). #7 re-parent:
   1 read against 21 (re-listing read 32).
-- **`activityAt` is a roll-up too** (`rows.ts:336-339`, `attach`): the view
-  takes the max of Ma1's own-row stamp and the latest seat of the visible
-  subtree (`seatActivity`, its own composition, so a phase change never runs
-  it). Ma1's value already disagreed with the oracle at bootstrap on rows with
-  newer nested seats; the exact commit fence found it on #10 (`i937`).
+- **`activityAt` is NOT here** (coordinator, 2026-09-24: POD-4674 owns it in
+  both pools, with POD-4679). The legacy raises it by the nested seats
+  (`rows.ts:336-339`, `attach`), so it is a subtree roll-up too; a
+  `seatActivity` composition doing that was written here (6702973af) and
+  taken out again for POD-4674 to reuse. `rollup.test` allows exactly the
+  rows whose oracle view moved in `activityAt` alone to stay undrawn.
 - **Mb1 fix in passing:** `memberIds` = explicit members + `laneMemberIds`
   (R3 alone, its own part), so a new explicit member no longer re-lists its
   worktree's sessions (#10: 26 worktree reads gone).
