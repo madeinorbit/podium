@@ -6,9 +6,13 @@
  * here rather than in a general-purpose adapter BECAUSE they are not store
  * state:
  *
- *  - `error` is the store's FATAL error, delivered through `StoreProvider`'s
- *    `onFatalError` callback. It is a message the provider is handed, not a
- *    field it can read back off a snapshot.
+ *  - `error` is the latest error the operator is owed: the store's FATAL error
+ *    (`StoreProvider`'s `onFatalError`), every engine `notices.error` — a
+ *    message not sent because its session was deleted (POD-4660), a change the
+ *    server refused — and the credential checks. It is a message the provider
+ *    is handed, not a field it can read back off a snapshot. It is shown ONCE,
+ *    by the banner the composition root mounts over every route (POD-4662),
+ *    and carries its own dismissal for the same reason `notice` does.
  *  - `notice` is the STORAGE degradation channel (ADR 6 D4.4's never-silent
  *    posture): a degraded SQLite store, a legacy migration that could not carry
  *    queued work across, a discarded cursor. It carries its own dismissal so a
@@ -33,8 +37,9 @@ import { createContext, type ReactNode, useContext } from 'react'
 export type NoticeTone = 'warning' | 'info'
 
 export interface MobileShell {
-  /** Fatal store error, or null. Rendered as a screen-local strip. */
-  readonly error: string | null
+  /** The latest error notice, or null. Rendered over every route by the
+   *  composition root's banner (`MobileShellSurface`), never per screen. */
+  readonly error: { readonly message: string; dismiss(): void } | null
   /** Storage degradation / migration loss the user is owed, or null. */
   readonly notice: { readonly message: string; readonly tone?: NoticeTone; dismiss(): void } | null
   /** Default sign-out policy: erase this principal's complete local namespace. */

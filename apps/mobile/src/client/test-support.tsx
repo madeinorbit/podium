@@ -18,7 +18,7 @@
  *               other way would not be testing the path the product uses.
  */
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStore } from '@podium/client-core/react'
+import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
@@ -32,6 +32,7 @@ import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { MobileShellProvider } from './shell'
+import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
@@ -42,6 +43,13 @@ export interface MobileStoreFixture {
   principal?: string
   error?: string | null
   notice?: string | null
+  /**
+   * Mount the composition root's REAL shell instead of a fixed value: the
+   * production error channel handed to the store as its `notices`, under the
+   * production `MobileShellSurface`. `error` is ignored — an error arrives the
+   * way a real one does, through the channel (POD-4662).
+   */
+  liveShell?: boolean
   /** Extra/overriding tRPC procedures merged over the defaults. */
   api?: Record<string, unknown>
 }
@@ -139,26 +147,58 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     return <>{inner}</>
   }
 
-  const result = render(
-    <StoreProvider
-      config={CONFIG}
-      api={api}
-      onFatalError={() => {}}
-      principal={asClientPrincipal(asUserId(fixture.principal ?? 'user:test'))}
-      createReplicaFn={() => replica}
-      routerWindow={createMemoryRouterWindow()}
-    >
-      <MobileShellProvider
-        value={{
-          error: fixture.error ?? null,
-          notice:
-            fixture.notice == null ? null : { message: fixture.notice, dismiss: () => undefined },
-          eraseLocalData: async () => {},
-        }}
+  const notice =
+    fixture.notice == null ? null : { message: fixture.notice, dismiss: () => undefined }
+  // Built once: a live shell re-renders its root on every notice, and a fresh
+  // router window or replica factory per render would be a different store.
+  const routerWindow = createMemoryRouterWindow()
+  const principal = asClientPrincipal(asUserId(fixture.principal ?? 'user:test'))
+  const createReplicaFn = () => replica
+
+  function Store({ notices, children: inner }: { notices?: StoreNotices; children: ReactNode }) {
+    return (
+      <StoreProvider
+        config={CONFIG}
+        api={api}
+        onFatalError={() => {}}
+        notices={notices}
+        principal={principal}
+        createReplicaFn={createReplicaFn}
+        routerWindow={routerWindow}
       >
-        <Capture inner={children} />
-      </MobileShellProvider>
-    </StoreProvider>,
+        {inner}
+      </StoreProvider>
+    )
+  }
+
+  function LiveShellRoot({ inner }: { inner: ReactNode }) {
+    const channel = useShellErrorChannel()
+    return (
+      <Store notices={channel.notices}>
+        <MobileShellSurface value={{ error: channel.error, notice, eraseLocalData: async () => {} }}>
+          <Capture inner={inner} />
+        </MobileShellSurface>
+      </Store>
+    )
+  }
+
+  const result = render(
+    fixture.liveShell ? (
+      <LiveShellRoot inner={children} />
+    ) : (
+      <Store>
+        <MobileShellProvider
+          value={{
+            error:
+              fixture.error == null ? null : { message: fixture.error, dismiss: () => undefined },
+            notice,
+            eraseLocalData: async () => {},
+          }}
+        >
+          <Capture inner={children} />
+        </MobileShellProvider>
+      </Store>
+    ),
   )
 
   // Let the boot fan-out (repos, pins, tab orders) resolve, then publish the
