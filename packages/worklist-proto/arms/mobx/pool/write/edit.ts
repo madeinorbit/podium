@@ -1,5 +1,6 @@
 /**
- * POD-4573 (Mc1) — optimistic edits on the MobX pool's in-memory objects.
+ * POD-4573 (Mc1) + POD-4574 (Mc2) — optimistic edits on the MobX pool's
+ * in-memory objects.
  *
  * Linear's shape (audit §7): an edit is applied to the in-memory object AT
  * ONCE, recorded in a pending log with the values it replaced, and sent
@@ -7,7 +8,7 @@
  * receipt (even for the originating client); a rejection rewinds from the old
  * values the transaction kept.
  *
- * WHAT THIS MODULE DOES (L1c W1–W6, Mc1 slice):
+ * WHAT THIS MODULE DOES (L1c W1–W6, Mc1 slice; W7–W11, Mc2 slice):
  * - `edit(kind, id, patch)` validates via `commandFor` (throws before any
  *   state changes), materialises a cold row first (W1.2), captures `prior`
  *   per patched field from the CURRENT display (which may be an older pending
@@ -27,6 +28,20 @@
  *   is never applied twice (W12: the feed must carry server truth, `truth`
  *   mode; with the ledger overlay in the feed a remote on a pending field
  *   would be invisible and a rejection would rewind twice).
+ * - `handleAccepted(txId)` records the receipt (W7). The entry leaves the log
+ *   only when every field is confirmed by its echo or overtaken (W8): the
+ *   receipt alone repaints nothing, and the echo that carries the pending
+ *   value repaints nothing either (values equal, PITFALL). A second receipt
+ *   for the same txId is a no-op (S4: `log.settle` returns null).
+ * - `handleSuperseded(txId)` removes a collapsed mark-read without repaint
+ *   (W9: its successor carries the value).
+ * - `expire()` drops receipted edits whose echo never arrived after the TTL
+ *   (W10); unreceipted edits never expire.
+ * - `bootstrap()` re-applies the kernel outbox's pending entries on creation
+ *   (W11): queued then awaiting-truth, in queue order, painted under their own
+ *   mutation ids without re-sending, receipted ones settled at once, then each
+ *   affected row's current server values passed through `log.remote` so an
+ *   echo that landed before the reload settles there.
  *
  * WHERE OPTIMISM LIVES. The pool's tables hold the BORROWED server rows,
  * never a copy (the reads fence refuses a copy on first read and the copy
@@ -43,18 +58,17 @@
  * Title, stage and readAt are the only fields ever overlaid, and the overlay
  * value holds at most those three — never a full row copy.
  *
- * SCOPE. Mc1 is edit + pending log + rewind. Echo/settle (W7), overtake (W8
- * after receipt), supersede (W9), TTL expiry (W10) and bootstrap re-apply
- * (W11) are Mc2 (c2). `handleRemote` here only keeps the rewind target fresh;
- * it never settles. `handleReceipt` answers `accepted` by recording the
- * receipt on the log (so a later Mc2 echo can settle) without repainting when
- * nothing changed — Mc1 tests drive rejection only.
+ * SCOPE. Mc1 was edit + pending log + rewind. Mc2 adds echo/settle (W7),
+ * overtake after receipt (W8), supersede (W9), TTL expiry (W10), bootstrap
+ * re-apply (W11), and the optimism-aware rebuild (`pendingDisplay`, used by
+ * `arm.ts` to overlay pending onto the feed snapshot before deriving).
  */
 
 import { asMutationId } from '@podium/model'
 import { observable, runInAction } from 'mobx'
 import {
   commandFor,
+  editForPendingWrite,
   type EditPatch,
   type FieldValues,
   type PendingLog,
@@ -106,8 +120,34 @@ export interface MobxWriteApi {
   reject(rejection: Rejection): void
   /** A server row arrived: keep local on pending fields, track truth (W5/W8). */
   handleRemote<K extends WritableKind>(kind: K, id: string, values: FieldValues<K>): void
-  /** A receipt arrived: record it; Mc1 never settles without an echo (Mc2). */
+  /**
+   * A receipt arrived (W7): record it. The entry leaves only when every field
+   * is confirmed by its echo or overtaken (W8) — the receipt alone repaints
+   * nothing. Unknown or already-settled txIds are no-ops (S4).
+   */
   handleAccepted(txId: TxId): void
+  /** The outbox collapsed a still-queued mark-read (W9): no repaint. */
+  handleSuperseded(txId: TxId): void
+  /**
+   * Drop receipted edits whose echo never arrived after the TTL (W10) and
+   * repaint their rows to server truth. Unreceipted edits never expire.
+   */
+  expire(): void
+  /**
+   * Re-apply the kernel outbox's pending entries on creation (W11): queued
+   * then awaiting-truth, in queue order, painted under their own mutation ids
+   * without re-sending; receipted ones settled at once; then each affected
+   * row's current server values passed through `log.remote` so a pre-reload
+   * echo settles there. Unknown rows and non-slice entries are skipped.
+   * Idempotent: re-running it settles nothing new.
+   */
+  bootstrap(): { applied: number; skipped: number }
+  /**
+   * The pending display for (kind, id): the newest pending value per editable
+   * field, or undefined when nothing is pending. The optimism-aware rebuild
+   * overlays it onto the feed's server rows before deriving.
+   */
+  pendingDisplay<K extends WritableKind>(kind: K, id: string): FieldValues<K> | undefined
   /** Surfaces each rejection AFTER its rewind (W5). */
   onRejected(
     listener: (rejection: Rejection & { readonly kind: WritableKind; readonly id: string }) => void,
@@ -262,8 +302,96 @@ export function createMobxWriteApi(
       runInAction(() => {
         const outcome = log.settle({ txId })
         if (outcome === null) return
+        // The receipt alone confirms nothing: the entry stays until its echo
+        // (or an overtake) resolves every field, so this refresh is a no-op
+        // unless the echo already arrived (echo-before-receipt). A second
+        // receipt returns null above: no repaint, ever (S4).
         refreshOverlay(outcome.kind, outcome.id)
       })
+    },
+
+    handleSuperseded(txId) {
+      runInAction(() => {
+        const outcome = log.supersede({ txId })
+        if (outcome === null) return
+        // No repaint: the successor is newer and carries the value (W9). The
+        // refresh only drops tracking that ended.
+        refreshOverlay(outcome.kind, outcome.id)
+      })
+    },
+
+    expire() {
+      runInAction(() => {
+        for (const outcome of log.expire()) refreshOverlay(outcome.kind, outcome.id)
+      })
+    },
+
+    bootstrap() {
+      const entries = transport.pending()
+      let applied = 0
+      let skipped = 0
+      runInAction(() => {
+        const touched: { kind: WritableKind; id: string }[] = []
+        for (const entry of entries) {
+          const mapped = editForPendingWrite(entry)
+          if (mapped === null || mapped.kind !== 'issue') {
+            skipped += 1
+            continue
+          }
+          const server = originalIssue(mapped.id) ?? originalIssueRow(mapped.id)
+          if (server === undefined) {
+            skipped += 1
+            continue
+          }
+          const shown = currentDisplay(mapped.id, server)
+          const prior: Record<string, unknown> = {}
+          for (const field of Object.keys(mapped.patch as Record<string, unknown>)) {
+            prior[field] = (shown as unknown as Record<string, unknown>)[field] ?? null
+          }
+          try {
+            log.append(
+              { txId: entry.txId, kind: mapped.kind, id: mapped.id, patch: mapped.patch, prior } as never,
+              entry.base ? { base: entry.base } : undefined,
+            )
+          } catch {
+            // A reused txId (bootstrap twice): the entry is already pending.
+            skipped += 1
+            continue
+          }
+          if (entry.acked) {
+            const outcome = log.settle({ txId: entry.txId })
+            if (outcome !== null) refreshOverlay(outcome.kind, outcome.id)
+          }
+          refreshOverlay(mapped.kind, mapped.id)
+          touched.push({ kind: mapped.kind, id: mapped.id })
+          applied += 1
+        }
+        // An echo that landed before the reload settles its receipted edit
+        // here (S5): the server row is already the echo.
+        const seen = new Set<string>()
+        for (const { kind, id } of touched) {
+          const key = overlayKey(kind, id)
+          if (seen.has(key)) continue
+          seen.add(key)
+          if (log.pendingFor(kind, id).length === 0) continue
+          const server = originalIssue(id) ?? originalIssueRow(id)
+          if (server === undefined) continue
+          log.remote(kind, id, {
+            title: (server as SliceIssue).title,
+            stage: (server as SliceIssue).stage,
+            readAt: ((server as SliceIssue).readAt ?? null) as never,
+          } as never)
+          refreshOverlay(kind, id)
+        }
+      })
+      // The arm never re-sends: the kernel replays its own queue under the
+      // same mutation ids, and receipts arrive under the same txIds.
+      return { applied, skipped }
+    },
+
+    pendingDisplay(kind, id) {
+      const display = displayOf(log, kind, id)
+      return display === undefined ? undefined : ({ ...display } as FieldValues<typeof kind>)
     },
 
     onRejected(listener) {
