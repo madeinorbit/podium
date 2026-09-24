@@ -87,7 +87,10 @@ import {
   type Loaded,
   openOwnPartOf,
   type OwnAttention,
+  formalParentPartOf,
+  type OwnFacts,
   ownAttentionPartOf,
+  ownFactsPartOf,
   type Rollup,
   type RollupInputs,
   type RollupParts,
@@ -128,6 +131,8 @@ export interface VisibleInputs {
   loadedSession(id: string): Loaded<SliceSession>
   /** The present rows whose `nestParent` is `id` (the inverse, maintained; never a walk). */
   nested(id: string): Iterable<string>
+  /** The known issues whose declared `issue.parent` is `id` (filed from each one's forward slot). */
+  formalChildren(id: string): Iterable<string>
   /** One composition run, reported through the shared `ArmStats.rollupsDerived`. */
   counted(): void
 }
@@ -395,6 +400,8 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
     loadedIssue: (id) => input.loadedIssue(id),
     nested: (id) => input.nested(id),
+    formalChildren: (id) => input.formalChildren(id),
+    parentOf: (id) => input.relations.one('issue', id, 'parent'),
     rollupNode: (id) => input.issue(id),
     seat: (id) => input.session(id).verdict,
     presence: (id) => {
@@ -702,8 +709,14 @@ export function directVisibility(
     get waiting() {
       return once('waiting', () => waitingPartOf(parts))
     },
+    get ownFacts() {
+      return once('ownFacts', () => ownFactsPartOf(rollupInputs, id))
+    },
+    get formalParent() {
+      return once('formalParent', () => formalParentPartOf(rollupInputs, id))
+    },
     get ownAttention() {
-      return once('ownAttention', () => ownAttentionPartOf(rollupInputs, id, parts))
+      return once('ownAttention', () => ownAttentionPartOf(rollupInputs, parts))
     },
     get aggregate() {
       return once('aggregate', () => aggregatePartOf(rollupInputs, id, parts))
@@ -712,7 +725,7 @@ export function directVisibility(
       return once('unitOwn', () => unitOwnPartOf(rollupInputs, id, parts))
     },
     get unitsBelow() {
-      return once('unitsBelow', () => unitsBelowPartOf(rollupInputs, parts))
+      return once('unitsBelow', () => unitsBelowPartOf(rollupInputs, id, parts))
     },
     get openOwn() {
       return once('openOwn', () => openOwnPartOf(rollupInputs, id, parts))
@@ -864,6 +877,8 @@ export class IssueNode implements IssueVisibility {
       placement: computedStruct,
       finished: false,
       waiting: computed,
+      ownFacts: computedStruct,
+      formalParent: computed,
       ownAttention: computedStruct,
       aggregate: computedStruct,
       unitOwn: computedStruct,
@@ -965,8 +980,16 @@ export class IssueNode implements IssueVisibility {
     return waitingPartOf(this)
   }
 
+  get ownFacts(): OwnFacts {
+    return ownFactsPartOf(this.rollupInput, this.id)
+  }
+
+  get formalParent(): string | null {
+    return formalParentPartOf(this.rollupInput, this.id)
+  }
+
   get ownAttention(): OwnAttention {
-    return ownAttentionPartOf(this.rollupInput, this.id, this)
+    return ownAttentionPartOf(this.rollupInput, this)
   }
 
   get aggregate(): Aggregate {
@@ -978,7 +1001,7 @@ export class IssueNode implements IssueVisibility {
   }
 
   get unitsBelow(): Units {
-    return unitsBelowPartOf(this.rollupInput, this)
+    return unitsBelowPartOf(this.rollupInput, this.id, this)
   }
 
   get openOwn(): boolean {
@@ -1016,10 +1039,21 @@ export class VisibleCollection {
    * replaced. The attention roll-up composes over it (`rollup.ts`).
    */
   private readonly nestedBy: ObservableMap<string, ObservableSet<string>>
+  /**
+   * THE FORMAL CHILDREN (Mb3), filed the same way from each node's declared
+   * `issue.parent` forward slot: the progress roll-up composes over it. The
+   * relation engine's `children` bucket holds the same ids, but re-listing it
+   * reads every sibling (the fence counts each id a `many` yields), so a
+   * re-parent would re-read both families; filing reads the moved row's slot.
+   */
+  private readonly childrenBy: ObservableMap<string, ObservableSet<string>>
   /** Each node's reactions, by id (maintenance only, never read by a derivation). */
   private readonly stops = new Map<string, () => void>()
-  /** The parent each id was last filed under in `nestedBy` (maintenance only). */
-  private readonly filedUnder = new Map<string, string>()
+  /** The parent each id was last filed under, per index (maintenance only). */
+  private readonly filedUnder = {
+    nested: new Map<string, string>(),
+    formal: new Map<string, string>(),
+  }
   private readonly sessions = new Map<string, SessionNode>()
 
   constructor(private readonly host: VisibleHost) {
@@ -1032,13 +1066,18 @@ export class VisibleCollection {
       deep: false,
       name: 'pool.visible.nested',
     })
+    this.childrenBy = observable.map<string, ObservableSet<string>>(undefined, {
+      deep: false,
+      name: 'pool.visible.children',
+    })
     makeObservable<
       VisibleCollection,
-      'nodes' | 'nestedBy' | 'stops' | 'filedUnder' | 'sessions' | 'host' | 'file'
+      'nodes' | 'nestedBy' | 'childrenBy' | 'stops' | 'filedUnder' | 'sessions' | 'host' | 'file'
     >(this, {
       ids: false,
       nodes: false,
       nestedBy: false,
+      childrenBy: false,
       stops: false,
       filedUnder: false,
       sessions: false,
@@ -1046,6 +1085,7 @@ export class VisibleCollection {
       order: computed({ equals: compareShallow }),
       issue: false,
       nested: false,
+      formalChildren: false,
       file: false,
       session: false,
       sync: false,
@@ -1078,24 +1118,31 @@ export class VisibleCollection {
     return this.nestedBy.get(id) ?? []
   }
 
-  /** Move `id` in `nestedBy` to `parent` (null: out). Inside an action. */
-  private file(id: string, parent: string | null): void {
-    const before = this.filedUnder.get(id)
+  /** TRACKED: the known issues whose declared parent is `id` (unordered). */
+  formalChildren(id: string): Iterable<string> {
+    return this.childrenBy.get(id) ?? []
+  }
+
+  /** Move `id` in one index to `parent` (null: out). Inside an action. */
+  private file(index: 'nested' | 'formal', id: string, parent: string | null): void {
+    const by = index === 'nested' ? this.nestedBy : this.childrenBy
+    const filed = this.filedUnder[index]
+    const before = filed.get(id)
     if (before === parent) return
     if (before !== undefined) {
-      const siblings = this.nestedBy.get(before)
+      const siblings = by.get(before)
       siblings?.delete(id)
-      if (siblings?.size === 0) this.nestedBy.delete(before)
-      this.filedUnder.delete(id)
+      if (siblings?.size === 0) by.delete(before)
+      filed.delete(id)
     }
     if (parent === null) return
-    let siblings = this.nestedBy.get(parent)
+    let siblings = by.get(parent)
     if (siblings === undefined) {
       siblings = observable.set<string>(undefined, { deep: false })
-      this.nestedBy.set(parent, siblings)
+      by.set(parent, siblings)
     }
     siblings.add(id)
-    this.filedUnder.set(id, parent)
+    filed.set(id, parent)
   }
 
   /** The node of a session, built on first access. */
@@ -1133,13 +1180,19 @@ export class VisibleCollection {
         )
         const stopNest = reaction(
           () => node.nestParent,
-          (parent) => this.file(id, parent),
+          (parent) => this.file('nested', id, parent),
           { fireImmediately: true, name: `pool.nested.${id}` },
+        )
+        const stopFormal = reaction(
+          () => node.formalParent,
+          (parent) => this.file('formal', id, parent),
+          { fireImmediately: true, name: `pool.children.${id}` },
         )
         this.nodes.set(id, node)
         this.stops.set(id, () => {
           stop()
           stopNest()
+          stopFormal()
         })
         counters.issueNodes += 1
         continue
@@ -1148,7 +1201,8 @@ export class VisibleCollection {
       held()
       this.stops.delete(id)
       this.nodes.delete(id)
-      this.file(id, null)
+      this.file('nested', id, null)
+      this.file('formal', id, null)
       if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
     }
   }
@@ -1179,7 +1233,9 @@ export class VisibleCollection {
     this.stops.clear()
     this.nodes.clear()
     this.nestedBy.clear()
-    this.filedUnder.clear()
+    this.childrenBy.clear()
+    this.filedUnder.nested.clear()
+    this.filedUnder.formal.clear()
     this.sessions.clear()
     this.ids.clear()
   }

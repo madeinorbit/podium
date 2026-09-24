@@ -328,6 +328,7 @@ export class MobxPool {
       loadedIssue: (id) => this.loaded('issue', id) as Loaded<SliceIssue>,
       loadedSession: (id) => this.loaded('session', id) as Loaded<SliceSession>,
       nested: (id) => this.worklist.nested(id),
+      formalChildren: (id) => this.worklist.formalChildren(id),
       counted: () => {
         stats.rollupsDerived += 1
       },

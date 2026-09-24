@@ -124,6 +124,9 @@ export function rebuildSnapshot(
       )
       return nested.get(id) ?? []
     },
+    // The scanned `children` relation, from scratch (the live pool files each node's parent slot).
+    formalChildren: (id) =>
+      tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).childIds : [],
     counted: () => {},
   }
   const visible = issues

@@ -22,10 +22,15 @@
  *   no own part; its visible descendants nest under the nearest visible
  *   ancestor, which is the legacy walk-past (`rows.ts:272-283`).
  * - PROGRESS (`progressDone` / `progressTotal`) composes over the declared
- *   `issue.children` relation, the formal closure `missionRollup` counts
- *   (`mission.ts:1353-1404`, members `formalMemberIds`, `mission.ts:1054`).
- *   The relation drops archived and deleted children (schema `where`,
- *   `missionParentId`), which is the legacy cut of an archived branch.
+ *   `issue.parent` / `issue.children` relation, the formal closure
+ *   `missionRollup` counts (`mission.ts:1353-1404`, members
+ *   `formalMemberIds`, `mission.ts:1054`). The relation drops archived and
+ *   deleted children (schema `where`, `missionParentId`), which is the legacy
+ *   cut of an archived branch. The children are read from a filing of each
+ *   node's own `parent` forward slot (`VisibleCollection.childrenBy`), not by
+ *   re-listing the `children` bucket: a re-listing reads every sibling id
+ *   (the fence counts each), so a re-parent would cost both families, where
+ *   the filing costs the moved row's own slot (#7's budget, POD-4609).
  *
  * THE ROOT, WITHOUT A WALK (audit §3.3). A session's motion phase depends on
  * the ROW being derived, not on the session's own issue: on a finished row an
@@ -490,6 +495,11 @@ export interface RollupInputs {
   loadedIssue(id: string): Loaded<SliceIssue>
   /** The nest children: present rows whose `nestParent` is `id` (maintained, not walked). */
   nested(id: string): Iterable<string>
+  /**
+   * The formal children: known issues whose declared `issue.parent` is `id`
+   * (maintained from each node's own forward slot, not re-listed).
+   */
+  formalChildren(id: string): Iterable<string>
   /** Another issue's parts (its node). */
   rollupNode(id: string): RollupParts | undefined
   /** A session's cached seat verdict (`LOADING` while its row is cold). */
@@ -497,12 +507,27 @@ export interface RollupInputs {
   /** A session's cached presence facts (Mb1's `retention`, hot or cold). */
   presence(id: string): { readonly issueId: string | null | undefined; readonly open: boolean } | null
   spinOffIds(id: string): readonly string[]
+  /** The declared `issue.parent` target of `id`, or null. */
+  parentOf(id: string): string | null
   /** Count one composition run (the shared `ArmStats.rollupsDerived`). */
   counted(): void
 }
 
+/** The own row's facts the own part reads, cached apart from the seats. */
+export interface OwnFacts {
+  /** `ready`: resident; `cold`: its load is queued; `unknown`: not in the pool. */
+  readonly state: 'ready' | 'cold' | 'unknown'
+  readonly finished: boolean
+  readonly decision: 'review' | null
+  readonly continuedByField: boolean
+}
+
 /** The roll-up parts of one issue node. */
 export interface RollupParts {
+  /** The own row's decision facts (re-run only when the own row changes). */
+  readonly ownFacts: OwnFacts
+  /** The declared `issue.parent` (its forward slot): where this node is filed for progress. */
+  readonly formalParent: string | null
   readonly ownAttention: OwnAttention
   readonly aggregate: Aggregate
   readonly unitOwn: UnitOwn
@@ -521,7 +546,27 @@ export interface RollupSelf extends RollupParts {
   readonly finished: boolean | undefined
   readonly rosterIds: readonly string[]
   readonly seatIds: readonly string[]
-  readonly childIds: readonly string[]
+}
+
+const UNKNOWN_FACTS: OwnFacts = {
+  state: 'unknown',
+  finished: false,
+  decision: null,
+  continuedByField: false,
+}
+const COLD_FACTS: OwnFacts = { ...UNKNOWN_FACTS, state: 'cold' }
+
+/** The own row's decision facts (`rowPendingDecision`'s row half). */
+export function ownFactsPartOf(input: RollupInputs, id: string): OwnFacts {
+  const issue = input.loadedIssue(id)
+  if (issue === LOADING) return COLD_FACTS
+  if (issue === undefined) return UNKNOWN_FACTS
+  return {
+    state: 'ready',
+    finished: issue.stage === 'done' || issue.closedReason != null,
+    decision: pendingDecisionOf(issue),
+    continuedByField: continuedByField(issue),
+  }
 }
 
 /** `openIssues.has(id)`: an explicit session with this `issueId` present on the task. */
@@ -564,11 +609,11 @@ export function tipPartOf(
  * shell, not archived) and its own pending decision (`rowPendingDecision`,
  * `row-attention.ts:136-152`). Empty for an issue with no row.
  */
-export function ownAttentionPartOf(input: RollupInputs, id: string, self: RollupSelf): OwnAttention {
+export function ownAttentionPartOf(input: RollupInputs, self: RollupSelf): OwnAttention {
   if (!self.present) return EMPTY_OWN
-  const issue = input.loadedIssue(id)
-  if (issue === LOADING) return PENDING_OWN
-  if (issue === undefined) return EMPTY_OWN
+  const facts = self.ownFacts
+  if (facts.state === 'cold') return PENDING_OWN
+  if (facts.state === 'unknown') return EMPTY_OWN
   let own = EMPTY_OWN
   let pending = 0
   for (const sessionId of self.rosterIds) {
@@ -577,13 +622,11 @@ export function ownAttentionPartOf(input: RollupInputs, id: string, self: Rollup
     else if (seat !== undefined) own = withSeat(own, seat)
   }
   let deciding = false
-  const decision = pendingDecisionOf(issue)
-  const finished = issue.stage === 'done' || issue.closedReason != null
-  if (decision !== null && (finished || !own.working)) {
+  if (facts.decision !== null && (facts.finished || !own.working)) {
     deciding = true
-    if (decision === 'review') {
+    if (facts.decision === 'review') {
       // `issueContinuation` (`mission.ts:2207-2250`): the work went elsewhere.
-      if (continuedByField(issue)) deciding = false
+      if (facts.continuedByField) deciding = false
       else if (!self.openOwn) {
         const tip = self.tip
         if (tip.found) deciding = false
@@ -592,6 +635,11 @@ export function ownAttentionPartOf(input: RollupInputs, id: string, self: Rollup
     }
   }
   return pending === 0 && !deciding ? own : { ...own, deciding, pending: own.pending + pending }
+}
+
+/** The declared `issue.parent`, the node's own forward slot (one read). */
+export function formalParentPartOf(input: Pick<RollupInputs, 'parentOf'>, id: string): string | null {
+  return input.parentOf(id)
 }
 
 /** The visible-subtree aggregate: own part plus each nest child's cached aggregate. */
@@ -620,12 +668,12 @@ export function unitOwnPartOf(input: RollupInputs, id: string, self: RollupSelf)
 }
 
 /** The formal closure's counts: each formal child's own contribution and its own closure. */
-export function unitsBelowPartOf(input: RollupInputs, self: RollupSelf): Units {
+export function unitsBelowPartOf(input: RollupInputs, id: string, self: RollupSelf): Units {
   input.counted()
   // A cold row's own marker stands for its closure until it lands.
   if (self.unitOwn.pending) return NO_UNITS
   const children: { own: UnitOwn; below: Units }[] = []
-  for (const childId of self.childIds) {
+  for (const childId of input.formalChildren(id)) {
     const child = input.rollupNode(childId)
     if (child !== undefined) children.push({ own: child.unitOwn, below: child.unitsBelow })
   }
