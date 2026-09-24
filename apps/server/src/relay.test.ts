@@ -1578,12 +1578,15 @@ describe('SessionRegistry', () => {
     // Seeing is not using: the colleague's machines, granted `see` or not, are
     // denied to the admin, and a denied row carries no inventory (paths and
     // provider identities need USE even for an admin).
-    expect(
-      Object.fromEntries(ownerInitial.map((machine) => [machine.id, machine.use])),
-    ).toEqual({ [TEST_MACHINE]: 'granted', shared: 'denied', hidden: 'denied' })
-    expect(
-      Object.fromEntries(otherInitial.map((machine) => [machine.id, machine.use])),
-    ).toEqual({ shared: 'granted', hidden: 'granted' })
+    expect(Object.fromEntries(ownerInitial.map((machine) => [machine.id, machine.use]))).toEqual({
+      [TEST_MACHINE]: 'granted',
+      shared: 'denied',
+      hidden: 'denied',
+    })
+    expect(Object.fromEntries(otherInitial.map((machine) => [machine.id, machine.use]))).toEqual({
+      shared: 'granted',
+      hidden: 'granted',
+    })
     expect(ownerInitial.find((machine) => machine.id === 'hidden')).not.toHaveProperty('inventory')
 
     const denied = ownerInitial.find((machine) => machine.id === 'shared')
@@ -2570,8 +2573,14 @@ describe('agent state', () => {
         daemon.filter((m) => m.type === 'runtimeSendRequest' && m.sessionId === sessionId)
       const ptyInputs = (sessionId: SessionId) =>
         daemon
-          .filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input' && m.sessionId === sessionId)
-          .map((m) => ({ inputOrigin: m.inputOrigin, data: Buffer.from(m.data, 'base64').toString('utf8') }))
+          .filter(
+            (m): m is Extract<ControlMessage, { type: 'input' }> =>
+              m.type === 'input' && m.sessionId === sessionId,
+          )
+          .map((m) => ({
+            inputOrigin: m.inputOrigin,
+            data: Buffer.from(m.data, 'base64').toString('utf8'),
+          }))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',
@@ -2586,17 +2595,24 @@ describe('agent state', () => {
       })
       expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
       expect(runtimeSends(sessionId)).toEqual([
-        expect.objectContaining({ text: 'continue', origin: 'auto_continue', delivery: 'when-ready' }),
+        expect.objectContaining({
+          text: 'continue',
+          origin: 'auto_continue',
+          delivery: 'when-ready',
+        }),
       ])
       expect(ptyInputs(sessionId)).toEqual([])
 
-      const shell = (await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })).sessionId
+      const shell = (await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' }))
+        .sessionId
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         ...bind(shell),
         cmd: 'bash',
         agentKind: 'shell',
       })
-      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({ ok: false })
+      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({
+        ok: false,
+      })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId: shell,
@@ -2606,7 +2622,9 @@ describe('agent state', () => {
       expect(ptyInputs(shell)).toEqual([{ inputOrigin: 'auto_continue', data: 'continue\r' }])
       expect(runtimeSends(shell)).toEqual([])
 
-      expect(await reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({
+      expect(
+        await reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') }),
+      ).toEqual({
         ok: false,
       })
     } finally {
@@ -3345,7 +3363,10 @@ describe('sendText (chat send path)', () => {
     return sessionId
   }
   async function liveShell(reg: SessionRegistry) {
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, shellBind(sessionId))
     return sessionId
   }
@@ -3392,7 +3413,9 @@ describe('sendText (chat send path)', () => {
       const agent = await liveAgent(reg)
       const shell = await liveShell(reg)
 
-      expect(await reg.modules.sessions.sendText({ sessionId: agent, text: 'run the tests' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({ sessionId: agent, text: 'run the tests' }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -3404,11 +3427,18 @@ describe('sendText (chat send path)', () => {
         type: 'runtimeSendResult',
         requestId: handedOn!.requestId,
         sessionId: agent,
-        receipt: { outcome: 'queued', position: 1, deliveredAs: 'queue', at: '2026-01-01T00:00:00.000Z' },
+        receipt: {
+          outcome: 'queued',
+          position: 1,
+          deliveredAs: 'queue',
+          at: '2026-01-01T00:00:00.000Z',
+        },
       })
 
       // The shell's answer is a plain ok: the bytes are on the wire already.
-      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'run the tests' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({ sessionId: shell, text: 'run the tests' }),
+      ).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
@@ -3442,7 +3472,9 @@ describe('sendText (chat send path)', () => {
       // The embedded newline must never be the thing that submits a
       // half-written message: it stays inside the envelope, and the one CR
       // after it is the submit.
-      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'a\nb' })).toEqual({ ok: true })
+      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'a\nb' })).toEqual({
+        ok: true,
+      })
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
     } finally {
       await reg.dispose()
@@ -3466,7 +3498,10 @@ describe('sendText (chat send path)', () => {
       // The shell: the submitting CR would answer the highlighted default, so
       // nothing at all reaches the PTY, and the caller hears "no", not "later".
       expect(
-        await reg.modules.sessions.sendText({ sessionId: shell, text: 'this must NOT submit the menu' }),
+        await reg.modules.sessions.sendText({
+          sessionId: shell,
+          text: 'this must NOT submit the menu',
+        }),
       ).toEqual({ ok: false })
       expect(readInputs(daemon)).toEqual([])
       expect(await reg.sessionStore.sync.listQueuedMessages(shell)).toEqual([])
@@ -3474,7 +3509,9 @@ describe('sendText (chat send path)', () => {
       // The agent: the server's phase is a lagging copy of the daemon's, so it
       // does not hold the send on it (cfb9924a7). The row goes to the driver,
       // which owns the menu guard.
-      expect(await reg.modules.sessions.sendText({ sessionId: agent, text: 'for the driver' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({ sessionId: agent, text: 'for the driver' }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -3508,7 +3545,9 @@ describe('sendText (chat send path)', () => {
         agentStateMsg(shell, 'needs_user', { need: { kind: 'question' } }),
       )
 
-      expect(await reg.modules.sessions.queueText({ sessionId: shell, text: 'queued before the menu' })).toEqual({
+      expect(
+        await reg.modules.sessions.queueText({ sessionId: shell, text: 'queued before the menu' }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -3517,7 +3556,10 @@ describe('sendText (chat send path)', () => {
       expect(readInputs(daemon)).toEqual([])
       expect(await reg.sessionStore.sync.listQueuedMessages(shell)).toHaveLength(1)
 
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(shell, 'idle'))
+      await reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        agentStateMsg(shell, 'idle'),
+      )
       await vi.waitFor(() =>
         expect(readInputs(daemon)).toEqual(['\x1b[200~queued before the menu\x1b[201~', '\r']),
       )
@@ -3539,12 +3581,19 @@ describe('sendText (chat send path)', () => {
         reg.sessionStore.hostMachineId,
         agentStateMsg(shell, 'needs_user', { need: { kind: 'question' } }),
       )
-      expect((await reg.modules.sessions.sendText({ sessionId: shell, text: 'held' })).ok).toBe(false)
+      expect((await reg.modules.sessions.sendText({ sessionId: shell, text: 'held' })).ok).toBe(
+        false,
+      )
       // Human answers the menu → phase → idle.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(shell, 'idle'))
+      await reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        agentStateMsg(shell, 'idle'),
+      )
       // ACCEPTED now, because the menu is gone — and the refusal above is the
       // proof nothing was swallowed on the way: only this send is typed.
-      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'now ok' })).toEqual({ ok: true })
+      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'now ok' })).toEqual({
+        ok: true,
+      })
       expect(readInputs(daemon)).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
     } finally {
       await reg.dispose()
@@ -3565,9 +3614,9 @@ describe('sendText (chat send path)', () => {
 
       const answer = reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' })
       await vi.waitFor(() =>
-        expect(daemon.some((m) => m.type === 'runtimeInterruptRequest' && m.sessionId === sessionId)).toBe(
-          true,
-        ),
+        expect(
+          daemon.some((m) => m.type === 'runtimeInterruptRequest' && m.sessionId === sessionId),
+        ).toBe(true),
       )
       const request = daemon.find(
         (m): m is Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> =>
@@ -3588,7 +3637,9 @@ describe('sendText (chat send path)', () => {
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       expect(durableSends(daemon, sessionId)[0]?.text).toBe('stop and read this')
       // The stop went out before the text.
-      expect(daemon.indexOf(request)).toBeLessThan(daemon.indexOf(durableSends(daemon, sessionId)[0]!))
+      expect(daemon.indexOf(request)).toBeLessThan(
+        daemon.indexOf(durableSends(daemon, sessionId)[0]!),
+      )
       expect(readInputs(daemon)).toEqual([])
     } finally {
       await reg.dispose()
@@ -3627,7 +3678,8 @@ describe('sendText (chat send path)', () => {
 describe('queueText drain (the server hands rows on at once — no readiness window)', () => {
   /** Far below the old quiet+floor window (~1.4 s) and its 5-7 s silent fallback. */
   const NO_WINDOW_MS = 50
-  const codexBind = (sessionId: SessionId) => ({ ...bind(sessionId), cmd: 'codex', agentKind: 'codex' }) as const
+  const codexBind = (sessionId: SessionId) =>
+    ({ ...bind(sessionId), cmd: 'codex', agentKind: 'codex' }) as const
 
   it('hands a row queued while the TUI is still drawing to the daemon at once — no output-settle wait', async () => {
     vi.useFakeTimers()
@@ -3667,7 +3719,9 @@ describe('queueText drain (the server hands rows on at once — no readiness win
       await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
       // 4bd403fed: a new session (no transcript yet) forwards from admission;
       // the daemon's delivery queue holds it until the CLI is up.
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe(
+        'starting',
+      )
       expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['too-early'])
       expect(ptyInputsWith(daemon, 'too-early')).toEqual([])
     } finally {

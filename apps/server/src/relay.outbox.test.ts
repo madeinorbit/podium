@@ -7,12 +7,16 @@ import {
   asMachineId,
   asMutationId,
   asSessionId,
-  asUserId,
   firstAdminMemberId,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef, type MetadataChange, type ServerMessage } from '@podium/protocol'
+import {
+  asDelegationRef,
+  CLIENT_WIRE_VERSION,
+  type MetadataChange,
+  type ServerMessage,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -27,19 +31,13 @@ import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
-import {
-  advanceToComposerReady,
-  advanceUntil,
-  READY_CEILING_MS,
-  READY_STEP_MS,
-} from './test-support/readiness-queue'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
 // queueText wake + durable delivery, restart survival, FIFO + spacing, the
 // withMutation idempotency wrapper, failed-drain row retention, and the
 // queuedMessageCount surfacing on the wire (snapshot meta + P2 delta stream).
-// The settle-heuristic behaviors themselves (floor/quiet/max) are covered by
-// relay.test.ts's 'queueText drain' describe — not duplicated here.
+// There is no settle heuristic any more (cfb9924a7); relay.test.ts's
+// 'queueText drain' describe pins that rows are handed on at once.
 
 const G = { cols: 80, rows: 24 }
 const bind = (sessionId: SessionId) =>
@@ -106,70 +104,126 @@ async function settle(reg: SessionRegistry, sessionId: string): Promise<void> {
 }
 
 /**
- * THE TWO LANES AGREE FROM HERE, AND THIS IS THE SENTENCE THAT SAYS SO (POD-2842).
+ * THE DURABLE SEND, AS THE DAEMON SEES IT (358ad0ffb / 81460a99b POD-4427 /
+ * POD-4279; cfb9924a7 POD-4661; 4bd403fed; 99ef2c33b).
  *
- * THE OPPOSING TEST IS `apps/server/src/modules/sessions/inbox.test.ts` — the
- * SERVICES-lane unit over the same call, which asserts `{ok: true, queued:
- * true}` for a chat send to a bound claude-code session and nothing on the PTY
- * until the readiness window has run. THAT ONE IS THE CONTRACT. This file is
- * the BOUNDARY lane, and until POD-2842 it asserted the opposite about that one
- * call: a bare `{ok: true}` at :541, and a queue row that was gone the moment
- * the paste was on the wire. `relay.test.ts` held the same contradiction and
- * POD-2837 resolved it the same way.
- *
- * THE QUEUE IS THE CONTRACT for a bound, idle claude-code session (ruled
- * 2026-08-26, `docs/plans/pod-1761-release-ledger.md`). A bind makes a session
- * live BEFORE its composer is mounted, and bytes typed into an unmounted
- * composer are accepted by the pty and dropped by the app (POD-2116) — a SILENT
- * loss, where the queue's cost is a visible wait. Claude's composer readiness
- * cannot be observed at all (`composerReadiness: 'confirmed-turn'`, POD-2823),
- * so the only proof it will take typing is a user turn in the transcript.
- *
- * SO IF YOU CHANGE ONE LANE, CHANGE THE OTHER. A repo that asserts both answers
- * drifts back to whichever one nobody runs — which is exactly how this file sat
- * red for days while `inbox.test.ts` stayed green.
- *
- * WHAT DID NOT CHANGE IS A SINGLE BYTE. The bracketed-paste envelopes, the
- * exactly-once delivery, the FIFO order and the durable rows are asserted below
- * exactly as they were. What moved is that a typed row is now HELD until the
- * transcript witnesses it, so "delivered" is asserted after that proof rather
- * than at the moment of typing.
+ * This file used to pin the server TYPING a queued row into a claude-code
+ * composer once a readiness window had passed, holding it until a user turn
+ * echoed in the transcript (POD-2842, POD-2116), and spacing the next row
+ * behind it. 358ad0ffb deleted that machine and cfb9924a7 deleted every hold
+ * on the server's view of the agent. What the server does now, and what these
+ * cases pin:
+ *   - a queued row is handed on as ONE `runtimeDurableSendRequest` keyed by
+ *     the row (`rowId`), from admission for a session with no transcript yet,
+ *     even while it is still starting (4bd403fed); readiness is the daemon's
+ *     delivery queue (apps/daemon/src/runtime/terminal-driver.test.ts describe
+ *     "the queue drain");
+ *   - rows go FIFO, the next only after the daemon's custody receipt
+ *     (`runtimeSendResult`) for the one before it;
+ *   - a bind is a new owner: it is handed the remaining rows again as
+ *     RECOVERIES (`deliveryRecovery: true`), which a daemon confirms or fails
+ *     and never retypes (POD-4360);
+ *   - custody is not delivery: the row stays durable and counted until the
+ *     driver's `delivery` runtime event settles it.
+ * The wake, the restart survival and the counts on the wire are unchanged.
  */
-/**
- * THE PROOF A CLAUDE COMPOSER TOOK THE ROW, and the only one there is: a user
- * turn in the transcript. `composerReadiness: 'confirmed-turn'` means the CLI
- * publishes nothing an observer can read, so the drain types the row and then
- * HOLDS it — durable, still counted, still the operator's — until this frame
- * arrives. Every "delivered" assertion below is asserted after it, and the
- * "still queued" assertions before it are what say the hold is real.
- */
-async function confirmUserTurn(reg: SessionRegistry, sessionId: string, text: string): Promise<void> {
+type DurableSendRequest = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
+const durableSends = (daemon: ControlMessage[], sessionId: string): DurableSendRequest[] =>
+  daemon.filter(
+    (message): message is DurableSendRequest =>
+      message.type === 'runtimeDurableSendRequest' && message.sessionId === sessionId,
+  )
+/** The FIRST write of each row. A recovery re-hands a row already written. */
+const freshSends = (daemon: ControlMessage[], sessionId: string): DurableSendRequest[] =>
+  durableSends(daemon, sessionId).filter((send) => !send.deliveryRecovery)
+
+/** The daemon takes custody of one durable send (`queued`), as a real one does. Not delivery. */
+const grantCustody = async (reg: SessionRegistry, send: DurableSendRequest): Promise<void> =>
   await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-    type: 'transcriptDelta',
-    sessionId: asSessionId(sessionId),
-    items: [{ id: `turn-${text}`, role: 'user' as const, text, cursor: `c-${text}` }],
-    tail: `c-${text}`,
+    type: 'runtimeSendResult',
+    requestId: send.requestId,
+    sessionId: send.sessionId,
+    receipt: {
+      outcome: 'queued',
+      position: 1,
+      deliveredAs: 'queue',
+      at: '2026-01-01T00:00:00.000Z',
+    },
   })
+
+/** A daemon transport that takes custody of every durable send at once, as a real daemon's delivery queue does. */
+const custodyGranting =
+  (reg: SessionRegistry, daemon: ControlMessage[]) =>
+  (message: ControlMessage): void => {
+    daemon.push(message)
+    if (message.type === 'runtimeDurableSendRequest') void grantCustody(reg, message)
+  }
+
+/** The observer generation of the session's current process: its latest spawn. */
+const currentGeneration = (daemon: ControlMessage[], sessionId: string): number => {
+  const spawn = daemon
+    .filter(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    .at(-1)
+  if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
+  return spawn.observationGeneration
+}
+
+/**
+ * Settle rows the way the driver does. A woken or restarted process is a
+ * REPLACEMENT observer generation, and the runtime event gate admits nothing
+ * live on it until a bootstrap snapshot opens it; then one `delivery` event
+ * per row.
+ */
+async function deliverRows(
+  reg: SessionRegistry,
+  daemon: ControlMessage[],
+  sessionId: string,
+  rowIds: readonly string[],
+): Promise<void> {
+  const observerGeneration = currentGeneration(daemon, sessionId)
+  const cursor = (seq: number) => ({ segmentId: `delivery-${sessionId}`, components: { seq } })
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    type: 'runtimeEvent',
+    deliveryId: `bootstrap-${sessionId}-${observerGeneration}`,
+    sessionId: asSessionId(sessionId),
+    event: {
+      t: 'state',
+      change: {
+        kind: 'state_snapshot',
+        state: { phase: 'idle', since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0 },
+      },
+      at: '2026-01-01T00:00:00.500Z',
+      provenance: 'bootstrap',
+      cursor: cursor(1),
+      observerGeneration,
+      turnEpoch: 0,
+    },
+  })
+  for (const [index, rowId] of rowIds.entries()) {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: `delivery-${rowId}`,
+      sessionId: asSessionId(sessionId),
+      event: {
+        t: 'delivery',
+        rowId,
+        outcome: 'delivered',
+        at: '2026-01-01T00:00:01.000Z',
+        provenance: 'live',
+        cursor: cursor(index + 2),
+        observerGeneration,
+        turnEpoch: 0,
+      },
+    })
+  }
 }
 
 /** The durable rows this session still holds. */
 const queuedRows = async (reg: SessionRegistry, sessionId: string) =>
   await reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))
-
-/** Step the clock until the head row settles out of the queue. */
-const advanceUntilSettled = async (
-  reg: SessionRegistry,
-  sessionId: string,
-  text: string,
-): Promise<void> => {
-  if (!(await queuedRows(reg, sessionId)).some((row) => row.text === text)) return
-  for (let waited = 0; waited < READY_CEILING_MS; waited += READY_STEP_MS) {
-    await vi.advanceTimersByTimeAsync(READY_STEP_MS)
-    await Promise.resolve()
-    if (!(await queuedRows(reg, sessionId)).some((row) => row.text === text)) return
-  }
-  throw new Error(`the readiness window closed before the transcript-confirmed row "${text}" settled`)
-}
 
 describe('queueText (durable outbox sends)', () => {
   /**
@@ -273,12 +327,12 @@ describe('queueText (durable outbox sends)', () => {
       vi.useRealTimers()
     }
   })
-  it('wakes a hibernated resumable session, shows the count, and delivers exactly once after bind + settle', async () => {
+  it('wakes a hibernated resumable session, shows the count, hands the row on once, and settles it only on its delivery event', async () => {
     vi.useFakeTimers()
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
+      await attachHostDaemon(reg, custodyGranting(reg, daemon))
       const sessionId = await hibernatedSession(reg)
       daemon.length = 0
 
@@ -289,7 +343,6 @@ describe('queueText (durable outbox sends)', () => {
         queued: true,
       })
 
-      await vi.advanceTimersByTimeAsync(0)
       // The wake follows async worktree/instruction preparation.
       await vi.waitFor(() =>
         expect(daemon).toContainEqual(
@@ -300,38 +353,34 @@ describe('queueText (durable outbox sends)', () => {
           }),
         ),
       )
-      // The queued count rides the session meta while the message waits...
+      // The queued count rides the session meta while the message waits.
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
-      // ...and nothing is typed while the respawn is still starting.
-      expect(pastesContaining(daemon, 'wake-up-msg')).toHaveLength(0)
 
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      await settle(reg, sessionId)
-      // `settle` above already ran the clock past the readiness window, so this
-      // steps zero times — it is here to state the dependency, not to wait.
-      await advanceUntil(
-        () => pastesContaining(daemon, 'wake-up-msg').length === 1,
-        'the queued row reached the PTY',
-      )
-
-      // Exactly ONE bracketed-paste input containing the text (no double-type).
-      expect(pastesContaining(daemon, 'wake-up-msg')).toEqual(['\x1b[200~wake-up-msg\x1b[201~'])
-      // TYPED IS NOT DELIVERED. The bytes are in the CLI and the row is still
-      // the operator's: counted, durable, and visible in the meta. Claiming
-      // delivery here is the silent loss the queue exists to refuse.
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(0))
+      // ONE write of the text, keyed by the row. Any further hand-on of the same
+      // row is a recovery to the new owner, never a second write.
+      const [write] = freshSends(daemon, sessionId)
+      expect(freshSends(daemon, sessionId)).toHaveLength(1)
+      expect(write).toMatchObject({ text: 'wake-up-msg', origin: 'controller' })
+      for (const send of durableSends(daemon, sessionId).filter((s) => s.deliveryRecovery)) {
+        expect(send).toMatchObject({ rowId: write!.rowId, text: 'wake-up-msg' })
+      }
+      // CUSTODY IS NOT DELIVERY. The daemon holds the row and it is still the
+      // operator's: counted, durable, and visible in the meta.
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
       expect(await queuedRows(reg, sessionId)).toHaveLength(1)
 
-      await confirmUserTurn(reg, sessionId, 'wake-up-msg')
-      await advanceUntilSettled(reg, sessionId, 'wake-up-msg')
+      await deliverRows(reg, daemon, sessionId, [write!.rowId])
+      await vi.waitFor(async () => expect(await queuedRows(reg, sessionId)).toEqual([]))
 
       // Delivered: the count leaves the meta and the durable row is gone.
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
-      expect(await reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
-      // And still exactly one paste — the confirmation settles the row, it
-      // never retypes it.
-      expect(pastesContaining(daemon, 'wake-up-msg')).toEqual(['\x1b[200~wake-up-msg\x1b[201~'])
+      // Still exactly one write, and nothing ever typed.
+      expect(freshSends(daemon, sessionId)).toHaveLength(1)
+      expect(decodedInputs(daemon)).toEqual([])
     } finally {
+      await reg.dispose()
       vi.useRealTimers()
     }
   })
@@ -371,7 +420,7 @@ describe('queueText (durable outbox sends)', () => {
       const storeB = await openTestStore(file, TEST_MACHINE)
       const regB = await SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(regB, (message) => daemon.push(message))
+      await attachHostDaemon(regB, custodyGranting(regB, daemon))
       expect(
         (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId),
       ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
@@ -386,33 +435,32 @@ describe('queueText (durable outbox sends)', () => {
       )
 
       await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
-        type: 'agentState',
-        sessionId: asSessionId(sessionId),
-        state: {
-          phase: 'idle',
-          since: '2026-08-31T00:00:01.000Z',
-          nativeSubagentCount: 0,
-        },
-      })
-      await settle(regB, sessionId)
-      expect(pastesContaining(daemon, 'wake')).toHaveLength(1)
-      await confirmUserTurn(regB, sessionId, 'wake')
-      await advanceUntilSettled(regB, sessionId, 'wake')
-      expect(await storeB.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(0))
+      // The woken process is handed the row the dead one was holding, by its
+      // durable id and text — and only that row.
+      expect(
+        durableSends(daemon, sessionId).every(
+          (send) => send.rowId === 'restart-wake' && send.text === 'wake',
+        ),
+      ).toBe(true)
+      await deliverRows(regB, daemon, sessionId, ['restart-wake'])
+      await vi.waitFor(async () =>
+        expect(await storeB.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([]),
+      )
+      expect(decodedInputs(daemon)).toEqual([])
       await regB.dispose()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('a due one-off wakes a hibernated target and delivers its message exactly once', async () => {
+  it('a due one-off wakes a hibernated target and hands its message on exactly once', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-16T22:00:00.000Z'))
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (message) => daemon.push(message))
+      await attachHostDaemon(reg, custodyGranting(reg, daemon))
       const sessionId = await hibernatedSession(reg)
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
@@ -443,14 +491,13 @@ describe('queueText (durable outbox sends)', () => {
           }),
         ),
       )
-      expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(0)
 
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      await settle(reg, sessionId)
+      await vi.waitFor(() => expect(freshSends(daemon, sessionId)).toHaveLength(1))
+      expect(freshSends(daemon, sessionId)[0]?.text).toBe('continue-night-work')
+      await deliverRows(reg, daemon, sessionId, [freshSends(daemon, sessionId)[0]!.rowId])
+      await vi.waitFor(async () => expect(await queuedRows(reg, sessionId)).toEqual([]))
 
-      expect(pastesContaining(daemon, 'continue-night-work')).toEqual([
-        '\x1b[200~continue-night-work\x1b[201~',
-      ])
       expect(await reg.modules.automations.runs(automation.id)).toEqual([
         expect.objectContaining({ outcome: 'spawned', sessionId }),
       ])
@@ -460,9 +507,11 @@ describe('queueText (durable outbox sends)', () => {
         lastRunAt: runAt,
       })
 
+      // A one-off runs once: a later tick neither records a run nor writes again.
       await reg.modules.automations.tick()
       expect(await reg.modules.automations.runs(automation.id)).toHaveLength(1)
-      expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(1)
+      expect(freshSends(daemon, sessionId)).toHaveLength(1)
+      expect(decodedInputs(daemon)).toEqual([])
     } finally {
       await reg.dispose()
       vi.useRealTimers()
@@ -495,7 +544,7 @@ describe('queueText (durable outbox sends)', () => {
     expect(daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
-  it('survives a server restart: count re-seeds from the table and delivery happens after the wake', async () => {
+  it('survives a server restart: count re-seeds from the table and the row is handed to the woken process', async () => {
     vi.useFakeTimers()
     try {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-outbox-relay-')), 'podium.db')
@@ -515,7 +564,6 @@ describe('queueText (durable outbox sends)', () => {
       })
 
       await vi.waitFor(() => expect(daemonA.some((message) => message.type === 'spawn')).toBe(true))
-      expect(pastesContaining(daemonA, 'survive-restart')).toHaveLength(0)
       await vi.advanceTimersByTimeAsync(0)
       await regA.dispose()
       await storeA.close()
@@ -527,29 +575,34 @@ describe('queueText (durable outbox sends)', () => {
         (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
           ?.queuedMessageCount,
       ).toBe(1)
+      const [row] = await queuedRows(regB, sessionId)
+      expect(row?.text).toBe('survive-restart')
 
       const daemonB: ControlMessage[] = []
-      await attachHostDaemon(regB, (m) => daemonB.push(m))
+      await attachHostDaemon(regB, custodyGranting(regB, daemonB))
       await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      // The resumed harness reports runtime state once rehydrated; terminal quiet
-      // alone is no longer a readiness signal after a wake.
-      await settle(regB, sessionId)
-      await advanceUntil(() => pastesContaining(daemonB, 'survive-restart').length === 1, 'the restored row reached the PTY')
-      expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
-      // Typed by the NEW process, and still held by it: a row that crossed a
-      // restart is confirmed from the transcript like any other.
+      await vi.waitFor(() => expect(durableSends(daemonB, sessionId).length).toBeGreaterThan(0))
+      // The NEW process is handed the row the old one queued — that row, by its
+      // durable id, and nothing else.
+      expect(
+        durableSends(daemonB, sessionId).every(
+          (send) => send.rowId === row!.id && send.text === 'survive-restart',
+        ),
+      ).toBe(true)
+      // Custody is not delivery: still counted across the restart until the
+      // driver reports it delivered.
       expect(await queuedRows(regB, sessionId)).toHaveLength(1)
 
-      await confirmUserTurn(regB, sessionId, 'survive-restart')
-      await advanceUntilSettled(regB, sessionId, 'survive-restart')
-      expect(await regB.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
+      // The woken process was spawned before the restart; its generation is on
+      // that spawn.
+      await deliverRows(regB, [...daemonA, ...daemonB], sessionId, [row!.id])
+      await vi.waitFor(async () => expect(await queuedRows(regB, sessionId)).toEqual([]))
       expect(
         (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
           ?.queuedMessageCount,
       ).toBeUndefined()
-      // Exactly once across the restart — the row the old process queued was
-      // typed by the new one, not by both.
-      expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
+      expect(decodedInputs(daemonA)).toEqual([])
+      expect(decodedInputs(daemonB)).toEqual([])
       await regB.dispose()
       await storeB.close()
     } finally {
@@ -557,10 +610,9 @@ describe('queueText (durable outbox sends)', () => {
     }
   })
 
-  it('delivers two queued messages FIFO, spaced, each as its own input', async () => {
-    vi.useFakeTimers()
+  it('hands two queued messages on FIFO, each as its own durable send, the second only after custody of the first', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
@@ -573,83 +625,79 @@ describe('queueText (durable outbox sends)', () => {
       await reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(2)
 
-      // Silent TUI → the readiness window falls back to its ceiling and the head
-      // is typed. Stepped, not jumped: the old `advanceTimersByTime(6_400)` wrote
-      // down a constant POD-2836 is about to move.
-      await advanceToComposerReady(() => pastesContaining(daemon, 'first-msg').length)
-      expect(pastesContaining(daemon, 'first-msg')).toHaveLength(1)
-      // ...and the second is not fused onto the same tick. It cannot even be
-      // ATTEMPTED yet: the head is typed but unconfirmed, so both rows are still
-      // durable and still counted.
-      expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      const [first] = durableSends(daemon, sessionId)
+      expect(first).toMatchObject({ text: 'first-msg', deliveryRecovery: false })
+      // THE ORDERING IS CUSTODY, not a timer: the second row waits for the
+      // daemon to take the first, however long that takes.
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(durableSends(daemon, sessionId)).toHaveLength(1)
+
+      await grantCustody(reg, first!)
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(2))
+      const [, second] = durableSends(daemon, sessionId)
+      expect(second).toMatchObject({ text: 'second-msg', deliveryRecovery: false })
+      expect(second!.rowId).not.toBe(first!.rowId)
+      await grantCustody(reg, second!)
+      // Custody is not delivery: both are still the operator's.
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(2)
 
-      await confirmUserTurn(reg, sessionId, 'first-msg')
-      // Settle the head, and stop on the step that settles it — inside the
-      // spacing gap, which is the only place the gap can be observed.
-      await advanceUntilSettled(reg, sessionId, 'first-msg')
-      // THE SPACING IS PINNED HERE, and it takes the one-millisecond step to pin
-      // it: this fake clock does not run a timer scheduled DURING a tick until
-      // the next advance, so "the second has not gone out yet" is equally true
-      // of a zero spacing. A zero-spacing `deliverNext` has already landed by
-      // the +1ms mark; a spaced one has not.
-      expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
-      await vi.advanceTimersByTimeAsync(1)
-      expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
-      await advanceUntil(
-        () => pastesContaining(daemon, 'second-msg').length === 1,
-        'the second row reached the PTY',
-      )
-
-      // Both delivered, in enqueue order, as SEPARATE bracketed-paste inputs.
-      const pastes = decodedInputs(daemon).filter((t) => t.startsWith('\x1b[200~'))
-      expect(pastes).toEqual(['\x1b[200~first-msg\x1b[201~', '\x1b[200~second-msg\x1b[201~'])
+      await deliverRows(reg, daemon, sessionId, [first!.rowId, second!.rowId])
+      await vi.waitFor(async () => expect(await queuedRows(reg, sessionId)).toEqual([]))
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
-      expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+      // Each its own write, in enqueue order; nothing typed.
+      expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual([
+        'first-msg',
+        'second-msg',
+      ])
+      expect(decodedInputs(daemon)).toEqual([])
     } finally {
-      vi.useRealTimers()
+      await reg.dispose()
     }
   })
 
-  it('a failed drain (never live before the deadline) keeps the rows; the next bind delivers', async () => {
+  it('a row whose session never binds stays queued however long it waits; the bind re-hands it and its delivery event settles it', async () => {
     vi.useFakeTimers()
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      // No bind: the session sits in 'starting' past the 25s drain deadline.
+      await attachHostDaemon(reg, custodyGranting(reg, daemon))
+      // No bind: the session sits in 'starting' well past the 25 s drain
+      // deadline the old readiness window gave up at.
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
       await reg.modules.sessions.queueText({ sessionId, text: 'patient-msg' })
+      // A new session's row is handed on from admission (4bd403fed).
+      await vi.waitFor(() => expect(freshSends(daemon, sessionId)).toHaveLength(1))
+      const [write] = freshSends(daemon, sessionId)
 
       await vi.advanceTimersByTimeAsync(26_000)
-      expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(0)
-      // The attempt gave up but the ROWS REMAIN — nothing was dropped.
+      // Nothing gave up and nothing was dropped: the row is durable and counted.
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
       expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
 
-      // The PTY finally binds → a fresh attempt re-arms and types after settle.
+      // The PTY finally binds: the new owner gets the same row as a recovery.
+      const before = durableSends(daemon, sessionId).length
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await settle(reg, sessionId)
-      // `settle` above already ran the clock past the readiness window, so this
-      // steps zero times — it is here to state the dependency, not to wait.
-      await advanceUntil(
-        () => pastesContaining(daemon, 'patient-msg').length === 1,
-        'the queued row reached the PTY',
-      )
-      expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
-      // Typed once, and still held: the abandoned pass did not spend the row's
-      // one at-most-once attempt, and the new pass does not claim delivery
-      // until the transcript witnesses it.
-      expect(await queuedRows(reg, sessionId)).toHaveLength(1)
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(before))
+      expect(durableSends(daemon, sessionId).slice(before)).toEqual([
+        expect.objectContaining({
+          rowId: write!.rowId,
+          text: 'patient-msg',
+          deliveryRecovery: true,
+        }),
+      ])
 
-      await confirmUserTurn(reg, sessionId, 'patient-msg')
-      await advanceUntilSettled(reg, sessionId, 'patient-msg')
-      expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
-      expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+      await deliverRows(reg, daemon, sessionId, [write!.rowId])
+      await vi.waitFor(async () =>
+        expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([]),
+      )
+      expect(freshSends(daemon, sessionId)).toHaveLength(1)
+      expect(decodedInputs(daemon)).toEqual([])
     } finally {
+      await reg.dispose()
       vi.useRealTimers()
     }
   })
@@ -661,12 +709,15 @@ describe('queueText (durable outbox sends)', () => {
 
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))
+    // The current client's hello (a06b74998 moved the wire to
+    // CLIENT_WIRE_VERSION 3 with `sync.http.v1`; a version-2 hello is refused
+    // and never reaches `feedResume`).
     await reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
-      wireVersion: 2,
-      clientId: '',
+      wireVersion: CLIENT_WIRE_VERSION,
+      clientId,
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['metadataDelta'],
+      caps: ['sync.http.v1'],
     })
     await expect.poll(() => inbox.some((m) => m.type === 'feedResume')).toBe(true)
     const before = inbox.length
@@ -775,48 +826,52 @@ describe('framework idempotency (modules.mutations)', () => {
     expect(replay).toEqual(first)
   })
 
-  it('a replayed sendText types exactly one input frame (no double-type into the PTY)', async () => {
-    vi.useFakeTimers()
+  /**
+   * RE-PINNED ON THE CONTRACT (358ad0ffb POD-4427, POD-4279). A replay must
+   * never put a second copy in front of the agent. For an agent that means ONE
+   * durable row handed on as ONE write; a plain shell (POD-4278) still types,
+   * so there it means exactly one paste and one CR.
+   */
+  it('a replayed sendText writes exactly once (one durable send to an agent; one paste + CR into a shell)', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
+      await attachHostDaemon(reg, custodyGranting(reg, daemon))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      const { sessionId: shell } = await reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/w',
+      })
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...bind(shell),
+        cmd: 'bash',
+        agentKind: 'shell',
+      })
 
-      const send = async () =>
-        await reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', async () =>
-          (await reg.modules.sessions.sendText({ sessionId, text: 'only-once' })),
+      const send = async (id: string, target: SessionId) =>
+        await reg.modules.mutations.once(
+          asMutationId(id),
+          'sessions.sendText',
+          async () => await reg.modules.sessions.sendText({ sessionId: target, text: 'only-once' }),
         )
-      // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES (POD-2842): the send is
-      // accepted and HELD, not typed. `queued: true` is the caller's warning
-      // that the bytes are not on the wire yet — see the note above
-      // `describe('queueText (durable outbox sends)')` for why that is the
-      // contract, and why this file used to say the opposite on this very line.
-      expect(await send()).toEqual({ ok: true, queued: true })
-      expect(await send()).toEqual({ ok: true, queued: true }) // recorded result, fn not re-run
-      // Nothing is typed into a composer that has not proven it is mounted.
-      await vi.advanceTimersByTimeAsync(100)
-      expect(decodedInputs(daemon)).toEqual([])
+      expect(await send('send-1', sessionId)).toEqual({ ok: true, queued: true })
+      expect(await send('send-1', sessionId)).toEqual({ ok: true, queued: true }) // recorded result, fn not re-run
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      expect(await queuedRows(reg, sessionId)).toHaveLength(1)
+      // Give a second copy every chance to appear.
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(durableSends(daemon, sessionId).map((s) => s.text)).toEqual(['only-once'])
 
-      await advanceToComposerReady(() => pastesContaining(daemon, 'only-once').length)
-      // Flush the deferred submit CR. This file does not PIN that delay — with
-      // `SUBMIT_CR_DELAY_MS = 0` all 12 checks here stay green (measured,
-      // POD-2842). `expectSubmitStillDeferred` in `relay.test.ts` is what pins
-      // it; the assertion below is about how MANY frames, not about when.
-      await vi.advanceTimersByTimeAsync(200)
-
-      expect(pastesContaining(daemon, 'only-once')).toHaveLength(1)
-      // One paste + one CR — nothing else went to the PTY. THIS is the assertion
-      // the test is named for: a replay must not put a second copy in the
-      // composer, and the readiness queue moved WHEN it is typed, never how many
-      // times.
+      expect(await send('send-2', shell)).toEqual({ ok: true })
+      expect(await send('send-2', shell)).toEqual({ ok: true })
+      // One paste + one CR — nothing else went to the PTY.
       expect(decodedInputs(daemon)).toEqual(['\x1b[200~only-once\x1b[201~', '\r'])
     } finally {
-      vi.useRealTimers()
+      await reg.dispose()
     }
   })
 })
