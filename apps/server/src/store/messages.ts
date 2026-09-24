@@ -847,8 +847,18 @@ export class MessagesRepository {
    *  overwrite here erased that target the moment the agent opened its inbox —
    *  the row then read as "delivered to nobody" despite having been routed
    *  correctly and landed in a transcript. That erase is why the delivery ledger
-   *  could not be trusted to answer "did this reach anyone?". */
+   *  could not be trusted to answer "did this reach anyone?".
+   *
+   *  A peer's pull never advances the ledger [POD-4680]: when the row was pushed
+   *  to another session (`delivered_to` set, not the reader), the pull records
+   *  only the READER's receipt. Advancing would COALESCE-preserve the push
+   *  target while flipping status to `delivered`, so the ledger claims delivery
+   *  to a session that never read it and the pending predicate (which trusts
+   *  `delivered_to` for a non-queued row) clears that session's unread count.
+   *  Like the transcript-echo guard, confirm ONLY the push this reader answers:
+   *  unpushed (name the reader) or pushed to this reader. */
   async markDeliveredByPull(id: string, reader: string | null, deliveredAt: string): Promise<boolean> {
+    const brandedReader = reader ? asSessionId(reader) : null
     const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({
@@ -856,9 +866,18 @@ export class MessagesRepository {
         deliveredAt,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${reader})`,
       })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+      .where(and(
+        eq(messagesTable.id, id),
+        eq(messagesTable.status, 'queued'),
+        ...(brandedReader
+          ? [or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, brandedReader)) as SQL]
+          : [isNull(messagesTable.deliveredTo) as SQL]),
+      )).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     // The pull proves THIS reader has it, whoever the row was pushed to.
-    if (reader) await this.recordRead(id, asSessionId(reader), deliveredAt)
+    // Recorded even when the guarded UPDATE declines (a peer's pull of a row
+    // pushed to another session): the receipt is about THIS reader, not about
+    // who moved the shared delivery ledger.
+    if (brandedReader) await this.recordRead(id, brandedReader, deliveredAt)
     return r.changes === 1
   }
 
