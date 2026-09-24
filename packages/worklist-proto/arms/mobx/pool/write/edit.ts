@@ -138,9 +138,14 @@ export function createMobxWriteApi(
     const display = displayOf(log, kind, id)
     if (display === undefined) {
       if (overlays.has(key)) overlays.delete(key)
-    } else {
-      overlays.set(key, display)
+      return
     }
+    // Skip an equal write (W4): a remote on a pending field recomputes the
+    // same display, which must not notify (no commit) — structural equality
+    // downstream would stop it anyway, but skipping avoids the derivation.
+    const current = overlays.get(key)
+    if (current !== undefined && JSON.stringify(current) === JSON.stringify(display)) return
+    overlays.set(key, display)
   }
 
   const overlayOf = (id: string): IssueOverlay | undefined => overlays.get(overlayKey('issue', id))
@@ -209,21 +214,24 @@ export function createMobxWriteApi(
     log,
 
     edit(kind, id, patch) {
+      // Validates before any state changes (W1.1); reads no pool state.
       const command = commandFor(kind, id, patch)
-      const server = ensureResident(kind, id)
-      const shown = currentDisplay(id, server)
-      const prior: Record<string, unknown> = {}
-      for (const field of Object.keys(patch as Record<string, unknown>)) {
-        prior[field] = (shown as Record<string, unknown>)[field] ?? null
-        if (field === 'readAt' && prior[field] === null) prior[field] = null
-      }
-      // readAt's prior is the displayed value (null when never read); title
-      // and stage are always strings on a server row.
       const txId = asMutationId(crypto.randomUUID())
+      // One action (W1.5): materialise, capture prior from the current
+      // display (older pending or server, W1.3), append, and paint. Reading
+      // the borrowed rows here matches the pool's own ingest, which reads its
+      // fenced tables inside its action.
       runInAction(() => {
+        const server = ensureResident(kind, id)
+        const shown = currentDisplay(id, server)
+        const prior: Record<string, unknown> = {}
+        for (const field of Object.keys(patch as Record<string, unknown>)) {
+          prior[field] = (shown as Record<string, unknown>)[field] ?? null
+        }
         log.append({ txId, kind, id, patch, prior } as never, undefined)
         refreshOverlay(kind, id)
       })
+      // Fire-and-forget (W1.6): the paint does not wait for the queue.
       transport.send(txId, command)
       return txId
     },

@@ -14,14 +14,20 @@
  * stays `overlaid` with the layer idle (see `gate-with-edits.test.ts`).
  */
 
+import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
-import { rowViewsFromStore, snapshotFromStore } from '../../../../harness/src/oracle/index'
-import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
+import { snapshotFromStore } from '../../../../harness/src/oracle/index'
+import type { CheckableArm } from '../../../../shared/src/arm'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
-import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
+import type {
+  EditableStage,
+  KernelCommand,
+  TxId,
+  WriteTransport,
+} from '../../../../shared/src/write-contract'
 import { commandFor } from '../../../../shared/src/write-contract'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { diffRelations, knownTables } from '../enumerate'
@@ -102,7 +108,7 @@ describe('Mc1 MobX edits on the model', () => {
       const handle = mounted.handle as MobxPoolHandle & { write?: MobxWriteApi }
       const write = arm.writeOf(handle)
       const id = ctx.targets.visibleRootId
-      const before = (handle.pool.inputs.issue(id) as SliceIssue)?.title
+      const before = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
       expect(before).toBeDefined()
 
       const edited = await runCountScenario(mounted, {
@@ -113,7 +119,9 @@ describe('Mc1 MobX edits on the model', () => {
         },
         expected: () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
       })
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe('Renamed visible row')
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(
+        'Renamed visible row',
+      )
       expect(transport.sent).toHaveLength(1)
       expect(transport.sent[0]!.command).toEqual(commandFor('issue', id, { title: 'Renamed visible row' }))
       expect(transport.sent[0]!.command.kind).toBe('issueUpdate')
@@ -142,7 +150,7 @@ describe('Mc1 MobX edits on the model', () => {
       const handle = mounted.handle as MobxPoolHandle
       const write = arm.writeOf(handle)
       const id = ctx.targets.visibleRootId
-      const priorTitle = (handle.pool.inputs.issue(id) as SliceIssue)?.title
+      const priorTitle = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
       const errors: { txId: TxId; message: string }[] = []
       write.onRejected((rejection) => {
         errors.push({ txId: rejection.txId, message: rejection.error.message })
@@ -158,7 +166,9 @@ describe('Mc1 MobX edits on the model', () => {
         expected: () => mounted.handle.snapshot(),
       })
       expect(tx).not.toBeNull()
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe('Rejected title')
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(
+        'Rejected title',
+      )
 
       const rewound = await runCountScenario(mounted, {
         scenario: 'mobxOptimisticRenameRejected',
@@ -168,7 +178,7 @@ describe('Mc1 MobX edits on the model', () => {
         },
         expected: () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
       })
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe(priorTitle)
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(priorTitle)
       expect(rewound.rowsCommitted).toBe(1)
       expect(rewound.commitsByRow).toEqual({ [id]: 1 })
       expect(rewound.parity).toBe(true)
@@ -192,8 +202,10 @@ describe('Mc1 MobX edits on the model', () => {
       const handle = mounted.handle as MobxPoolHandle
       const write = arm.writeOf(handle)
       const id = ctx.targets.visibleRootId
-      const serverStage = (handle.pool.inputs.issue(id) as SliceIssue)?.stage as string
-      const nextStage = serverStage === 'review' ? 'in_progress' : 'review'
+      const serverStage = tracked(
+        () => (handle.pool.inputs.issue(id) as SliceIssue)?.stage as string,
+      )
+      const nextStage = (serverStage === 'review' ? 'in_progress' : 'review') as EditableStage
 
       const orderOf = (): string[] => Object.keys(mounted.handle.snapshot().rowsById).sort()
       const oracleOrderOf = (): string[] =>
@@ -205,15 +217,20 @@ describe('Mc1 MobX edits on the model', () => {
       expect(orderBefore).toEqual(oracleOrderOf())
       expect(relationsOf()).toEqual([])
 
-      const tx = write.edit('issue', id, { stage: nextStage as 'review' })
+      let tx: TxId = '' as TxId
+      act(() => {
+        tx = write.edit('issue', id, { stage: nextStage })
+      })
       expect(transport.sent[0]!.command.kind).toBe('issueUpdate')
       // The edit is optimism only: the server oracle is unchanged, and the
       // pool's relations still resolve from scratch.
       expect(orderOf()).toEqual(oracleOrderOf())
       expect(relationsOf()).toEqual([])
 
-      write.reject({ txId: tx, error: { message: 'refused (CONFLICT)', parked: false } })
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.stage).toBe(serverStage)
+      act(() => {
+        write.reject({ txId: tx, error: { message: 'refused (CONFLICT)', parked: false } })
+      })
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.stage)).toBe(serverStage)
       // Rewound re-sorts back: the visible order is the oracle's again and no
       // relation diverges from its scan.
       expect(orderOf()).toEqual(oracleOrderOf())
@@ -236,19 +253,25 @@ describe('Mc1 MobX edits on the model', () => {
     try {
       const handle = mounted.handle as MobxPoolHandle
       const write = arm.writeOf(handle)
-      // An unread visible row: the mark-read paints a stamp, the rewind clears it.
-      const views = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
-      const id = ctx.targets.markReadId
-      expect(views[id]).toBeDefined()
+      // The visible root: the mark-read paints a stamp, the rewind restores
+      // whatever the server holds (null or an older stamp).
+      const id = ctx.targets.visibleRootId
 
       const stamp = new Date(ctx.engine.getSnapshot().coarseNow).toISOString()
-      const tx = write.edit('issue', id, { readAt: stamp })
+      let tx: TxId = '' as TxId
+      act(() => {
+        tx = write.edit('issue', id, { readAt: stamp })
+      })
       expect(transport.sent[0]!.command.kind).toBe('issueMarkRead')
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.readAt).toBe(stamp)
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.readAt)).toBe(stamp)
 
-      write.reject({ txId: tx, error: { message: 'discarded', parked: false } })
-      const after = (handle.pool.inputs.issue(id) as SliceIssue)?.readAt ?? null
-      const server = (handle.pool.tables.issue.get(id) as SliceIssue | undefined)?.readAt ?? null
+      act(() => {
+        write.reject({ txId: tx, error: { message: 'discarded', parked: false } })
+      })
+      const after = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.readAt ?? null)
+      const server = tracked(
+        () => (handle.pool.tables.issue.get(id) as SliceIssue | undefined)?.readAt ?? null,
+      )
       expect(after).toBe(server)
       expect(write.log.size).toBe(0)
     } finally {
@@ -268,14 +291,28 @@ describe('Mc1 MobX edits on the model', () => {
       const handle = mounted.handle as MobxPoolHandle
       const write = arm.writeOf(handle)
       const id = ctx.targets.visibleRootId
-      const prior = (handle.pool.inputs.issue(id) as SliceIssue)?.title
-      const t1 = write.edit('issue', id, { title: 'First pending' })
-      const t2 = write.edit('issue', id, { title: 'Second pending' })
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe('Second pending')
-      write.reject({ txId: t2, error: { message: 'refused', parked: true } })
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe('First pending')
-      write.reject({ txId: t1, error: { message: 'refused', parked: true } })
-      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe(prior)
+      const prior = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
+      let t1: TxId = '' as TxId
+      let t2: TxId = '' as TxId
+      act(() => {
+        t1 = write.edit('issue', id, { title: 'First pending' })
+      })
+      act(() => {
+        t2 = write.edit('issue', id, { title: 'Second pending' })
+      })
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(
+        'Second pending',
+      )
+      act(() => {
+        write.reject({ txId: t2, error: { message: 'refused', parked: true } })
+      })
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(
+        'First pending',
+      )
+      act(() => {
+        write.reject({ txId: t1, error: { message: 'refused', parked: true } })
+      })
+      expect(tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)).toBe(prior)
       expect(write.log.size).toBe(0)
     } finally {
       mounted.unmount()
