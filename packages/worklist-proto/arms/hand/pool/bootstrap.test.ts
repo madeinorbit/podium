@@ -153,6 +153,7 @@ function quantile(sorted: readonly number[], q: number): number {
 describe('bootstrap in the count harness', () => {
   it('counts at 1x and 4x (and walls when asked)', () => {
     const cells = []
+    const perKnown: number[] = []
     for (const scale of SCALES) {
       const feed = feedOf(scale)
       const lazy = counted('lazy', feed)
@@ -200,12 +201,17 @@ describe('bootstrap in the count harness', () => {
       }
       // The same rule over the same rows builds the same collection either way.
       expect(lazy.liveCells.visible).toBe(all.liveCells.visible)
+      // Every row resident, the rule reaches every known issue once: one part
+      // set per issue, MobX's IssueNode count (Mb1: 4,867 / 19,468). Lazily,
+      // only the sets a resident row's rule asked for (1x: 3,240).
+      expect(all.liveCells.issuePartSets).toBe(all.rows['issue'])
+      expect(lazy.liveCells.issuePartSets).toBeLessThan(all.liveCells.issuePartSets)
+      perKnown.push(lazy.liveCells.live / all.rows['issue']!)
       expect(lazy.records).toBe(0)
       expect(lazy.tableSlots).toBeLessThan(all.tableSlots)
       // First read: cells for resident rows only.
       expect(lazy.firstRead.issueCellSets).toBe(lazy.rows['issue'])
       expect(lazy.firstRead.cells).toBeLessThan(all.firstRead.cells)
-      console.info(`[hand-boot] ${scale}x ${JSON.stringify({ lazy: lazy.liveCells, all: all.liveCells, rows: lazy.rows, cold: lazy.cold })}`)
       const cell: Record<string, unknown> = { scale, counts: { lazy, allResident: all } }
       if (WALLS) {
         const samples: Record<Arm, number[]> = { lazy: [], allResident: [] }
@@ -246,6 +252,10 @@ describe('bootstrap in the count harness', () => {
       }
       cells.push(cell)
     }
+    // Cells grow with the known rows, not faster: live cells per known issue
+    // at 4x within 10% of 1x (7.23 at 1x and 7.20 at 4x; a per-row walk or a
+    // per-pair cell would break it).
+    expect(perKnown[1]!).toBeLessThanOrEqual(perKnown[0]! * 1.1)
     writeResult(WALLS ? 'hand-pool-bootstrap-walls' : 'hand-pool-bootstrap-counts', { cells })
   }, 600_000)
 })
