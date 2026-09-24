@@ -362,9 +362,16 @@ describe('the loader', () => {
     r.reads.reset()
     r.fire()
     const stats = r.reads.stats()
-    expect(stats.rows).toBe(1)
-    expect(stats.byEntity).toEqual({ issue: 1 })
-    expect(stats.sample).toEqual([`issue:${closed.id}`])
+    // The load reads the row once. Since POD-4571 the row's worklist node
+    // files it under its declared `issue.parent` (the progress roll-up's
+    // children): the load moves that slot into the observable map, so the
+    // filing re-reads it once, which counts the parent (`one()` reads its
+    // target). A parentless row reads the row alone.
+    const parent = tracked(() => pool.relations.one('issue', closed.id, 'parent'))
+    const expected = [`issue:${closed.id}`, ...(parent === null ? [] : [`issue:${parent}`])]
+    expect(stats.rows).toBe(expected.length)
+    expect(stats.byEntity).toEqual({ issue: expected.length })
+    expect([...stats.sample].sort()).toEqual(expected.sort())
   })
 
   it('closes the window on its own with the real timer', async () => {
