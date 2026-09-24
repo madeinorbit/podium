@@ -1,4 +1,5 @@
 import { asSessionId, asThreadId, firstAdminMemberId, type TranscriptItem } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import {
   buildBtwDelta,
@@ -348,6 +349,29 @@ describe('matchAnswerToOptions', () => {
 
 // Session-steering belt (issue #62) — a real in-memory registry driven through
 // callMcpTool, with a daemon fake that records inputs and answers transcript reads.
+/**
+ * WHAT THE TOOL BELT HANDS ON (POD-4279, POD-4292).
+ *
+ * `answer_question` and `continue_session` used to be pinned by the keystrokes
+ * the server typed into the agent's PTY: the option digit, the multi-select
+ * digits paced one at a time then Tab and the confirming CR, and a raw
+ * `continue\r`. The server no longer types into an agent session:
+ *  - an answer goes to the driver under the AUTHORITATIVE interaction id
+ *    (526bac498 POD-4292, 04b056a50 POD-4279): the options come from the open
+ *    interaction row, not the transcript tail, and the choice leaves as ONE
+ *    `runtimeAnswerRequest`. The key script (digits, Tab, CR, Esc) is the
+ *    terminal driver's `menuScriptFor`, pinned end to end in
+ *    store/terminal-answer-contract.test.ts;
+ *  - continue rides the receipt seam as a contract send of `continue` with the
+ *    `auto_continue` origin (6fb9727bd, d43ac0682 POD-4279); only a plain shell
+ *    keeps the raw keystroke.
+ * What stays the tool belt's own is pinned unchanged: the live-menu gate, label
+ * matching, the single-select truncation note, the unmatched-answer report with
+ * the option list, and "no bytes on a refusal".
+ */
+type AnswerRequest = Extract<ControlMessage, { type: 'runtimeAnswerRequest' }>
+type ContractSend = Extract<ControlMessage, { type: 'runtimeSendRequest' | 'runtimeDurableSendRequest' }>
+
 describe('session-steering tool belt (issue #62)', () => {
   const st = (phase: string, extra?: object) =>
     ({ phase, since: 't', nativeSubagentCount: 0, ...extra }) as never
@@ -358,8 +382,25 @@ describe('session-steering tool belt (issue #62)', () => {
   async function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const inputs: string[] = []
+    const answers: AnswerRequest[] = []
+    const sends: ContractSend[] = []
+    const spawns = new Map<string, number | undefined>()
     await attachHostDaemon(registry, (m) => {
       if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())
+      if (m.type === 'spawn') spawns.set(m.sessionId, m.observationGeneration)
+      if (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') sends.push(m)
+      // The driver applies the answer and says so, as a real daemon does.
+      if (m.type === 'runtimeAnswerRequest') {
+        answers.push(m)
+        queueMicrotask(() =>
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+            type: 'runtimeAnswerResult',
+            requestId: m.requestId,
+            sessionId: m.sessionId,
+            outcome: { ok: true },
+          }),
+        )
+      }
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
           registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
@@ -419,9 +460,58 @@ describe('session-steering tool belt (issue #62)', () => {
       return await sa.callMcpTool('answer_question', input, threadId)
     }
 
+    /**
+     * The terminal driver's ask, as it reaches the server: an `interaction`
+     * runtime event carrying the driver's own id, fenced by the spawn's
+     * observation generation. This is what opens the authoritative row
+     * `answer_question` answers against.
+     */
+    const ask = async (sessionId: string, multiSelect = false, id = 'ask-1') => {
+      const observerGeneration = spawns.get(sessionId)
+      if (observerGeneration === undefined) throw new Error('spawn was not fenced')
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: `ask-${id}`,
+        sessionId: asSessionId(sessionId),
+        event: {
+          t: 'interaction',
+          ev: {
+            ev: 'asked',
+            interaction: {
+              id,
+              sessionId: asSessionId(sessionId),
+              kind: 'question',
+              payload: {
+                v: 1,
+                questions: [
+                  {
+                    question: 'Deploy now?',
+                    multiSelect,
+                    previewLayout: false,
+                    options: [{ label: 'Yes' }, { label: 'No' }, { label: 'Later' }],
+                  },
+                ],
+              },
+              askedAt: '2026-01-01T00:00:00.000Z',
+              source: 'screen-classifier',
+              answerable: 'keystroke-emulated',
+            },
+          },
+          at: '2026-01-01T00:00:00.000Z',
+          provenance: 'live',
+          cursor: { segmentId: `ask-${sessionId}`, components: { seq: 1 } },
+          observerGeneration,
+          turnEpoch: 0,
+        },
+      })
+      await vi.waitFor(async () =>
+        expect(await registry.modules.sessions.pendingQuestion?.(asSessionId(sessionId))).toMatchObject({ id }),
+      )
+    }
+
     const metaOf = async (id: string) =>
       (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
-    return { registry, sa, inputs, spawn, answer, metaOf }
+    return { registry, sa, inputs, answers, sends, spawn, ask, answer, metaOf }
   }
 
   const askItem = (multiSelect = false): TranscriptItem =>
@@ -447,27 +537,42 @@ describe('session-steering tool belt (issue #62)', () => {
       state: pendingQuestion,
     })
 
-  it('answer_question matches a label and types the option digit into the menu', async () => {
-    const h = await harness({ transcriptItems: [askItem()] })
+  it('answer_question matches a label and hands the driver that option under the interaction id', async () => {
+    const h = await harness()
     const sessionId = await h.spawn(true)
-    markPending(h, sessionId)
+    await markPending(h, sessionId)
+    await h.ask(sessionId)
     const out = await h.answer({ sessionId, answer: 'No' })
     expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [2] }] })
-    expect(h.inputs).toContain('2')
+    expect(h.answers).toHaveLength(1)
+    expect(h.answers[0]).toMatchObject({
+      sessionId,
+      interactionId: 'ask-1',
+      answer: { kind: 'question', selections: [{ optionIndices: [2] }] },
+    })
+    // The driver owns the menu keys; the server types nothing.
+    expect(h.inputs).toEqual([])
   })
 
-  it('answer_question types multi-select numbers one at a time, then Tab and the confirm CR, deduped', async () => {
-    const h = await harness({ transcriptItems: [askItem(true)] })
+  it('answer_question hands a multi-select answer on as one deduped selection', async () => {
+    const h = await harness()
     const sessionId = await h.spawn(true)
-    markPending(h, sessionId)
+    await markPending(h, sessionId)
+    await h.ask(sessionId, true)
     const out = await h.answer({ sessionId, answer: '1,3,3' })
     expect(JSON.parse(out)).toEqual({
       answered: true,
       choices: [{ optionIndices: [1, 3], multiSelect: true }],
     })
-    // The script outlives the call: the digits and their closing keys are paced
-    // apart because the CLI folds a multi-character write into one dead key.
-    await vi.waitFor(() => expect(h.inputs).toEqual(['1', '3', '\t', '\r']))
+    // One answer, both picks, the repeat folded. The paced digits and the Tab
+    // and confirming CR they need are the driver's menu script now
+    // (store/terminal-answer-contract.test.ts pins `1`, `2`, Tab, CR).
+    expect(h.answers).toHaveLength(1)
+    expect(h.answers[0]).toMatchObject({
+      interactionId: 'ask-1',
+      answer: { kind: 'question', selections: [{ optionIndices: [1, 3] }] },
+    })
+    expect(h.inputs).toEqual([])
   })
 
   it('answer_question refuses when no question is pending (stale menu in the tail)', async () => {
@@ -493,16 +598,21 @@ describe('session-steering tool belt (issue #62)', () => {
   })
 
   it('answer_question notes single-select truncation instead of silently dropping picks', async () => {
-    const h = await harness({ transcriptItems: [askItem(false)] })
+    const h = await harness()
     const sessionId = await h.spawn(true)
-    markPending(h, sessionId)
+    await markPending(h, sessionId)
+    await h.ask(sessionId, false)
     const out = JSON.parse(await h.answer({ sessionId, answer: '1,3' }))
     expect(out).toEqual({
       answered: true,
       choices: [{ optionIndices: [1] }],
       note: 'single-select — used first of 1,3',
     })
-    expect(h.inputs).toContain('1')
+    // Only the first pick reaches the driver.
+    expect(h.answers.map((a) => a.answer)).toEqual([
+      { kind: 'question', selections: [{ optionIndices: [1] }] },
+    ])
+    expect(h.inputs).toEqual([])
   })
 
   it('answer_question rejects option indices beyond the native menu 1-9 range', async () => {
@@ -528,19 +638,27 @@ describe('session-steering tool belt (issue #62)', () => {
   })
 
   it('answer_question reports unmatched answers with the option list, and missing prompts', async () => {
-    const h = await harness({ transcriptItems: [askItem()] })
+    const h = await harness()
     const sessionId = await h.spawn(true)
-    markPending(h, sessionId)
+    await markPending(h, sessionId)
+    await h.ask(sessionId)
     expect(await h.answer({ sessionId, answer: 'maybe' })).toMatch(
       /could not match "maybe".*1\) Yes, 2\) No, 3\) Later/,
     )
-    // Phase says pending but the tail has no structured prompt to answer from.
+    expect(h.answers).toEqual([])
+    // Phase says pending but there is no structured prompt to answer from. The
+    // options no longer come from the transcript tail (526bac498): the classifier
+    // state alone opens the aggregate's own OPTIONLESS question row, and the belt
+    // refuses against it with the (empty) option list — the refusal, and "no
+    // bytes, no answer", are what the old "no pending AskUserQuestion" pinned.
     const empty = await harness()
     const s2 = await empty.spawn(true)
-    markPending(empty, s2)
-    expect(await empty.answer({ sessionId: s2, answer: 'Yes' })).toMatch(
-      /no pending AskUserQuestion/,
+    await markPending(empty, s2)
+    expect(await empty.answer({ sessionId: s2, answer: 'Yes' })).toBe(
+      'could not match "Yes" to the options: ',
     )
+    expect(empty.answers).toEqual([])
+    expect(empty.inputs).toEqual([])
   })
 
   it('answer_question rejects an unknown session', async () => {
@@ -573,7 +691,7 @@ describe('session-steering tool belt (issue #62)', () => {
     ).toBe('failed: unknown session')
   })
 
-  it("continue_session types 'continue' into an errored live session only", async () => {
+  it("continue_session sends 'continue' through the contract to an errored live session only", async () => {
     const h = await harness()
     const sessionId = await h.spawn(true)
     h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
@@ -582,7 +700,11 @@ describe('session-steering tool belt (issue #62)', () => {
       state: st('errored'),
     })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
-    expect(h.inputs).toContain('continue\r')
+    // One contract send of the retry text, stamped as an auto-continue — and no
+    // PTY bytes (d43ac0682: only a plain shell keeps the raw keystroke).
+    await vi.waitFor(() => expect(h.sends).toHaveLength(1))
+    expect(h.sends[0]).toMatchObject({ sessionId, text: 'continue', origin: 'auto_continue' })
+    expect(h.inputs).toEqual([])
     // Not errored anymore → refused, with the gate surfaced.
     h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
