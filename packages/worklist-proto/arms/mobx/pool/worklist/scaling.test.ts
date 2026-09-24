@@ -189,9 +189,10 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         expect(lane, 'the moved row is in a closed fold').not.toBeNull()
         expect(groupElements, 'lane members re-sorted').toBe(lane!.open + lane!.closed)
         // The plant touches the whole visible order, failing the same count.
+        const order = tracked(() => [...pool.worklist.order])
         const placed = tracked(() => {
           let touched = 0
-          layoutOf(tracked(() => [...pool.worklist.order]), (id) => {
+          layoutOf(order, (id) => {
             touched += 1
             return pool.worklist.issue(id)?.placement
           })
