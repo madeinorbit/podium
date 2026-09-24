@@ -97,7 +97,10 @@ function usageLimitMenuModel(visibleLines: readonly string[]): string | undefine
  * reset time Codex printed, so the card says what is waiting — the error line
  * and the reset time — without opening the terminal.
  */
-function usageLimitInterview(model: string, resetsAt: string | undefined): AgentStateEvent & { interview: NonNullable<Extract<AgentStateEvent, { kind: 'needs_user' }>['interview']> } {
+function usageLimitInterview(
+  model: string,
+  resetsAt: string | undefined,
+): Extract<AgentStateEvent, { kind: 'needs_user' }> {
   const question = resetsAt
     ? `You’ve hit your usage limit (try again at ${resetsAt}). Switch to ${model} for lower credit usage?`
     : `Switch to ${model} for lower credit usage?`
