@@ -917,7 +917,7 @@ export class RollupCollection {
     return this.formalBy.get(id) ?? EMPTY_SET
   }
 
-  /** A known issue's parts; undefined otherwise. */
+  /** A known issue's parts; undefined otherwise. Public for tests. */
   node(id: string): RollupSelf | undefined {
     if (!this.host.knownIssue(id)) return undefined
     let held = this.issues.get(id)
@@ -974,6 +974,26 @@ export class RollupCollection {
   /** A known issue's roll-up fields; undefined otherwise. */
   rollupViewOf(id: string): Rollup | undefined {
     return this.node(id)?.rollup
+  }
+
+  /** A known issue's own attention part; undefined otherwise (tests). */
+  ownAttentionOf(id: string): OwnAttention | undefined {
+    return this.node(id)?.ownAttention
+  }
+
+  /** A known issue's own progress contribution; undefined otherwise (tests). */
+  unitOwnOf(id: string): UnitOwn | undefined {
+    return this.node(id)?.unitOwn
+  }
+
+  /** Whether an explicit session of the issue is on the task (tests). */
+  openOwnOf(id: string): boolean | undefined {
+    return this.node(id)?.openOwn
+  }
+
+  /** A known issue's spin-off tip verdict; undefined otherwise (tests). */
+  tipOf(id: string): { readonly found: boolean; readonly pending: number } | undefined {
+    return this.node(id)?.tip
   }
 
   /** Whether anything in the issue's subtree waits on the human. */
