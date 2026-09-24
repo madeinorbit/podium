@@ -111,30 +111,26 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
 }
 
 /**
- * Every row a lazy pool KNOWS, in plain tables (POD-4567): for an entity that
- * can be cold, the feed's current rows (cold ones included, which the engine
- * links by id though the pool's tables never hold them); for one that is
- * never cold, the pool's own table, as Ma2's check read it. The reason Ma2
- * gave (the feed never announced discovery-only lanes) closed with POD-4606
- * (ca53a62d5): the feed's `snapshot('worktree')` is now the stronger input,
- * one that does not lean on the pool. Kept here because POD-4568's gate of
- * record ran on this input; the switch rides with Mb4 (POD-4572), which
- * re-runs the gate. What a relation check holds a lazy pool's engine to.
+ * Every row a lazy pool KNOWS, in plain tables (POD-4567), read from the FEED
+ * alone: its issues and sessions (cold ones included, which the engine links
+ * by id though the pool's tables never hold them) and its worktree records,
+ * which give the lanes and the repos exactly as the pool's own ingest does
+ * (`tables.ts` `ingestWorktree`). Until POD-4572 (Mb4) the never-cold
+ * entities came from the pool's own tables, as Ma2's check read them; the
+ * reason Ma2 gave (the feed never announced discovery-only lanes) closed with
+ * POD-4606 (ca53a62d5), so the relation check no longer leans on the state it
+ * checks. `pool` is kept for the callers' signature. What a relation check
+ * holds a lazy pool's engine to.
  */
 export function knownTables(
-  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
+  _pool: { readonly tables: PoolTables; readonly residency: Residency | null },
   source: RowSource,
 ): TableSet<Map<string, StoredRow>> {
   const tables = createPlainTables()
   const target: IngestTarget = { read: tables, write: tables }
   const out = ingestOut()
-  for (const kind of ['session', 'issue'] as const) {
-    if (pool.residency?.capable(kind) !== true) continue
+  for (const kind of ['session', 'issue', 'worktree'] as const) {
     for (const record of source.snapshot(kind)) ingestRecord(target, record, out)
-  }
-  for (const entity of ENTITIES) {
-    if (pool.residency?.capable(entity) === true) continue
-    for (const [id, row] of pool.tables[entity]) tables[entity].set(id, row)
   }
   return tables
 }
