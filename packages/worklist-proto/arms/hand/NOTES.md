@@ -1,5 +1,39 @@
 # arms/hand — notes
 
+## Round three: b1 send-back cleared, rebased on POD-4674 (POD-4582) · 2026-09-24
+
+Resumed on opencode (tip 9ddd9c070). Rebased onto `integrate/4545-round-three`
+at cb6f54d76 (POD-4674: both L4b gates compare whole row views; clean rebase,
+no conflicts beyond the replay) and ran `bun install` in a subshell
+(no changes: 1625 installs checked).
+
+1. **Bootstrap test** (`pool/bootstrap.test.ts`, restated to the visible-cell
+   design by the previous session): green on the rebased tip, at 1x and 4x,
+   in the focused run and in the whole-suite run below.
+2. **H3 full-view probe** (`harness/review/h3-gate-plants.test.ts` `clean`):
+   green on the rebased tip — it runs inside the whole-suite run below
+   (5 seeds x 300 steps with the full-view check).
+3. **Draft-title rule** (POD-4572 mail): the legacy names a draft after
+   `sessionsForIssueNav(...)[0]`, which skips shells, archived and headless
+   sessions. The predicate now lives ONCE in `shared/src/row-view.ts`
+   (`isDraftNameSession`, beside `isRowSeat`); MobX's `firstMemberOf`
+   (`arms/mobx/pool/views.ts`) imports it instead of its inline copy, and the
+   hand `displayTitle` part (`arms/hand/pool/views.ts`) filters its sorted
+   `sessionIds` through it (headless cannot occur in `issue.sessions` — the
+   schema drops it — but the predicate holds all three). Tests:
+   `arms/mobx/pool/worklist/draft-title.test.tsx` (unchanged, green) and the
+   new hand mirror `arms/hand/pool/worklist/draft-title.test.tsx` (every
+   visible 4x draft title equals the oracle's, with a shell-first case
+   asserted present). Emailed POD-4573 (Mc1) on landing per the ruling.
+
+Evidence (foreground, through the package config with admission):
+- Focused (`pod-4582-draft-title-bootstrap`): hand + MobX draft-title,
+  hand bootstrap — 3 files / 3 tests green, 294 s.
+- `bun run typecheck -- --filter @podium/worklist-proto`: 8/8 green.
+- WHOLE suite (`pod-4582-whole-suite`, package config, foreground):
+  90 passed / 5 skipped files, 889 passed / 19 expected-fail / 7 skipped
+  tests, 10,512 s under load ~28 (counts and pass/fail only, no walls).
+
 ## Round three: b1 SENT BACK and fixed (POD-4582) · 2026-09-24
 
 The coordinator's verification at 5cc8af7b9 found two reds on the
