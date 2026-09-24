@@ -213,14 +213,20 @@ const registryKept: CheckableArm = {
   },
 }
 
-/** The view plant: each member's activity is cached in a plain `Map` after its first read. */
+/**
+ * The view plant: each member's activity is cached in a plain `Map` after its
+ * first read, on EVERY path that reads it — the own-row half, the subtree
+ * half and the unread rollup all read the per-session cell. Caching fewer
+ * paths is masked by the rest: the view is their max, and a live seat's
+ * stamp reaches it through more than one (as Mb3's gate found: one path
+ * alone cached passed a seed).
+ */
 const activityCached: CheckableArm = {
   create(source, locals, reads) {
     const handle = handPoolArm.create(source, locals, reads)
-    const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
-    const read = inputs.sessionActivity
+    const read = handle.pool.sessionActivity.bind(handle.pool)
     const cache = new Map<string, number | null>()
-    inputs.sessionActivity = (id) => {
+    handle.pool.sessionActivity = (id) => {
       if (!cache.has(id)) cache.set(id, read(id))
       return cache.get(id) as number | null
     }
