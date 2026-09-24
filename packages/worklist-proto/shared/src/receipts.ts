@@ -156,8 +156,11 @@ export function subscribeReceipts(
  * queue entry's own `baseline` (the replica row fingerprinted at enqueue). The
  * kernel queue keeps it in memory only, so an entry restored by a reload has
  * none, and neither does one enqueued before its row was known.
+ *
+ * Exported for the phase-c gate adapter (`gen/arm-edits.ts`), which rebuilds
+ * `OutboxPendingWrite`s for a re-created arm after a reload (POD-4574).
  */
-function baseOf(entry: OutboxEntry): FieldValues<'issue'> | undefined {
+export function baseOf(entry: OutboxEntry): FieldValues<'issue'> | undefined {
   if (entry.baseline === undefined) return undefined
   let row: Record<string, unknown>
   try {

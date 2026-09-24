@@ -286,6 +286,8 @@ describe('Mc2 MobX receipts and remote updates', () => {
       expect(dup.commitsByRow).toEqual({})
       expect(titleOf(handle, id)).toBe('Duplicate receipt title')
       expect(write.log.size).toBe(0)
+      // A receipt never re-sends: the kernel dedupes by mutation id itself.
+      expect(transport.sent).toHaveLength(1)
 
       // A late rejection for a settled transaction is a no-op too.
       const late = await runCountScenario(mounted, {

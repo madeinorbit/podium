@@ -45,6 +45,8 @@ import {
 } from '../scenarios'
 import type { RowSourceEvent } from '../stats'
 import type { FixtureCorpus } from '../../../harness/src/fixture/index'
+import type { TxId } from '../write-contract'
+import type { ArmEditPatch } from './arm-edits'
 import { type Change, genCorpus, ROW_KINDS, type RowChange } from './changes'
 
 // --------------------------------------------------------------------- server
@@ -162,6 +164,18 @@ export interface GenRunOptions {
   feed?: (ctx: ScenarioEngine) => RowSourceHandle
   /** Called after every step settled, before the next (the L4b checker). */
   onStep?: (step: StepResult, run: GenRun) => void | Promise<void>
+  /**
+   * POD-4574 (Mc2) — route generated edits through a phase-c arm's write API
+   * instead of the runtime actions, so the arm (not the kernel) owns the
+   * optimism the gate compares with the overlaid oracle. Called with the
+   * generated patch (a mark-read press carries a stamp the arm displays; the
+   * kernel stamps its own independently and the slice never compares the
+   * two); returns the arm's txId, recorded on the step as `detail.armTxId`
+   * (`detail.armTxIds` for a supersede pair) beside the kernel `mutationId`
+   * claimed from the outbox as today. A throw skips the change. Absent: edits
+   * go through the runtime actions, as before.
+   */
+  editViaArm?: (id: string, patch: ArmEditPatch) => TxId
 }
 
 export interface GenRun {
@@ -436,7 +450,19 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
         const actions = ctx.engine.getSnapshot()
         const field = 'title' in c.patch ? 'title' : 'stage' in c.patch ? 'stage' : 'readAt'
-        if ('readAt' in c.patch) void actions.markIssueRead(c.id)
+        if (opts.editViaArm) {
+          const armPatch: ArmEditPatch =
+            'title' in c.patch
+              ? { title: c.patch.title }
+              : 'stage' in c.patch
+                ? { stage: c.patch.stage }
+                : { readAt: ctx.stamp() }
+          try {
+            detail['armTxId'] = opts.editViaArm(c.id, armPatch)
+          } catch (error) {
+            return `arm refused edit: ${error instanceof Error ? error.message : String(error)}`
+          }
+        } else if ('readAt' in c.patch) void actions.markIssueRead(c.id)
         else void actions.updateIssue(c.id, c.patch as { title?: string; stage?: string } as never)
         await quiesce()
         const mutationId = claimNewMutation()
@@ -451,8 +477,15 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'supersede': {
         if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
         const ids: string[] = []
+        const armTxIds: string[] = []
         for (const handle of c.handles) {
-          void ctx.engine.getSnapshot().markIssueRead(c.id)
+          if (opts.editViaArm) {
+            try {
+              armTxIds.push(opts.editViaArm(c.id, { readAt: ctx.stamp() }))
+            } catch {
+              continue
+            }
+          } else void ctx.engine.getSnapshot().markIssueRead(c.id)
           await quiesce()
           const mutationId = claimNewMutation()
           if (!mutationId) continue
@@ -462,6 +495,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           ids.push(mutationId)
         }
         detail['mutationIds'] = ids
+        if (armTxIds.length > 0) detail['armTxIds'] = armTxIds
         const queued = new Set(ctx.engine.outbox.pending().map((e) => e.mutationId as string))
         detail['collapsed'] = ids.length === 2 && !queued.has(ids[0] as string) && queued.has(ids[1] as string)
         return ids.length === 0 ? 'no outbox entry' : null

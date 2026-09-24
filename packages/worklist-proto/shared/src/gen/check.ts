@@ -54,8 +54,9 @@ import type { RowView } from '../row-view'
 import type { ScenarioEngine } from '../scenarios'
 import type { SliceGroup, SliceSnapshot } from '../slice-types'
 import type { Change } from './changes'
-import { startGenRun } from './run'
+import { startGenRun, type GenRun, type StepResult } from './run'
 import { shrink } from './shrink'
+import type { ArmEditFn } from './arm-edits'
 
 /** An arm, or a factory for one over the engine (the legacy control closes
  *  over the runtime, which a `refresh` replaces). */
@@ -79,6 +80,14 @@ export interface CheckOptions {
   shrink?: boolean
   /** Predicate runs the shrinker may spend. Default 200. */
   maxShrinkRuns?: number
+  /**
+   * POD-4574 (Mc2) — route generated edits through a phase-c arm's write API
+   * (forwarded to `startGenRun`): the arm owns its optimism and is compared
+   * with the overlaid oracle. Absent: edits go through the runtime actions.
+   */
+  editViaArm?: ArmEditFn
+  /** Called after every settled step, before the next (forwarded to `startGenRun`). */
+  onStep?: (step: StepResult, run: GenRun) => void | Promise<void>
 }
 
 export type Against = 'rebuild' | 'oracle'
@@ -191,6 +200,8 @@ async function runCheck(
   const run = await startGenRun({
     ...(opts.corpus ? { corpus: opts.corpus } : {}),
     feedMode: opts.mode ?? 'overlaid',
+    ...(opts.editViaArm ? { editViaArm: opts.editViaArm } : {}),
+    ...(opts.onStep ? { onStep: opts.onStep } : {}),
   })
   const armOf = (ctx: ScenarioEngine): CheckableArm => (typeof arm === 'function' ? arm(ctx) : arm)
   let feed = run.feed()
