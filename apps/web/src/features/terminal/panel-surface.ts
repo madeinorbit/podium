@@ -38,7 +38,7 @@
 
 import type { PanelMode } from '@podium/client-core/ui-state'
 import type { TerminalOutlook } from '@podium/client-core/viewmodels'
-import type { SessionMeta, SessionStatus } from '@podium/model/browser'
+import type { MachineWire, SessionMeta, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
  *  view IS the panel mode; the read-only surfaces have no mode. */
@@ -159,6 +159,9 @@ export interface PanelGates {
   readonly modeSwitchOffered: boolean
   /** "Take control" is offered in the overflow menu. */
   readonly takeControlOffered: boolean
+  /** The CLI view says its machine is offline (POD-4629) — over the terminal,
+   *  never instead of it: the last frame is still the truest screen to show. */
+  readonly machineOfflineBarShown: boolean
   /** The native offer dock may render beneath the PTY. */
   readonly offerDockOffered: boolean
 }
@@ -201,6 +204,8 @@ export function panelGates(
      * the daemon. Absent from an older server, which gates nothing.
      */
     readonly geometryState?: 'current' | 'unknown' | 'absent'
+    /** The session's machine is known and not online ({@link panelOfflineMachine}). */
+    readonly machineOffline?: boolean
   },
 ): PanelGates {
   const live = surface.kind === 'live'
@@ -242,6 +247,10 @@ export function panelGates(
       (input.terminalCapable || input.switchAlreadyOffered),
     takeControlOffered: native,
     offerDockOffered: native,
+    // Native only. Chat already answers for itself — its composer reads "Session
+    // is not running." off the same row — and the read-only surfaces carry their
+    // own bars, which say the more important thing.
+    machineOfflineBarShown: native && input.machineOffline === true,
   }
 }
 
@@ -255,4 +264,29 @@ export function panelChatCapable(
 ): boolean {
   if (!session) return false
   return session.transcriptAvailable ?? defaultForKind(session.agentKind)
+}
+
+/**
+ * THE NAME OF THE MACHINE A LIVE PANEL CANNOT REACH, or null (POD-4629).
+ *
+ * A session whose machine went away keeps a `live`/`reconnecting` row, so the
+ * surface stays `live` and the terminal mounts. The server answers the attach
+ * without the daemon, and a PTY that ever spoke reads `outputSeen`, so the
+ * startup overlay correctly steps aside — and the operator got an empty
+ * terminal with a blinking cursor and no reason. The reason is the machine,
+ * and the machine row already says so: `online` is the same fact every other
+ * surface reads (POD-4630 made an owned offline machine answer "offline").
+ *
+ * Only a machine that is KNOWN and not online counts. A session with no
+ * machine, or one whose machine this principal cannot see, says nothing rather
+ * than guess — the phone's rule too.
+ */
+export function panelOfflineMachine(
+  session: Pick<SessionMeta, 'machineId' | 'machineName'> | undefined,
+  machines: readonly Pick<MachineWire, 'id' | 'name' | 'online'>[],
+): string | null {
+  if (!session?.machineId) return null
+  const machine = machines.find((m) => m.id === session.machineId)
+  if (!machine || machine.online) return null
+  return machine.name || session.machineName || 'This machine'
 }

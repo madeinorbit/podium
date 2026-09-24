@@ -1,5 +1,6 @@
 /**
- * THE READ-ONLY SURFACES (POD-408) — what a `parked` or `ended` panel shows.
+ * THE READ-ONLY SURFACES (POD-408) — what a `parked` or `ended` panel shows,
+ * and the bar a live CLI shows when its machine is offline (POD-4629).
  *
  * Four components, one rule: `panel-surface.ts` says WHICH of them renders,
  * `lifecycle-actions.ts` says what the button is called and what it runs, and
@@ -15,7 +16,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { exitedRecovery } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
-import { Moon, RotateCcw } from 'lucide-react'
+import { Moon, RotateCcw, WifiOff } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -262,6 +263,48 @@ export function HibernatedPane({ sessionId }: { sessionId: SessionId }): JSX.Ele
       <Moon size={28} aria-hidden="true" />
       <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">{action.hint}</p>
       <LifecycleButton action={action} sessionId={sessionId} compact={false} />
+    </div>
+  )
+}
+
+/**
+ * Thin bar over the CLI of a session whose MACHINE is offline (POD-4629).
+ *
+ * The same object as the hibernated and exited bars, for the same reason: the
+ * pane has no live process to show and has to say why. Without it the desktop
+ * showed an empty terminal with a blinking cursor while the phone said "Session
+ * is not running." There is nothing to wake here — the machine has to come
+ * back on its own — so the way forward it offers is the view that still works.
+ */
+export function MachineOfflineBanner({
+  machineName,
+  onOpenChat,
+}: {
+  machineName: string
+  /** Absent when the session has no transcript to open. */
+  onOpenChat?: () => void
+}): JSX.Element {
+  return (
+    <div className="pane-state-bar" data-tone="parked" data-testid="machine-offline-bar">
+      <span className="pane-state-bar-mark" aria-hidden="true">
+        <WifiOff size={13} strokeWidth={1.7} />
+      </span>
+      <span className="pane-state-bar-copy">
+        <span className="pane-state-bar-word">{machineName} is offline</span> — no live terminal
+        until it reconnects{onOpenChat ? '; the transcript is in Chat.' : '.'}
+      </span>
+      {onOpenChat && (
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          className="shrink-0"
+          data-testid="machine-offline-open-chat"
+          onClick={onOpenChat}
+        >
+          Open Chat
+        </Button>
+      )}
     </div>
   )
 }

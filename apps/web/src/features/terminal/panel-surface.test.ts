@@ -1,7 +1,7 @@
 import type { TerminalOutlook } from '@podium/client-core/viewmodels'
-import type { SessionStatus } from '@podium/model'
+import { asMachineId, type SessionStatus } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { panelGates, panelSurface } from './panel-surface'
+import { panelGates, panelOfflineMachine, panelSurface } from './panel-surface'
 
 // ---------------------------------------------------------------------------
 // The arbitration, as a table (POD-408). Before this file the same rules lived
@@ -314,5 +314,63 @@ describe('the switcher, once offered, is never withdrawn', () => {
       gatesFor(surfaceOf({ status: 'live', mode: 'chat' }), { terminalCapable: false })
         .noTerminalPaneShown,
     ).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-4629 — the CLI of a session whose machine is offline says so. The reason
+// is the machine row's own `online`, and only a machine the panel can see.
+// ---------------------------------------------------------------------------
+describe('panelOfflineMachine', () => {
+  const id = asMachineId('m-lud')
+  const onLud = { machineId: id, machineName: 'ludovico' }
+  const machine = (online: boolean) => ({ id, name: 'ludovico', online })
+
+  it('names a known machine that is not online', () => {
+    expect(panelOfflineMachine(onLud, [machine(false)])).toBe('ludovico')
+  })
+
+  it('says nothing about an online machine', () => {
+    expect(panelOfflineMachine(onLud, [machine(true)])).toBeNull()
+  })
+
+  it('says nothing when the machine is not one this principal can see', () => {
+    // Absent is not offline: guessing would put a reason on the screen that
+    // may be false.
+    expect(panelOfflineMachine(onLud, [])).toBeNull()
+  })
+
+  it('says nothing for a session with no machine', () => {
+    expect(panelOfflineMachine({}, [machine(false)])).toBeNull()
+    expect(panelOfflineMachine(undefined, [machine(false)])).toBeNull()
+  })
+})
+
+describe('panelGates machineOfflineBarShown', () => {
+  const gates = (surface: ReturnType<typeof surfaceOf>, machineOffline: boolean) =>
+    panelGates(surface, {
+      paneActive: true,
+      spawnConfirmed: true,
+      chatCapable: true,
+      terminalCapable: true,
+      switchAlreadyOffered: false,
+      machineOffline,
+    }).machineOfflineBarShown
+
+  it('shows over the live CLI of an offline machine', () => {
+    expect(gates(surfaceOf({ status: 'reconnecting' }), true)).toBe(true)
+  })
+
+  it('stays out of chat, whose composer already says the session is not running', () => {
+    expect(gates(surfaceOf({ status: 'reconnecting', mode: 'chat' }), true)).toBe(false)
+  })
+
+  it('leaves the parked and ended bars to say the more important thing', () => {
+    expect(gates(surfaceOf({ status: 'hibernated' }), true)).toBe(false)
+    expect(gates(surfaceOf({ status: 'exited' }), true)).toBe(false)
+  })
+
+  it('is absent while the machine is online', () => {
+    expect(gates(surfaceOf({ status: 'reconnecting' }), false)).toBe(false)
   })
 })

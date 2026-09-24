@@ -76,7 +76,13 @@ import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
-import { ExitedBanner, ExitedPane, HibernatedBanner, HibernatedPane } from './SessionLifecyclePanes'
+import {
+  ExitedBanner,
+  ExitedPane,
+  HibernatedBanner,
+  HibernatedPane,
+  MachineOfflineBanner,
+} from './SessionLifecyclePanes'
 import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
@@ -341,6 +347,7 @@ export function AgentPanel({
     modeSettled,
     chatCapable,
     terminalOutlook,
+    offlineMachine,
     pickMode,
   } = usePanelSurface({
     sessionId,
@@ -1396,6 +1403,17 @@ export function AgentPanel({
               panel is making. */}
           {gates.nativePaneRendered && (
             <>
+              {/* WHY THERE IS NO LIVE SCREEN [POD-4629]: the machine is gone, the
+              attach was answered without it, and the terminal below is either
+              its last frame or nothing at all. */}
+              {gates.machineOfflineBarShown && offlineMachine !== null && (
+                <MachineOfflineBanner
+                  machineName={offlineMachine}
+                  {...(gates.modeSwitchOffered
+                    ? { onOpenChat: () => pickModeWithTrace('chat') }
+                    : {})}
+                />
+              )}
               {/* The container is pinned to the TERMINAL's background — the pane's
               issue tint (§2.5), or the user's custom color from the appearance
               settings — regardless of the app theme: otherwise a light theme

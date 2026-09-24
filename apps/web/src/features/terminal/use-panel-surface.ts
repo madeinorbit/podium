@@ -43,6 +43,7 @@ import {
   type PanelSurface,
   panelChatCapable,
   panelGates,
+  panelOfflineMachine,
   panelSurface,
 } from './panel-surface'
 
@@ -94,6 +95,8 @@ export interface PanelArbitration {
    *  daemon has said. The panel needs the third value to tell an honest wait
    *  from an ordinary one (POD-2290). */
   readonly terminalOutlook: TerminalOutlook
+  /** The machine this session runs on, by name, when it is known and offline. */
+  readonly offlineMachine: string | null
   readonly pickMode: (mode: PanelMode) => void
 }
 
@@ -109,12 +112,13 @@ export function usePanelSurface(input: {
   /** Fired on a chat → native transition, never on mount-in-native. */
   onEnterNative?: () => void
 }): PanelArbitration {
-  const { panelMode, setPanelMode, uiState, trpc } = useStoreSelector(
+  const { panelMode, setPanelMode, uiState, trpc, machines } = useStoreSelector(
     (s) => ({
       panelMode: s.panelMode,
       setPanelMode: s.setPanelMode,
       uiState: s.uiState,
       trpc: s.trpc,
+      machines: s.machines,
     }),
     shallowEqual,
   )
@@ -301,6 +305,7 @@ export function usePanelSurface(input: {
   if (switchOfferedRef.current.sessionId !== sessionId) {
     switchOfferedRef.current = { sessionId, offered: false }
   }
+  const offlineMachine = panelOfflineMachine(session, machines)
   const gates = panelGates(surface, {
     paneActive,
     spawnConfirmed,
@@ -309,8 +314,18 @@ export function usePanelSurface(input: {
     switchAlreadyOffered: switchOfferedRef.current.offered,
     loginRequired,
     ...(session?.geometryState ? { geometryState: session.geometryState } : {}),
+    machineOffline: offlineMachine !== null,
   })
   if (gates.modeSwitchOffered) switchOfferedRef.current.offered = true
 
-  return { surface, gates, mode, modeSettled, chatCapable, terminalOutlook: terminal, pickMode }
+  return {
+    surface,
+    gates,
+    mode,
+    modeSettled,
+    chatCapable,
+    terminalOutlook: terminal,
+    offlineMachine,
+    pickMode,
+  }
 }
