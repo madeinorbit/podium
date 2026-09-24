@@ -40,7 +40,6 @@ import {
   actorAgent,
   asAgentIdentityId,
   asMachineId,
-  asUserId,
   firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
@@ -297,7 +296,8 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
      * torn down — the session took the turn and then could not hand it on.
      */
     const { sessionId, messageId } = await queuedMessageFor('tell me why')
-    const original = (await store.messages.getMessage(messageId))!
+    const original = await store.messages.getMessage(messageId)
+    if (!original) throw new Error('the queued message is missing')
     // Whoever sent it is told: the service's own reply target for the original
     // (superagent mail has no mailbox of its own, so that is the operator it
     // acts for).

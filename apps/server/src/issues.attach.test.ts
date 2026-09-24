@@ -540,7 +540,9 @@ describe('prime draft/attach variants', () => {
     // prefix and the self-reference is `PREFIX-seq`, not the prefixless `#seq`.
     const prefix = await store.repos.prefixForPath('/r')
     expect(prefix).toMatch(/^[A-Z]{2,5}$/)
-    expect(text).toContain(`You are working on this issue — \`${formatIssueRef(prefix!, a.seq)}\` (A)`)
+    expect(text).toContain(
+      `You are working on this issue — \`${formatIssueRef(prefix!, a.seq)}\` (A)`,
+    )
     // POD-389: the opening line demonstrates the self-reference rule instead of
     // contradicting it, and the rule itself still ships in the same prime —
     // its example ref in the repo's own prefix (primePrefix), which the

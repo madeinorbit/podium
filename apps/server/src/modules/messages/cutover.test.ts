@@ -648,7 +648,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
    * trip closes even though the two ends never share a code path above the
    * gate.
    */
-  it('hands an issue-addressed send to the live agent\'s driver, settles it on delivery, and threads its reply back', async () => {
+  it("hands an issue-addressed send to the live agent's driver, settles it on delivery, and threads its reply back", async () => {
     // A send no longer waits on the agent [POD-4661]; the virtual clock below
     // stays so any wait that crept back in would show up as fake time, not as
     // a 25-second hang.
@@ -716,7 +716,8 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     type DurableSend = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
     const durableSends = () =>
       o.daemon.filter(
-        (m): m is DurableSend => m.type === 'runtimeDurableSendRequest' && m.sessionId === sessionId,
+        (m): m is DurableSend =>
+          m.type === 'runtimeDurableSendRequest' && m.sessionId === sessionId,
       )
     await waitFor(() => durableSends().length > 0, 'the message to reach the driver')
     await settled(() => durableSends().length, 'the durable hand-off')
@@ -735,7 +736,9 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     expect(ptyFrames(o.daemon).filter((f) => f.data.includes(BODY))).toEqual([])
 
     // Handed on is not delivered: the ledger waits for the driver.
-    expect(((await o.call.messages.show({ id: sent.id })) as { status: string }).status).toBe('queued')
+    expect(((await o.call.messages.show({ id: sent.id })) as { status: string }).status).toBe(
+      'queued',
+    )
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: `delivery-${request!.rowId}`,
@@ -753,7 +756,8 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     })
     await waitFor(
       async () =>
-        ((await o.call.messages.show({ id: sent.id })) as { status: string }).status === 'delivered',
+        ((await o.call.messages.show({ id: sent.id })) as { status: string }).status ===
+        'delivered',
       'the delivery event to settle the message',
     )
     expect(ptyFrames(o.daemon)).toEqual([])

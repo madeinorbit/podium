@@ -381,7 +381,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // the projection still names the machine.
     await registry.modules.machines.revokeMachine(host)
     await registry.modules.sessions.flushBroadcasts()
-    expect((await registry.sessionStore.machines.getMachine(host))?.revokedAt).toEqual(expect.any(String))
+    expect((await registry.sessionStore.machines.getMachine(host))?.revokedAt).toEqual(
+      expect.any(String),
+    )
     const afterRevoke = await registry.modules.sessions.syncChangesSince(afterRename.cursor)
     expect(afterRevoke.kind).toBe('delta')
     if (afterRevoke.kind !== 'delta') return
@@ -389,7 +391,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       .filter((c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert')
       .map((c) => (c as { value?: SessionMeta }).value?.machineName)
     expect(revokedNames.filter((name) => name !== 'renamed-host')).toEqual([])
-    expect((await registry.modules.sessions.sessionById(sessionId))?.machineName).toBe('renamed-host')
+    expect((await registry.modules.sessions.sessionById(sessionId))?.machineName).toBe(
+      'renamed-host',
+    )
   })
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', async () => {

@@ -370,7 +370,10 @@ describe('matchAnswerToOptions', () => {
  * the option list, and "no bytes on a refusal".
  */
 type AnswerRequest = Extract<ControlMessage, { type: 'runtimeAnswerRequest' }>
-type ContractSend = Extract<ControlMessage, { type: 'runtimeSendRequest' | 'runtimeDurableSendRequest' }>
+type ContractSend = Extract<
+  ControlMessage,
+  { type: 'runtimeSendRequest' | 'runtimeDurableSendRequest' }
+>
 
 describe('session-steering tool belt (issue #62)', () => {
   const st = (phase: string, extra?: object) =>
@@ -505,7 +508,9 @@ describe('session-steering tool belt (issue #62)', () => {
         },
       })
       await vi.waitFor(async () =>
-        expect(await registry.modules.sessions.pendingQuestion?.(asSessionId(sessionId))).toMatchObject({ id }),
+        expect(
+          await registry.modules.sessions.pendingQuestion?.(asSessionId(sessionId)),
+        ).toMatchObject({ id }),
       )
     }
 

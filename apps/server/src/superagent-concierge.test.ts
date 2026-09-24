@@ -62,83 +62,120 @@ async function harness(opts?: { eventReadLimit?: number }) {
       type: 'runtimeSendResult',
       requestId: m.requestId,
       sessionId: m.sessionId,
-      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+      receipt: {
+        outcome: 'accepted',
+        turnEpoch: epoch,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: new Date().toISOString(),
+      },
     })
     const turn = (ev: object, seq: number) => ({
       sessionId: m.sessionId,
-      event: { t: 'turn', ev, cursor: { segmentId: 's', components: { seq } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at: new Date().toISOString() } as never,
+      event: {
+        t: 'turn',
+        ev,
+        cursor: { segmentId: 's', components: { seq } },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at: new Date().toISOString(),
+      } as never,
     })
     const gateway = registry.modules.sessions.runtimeGateway
     void (async () => {
-      await gateway.record(host, turn({ ev: 'started', turnEpoch: epoch, origin: 'system' }, epoch * 2 - 1))
-      await gateway.record(host, turn({ ev: 'completed', turnEpoch: epoch, verdict: 'done' }, epoch * 2))
+      await gateway.record(
+        host,
+        turn({ ev: 'started', turnEpoch: epoch, origin: 'system' }, epoch * 2 - 1),
+      )
+      await gateway.record(
+        host,
+        turn({ ev: 'completed', turnEpoch: epoch, verdict: 'done' }, epoch * 2),
+      )
     })()
   }
   // The host's row is assigned agent execution, as setup enrollment leaves it:
   // placement picks only an assigned, attached daemon (2b803efb5).
   await assignHostMachine(registry.sessionStore)
-  await attachDaemonWithInventory(registry, registry.sessionStore.hostMachineId, (m) => {
-    if (m.type === 'repoOpRequest') {
-      queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-          type: 'repoOpResult',
-          requestId: m.requestId,
-          ok: true,
-          output: '',
-        }),
-      )
-    }
-    if (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') {
-      turnReqs.push(m)
-      resolveTurn(m, turnReqs.length)
-    }
-    if (m.type === 'runtimeHistoryRequest') {
-      queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(host, {
-          type: 'runtimeHistoryResult',
-          requestId: m.requestId,
-          sessionId: m.sessionId,
-          result: { page: { items: [{ id: 'item-1', role: 'assistant', text: 'harness says hi', ts: new Date().toISOString() }], hasMore: false } },
-        }),
-      )
-    }
-    if (m.type === 'runtimeSnapshotRequest') {
-      queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(host, {
-          type: 'runtimeSnapshotResult',
-          requestId: m.requestId,
-          sessionId: m.sessionId,
-          result: {
-            snapshot: {
-              binding: {
-                sessionId: m.sessionId,
-                driver: 'headless',
-                family: 'server',
-                harness: 'claude-code',
-                workdir: '/r',
-                resume: { kind: 'headless-session', value: `h-${turnReqs.length}` },
-                process: { key: 'test' },
-                bindingVersion: 1,
+  await attachDaemonWithInventory(
+    registry,
+    registry.sessionStore.hostMachineId,
+    (m) => {
+      if (m.type === 'repoOpRequest') {
+        queueMicrotask(() =>
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+            type: 'repoOpResult',
+            requestId: m.requestId,
+            ok: true,
+            output: '',
+          }),
+        )
+      }
+      if (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') {
+        turnReqs.push(m)
+        resolveTurn(m, turnReqs.length)
+      }
+      if (m.type === 'runtimeHistoryRequest') {
+        queueMicrotask(() =>
+          registry.gateway.routeDaemonFrame(host, {
+            type: 'runtimeHistoryResult',
+            requestId: m.requestId,
+            sessionId: m.sessionId,
+            result: {
+              page: {
+                items: [
+                  {
+                    id: 'item-1',
+                    role: 'assistant',
+                    text: 'harness says hi',
+                    ts: new Date().toISOString(),
+                  },
+                ],
+                hasMore: false,
               },
-              state: {},
-              cursor: { segmentId: 's', components: {} },
-              observerGeneration: 1,
-              turnEpoch: turnReqs.length,
-              interactions: [],
-              at: new Date().toISOString(),
             },
-          },
-        } as never),
-      )
-    }
-  }, fixtureInventory({
-    // An agent spawn requests a headed terminal driver, which the daemon must
-    // advertise (fb68d2f05).
-    runtimeDrivers: [
-      { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
-      { harness: 'codex', id: 'codex-pty', family: 'terminal' },
-    ],
-  }))
+          }),
+        )
+      }
+      if (m.type === 'runtimeSnapshotRequest') {
+        queueMicrotask(() =>
+          registry.gateway.routeDaemonFrame(host, {
+            type: 'runtimeSnapshotResult',
+            requestId: m.requestId,
+            sessionId: m.sessionId,
+            result: {
+              snapshot: {
+                binding: {
+                  sessionId: m.sessionId,
+                  driver: 'headless',
+                  family: 'server',
+                  harness: 'claude-code',
+                  workdir: '/r',
+                  resume: { kind: 'headless-session', value: `h-${turnReqs.length}` },
+                  process: { key: 'test' },
+                  bindingVersion: 1,
+                },
+                state: {},
+                cursor: { segmentId: 's', components: {} },
+                observerGeneration: 1,
+                turnEpoch: turnReqs.length,
+                interactions: [],
+                at: new Date().toISOString(),
+              },
+            },
+          } as never),
+        )
+      }
+    },
+    fixtureInventory({
+      // An agent spawn requests a headed terminal driver, which the daemon must
+      // advertise (fb68d2f05).
+      runtimeDrivers: [
+        { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+        { harness: 'codex', id: 'codex-pty', family: 'terminal' },
+      ],
+    }),
+  )
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r') // conciergeTurn rejects unregistered repos
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, opts)
