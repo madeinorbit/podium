@@ -63,8 +63,8 @@ import {
   type WritableKind,
   type WriteTransport,
   WriteContractError,
-} from '../../../shared/src/write-contract'
-import type { SliceIssue } from '../../../shared/src/slice-types'
+} from '../../../../shared/src/write-contract'
+import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { MobxPool } from '../pool'
 import { createPendingLog } from './pending'
 
