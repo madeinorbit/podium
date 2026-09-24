@@ -75,14 +75,18 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenarios'
-import { rowViewsFromStore } from '../../../harness/src/oracle/index'
+import { engineLocals, openFenceFeeds, parityLocals } from '../../../harness/src/fence-scenarios'
+import {
+  legacyDerivationFromStore,
+  rowViewsFromStore,
+  visibleIssueRows,
+} from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
 import { checkArm, describeSequence, diffSnapshots } from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
-import { startScenarioEngine } from '../../../shared/src/scenarios'
+import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { rebuildSnapshot } from './rebuild'
@@ -478,4 +482,74 @@ describe('own-row and one-hop fields against the oracle', () => {
       ctx.engine.destroy()
     }
   }, 120_000)
+})
+
+/**
+ * POD-4582 (Hb1): the visible collection and its order against the LEGACY
+ * ORACLE after every generated step. The checker's own oracle comparison is
+ * the whole snapshot (groups, roll-ups: Hb2-Hb4's), so it stays off for the
+ * pool; this compares only what Hb1 owns, the flat visible order (the rows
+ * the app shows, in R-ORDER, `visibleIssueRows` with no selection, spec §7).
+ * The rebuild shares this arm's rule table, so without this a rule the
+ * fixture never exercises (an excluded child, an R3 member, a draft vessel)
+ * could be wrong in both and still compare equal.
+ */
+function orderChecked(): ((ctx: ScenarioEngine) => CheckableArm) & { compared: number } {
+  const factory = ((ctx: ScenarioEngine): CheckableArm => ({
+    create(source, locals, reads) {
+      const handle = handPoolArm.create(source, locals, reads)
+      return {
+        ...handle,
+        snapshot() {
+          const settled = handle.snapshot()
+          const coarseNow = parityLocals(ctx).coarseNow
+          const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), coarseNow)
+          const expected = visibleIssueRows(derivation, parityLocals(ctx)).map(
+            (row) => row.issue.id,
+          )
+          const order = [...handle.pool.order()]
+          factory.compared += 1
+          if (order.join() !== expected.join()) {
+            const want = new Set(expected)
+            const have = new Set(order)
+            const first = order.findIndex((id, i) => id !== expected[i])
+            throw new Error(
+              `order diverged from the oracle (snapshot ${factory.compared}): ` +
+                `missing [${expected.filter((id) => !have.has(id)).join(', ')}], ` +
+                `extra [${order.filter((id) => !want.has(id)).join(', ')}], ` +
+                `first difference at ${first}: ${order[first]} (oracle ${expected[first]})`,
+            )
+          }
+          return settled
+        },
+      }
+    },
+  })) as ((ctx: ScenarioEngine) => CheckableArm) & { compared: number }
+  factory.compared = 0
+  return factory
+}
+
+describe('visible order against the oracle (Hb1)', () => {
+  it(
+    'equals the legacy oracle after every step of every seed',
+    async () => {
+      const cells = []
+      for (const seed of SEEDS) {
+        const sequence = gen(seed, STEPS)
+        const arm = orderChecked()
+        let failure: string | null = null
+        try {
+          const result = await checkArm(arm, sequence, { oracleEvery: 0, shrink: false })
+          if (!result.ok) failure = `step ${result.step} (${result.against}): ${result.diff}`
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        cells.push({ seed, steps: STEPS, compared: arm.compared, failure })
+        if (failure !== null) throw new Error(`seed ${seed}: ${failure}`)
+        expect(arm.compared).toBeGreaterThan(STEPS)
+      }
+      writeResult(`hand-visible-oracle-1x-${SEEDS.length}x${STEPS}`, { cells })
+    },
+    GATE_TIMEOUT_MS,
+  )
 })
