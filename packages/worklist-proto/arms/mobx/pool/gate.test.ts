@@ -448,13 +448,28 @@ describe('row fields against the oracle', () => {
       // no seat in the schema's R3 relation; its issue's seat-fed fields are
       // left out here, and the exception itself throws once the seat exists.
       const snapshot = handle.pool.snapshot()
-      const gap = acceptUnscannedGap(ctx.corpus, handle.pool, snapshotFromStore(ctx.engine.getSnapshot(), { selectedIssueId: null, coarseNow: engineLocals(ctx).coarseNow }), snapshot).applied
+      const gap = acceptUnscannedGap(
+        ctx.corpus,
+        handle.pool,
+        snapshotFromStore(ctx.engine.getSnapshot(), {
+          selectedIssueId: null,
+          coarseNow: engineLocals(ctx).coarseNow,
+        }),
+        snapshot,
+      ).applied
       for (const id of ids) {
         const want = expected[id]!
         const got = actual[id]
         expect(got, id).toBeDefined()
         for (const field of same) {
-          if (id === gap && (field === 'phase' || field === 'working' || field === 'asking' || field === 'workingSince')) continue
+          if (
+            id === gap &&
+            (field === 'phase' ||
+              field === 'working' ||
+              field === 'asking' ||
+              field === 'workingSince')
+          )
+            continue
           expect(got![field], `${id}.${field}`).toEqual(want[field])
         }
         if (!got!.title.startsWith('New ')) expect(got!.title, `${id}.title`).toBe(want.title)

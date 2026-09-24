@@ -28,13 +28,13 @@ import {
   EMPTY_OWN,
   NO_UNIT,
   NO_UNITS,
-  phaseOf,
   type PhaseFlags,
   type ProgressFacts,
+  phaseOf,
   seatVerdictOf,
   type UnitOwn,
   type Units,
-  unitOwnOf,
+  type unitOwnOf,
   unitsOf,
   withSeat,
 } from './rollup'
@@ -125,7 +125,9 @@ function session(patch: Partial<SliceSession>): SliceSession {
   } as SliceSession
 }
 
-const working = seatVerdictOf(session({ agentState: { phase: 'working', since: '2026-09-20T11:00:00Z' } }))
+const working = seatVerdictOf(
+  session({ agentState: { phase: 'working', since: '2026-09-20T11:00:00Z' } }),
+)
 const offerOnly = seatVerdictOf(
   session({
     offer: { createdAt: '2026-09-20T11:40:00Z' },
@@ -183,10 +185,19 @@ describe('the roll-up combine', () => {
 
   it('sums pending markers and progress units up the chain', () => {
     const cold = { ...EMPTY_OWN, pending: 1 }
-    expect(aggregate({ own: cold, children: [aggregate({ own: cold, children: [] })] }).pending).toBe(2)
+    expect(
+      aggregate({ own: cold, children: [aggregate({ own: cold, children: [] })] }).pending,
+    ).toBe(2)
     const unit: UnitOwn = { member: true, unit: true, done: true, solo: true }
     const below = unitsOf({ children: [{ own: unit, below: NO_UNITS }] })
-    expect(unitsOf({ children: [{ own: NO_UNIT, below }, { own: unit, below: NO_UNITS }] })).toEqual({
+    expect(
+      unitsOf({
+        children: [
+          { own: NO_UNIT, below },
+          { own: unit, below: NO_UNITS },
+        ],
+      }),
+    ).toEqual({
       members: 2,
       units: 2,
       done: 2,

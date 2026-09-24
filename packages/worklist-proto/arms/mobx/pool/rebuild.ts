@@ -58,6 +58,7 @@ import {
   sessionActivityOf,
   type ViewInputs,
 } from './views'
+import { repoLabelOf } from './worklist/groups'
 import {
   directNested,
   directSessionVisibility,
@@ -67,7 +68,6 @@ import {
   sortByRank,
   type VisibleInputs,
 } from './worklist/visible'
-import { repoLabelOf } from './worklist/groups'
 
 export function rebuildSnapshot(
   source: RowSource,
@@ -92,7 +92,8 @@ export function rebuildSnapshot(
     present: (entity, id) => tables[entity].has(id),
     loading: () => false,
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
-    rollup: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).rollup : undefined),
+    rollup: (id) =>
+      tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).rollup : undefined,
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,

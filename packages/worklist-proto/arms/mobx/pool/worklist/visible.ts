@@ -77,22 +77,22 @@ import {
   reaction,
 } from 'mobx'
 import type { RelationReader } from '../../../../shared/src/instrument/reads'
-import { relationRef } from '../relations'
 import { compareRank, type RowRank, type RowView, rankOf } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
+import { relationRef } from '../relations'
 import { bandOf, parseMs } from '../views'
 import { type Placement, placementPartOf, withWaiting } from './groups'
 import {
   type Aggregate,
   aggregatePartOf,
-  type Loaded,
-  openOwnPartOf,
-  type OwnAttention,
   formalParentPartOf,
+  type Loaded,
+  type OwnAttention,
   type OwnFacts,
-  type ProgressFacts,
+  openOwnPartOf,
   ownAttentionPartOf,
   ownFactsPartOf,
+  type ProgressFacts,
   type Rollup,
   type RollupInputs,
   type RollupParts,
@@ -359,7 +359,10 @@ export interface SessionVisibility {
 }
 
 /** A seat's verdict from the resident row (the roll-ups never read a cold session). */
-export function verdictPartOf(input: Pick<VisibleInputs, 'loadedSession'>, id: string): Loaded<SeatVerdict> {
+export function verdictPartOf(
+  input: Pick<VisibleInputs, 'loadedSession'>,
+  id: string,
+): Loaded<SeatVerdict> {
   const row = input.loadedSession(id)
   return row === undefined || typeof row === 'symbol' ? row : seatVerdictOf(row)
 }
@@ -757,7 +760,7 @@ export function directVisibility(
       return once('unitOwn', () => unitOwnPartOf(rollupInputs, id, parts))
     },
     get unitsBelow() {
-      return once('unitsBelow', () => unitsBelowPartOf(rollupInputs, id, parts))
+      return once('unitsBelow', () => unitsBelowPartOf(rollupInputs, id))
     },
     get openOwn() {
       return once('openOwn', () => openOwnPartOf(rollupInputs, id, parts))
@@ -1006,7 +1009,9 @@ export class IssueNode implements IssueVisibility {
    */
   get placement(): Placement | undefined {
     const settled = this.settledPlacement
-    return settled === undefined || !settled.closed || !this.waiting ? settled : withWaiting(settled)
+    return settled === undefined || !settled.closed || !this.waiting
+      ? settled
+      : withWaiting(settled)
   }
 
   get finished(): boolean | undefined {
@@ -1038,7 +1043,7 @@ export class IssueNode implements IssueVisibility {
   }
 
   get unitsBelow(): Units {
-    return unitsBelowPartOf(this.rollupInput, this.id, this)
+    return unitsBelowPartOf(this.rollupInput, this.id)
   }
 
   get openOwn(): boolean {

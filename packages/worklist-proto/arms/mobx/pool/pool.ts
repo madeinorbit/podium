@@ -77,7 +77,7 @@ import {
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
 import { sliceOrderOf, WorklistGroups } from './worklist/groups'
-import { type Loaded, LOADING } from './worklist/rollup'
+import { LOADING, type Loaded } from './worklist/rollup'
 import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
 
 /** The pool's own counters, beside the shared `ArmStats`. */

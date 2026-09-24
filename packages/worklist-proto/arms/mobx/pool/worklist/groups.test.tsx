@@ -53,8 +53,8 @@ import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { CommitLogContext, currentCommitLog } from '../../../../shared/src/row-shell'
-import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
+import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
@@ -299,7 +299,8 @@ describe('groups and closed folds (Mb2)', () => {
         tracked(() => {
           for (const key of pool.groups.keys) {
             const group = pool.groups.group(key)
-            if (group.rowIds.includes(id)) return { key, lane: 'open', at: group.rowIds.indexOf(id) }
+            if (group.rowIds.includes(id))
+              return { key, lane: 'open', at: group.rowIds.indexOf(id) }
             if (group.closedIds.includes(id)) return { key, lane: 'closed' }
           }
           return null
@@ -388,7 +389,11 @@ describe('the windowed web list (Mb2)', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     // Distinct rows read through the feed's per-row read, per phase.
     let phase: 'bootstrap' | 'firstWindow' | 'later' = 'bootstrap'
-    const feedReads = { bootstrap: new Set<string>(), firstWindow: new Set<string>(), later: new Set<string>() }
+    const feedReads = {
+      bootstrap: new Set<string>(),
+      firstWindow: new Set<string>(),
+      later: new Set<string>(),
+    }
     const source = feeds.rows.source
     const counting = {
       ...source,
@@ -484,7 +489,9 @@ describe('the windowed web list (Mb2)', () => {
       expect(header).not.toBeNull()
       const totalBefore = (list.firstElementChild as HTMLElement).style.height
       act(() => header.click())
-      expect(el.querySelector(`[data-group="${folding}"]`)?.getAttribute('data-folded')).toBe('true')
+      expect(el.querySelector(`[data-group="${folding}"]`)?.getAttribute('data-folded')).toBe(
+        'true',
+      )
       const closedCount = tracked(() => pool.groups.group(folding!).closedIds.length)
       const totalAfter = (list.firstElementChild as HTMLElement).style.height
       expect(Number.parseFloat(totalBefore) - Number.parseFloat(totalAfter)).toBe(

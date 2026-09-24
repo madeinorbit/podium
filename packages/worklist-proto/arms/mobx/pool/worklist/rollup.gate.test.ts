@@ -29,7 +29,7 @@ import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
 import { countKinds, gen } from '../../../../shared/src/gen/changes'
-import { checkArm, type CheckedArm } from '../../../../shared/src/gen/check'
+import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
@@ -138,7 +138,10 @@ describe('correctness gate (L4b) with the oracle every step (Mb3)', () => {
                 diff: plant.diff.split('\n').slice(0, 3).join(' | '),
               },
         })
-        expect(result.ok, result.ok ? '' : `seed ${seed}: ${result.against} at ${result.step}\n${result.diff}`).toBe(true)
+        expect(
+          result.ok,
+          result.ok ? '' : `seed ${seed}: ${result.against} at ${result.step}\n${result.diff}`,
+        ).toBe(true)
       }
       writeResult(`mobx-rollups-gate-1x-${SEEDS.length}x${STEPS}`, {
         seeds: SEEDS,

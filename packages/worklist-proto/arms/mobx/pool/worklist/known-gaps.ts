@@ -24,7 +24,7 @@ import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import { type MobxPool, tracked } from '../pool'
 
 /** The fields the orphan's seat feeds on its issue's row. */
-const SEAT_FIELDS: ReadonlySet<string> = new Set(['phase', 'working', 'asking'])
+const SEAT_FIELDS: readonly string[] = ['phase', 'working', 'asking']
 
 export interface GapOutcome {
   readonly snapshot: SliceSnapshot
@@ -40,9 +40,7 @@ export function acceptUnscannedGap(
 ): GapOutcome {
   const { issueId, sessionId } = corpus.unscannedWorktree
   if (issueId === '') return { snapshot: expected, applied: null }
-  const seated = tracked(
-    () => pool.worklist.issue(issueId)?.memberIds.includes(sessionId) === true,
-  )
+  const seated = tracked(() => pool.worklist.issue(issueId)?.memberIds.includes(sessionId) === true)
   if (seated) {
     throw new Error(
       `POD-4671 is fixed: the pool seats ${sessionId} under ${issueId}; delete acceptUnscannedGap`,
@@ -54,7 +52,8 @@ export function acceptUnscannedGap(
     return { snapshot: expected, applied: null }
   }
   const fields = Object.keys(want).filter((field) => !isDeepStrictEqual(want[field], got[field]))
-  if (fields.some((field) => !SEAT_FIELDS.has(field))) return { snapshot: expected, applied: null }
+  if (fields.some((field) => !SEAT_FIELDS.includes(field)))
+    return { snapshot: expected, applied: null }
   return {
     snapshot: {
       ...expected,

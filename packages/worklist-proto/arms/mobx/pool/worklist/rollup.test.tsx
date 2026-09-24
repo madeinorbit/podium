@@ -72,11 +72,10 @@ import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
 import type { RowView } from '../../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
-import { issueAbandoned } from '../views'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
+import { issueAbandoned } from '../views'
 import { acceptUnscannedGap } from './known-gaps'
 
 installMobxWarnTrap()
@@ -169,7 +168,12 @@ function oracleViews(ctx: ScenarioEngine): Record<string, RowView> {
 function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): string | null {
   const snapshot = handle.snapshot()
   const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-  const { snapshot: expected, applied } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
+  const { snapshot: expected, applied } = acceptUnscannedGap(
+    ctx.corpus,
+    handle.pool,
+    oracle,
+    snapshot,
+  )
   expect(diffSnapshots(snapshot, expected), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
   return applied
@@ -177,7 +181,12 @@ function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): s
 
 async function withMounted<T>(
   create: CheckableArm,
-  run: (ctx: ScenarioEngine, mounted: MountedArm, handle: MobxPoolHandle, flush: () => void) => Promise<T>,
+  run: (
+    ctx: ScenarioEngine,
+    mounted: MountedArm,
+    handle: MobxPoolHandle,
+    flush: () => void,
+  ) => Promise<T>,
 ): Promise<T> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -228,7 +237,9 @@ function findChain(pool: MobxPool): Chain {
       const seat = bottom?.rosterIds.find((sessionId) => {
         const verdict = pool.worklist.session(sessionId).verdict
         return (
-          typeof verdict === 'object' && verdict.finished !== 'waiting' && verdict.open !== 'waiting'
+          typeof verdict === 'object' &&
+          verdict.finished !== 'waiting' &&
+          verdict.open !== 'waiting'
         )
       })
       if (seat !== undefined) return { rows, sessionId: seat }
@@ -342,7 +353,11 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     const progressFacts = inputs.progressFacts
     const kept = new Map<string, unknown>()
     inputs.progressFacts = (id) => {
-      if (!kept.has(id)) kept.set(id, untracked(() => progressFacts(id)))
+      if (!kept.has(id))
+        kept.set(
+          id,
+          untracked(() => progressFacts(id)),
+        )
       return kept.get(id)
     }
   }
@@ -372,7 +387,10 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     })
     expect(found, 'a hot visible parent with a cold done child').not.toBeNull()
     const { parent, child } = found!
-    observe = reaction(() => pool.issue(parent)?.view, () => {})
+    observe = reaction(
+      () => pool.issue(parent)?.view,
+      () => {},
+    )
     const oracleOf = () =>
       rowViewsFromStore(ctx.engine.getSnapshot(), { ...parityLocals(ctx), selectedIssueId: null })[
         parent
@@ -490,7 +508,10 @@ describe('row roll-ups (Mb3)', () => {
         const row = snapshot.rowsById[rootId]
         if (row === undefined) continue
         checked += 1
-        expect(tracked(() => handle.pool.worklist.issue(childId)?.present), childId).toBe(false)
+        expect(
+          tracked(() => handle.pool.worklist.issue(childId)?.present),
+          childId,
+        ).toBe(false)
         expect(row.asking, `${rootId}: asking`).toBe((oracle[rootId] as RowView).asking)
         expect(row.phase, `${rootId}: phase`).toBe((oracle[rootId] as RowView).phase)
       }
@@ -606,7 +627,9 @@ describe('row roll-ups (Mb3)', () => {
         // Option A: progress reads cold children by id, never loads one.
         expect(cell.coldFormalChildrenOfVisibleRows).toBeGreaterThan(0)
         expect(cell.progressLoads).toBe(0)
-        const settled = tracked(() => visible.filter((id) => pool.issue(id)?.view?.loading === true))
+        const settled = tracked(() =>
+          visible.filter((id) => pool.issue(id)?.view?.loading === true),
+        )
         expect(settled).toEqual([])
         cells.push(cell)
       } finally {
@@ -618,7 +641,7 @@ describe('row roll-ups (Mb3)', () => {
     writeResult('mobx-rollups-first-paint', { cells })
   }, 600_000)
 
-  it('a cold child counts in its parent\'s progress by a tracked cold read: its change moves the parent, and the untracked plant stays stale', async () => {
+  it("a cold child counts in its parent's progress by a tracked cold read: its change moves the parent, and the untracked plant stays stale", async () => {
     const correct = await coldProgressRun(false)
     expect(correct.first.loading, 'no loading: nothing is waited for').toBeUndefined()
     expect(correct.childAsked, 'the cold child is never asked to load').toBe(false)
@@ -636,7 +659,10 @@ describe('row roll-ups (Mb3)', () => {
     expect(planted.parent).toBe(correct.parent)
     expect(planted.after.progressTotal, 'untracked: stale').toBe(planted.first.progressTotal)
     expect(planted.after.progressTotal).not.toBe(planted.oracleAfter.progressTotal)
-    writeResult('mobx-rollups-cold-progress-1x', { correct: summary(correct), planted: summary(planted) })
+    writeResult('mobx-rollups-cold-progress-1x', {
+      correct: summary(correct),
+      planted: summary(planted),
+    })
   }, 300_000)
 
   it('attention keeps the pending marker: a review ask waits on a cold spin-off, then withdraws (Ma3 addendum)', async () => {
@@ -673,7 +699,10 @@ describe('row roll-ups (Mb3)', () => {
       })
       expect(found, 'a visible row with a cold, started spin-off').not.toBeNull()
       const { id, spinOff } = found!
-      observe = reaction(() => pool.issue(id)?.view, () => {})
+      observe = reaction(
+        () => pool.issue(id)?.view,
+        () => {},
+      )
       const wire = ctx.cache.read('issue', id)?.value as object
       const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
       ctx.replica.batch(() => {
@@ -722,4 +751,3 @@ describe('row roll-ups (Mb3)', () => {
     }
   }, 300_000)
 })
-

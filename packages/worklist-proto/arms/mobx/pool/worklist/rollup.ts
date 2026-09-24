@@ -103,9 +103,15 @@ function busy(session: SliceSession): boolean {
   return (session as { readonly busy?: unknown }).busy === true
 }
 
-/** `attentionGroup` (`client-core/src/focus.ts:25-60`). */
-export function attentionGroup(session: SliceSession): 'needsYou' | 'working' | 'idle' {
-  if (session.offer) return 'needsYou'
+/**
+ * `attentionGroup` (`client-core/src/focus.ts:25-60`); `withOffer: false`
+ * asks it as if the session had no standing offer (`hasNonOfferNeedsYou`).
+ */
+export function attentionGroup(
+  session: SliceSession,
+  withOffer = true,
+): 'needsYou' | 'working' | 'idle' {
+  if (withOffer && session.offer) return 'needsYou'
   const phase = stateOf(session)?.phase
   if (phase === 'needs_user' || phase === 'errored') return 'needsYou'
   if (phase === 'idle') return idleNeedsHuman(idleKindOf(session)) ? 'needsYou' : 'idle'
@@ -157,8 +163,7 @@ export function isSessionWorking(session: SliceSession): boolean {
 
 /** `hasNonOfferNeedsYou` (`session-status.ts:491-495`). */
 function hasNonOfferNeedsYou(session: SliceSession): boolean {
-  if (!session.offer) return attentionGroup(session) === 'needsYou'
-  return attentionGroup({ ...session, offer: undefined }) === 'needsYou'
+  return attentionGroup(session, false) === 'needsYou'
 }
 
 /** `isOfferOnlyAttention` (`session-status.ts:484-486`). */
@@ -518,7 +523,9 @@ export interface RollupInputs {
   /** A session's cached seat verdict (`LOADING` while its row is cold). */
   seat(id: string): Loaded<SeatVerdict>
   /** A session's cached presence facts (Mb1's `retention`, hot or cold). */
-  presence(id: string): { readonly issueId: string | null | undefined; readonly open: boolean } | null
+  presence(
+    id: string,
+  ): { readonly issueId: string | null | undefined; readonly open: boolean } | null
   spinOffIds(id: string): readonly string[]
   /** Count one composition run (the shared `ArmStats.rollupsDerived`). */
   counted(): void
@@ -654,7 +661,9 @@ export function ownAttentionPartOf(input: RollupInputs, self: RollupSelf): OwnAt
  * `one()`: that also reads the parent's presence, so loading a parent would
  * re-run every cold child's filing (one presence probe each).
  */
-export function formalParentPartOf(self: { readonly standing: { readonly formalParent: string | null } | undefined }): string | null {
+export function formalParentPartOf(self: {
+  readonly standing: { readonly formalParent: string | null } | undefined
+}): string | null {
   return self.standing?.formalParent ?? null
 }
 
@@ -686,7 +695,7 @@ export function unitOwnPartOf(input: RollupInputs, id: string, self: RollupSelf)
 }
 
 /** The formal closure's counts: each formal child's own contribution and its own closure. */
-export function unitsBelowPartOf(input: RollupInputs, id: string, self: RollupSelf): Units {
+export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
   input.counted()
   const children: { own: UnitOwn; below: Units }[] = []
   for (const childId of input.formalChildren(id)) {
