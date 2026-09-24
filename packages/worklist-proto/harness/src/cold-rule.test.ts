@@ -49,6 +49,8 @@ interface RuleCell {
   readonly coldVisible: number
   readonly coldInFirstWindow: number
   readonly residentClosedHidden: number
+  /** Distinct cold origins a visible spin-off's ⤷ tick names (loaded on first paint, not drawn as rows). */
+  readonly coldTickedOrigins: number
 }
 
 function score(
@@ -70,6 +72,16 @@ function score(
     residentClosedHidden: [...issues].filter(
       ([id, row]) => row['closedAt'] != null && !coldIds.has(id) && !visible.has(id),
     ).length,
+    coldTickedOrigins: new Set(
+      order
+        .map(
+          (id) =>
+            (issues.get(id)?.['deps'] as { id: string; type: string }[] | undefined)?.find(
+              (dep) => dep.type === 'discovered-from',
+            )?.id,
+        )
+        .filter((origin): origin is string => origin !== undefined && coldIds.has(origin)),
+    ).size,
   }
 }
 

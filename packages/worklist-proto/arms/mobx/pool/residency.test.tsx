@@ -564,6 +564,56 @@ describe('transitions', () => {
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
+  it('a session that can keep its cold issue shown makes the issue resident at once, with its sessions (POD-4665)', () => {
+    const r = rig()
+    const { pool } = r
+    const { issue, sessions } = closedWithSessions(1)
+    pool.stats.reset()
+    // A run that never finished keeps its issue in the list without limit
+    // (`sessionRetainsWorklistRow`): the schema's rule makes the issue hot.
+    r.push({
+      type: 'update',
+      rows: [
+        sessionRecord(sessions[0]!.sessionId, {
+          stoppedAt: null,
+          agentState: undefined,
+          archived: false,
+          agentKind: 'claude',
+        }),
+      ],
+    })
+    expect(pool.stats.notifications).toBe(1)
+    expect(tracked(() => pool.tables.issue.has(issue.id))).toBe(true)
+    for (const session of sessions) {
+      expect(tracked(() => pool.tables.session.has(session.sessionId))).toBe(true)
+    }
+    // The issue and every session that inherited its coldness, in the same pass.
+    expect(pool.residency?.counters.warmed).toBe(1 + sessions.length)
+    expect(r.timers).toEqual([])
+    expect(diffResidency(pool, r.replay.source)).toEqual([])
+  })
+
+  it('a member update that cannot keep its cold issue shown leaves it cold, and a headless run keeps nothing (POD-4665)', () => {
+    const r = rig()
+    const { pool } = r
+    const { issue, sessions } = closedWithSessions(1)
+    const id = sessions[0]!.sessionId
+    pool.stats.reset()
+    r.push({
+      type: 'update',
+      rows: [sessionRecord(id, { lastActiveAt: new Date(corpus.fixedNow).toISOString() })],
+    })
+    r.push({
+      type: 'update',
+      rows: [sessionRecord(id, { stoppedAt: null, agentState: undefined, headless: true })],
+    })
+    expect(pool.residency?.isCold('issue', issue.id)).toBe(true)
+    expect(pool.residency?.isCold('session', id)).toBe(true)
+    expect(pool.residency?.counters.warmed).toBe(0)
+    expect(pool.residency?.counters.hydrated).toBe(0)
+    expect(diffResidency(pool, r.replay.source)).toEqual([])
+  })
+
   it('an issue closed while resident stays resident', () => {
     const r = rig()
     const { pool } = r

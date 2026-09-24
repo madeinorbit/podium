@@ -138,6 +138,8 @@ async function measure(scale: 1 | 4) {
       windows += 1
     }
     const settledLoading = document.querySelectorAll('[data-loading-row]').length
+    // POD-4665: what first paint holds once its loads have landed, counted, not summed.
+    const modelsSettled = pool.modelCount('issue') + pool.modelCount('session')
     const byKind = (set: Set<string>) => {
       const out: Record<string, number> = {}
       for (const key of set) {
@@ -161,6 +163,7 @@ async function measure(scale: 1 | 4) {
       poolCounters: {
         ...held,
         modelsAtFirstPaint: modelsAtPaint,
+        modelsSettled,
         hydratedBySettle: pool.residency?.counters.hydrated,
       },
     }

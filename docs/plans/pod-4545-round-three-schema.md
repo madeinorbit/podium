@@ -190,7 +190,9 @@ Detach-then-attach, not attach-then-detach: when the old and new target are the
 same instance, the reverse order removes the edge it just made.
 
 An update also re-evaluates residency when a field in the entity's
-`cold.dependsOn` changed (for `issue`, that is `closedAt`) — see §5.
+`cold.dependsOn` changed (for `issue`, `closedAt` and the fields its own
+deadline reads), and a member's update re-evaluates the issue it names — see
+§5.1.
 
 ### 4.3 Delete
 
@@ -320,10 +322,14 @@ issue is instantiated at bootstrap, "including ~2,600 closed ones".
 
 So the schema declares residency per entity:
 
-- **`issue`** — cold when `closedAt != null`, with `dependsOn: ['closedAt']` so
-  the pool knows which change re-evaluates it.
+- **`issue`** — cold when `closedAt != null` **and nothing the visible
+  predicate reads can show it** (`cold.kind: 'unlessShown'`, amended by
+  POD-4665, §5.1): its own standing and each member session give the latest
+  clock instant they could keep it in the list, and the row is cold once every
+  one of them has passed. `dependsOn` names the own fields; `keptBy.dependsOn`
+  the session fields.
 - **`session`** — cold *via* the `issue` relation. A session row cannot decide
-  its own residency; it is cold exactly when its issue is closed. The declaration
+  its own residency; it is cold exactly when its issue is cold. The declaration
   says `via`, not a predicate, because faking a predicate over a field the row
   does not have is how a wrong answer gets written down.
 - **`worktree`, `repo`** — never cold. Tens of rows, not thousands.
@@ -357,6 +363,103 @@ by hand relation by relation. The flags that result:
 The flag is per relation and not per entity, which is what the `issue` row shows:
 a resident issue reaches its (possibly cold) sessions lazily and its (never cold)
 lane eagerly.
+
+### 5.1 The cold rule meets the visible rows (POD-4665, 2026-09-24)
+
+**The finding.** Mb1 (POD-4569) built the visible set on the live-shaped
+corpus (POD-4635) and found that the rule "a closed issue is cold" disagrees
+with R-VIS (slice spec §3) on real data: 376 of the 732 rows the oracle shows
+at 1x are closed issues, so cold. About 294 are closed children kept visible
+by a retained session (mostly idle sessions with no `stoppedAt`, which never
+decay) or by the finished-child decay window, and 82 are closed top-level
+rows (68 of them folded). Every such row painted as a loading placeholder and
+loaded a moment later, and each arm had to read every cold row by id at
+bootstrap to answer whether it was visible.
+
+**The two options.** (a) Keep the rule: each arm answers R-VIS for cold rows
+through the per-row read and accepts the first-paint loads. (b) Amend the
+rule so a row R-VIS can show is resident at bootstrap. **Chosen: (b).**
+
+**The rule, declared once** (`shared/src/schema.ts`, `SCHEMA.issue.cold`,
+applied by `coldByRule` in both pools, both re-partitions, both gate partition
+checks and the hand rebuild). An issue is cold when `closedAt != null` and
+the clock (`coarseNow`) is past every deadline below. Each deadline is the
+**latest** instant its input could keep the row visible. So the rule is an
+upper bound on R-VIS, not a copy of it: a row R-VIS shows is never cold, and a
+row R-VIS hides may be resident.
+
+| Input | Deadline (legacy definition it bounds) |
+|---|---|
+| The issue itself (`shownUntil`) | active human issue, or closed top-level human issue (the fold does not decay): never passes. Finished human child: the later of the unread window (7 d past finish) and the read window (24 h past the later of finish and `readAt`), `issueVisibleInSidebar`. Excluded (archived, deleted, `proposed`, `shipping`), agent-audience or unfinished-and-inactive: already passed (`rows.ts:62-106`). |
+| Each member session (`keptBy`, over `sessions`) | archived or shell: already passed (`isRowSeat`). Never finished: never passes. Finished run: 7 d unread / 24 h past read (`sessionRetainsWorklistRow`). Idle finished turn: the same windows counted from the issue's finish (`finishOf`), or never while the issue is unfinished (`visibility.ts:44-70`). |
+
+Members are the rows naming the issue by the raw foreign key, with the
+relation's `where` applied (a headless session keeps nothing), **before**
+resume-twin collapse. What the bound leaves out only makes extra rows
+resident: the rescue (a finished row is never rescued), nesting and placement
+(they only hide), the unread rollup (both windows are allowed), collapse (every
+raw member counts), and R3 (issueless sessions owned by the issue's worktree).
+At 1x and 4x, no closed row is kept by an R3 session alone.
+
+**What a pool does with it** (`arms/*/pool/residency.ts`, the same code shape
+in both arms). It keeps a plain index of every member row's deadline by the
+raw foreign key (ids and numbers, no row), and a cold issue's `finishOf` next
+to its id. Two things are new:
+- A member ingest that can keep a COLD issue shown at the clock reads that
+  issue by id and installs it with its dependents before routing the member
+  (warm path 3). Nothing else reads a row.
+- The issue's own update re-evaluates the rule from the index, with no read.
+
+The pool reads the clock as the highest `coarseNow` it has seen, so a clock
+rewind never warms a row (the channel does not promise monotony). Deadlines
+only pass, so the clock never makes a cold row hot. A `replace` re-indexes the
+new slice before placing any row. "Nothing makes a hot row cold except a
+replace" still holds.
+
+**Measured** (`harness/src/cold-rule.test.ts`: the rule over the feed against
+the parity oracle's visible rows, both pools bootstrapped and held to it;
+`arms/mobx/pool/worklist/first-paint.test.tsx`, Mb1's outside instrument:
+counting wrapper on `RowSource.row`, MobX's reaction graph, the DOM). All
+figures are 1x / 4x. Column (a) is the base commit c128bf833 run in a
+detached checkout; it reproduces Mb1's reported cells exactly. Column (b) is
+this change.
+
+| Cell | (a) closed is cold | (b) unlessShown |
+|---|---|---|
+| Visible rows (oracle) | 732 / 2,928 | 732 / 2,928 |
+| Visible rows cold, painted loading at first paint | **376 / 1,504** | **0 / 0** |
+| Cold rows in the first 96-row window | **45 / 17** | **0 / 0** |
+| Resident issues at bootstrap | 2,166 / 8,664 | 2,736 / 10,977 |
+| Resident sessions at bootstrap | 1,485 / 6,219 | 2,548 / 10,448 |
+| Cold issues / cold sessions | 2,701 / 10,804 · 2,819 / 10,997 | 2,131 / 8,491 · 1,756 / 6,768 |
+| Resident closed rows R-VIS hides (the bound's cost) | 0 / 0 | 194 / 809 |
+| MobX: feed reads at bootstrap (visibility of cold rows) | 4,710 / 17,591 | 3,112 / 12,061 |
+| MobX: rows loaded settling first paint | 1,145 / 4,452 in 2 load windows | 84 / 315 in 1 window |
+| MobX: models at first paint | 991 / 4,218 | 2,085 / 8,477 |
+| MobX: models once first paint has settled (paint + loads) | 2,136 / 8,670 | 2,169 / 8,792 |
+| MobX: visibility nodes (IssueNode / SessionNode) | 4,867 / 19,468 · 2,641 / 9,415 | unchanged |
+| Parity (Mb1 `visible.test.tsx`, #1-#5 at 1x) | green | green |
+
+The last model rows are the point. Once first paint has settled, (a) and (b)
+hold the same objects to within 2 %. (b) builds them before the paint, (a)
+builds them in two load rounds after it, behind 376 placeholders. Both pools
+hold exactly the rule's cold set at bootstrap: cold issues equal the rule's
+count, no visible row is cold, and the partition check is clean in each.
+
+**What (b) still loads at first paint.** The 84 / 315 rows are exactly the
+distinct cold ORIGINS a visible spin-off's ⤷ tick names (`coldTickedOrigins`
+in the measurement). They are not rows. A drawn row's tick waits one load
+window for them. Keeping them resident would be a second `keptBy` (over
+`spinOffs`); it is left as a decision for the coordinator (POD-4665
+deferred).
+
+**What (b) does not change.** Mb1's visible set still has a node per known
+issue and reads a cold row by id to answer its visibility, which it needs for
+nesting through cold ancestors and for any row whose data arrives later. The
+bootstrap reads that remain (3,112 at 1x) are those. An arm may now assume a
+cold row is hidden at bootstrap, but not afterwards, because R3 and a clock
+rewind are outside the bound. A drawn row whose data arrives a moment later
+(`RowView.loading`) is still a case every list handles.
 
 ## 6. The validation gate
 
