@@ -9,7 +9,7 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { SELF_REF_RULE } from '@podium/protocol'
+import { formatIssueRef, SELF_REF_RULE, selfRefRule } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { createPrimeInjector } from '../../daemon/src/prime-injector'
@@ -533,13 +533,19 @@ describe('prime draft/attach variants', () => {
   })
 
   it('bound real issue gets the spinoff-vs-subissue litmus re-home line (POD-85)', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const text = await svc.prime({ boundIssueId: a.id })
-    expect(text).toContain('You are working on this issue — `#1` (A)')
+    // The issue's repo was reported by a machine (2b803efb5), so it has a
+    // prefix and the self-reference is `PREFIX-seq`, not the prefixless `#seq`.
+    const prefix = await store.repos.prefixForPath('/r')
+    expect(prefix).toMatch(/^[A-Z]{2,5}$/)
+    expect(text).toContain(`You are working on this issue — \`${formatIssueRef(prefix!, a.seq)}\` (A)`)
     // POD-389: the opening line demonstrates the self-reference rule instead of
-    // contradicting it, and the rule itself still ships in the same prime.
-    expect(text).toContain(SELF_REF_RULE)
+    // contradicting it, and the rule itself still ships in the same prime —
+    // its example ref in the repo's own prefix (primePrefix), which the
+    // prefix-less fixture used to leave at the `POD` fallback.
+    expect(text).toContain(selfRefRule(prefix!))
     expect(text).toContain('podium issue attach --spinoff')
     expect(text).toContain('podium issue attach --subissue')
     expect(text).toContain('close with the new work untouched')

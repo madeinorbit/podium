@@ -15,6 +15,7 @@ import {
   type SessionMetaInput,
   type UserId,
 } from '@podium/model'
+import { formatIssueRef } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -3554,7 +3555,7 @@ describe('IssueService.prime (P1a)', () => {
   })
 
   it('prime renders structural blockers and parent as ref (title) (open only)', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const dep = await svc.create({ repoPath: '/r', title: 'Dep', startNow: false })
     const closedDep = await svc.create({ repoPath: '/r', title: 'ClosedDep', startNow: false })
@@ -3565,12 +3566,18 @@ describe('IssueService.prime (P1a)', () => {
     // targets, so prime's "Blocked by:" line must match and drop it too.
     await svc.close(closedDep.id)
     const out = await svc.prime({ repoPath: '/r', boundIssueId: me.id })
-    // No repo prefix in the harness → niceRef falls back to `#seq`; the title
-    // must ride along so agents can use the canonical `REF (Title)` form.
-    expect(out).toContain(`Parent epic: #${epic.seq} (Epic)`)
+    // An issue's repo is one a machine REPORTED (2b803efb5), and a reported
+    // repo always has a prefix — so niceRef renders `PREFIX-seq`, never the
+    // prefixless `#seq` fallback this used to pin. The title must ride along
+    // so agents can use the canonical `REF (Title)` form.
+    const prefix = await store.repos.prefixForPath('/r')
+    expect(prefix).toMatch(/^[A-Z]{2,5}$/)
+    const ref = (seq: number) => formatIssueRef(prefix!, seq)
+    expect(out).toContain(`Parent epic: ${ref(epic.seq)} (Epic)`)
     const blockedLine = out.split('\n').find((l) => l.startsWith('Blocked by:'))
-    expect(blockedLine).toContain(`#${dep.seq} (Dep)`)
-    expect(blockedLine).not.toContain(`#${closedDep.seq}`)
+    expect(blockedLine).toContain(`${ref(dep.seq)} (Dep)`)
+    expect(blockedLine).not.toContain(ref(closedDep.seq))
+    expect(blockedLine).not.toContain('ClosedDep')
   })
 })
 
