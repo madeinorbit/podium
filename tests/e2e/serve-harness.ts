@@ -25,20 +25,25 @@ import { fileURLToPath } from 'node:url'
 // branch's diff), and three import lines from being runnable — see POD-382's report.
 import {
   agentLaunchCommand,
-  ConversationDiscoveryCache,
+  type ConversationDiscoveryCache,
   type LaunchOptions,
   type LaunchSpec,
 } from '@podium/harness'
 import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
-import { type AgentKind, asMachineId } from '@podium/model'
+import { type AgentKind, asMachineId, firstAdminMemberId, type MachineId, type SessionId } from '@podium/model'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../../apps/daemon/src/daemon'
-import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
+import {
+  type IndexRefreshJobInput,
+  openIndexCache,
+  runIndexRefreshJob,
+  runMemoryBreakdownJob,
+} from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
+import { runReclaimDiskEstimateJob } from '../../apps/daemon/src/reclaim-disk-estimate'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { inProcessMachinePrincipal } from '../../apps/server/src/gateway/daemon-mux'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
-import type { SessionStore } from '../../apps/server/src/store'
 import { writeCodexStartupFixture } from './codex-fixture'
 import {
   applyHarnessEnv,
@@ -55,7 +60,7 @@ import {
  *  A FUNCTION, not a module-level constant: these harnesses point PODIUM_STATE_DIR
  *  at an isolated directory AFTER the imports run, and a constant would have read
  *  (and minted into) the real state dir before that happened. */
-const hostMachineId = (): string => readOrCreateLocalMachineId()
+const hostMachineId = (): MachineId => readOrCreateLocalMachineId()
 
 /**
  * The browser harness keeps discovery jobs INLINE on its main thread so test runs do not
@@ -67,8 +72,11 @@ function inlineWorkerClient(): DiscoveryWorkerClient {
     spawn: (): WorkerLike => {
       const handlers: Array<(m: unknown) => void> = []
       let cache: ConversationDiscoveryCache | undefined
-      const indexCache = (cachePath?: string): ConversationDiscoveryCache => {
-        if (!cache) cache = new ConversationDiscoveryCache(cachePath)
+      // The same dispatch as discovery-worker.ts, job for job: the index cache is
+      // opened the way the worker opens it, scanning the job's home and not the
+      // developer's.
+      const indexCache = (input: IndexRefreshJobInput): ConversationDiscoveryCache => {
+        if (!cache) cache = openIndexCache(input)
         return cache
       }
       return {
@@ -79,7 +87,9 @@ function inlineWorkerClient(): DiscoveryWorkerClient {
               const value =
                 job.kind === 'memoryBreakdown'
                   ? runMemoryBreakdownJob(job.input)
-                  : await runIndexRefreshJob(job.input, indexCache(job.input.cachePath))
+                  : job.kind === 'reclaimDiskEstimate'
+                    ? await runReclaimDiskEstimateJob(job.input)
+                    : await runIndexRefreshJob(job.input, indexCache(job.input))
               for (const h of handlers) h({ id: job.id, ok: true, value })
             } catch (err) {
               const error = err instanceof Error ? err.message : String(err)
@@ -245,8 +255,8 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
 /**
  * The server, set up the way setup enrollment and the host daemon's repo scan
  * would leave it. Since 2b803efb5 the server never invents placement: a session
- * needs a machine ASSIGNED agent execution, and an issue's repo resolves only
- * through a machine that REPORTED it. The enrolled-server fixture enrolls the host
+ * needs a machine ASSIGNED agent execution that the operator may use (its
+ * custodian), and an issue's repo resolves only through a machine that REPORTED it. The enrolled-server fixture enrolls the host
  * as a server only, and the old `repos.json` in the state dir is read by nothing,
  * so without this `repos.list` is empty and every spec stops in setup.
  *
@@ -258,11 +268,12 @@ let machineToken: string | undefined
 const startHarnessServer = async (): Promise<Awaited<ReturnType<typeof startServer>>> => {
   const started = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
   const machines = started.registry.modules.machines
-  const machineId = asMachineId(hostMachineId())
+  const machineId = hostMachineId()
   if (machineToken === undefined) machineToken = started.machineToken
   else await machines.ensureHostMachine('transport-test-host', machineToken)
   await machines.changeAssignment(machineId, { server: true, agentExecution: true }, 'e2e-harness')
   const store = started.registry.sessionStore
+  await store.machines.setMachineOwner(machineId, await firstAdminMemberId(store))
   for (const path of [REPO_ROOT, SCRATCH_REPO]) await store.repos.addRepo(path, machineId)
   return Object.assign(started, { machineToken })
 }
@@ -348,27 +359,30 @@ if (!REAL_AGENTS) {
  */
 const E2E_ACCOUNT_ROLE = process.env.PODIUM_E2E_ACCOUNT_ROLE
 if (E2E_ACCOUNT_ROLE === 'member' || E2E_ACCOUNT_ROLE === 'none') {
-  const roleStore = (server.registry as unknown as { store: SessionStore }).store
-  const users = roleStore.users as unknown as { roleOf: (id: string) => string | undefined }
-  users.roleOf = () => (E2E_ACCOUNT_ROLE === 'member' ? 'member' : undefined)
+  const roleStore = server.registry.sessionStore
+  const users = roleStore.users as unknown as { roleOf: (id: string) => Promise<string | undefined> }
+  users.roleOf = async () => (E2E_ACCOUNT_ROLE === 'member' ? 'member' : undefined)
   console.log(`[e2e] account role forced to ${E2E_ACCOUNT_ROLE}`)
 }
 
 if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHINE === '1') {
   // A second online machine with the same repo identity. It answers discovery only;
   // execution remains covered by the coordinated live two-host E2E.
-  const harnessStore = (server.registry as unknown as { store: SessionStore }).store
-  harnessStore.machines.upsertMachine({
-    id: E2E_TARGET_ID,
+  const targetId = asMachineId(E2E_TARGET_ID)
+  const harnessStore = server.registry.sessionStore
+  await harnessStore.machines.upsertMachine({
+    id: targetId,
     name: 'E2E Target',
     hostname: 'e2e-target',
     tokenHash: 'e2e',
+    ownerUserId: await firstAdminMemberId(harnessStore),
+    assignment: { server: false, agentExecution: true },
   })
-  harnessStore.repos.updateRepoOrigin(hostMachineId(), SCRATCH_REPO, E2E_ORIGIN)
-  harnessStore.repos.addRepo(E2E_TARGET_REPO, E2E_TARGET_ID, E2E_ORIGIN)
-  server.registry.modules.sessions.attachDaemon(E2E_TARGET_ID, (msg) => {
+  await harnessStore.repos.updateRepoOrigin(hostMachineId(), SCRATCH_REPO, E2E_ORIGIN)
+  await harnessStore.repos.addRepo(E2E_TARGET_REPO, targetId, E2E_ORIGIN)
+  await server.registry.gateway.attachDaemon(targetId, (msg) => {
     if (msg.type === 'scanReposRequest') {
-      server.registry.modules.sessions.onDaemonMessageFrom(E2E_TARGET_ID, {
+      void server.registry.gateway.routeDaemonFrame(targetId, {
         type: 'scanReposResult',
         requestId: msg.requestId,
         repositories: [
@@ -387,7 +401,7 @@ if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHI
       })
     }
   })
-  server.registry.modules.machines.recordInventory(E2E_TARGET_ID, {
+  await server.registry.modules.machines.recordInventory(targetId, {
     os: 'linux',
     arch: 'x64',
     tools: [],
@@ -419,7 +433,7 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
 let daemon = await startDaemon(daemonOptions)
 const QUEUE_POSITION_ISSUE_TITLE = 'POD-2920 A1b production queue'
 if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
-  const issue = server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.create({
     repoPath: REPO_ROOT,
     title: QUEUE_POSITION_ISSUE_TITLE,
     startNow: false,
@@ -432,17 +446,19 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
   ]
   const fixtureSessions: Array<{ sessionId: string; agentKind: AgentKind; label: string }> = []
   for (const subject of subjects) {
-    let sessionId: string | undefined
+    let sessionId: SessionId | undefined
     let lastError: unknown
     for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
       try {
-        sessionId = server.registry.modules.sessions.createSession({
+        sessionId = (
+        await server.registry.modules.sessions.createSession({
           agentKind: subject.agentKind,
           cwd: REPO_ROOT,
           issueId: issue.id,
           title: subject.label,
           machineId: hostMachineId(),
-        }).sessionId
+        })
+      ).sessionId
       } catch (err) {
         lastError = err
         await new Promise((resolve) => setTimeout(resolve, 250))
@@ -453,19 +469,17 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
         `PODIUM_E2E_QUEUE_POSITION: ${subject.agentKind} inventory never arrived — ${String(lastError)}`,
       )
     }
-    server.registry.modules.sessions.renameSession({ sessionId, name: subject.label })
+    await server.registry.modules.sessions.renameSession({ sessionId, name: subject.label })
     let live = false
     for (let attempt = 0; attempt < 80 && !live; attempt++) {
       live =
-        server.registry.modules.sessions
-          .listSessions()
-          .find((session) => session.sessionId === sessionId)?.status === 'live'
+        server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
       if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
     }
     if (!live) {
       throw new Error(`PODIUM_E2E_QUEUE_POSITION: ${subject.label} never became live`)
     }
-    server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
       type: 'agentState',
       sessionId,
       state: {
@@ -475,11 +489,8 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
       },
     })
     setTimeout(() => {
-      const current = server.registry.modules.sessions
-        .listSessions()
-        .find((session) => session.sessionId === sessionId)
-      if (!current || current.status !== 'live') return
-      server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+      if (server.registry.modules.sessions.sessionFactsById(sessionId)?.status !== 'live') return
+      void server.registry.modules.sessions.onSessionDaemonFrame(principal, {
         type: 'agentState',
         sessionId,
         state: {
@@ -504,7 +515,7 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
 // `requireAgent`, which THROWS (and takes the whole harness down) for a harness
 // that is not installed on the host, and codex often is not.
 if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
-  const issue = server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.create({
     repoPath: REPO_ROOT,
     title: 'Panel lifecycle arbitration',
     startNow: false,
@@ -515,16 +526,18 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
   // until it lands — taking the whole harness process down with it. That race is
   // why the neighbouring FINISHED_DELEGATE fixture cannot be enabled on a host
   // today (POD-1520). Retry rather than assume.
-  let sessionId: string | undefined
+  let sessionId: SessionId | undefined
   let lastError: unknown
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
-      sessionId = server.registry.modules.sessions.createSession({
+      sessionId = (
+        await server.registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
         machineId: hostMachineId(),
-      }).sessionId
+      })
+      ).sessionId
     } catch (err) {
       lastError = err
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -535,7 +548,7 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
       `PODIUM_E2E_PANEL_LIFECYCLE: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  server.registry.modules.sessions.renameSession({ sessionId, name: 'Lifecycle panel subject' })
+  await server.registry.modules.sessions.renameSession({ sessionId, name: 'Lifecycle panel subject' })
   // NO hand-sent `bind` frame. `createSession` already makes the server MINT a
   // SessionBinding and the daemon launch the keyecho jig for a claude-code kind;
   // a synthetic bind on top of that overwrites the minted binding, and the
@@ -550,14 +563,14 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
   const principal = inProcessMachinePrincipal(hostMachineId())
   // A resume ref is what makes a session RESUMABLE, which is what makes manual
   // hibernation eligible at all (`sessionMenuEligibility.canHibernate`).
-  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+  await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'e2e-panel-lifecycle' },
   })
   // Idle, not working: hibernating mid-turn is refused (by the panel and by the
   // server), so the fixture must be parkable.
-  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+  await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'agentState',
     sessionId,
     state: {
@@ -579,22 +592,24 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
  * first constructed grid names its own source.
  */
 if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
-  const issue = server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.create({
     repoPath: REPO_ROOT,
     title: 'Terminal sizing subject',
     startNow: false,
   })
   // Same inventory race as PODIUM_E2E_PANEL_LIFECYCLE above — retry, do not assume.
-  let sessionId: string | undefined
+  let sessionId: SessionId | undefined
   let lastError: unknown
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
-      sessionId = server.registry.modules.sessions.createSession({
+      sessionId = (
+        await server.registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
         machineId: hostMachineId(),
-      }).sessionId
+      })
+      ).sessionId
     } catch (err) {
       lastError = err
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -605,9 +620,9 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
       `PODIUM_E2E_TERMINAL_SIZING: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  server.registry.modules.sessions.renameSession({ sessionId, name: 'Sizing panel subject' })
+  await server.registry.modules.sessions.renameSession({ sessionId, name: 'Sizing panel subject' })
   const principal = inProcessMachinePrincipal(hostMachineId())
-  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+  await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'agentState',
     sessionId,
     state: {
@@ -624,9 +639,7 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
   let live = false
   for (let attempt = 0; attempt < 80 && !live; attempt++) {
     live =
-      server.registry.modules.sessions
-        .listSessions()
-        .find((row) => row.sessionId === sessionId)?.status === 'live'
+      server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
     if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
   }
   if (!live) throw new Error('PODIUM_E2E_TERMINAL_SIZING: the session never became live')
@@ -634,7 +647,7 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
   // the terminal's geometry directly would be the fixture asserting a value the
   // production path is supposed to own, and would not exercise the broadcast the
   // client's row depends on.
-  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+  await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'geometryApplied',
     sessionId,
     geometry: { cols: 132, rows: 43 },
@@ -649,23 +662,25 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
 // Nothing about that is reproducible on a fresh session: with no verdict to be
 // stale, the old order and the new one agree.
 if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
-  const issue = server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.create({
     repoPath: REPO_ROOT,
     title: 'Stale verdict under a send',
     startNow: false,
   })
   // Same inventory race as PANEL_LIFECYCLE above, same answer: retry rather than
   // let `requireAgent` take the harness down.
-  let sessionId: string | undefined
+  let sessionId: SessionId | undefined
   let lastError: unknown
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
-      sessionId = server.registry.modules.sessions.createSession({
+      sessionId = (
+        await server.registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
         machineId: hostMachineId(),
-      }).sessionId
+      })
+      ).sessionId
     } catch (err) {
       lastError = err
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -676,12 +691,12 @@ if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
       `PODIUM_E2E_STALE_VERDICT: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  server.registry.modules.sessions.renameSession({ sessionId, name: 'Stale verdict subject' })
+  await server.registry.modules.sessions.renameSession({ sessionId, name: 'Stale verdict subject' })
   const principal = inProcessMachinePrincipal(hostMachineId())
   // `idle` + `question` is what `agentBadge` turns into `needs answer`, and the
   // tail into "Waiting for your answer". Stamped an hour ago, because the point
   // is that it belongs to a turn that is over.
-  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+  await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'agentState',
     sessionId,
     state: {
@@ -697,21 +712,23 @@ if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
 // browser spec opens the real AgentPanel, which must render both files as one
 // transcript and keep the wake action visible.
 if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
-  const issue = server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.create({
     repoPath: REPO_ROOT,
     title: 'Completed transcript incarnation',
     startNow: false,
   })
-  let sessionId: string | undefined
+  let sessionId: SessionId | undefined
   let lastError: unknown
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
-      sessionId = server.registry.modules.sessions.createSession({
+      sessionId = (
+        await server.registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
         machineId: hostMachineId(),
-      }).sessionId
+      })
+      ).sessionId
     } catch (err) {
       lastError = err
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -722,16 +739,14 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
       `PODIUM_E2E_TRANSCRIPT_INCARNATION: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  server.registry.modules.sessions.renameSession({
+  await server.registry.modules.sessions.renameSession({
     sessionId,
     name: 'Incarnation chain subject',
   })
   let live = false
   for (let attempt = 0; attempt < 80 && !live; attempt++) {
     live =
-      server.registry.modules.sessions
-        .listSessions()
-        .find((session) => session.sessionId === sessionId)?.status === 'live'
+      server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
     if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
   }
   if (!live) {
@@ -739,12 +754,12 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   }
   const nativeId = 'e2e-reused-native-id'
   const principal = inProcessMachinePrincipal(hostMachineId())
-  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+  await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: nativeId },
   })
-  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+  await server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'agentState',
     sessionId,
     state: {
@@ -776,148 +791,36 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   mkdirSync(lakeDir, { recursive: true })
   writeFileSync(join(lakeDir, `${nativeId}.incarnation-1.jsonl`), predecessor)
   writeFileSync(join(lakeDir, `${nativeId}.jsonl`), current)
-  const harnessStore = (server.registry as unknown as { store: SessionStore }).store
-  harnessStore.conversations.mirror.startIncarnation(
+  const harnessStore = server.registry.sessionStore
+  await harnessStore.conversations.mirror.startIncarnation(
     machineId,
     nativeId,
     { device: '7', inode: '8961297' },
     '2026-08-08T21:06:39Z',
   )
-  harnessStore.conversations.mirror.rotateIncarnation(
+  await harnessStore.conversations.mirror.rotateIncarnation(
     machineId,
     nativeId,
     { device: '7', inode: '7115245' },
     Buffer.byteLength(predecessor),
     '2026-08-08T21:57:00Z',
   )
-  harnessStore.conversations.mirror.setMirrorCursor(
+  await harnessStore.conversations.mirror.setMirrorCursor(
     machineId,
     nativeId,
     Buffer.byteLength(current),
     '2026-08-08T21:57:01Z',
   )
-  const hibernated = server.registry.modules.sessions.hibernateSession({ sessionId })
+  const hibernated = await server.registry.modules.sessions.hibernateSession({ sessionId })
   if (!hibernated.ok) {
     throw new Error(
       `PODIUM_E2E_TRANSCRIPT_INCARNATION: hibernate refused — ${hibernated.reason ?? 'unknown'}`,
     )
   }
-  server.registry.modules.issues.close(issue.id, 'done')
-}
-if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
-  const issue = server.registry.modules.issues.create({
-    repoPath: REPO_ROOT,
-    title: 'Finished delegate decay',
-    startNow: false,
-  })
-  const { sessionId } = server.registry.modules.sessions.createSession({
-    agentKind: 'codex',
-    cwd: REPO_ROOT,
-    issueId: issue.id,
-    machineId: hostMachineId(),
-  })
-  server.registry.modules.sessions.renameSession({ sessionId, name: 'Finished relay delegate A' })
-  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
-    type: 'bind',
-    sessionId,
-    cmd: 'codex',
-    cwd: REPO_ROOT,
-    agentKind: 'codex',
-    geometry: { cols: 80, rows: 24 },
-  })
-  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
-    type: 'sessionResumeRef',
-    sessionId,
-    resume: { kind: 'codex-thread', value: 'e2e-finished-delegate' },
-  })
-  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
-    type: 'agentState',
-    sessionId,
-    state: {
-      phase: 'idle',
-      idle: { kind: 'done' },
-      since: new Date().toISOString(),
-      nativeSubagentCount: 0,
-    },
-  })
-  server.registry.modules.sessions.hibernateSession({ sessionId })
-  const { sessionId: secondId } = server.registry.modules.sessions.createSession({
-    agentKind: 'codex',
-    cwd: REPO_ROOT,
-    issueId: issue.id,
-    machineId: hostMachineId(),
-  })
-  server.registry.modules.sessions.renameSession({
-    sessionId: secondId,
-    name: 'Finished relay delegate B',
-  })
-  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
-    type: 'bind',
-    sessionId: secondId,
-    cmd: 'codex',
-    cwd: REPO_ROOT,
-    agentKind: 'codex',
-    geometry: { cols: 80, rows: 24 },
-  })
-  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
-    type: 'sessionResumeRef',
-    sessionId: secondId,
-    resume: { kind: 'codex-thread', value: 'e2e-finished-delegate-2' },
-  })
-  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
-    type: 'agentState',
-    sessionId: secondId,
-    state: {
-      phase: 'idle',
-      idle: { kind: 'done' },
-      since: new Date().toISOString(),
-      nativeSubagentCount: 0,
-    },
-  })
-  server.registry.modules.sessions.hibernateSession({ sessionId: secondId })
-  server.registry.modules.issues.close(issue.id, 'done')
-}
-if (process.env.PODIUM_E2E_OFFER === '1') {
-  const issue = server.registry.modules.issues.create({
-    repoPath: REPO_ROOT,
-    title: 'Native offer layout',
-    startNow: false,
-  })
-  const { sessionId } = server.registry.modules.sessions.createSession({
-    agentKind: 'codex',
-    cwd: REPO_ROOT,
-    issueId: issue.id,
-    machineId: hostMachineId(),
-  })
-  setTimeout(() => {
-    // Match the real review-offer lifecycle: the turn has completed, while the
-    // offer it produced still needs a human decision.
-    server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
-      type: 'agentState',
-      sessionId,
-      state: {
-        phase: 'idle',
-        idle: { kind: 'done' },
-        since: new Date().toISOString(),
-        nativeSubagentCount: 0,
-      },
-    })
-    server.registry.modules.sessions.setOffer({
-      sessionId,
-      message: 'Native offer layout check',
-      actions: [
-        { label: 'Keep it', prompt: 'Keep the verified layout' },
-        {
-          label: 'Request changes',
-          prompt: 'Revise the layout per this feedback:',
-          input: true,
-        },
-      ],
-    })
-  }, 2_000)
+  await server.registry.modules.issues.close(issue.id, 'done')
 }
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
-  server.registry.modules.sessions.createSession({
+  await server.registry.modules.sessions.createSession({
     agentKind: 'claude-code',
     cwd: SCRATCH_FEAT,
     machineId: hostMachineId(),
@@ -937,7 +840,7 @@ if (process.env.PODIUM_E2E_HANDOFF === '1') {
 // onBehalfOf=<the delegating human> — two DIFFERENT values, which is the only
 // arrangement in which a collapsed renderer is visibly wrong.
 if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
-  const issue = server.registry.modules.issues.create({
+  const issue = await server.registry.modules.issues.create({
     repoPath: REPO_ROOT,
     title: 'Session attribution rows',
     startNow: false,
@@ -946,16 +849,18 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
   // `startDaemon` returns, so `createSession` throws `<kind> is not installed`
   // until it lands and takes the whole harness down with it — the same race the
   // PANEL_LIFECYCLE fixture above documents. Retry rather than assume.
-  let parentId: string | undefined
+  let parentId: SessionId | undefined
   let lastError: unknown
   for (let attempt = 0; attempt < 80 && parentId === undefined; attempt++) {
     try {
-      parentId = server.registry.modules.sessions.createSession({
+      parentId = (
+        await server.registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
         machineId: hostMachineId(),
-      }).sessionId
+      })
+      ).sessionId
     } catch (err) {
       lastError = err
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -966,7 +871,7 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       `PODIUM_E2E_SESSION_ATTRIBUTION: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  server.registry.modules.sessions.renameSession({ sessionId: parentId, name: 'Attribution host' })
+  await server.registry.modules.sessions.renameSession({ sessionId: parentId, name: 'Attribution host' })
   // WAIT FOR THE PARENT'S BINDING, WHICH IS NOT A RETRY (POD-1526).
   //
   // `createSession` for an AGENT principal SUCCEEDS synchronously and then fails
@@ -990,23 +895,25 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
   // What IS observable is whether the child survived, so that is what is waited
   // on and retried. Casualties are archived rather than left on screen: a dead
   // row from a lost race is not a fixture the spec should have to reason about.
-  const statusOf = (id: string): string | undefined =>
-    server.registry.modules.sessions.listSessions().find((s) => s.sessionId === id)?.status
-  let childId: string | undefined
+  const statusOf = (id: SessionId): string | undefined =>
+    server.registry.modules.sessions.sessionFactsById(id)?.status
+  let childId: SessionId | undefined
   for (let attempt = 0; attempt < 30 && childId === undefined; attempt++) {
-    const candidate = server.registry.modules.sessions.createSession({
+    const candidate = (
+        await server.registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: REPO_ROOT,
       issueId: issue.id,
       machineId: hostMachineId(),
       binding: { principal: { kind: 'agent', parentBindingId: parentId } },
-    }).sessionId
+    })
+      ).sessionId
     // Give the daemon a moment to accept or reject the transition.
     for (let settle = 0; settle < 12 && statusOf(candidate) !== 'exited'; settle++) {
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
     if (statusOf(candidate) === 'exited') {
-      server.registry.modules.sessions.setArchived({ sessionId: candidate, archived: true })
+      await server.registry.modules.sessions.setArchived({ sessionId: candidate, archived: true })
       continue
     }
     childId = candidate
@@ -1016,7 +923,7 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       'PODIUM_E2E_SESSION_ATTRIBUTION: no delegated child survived its spawn, so there is no delegated pair to render',
     )
   }
-  server.registry.modules.sessions.renameSession({ sessionId: childId, name: 'Delegated worker' })
+  await server.registry.modules.sessions.renameSession({ sessionId: childId, name: 'Delegated worker' })
 }
 console.log(
   `harness relay on ws://localhost:${server.port} (shell=real, else=keyecho); state=${stateDir}`,
