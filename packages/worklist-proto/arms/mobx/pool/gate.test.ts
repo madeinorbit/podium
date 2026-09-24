@@ -307,7 +307,7 @@ function checked(
 const relationChecked = checked(mobxPoolArm)
 
 /**
- * POD-4572: `arm` with POD-4671's one-class gap patched in its snapshot and
+ * POD-4572: `arm` with POD-4671's one-row gap patched in its snapshot and
  * its rebuild (the oracle's row taken for each row `acceptUnscannedGap`
  * names), counted in `tally.applied`, so the oracle comparison at its default
  * cadence holds every other row. The exception throws once the gap is fixed.

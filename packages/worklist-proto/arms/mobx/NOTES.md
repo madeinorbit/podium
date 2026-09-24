@@ -31,20 +31,18 @@ Code: `harness/src/roster.ts` (the pool on the roster, `RosterAllowances`),
   rule fails it (`i13682`), the fix passes. PLACE TO REMEMBER: none new (the
   rule lives in the one function the model and the rebuild share). The hand
   pool has the same rule (`arms/hand/pool/views.ts`); its lane was mailed.
-- **The POD-4671 allowance covers its class, not one row**
-  (`known-gaps.ts`). The page's rescope (L5e) stages the 2x corpus's rows but
-  not its scans (`discovery.repos` stays at the page's corpus), so at the
-  grown state every 2x-only issue worktree is unscanned: seven rows of
-  POD-4671's class (`i4944`, the 2x corpus's own orphan, and `i5950`,
-  `i6651`, `i6875`, `i7502`, `i8964`, `i9549`). Reproduced in counts
-  (a scratch probe, not kept): a fresh 2x pool differs from the oracle on
-  `i4944` alone; the rescoped one on all seven, each in seat fields only,
-  each an issue whose own `worktreePath` no lane reports (`s5122` under
-  `/repo-000/.worktrees/w00477/sub` links to the repo-root lane). The
-  allowance now accepts a row only when (a) it differs in `phase` /
-  `working` / `asking` alone and (b) its own worktree is not a scanned lane;
-  the tripwire (the corpus orphan seated) is unchanged. PLACE TO REMEMBER:
-  none in the pool; it is a test exception that dies with POD-4671.
+- **The page's rescope stages the grown scope's scans** (coordinator ruling
+  on this issue's finding; `harness/src/rescope.ts`). It staged the 2x rows
+  but not the 2x scans, leaving seven 2x issue worktrees unscanned at the
+  grown state (POD-4671's class: `i4944`, the 2x orphan, and `i5950`,
+  `i6651`, `i6875`, `i7502`, `i8964`, `i9549`; `s5122` under
+  `/repo-000/.worktrees/w00477/sub` linked to the repo-root lane). The first
+  landing widened the POD-4671 allowance to the class; the ruling reverted
+  that (a harness artefact must not become a permanent exception). Now the
+  allowance is the corpus's ONE orphan again, the caller passing the corpus
+  whose rows are installed; `harness/src/rescope.test.ts` shows only `i4944`
+  unscanned at the grown state (262 with the old rows-only staging). PLACE
+  TO REMEMBER: none.
 - **`knownTables` reads lanes and repos from the feed** (`enumerate.ts`),
   the switch its comment assigned to Mb4: the relation check no longer
   leans on the pool's own tables for the never-cold entities.
@@ -92,8 +90,6 @@ Code: `harness/src/roster.ts` (the pool on the roster, `RosterAllowances`),
 
 ### Open
 
-- The page's rescope does not re-scan lanes for the grown corpus (harness
-  fidelity, L5e): mailed to the coordinator.
 - POD-4686: stage move's whole-order layout and the click's visibility
   re-validation grow with the visible set.
 - The bootstrap and switch walls (3-4x the control's): the pool's construction
