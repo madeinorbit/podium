@@ -298,12 +298,29 @@ describe('oracle: setWorkState', () => {
 })
 
 describe('oracle: setIssueId', () => {
-  it(`${MUST_NOT_CHANGE}: attaching an issue is a NAMING POINT (it allocates a ref letter); detaching is not`, async () => {
+  /**
+   * WHERE THE NAMING POINT STILL IS (2b803efb5, POD-4165).
+   *
+   * This used to create the session in the issue's own repo and watch the
+   * attach allocate its ref. Since 2b803efb5 an issue exists only in a repo a
+   * machine REPORTED, and a reported repo has a prefix — so a session born
+   * there is named at BIRTH with a draft ordinal, and a ref once allocated is
+   * never reallocated (`prepareRefAllocation` returns early). The attach is
+   * still a naming point for a session born OUTSIDE any reported repo, which
+   * has no ref until then; that is the session this pins. The born-named arm is
+   * pinned beside it so the rule's other half cannot drift silently either.
+   */
+  it(`${MUST_NOT_CHANGE}: attaching an issue is a NAMING POINT (it allocates a ref letter) for a session born unnamed; detaching is not`, async () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
     const issue = await o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    // Outside every reported repo: no prefix, so no draft ordinal at birth.
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/scratch' })
+    const born = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
+    expect(born?.refIssueId ?? null).toBeNull()
+    expect(born?.refLetter ?? null).toBeNull()
+    expect(born?.refDraft ?? null).toBeNull()
 
     await o.call.sessions.setIssueId({ sessionId, issueId: issue.id })
     expect((await o.meta(sessionId)).issueId).toBe(issue.id)
@@ -317,6 +334,24 @@ describe('oracle: setIssueId', () => {
     const detached = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(detached?.refIssueId).toBe(issue.id)
     expect(detached?.refLetter).toBe(attached?.refLetter)
+    expect(detached?.refDraft ?? null).toBeNull()
+  })
+
+  it(`${MUST_NOT_CHANGE}: a session born in a reported repo is named at birth with a draft ordinal, and attaching an issue does not rename it`, async () => {
+    const o = await makeOracle()
+    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const born = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
+    expect(typeof born?.refDraft).toBe('number')
+
+    await o.call.sessions.setIssueId({ sessionId, issueId: issue.id })
+
+    expect((await o.meta(sessionId)).issueId).toBe(issue.id)
+    const attached = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
+    expect(attached?.refIssueId ?? null).toBeNull()
+    expect(attached?.refLetter ?? null).toBeNull()
+    expect(attached?.refDraft).toBe(born?.refDraft)
   })
 })
 
