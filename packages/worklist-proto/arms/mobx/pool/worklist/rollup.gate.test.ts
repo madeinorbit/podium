@@ -74,13 +74,12 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
       )
       const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
         const oracle = oracleSnapshot(ctx.engine.getSnapshot())
-        const { applied } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
-        if (applied === null) return snapshot
-        tally.applied += 1
-        return {
-          ...snapshot,
-          rowsById: { ...snapshot.rowsById, [applied]: oracle.rowsById[applied]! },
-        }
+        const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
+        if (rows.length === 0) return snapshot
+        tally.applied += rows.length
+        const rowsById = { ...snapshot.rowsById }
+        for (const id of rows) rowsById[id] = oracle.rowsById[id]!
+        return { ...snapshot, rowsById }
       }
       return {
         ...handle,
