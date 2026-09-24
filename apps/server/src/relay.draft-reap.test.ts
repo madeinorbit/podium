@@ -312,14 +312,25 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
       issueId: draft.id,
     })).sessionId
 
-    // Tombstone it the way a standalone delete does. The row keeps a RUNNABLE
-    // status. Explicit rehome cleanup cannot see this row because
-    // `loadSessions()` is `deleted_at IS NULL`.
+    // Tombstone it the way a standalone delete does. Explicit rehome cleanup
+    // cannot see this row because `loadSessions()` is `deleted_at IS NULL`.
+    //
+    // The row used to keep a RUNNABLE status here (the POD-1926 incident row
+    // was still `live`). Since 0ee82a1d4 (POD-4634) the tombstone write records
+    // the running session's exit as forced in the same write, so the row reads
+    // exited — but it STILL names the draft, which is the dangling pointer this
+    // test is about.
     const store = await openTestStore(file)
-    await store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
+    const deletedAt = new Date().toISOString()
+    await store.sessions.softDeleteSessions([sessionId], deletedAt, 'standalone')
     const tombstone = await store.sessions.getSession(sessionId)
     expect(tombstone?.archived).toBe(false)
-    expect(tombstone?.status).not.toBe('exited')
+    expect(tombstone).toMatchObject({
+      status: 'exited',
+      stopReason: 'forced',
+      stoppedAt: deletedAt,
+      issueId: draft.id,
+    })
     expect((await store.sessions.loadSessions()).map((r) => r.id)).not.toContain(sessionId)
 
     // Rehoming the remaining live session is the explicit cleanup point.
