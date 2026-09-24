@@ -6,11 +6,25 @@ import { PortableStateFence } from './portable-fence'
 afterEach(() => disposeOracles())
 
 describe('portable upload fence', () => {
+  /**
+   * WHICH UPLOAD THIS FENCE GUARDS (577eb857a, 358ad0ffb).
+   *
+   * The server's portable-state fence wraps the `imageUploadRequest` RPC. Since
+   * 358ad0ffb (POD-4427) every AGENT session is contract-driven, so an agent's
+   * upload stages through its driver instead (577eb857a,
+   * `runtimeStageAttachmentRequest`) and never reaches that RPC — this used to
+   * drive a claude-code session and now timed out waiting for a request that
+   * is never sent. The RPC, and so this fence, now carry plain shell sessions
+   * and sessions not created yet, so the pin runs on a shell. The agent staging
+   * write is fenced on the daemon instead: its `stageAttachment` runs inside
+   * the daemon's own portable-state fence (apps/daemon/src/host-runtime.ts),
+   * which the transfer's `pauseAndDrain` closes before this fence is acquired.
+   */
   it('drains an in-flight upload and rejects a new upload after fencing', async () => {
     const fence = new PortableStateFence()
     const oracle = await makeOracle({ portableStateFence: fence })
     const { sessionId } = await oracle.call.sessions.create({
-      agentKind: 'claude-code',
+      agentKind: 'shell',
       cwd: '/workspace',
     })
     let request: Extract<ControlMessage, { type: 'imageUploadRequest' }> | undefined

@@ -77,6 +77,23 @@ function answerUploads(
         ...(r.error !== undefined ? { error: r.error } : {}),
       })
     }
+    // An AGENT session's upload stages through its driver (see the describe
+    // block below); this machine stages it the way a daemon does, under its
+    // own name so a test can tell which machine answered.
+    if (msg.type === 'runtimeStageAttachmentRequest') {
+      svc.routeDaemonFrame(machineId, {
+        type: 'runtimeStageAttachmentResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result: {
+          id: `staged-on-${machineId}`,
+          path: `/staged/${machineId}/${msg.source.filename}`,
+          filename: msg.source.filename,
+          mediaType: msg.source.mediaType,
+          kind: 'image' as const,
+        },
+      })
+    }
   })
   return seen
 }
@@ -270,6 +287,22 @@ describe('oracle: sessions.ask (the seance)', () => {
   })
 })
 
+/**
+ * TWO UPLOAD PATHS, AND WHICH SESSIONS TAKE WHICH (577eb857a, 358ad0ffb).
+ *
+ * 577eb857a ("deliver staged attachments") routed an upload for a session
+ * driven through the runtime contract to the driver (`stageAttachment` →
+ * `runtimeStageAttachmentRequest`), returning a typed attachment ref or a typed
+ * refusal. Since 358ad0ffb (POD-4427) EVERY agent session is contract-driven —
+ * `isAgentDriven` is "known and not a shell" — so an agent's upload never takes
+ * the `imageUploadRequest` RPC any more. That RPC, and the path/error/TIMEOUT
+ * shapes these oracles pin, now carry plain SHELL sessions (POD-4278) and
+ * sessions that do not exist yet. The oracles below that pinned the RPC shapes
+ * on a claude-code session are re-pinned on a shell, where they still hold
+ * verbatim; routing, which holds on BOTH paths, is pinned on both; the agent
+ * path's payload and typed refusal are pinned by "routes a live runtime session
+ * through staged refs".
+ */
 describe('oracle: sessions.uploadImage', () => {
   // NAME AUDIT: this used to be called "carries the bytes to the SESSION's
   // machine" while running on a one-machine fixture, so it passed with the
@@ -277,7 +310,8 @@ describe('oracle: sessions.uploadImage', () => {
   // in the two-machine test below. This one checks the payload round trip.
   it(`${MUST_NOT_CHANGE}: a successful upload returns the daemon's absolute path and forwards filename, mimeType and bytes verbatim`, async () => {
     const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    // A shell: an agent session stages through its driver instead (see above).
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     answerUploads(o, (msg) => ({ path: `/home/agent/.podium/uploads/${msg.sessionId}/x.png` }))
 
     const result = await o.call.sessions.uploadImage({
@@ -365,7 +399,8 @@ describe('oracle: sessions.uploadImage', () => {
   it(`${MUST_NOT_CHANGE}: a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message`,
     async () => {
       const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      // A shell: the RPC path's error shape (an agent gets a typed refusal).
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
       answerUploads(o, () => ({ path: '', error: 'disk full' }))
 
       expect(
@@ -383,7 +418,8 @@ describe('oracle: sessions.uploadImage', () => {
 
   it(`${MUST_NOT_CHANGE}: an answer with no path is treated as NOBODY ANSWERING — a TIMEOUT, not a silent success`, async () => {
     const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    // A shell: the RPC path's timeout shape (an agent gets a typed refusal).
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     // The same empty-path value the RPC layer synthesizes when the 30s round-trip
     // expires, driven here directly so the shape is pinned without the wait.
     answerUploads(o, () => ({ path: '' }))
@@ -400,7 +436,7 @@ describe('oracle: sessions.uploadImage', () => {
     ).toBe('no daemon answered the image upload request')
   })
 
-  it(`${MUST_NOT_CHANGE}: an upload is routed to the SESSION's machine, not the default one`, async () => {
+  it(`${MUST_NOT_CHANGE}: an upload is routed to the SESSION's machine, not the default one — on both upload paths`, async () => {
     // The second machine gets its own responder; the DEFAULT machine keeps the
     // recorder makeOracle installed and is never re-attached. Swapping the local
     // handler mid-test was a needless moving part — attachDaemon has retarget
@@ -409,6 +445,11 @@ describe('oracle: sessions.uploadImage', () => {
     const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
     const { sessionId } = await o.call.sessions.create({
+      agentKind: 'shell',
+      cwd: '/p',
+      machineId: 'other',
+    })
+    const agent = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
       machineId: 'other',
@@ -416,6 +457,7 @@ describe('oracle: sessions.uploadImage', () => {
     // Placement first, routing second: if this ever fails, the fixture is wrong,
     // not the behaviour under test.
     expect((await o.meta(sessionId)).machineId).toBe('other')
+    expect((await o.meta(agent.sessionId)).machineId).toBe('other')
     otherSeen.length = 0
     o.daemon.length = 0
 
@@ -442,6 +484,37 @@ describe('oracle: sessions.uploadImage', () => {
       }),
     ])
     expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
+
+    // THE AGENT PATH ROUTES THE SAME WAY (577eb857a, 358ad0ffb): the staged
+    // file has to exist on the disk of the machine running the driver, so the
+    // stage request goes to the session's machine and nowhere else.
+    const staged = await o.call.sessions.uploadImage({
+      sessionId: agent.sessionId,
+      filename: 'shot.png',
+      mimeType: 'image/png',
+      dataBase64: Buffer.from('bytes').toString('base64'),
+    })
+    expect(staged).toEqual({
+      path: '/staged/other/shot.png',
+      attachment: expect.objectContaining({ id: 'staged-on-other' }),
+    })
+    expect(otherSeen.filter((m) => m.type === 'runtimeStageAttachmentRequest')).toEqual([
+      expect.objectContaining({
+        type: 'runtimeStageAttachmentRequest',
+        sessionId: agent.sessionId,
+        source: {
+          dataBase64: Buffer.from('bytes').toString('base64'),
+          filename: 'shot.png',
+          mediaType: 'image/png',
+        },
+      }),
+    ])
+    expect(otherSeen.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(1)
+    expect(
+      o.daemon.filter(
+        (m) => m.type === 'imageUploadRequest' || m.type === 'runtimeStageAttachmentRequest',
+      ),
+    ).toEqual([])
   })
 
   it(`${willChange('POD-1079', "machines become owned compute; 'use' defaults to the owner only")}: nothing checks whether the caller may USE the machine an upload lands on`, async () => {
@@ -458,8 +531,10 @@ describe('oracle: sessions.uploadImage', () => {
       () => ({ path: '/Users/someone/.podium/uploads/x.png' }),
       asMachineId('someones-laptop'),
     )
+    // A shell, so the RPC path's shape holds (an agent stages instead; the
+    // machine gate sits before both paths and consults nothing either way).
     const { sessionId } = await o.call.sessions.create({
-      agentKind: 'claude-code',
+      agentKind: 'shell',
       cwd: '/p',
       machineId: 'someones-laptop',
     })
@@ -527,8 +602,10 @@ describe('oracle: sessions.uploadImage', () => {
   it(`${MUST_NOT_CHANGE}: a KNOWN session's machine still wins over a caller-named one`, async () => {
     const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
+    // A shell, on the RPC path: the one path that reads `input.machineId` at
+    // all (the agent stage path routes by the session alone).
     const { sessionId } = await o.call.sessions.create({
-      agentKind: 'claude-code',
+      agentKind: 'shell',
       cwd: '/p',
       machineId: 'other',
     })
@@ -552,13 +629,18 @@ describe('oracle: sessions.uploadImage', () => {
     vi.useFakeTimers()
     try {
       const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      // A shell: the RPC path is the one with this TIMEOUT shape (an agent's
+      // stage gets a typed refusal instead — see the ONLINE case below).
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+      // AWAITED: since 2a19e9c05 the bind's live flip is a queued session
+      // write, so an un-awaited bind lands after the detach below and paints
+      // the row live again (the same fixture race oracle-errors documents).
+      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'bind',
         sessionId,
-        cmd: 'claude',
+        cmd: 'bash',
         cwd: '/p',
-        agentKind: 'claude-code',
+        agentKind: 'shell',
         geometry: { cols: 80, rows: 24 },
       })
 
@@ -599,7 +681,9 @@ describe('oracle: sessions.uploadImage', () => {
     vi.useFakeTimers()
     try {
       const o = await makeOracle()
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      // A shell: the RPC path's TIMEOUT (the agent path is the second arm).
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+      const agent = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       // Attached and considered ONLINE, but never answers. Kept as its own
       // characterization because the two states are genuinely different inputs
       // that today produce the same output — which is the fact worth pinning.
@@ -624,6 +708,27 @@ describe('oracle: sessions.uploadImage', () => {
       expect(o.daemon).toContainEqual(
         expect.objectContaining({ type: 'imageUploadRequest', sessionId }),
       )
+
+      // THE AGENT PATH'S UNANSWERED SHAPE (577eb857a, 358ad0ffb). An agent's
+      // upload is a stage request under the runtime verb budget (10s), and an
+      // unanswered one RESOLVES as a typed `not_running` refusal — not a throw.
+      // Still never a silent success: there is no path, only the refusal.
+      const stagedSettled = o.call.sessions
+        .uploadImage({
+          sessionId: agent.sessionId,
+          filename: 'shot.png',
+          mimeType: 'image/png',
+          dataBase64: 'AA==',
+        })
+        .then(
+          (value) => value,
+          (e: unknown) => (e instanceof Error ? e.message : String(e)),
+        )
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(await stagedSettled).toEqual({ refusal: { reason: 'not_running' } })
+      expect(o.daemon).toContainEqual(
+        expect.objectContaining({ type: 'runtimeStageAttachmentRequest', sessionId: agent.sessionId }),
+      )
     } finally {
       vi.useRealTimers()
     }
@@ -647,7 +752,9 @@ describe('oracle: sessions.uploadImage', () => {
 
   it(`${MUST_NOT_CHANGE}: uploadImage carries no mutationId — two uploads are two daemon round-trips, never deduped`, async () => {
     const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    // A shell, on the RPC path (the agent stage path carries no mutationId
+    // either; the routing test above sends it one stage per upload).
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     let served = 0
     answerUploads(o, () => {
       served += 1
