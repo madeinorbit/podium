@@ -98,7 +98,7 @@ describe('computeTranscript', () => {
       ).toEqual(['a0', 'u1'])
     })
 
-    it('never lifts a prompt past an unstamped item or another prompt', () => {
+    it('never lifts a prompt past an unstamped item', () => {
       expect(
         ids([
           item({ id: 'u0', role: 'user', ts: '2026-09-23T07:26:47.000Z', text: 'first' }),
@@ -106,6 +106,15 @@ describe('computeTranscript', () => {
           item({ id: 'u1', role: 'user', ts: '2026-09-23T07:26:45.000Z', text: 'second' }),
         ]),
       ).toEqual(['u0', 'x', 'u1'])
+    })
+
+    it('never lifts a prompt past another prompt, whatever their stamps say', () => {
+      expect(
+        ids([
+          item({ id: 'u0', role: 'user', ts: '2026-09-23T07:26:47.000Z', text: 'first' }),
+          item({ id: 'u1', role: 'user', ts: '2026-09-23T07:26:45.000Z', text: 'second' }),
+        ]),
+      ).toEqual(['u0', 'u1'])
     })
   })
 })

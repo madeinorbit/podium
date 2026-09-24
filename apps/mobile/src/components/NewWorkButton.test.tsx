@@ -58,11 +58,15 @@ type Login = 'in' | 'out' | 'unknown'
 
 /** The one machine the fixtures' repos live on, reporting which harnesses it
  *  has and whether each is signed in — the inventory the readiness rule reads. */
-function machine(agents: Partial<Record<string, Login>>): MachineWire {
+function machine(
+  agents: Partial<Record<string, Login>>,
+  id = 'mine',
+  name = 'Studio',
+): MachineWire {
   return {
-    id: 'mine',
-    name: 'Studio',
-    hostname: 'studio',
+    id,
+    name,
+    hostname: name.toLowerCase(),
     online: true,
     serviceAssignment: { server: false, agentExecution: true },
     availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
@@ -227,6 +231,26 @@ describe('the phone launch sheet', () => {
       fireEvent.click(start)
       await Promise.resolve()
       expect(create).not.toHaveBeenCalled()
+    })
+
+    it('judges the harness on the machine the launch lands on, not on any machine', async () => {
+      // Claude is signed in on a second host, but the project lives on Studio,
+      // where it is signed out: Auto must still step over it.
+      const create = vi.fn(async () => ({ sessionId: 'created' }))
+      await renderWithMobileStore(<NewWorkButton />, {
+        repos: [repo('/home/dev/podium')],
+        machines: [
+          machine({ 'claude-code': 'out', opencode: 'in' }),
+          machine({ 'claude-code': 'in' }, 'other', 'Laptop'),
+        ],
+        api: { sessions: { create: { mutate: create } } },
+      })
+      fireEvent.click(screen.getByLabelText('New work'))
+      expect(screen.getByLabelText('Machine, Studio')).toBeTruthy()
+      fireEvent.click(screen.getByLabelText('Start in podium'))
+
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'opencode' }))
     })
 
     it('refuses an explicitly picked harness that is signed out, rather than swapping it', async () => {
