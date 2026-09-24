@@ -345,7 +345,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   })
 
-  it('(i) startup adoption and a machine rename re-capture machineId/machineName (#247)', async () => {
+  it('(i) startup adoption and a machine rename re-capture machineId/machineName; a revoke keeps the name (#247)', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
@@ -374,16 +374,22 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
     expect(renamed?.value?.machineName).toBe('renamed-host')
-    // Revoke: deleting the machine row changes the derived name to its id fallback.
+    // Revoke: the machine row is RETAINED as a revoked tombstone (23e55a7c2,
+    // POD-4143 — it fences credential replacement), so it keeps its name and
+    // the derived machineName does NOT fall back to the raw id, as it did when
+    // revoke deleted the row. No session change may carry the id fallback, and
+    // the projection still names the machine.
     await registry.modules.machines.revokeMachine(host)
     await registry.modules.sessions.flushBroadcasts()
+    expect((await registry.sessionStore.machines.getMachine(host))?.revokedAt).toEqual(expect.any(String))
     const afterRevoke = await registry.modules.sessions.syncChangesSince(afterRename.cursor)
     expect(afterRevoke.kind).toBe('delta')
     if (afterRevoke.kind !== 'delta') return
-    const revoked = afterRevoke.changes.find(
-      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(revoked?.value?.machineName).toBe(host)
+    const revokedNames = afterRevoke.changes
+      .filter((c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert')
+      .map((c) => (c as { value?: SessionMeta }).value?.machineName)
+    expect(revokedNames.filter((name) => name !== 'renamed-host')).toEqual([])
+    expect((await registry.modules.sessions.sessionById(sessionId))?.machineName).toBe('renamed-host')
   })
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', async () => {
