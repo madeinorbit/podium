@@ -19,7 +19,7 @@ interface PodiumTestApi {
   screenText(): string
   screenHash(opts?: { dropDim?: boolean }): string
   composerInputReady(kind: string): boolean
-  state(): { cols: number; rows: number; role: string }
+  state(): { cols: number; rows: number; role: string; sessionId?: string }
   sendInput(data: string): void
   simulateKeyboard(inset: number): void
 }
@@ -116,9 +116,12 @@ export async function gotoWorkspace(page: Page): Promise<void> {
   if (rowVisible) {
     await firstRow.locator('button.flex-1').first().click()
   } else {
-    // Empty state — spawn a fresh agent; the split button paints the draft row
-    // and switches to the new workspace synchronously (#119).
-    await list.getByRole('button', { name: /^New .+ in .+/ }).click({ timeout: 15_000 })
+    // Empty state — start a task in the first repo and launch it as it stands.
+    // Since f22417ba3 the sidebar has no `New <Agent> in <Repo>` chip: a task
+    // opens the launch composer, and Launch with no prompt is the chip's old
+    // draft spawn (the default agent, which the harness runs as keyecho).
+    await list.getByRole('button', { name: 'Start first task' }).first().click({ timeout: 15_000 })
+    await page.getByRole('button', { name: 'Start work' }).click({ timeout: 15_000 })
   }
   // Confirm the workspace loaded by waiting for the "New panel" button.
   await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
@@ -129,36 +132,35 @@ export async function newSession(
   page: Page,
   kind: 'Claude' | 'Codex' | 'Grok' | 'Shell',
 ): Promise<void> {
-  // Clear any existing __podium from a prior active session so we can distinguish
-  // when the NEW session's AgentPanel sets it (avoids resolving immediately on a
-  // stale reference when tests share the same relay/sessions).
+  // The test API follows the ACTIVE panel, and the panel that held it may set it
+  // again while the new one mounts — so "it exists" is not "the new session has
+  // it". Wait for it to name a different session than the one active before.
+  const before = await page.evaluate(
+    () => (window as unknown as TestWindow).__podium?.state().sessionId,
+  )
   await page.evaluate(() => {
     delete (window as unknown as TestWindow).__podium
   })
-  if (kind === 'Shell') {
-    const direct = page.getByRole('button', { name: /^New Shell in / })
-    if (await direct.isVisible().catch(() => false)) {
-      await direct.click({ timeout: 15_000 })
-    } else {
-      // Workspace '+' intentionally offers agents only. Shells otherwise live
-      // in the sidebar's New-work dropdown.
-      await page.getByRole('button', { name: 'Choose agent and repo' }).click({ timeout: 15_000 })
-    }
-  } else {
-    await page.locator('button[aria-label="New panel"]:visible').first().click({ timeout: 15_000 })
-  }
+  // One path for every kind: the workspace `+` menu lists `New Shell` after the
+  // agents (NewPanelMenu). The sidebar's `New Shell in <Repo>` chip and its
+  // `Choose agent and repo` menu went with f22417ba3.
+  await page.locator('button[aria-label="New panel"]:visible').first().click({ timeout: 15_000 })
   const item = page.getByRole('menuitem', { name: `New ${kind}` })
-  if (kind !== 'Shell') await item.waitFor({ state: 'visible', timeout: 10_000 })
-  if (kind !== 'Shell' || (await item.isVisible().catch(() => false))) {
-    // Selecting an agent persists the default and immediately re-renders the sidebar.
-    // Dispatch before Playwright's stability wait observes the detached menu item.
-    // Grok's linkage regression requires the same real click a user performs.
-    if (kind === 'Grok') await item.click()
-    else await item.dispatchEvent('click')
-  }
-  await page.waitForFunction(() => !!(window as unknown as TestWindow).__podium, undefined, {
-    timeout: 20_000,
-  })
+  await item.waitFor({ state: 'visible', timeout: 10_000 })
+  // Selecting an agent persists the default and immediately re-renders the sidebar.
+  // Dispatch before Playwright's stability wait observes the detached menu item.
+  // Grok's linkage regression requires the same real click a user performs, and a
+  // dispatched `New Shell` creates the shell without making it the active panel.
+  if (kind === 'Grok' || kind === 'Shell') await item.click()
+  else await item.dispatchEvent('click')
+  await page.waitForFunction(
+    (prior) => {
+      const active = (window as unknown as TestWindow).__podium?.state().sessionId
+      return active !== undefined && active !== prior
+    },
+    before,
+    { timeout: 20_000 },
+  )
   await page.waitForTimeout(800)
 }
 
