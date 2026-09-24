@@ -85,11 +85,11 @@
  *
  * FIDELITY. The fields a1 derives from the row, one hop and the locals are
  * compared with the oracle's row views (`rowViewsFromStore`) for every
- * visible row. `closed` is compared one way only (oracle closed ⇒ pool
- * closed): the pool's "nothing waiting" conjunct is the Hb3 stub. A draft's
- * title is compared only where it needs no member session: which member the
- * legacy runtime shows first is its replica order, which no pool has (the
- * pool shows the lowest session id, `views.ts`).
+ * visible row. `closed` is compared exactly (Hb3 wires the "nothing waiting"
+ * conjunct), except the POD-4671 orphan row, whose ask the pool never seats.
+ * A draft's title is compared only where it needs no member session: which
+ * member the legacy runtime shows first is its replica order, which no pool
+ * has (the pool shows the lowest session id, `views.ts`).
  */
 
 import { describe, expect, it } from 'vitest'
@@ -572,6 +572,7 @@ describe('own-row and one-hop fields against the oracle', () => {
         'foldAt',
       ]
       let closedByOracle = 0
+      const orphan = ctx.corpus.unscannedWorktree.issueId
       for (const id of ids) {
         const want = expected[id]!
         const got = handle.pool.view(id)
@@ -582,6 +583,9 @@ describe('own-row and one-hop fields against the oracle', () => {
           closedByOracle += 1
           expect(got!.closed, `${id}.closed`).toBe(true)
         }
+        // Hb3 wires the waiting conjunct, so `closed` is exact — except the
+        // POD-4671 orphan, whose ask the pool never seats (`known-gaps.ts`).
+        if (id !== orphan) expect(got!.closed, `${id}.closed`).toBe(want.closed)
         if (want.originTick === null) expect(got!.originTick, `${id}.originTick`).toBeNull()
         else expect(got!.originTick?.ref, `${id}.originTick`).toBe(want.originTick.ref)
       }
