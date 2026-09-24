@@ -19,7 +19,6 @@ import {
 import { asDelegationRef, type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { advanceToComposerReady, expectSubmitStillDeferred } from './test-support/readiness-queue'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
 const TEST_MACHINE = asMachineId('machine-under-test')
@@ -1498,8 +1497,19 @@ describe('SessionRegistry', () => {
   it('scopes machine bootstrap and broadcasts to each authenticated principal', async () => {
     const colleague = asUserId('colleague')
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    // The host's own row, as setup enrollment writes it (boot no longer does, 6fd4f7221).
-    await assignHostMachine(store)
+    // The host's own row, as setup enrollment writes it (boot no longer does,
+    // 6fd4f7221) for a host that runs the server only: agent execution is not
+    // assigned (34aa06cf2), so it carries no daemon component. The shared
+    // `assignHostMachine` fixture assigns agent execution, which is the other
+    // side of the POD-2700 split pinned below.
+    await store.machines.upsertMachine({
+      id: TEST_MACHINE,
+      name: 'Host',
+      hostname: 'test',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: false },
+    })
     await store.machines.upsertMachine({
       id: 'shared',
       name: 'Shared but denied',
@@ -1548,7 +1558,10 @@ describe('SessionRegistry', () => {
         )
         .at(-1)?.machines ?? []
 
-    await expect.poll(() => lastMachines(owner.sent).length).toBe(2)
+    // The admin SEES every machine (80bc92021 POD-3960: administration grants
+    // see and manage, never execution consent); the member sees only what it
+    // owns or was granted. So the two bootstraps still differ, by principal.
+    await expect.poll(() => lastMachines(owner.sent).length).toBe(3)
     await expect.poll(() => lastMachines(other.sent).length).toBe(2)
     const ownerInitial = lastMachines(owner.sent)
     const otherInitial = lastMachines(other.sent)
@@ -1558,31 +1571,48 @@ describe('SessionRegistry', () => {
       .sort()
 
     expect(rawIds).toEqual(['hidden', TEST_MACHINE, 'shared'])
-    expect(ownerInitial.map((machine) => machine.id).sort()).toEqual([TEST_MACHINE, 'shared'])
+    expect(ownerInitial.map((machine) => machine.id).sort()).toEqual(rawIds)
     expect(otherInitial.map((machine) => machine.id).sort()).toEqual(['hidden', 'shared'])
     expect(ownerInitial.every((machine) => machine.use !== undefined)).toBe(true)
     expect(otherInitial.every((machine) => machine.use !== undefined)).toBe(true)
+    // Seeing is not using: the colleague's machines, granted `see` or not, are
+    // denied to the admin, and a denied row carries no inventory (paths and
+    // provider identities need USE even for an admin).
+    expect(
+      Object.fromEntries(ownerInitial.map((machine) => [machine.id, machine.use])),
+    ).toEqual({ [TEST_MACHINE]: 'granted', shared: 'denied', hidden: 'denied' })
+    expect(
+      Object.fromEntries(otherInitial.map((machine) => [machine.id, machine.use])),
+    ).toEqual({ shared: 'granted', hidden: 'granted' })
+    expect(ownerInitial.find((machine) => machine.id === 'hidden')).not.toHaveProperty('inventory')
 
     const denied = ownerInitial.find((machine) => machine.id === 'shared')
     const hostRow = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
     expect(denied).toMatchObject({ online: false, use: 'denied' })
     expect(hostRow).toMatchObject({ online: false, use: 'granted' })
     expect(agentCapabilityRejection(denied!, 'shell')).toBe('unauthorized')
-    // THREE ANSWERS NOW, NOT TWO (POD-2700). `TEST_MACHINE` is the boot-time host
-    // row: the server has stamped its own `server` component on it and no daemon
-    // has ever attached, so the honest answer is that it runs none — NOT that it
-    // is offline, which would tell its user to wait for something that has never
-    // existed. The unauthorized-vs-not distinction this test exists for is
-    // unchanged and asserted above; what follows pins the new split so the two
-    // cannot quietly collapse back into one.
+    // THREE ANSWERS NOW, NOT TWO (POD-2700). `TEST_MACHINE` runs the server
+    // only: agent execution is not assigned to it, so the honest answer is that
+    // it runs no daemon — NOT that it is offline, which would tell its user to
+    // wait for something that will never come. The unauthorized-vs-not
+    // distinction this test exists for is unchanged and asserted above; what
+    // follows pins the split so the two cannot quietly collapse back into one.
+    // Since 34aa06cf2 the structural axis reads the ASSIGNMENT, not the
+    // observed components (`structuralRejection`).
     expect(hostRow?.components).toEqual(['server'])
+    expect(hostRow?.serviceAssignment?.agentExecution).toBe(false)
     expect(agentCapabilityRejection(hostRow!, 'shell')).toBe('no-daemon')
-    // A machine that HAS a daemon and is merely disconnected still answers
-    // `offline` — the distinction, stated as a comparison against the SAME row
-    // rather than asserted about one of them in isolation.
+    // A machine ASSIGNED to run agents whose daemon is merely disconnected
+    // still answers `offline` — the distinction, stated as a comparison against
+    // the SAME row rather than asserted about one of them in isolation.
     expect(
       agentCapabilityRejection(
-        { ...hostRow, id: TEST_MACHINE, online: false, components: ['server', 'daemon'] as const },
+        {
+          ...hostRow!,
+          id: TEST_MACHINE,
+          online: false,
+          serviceAssignment: { ...hostRow!.serviceAssignment!, agentExecution: true },
+        },
         'shell',
       ),
     ).toBe('offline')
@@ -1591,14 +1621,13 @@ describe('SessionRegistry', () => {
     other.sent.length = 0
     reg.modules.machines.broadcastMachines()
 
-    await expect.poll(() => lastMachines(owner.sent).length).toBe(2)
+    await expect.poll(() => lastMachines(owner.sent).length).toBe(3)
     await expect.poll(() => lastMachines(other.sent).length).toBe(2)
     const ownerBroadcast = lastMachines(owner.sent)
     const otherBroadcast = lastMachines(other.sent)
     expect(ownerBroadcast).toEqual(ownerInitial)
     expect(otherBroadcast).toEqual(otherInitial)
     expect(ownerBroadcast).not.toEqual(otherBroadcast)
-    expect(ownerBroadcast.map((machine) => machine.id).sort()).not.toEqual(rawIds)
     expect(otherBroadcast.map((machine) => machine.id).sort()).not.toEqual(rawIds)
   })
 
@@ -2524,32 +2553,65 @@ describe('agent state', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('continueSession writes "continue\\r" to the PTY only while errored', async () => {
+  /**
+   * RE-PINNED ON THE CONTRACT (358ad0ffb POD-4427, POD-4279). This used to pin
+   * 'continue\r' typed at the PTY. An agent's continue now rides the receipt
+   * seam (`sendContinueViaContract`, session-wiring.ts): one when-ready
+   * `runtimeSendRequest` carrying 'continue' stamped 'auto_continue'. A plain
+   * shell (POD-4278) keeps the raw keystroke. The gate is unchanged on both:
+   * only while errored.
+   */
+  it('continueSession hands an agent\'s "continue" to its driver only while errored; a shell gets "continue\\r" typed', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const daemon: ControlMessage[] = []
-    await attachHostDaemon(reg, (m) => daemon.push(m))
-    const { sessionId } = await reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/proj',
-    })
-    // not errored yet → refused
-    expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: false })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentState',
-      sessionId,
-      state: STATE,
-    })
-    expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
-    const input = daemon.find((m) => m.type === 'input' && m.sessionId === sessionId)
-    expect(input).toBeDefined()
-    expect(
-      Buffer.from((input as Extract<ControlMessage, { type: 'input' }>).data, 'base64').toString(
-        'utf8',
-      ),
-    ).toBe('continue\r')
-    expect(await reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({
-      ok: false,
-    })
+    try {
+      const daemon: ControlMessage[] = []
+      await attachHostDaemon(reg, (m) => daemon.push(m))
+      const runtimeSends = (sessionId: SessionId) =>
+        daemon.filter((m) => m.type === 'runtimeSendRequest' && m.sessionId === sessionId)
+      const ptyInputs = (sessionId: SessionId) =>
+        daemon
+          .filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input' && m.sessionId === sessionId)
+          .map((m) => ({ inputOrigin: m.inputOrigin, data: Buffer.from(m.data, 'base64').toString('utf8') }))
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/proj',
+      })
+      // not errored yet → refused, and nothing is sent
+      expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: false })
+      expect(runtimeSends(sessionId)).toEqual([])
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentState',
+        sessionId,
+        state: STATE,
+      })
+      expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
+      expect(runtimeSends(sessionId)).toEqual([
+        expect.objectContaining({ text: 'continue', origin: 'auto_continue', delivery: 'when-ready' }),
+      ])
+      expect(ptyInputs(sessionId)).toEqual([])
+
+      const shell = (await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })).sessionId
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...bind(shell),
+        cmd: 'bash',
+        agentKind: 'shell',
+      })
+      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({ ok: false })
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentState',
+        sessionId: shell,
+        state: STATE,
+      })
+      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({ ok: true })
+      expect(ptyInputs(shell)).toEqual([{ inputOrigin: 'auto_continue', data: 'continue\r' }])
+      expect(runtimeSends(shell)).toEqual([])
+
+      expect(await reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({
+        ok: false,
+      })
+    } finally {
+      await reg.dispose()
+    }
   })
 
   it('sends every configured external push target only when no client is visible', async () => {
@@ -3221,6 +3283,41 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
  * are asserted at moved, and the tests now reach the typing by driving the
  * queue instead of by assuming there is no queue.
  */
+/**
+ * THE CHAT SEND PATH, RE-PINNED ON THE DRIVER CONTRACT (358ad0ffb / 81460a99b
+ * POD-4427 / POD-4279; cfb9924a7 POD-4661; fdc7bad1e POD-4666).
+ *
+ * This describe used to pin the server TYPING an agent's chat send: the
+ * bracketed paste, a CR delayed into its own PTY read, a bounded CR retry while
+ * no user turn echoed (POD-152), Grok's raw first turn (POD-901), and the #473
+ * refusal to type into an open menu. 358ad0ffb deleted that machine from
+ * inbox.ts. Every one of those keystrokes now belongs to the daemon's terminal
+ * driver and is pinned there:
+ *   - paste then a separate CR: apps/daemon/src/runtime/terminal-driver.test.ts
+ *     "types a later Grok turn as bracketed paste and a separate CR, never one chunk"
+ *   - Grok's raw first turn: terminal-driver.test.ts "does not type a raw first
+ *     turn into a grok that is past its first turn" and "...into an ADOPTED
+ *     conversation whose replay buffer has rolled";
+ *     packages/harness/src/driver/families/terminal/terminal.test.ts "guards the
+ *     envelope-less raw first turn too"
+ *   - submit confirmation and CR nudges (POD-152): terminal.test.ts "derives the
+ *     verification window from the retry ladder, one tick longer", "fences the
+ *     delayed Enter and confirmation nudges after cancellation", "keeps the
+ *     original proof watch while busy, without submitting another payload";
+ *     terminal-driver.test.ts describe "the echo baseline"
+ *   - the menu guard (#473): terminal-driver.test.ts "refuses a send while a
+ *     native prompt is open, and typing nothing is the point" and "POD-4387:
+ *     needs_user still refuses on an unsettled session instead of queueing"
+ *   - ESC before an interrupt's text: terminal-driver.test.ts "sends ESC before
+ *     the replacement prompt on an interrupt delivery"
+ *
+ * WHAT THE SERVER STILL DOES, pinned here. An agent's send is ONE durable row,
+ * handed on at once as ONE `runtimeDurableSendRequest` carrying the text
+ * verbatim, whatever the server believes the agent's phase is (cfb9924a7). A
+ * plain shell (POD-4278) has no driver, so it keeps raw PTY bytes: the paste
+ * and its CR at once, with no timers behind them, and the #473 menu refusal on
+ * both its direct and its queued path (inbox.ts `sendText`, `forwardShellRows`).
+ */
 describe('sendText (chat send path)', () => {
   const readInputs = (daemon: ControlMessage[]): string[] =>
     daemon
@@ -3236,384 +3333,265 @@ describe('sendText (chat send path)', () => {
       sessionId,
       state: { phase, since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, ...extra },
     }) as const
+  const shellBind = (sessionId: SessionId) =>
+    ({ ...bind(sessionId), cmd: 'bash', agentKind: 'shell' }) as const
 
-  // `advanceToComposerReady` and `expectSubmitStillDeferred` live in
-  // `test-support/readiness-queue.ts` — `relay.outbox.test.ts` drives the same
-  // queue and a second copy is how the two lanes drifted apart (POD-2842).
+  async function liveAgent(reg: SessionRegistry) {
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    return sessionId
+  }
+  async function liveShell(reg: SessionRegistry) {
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, shellBind(sessionId))
+    return sessionId
+  }
 
-  it('POD-901: first Grok chat send types raw keystrokes, not bracketed paste', async () => {
-    vi.useFakeTimers()
+  it('POD-901: a first Grok chat send is handed to its driver as the plain text — the raw first-turn keystrokes are the driver’s', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'grok',
         cwd: '/w',
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      expect((await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' }))).toEqual({
-        ok: true,
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...bind(sessionId),
+        cmd: 'grok',
+        agentKind: 'grok',
       })
-      expect(readInputs(daemon)).toEqual(['start this chat'])
-      await vi.advanceTimersByTimeAsync(100)
-      expect(readInputs(daemon)).toEqual(['start this chat', '\r'])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('wraps single-line text in bracketed paste, then submits with a DELAYED CR', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES: the send is accepted and
-      // held, not typed. `queued: true` is the caller's warning that the bytes
-      // are not on the wire yet.
-      expect((await reg.modules.sessions.sendText({ sessionId, text: 'run the tests' }))).toEqual({
+      expect(await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' })).toEqual({
         ok: true,
         queued: true,
       })
-      // And nothing is typed into a composer that has not proven it is mounted.
-      // This is the whole point of the queue: the pty would ACCEPT these bytes
-      // and the app would drop them, with nothing to say so.
-      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      // The text exactly as the human wrote it: no paste envelope, no CR, and
+      // no raw-keystroke variant. Whether a cold Grok TUI needs raw keys is the
+      // driver's question (`rawFirstTurn`, terminal-driver.ts).
+      expect(durableSends(daemon, sessionId)[0]).toMatchObject({
+        text: 'start this chat',
+        origin: 'controller',
+        deliveryRecovery: false,
+      })
       expect(readInputs(daemon)).toEqual([])
-      // The paste block goes out as one write; the submitting CR is DEFERRED so it
-      // lands in a separate PTY read — a CR fused to the paste-end marker is swallowed
-      // by the new Claude renderer, so the message types in but the turn never starts.
-      await advanceToComposerReady(() => readInputs(daemon).length)
-      await expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~run the tests\x1b[201~')
-      await vi.advanceTimersByTimeAsync(100)
-      expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
     } finally {
+      await reg.dispose()
+    }
+  })
+
+  it('a single-line send reaches an agent as ONE durable send and is never typed; a shell gets the bracketed paste and its CR at once', async () => {
+    vi.useFakeTimers()
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      await attachHostDaemon(reg, (m) => daemon.push(m))
+      const agent = await liveAgent(reg)
+      const shell = await liveShell(reg)
+
+      expect(await reg.modules.sessions.sendText({ sessionId: agent, text: 'run the tests' })).toEqual({
+        ok: true,
+        queued: true,
+      })
+      await vi.waitFor(() => expect(durableSends(daemon, agent)).toHaveLength(1))
+      const [handedOn] = durableSends(daemon, agent)
+      expect(handedOn).toMatchObject({ text: 'run the tests', origin: 'controller' })
+      // The daemon takes custody, as a real one does at once.
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: handedOn!.requestId,
+        sessionId: agent,
+        receipt: { outcome: 'queued', position: 1, deliveredAs: 'queue', at: '2026-01-01T00:00:00.000Z' },
+      })
+
+      // The shell's answer is a plain ok: the bytes are on the wire already.
+      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'run the tests' })).toEqual({
+        ok: true,
+      })
+      expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
+      // No timers behind them (358ad0ffb): no delayed CR, no retried CR,
+      // nothing ever typed for the agent, and nothing re-sent after custody.
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
+      expect(durableSends(daemon, shell)).toEqual([])
+      expect(durableSends(daemon, agent)).toHaveLength(1)
+    } finally {
+      await reg.dispose()
       vi.useRealTimers()
     }
   })
 
-  it('wraps multi-line text in bracketed paste, then submits with a DELAYED CR', async () => {
-    vi.useFakeTimers()
+  it('a multi-line send reaches an agent verbatim, newline and all; a shell keeps the newline INSIDE the paste envelope', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      expect((await reg.modules.sessions.sendText({ sessionId, text: 'a\nb' }))).toEqual({
+      const agent = await liveAgent(reg)
+      const shell = await liveShell(reg)
+
+      expect(await reg.modules.sessions.sendText({ sessionId: agent, text: 'a\nb' })).toEqual({
         ok: true,
         queued: true,
       })
-      await advanceToComposerReady(() => readInputs(daemon).length)
-      // The embedded newline stays INSIDE the paste envelope — it must never be
-      // the thing that submits a half-written message.
-      await expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~a\nb\x1b[201~')
-      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(() => expect(durableSends(daemon, agent)).toHaveLength(1))
+      expect(durableSends(daemon, agent)[0]?.text).toBe('a\nb')
+
+      // The embedded newline must never be the thing that submits a
+      // half-written message: it stays inside the envelope, and the one CR
+      // after it is the submit.
+      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'a\nb' })).toEqual({ ok: true })
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
     } finally {
-      vi.useRealTimers()
+      await reg.dispose()
     }
   })
 
-  it('POD-152: resends the CR (bounded) while the submit never lands — no echo, phase idle', async () => {
-    vi.useFakeTimers()
+  it('#473: a plain shell waiting on a menu refuses a send — no paste, no CR; an agent’s send still goes to its driver', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      // An image send: the composer converts the pasted path to an attachment,
-      // which outlasts the CR delay — the CR is swallowed, nothing submits.
-      await reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
-      await advanceToComposerReady(() => readInputs(daemon).length)
-      await expectSubmitStillDeferred(
-        () => readInputs(daemon),
-        '\x1b[200~/up/img.png\nlook at this\x1b[201~',
-      )
-      await vi.advanceTimersByTimeAsync(100)
-      expect(readInputs(daemon)).toEqual(['\x1b[200~/up/img.png\nlook at this\x1b[201~', '\r'])
-      // No user-turn echo and the phase never left idle → verify resends the CR.
-      await vi.advanceTimersByTimeAsync(1600)
-      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
-      await vi.advanceTimersByTimeAsync(1600)
-      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
-      // Bounded: SUBMIT_MAX_RETRIES exhausted, no CR drip-feed forever.
-      await vi.advanceTimersByTimeAsync(60_000)
-      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+      const shell = await liveShell(reg)
+      const agent = await liveAgent(reg)
+      for (const sessionId of [shell, agent]) {
+        await reg.gateway.routeDaemonFrame(
+          reg.sessionStore.hostMachineId,
+          agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+        )
+      }
 
-  it('POD-152: no CR retry once the agent phase leaves idle (the turn started)', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
-      // Reach the typing FIRST. Setting the phase before the paste is on the
-      // wire would make this pass for the wrong reason — the retry it forbids
-      // is the one that fires after a submit, so the submit has to happen.
-      await advanceToComposerReady(() => readInputs(daemon).length)
-      await vi.advanceTimersByTimeAsync(100)
-      await reg.gateway.routeDaemonFrame(
-        reg.sessionStore.hostMachineId,
-        agentStateMsg(sessionId, 'working'),
-      )
-      await vi.advanceTimersByTimeAsync(60_000)
-      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+      // The shell: the submitting CR would answer the highlighted default, so
+      // nothing at all reaches the PTY, and the caller hears "no", not "later".
+      expect(
+        await reg.modules.sessions.sendText({ sessionId: shell, text: 'this must NOT submit the menu' }),
+      ).toEqual({ ok: false })
+      expect(readInputs(daemon)).toEqual([])
+      expect(await reg.sessionStore.sync.listQueuedMessages(shell)).toEqual([])
 
-  it('POD-152: no CR retry once the user turn echoes in the transcript tail', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
+      // The agent: the server's phase is a lagging copy of the daemon's, so it
+      // does not hold the send on it (cfb9924a7). The row goes to the driver,
+      // which owns the menu guard.
+      expect(await reg.modules.sessions.sendText({ sessionId: agent, text: 'for the driver' })).toEqual({
+        ok: true,
+        queued: true,
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
-      await advanceToComposerReady(() => readInputs(daemon).length)
-      await vi.advanceTimersByTimeAsync(100)
-      // The turn ran so fast the phase is already back to idle — but the user turn
-      // reached the transcript cache, which is submit evidence on its own.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'transcriptDelta',
-        sessionId,
-        items: [{ id: 'u1', role: 'user' as const, text: 'quick one', cursor: 'c1' }],
-        tail: 'c1',
-      })
-      await vi.advanceTimersByTimeAsync(60_000)
-      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
+      await vi.waitFor(() => expect(durableSends(daemon, agent)).toHaveLength(1))
+      expect(durableSends(daemon, agent)[0]?.text).toBe('for the driver')
+      expect(readInputs(daemon)).toEqual([])
     } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('POD-152: an assistant-only delta is NOT submit evidence — the retry still fires', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await reg.modules.sessions.sendText({ sessionId, text: 'hello' })
-      await advanceToComposerReady(() => readInputs(daemon).length)
-      await vi.advanceTimersByTimeAsync(100)
-      // A trailing assistant item from the PREVIOUS turn arrives late; it must not
-      // be mistaken for the echo of the just-sent user turn.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'transcriptDelta',
-        sessionId,
-        items: [{ id: 'a9', role: 'assistant' as const, text: 'earlier reply', cursor: 'c9' }],
-        tail: 'c9',
-      })
-      await vi.advanceTimersByTimeAsync(1600)
-      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('POD-152: the verify NEVER CRs into a menu that appeared meanwhile (needs_user)', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
-      await advanceToComposerReady(() => readInputs(daemon).length)
-      await vi.advanceTimersByTimeAsync(100)
-      // The turn started and hit an AskUserQuestion before the verify fired. A
-      // retry CR would answer the menu's highlighted default (#473) — forbidden.
-      await reg.gateway.routeDaemonFrame(
-        'local',
-        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
-      )
-      await vi.advanceTimersByTimeAsync(60_000)
-      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('#473: NEVER types into a session waiting on a menu (needs_user) — no paste, no CR', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      // An AskUserQuestion menu is on screen.
-      await reg.gateway.routeDaemonFrame(
-        'local',
-        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
-      )
-      const before = daemon.length
-      const r = (await reg.modules.sessions.sendText({ sessionId, text: 'this must NOT submit the menu' }))
-      await vi.advanceTimersByTimeAsync(100)
-      // The submitting CR would answer the highlighted default — so nothing at all
-      // reaches the PTY. The primitive is the airtight backstop.
-      expect(r.ok).toBe(false)
-      expect(daemon.slice(before).filter((m) => m.type === 'input')).toEqual([])
-    } finally {
-      vi.useRealTimers()
+      await reg.dispose()
     }
   })
 
   /**
-   * THE BACKSTOP, REACHED THE WAY THE QUEUE REACHES IT (POD-2837, #473).
+   * THE SHELL'S BACKSTOP, REACHED THE WAY THE QUEUE REACHES IT (POD-2837, #473).
    *
-   * The test above refuses a menu that is ALREADY up, at accept time. This is
-   * the other order, and the queue is what created it: the send is accepted
-   * while the session is idle, and the menu opens while the row is still
-   * waiting for the composer to mount. Nothing about accepting was wrong;
-   * typing it NOW would be — a submitting CR at a live AskUserQuestion answers
-   * the highlighted default, picking an option on the human's behalf.
-   *
-   * So `typeText`'s own refusal is not redundant with `sendText`'s, and this is
-   * the case that says why: A CHECK THAT RUNS AT ACCEPT TIME CANNOT SEE A MENU
-   * THAT APPEARS AFTERWARDS. Deleting the inner guard leaves every other test
-   * in this file green.
+   * The test above refuses a menu at accept time on `sendText`. A queued row
+   * (`queueText`) is accepted whatever the phase, so the drain's own guard in
+   * `forwardShellRows` is the only thing between it and the menu: the row
+   * must wait, still durable, and be typed once the menu clears (the re-arm
+   * in `stateChanged`). This used to be pinned on a claude-code session; since
+   * 358ad0ffb an agent's rows never reach the PTY at all, so the guard it
+   * named only exists for shells, and it is pinned there.
    */
-  it('#473: a menu that opens WHILE the row waits still stops the typing', async () => {
-    vi.useFakeTimers()
+  it('#473: a queued row that meets a menu at the shell’s drain waits, and is typed once the menu clears', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      // Idle at accept time, so the send is legitimately taken and held.
-      expect((await reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' }))).toEqual({
+      const shell = await liveShell(reg)
+      await reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        agentStateMsg(shell, 'needs_user', { need: { kind: 'question' } }),
+      )
+
+      expect(await reg.modules.sessions.queueText({ sessionId: shell, text: 'queued before the menu' })).toEqual({
         ok: true,
         queued: true,
       })
+      // Held at the drain: no paste, above all no CR, and the row is still the
+      // operator's.
+      expect(readInputs(daemon)).toEqual([])
+      expect(await reg.sessionStore.sync.listQueuedMessages(shell)).toHaveLength(1)
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(shell, 'idle'))
+      await vi.waitFor(() =>
+        expect(readInputs(daemon)).toEqual(['\x1b[200~queued before the menu\x1b[201~', '\r']),
+      )
+      await vi.waitFor(async () =>
+        expect(await reg.sessionStore.sync.listQueuedMessages(shell)).toEqual([]),
+      )
+    } finally {
+      await reg.dispose()
+    }
+  })
+
+  it('#473: once the menu resolves (phase leaves needs_user), a fresh sendText to the shell types at once', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      await attachHostDaemon(reg, (m) => daemon.push(m))
+      const shell = await liveShell(reg)
       await reg.gateway.routeDaemonFrame(
-        'local',
+        reg.sessionStore.hostMachineId,
+        agentStateMsg(shell, 'needs_user', { need: { kind: 'question' } }),
+      )
+      expect((await reg.modules.sessions.sendText({ sessionId: shell, text: 'held' })).ok).toBe(false)
+      // Human answers the menu → phase → idle.
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(shell, 'idle'))
+      // ACCEPTED now, because the menu is gone — and the refusal above is the
+      // proof nothing was swallowed on the way: only this send is typed.
+      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'now ok' })).toEqual({ ok: true })
+      expect(readInputs(daemon)).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
+    } finally {
+      await reg.dispose()
+    }
+  })
+
+  it('#473: interrupt reaches an agent waiting on a menu — the stop goes to its driver, then the text as a durable send, nothing typed', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      await attachHostDaemon(reg, (m) => daemon.push(m))
+      const sessionId = await liveAgent(reg)
+      await reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
         agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
       )
-      // Well past the readiness window: the drain reached the typing and was
-      // refused there. No paste, and above all no CR.
-      await vi.advanceTimersByTimeAsync(60_000)
+      daemon.length = 0
+
+      const answer = reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' })
+      await vi.waitFor(() =>
+        expect(daemon.some((m) => m.type === 'runtimeInterruptRequest' && m.sessionId === sessionId)).toBe(
+          true,
+        ),
+      )
+      const request = daemon.find(
+        (m): m is Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> =>
+          m.type === 'runtimeInterruptRequest' && m.sessionId === sessionId,
+      )!
+      // A bare stop: no queued row to cancel rides along. Whether the menu
+      // needs an ESC first is the driver's to decide.
+      expect(request.cancelRowId).toBeUndefined()
+      expect(durableSends(daemon, sessionId)).toEqual([])
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult',
+        requestId: request.requestId,
+        sessionId,
+        result: { ok: true },
+      })
+
+      expect(await answer).toEqual({ ok: true, queued: true })
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      expect(durableSends(daemon, sessionId)[0]?.text).toBe('stop and read this')
+      // The stop went out before the text.
+      expect(daemon.indexOf(request)).toBeLessThan(daemon.indexOf(durableSends(daemon, sessionId)[0]!))
       expect(readInputs(daemon)).toEqual([])
     } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('#473: once the menu resolves (phase leaves needs_user), a fresh sendText types normally', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await reg.gateway.routeDaemonFrame(
-        'local',
-        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
-      )
-      expect((await reg.modules.sessions.sendText({ sessionId, text: 'held' })).ok).toBe(false)
-      // Human answers the menu → phase → idle.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(sessionId, 'idle'))
-      const before = daemon.length
-      const inputsSince = (): string[] =>
-        daemon
-          .slice(before)
-          .filter((m) => m.type === 'input')
-          .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
-      // ACCEPTED now, because the menu is gone — and the refusal above is the
-      // proof the queue did not swallow it. `readinessQueueRefusal` asks the
-      // needs_user question BEFORE the diversion (POD-2828), so "not yet" and
-      // "no" stay different answers.
-      expect((await reg.modules.sessions.sendText({ sessionId, text: 'now ok' }))).toEqual({
-        ok: true,
-        queued: true,
-      })
-      await advanceToComposerReady(() => inputsSince().length)
-      await expectSubmitStillDeferred(inputsSince, '\x1b[200~now ok\x1b[201~')
-      await vi.advanceTimersByTimeAsync(100)
-      expect(inputsSince()).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('#473: interrupt DOES reach a needs_user session — ESC (cancels the menu) then the text', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      await reg.gateway.routeDaemonFrame(
-        'local',
-        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
-      )
-      const before = daemon.length
-      expect((await reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' })).ok).toBe(
-        true,
-      )
-      await vi.advanceTimersByTimeAsync(200)
-      const inputs = daemon
-        .slice(before)
-        .filter((m) => m.type === 'input')
-        .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
-      // ESC first (cancels the menu), then the bracketed-paste text + CR.
-      expect(inputs[0]).toBe('\x1b')
-      expect(inputs).toContain('\x1b[200~stop and read this\x1b[201~')
-      expect(inputs).toContain('\r')
-    } finally {
-      vi.useRealTimers()
+      await reg.dispose()
     }
   })
 
@@ -3633,76 +3611,85 @@ describe('sendText (chat send path)', () => {
   })
 })
 
-describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () => {
-  const inputsOf = (daemon: ControlMessage[]): string =>
-    daemon
-      .filter((m) => m.type === 'input')
-      .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
-      .join('')
+/**
+ * NO READINESS WINDOW (cfb9924a7 POD-4661; 4bd403fed).
+ *
+ * This describe used to pin the server holding a queued row until the spawned
+ * TUI had drawn and gone quiet (quiet + floor), with a fallback for a silent
+ * spawn after a max window (#5b). The server no longer waits on anything it
+ * observes of the agent: readiness is the daemon's delivery queue (pinned in
+ * apps/daemon/src/runtime/terminal-driver.test.ts describe "the queue drain":
+ * "does not type into a session that is still starting", "delivers once the CLI
+ * is up"). What the server does, pinned here, is hand the row on at once.
+ * Each case runs on a virtual clock and allows it far less time than the
+ * shortest window the old design waited, so a reintroduced wait reads red.
+ */
+describe('queueText drain (the server hands rows on at once — no readiness window)', () => {
+  /** Far below the old quiet+floor window (~1.4 s) and its 5-7 s silent fallback. */
+  const NO_WINDOW_MS = 50
+  const codexBind = (sessionId: SessionId) => ({ ...bind(sessionId), cmd: 'codex', agentKind: 'codex' }) as const
 
-  it('waits for the spawned TUI to produce output AND settle before delivering', async () => {
+  it('hands a row queued while the TUI is still drawing to the daemon at once — no output-settle wait', async () => {
     vi.useFakeTimers()
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // -> live
-      await reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
-
-      // The TUI is still drawing: an output frame every poll for ~2s.
-      let seq = 0
-      for (let i = 0; i < 10; i += 1) {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId)) // -> live
+      // The TUI is drawing: output arrives right up to the send.
+      for (let seq = 0; seq < 10; seq += 1) {
         await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
           type: 'agentFrame',
           sessionId,
-          seq: seq++,
+          seq,
           data: 'eA==',
         })
-        await vi.advanceTimersByTimeAsync(200)
       }
-      // Output is still recent → NOT delivered (this is what the fix prevents:
-      // sending on 'live' alone would have fired immediately into the booting TUI).
-      expect(inputsOf(daemon)).not.toContain('deferred-msg')
-
-      // Output goes quiet → after the quiet+floor window it delivers (the bracketed
-      // paste block contains the text).
-      await vi.advanceTimersByTimeAsync(1200)
-      expect(inputsOf(daemon)).toContain('deferred-msg')
+      await reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
+      await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
+      expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['deferred-msg'])
+      expect(ptyInputsWith(daemon, 'deferred-msg')).toEqual([])
     } finally {
+      await reg.dispose()
       vi.useRealTimers()
     }
   })
 
-  it('does not deliver while the session is still starting (not yet live)', async () => {
+  it('hands a brand-new session’s row on from admission, while it is still starting', async () => {
     vi.useFakeTimers()
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
       await reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
-      await vi.advanceTimersByTimeAsync(5000)
-      expect(inputsOf(daemon)).not.toContain('too-early')
+      await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
+      // 4bd403fed: a new session (no transcript yet) forwards from admission;
+      // the daemon's delivery queue holds it until the CLI is up.
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
+      expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['too-early'])
+      expect(ptyInputsWith(daemon, 'too-early')).toEqual([])
     } finally {
+      await reg.dispose()
       vi.useRealTimers()
     }
   })
 
-  it('falls back to delivering a silent spawn after the max settle window', async () => {
+  it('hands a silent spawn’s row on at once — there is no fallback window to wait out', async () => {
     vi.useFakeTimers()
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       await attachHostDaemon(reg, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // live, but never emits output
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId)) // live, never emits output
       await reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
-      await vi.advanceTimersByTimeAsync(5000)
-      expect(inputsOf(daemon)).not.toContain('silent-msg') // still within the max window
-      await vi.advanceTimersByTimeAsync(2000)
-      expect(inputsOf(daemon)).toContain('silent-msg') // delivered after the fallback
+      await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
+      expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['silent-msg'])
+      expect(ptyInputsWith(daemon, 'silent-msg')).toEqual([])
     } finally {
+      await reg.dispose()
       vi.useRealTimers()
     }
   })
@@ -6176,9 +6163,12 @@ describe('SessionRegistry — auto-continue', () => {
     nativeSubagentCount: 0,
     error: { class: 'server_error', retryable: true },
   }
+  // An agent's continue is a when-ready contract send, not 'continue\r' typed
+  // at the PTY (358ad0ffb POD-4427, POD-4279; `sendContinueViaContract`).
   const continueInput = expect.objectContaining({
-    type: 'input',
-    data: Buffer.from('continue\r').toString('base64'),
+    type: 'runtimeSendRequest',
+    text: 'continue',
+    origin: 'auto_continue',
   })
 
   async function enableAutoContinue(reg: SessionRegistry) {
