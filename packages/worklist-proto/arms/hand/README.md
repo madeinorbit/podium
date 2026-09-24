@@ -14,8 +14,9 @@ each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4578)
 holds the tables and the row views; Ha2 (POD-4579) maintains every declared
 relation; Ha3 (POD-4580) keeps cold rows out until something reads them; Hb1
 (POD-4582) maintains the visible collection and its order
-(`pool/worklist/visible.ts`, below); groups and roll-ups (Hb2, Hb3) come
-next.
+(`pool/worklist/visible.ts`, below); Hb2 (POD-4583) groups that order with
+one closed fold per group (`pool/worklist/groups.ts`, below) and draws it
+through the arm's own windowed lists; the roll-ups (Hb3) come next.
 
 ### Idiom
 
@@ -126,14 +127,19 @@ disposes its cells and record), `CellGraph.flush` (dirty cells run lowest
 level first; a changed cell dirties its readers), the worklist (Hb1: the
 issues the commit moved into or out of the tables gain or lose their
 `visible` cell, `admit`, then the order handler places exactly the ids whose
-`visible` or `rank` cell moved, `settle`), `publish` (each changed key's
-listeners once, the id list's and the order's once). A locals notification →
-`HandPool.applyLocals` → the same commit with `selection` / `clock` deltas
-for only the keys it names. `rebuildFromScratch` (`pool/rebuild.ts`)
-replays the feed's `snapshot(kind)` through the same ingest into fresh maps
-and runs the same `PART_RULES` directly (`directParts`), no cells, and the
-same `VISIBLE_RULES` directly (`directVisibleParts`) over EVERY row, cold ones
-included, for the visible rows and their order.
+`visible` or `rank` cell moved, `settle`; Hb2: the groups' settle recomputes
+the layout only when the order moved or a `placement` cell reported, and the
+lanes only when the layout or the selection moved), `publish` (each changed
+key's listeners once, the id list's, the order's and the groups' once). A
+locals notification → `HandPool.applyLocals` → the same commit with
+`selection` / `foldLatch` / `clock` deltas for only the keys it names.
+`rebuildFromScratch` (`pool/rebuild.ts`) replays the feed's `snapshot(kind)`
+through the same ingest into fresh maps and runs the same `PART_RULES`
+directly (`directParts`), no cells, and the same `VISIBLE_RULES` directly
+(`directVisibleParts`) over EVERY row, cold ones included, for the visible
+rows and their order, grouped with L1b's `groupKeyOf` / `compareClosedFold`
+(Hb2: the live placement cells and layout are held to the contract's own
+grouping).
 
 ### The worklist (Hb1, `pool/worklist/visible.ts`)
 
@@ -163,9 +169,37 @@ included, for the visible rows and their order.
   cached ranks. The list subscribes to the order (a new array only when it
   moved) and each slot to its own row.
 - **A cycle in the parent links** (`parent_id` has no cycle constraint) makes
-  a part read itself: the read returns the cell's previous value instead of
-  recursing and is counted (`cycleReads`). Not guaranteed to match legacy's
-  single walk on such a cycle; no fixture or generator has one.
+a part read itself: the read returns the cell's previous value instead of
+recursing and is counted (`cycleReads`). Not guaranteed to match legacy's
+single walk on such a cycle; no fixture or generator has one.
+
+### The groups (Hb2, `pool/worklist/groups.ts`)
+
+- **The rule is the spec's R-GROUP**: pinned rows move out into one flat
+  PINNED section; the rest bucket by `repoKey` in the rank order of each
+  group's first member, labelled by that member's path tail; each group has
+  ONE closed fold, newest `foldAt` first, ties in rank order (L1b
+  `compareClosedFold`). The fold verdict is views.ts `closedOf`, the one the
+  row's `closed` field uses, so a row and its lane cannot disagree.
+- **One `placement` cell per visible issue** (pinned, group key and label,
+  fold verdict and stamp), read from the own row hot or cold, never loaded.
+  A change that leaves the placement equal keeps the old object (`sameData`)
+  and stops there.
+- **The layout is maintained, not a cell**: the commit's settle step
+  recomputes it only when the order moved or a placement reported, costing
+  the visible count (`groupRuns` / `groupElements`). Each group's UI lanes
+  keep their object while their lists are equal, so a header redraws only
+  when its own group moved. The snapshot's layout has no selection (spec
+  §7); the lanes add the R-GROUP 5 latch (a selected grace-folded row stays
+  open until focus moves).
+- **The lists** (`pool/react/list.tsx`, `pool/native/list.tsx`): the list
+  subscribes to the grouped view only and reads no row; each header to its
+  own group's lanes; each row slot to its own view (`memo` on `RowView`
+  identity). Web is windowed with `@tanstack/react-virtual`, native with
+  `SectionList`.
+- **Stubs until Hb3**: the fold verdict's "nothing in the subtree waits"
+  conjunct is `STUB_WAITING`, named as the MobX arm names it; the groups
+  test derives that exact exception set from the oracle.
 
 ### Stats (what each counter counts)
 
@@ -196,8 +230,10 @@ included, for the visible rows and their order.
   sets built), `membershipFlips` (ids placed in or removed from the visible
   set), `orderMoves` (per-row placements), `orderShifted` (slots whose
   occupant changed across them), `orderSorts` / `orderSorted` (full re-sorts
-  and the ids they sorted), then `tableWrites` (slots set to a different
-  object or deleted), `rowsRemoved` (rows that left, each with its cells and
+  and the ids they sorted), the groups' (Hb2): `groupRuns` (layout runs) and
+  `groupElements` (ids placed across them: the visible count per run), then
+  `tableWrites` (slots set to a different object or deleted), `rowsRemoved`
+  (rows that left, each with its cells and
   record disposed), `recordsCreated`, `listenerCalls` (listener calls made by
   `publish`).
 - Reads are never counted by the arm: every table read goes through
@@ -231,8 +267,10 @@ included, for the visible rows and their order.
   `POD_POOL_GATE_STEPS`). The same file compares the own-row and one-hop
   fields with the oracle's row views, after loading the visible rows, and
   (Hb1) the visible order with the legacy oracle's flat rows after every
-  step of every seed (the checker's own oracle comparison needs groups and
-  roll-ups, Hb2-Hb4's, so it stays off).
+  step of every seed (the checker's own oracle comparison needs the
+  roll-ups, Hb3-Hb4's, so it stays off; since Hb2 the rebuild groups with
+  L1b's `groupKeyOf` / `compareClosedFold`, so the snapshot's groups are
+  held to the contract at every compared step).
 - **Visible collection and order (Hb1)**, `pool/worklist/visible.test.tsx`:
   parity with the legacy oracle at bootstrap and after #1-#5 at 1x (order,
   settled snapshot against the rebuild, own-row fields), the #1 reads fence
@@ -240,6 +278,15 @@ included, for the visible rows and their order.
   the moved row commits), the #4-shaped hidden spin-off rename, the MobX
   gate's evict/re-add sequence, a planted list that draws hidden rows
   (fails #1 and the #4 shape), and that deciding visibility loads nothing.
+- **Groups and closed folds (Hb2)**, `pool/worklist/groups.test.tsx`:
+  grouped-order parity with the oracle at bootstrap and after #1-#7 at 1x
+  (modulo the named `STUB_WAITING` exception, non-empty at bootstrap so Hb3
+  turns it red) and at 4x, the exact-commit and reads fences (#7 narrowed to
+  the oracle-changed own-field rows: the parents move only in the stubbed
+  roll-ups), layout runs and header notices following the change, the fold
+  latch, the windowed web list (window, scroll, fold), and five plants that
+  must fail (a header reading its rows, an ungated layout, lanes without
+  identity, a whole-list layout, a reversed fold).
 - **Residency**, `pool/residency.test.tsx` (bootstrap split by count, cells
   on first read with the list mounted, the loader, lazy relations with the
   pending marker, every transition) and `pool/bootstrap.test.ts` (counts at

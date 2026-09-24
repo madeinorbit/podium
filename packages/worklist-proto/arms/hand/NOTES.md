@@ -1,5 +1,46 @@
 # arms/hand — notes
 
+## Round three: groups and windowed list, b2 (POD-4583) · 2026-09-24
+
+Built after the MobX build: read Mb2's shape (`arms/mobx/pool/worklist/groups.ts`,
+`pool/react/list.tsx`, `pool/native/list.tsx`, `groups.test.tsx`), the
+coordinator's Mb1/Mb2 lesson mails on this issue, and the cold-rule addendum
+(POD-4665). No contract amendment to reuse (MobX filed none; the cold-rule
+amendment is shared). Two deliberate departures from the MobX shape: the
+layout is MAINTAINED in the commit's settle step (not a computed), because
+the hand pool maintains its order the same way and the brief asks for
+"recomputed only when order or a row's group/closed flag changes" with an
+outside-pool element count; and no per-row placement registry beyond the
+placement cells (the hand equivalent of MobX's untracked-registry defect is
+a cell that no tracked door reaches — every placement is a cell, read
+through `issueRow`'s tracked doors, disposed with its issue).
+
+Code: `pool/worklist/groups.ts` (placement cells, maintained layout + lanes,
+R-GROUP 5 latch, `groupRuns`/`groupElements`), wiring in `pool/pool.ts`
+(`groups` + `foldLatch` delta + grouped `snapshot()` + per-group listeners),
+grouped `pool/rebuild.ts` (L1b `groupKeyOf`/`compareClosedFold`), windowed
+`pool/react/list.tsx` (`@tanstack/react-virtual`, as MobX) and
+`pool/native/list.tsx` (`SectionList`). Tests:
+`pool/worklist/groups.test.tsx` (parity #1-#7 modulo the named
+`STUB_WAITING` exception, fences, latch, window, five plants, 1x/4x element
+counts). Census updates for the placement cells: `pool/pool.test.tsx`,
+`pool/residency.test.tsx`, `pool/bootstrap.test.ts`.
+
+Decisions and findings (in the order met):
+
+1. #7's exact-commit fence cannot hold pre-Hb3 (the reparent moves the old
+   and new parents only in the stubbed roll-ups): that step holds drawn to
+   the oracle-changed own-field rows exactly, and misses only roll-up-only
+   changes (oracle-derived). #1-#6d hold the shared `assertCommits`.
+2. `snapshot()` returns the raw stub-folded layout; the waiting exception is
+   applied only in the test's oracle comparison (an early version compared
+   the snapshot to the unwaited transform and went red on the stub's three).
+3. The mount resets the stats, so the bootstrap's own layout run is asserted
+   on an unmounted arm (4x: 1 run, 2,928 elements).
+4. The list subscribes to the grouped view only; headers are `memo` on props
+   with their own per-group subscription. `pool.orderListeners` is 0 with the
+   list mounted (the dispose test now asserts the groups listeners instead).
+
 ## Round three: b1 send-back cleared, rebased on POD-4674 (POD-4582) · 2026-09-24
 
 Resumed on opencode (tip 9ddd9c070). Rebased onto `integrate/4545-round-three`
