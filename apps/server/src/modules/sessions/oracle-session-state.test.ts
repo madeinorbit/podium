@@ -45,6 +45,17 @@ async function goLive(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: Sess
   })
 }
 
+/**
+ * Every frame that ends a session's process: the contract lifecycle request a
+ * park sends since 722704624 (POD-4302), and the legacy `kill` frame that
+ * remains only as the orphan-reaping escalation.
+ */
+const retirements = (daemon: ControlMessage[], sessionId: SessionId) =>
+  daemon.filter(
+    (m) =>
+      (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
+  )
+
 /** Every spawn frame the server sent for one session, in order. */
 const spawnFrames = (daemon: ControlMessage[], sessionId: SessionId) =>
   daemon.filter(
@@ -138,6 +149,7 @@ describe('oracle: setArchived', () => {
     await o.call.sessions.markRead({ sessionId })
     const readAtBefore = (await o.meta(sessionId)).readAt
     expect(readAtBefore).not.toBeNull()
+    o.daemon.length = 0
 
     await o.call.sessions.setArchived({ sessionId, archived: true })
 
@@ -149,7 +161,13 @@ describe('oracle: setArchived', () => {
     expect(typeof meta.stoppedAt).toBe('string')
     // Archiving IS the acknowledgment — it must not resurface as unread.
     expect(meta.readAt).toBe(readAtBefore)
-    expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+    // The park is a CONFIRMED retirement since 722704624 (POD-4302): the daemon
+    // is asked through the contract lifecycle and answers `retirement:
+    // 'confirmed'`; the legacy `kill` frame is only the escalation when it does
+    // not. This used to pin that bare kill frame.
+    expect(retirements(o.daemon, sessionId)).toEqual([
+      expect.objectContaining({ type: 'runtimeLifecycleRequest', sessionId, verb: 'stop' }),
+    ])
   })
 
   it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
@@ -181,12 +199,14 @@ describe('oracle: setArchived', () => {
       code: 0,
     })
     expect((await o.meta(sessionId)).status).toBe('exited')
-    const killsBefore = o.daemon.filter((m) => m.type === 'kill').length
+    // Both retirement frames are counted: since 722704624 a park sends a
+    // `runtimeLifecycleRequest`, so a kill-only count could not see a re-park.
+    const retirementsBefore = retirements(o.daemon, sessionId).length
 
     await o.call.sessions.setArchived({ sessionId, archived: true })
 
     expect(await o.meta(sessionId)).toMatchObject({ archived: true, status: 'exited' })
-    expect(o.daemon.filter((m) => m.type === 'kill')).toHaveLength(killsBefore)
+    expect(retirements(o.daemon, sessionId)).toHaveLength(retirementsBefore)
   })
 })
 

@@ -37,6 +37,17 @@ const RESUME = { kind: 'claude-session', value: 'native-1' } as const
 const inputs = (daemon: ControlMessage[]) =>
   daemon.filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
 
+/**
+ * Every frame that ends a session's process: the contract lifecycle request a
+ * park or stop sends since 722704624 (POD-4302), and the legacy `kill` frame
+ * that remains only as the orphan-reaping escalation.
+ */
+const retirements = (daemon: ControlMessage[], sessionId: SessionId) =>
+  daemon.filter(
+    (m) =>
+      (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
+  )
+
 const confirmUserTurn = (
   o: Awaited<ReturnType<typeof makeOracle>>,
   sessionId: SessionId,
@@ -183,15 +194,31 @@ describe('oracle: resume', () => {
 })
 
 describe('oracle: hibernate', () => {
-  it(`${MUST_NOT_CHANGE}: hibernate parks a live session — status flips and the daemon is told to kill the process`, async () => {
+  /**
+   * THE KILL IS NOW A CONFIRMED RETIREMENT (722704624, POD-4302).
+   *
+   * This used to pin a fire-and-forget `kill` frame. Since 722704624 a park
+   * asks the daemon to retire the process through the contract lifecycle
+   * (`runtimeLifecycleRequest`, verb 'stop') and reports `ok` only on the
+   * daemon's `retirement: 'confirmed'` answer; the legacy `kill` frame survives
+   * only as the orphan-reaping escalation when that confirmation does not come.
+   * The oracle's daemon confirms like a real one (`confirmingRetirement`), so a
+   * clean park sends the lifecycle request and NO legacy kill. What stays
+   * pinned is the intent: the status flips, it is durable, and the daemon is
+   * told to end the process.
+   */
+  it(`${MUST_NOT_CHANGE}: hibernate parks a live session — status flips and the daemon is asked to retire the process`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
+    o.daemon.length = 0
 
     expect(await o.call.sessions.hibernate({ sessionId })).toEqual({ ok: true })
 
     expect((await o.meta(sessionId)).status).toBe('hibernated')
-    expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+    expect(retirements(o.daemon, sessionId)).toEqual([
+      expect.objectContaining({ type: 'runtimeLifecycleRequest', sessionId, verb: 'stop' }),
+    ])
     expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.status).toBe(
       'hibernated',
     )
@@ -1154,6 +1181,7 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
     await o.call.sessions.markRead({ sessionId })
+    o.daemon.length = 0
     expect((await o.meta(sessionId)).readAt).not.toBeNull()
 
     expect(await o.call.sessions.stop({ sessionId })).toEqual({
@@ -1169,7 +1197,11 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     // Per-user (POD-1076): the terminal transition clears EVERY reader's marker,
     // which is what nulling the one column used to mean.
     expect((await o.store.sessions.listReadAt(firstAdminMemberId()))[sessionId]).toBeUndefined()
-    expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+    // A confirmed retirement, not a fire-and-forget kill frame (722704624): see
+    // the hibernate oracle above.
+    expect(retirements(o.daemon, sessionId)).toEqual([
+      expect.objectContaining({ type: 'runtimeLifecycleRequest', sessionId, verb: 'stop' }),
+    ])
   })
 
   it(`${MUST_NOT_CHANGE}: --force re-labels the park 'forced' (work may have been discarded)`, async () => {
@@ -1189,11 +1221,15 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
     await o.call.sessions.stop({ sessionId })
-    const killsAfterFirst = o.daemon.filter((m) => m.type === 'kill').length
+    // Counted over BOTH retirement frames: since 722704624 the first stop sends
+    // a `runtimeLifecycleRequest`, not a `kill`, so a kill-only count would stay
+    // at zero whether or not the second stop re-kills.
+    const retirementsAfterFirst = retirements(o.daemon, sessionId).length
+    expect(retirementsAfterFirst).toBe(1)
 
     expect((await o.call.sessions.stop({ sessionId })).ok).toBe(true)
 
-    expect(o.daemon.filter((m) => m.type === 'kill')).toHaveLength(killsAfterFirst)
+    expect(retirements(o.daemon, sessionId)).toHaveLength(retirementsAfterFirst)
     // The row survives — stop keeps the branch, the transcript and the session.
     expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([sessionId])
   })

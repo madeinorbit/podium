@@ -47,7 +47,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { firstAdminMemberId } from '../../command-principal'
 import { OPERATOR } from '../../test-support/capabilities'
-import { disposeOracles, MUST_NOT_CHANGE, makeOracle, willChange } from './oracle-support'
+import { disposeOracles, MUST_NOT_CHANGE, makeOracle, waitFor, willChange } from './oracle-support'
 
 afterEach(() => disposeOracles())
 
@@ -345,13 +345,28 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     // ORDER, on the ONE stream both messages travel: the reply is on the wire
     // before the kill. Two separate arrays could not express this, and asserting
     // only the final status would pass against a kill-then-reply implementation.
+    //
+    // THE KILL IS A CONFIRMED RETIREMENT NOW (722704624, POD-4302): the deferred
+    // kill asks the daemon through the contract lifecycle
+    // (`runtimeLifecycleRequest`, verb 'stop') instead of sending a bare `kill`
+    // frame, which remains only as the escalation when retirement is not
+    // confirmed. The oracle's daemon confirms, so no legacy kill follows. The
+    // ordering claim is unchanged; it is now made about the frame that carries
+    // the kill.
     const replyIndex = o.daemon.findIndex(
       (m) => m.type === 'agentRelayResult' && m.requestId === 'stop-self',
     )
-    const killIndex = o.daemon.findIndex((m) => m.type === 'kill' && m.sessionId === agentSessionId)
+    const killIndex = () =>
+      o.daemon.findIndex(
+        (m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === agentSessionId,
+      )
+    await waitFor(() => killIndex() >= 0, 'the deferred retirement to reach the daemon')
     expect(replyIndex).toBeGreaterThanOrEqual(0)
-    expect(killIndex).toBeGreaterThanOrEqual(0)
-    expect(replyIndex).toBeLessThan(killIndex)
+    expect(replyIndex).toBeLessThan(killIndex())
+    expect(o.daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === agentSessionId)).toEqual([
+      expect.objectContaining({ verb: 'stop' }),
+    ])
+    expect(o.daemon.some((m) => m.type === 'kill' && m.sessionId === agentSessionId)).toBe(false)
 
     // A shell parks as 'hibernated' (a fresh spawn IS its recovery, so stop keeps
     // it resumable) — the row survives the self-stop.
