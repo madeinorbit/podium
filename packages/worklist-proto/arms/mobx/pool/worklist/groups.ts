@@ -268,6 +268,8 @@ export class GroupNode {
       groups: false,
       bucket: computed,
       label: computed,
+      baseRowIds: computed({ equals: compareShallow }),
+      baseClosedIds: computed({ equals: compareShallow }),
       rowIds: computed({ equals: compareShallow }),
       closedIds: computed({ equals: compareShallow }),
     })
@@ -295,11 +297,29 @@ export class GroupNode {
     return best?.label ?? ''
   }
 
+  /** The open lane, in rank order, no selection (the snapshot's lane). */
+  get baseRowIds(): readonly string[] {
+    const bucket = this.bucket
+    if (bucket === undefined) return EMPTY
+    return rankSorted(bucket.open, (id) => this.groups.rankOf(id))
+  }
+
+  /** The closed fold, newest first, no selection (the snapshot's lane). */
+  get baseClosedIds(): readonly string[] {
+    const bucket = this.bucket
+    if (bucket === undefined) return EMPTY
+    return sortClosedFold(
+      bucket.closed,
+      (id) => this.groups.rankOf(id),
+      (id) => this.groups.filedFoldMs(id),
+    )
+  }
+
   /** The open lane, in rank order, plus a latched selected row at its rank. */
   get rowIds(): readonly string[] {
     const bucket = this.bucket
     if (bucket === undefined) return EMPTY
-    const lane = rankSorted(bucket.open, (id) => this.groups.rankOf(id))
+    const lane = this.baseRowIds
     const latched = this.groups.latchedOpenId
     if (latched === null || !bucket.closed.has(latched)) return lane
     const latchedRank = this.groups.rankOf(latched)
@@ -317,11 +337,7 @@ export class GroupNode {
   get closedIds(): readonly string[] {
     const bucket = this.bucket
     if (bucket === undefined) return EMPTY
-    const lane = sortClosedFold(
-      bucket.closed,
-      (id) => this.groups.rankOf(id),
-      (id) => this.groups.filedFoldMs(id),
-    )
+    const lane = this.baseClosedIds
     const latched = this.groups.latchedOpenId
     if (latched === null || !lane.includes(latched)) return lane
     return lane.filter((id) => id !== latched)
@@ -500,11 +516,12 @@ export class WorklistGroups {
     const byKey = new Map<string, LayoutGroup>()
     for (const key of this.keys) {
       const node = this.group(key)
+      // The unselected baseline (spec §7): the latch never reaches the snapshot.
       const group: LayoutGroup = {
         key,
         label: node.label,
-        rowIds: [...node.rowIds],
-        closedIds: [...node.closedIds],
+        rowIds: [...node.baseRowIds],
+        closedIds: [...node.baseClosedIds],
       }
       groups.push(group)
       byKey.set(key, group)
