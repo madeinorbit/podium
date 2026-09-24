@@ -509,6 +509,34 @@ full-residency checkpoint all missed it. The gate failed on the plant count
 (`activity: 0`, expected 3). The other five plants failed at the same steps
 as in the table. So the view check is what catches this plant.
 
+**After Hb1 and the shared check (POD-4674), 2026-09-24: GREEN.** Rebased on
+integrate/4545-round-three with Hb1 and Mb3 landed; the view comparison is
+now the shared `diffViews` (`shared/src/gen/check.ts`, which the MobX gate
+calls too), and H3's `chain` (`chainCut`) and `presence`
+(`presenceUntracked`) plants joined the gate. Seeds 1-5 x 300, one run
+through the package config (2,128 s at load 10-15: pass/fail and counts
+only). The rebuild's rows are the VISIBLE issues since Hb1, so about 200,000
+whole views per seed are compared (was about 980,000 over every resident
+issue). All eight plants failed every seed ("check, step"; the registry plant
+is caught at the checkpoint, after the last step):
+
+| seed | views compared | removal-deaf | relink-skipped | cold-deaf | cold relink | registry kept | activity cached | chain cut | presence untracked |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 190328 | rebuild 5 | relations 14 | partition 6 | relations 24 | checkpoint | views 13 | rebuild 5 | views, boot |
+| 2 | 201974 | rebuild 41 | relations 0 | relations 20 | relations 20 | checkpoint | views 18 | rebuild 0 | views, boot |
+| 3 | 222611 | rebuild 40 | relations 14 | relations 3 | relations 3 | checkpoint | views 13 | rebuild 48 | views, boot |
+| 4 | 195594 | rebuild 76 | relations 20 | relations 37 | relations 96 | checkpoint | views 35 | views 3 | views, boot |
+| 5 | 213705 | rebuild 1 | relations 1 | relations 7 | relations 7 | checkpoint | views 0 | rebuild 1 | views, boot |
+
+`chainCut` now fails the stock rebuild comparison on four seeds: since Hb1
+the visible parts are cells at level 2 and above, so a cut chain loses rows,
+not only view fields. `presenceUntracked` is caught by the view check at the
+boot snapshot (`originTick` null where the direct rule reads the origin).
+Open: the hand `activityAt` still reads every explicit session, not the
+legacy's retained seats raised by the nested ones; the gate compares the
+pool with its own rule table, so it cannot see that (recorded as deferred on
+POD-4674; the MobX arm's fix is POD-4679).
+
 
 ### Open
 

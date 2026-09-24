@@ -77,15 +77,16 @@
  *
  * H3's three view plants (`harness/review/h3-gate-plants.test.ts`), in MobX
  * terms, each of which must fail every seed:
- * - `activityCached`: each member's `activityAt` contribution cached in a
- *   plain `Map` (the MobX gates' deaf plain-Map read). Only the view check
- *   can catch it; it must be the one that does.
+ * - `activityCached`: each member's activity cached in a plain `Map` on
+ *   both paths `activityAt` reads it (the MobX gates' deaf plain-Map read).
+ *   Only the view check can catch it; it must be the one that does.
  * - `presenceUntracked`: presence asked of the table untracked, so a view
  *   does not re-run when its origin arrives or leaves.
- * - `chainUntracked`: another issue's parts (the origin's, read by
- *   `originTick`) read untracked, so a change two derivations down does not
- *   reach the reader (H3's `chain`: a changed cell at level >= 2 does not
- *   dirty its readers).
+ * - `chainUntracked`: another issue's derived results read untracked (the
+ *   origin's parts, read by `originTick`, and the children's results the
+ *   roll-up compositions read), so a change two derivations down does not
+ *   reach the reader (H3's `chain`: a changed cell at level >= 2 does not dirty
+ *   its readers).
  *
  * FIDELITY. The fields Ma1 derives from the row, one hop and the locals, and
  * the roll-ups Mb3 derives (`phase`, progress, `working`, `asking`,
@@ -221,17 +222,37 @@ const promoteSkipped: CheckableArm = {
   },
 }
 
-/** The view plant: each member's activity is cached in a plain `Map` after its first read. */
+/**
+ * The view plant: each member's activity is cached in a plain `Map` after its
+ * first read, on BOTH paths that read it: the own-row half (the session
+ * model's `activityMs`, `ViewInputs.sessionActivity`) and the subtree half
+ * (the worklist's session node, `seatActivity`). Caching one path alone is
+ * masked by the other: the view is their max, and a live seat's stamp reaches
+ * it through both (seed 1 x 300 passed with the model path alone cached).
+ */
 const activityCached: CheckableArm = {
   create(source, locals, reads) {
     const handle = mobxPoolArm.create(source, locals, reads)
-    const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
+    const { pool } = handle
+    const inputs = pool.inputs as { sessionActivity: (id: string) => number | null }
     const read = inputs.sessionActivity
     const cache = new Map<string, number | null>()
     inputs.sessionActivity = (id) => {
       if (!cache.has(id)) cache.set(id, read(id))
       return cache.get(id) as number | null
     }
+    const visible = pool.visibleInputs as { session: (id: string) => object }
+    const session = visible.session
+    const seen = new Map<string, number | null>()
+    visible.session = (id) =>
+      new Proxy(session(id), {
+        get(target, key) {
+          const value = Reflect.get(target, key)
+          if (key !== 'activityMs') return value
+          if (!seen.has(id)) seen.set(id, value as number | null)
+          return seen.get(id)
+        },
+      })
     return handle
   },
 }
@@ -248,17 +269,43 @@ const presenceUntracked: CheckableArm = {
   },
 }
 
-/** H3's chain plant: another issue's parts (the origin's) are read untracked. */
+/** Every getter of `target` read untracked; with `keys`, only those. */
+function untrackedProxy<T extends object>(target: T, keys?: ReadonlySet<PropertyKey>): T {
+  return new Proxy(target, {
+    get: (object, key) =>
+      keys === undefined || keys.has(key)
+        ? untracked(() => Reflect.get(object, key))
+        : Reflect.get(object, key),
+  })
+}
+
+/** The results a parent's compositions read from each child node. */
+const CHILD_RESULTS: ReadonlySet<PropertyKey> = new Set(['aggregate', 'unitsBelow', 'seatActivity'])
+
+/**
+ * H3's chain plant (a changed cell at level >= 2 dirties none of its
+ * readers), in MobX terms: a derivation reads ANOTHER issue's derived result
+ * untracked, so its change never reaches the reader. Two such paths: the
+ * origin's parts that `originTick` reads, and the children's results the
+ * roll-up compositions read (`aggregate`, `unitsBelow`, `seatActivity`). Not
+ * every node read: a node reads some of its own parts through the same
+ * input, and cutting those leaves derivations that read nothing (MobX warns).
+ */
 const chainUntracked: CheckableArm = {
   create(source, locals, reads) {
     const handle = mobxPoolArm.create(source, locals, reads)
-    const inputs = handle.pool.inputs as { parts: (id: string) => object | undefined }
+    const { pool } = handle
+    const inputs = pool.inputs as { parts: (id: string) => object | undefined }
     const parts = inputs.parts
     inputs.parts = (id) => {
       const model = untracked(() => parts(id))
-      return model === undefined
-        ? undefined
-        : new Proxy(model, { get: (target, key) => untracked(() => Reflect.get(target, key)) })
+      return model === undefined ? undefined : untrackedProxy(model)
+    }
+    const visible = pool.visibleInputs as { issue: (id: string) => object | undefined }
+    const issue = visible.issue
+    visible.issue = (id) => {
+      const node = issue(id)
+      return node === undefined ? undefined : untrackedProxy(node, CHILD_RESULTS)
     }
     return handle
   },

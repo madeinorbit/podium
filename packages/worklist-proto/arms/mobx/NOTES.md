@@ -56,9 +56,15 @@ the comparison both pool gates call), `pool/views.ts` (`activityAtPartOf`,
     allowance (`assertCommitsBesideActivity`) is gone; plain `assertCommits`.
   - `pool/gate.test.ts` "row fields against the oracle": `activityAt` is
     asserted on every visible row (it was measured, not asserted).
-- **Control**: with only the own half's loop put back to every explicit
-  session, the row-fields test fails at `i4603.activityAt` (pool later than
-  the oracle), the row POD-4679 reported.
+  - The same test's POD-4671 row (`i3485`, the unscanned-worktree orphan
+    with no R3 seat) leaves `activityAt` out with its other seat-fed fields:
+    the orphan's stamp is exactly the one the pool misses.
+- **Controls** (mutants on the committed code, restored with `cp`): the own
+  half's loop put back to every explicit session fails the row-fields test
+  at `i4603.activityAt` (pool later than the oracle: the row POD-4679
+  reported); the view's subtree raise removed fails it at `i3973.activityAt`
+  (pool earlier). The real code passes it on every other visible row.
+
 ## Round three: structural scenarios and the browser, b4 (POD-4572) · 2026-09-24
 
 Code: `harness/src/roster.ts` (the pool on the roster, `RosterAllowances`),
