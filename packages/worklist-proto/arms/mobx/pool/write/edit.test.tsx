@@ -19,7 +19,6 @@ import { describe, expect, it } from 'vitest'
 import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
-import type { CheckableArm } from '../../../../shared/src/arm'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type {
@@ -29,12 +28,11 @@ import type {
   WriteTransport,
 } from '../../../../shared/src/write-contract'
 import { commandFor } from '../../../../shared/src/write-contract'
-import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { diffRelations, knownTables } from '../enumerate'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { tracked } from '../pool'
 import { runInAction } from 'mobx'
-import { createMobxWriteApi, type MobxWriteApi } from './edit'
+import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 
 installMobxWarnTrap()
 
@@ -58,55 +56,19 @@ function fakeTransport(): FakeTransport {
   }
 }
 
-function editableOf(value: SliceIssue): { title: string; stage: string; readAt: string | null } {
-  return { title: value.title, stage: value.stage, readAt: (value.readAt ?? null) as string | null }
-}
-
-/** A pool arm with the Mc1 write layer attached and the feed wired to its log. */
-function writableArm(transport: FakeTransport): CheckableArm & {
-  writeOf(handle: { pool: MobxPoolHandle['pool'] }): MobxWriteApi
-} {
-  let write: MobxWriteApi | null = null
-  return {
-    writeOf() {
-      if (write === null) throw new Error('[write-test] no write layer yet')
-      return write
-    },
-    create(source, locals, reads) {
-      const handle = mobxPoolArm.create(source, locals, reads, {
-        schedule: () => () => {},
-      }) as MobxPoolHandle
-      const api = createMobxWriteApi(handle.pool, transport)
-      write = api
-      const off = source.subscribe((event) => {
-        for (const row of event.rows) {
-          if (row.kind !== 'issue' || row.value === undefined) continue
-          api.handleRemote('issue', row.id, editableOf(row.value as SliceIssue))
-        }
-      })
-      const originalDispose = handle.dispose.bind(handle)
-      return {
-        ...handle,
-        dispose() {
-          off()
-          api.dispose()
-          originalDispose()
-        },
-      }
-    },
-  } as CheckableArm & { writeOf(handle: { pool: MobxPoolHandle['pool'] }): MobxWriteApi }
-}
+/** The pool never auto-hydrates in these tests: loads land through the fence. */
+const NEVER_AUTO = { schedule: () => () => {} } as const
 
 describe('Mc1 MobX edits on the model', () => {
   it('a title rename paints in one commit of that row, within budget', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableArm(transport)
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as MobxPoolHandle & { write?: MobxWriteApi }
-      const write = arm.writeOf(handle)
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const write = handle.write
       const id = ctx.targets.visibleRootId
       const before = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
       expect(before).toBeDefined()
@@ -144,11 +106,11 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableArm(transport)
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as MobxPoolHandle
-      const write = arm.writeOf(handle)
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const write = handle.write
       const id = ctx.targets.visibleRootId
       const priorTitle = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
       const errors: { txId: TxId; message: string }[] = []
@@ -196,11 +158,11 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableArm(transport)
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as MobxPoolHandle
-      const write = arm.writeOf(handle)
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const write = handle.write
       const id = ctx.targets.visibleRootId
       const serverStage = tracked(
         () => (handle.pool.inputs.issue(id) as SliceIssue)?.stage as string,
@@ -248,11 +210,11 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableArm(transport)
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as MobxPoolHandle
-      const write = arm.writeOf(handle)
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const write = handle.write
       // The visible root: the mark-read paints a stamp, the rewind restores
       // whatever the server holds (null or an older stamp).
       const id = ctx.targets.visibleRootId
@@ -285,11 +247,11 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableArm(transport)
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as MobxPoolHandle
-      const write = arm.writeOf(handle)
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const write = handle.write
       const id = ctx.targets.visibleRootId
       const prior = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
       let t1: TxId = '' as TxId
@@ -325,11 +287,11 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableArm(transport)
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as MobxPoolHandle
-      const write = arm.writeOf(handle)
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const write = handle.write
       expect(() => write.edit('issue', 'i-does-not-exist', { title: 'x' })).toThrow()
       expect(transport.sent).toHaveLength(0)
       expect(write.log.size).toBe(0)
