@@ -136,12 +136,13 @@ describe('fence steps #1-#4, #8, #8b', () => {
     }
   }, 120_000)
 
-  it('a sibling re-read alone fails #2: the target family is larger than the budget', async () => {
+  it('a sibling re-read alone fails #2: the retained seats are larger than the budget', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as HandPoolHandle
         const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
-        // The pre-POD-4581 activity: each member's row, read again on every run.
+        // Uncached per-member row reads: each retained seat's row, read again
+        // on every run.
         inputs.sessionActivity = (id) => sessionActivityOf(handle.pool.inputs.session(id))
         return handle
       },
@@ -159,10 +160,10 @@ describe('fence steps #1-#4, #8, #8b', () => {
           assertReads(result, { readsPerChange: readsBudget })
           continue
         }
-        // The whole family of the changed session, and nothing else: more
-        // than one level's budget, so the fence names it.
-        const family = ctx.corpus.sessions.filter(
-          (s) => s.issueId === ctx.targets.visibleRootId,
+        // The retained seats of the changed session's row, and nothing else:
+        // more than one level's budget, so the fence names it.
+        const family = (mounted.handle as HandPoolHandle).pool.inputs.retainedSeats(
+          ctx.targets.visibleRootId,
         ).length
         expect(readsBudget).toBe(3)
         expect(family).toBeGreaterThan(readsBudget)

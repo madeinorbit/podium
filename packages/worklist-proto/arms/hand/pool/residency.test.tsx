@@ -244,7 +244,14 @@ describe('bootstrap', () => {
     expect(pool.worklist.held('member')).toBe(hotIssues.length)
     expect(pool.groups.held()).toBe(visible.length)
     expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
-      1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size + pool.groups.held(),
+      1 +
+        visible.length +
+        pool.worklist.cellCount() +
+        pool.sessionCells.size +
+        pool.groups.held() +
+        pool.rollup.heldCells().filings +
+        pool.rollup.heldCells().verdicts +
+        pool.rollup.heldCells().rollupParts,
     )
     expect(pool.stats.counters.recordsCreated).toBe(0)
     expect(pool.residency?.counters.requests).toBe(0)
@@ -319,19 +326,29 @@ describe('bootstrap', () => {
       .filter((id): id is string => id !== null)
     expect([...pool.issues.keys()].sort()).toEqual([...new Set([...drawn, ...origins])].sort())
     for (const id of pool.issues.keys()) expect(pool.residency?.isCold('issue', id)).toBe(false)
-    // Every view cell created belongs to a drawn row: its parts, and (POD-4581)
-    // one activity cell per member session its `activityAt` asked about,
-    // cold members included (the worklist's unread rollup asks for more);
-    // plus the id list, the worklist's own cells and the groups' placements.
+    // Every view cell created belongs to a drawn row: its parts, and (POD-4581,
+    // Hb3) one activity cell per retained seat its `activityAt` asked about,
+    // cold members included where retained (the worklist's unread rollup asks
+    // for more); plus the id list, the worklist's own cells and the groups'
+    // placements.
     let cells = 0
     const members = new Set<string>()
     for (const issue of pool.issues.values()) cells += issue.cells.size
     for (const id of drawn) {
-      for (const sessionId of pool.issues.get(id)?.sessionIds ?? []) members.add(sessionId)
+      for (const sessionId of pool.inputs.retainedSeats(id)) members.add(sessionId)
     }
     for (const member of members) expect(pool.sessionCells.has(member)).toBe(true)
+    const rollupCells = pool.rollup.heldCells()
     expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
-      cells + pool.sessionCells.size + 1 + pool.worklist.cellCount() + pool.groups.held(),
+      cells +
+        pool.sessionCells.size +
+        1 +
+        pool.worklist.cellCount() +
+        pool.groups.held() +
+        rollupCells.filings +
+        rollupCells.verdicts +
+        rollupCells.rollupParts,
+    )
     )
     expect(pool.stats.counters.recordsCreated).toBe(0)
     // Cold rows were drawn as nothing and are asked for only when read.
@@ -557,8 +574,12 @@ describe('lazy relations', () => {
     expect(row.views.length).toBe(2)
     const last = row.views.at(-1)!
     expect(last.loading).toBeUndefined()
-    const latest = Math.max(...sessions.map((session) => Date.parse(session.lastActiveAt)))
-    expect(last.activityAt).toBe(latest)
+    // Hb3 reads `activityAt` off the retained seats, as the legacy does
+    // (`rows.ts:98-116`): these finished runs decayed with their closed
+    // issue, so none retains and the stamp falls back to the issue's own
+    // `updatedAt`.
+    expect(pool.inputs.retainedSeats(issue.id)).toEqual([])
+    expect(last.activityAt).toBe(Date.parse(issue.updatedAt))
   })
 
   it('a spin-off of a cold origin shows loading, then its tick', () => {
