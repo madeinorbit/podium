@@ -33,6 +33,9 @@ afterEach(() => disposeOracles())
 
 const RESUME = { kind: 'claude-session', value: 'native-1' } as const
 
+/** The live phases a send must not resurrect over. */
+const LIVE_PHASES = ['errored', 'idle'] as const
+
 const inputs = (daemon: ControlMessage[]) =>
   daemon.filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
 
@@ -1061,10 +1064,8 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(await unsupported.store.sync.listQueuedMessages(unsupportedId)).toEqual([])
   })
 
-  it.each([
-    'errored',
-    'idle',
-  ] as const)(`${MUST_NOT_CHANGE}: does not resurrect an already-live %s target`, async (phase) => {
+  // biome-ignore format: oracle-tags.test.ts reads the tag off the declaration line
+  it.each(LIVE_PHASES)(`${MUST_NOT_CHANGE}: does not resurrect an already-live %s target`, async (phase) => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId, phase)
@@ -1104,38 +1105,8 @@ describe('oracle: answerAskUserQuestion', () => {
     previewLayout: false,
     options: [{ label: 'One' }, { label: 'Two' }, { label: 'Three' }],
   }
-
-  it(`${MUST_NOT_CHANGE}: a single-select answer goes to the driver by its interaction id as the contract's question answer — nothing is typed`, async () => {
-    const o = await makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await goLive(o, sessionId)
-    const interactionId = await openAsk(o, sessionId, [PICK])
-    o.daemon.length = 0
-
-    const { result, request } = await answerThroughDriver(o, {
-      sessionId,
-      interactionId,
-      choices: [{ optionIndices: [2] }],
-    })
-
-    expect(result).toEqual({ ok: true })
-    expect(request).toMatchObject({
-      sessionId,
-      interactionId,
-      principal: { kind: 'user' },
-      answer: { kind: 'question', selections: [{ optionIndices: [2] }] },
-    })
-    expect(answerRequests(o.daemon)).toHaveLength(1)
-    expect(inputs(o.daemon)).toEqual([])
-    // Settled on the aggregate as a HUMAN's answer (the typed script's 'human'
-    // stamp, carried by the row now).
-    const row = (await o.reg.modules.interactions.listForSession(sessionId)).find(
-      (candidate) => candidate.id === interactionId,
-    )
-    expect(row).toMatchObject({ status: 'answered', answeredBy: 'human' })
-  })
-
-  it.each([
+  /** Each client choice shape, and the contract selections it must become. */
+  const ANSWER_SHAPES = [
     {
       shape: 'a multi-select answer',
       questions: [{ ...PICK, multiSelect: true }],
@@ -1184,7 +1155,40 @@ describe('oracle: answerAskUserQuestion', () => {
       choices: [{ freeText: 'ship the long path', otherIndex: 4, previewLayout: true }],
       selections: [{ optionIndices: [4], text: 'ship the long path' }],
     },
-  ])(`${MUST_NOT_CHANGE}: $shape reaches the driver as its contract selections, in order, and nothing is typed`, async ({
+  ]
+
+  it(`${MUST_NOT_CHANGE}: a single-select answer goes to the driver by its interaction id as the contract's question answer — nothing is typed`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId)
+    const interactionId = await openAsk(o, sessionId, [PICK])
+    o.daemon.length = 0
+
+    const { result, request } = await answerThroughDriver(o, {
+      sessionId,
+      interactionId,
+      choices: [{ optionIndices: [2] }],
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(request).toMatchObject({
+      sessionId,
+      interactionId,
+      principal: { kind: 'user' },
+      answer: { kind: 'question', selections: [{ optionIndices: [2] }] },
+    })
+    expect(answerRequests(o.daemon)).toHaveLength(1)
+    expect(inputs(o.daemon)).toEqual([])
+    // Settled on the aggregate as a HUMAN's answer (the typed script's 'human'
+    // stamp, carried by the row now).
+    const row = (await o.reg.modules.interactions.listForSession(sessionId)).find(
+      (candidate) => candidate.id === interactionId,
+    )
+    expect(row).toMatchObject({ status: 'answered', answeredBy: 'human' })
+  })
+
+  // biome-ignore format: oracle-tags.test.ts reads the tag off the declaration line
+  it.each(ANSWER_SHAPES)(`${MUST_NOT_CHANGE}: $shape reaches the driver as its contract selections, in order, and nothing is typed`, async ({
     questions,
     choices,
     selections,
