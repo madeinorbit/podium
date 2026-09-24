@@ -172,7 +172,7 @@ for (const entry of ROUND_THREE_ARMS) {
             }
             const actual = mounted.handle.snapshot()
             const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-            const patched = allow.parity!.accept(ctx, mounted.handle, oracle, actual)
+            const patched = allow.parity!.accept(ctx.corpus, mounted.handle, oracle, actual)
             expect(
               diffSnapshots(actual, patched.snapshot),
               `${at}: beyond ${allow.parity!.issue}'s parity allowance (${result.parityDiff ?? ''})`,

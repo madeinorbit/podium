@@ -9,22 +9,22 @@
  * working seat sits under an unscanned worktree, so the oracle reads it
  * `working` and the pool, which never seats that session, does not.
  *
- * `acceptUnscannedGap` takes the oracle's snapshot and the pool's and
- * returns the oracle snapshot with the pool's row for each issue in that
- * class: its row differs from the oracle's in the roll-up fields a seat feeds
- * and nowhere else, AND its own `worktreePath` is a path no scanned lane
- * reports (the pool's worktree table does not hold it), so the legacy has a
- * containment root there that the schema does not. Anything else is left for
- * the diff to show. THE TRIPWIRE: once the pool seats the corpus's orphan
- * session (POD-4671 fixed), it throws, so this exception is deleted with the
- * fix.
+ * `acceptUnscannedGap` takes the oracle's snapshot and the pool's, and when
+ * (and only when) the pool has not seated the corpus's orphan session under
+ * its issue, and that issue's row differs from the oracle's in the roll-up
+ * fields the seat feeds and nowhere else, it returns the oracle snapshot with
+ * the pool's row for that issue. Anything else is left for the diff to show.
+ * THE TRIPWIRE: once the pool seats the session (POD-4671 fixed), it throws,
+ * so this exception is deleted with the fix.
  *
- * THE CLASS, NOT THE ONE ROW (POD-4572). A fresh engine at any scale has
- * exactly one such issue, the corpus's `unscannedWorktree` (1x `i3485`, 2x
- * `i4944`). The browser page's rescope (L5e, `entrylib.ts`) stages the 2x
- * corpus's rows but not its scans (discovery stays at the page's corpus), so
- * at the grown state every 2x-only issue worktree is unscanned: seven rows
- * of this class at once (`docs/measurements/POD-4572-b.md`).
+ * THE CORPUS IS THE ONE INSTALLED. A caller passes the corpus whose rows the
+ * engine holds: at the browser page's rescope (L5e) that is the grown one, so
+ * its own orphan (2x `i4944`) is the one row. POD-4572 found the rescope
+ * staging the grown ROWS without their SCANS, which left seven 2x issue
+ * worktrees unscanned at the grown state; the coordinator ruled to fix the
+ * harness (`harness/src/rescope.ts` stages both) rather than widen this
+ * exception, and `harness/src/rescope.test.ts` shows the grown state has no
+ * unscanned worktree but the orphan's.
  *
  * THE ROSTER'S ALLOWANCES (POD-4572, `MOBX_POOL_ALLOWANCES`): the pool on the
  * fence roster (`harness/src/roster.ts`) carries exactly the exceptions Mb3
@@ -39,7 +39,6 @@ import type { FixtureCorpus } from '../../../../harness/src/fixture/index'
 import type { RowViews } from '../../../../harness/src/oracle/index'
 import type { RosterAllowances } from '../../../../harness/src/roster'
 import type { ArmHandle } from '../../../../shared/src/arm'
-import { normalizeRootPath } from '../../../../shared/src/schema'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import type { MobxPoolHandle } from '../arm'
 import { type MobxPool, tracked } from '../pool'
@@ -49,19 +48,10 @@ const SEAT_FIELDS: readonly string[] = ['phase', 'working', 'asking']
 
 export interface GapOutcome {
   readonly snapshot: SliceSnapshot
-  /** The first issue whose row the exception took from the pool, or null when none was needed. */
+  /** The issue whose row the exception took from the pool, or null when it was not needed. */
   readonly applied: string | null
-  /** Every issue whose row the exception took from the pool, in id order. */
+  /** `[applied]`, or empty. */
   readonly rows: readonly string[]
-}
-
-/** The issue's own worktree is a path no scanned lane reports (POD-4671's precondition). */
-function unscannedWorktreeOf(pool: MobxPool, issueId: string): boolean {
-  return tracked(() => {
-    const path = pool.visibleInputs.issueRow(issueId)?.worktreePath
-    if (typeof path !== 'string' || path === '') return false
-    return !pool.tables.worktree.has(path) && !pool.tables.worktree.has(normalizeRootPath(path))
-  })
 }
 
 export function acceptUnscannedGap(
@@ -70,31 +60,28 @@ export function acceptUnscannedGap(
   expected: SliceSnapshot,
   actual: SliceSnapshot,
 ): GapOutcome {
+  const none: GapOutcome = { snapshot: expected, applied: null, rows: [] }
   const { issueId, sessionId } = corpus.unscannedWorktree
-  if (issueId !== '') {
-    const seated = tracked(
-      () => pool.worklist.issue(issueId)?.memberIds.includes(sessionId) === true,
+  if (issueId === '') return none
+  const seated = tracked(() => pool.worklist.issue(issueId)?.memberIds.includes(sessionId) === true)
+  if (seated) {
+    throw new Error(
+      `POD-4671 is fixed: the pool seats ${sessionId} under ${issueId}; delete acceptUnscannedGap`,
     )
-    if (seated) {
-      throw new Error(
-        `POD-4671 is fixed: the pool seats ${sessionId} under ${issueId}; delete acceptUnscannedGap`,
-      )
-    }
   }
-  const rows: string[] = []
-  for (const id of Object.keys(expected.rowsById).sort()) {
-    const want = expected.rowsById[id] as unknown as Record<string, unknown> | undefined
-    const got = actual.rowsById[id] as unknown as Record<string, unknown> | undefined
-    if (want === undefined || got === undefined || same(want, got)) continue
-    const fields = Object.keys(want).filter((field) => !same(want[field], got[field]))
-    if (fields.some((field) => !SEAT_FIELDS.includes(field))) continue
-    if (!unscannedWorktreeOf(pool, id)) continue
-    rows.push(id)
+  const want = expected.rowsById[issueId] as unknown as Record<string, unknown> | undefined
+  const got = actual.rowsById[issueId] as unknown as Record<string, unknown> | undefined
+  if (want === undefined || got === undefined || same(want, got)) return none
+  const fields = Object.keys(want).filter((field) => !same(want[field], got[field]))
+  if (fields.some((field) => !SEAT_FIELDS.includes(field))) return none
+  return {
+    snapshot: {
+      ...expected,
+      rowsById: { ...expected.rowsById, [issueId]: actual.rowsById[issueId]! },
+    },
+    applied: issueId,
+    rows: [issueId],
   }
-  if (rows.length === 0) return { snapshot: expected, applied: null, rows }
-  const rowsById = { ...expected.rowsById }
-  for (const id of rows) rowsById[id] = actual.rowsById[id]!
-  return { snapshot: { ...expected, rowsById }, applied: rows[0]!, rows }
 }
 
 /**
@@ -163,8 +150,8 @@ export function burstFamilyReads(pool: MobxPool, burstIssueIds: readonly string[
 export const MOBX_POOL_ALLOWANCES: RosterAllowances = {
   parity: {
     issue: 'POD-4671',
-    accept: (ctx, handle, expected, actual) =>
-      acceptUnscannedGap(ctx.corpus, poolOf(handle), expected, actual),
+    accept: (corpus, handle, expected, actual) =>
+      acceptUnscannedGap(corpus, poolOf(handle), expected, actual),
   },
   undrawn: {
     issue: 'POD-4674',

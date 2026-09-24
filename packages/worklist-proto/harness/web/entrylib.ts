@@ -134,19 +134,25 @@ import {
   applyStageMove,
   applyTitleRename,
   echoAcknowledgedMarkReads,
-  FIXTURE_SEED,
   pendingWrites,
   pickVisibleHeartbeat,
   type ScenarioEngine,
-  seedCacheFromCorpus,
   startEngineOnCorpus,
   targetRules,
   upsert,
 } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
 import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
-import { buildCorpus } from '../src/fixture/index'
+import type { FixtureCorpus } from '../src/fixture/index'
 import { oracleSnapshot, type RowViews, rowViewsFromStore } from '../src/oracle/index'
+import {
+  currentScope,
+  fireRescope,
+  type StagedScope,
+  scopeOfCorpus,
+  stageRows,
+  stageScans,
+} from '../src/rescope'
 
 export type ProtoScenarioName =
   | 'heartbeat'
@@ -230,8 +236,9 @@ export interface ProtoParity {
  */
 export interface PageParityAllowance {
   readonly issue: string
+  /** `corpus`: the one whose rows the engine holds now (a rescope's grown corpus at its grown state). */
   accept(
-    boot: ScenarioEngine,
+    corpus: FixtureCorpus,
     handle: ArmHandle,
     expected: SliceSnapshot,
     actual: SliceSnapshot,
@@ -284,7 +291,7 @@ export interface ProtoPage {
   prepareRebuild(principal: string): Promise<void>
   /** Held page, timed: dispose the arm and rebuild it over the prepared runtime. */
   rebuild(principal: string): Promise<ProtoLifecycleResult>
-  /** Untimed: stage the corpus rows at `scale` for `rescope`. */
+  /** Untimed: stage the corpus at `scale` (rows and scans, `harness/src/rescope.ts`) for `rescope`. */
   prepareRescope(scale: 1 | 2 | 4): Promise<void>
   /** Held page, timed: rescope onto the staged corpus, then back. */
   rescope(scale: 1 | 2 | 4): Promise<ProtoLifecycleResult>
@@ -953,7 +960,12 @@ export function mountPage(options: MountPageOptions): void {
   function parityNow(): ProtoParity {
     const armSnapshot = live().handle.snapshot()
     const raw = oracleSnapshot(live().boot.engine.getSnapshot())
-    const patched = parityAllowance?.accept(live().boot, live().handle, raw, armSnapshot)
+    const patched = parityAllowance?.accept(
+      installedCorpus ?? live().boot.corpus,
+      live().handle,
+      raw,
+      armSnapshot,
+    )
     const oracle = patched?.snapshot ?? raw
     const armHash = hashString(canonical(armSnapshot))
     const oracleHash = hashString(canonical(oracle))
@@ -1083,48 +1095,35 @@ export function mountPage(options: MountPageOptions): void {
     }
   }
 
-  type CacheRecords = ScenarioEngine['cache']['records']
-  /** The staged rows came out of a `ScenarioCache`, so every entity is a kernel one. */
-  type Entity = Parameters<ScenarioEngine['cache']['put']>[0]
-  let staged: { scale: 1 | 2 | 4; grown: CacheRecords; base: CacheRecords } | null = null
+  /** The staged scopes (`harness/src/rescope.ts`): the grown one and the page's own. */
+  let staged: { scale: 1 | 2 | 4; grown: StagedScope; base: StagedScope } | null = null
   let rescopeSeq = 1
+  /** The corpus whose rows the engine holds: the boot's, or a rescope's grown one. */
+  let installedCorpus: FixtureCorpus | null = null
 
-  /** Untimed: the rows of the corpus at `to`, and the page's own rows to come back to. */
+  /** Untimed: the corpus at `to` (rows and scans), and the page's own to come back to. */
   async function prepareRescope(to: 1 | 2 | 4): Promise<void> {
     if (to === scale)
       throw new Error(`[proto] prepareRescope(${to}): the page is already at ${scale}x`)
     staged = {
       scale: to,
-      grown: seedCacheFromCorpus(buildCorpus(to, FIXTURE_SEED)).records,
-      base: [...live().boot.cache.records],
+      grown: scopeOfCorpus(to),
+      base: currentScope(live().boot, live().boot.corpus),
     }
     await settleQuiet()
   }
 
-  /** Untimed: the kernel cache becomes exactly `rows` (in their order), silently. */
-  function stageRows(rows: CacheRecords): void {
-    const { cache, replica } = live().boot
-    const keep = new Set(rows.map((row) => `${row.entity}:${row.entityId}`))
-    replica.batch(() => {
-      for (const row of [...cache.records]) {
-        if (!keep.has(`${row.entity}:${row.entityId}`))
-          cache.drop(row.entity as Entity, row.entityId)
-      }
-      for (const row of rows) cache.put(row.entity as Entity, row.entityId, row.value)
-    })
-  }
-
-  /** The kernel's rescope install over the cache as it stands (methodology #13). */
-  function fireRescope(): void {
-    rescopeSeq += 1
-    const { cache, replica } = live().boot
-    replica.onKernelEvent({
-      type: 'bootstrap-installed',
-      cause: 'rescope',
-      snapshotSeq: rescopeSeq,
-      entityCount: cache.records.length,
-      bufferedFramesApplied: 0,
-    } as never)
+  /**
+   * Untimed: the scope's SCANS published and settled, then its ROWS staged
+   * in the kernel cache (POD-4572, coordinator ruling: a real rescope brings
+   * both). The arm hears the scans as a publication and draws what it draws
+   * before the timed install; that settle is the harness's, the same for
+   * every arm.
+   */
+  async function stageScope(scope: StagedScope): Promise<void> {
+    await stageScans(live().boot, scope.repos)
+    await settleQuiet()
+    stageRows(live().boot, scope.rows)
   }
 
   /**
@@ -1144,12 +1143,18 @@ export function mountPage(options: MountPageOptions): void {
     beginLifecycle('rescope')
     running = true
     try {
-      stageRows(stage.grown)
-      const grow = await withCommitLogAsync(log, () => timeWindow(fireRescope))
+      const fire = (): void => {
+        rescopeSeq += 1
+        fireRescope(live().boot, rescopeSeq)
+      }
+      await stageScope(stage.grown)
+      installedCorpus = stage.grown.corpus
+      const grow = await withCommitLogAsync(log, () => timeWindow(fire))
       const midParity = parityNow()
       const grownRows = Object.keys(live().handle.snapshot().rowsById).length
-      stageRows(stage.base)
-      const back = await withCommitLogAsync(log, () => timeWindow(fireRescope))
+      await stageScope(stage.base)
+      installedCorpus = null
+      const back = await withCommitLogAsync(log, () => timeWindow(fire))
       return {
         commits: grow.commits + back.commits,
         mounts: grow.mounts + back.mounts,
@@ -1172,8 +1177,8 @@ export function mountPage(options: MountPageOptions): void {
           growMs: grow.actionMs,
           backMs: back.actionMs,
           grownRows,
-          grownIssues: stage.grown.filter((row) => row.entity === 'issue').length,
-          baseIssues: stage.base.filter((row) => row.entity === 'issue').length,
+          grownIssues: stage.grown.rows.filter((row) => row.entity === 'issue').length,
+          baseIssues: stage.base.rows.filter((row) => row.entity === 'issue').length,
         },
         midParity,
       }

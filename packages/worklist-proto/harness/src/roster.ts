@@ -29,6 +29,7 @@ import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
 import type { CountResult } from './count-harness'
+import type { FixtureCorpus } from './fixture/index'
 import type { RowViews } from './oracle/index'
 
 /** The step an allowance is asked about. */
@@ -66,8 +67,9 @@ export interface RosterAllowances {
    */
   readonly parity?: {
     readonly issue: string
+    /** `corpus` is the one whose rows the engine holds (a rescope's grown corpus at its grown state). */
     accept(
-      ctx: ScenarioEngine,
+      corpus: FixtureCorpus,
       handle: ArmHandle,
       expected: SliceSnapshot,
       actual: SliceSnapshot,
