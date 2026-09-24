@@ -22,7 +22,7 @@
  * `counts.test.tsx`); this file holds the SCALING of the pool's own work.
  */
 
-import { Reaction, runInAction } from 'mobx'
+import { Reaction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../../harness/src/count-harness'
 import { buildCorpus } from '../../../../harness/src/fixture/index'
@@ -233,15 +233,30 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         expect(tracked(() => pool.worklist.issue(target)?.visible)).toBe(true)
         expect(pool.stats.counters.groupRuns, 'filings').toBe(0)
         expect(pool.stats.counters.membershipFlips, 'membership flips').toBe(0)
-        // The plant replaces the row's slot the old way: at least the row's
-        // own three reactions re-validate, failing the same count.
+        // The plant replaces the row's slot the old way — the volatile lane
+        // lifted, so the cursor update writes the slot like every other
+        // field, through the real feed (borrowed rows, fence-clean): at least
+        // the row's own three reactions re-validate, failing the same count.
+        const hook = pool as unknown as {
+          target: { volatile?: unknown }
+        }
+        const lane = hook.target.volatile
         const planted = countReactions(() => {
-          const row = pool.tables.issue.get(target) as SliceIssue
-          const reread = new Date(Date.parse(row.updatedAt) + 1).toISOString()
-          runInAction(() => {
-            pool.tables.issue.set(target, { ...row, readAt: reread })
-            pool.readStates.set(target, reread)
-          })
+          hook.target.volatile = undefined
+          try {
+            r.push({
+              type: 'update',
+              rows: [
+                {
+                  kind: 'issue',
+                  id: target,
+                  value: { ...corpusIssue(r, target), readAt: '2027-06-02T00:00:00.000Z' },
+                },
+              ],
+            })
+          } finally {
+            hook.target.volatile = lane
+          }
         })
         expect(maintenanceOf(planted).length, 'plant re-validations').toBeGreaterThanOrEqual(3)
       } finally {
