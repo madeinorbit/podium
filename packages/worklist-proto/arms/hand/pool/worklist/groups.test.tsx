@@ -284,10 +284,10 @@ describe('groups and closed folds (Hb2)', () => {
         )
         const viewNotices: number[] = []
         const offView = pool.subscribeGroups(() => viewNotices.push(1))
-        const viewsBefore = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)) as Record<
-          string,
-          Record<string, unknown>
-        >
+        const viewsBefore = rowViewsFromStore(
+          ctx.engine.getSnapshot(),
+          engineLocals(ctx),
+        ) as unknown as Record<string, Record<string, unknown>>
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         for (const off of offs) off()
         offView()
@@ -299,7 +299,7 @@ describe('groups and closed folds (Hb2)', () => {
           const viewsAfter = rowViewsFromStore(
             ctx.engine.getSnapshot(),
             engineLocals(ctx),
-          ) as Record<string, Record<string, unknown>>
+          ) as unknown as Record<string, Record<string, unknown>>
           expect(result.drawnRows?.slice().sort()).toEqual(changedOwnFields(viewsBefore, viewsAfter))
           for (const id of result.oracleChangedRows ?? []) {
             if ((result.drawnRows ?? []).includes(id)) continue
@@ -453,15 +453,15 @@ describe('groups and closed folds (Hb2)', () => {
       try {
         settle(handle)
         // One bootstrap run over the visible count (the settle of the replace).
-        expect(handle.stats.counters.groupRuns).toBe(1)
-        expect(handle.stats.counters.groupElements).toBe(handle.pool.order().length)
+        expect(handle.pool.stats.counters.groupRuns).toBe(1)
+        expect(handle.pool.stats.counters.groupElements).toBe(handle.pool.order().length)
         const parity = checkParity(ctx, handle, 'bootstrap')
         expect(parity.waitingKept.length).toBeGreaterThan(0)
         writeResult('hand-groups-bootstrap-4x', {
           scale: 4,
           visible: handle.pool.order().length,
-          runs: handle.stats.counters.groupRuns,
-          elements: handle.stats.counters.groupElements,
+          runs: handle.pool.stats.counters.groupRuns,
+          elements: handle.pool.stats.counters.groupElements,
           waitingKept: parity.waitingKept,
         })
       } finally {
