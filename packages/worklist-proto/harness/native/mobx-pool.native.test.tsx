@@ -68,7 +68,14 @@ describe('mobx pool on the native renderer', () => {
     const mounted = await mountNativeForCounts(handle)
     try {
       // The native list is a lazy chunk (`React.lazy` in `pool/arm.ts`): it
-      // commits once the import resolves, after the mount's own act.
+      // commits once the import resolves, after the mount's own act. The
+      // import must resolve INSIDE an act (React reports a suspended resource
+      // finishing outside one, which the trap fails): the same module is
+      // awaited inside an act, so the lazy chunk's promise settles there.
+      await act(async () => {
+        await import('../../arms/mobx/pool/native/list')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
       const list = await vi.waitFor(
         async () => {
           await act(async () => {})

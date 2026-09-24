@@ -40,7 +40,10 @@ export function installMobxWarnTrap(options: { errors?: boolean } = {}): MobxTra
   afterEach(() => {
     vi.restoreAllMocks()
     expect(state.warnings, 'MobX (or React) warned during the test').toEqual([])
-    expect(state.errors, 'MobX (or React) reported an error during the test').toEqual([])
+    // Joined, so a failure prints the messages (an array diff truncates them).
+    expect(state.errors.join('\n---\n'), 'MobX (or React) reported an error during the test').toBe(
+      '',
+    )
   })
   return state
 }
