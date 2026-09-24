@@ -218,6 +218,39 @@ describe('visible collection and order (Hb1)', () => {
     }
   }, 300_000)
 
+  it('bootstrap: deciding visibility loads no row; it reads the cold rows it walks through by id', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    // No list mounted: only the pool's own `visible` cells have run.
+    const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
+      schedule: () => () => {},
+    })
+    const { pool } = handle
+    try {
+      const residency = pool.residency!
+      expect(pool.pendingLoads()).toBe(0)
+      expect(residency.counters.requests).toBe(0)
+      expect(pool.order().length).toBe(oracleOrder(ctx).length)
+      writeResult('hand-visible-bootstrap-1x', {
+        visible: pool.order().length,
+        loadsQueued: residency.counters.requests,
+        coldReadsById: residency.counters.peeks,
+        feedRowReads: feeds.rowReads(),
+        resident: pool.tables.issue.size,
+        cold: residency.size('issue'),
+        issueCellSets: pool.worklist.held('issue'),
+        sessionCellSets: pool.worklist.held('session'),
+        visibleCells: pool.worklist.held('member'),
+        cellsCreated: pool.stats.counters.cellsCreated,
+        cellRuns: pool.stats.counters.cellRuns,
+      })
+    } finally {
+      handle.dispose()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 300_000)
+
   it('a rank change places one row, shifting at most the visible count, and commits only it', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
