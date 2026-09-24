@@ -355,7 +355,12 @@ export class TranscriptController {
         offlineAsOf: null,
       })
       if (items.length > 0) this.options.cache?.write(this.options.sessionId, items)
-      this.attachSubscription(page.items.at(-1)?.cursor)
+      // Stream catch-up anchors on the newest NATIVE item cursor (POD-4300:
+      // page head/tail live in history-cursor space and never match the
+      // server's replay buffer). An empty page has no native cursor, so fall
+      // back to the read's tail — the live edge the authority reported — or
+      // the subscription joins silently and misses the read→subscribe gap.
+      this.attachSubscription(page.items.at(-1)?.cursor ?? page.tail)
       this.scheduleSettle()
       return true
     } catch (error) {
