@@ -147,12 +147,12 @@ export async function newSession(
   await page.locator('button[aria-label="New panel"]:visible').first().click({ timeout: 15_000 })
   const item = page.getByRole('menuitem', { name: `New ${kind}` })
   await item.waitFor({ state: 'visible', timeout: 10_000 })
-  // Selecting an agent persists the default and immediately re-renders the sidebar.
-  // Dispatch before Playwright's stability wait observes the detached menu item.
-  // Grok's linkage regression requires the same real click a user performs, and a
-  // dispatched `New Shell` creates the shell without making it the active panel.
-  if (kind === 'Grok' || kind === 'Shell') await item.click()
-  else await item.dispatchEvent('click')
+  // The real click a user performs. A dispatched click was used to dodge the item
+  // detaching as the pick re-renders the sidebar, but it does not reliably select:
+  // it left the menu open with nothing spawned, and a dispatched `New Shell`
+  // spawned without activating. The item may detach mid-click, so a click error
+  // is not the verdict; the attach below is.
+  await item.click({ timeout: 10_000 }).catch(() => {})
   const deadline = Date.now() + 20_000
   for (;;) {
     const active = await page.evaluate(
