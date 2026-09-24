@@ -198,8 +198,7 @@ function findChain(pool: HandPool): Chain {
     if (rows.length !== 5 || node?.nestParent !== null) continue
     if (node.standing?.parentId !== null) continue
     if (pool.rollup.aggregateOf(rows[4]!)?.finished.waiting) continue
-    const bottom = pool.visibleInputs.issue(id)
-    const seat = bottom?.memberIds.find((sessionId) => {
+    const seat = pool.rollup.node(id)?.rosterIds.find((sessionId) => {
       const verdict = pool.rollup.inputs.seat(sessionId)
       return (
         typeof verdict === 'object' && verdict.finished !== 'waiting' && verdict.open !== 'waiting'
