@@ -1,5 +1,59 @@
 # arms/mobx — notes
 
+## Round three: lazy per-row roll-ups, b3 (POD-4571) · 2026-09-24
+
+Code: `pool/worklist/rollup.ts` (the combines, the per-session rules, the
+node parts), wired on Mb1's nodes (`pool/worklist/visible.ts`), the row view
+(`pool/views.ts` `buildRowView`) and the fold placement (`groups.ts`
+`withWaiting`). Tests: `pool/worklist/rollup.types.test.ts` (compile-time
+capability, combine laws), `pool/worklist/rollup.test.tsx` (parity on every
+fence scenario, L1d askers, the depth-4 chain fence and its plant, cold
+children). The brief's path `arms/mobx/worklist/rollup.ts` is the frozen
+round-two layout; the round-three pool lives under `pool/`.
+
+### Decisions
+
+- **The combines have no store.** `aggregate({ own, children })` and
+  `unitsOf({ children })` take plain data and return plain data; the type test
+  holds their exact parameter types and that everything through them is plain
+  data, with `@ts-expect-error` negatives (a store beside the inputs, a store
+  as a child, a function inside an aggregate).
+- **The root reaches the aggregate without a walk.** `motionPhase(s, row)`
+  depends only on whether the ROW is finished (an offer-only ask is not
+  waiting under a finished row). Every aggregate carries both verdicts
+  (`open`, `finished` flags), so it is a function of (own, children) alone;
+  the row picks at the end (`rollupOf`). Round two's hand early-stop failed
+  on exactly this (offer removal on a finished child).
+- **Two trees, as the legacy has two.** Attention (`phase`, `working`,
+  `asking`) composes over the NEST children, the inverse of Mb1's
+  `nestParent` (formal nearest-present ancestor, walked past hidden issues,
+  or the started-by owner: `rows.ts:331-334`), maintained per node by a
+  reaction into `VisibleCollection.nestedBy` (keyed by id, so it outlives a
+  replaced parent node). The declared `issue.children` cannot serve here: it
+  drops an archived child's edge, and the legacy nests a visible grandchild
+  under an archived child up to the root. Progress composes over the
+  declared `issue.children` (the formal closure `missionRollup` counts, the
+  archived branch cut by the relation's `where`).
+- **A row's own part** reads its own row and Mb1's roster (retained, not
+  exited, no shell, not archived), each seat's cached verdict
+  (`SessionNode.verdict`) and its own pending decision, withdrawn by a working
+  seat or a continuation (superseded / duplicate, or a started or staffed live
+  spin-off: `tip`, a composition over the declared `spinOffs`).
+- **Cold rows are pending markers** (Ma3 addendum). Parts read rows only as
+  resident (`MobxPool.loaded`: the row, or `LOADING` with the load queued).
+  A cold row is ONLY its marker: its own compositions do not run until it
+  lands, so a read asks for one level of cold rows per load window. The row
+  view shows `loading` while any marker is pending; progress comes from the
+  ready children. Mb1's visibility parts still read cold rows by id (its
+  accepted design); the roll-up reads their derived facts (`standing`,
+  `retention`, `nestParent`) and never a cold row.
+- **`closed` / `dismissed`**: the own part and the placement compute the fold
+  verdict with nothing waiting assumed; the view and `IssueNode.placement`
+  apply the roll-up's `asking` (`waiting`), and the placement reads it only
+  for a row the fold would take.
+- **Counting**: `ArmStats.rollupsDerived` counts runs of the two compositions
+  (a node's `aggregate` and `unitsBelow`), through the shared stats.
+
 ## Round three: groups, closed folds and the windowed list, b2 (POD-4570) · 2026-09-24
 
 Code: `pool/worklist/groups.ts`, `pool/react/list.tsx`, `pool/native/list.tsx`.

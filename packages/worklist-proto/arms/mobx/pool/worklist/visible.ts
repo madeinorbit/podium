@@ -67,7 +67,6 @@ import {
   compareShallow,
   computed,
   computedStruct,
-  type IReactionDisposer,
   makeObservable,
   type ObservableMap,
   type ObservableSet,
@@ -384,7 +383,6 @@ export interface IssueVisibility extends RollupParts {
   readonly rank: RowRank | undefined
   /** `standing.finished`, or undefined for an unknown issue (the row picks its root verdict by it). */
   readonly finished: boolean | undefined
-  readonly present: boolean
   /** R-GROUP 3's "nothing in the subtree waits" (Mb3): the aggregate under this row. */
   readonly waiting: boolean
 }
@@ -1016,7 +1014,7 @@ export class VisibleCollection {
    */
   private readonly nestedBy: ObservableMap<string, ObservableSet<string>>
   /** Each node's reactions, by id (maintenance only, never read by a derivation). */
-  private readonly stops = new Map<string, IReactionDisposer>()
+  private readonly stops = new Map<string, () => void>()
   /** The parent each id was last filed under in `nestedBy` (maintenance only). */
   private readonly filedUnder = new Map<string, string>()
   private readonly sessions = new Map<string, SessionNode>()
