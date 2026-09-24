@@ -19,6 +19,7 @@ import { writeResult } from '../../../harness/src/results'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence, type ReadFence } from '../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
+import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { RowView } from '../../../shared/src/row-view'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
@@ -35,6 +36,21 @@ const trap = installMobxWarnTrap()
 const corpus = buildCorpus(1)
 /** Open issues: resident from bootstrap (POD-4567; closed ones are cold). */
 const openIssues = corpus.sliceIssues.filter((issue) => issue.closedAt == null)
+/**
+ * Resident from bootstrap: what the schema's rule keeps (the open issues, and
+ * the closed ones the list can draw, POD-4665), over the corpus at the rig's
+ * clock.
+ */
+const residentIssues = (() => {
+  const issues = new Map(corpus.sliceIssues.map((issue) => [issue.id, issue]))
+  const sessions = new Map(corpus.sliceSessions.map((session) => [session.sessionId, session]))
+  const cold = tableColdRule(
+    SCHEMA,
+    (entity) => (entity === 'issue' ? issues : entity === 'session' ? sessions : undefined),
+    corpus.fixedNow,
+  )
+  return corpus.sliceIssues.filter((issue) => !cold('issue', issue.id))
+})()
 
 interface Rig {
   replay: ReplaySource
@@ -165,7 +181,7 @@ describe('ingest', () => {
         corpus.sliceWorktrees.length,
         repos.size,
       ])
-      expect(sizes[0]).toBe(openIssues.length)
+      expect(sizes[0]).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
       for (const entity of ENTITIES) expect(pool.modelCount(entity), entity).toBe(0)
       expect(pool.stats.counters.modelsCreated).toBe(0)

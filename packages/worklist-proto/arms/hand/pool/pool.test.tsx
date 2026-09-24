@@ -18,6 +18,7 @@ import { writeResult } from '../../../harness/src/results'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence, type ReadFence } from '../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
+import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { RowView } from '../../../shared/src/row-view'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
@@ -29,8 +30,23 @@ import { FINISHED_GRACE_MS } from './views'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const corpus = buildCorpus(1)
-/** Open issues: resident from bootstrap (closed ones are cold). */
+/** Open issues: resident from bootstrap whatever else is. */
 const openIssues = corpus.sliceIssues.filter((issue) => issue.closedAt == null)
+/**
+ * Resident from bootstrap: what the schema's rule keeps (the open issues, and
+ * the closed ones the list can draw, POD-4665), over the corpus at the rig's
+ * clock.
+ */
+const residentIssues = (() => {
+  const issues = new Map(corpus.sliceIssues.map((issue) => [issue.id, issue]))
+  const sessions = new Map(corpus.sliceSessions.map((session) => [session.sessionId, session]))
+  const cold = tableColdRule(
+    SCHEMA,
+    (entity) => (entity === 'issue' ? issues : entity === 'session' ? sessions : undefined),
+    corpus.fixedNow,
+  )
+  return corpus.sliceIssues.filter((issue) => !cold('issue', issue.id))
+})()
 
 interface Rig {
   replay: ReplaySource
@@ -166,7 +182,7 @@ describe('ingest', () => {
         corpus.sliceWorktrees.length,
         repos.size,
       ])
-      expect(pool.tables.issue.size).toBe(openIssues.length)
+      expect(pool.tables.issue.size).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
       expect(pool.issues.size).toBe(0)
       expect(pool.stats.counters.cellsCreated).toBe(1) // the id list, not yet run
@@ -460,12 +476,12 @@ describe('dispose', () => {
       unmount = r.handle.mountWeb(el)
     })
     const { pool } = r.handle
-    expect(el.querySelectorAll('[data-issue-row]').length).toBe(openIssues.length)
+    expect(el.querySelectorAll('[data-issue-row]').length).toBe(residentIssues.length)
     const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
     expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(
-      openIssues.length / 2,
+      residentIssues.length / 2,
     )
-    expect(pool.listeners.size).toBe(openIssues.length)
+    expect(pool.listeners.size).toBe(residentIssues.length)
     expect(pool.idsListeners.size).toBe(1)
 
     // A selection click reaches the mounted rows.

@@ -1060,6 +1060,23 @@ export function tableColdContext(
   return ctx
 }
 
+/**
+ * {@link coldByRule} for the rows of whole tables at `now`, by entity and id
+ * (false for an unknown row): what a test or a measurement partitions a
+ * corpus with, instead of restating the rule.
+ */
+export function tableColdRule(
+  schema: ModelSchema,
+  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
+  now: number,
+): (entity: EntityName, id: string) => boolean {
+  const ctx = tableColdContext(schema, tables, now)
+  return (entity, id) => {
+    const row = tables(entity)?.get(id)
+    return row !== undefined && coldByRule(schema, entity, row as object, ctx)
+  }
+}
+
 /** Every relation in the schema, with the entity and name it is declared under. */
 export function allRelations(
   schema: ModelSchema = SCHEMA,

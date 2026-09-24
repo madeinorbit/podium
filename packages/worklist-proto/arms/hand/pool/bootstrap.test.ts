@@ -29,6 +29,7 @@ import { buildCorpus } from '../../../harness/src/fixture/index'
 import { writeResult } from '../../../harness/src/results'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
+import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { handPoolArm } from './arm'
 import { HandPool } from './pool'
@@ -124,8 +125,19 @@ describe('bootstrap in the count harness', () => {
       const feed = feedOf(scale)
       const lazy = counted('lazy', feed)
       const all = counted('allResident', feed)
-      const closed = feed.corpus.sliceIssues.filter((issue) => issue.closedAt != null).length
-      expect(lazy.rows['issue']).toBe(feed.corpus.sliceIssues.length - closed)
+      // Resident = what the schema's rule keeps (POD-4665), over the corpus at the pool's clock.
+      const cold = tableColdRule(
+        SCHEMA,
+        (entity) =>
+          entity === 'issue'
+            ? new Map(feed.corpus.sliceIssues.map((issue) => [issue.id, issue]))
+            : entity === 'session'
+              ? new Map(feed.corpus.sliceSessions.map((session) => [session.sessionId, session]))
+              : undefined,
+        feed.corpus.fixedNow,
+      )
+      const coldIssues = feed.corpus.sliceIssues.filter((issue) => cold('issue', issue.id)).length
+      expect(lazy.rows['issue']).toBe(feed.corpus.sliceIssues.length - coldIssues)
       expect(lazy.rows['issue']! + lazy.cold.issue).toBe(all.rows['issue'])
       expect(lazy.rows['session']! + lazy.cold.session).toBe(all.rows['session'])
       // Relations hold every row's ids either way; only the tables shrink.

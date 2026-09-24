@@ -21,6 +21,7 @@ import {
 } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
 import type { RowView } from '../../../shared/src/row-view'
+import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type HandPoolHandle, handPoolArm } from './arm'
@@ -34,11 +35,22 @@ import { ENTITIES } from './tables'
 
 const corpus = buildCorpus(1)
 const issueById = new Map(corpus.sliceIssues.map((issue) => [issue.id, issue]))
-const isClosed = (issue: SliceIssue | undefined): boolean => issue?.closedAt != null
-/** The rule, restated from the schema doc §5 (not from the code under test). */
-const hotIssues = corpus.sliceIssues.filter((issue) => !isClosed(issue))
+const sessionById = new Map(corpus.sliceSessions.map((session) => [session.sessionId, session]))
+/**
+ * The rule from the schema's declaration (`coldByRule` over the corpus at the
+ * rig's clock), not from the code under test: an issue is cold when closed
+ * and nothing can keep it in the list (POD-4665).
+ */
+const coldRule = tableColdRule(
+  SCHEMA,
+  (entity) => (entity === 'issue' ? issueById : entity === 'session' ? sessionById : undefined),
+  corpus.fixedNow,
+)
+const isCold = (issue: SliceIssue | undefined): boolean =>
+  issue !== undefined && coldRule('issue', issue.id)
+const hotIssues = corpus.sliceIssues.filter((issue) => !isCold(issue))
 const hotSessions = corpus.sliceSessions.filter(
-  (session) => !(session.issueId != null && isClosed(issueById.get(session.issueId))),
+  (session) => !coldRule('session', session.sessionId),
 )
 
 interface Timer {
@@ -149,7 +161,7 @@ function sessionRecord(id: string, patch: Partial<SliceSession> = {}): RowRecord
 /** A closed issue with at least `n` sessions of its own, none headless. */
 function closedWithSessions(n: number): { issue: SliceIssue; sessions: SliceSession[] } {
   for (const issue of corpus.sliceIssues) {
-    if (!isClosed(issue)) continue
+    if (!isCold(issue)) continue
     const sessions = corpus.sliceSessions.filter(
       (session) => session.issueId === issue.id && session.headless !== true,
     )
@@ -179,10 +191,14 @@ function listen(pool: HandPool, id: string): { views: (RowView | undefined)[]; s
 }
 
 describe('bootstrap', () => {
-  it('constructs only the hot rows: the open issues and their sessions, by count', () => {
-    // The number the brief names (~2,200 open issues at 1x) from the corpus itself.
-    expect(hotIssues.length).toBeGreaterThan(2_000)
-    expect(hotIssues.length).toBeLessThan(2_400)
+  it('constructs only the hot rows: the open issues, the closed ones the list can draw, and their sessions, by count', () => {
+    // The open issues (~2,200 at 1x, the number Ma3's brief names) plus the
+    // closed ones the rule keeps for the list (POD-4665), from the corpus.
+    const open = corpus.sliceIssues.filter((issue) => issue.closedAt == null).length
+    expect(open).toBeGreaterThan(2_000)
+    expect(open).toBeLessThan(2_400)
+    expect(hotIssues.length).toBeGreaterThan(open)
+    expect(hotIssues.length).toBeLessThan(3_000)
     const r = rig()
     const { pool } = r
     expect(pool.tables.issue.size).toBe(hotIssues.length)
@@ -254,7 +270,7 @@ describe('bootstrap', () => {
     expect(pool.stats.counters.cellsCreated).toBe(cells + pool.sessionCells.size + 1)
     expect(pool.stats.counters.recordsCreated).toBe(0)
     // Cold rows were drawn as nothing and are asked for only when read.
-    const closed = corpus.sliceIssues.filter(isClosed)
+    const closed = corpus.sliceIssues.filter(isCold)
     for (const issue of closed) expect(pool.view(issue.id)).toBeUndefined()
     expect(pool.resident('issue', closed[0]!.id)).toBe('loading')
     writeResult('hand-pool-first-read-1x', {
@@ -276,7 +292,7 @@ describe('the loader', () => {
   it('loads every row asked for inside one 50 ms window through the per-row read, in one commit', () => {
     const r = rig()
     const { pool } = r
-    const [a, b] = corpus.sliceIssues.filter(isClosed)
+    const [a, b] = corpus.sliceIssues.filter(isCold)
     const seen = watch(
       pool,
       () => `${pool.resident('issue', a!.id)}:${pool.view(a!.id)?.title ?? '-'}`,
@@ -331,7 +347,7 @@ describe('the loader', () => {
   it('counts a hydration as one read of that row in the reads fence', () => {
     const r = rig()
     const { pool } = r
-    const closed = corpus.sliceIssues.find(isClosed)!
+    const closed = corpus.sliceIssues.find(isCold)!
     expect(pool.resident('issue', closed.id)).toBe('loading')
     r.reads.reset()
     r.fire()
@@ -343,7 +359,7 @@ describe('the loader', () => {
 
   it('closes the window on its own with the real timer', async () => {
     const r = rig({ realTimer: true })
-    const closed = corpus.sliceIssues.find(isClosed)!
+    const closed = corpus.sliceIssues.find(isCold)!
     expect(r.pool.resident('issue', closed.id)).toBe('loading')
     await new Promise((resolve) => setTimeout(resolve, LOAD_WINDOW_MS + 30))
     expect(r.pool.resident('issue', closed.id)).toBe('resident')
@@ -353,7 +369,7 @@ describe('the loader', () => {
   it('loads the current value: an update to a cold row that keeps it cold is not stored', () => {
     const r = rig()
     const { pool } = r
-    const closed = corpus.sliceIssues.find(isClosed)!
+    const closed = corpus.sliceIssues.find(isCold)!
     pool.stats.reset()
     r.push({ type: 'update', rows: [issueRecord(closed.id, { title: 'Renamed while cold' })] })
     expect(pool.tables.issue.has(closed.id)).toBe(false)
@@ -369,7 +385,7 @@ describe('the loader', () => {
   it('leaves a row whose read finds nothing cold until its removal arrives', () => {
     const r = rig()
     const { pool } = r
-    const closed = corpus.sliceIssues.find(isClosed)!
+    const closed = corpus.sliceIssues.find(isCold)!
     expect(pool.resident('issue', closed.id)).toBe('loading')
     // The kernel dropped it; the feed has not published the removal yet.
     const held = r.replay.source.row
@@ -412,10 +428,10 @@ describe('lazy relations', () => {
     }
     const [parentId, kids] = [...children].find(
       ([id, list]) =>
-        !isClosed(issueById.get(id)) && list.some(isClosed) && list.some((kid) => !isClosed(kid)),
+        !isCold(issueById.get(id)) && list.some(isCold) && list.some((kid) => !isCold(kid)),
     )!
-    const hot = kids.filter((kid) => !isClosed(kid)).map((kid) => kid.id)
-    const cold = kids.filter(isClosed).map((kid) => kid.id)
+    const hot = kids.filter((kid) => !isCold(kid)).map((kid) => kid.id)
+    const cold = kids.filter(isCold).map((kid) => kid.id)
     // The bucket holds every child id, hot or cold; nothing cold is held.
     expect([...pool.relations.many('issue', parentId, 'children')].sort()).toEqual(
       kids.map((kid) => kid.id).sort(),
@@ -426,7 +442,7 @@ describe('lazy relations', () => {
     const progress = watch(pool, () => {
       const members = pool.lazyMany('issue', parentId, 'children')
       let done = 0
-      for (const id of members.ready) if (isClosed(pool.inputs.issue(id))) done += 1
+      for (const id of members.ready) if (pool.inputs.issue(id)?.closedAt != null) done += 1
       return { done, total: members.ready.length, pending: members.pending }
     })
     expect(pool.residency?.counters.requests).toBe(cold.length)
@@ -449,7 +465,10 @@ describe('lazy relations', () => {
         session.issueId != null &&
         session.issueId !== issue.id &&
         session.headless !== true &&
-        isClosed(issueById.get(session.issueId)),
+        // A finished run: its deadline passed with its old issue, and does
+        // not depend on the issue it moves to.
+        session.stoppedAt != null &&
+        isCold(issueById.get(session.issueId)),
     )!
     r.push({ type: 'update', rows: [sessionRecord(other.sessionId, { issueId: issue.id })] })
     const sessions = [...own, { ...other, issueId: issue.id }]
@@ -480,7 +499,7 @@ describe('lazy relations', () => {
   it('a spin-off of a cold origin shows loading, then its tick', () => {
     const r = rig()
     const { pool } = r
-    const origin = corpus.sliceIssues.find(isClosed)!
+    const origin = corpus.sliceIssues.find(isCold)!
     const spinOff = hotIssues.find((issue) => (issue.deps ?? []).length === 0 && !issue.draft)!
     const row = listen(pool, spinOff.id)
     r.push({
@@ -499,7 +518,7 @@ describe('lazy relations', () => {
     const r = rig()
     const { pool } = r
     const cold = corpus.sliceIssues.find(
-      (issue) => isClosed(issue) && issue.parentId != null && issue.archived !== true,
+      (issue) => isCold(issue) && issue.parentId != null && issue.archived !== true,
     )!
     expect(pool.relations.one('issue', cold.id, 'parent')).toBe(cold.parentId)
     expect([...pool.relations.many('issue', cold.parentId!, 'children')]).toContain(cold.id)
@@ -552,7 +571,7 @@ describe('transitions', () => {
     const child = hotIssues.find(
       (issue) =>
         issue.parentId != null &&
-        !isClosed(issueById.get(issue.parentId)) &&
+        !isCold(issueById.get(issue.parentId)) &&
         issue.archived !== true,
     )!
     const parentId = child.parentId as string
@@ -620,7 +639,7 @@ describe('transitions', () => {
   it('a replace re-partitions: what was resident stays, the rest follows the rule', () => {
     const r = rig()
     const { pool } = r
-    const [looked, untouched] = corpus.sliceIssues.filter(isClosed)
+    const [looked, untouched] = corpus.sliceIssues.filter(isCold)
     pool.resident('issue', looked!.id)
     r.fire()
     const { issues, sessions, worktrees } = records()
