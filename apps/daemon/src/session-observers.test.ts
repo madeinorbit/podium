@@ -1163,6 +1163,66 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
   })
 
+  it('bootstraps a reattached Claude with no pathHint from its transcript before any hook [POD-4691]', async () => {
+    // A daemon restart adopts the surviving engine through `reattach`, not
+    // `spawn`. With no in-memory binding left and no recorded segment path on
+    // the message, nothing bootstrapped the new lease: the tracker sat at
+    // `unknown` with no hook-driven idle, and the durable queue — which types
+    // only into `idle` — held the pending send silently. The conversation is
+    // found by its native id exactly as the resume-spawn path finds it.
+    const home = await mkdtemp(join(tmpdir(), 'podium-claude-reattach-boot-'))
+    const cwd = join(home, 'repo')
+    const projectDir = join(home, '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, 'claude-adopted.jsonl'),
+      `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'earlier turn' } })}\n` +
+        `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } })}\n`,
+    )
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      homeDir: home,
+    })
+    const sessionId = asSessionId('podium-adopted')
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId,
+          durableLabel: 'podium-podium-adopted',
+          agentKind: 'claude-code',
+          cwd,
+          lastKnownGeometry: G,
+          resume: { kind: 'claude-session', value: 'claude-adopted' },
+          observationGeneration: 2,
+          observationBindingVersion: 1,
+          observationProviderSessionId: 'claude-adopted',
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      // No hook is posted — that is the case under test.
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      expect(sent.find((message) => message.type === 'agentObservation')!.observation).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        observerGeneration: 2,
+        providerSessionId: 'claude-adopted',
+        nextPhase: 'idle',
+      })
+      expect(observers.trackedState(sessionId)?.phase).toBe('idle')
+    } finally {
+      observers.clearSession(sessionId)
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('holds a fresh Claude spawn idle for this daemon only, before any hook [POD-4663]', () => {
     // No native id, no transcript and no hook until something is typed: the
     // durable queue's first row waited for an `idle` only its own delivery could

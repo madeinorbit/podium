@@ -1742,7 +1742,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         adapter.capabilities.observationProtocol === 'claude-causal' &&
         observationLease !== undefined &&
         observationLease.providerSessionId !== null &&
-        msg.type === 'spawn' &&
+        (msg.type === 'spawn' || msg.type === 'reattach') &&
         msg.resume?.value === observationLease.providerSessionId
       ) {
         // A RESUME SPAWN BOOTSTRAPS THE SAME WAY, OR NOTHING EVER DOES (POD-4663).
@@ -1754,6 +1754,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         // every other event of the resumed process) for want of a bootstrap.
         // Spawns carry no recorded path, so the conversation is found by its
         // native id; real hooks racing the lookup queue behind it.
+        // A daemon restart adopts the survivor through `reattach` with no
+        // in-memory binding left (POD-4691). When the message carries no recorded
+        // segment path the first arm above cannot adopt anything, so the same
+        // native-id lookup runs here — otherwise the new lease never bootstraps
+        // and the pending send waits behind an `unknown` no hook will cure.
         const lease = causalLeases.get(msg.sessionId)
         const providerSessionId = observationLease.providerSessionId
         claudeStarting.set(msg.sessionId, [])
