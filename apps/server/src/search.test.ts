@@ -205,7 +205,7 @@ describe('MemoryService omni-search', () => {
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
   })
-  it('uses one live-session snapshot and request-local visibility memos', async () => {
+  it('uses one live-session snapshot and resolves issue owners and grants without SQL', async () => {
     const { store, registry } = await seed()
     const liveRows = await store.sessions.loadSessions()
     const issueRows = await store.issues.listIssueRows()
@@ -228,10 +228,15 @@ describe('MemoryService omni-search', () => {
     }
 
     const getIssue = store.issues.getIssue.bind(store.issues)
+    const getIssues = store.issues.getIssues.bind(store.issues)
     let issueLookups = 0
     store.issues.getIssue = async (id) => {
       issueLookups += 1
       return await getIssue(id)
+    }
+    store.issues.getIssues = async (ids) => {
+      issueLookups += 1
+      return await getIssues(ids)
     }
 
     const listForResource = store.grants.listForResource.bind(store.grants)
@@ -246,6 +251,7 @@ describe('MemoryService omni-search', () => {
     } finally {
       store.sessions.loadSessions = loadSessions
       store.issues.getIssue = getIssue
+      store.issues.getIssues = getIssues
       store.grants.listForResource = listForResource
     }
 
@@ -253,12 +259,17 @@ describe('MemoryService omni-search', () => {
     // conserved quantity is one snapshot containing exactly the live rows.
     expect(loadCalls).toBe(1)
     expect(materializedRows).toBe(liveRows.length)
-    // Issue owners are request-local; committed grant facts issue no SQL.
-    expect(issueLookups).toBe(expectedIssueIds.size)
+    // Issue owners used to be one point read per distinct issue, memoized for
+    // the request. Since dda75c2be (POD-3892, "Use committed issue rows across
+    // census readers") outside a mutation span they come from the IssueStore's
+    // committed rows, like grant facts: NO issue statement at all, however
+    // many candidates there are. There are candidates to resolve:
+    expect(expectedIssueIds.size).toBeGreaterThan(0)
+    expect(issueLookups).toBe(0)
     expect(grantLookups).toBe(0)
   })
 
-  it('batches issue ownership and grant reads for the native conversation list', async () => {
+  it('reads issue ownership and grants for the native conversation list without SQL', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -346,16 +357,14 @@ describe('MemoryService omni-search', () => {
     }
 
     expect(visible.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
-    // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration: four distinct
-    // issue owners still require one live batch and no per-owner statements.
-    // Awaiting the binding also lets feed publication prepare visibility for
-    // the last fixture issue during this read window. That separate feed batch
-    // cannot reuse search's request-local authorization memo: expect two reads,
-    // with exactly these inputs, rather than treating it as search fanout.
+    // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration. This pinned one
+    // live batch for the four distinct issue owners (plus feed publication's
+    // own batch for the last fixture issue). Since dda75c2be (POD-3892) both
+    // readers resolve issue rows from the IssueStore's committed rows outside
+    // a mutation span, so the count is now ZERO: no per-owner statement and no
+    // batch either. A regression to per-owner or batched SQL shows up here.
     expect(singleReads).toBe(0)
-    expect(batchReads).toHaveLength(2)
-    expect(new Set(batchReads[0])).toEqual(new Set(issueIds))
-    expect(batchReads[1]).toEqual([issueIds[3]])
+    expect(batchReads).toEqual([])
     expect(singleGrantReads).toBe(0)
     expect(batchGrantReads).toHaveLength(0)
   })
