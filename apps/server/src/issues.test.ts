@@ -34,11 +34,13 @@ import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
-async function harness(sessions: SessionMeta[] = []) {
+async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string } = {}) {
   const store = await openTestStore(':memory:')
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  // Without an origin its identity is derived from the host and path; a test
+  // that moves an issue between checkouts BY IDENTITY passes `originUrl`.
+  await store.repos.addRepo('/r', store.hostMachineId, opts.originUrl)
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
@@ -1635,12 +1637,14 @@ describe('IssueService.start', () => {
    * clone has nowhere to fetch them from.
    */
   it('materialises the repo and the start point on the target BEFORE the worktree add', async () => {
-    const { svc, deps, store } = await harness()
-    const order: string[] = []
     // Two checkouts of the SAME repository, one per machine — the shape
     // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
-    // resolve to one repoId and the guard lets the move through.
-    await store.repos.addRepo('/r', asMachineId('mach-a'), 'https://example.test/podium.git')
+    // resolve to one repoId and the guard lets the move through. The source is the
+    // harness's own '/r', reported WITH the origin: `addRepo` never overwrites a
+    // reported row, so a second, origin-bearing '/r' elsewhere cannot give the
+    // issue that identity.
+    const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
+    const order: string[] = []
     await store.repos.addRepo(
       '/home/till/src/podium',
       asMachineId('mach-b'),
@@ -1688,11 +1692,11 @@ describe('IssueService.start', () => {
     // derived from that pair went to the wrong host — observed as a stop that ran
     // `git -C <source> worktree remove <target>/...` and died with Permission denied,
     // orphaning the checkout on the target.
-    const { svc, deps, store } = await harness()
     // Two checkouts of the SAME repository, one per machine — the shape
     // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
-    // resolve to one repoId and the guard lets the move through.
-    await store.repos.addRepo('/r', asMachineId('mach-a'), 'https://example.test/podium.git')
+    // resolve to one repoId and the guard lets the move through. The source is the
+    // harness's '/r', reported with the origin (see the test above).
+    const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
     await store.repos.addRepo(
       '/home/till/src/podium',
       asMachineId('mach-b'),
@@ -1720,8 +1724,8 @@ describe('IssueService.start', () => {
     // FETCH_HEAD held it while `rev-parse issue/1424-…` still said "Needed a single
     // revision". A branch name is machine-local; a commit id is not. So the worktree add
     // must start from whatever the TARGET can resolve, which prepareMachineStart returns.
-    const { svc, deps, store } = await harness()
-    await store.repos.addRepo('/r', asMachineId('mach-a'), 'https://example.test/podium.git')
+    // The source is the harness's '/r', reported with the origin (see above).
+    const { svc, deps, store } = await harness([], { originUrl: 'https://example.test/podium.git' })
     await store.repos.addRepo(
       '/home/till/src/podium',
       asMachineId('mach-b'),
