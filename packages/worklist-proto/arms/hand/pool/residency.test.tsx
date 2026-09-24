@@ -300,9 +300,13 @@ describe('bootstrap', () => {
     )
     // POD-4582: the list draws the VISIBLE rows, in rank order.
     expect(drawn).toEqual([...pool.order()])
-    // One IssueCells per drawn row, none for a cold one.
-    expect(pool.issues.size).toBe(drawn.length)
-    expect([...pool.issues.keys()].sort()).toEqual([...drawn].sort())
+    // One IssueCells per drawn row, plus one per resident ⤷ origin a drawn
+    // spin-off's tick reads (hidden origins are not drawn since POD-4582),
+    // none for a cold one.
+    const origins = drawn
+      .map((id) => pool.issues.get(id)?.originId ?? null)
+      .filter((id): id is string => id !== null)
+    expect([...pool.issues.keys()].sort()).toEqual([...new Set([...drawn, ...origins])].sort())
     for (const id of pool.issues.keys()) expect(pool.residency?.isCold('issue', id)).toBe(false)
     // Every view cell created belongs to a drawn row: its parts, and (POD-4581)
     // one activity cell per member session its `activityAt` asked about,

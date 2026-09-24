@@ -552,10 +552,11 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
    * field, so only then is the cold row read.
    */
   parentLink(input, id, self) {
-    if (self.resident) return self.standing?.parentId ?? null
-    const edge = input.relations.one('issue', id, 'parent')
-    if (edge !== null) return edge
-    return input.issueRow(id)?.parentId || null
+    if (!self.resident) {
+      const edge = input.relations.one('issue', id, 'parent')
+      if (edge !== null) return edge
+    }
+    return self.standing?.parentId ?? null
   },
   /**
    * The nearest present ancestor by the raw `parentId`, through any known

@@ -820,8 +820,9 @@ describe('the reads fence and the write record', () => {
       // activity:S2 (the new member's contribution, its first run),
       // activityAt:I2, loading:I2 (POD-4580: it asks each member's residency)
       // and view:I2 only: a non-draft's title reads no member. The worklist
-      // (POD-4582): I2's seats, its members, whether one retains it, and S2's
-      // own parts on their first read. Nothing of I1.
+      // (POD-4582): I2's seats, its members, whether one retains it (now
+      // one does), the flat pass that reads that, and S2's own parts on
+      // their first read. Nothing of I1.
       expect(ran.stop().sort()).toEqual(
         [
           'sessionIds:I2',
@@ -832,6 +833,7 @@ describe('the reads fence and the write record', () => {
           'seatIds:I2',
           'memberIds:I2',
           'retained:I2',
+          'flat:I2',
           'resident:S2',
           'retention:S2',
         ].sort(),
