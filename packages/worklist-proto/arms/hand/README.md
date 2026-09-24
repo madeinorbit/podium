@@ -12,8 +12,10 @@ Built on the declared schema (`shared/src/schema.ts`, L1a), fed row by row
 by the kernel feed (`shared/src/row-source.ts`, `overlaid` mode), handing
 each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4578)
 holds the tables and the row views; Ha2 (POD-4579) maintains every declared
-relation; Ha3 (POD-4580) keeps cold rows out until something reads them; the
-visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
+relation; Ha3 (POD-4580) keeps cold rows out until something reads them; Hb1
+(POD-4582) maintains the visible collection and its order
+(`pool/worklist/visible.ts`, below); groups and roll-ups (Hb2, Hb3) come
+next.
 
 ### Idiom
 
@@ -97,9 +99,10 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
 
 `pool/enumerate.ts` is the ONE module that walks a whole table
 (`fence.json` `enumeration`; the lint's `no-table-walk` refuses a walk
-anywhere else in `pool/`): `issueIdsOf` (every issue id, for the a1 list and
-`snapshot()`, until Hb1's visible collection; the id-list cell records the
-issue table's MEMBERSHIP as its input, so a rename never re-runs it),
+anywhere else in `pool/`): `issueIdsOf` (every resident issue id: the
+rebuild's residency input and the tests; the list and `snapshot()` read the
+visible order since Hb1; the id-list cell records the issue table's
+MEMBERSHIP as its input, so a rename never re-runs it),
 `reseed` (a `replace`; with residency it walks the cold registry for the ids
 the slice dropped), and `scanRelations` / `diffRelations`: every
 declared relation resolved from scratch by walking the tables, the oracle
@@ -120,12 +123,49 @@ ONE `commit` runs the handlers in order over the closed `Delta` union (each
 a `switch` with a never-check): `invalidate` (dirty the readers of each
 delta's key, and move the local it names), `release` (a row that left
 disposes its cells and record), `CellGraph.flush` (dirty cells run lowest
-level first; a changed cell dirties its readers), `publish` (each changed
-key's listeners once, the id list's once). A locals notification →
+level first; a changed cell dirties its readers), the worklist (Hb1: the
+issues the commit moved into or out of the tables gain or lose their
+`visible` cell, `admit`, then the order handler places exactly the ids whose
+`visible` or `rank` cell moved, `settle`), `publish` (each changed key's
+listeners once, the id list's and the order's once). A locals notification →
 `HandPool.applyLocals` → the same commit with `selection` / `clock` deltas
 for only the keys it names. `rebuildFromScratch` (`pool/rebuild.ts`)
 replays the feed's `snapshot(kind)` through the same ingest into fresh maps
-and runs the same `PART_RULES` directly (`directParts`), no cells.
+and runs the same `PART_RULES` directly (`directParts`), no cells, and the
+same `VISIBLE_RULES` directly (`directVisibleParts`) over EVERY row, cold ones
+included, for the visible rows and their order.
+
+### The worklist (Hb1, `pool/worklist/visible.ts`)
+
+- **The rule is the slice spec's R-VIS** (`docs/plans/pod-4441-round-two-slice.md`
+  §3), executable as the legacy derivation the parity oracle runs; the file
+  re-expresses it as parts (the MobX arm's split, POD-4569), each citing the
+  legacy line it follows, in one rule table (`VISIBLE_RULES`) that the live
+  cells and the rebuild both run.
+- **One `visible` cell per resident issue**, made when the row enters the
+  table (the ids of the commit's row deltas, never a walk). Every part is a
+  cell that records what it read; a part nobody reads any more is collected
+  at the end of the drain (`cells.ts`, "collected when unread").
+- **Keepers come from the children relation**: `keptBelow` composes each
+  child's cached `keeps`, so a sessionless parent flips when a child's
+  `keeps` flips and on nothing else of the child's.
+- **Cold rows**: a cold issue is not flat (the shared cold rule is an upper
+  bound on exactly those inputs, schema doc §5.1), so it is decided without
+  its row; when its own fields decide (a child keeps it, or its `parent`
+  edge is empty) it is read by id WITHOUT loading (`Residency.peek`: counted
+  by the reads fence, tracked under `coldRows`, re-read on its next update,
+  which residency now reports as a `coldRow` delta). Deciding visibility
+  loads nothing.
+- **The order** is a sorted array of the visible ids, each placed by its rank
+  (L1b `rankOf` over the view's `own` part): a flip inserts or removes one
+  id, a rank change moves one, shifting only the slots between; a commit that
+  reports more than an eighth of the visible rows re-sorts them from their
+  cached ranks. The list subscribes to the order (a new array only when it
+  moved) and each slot to its own row.
+- **A cycle in the parent links** (`parent_id` has no cycle constraint) makes
+  a part read itself: the read returns the cell's previous value instead of
+  recursing and is counted (`cycleReads`). Not guaranteed to match legacy's
+  single walk on such a cycle; no fixture or generator has one.
 
 ### Stats (what each counter counts)
 
@@ -147,9 +187,16 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
   `requests` (distinct rows queued), `batches` (windows closed, one commit
   each), `hydrated` (rows loaded on access), `warmed` (rows installed because
   the row they inherit from stopped being cold).
+- `residency.counters.peeks` (Hb1): cold rows read by id without loading.
 - `stats.counters` (the pool's own): `cellsCreated` (cells made on first
   read), `cellRuns` (cell bodies run, first runs included), `cellsChanged`
-  (re-runs whose value differed), `tableWrites` (slots set to a different
+  (re-runs whose value differed), `cycleReads` (reads of a cell whose own body
+  was running: a parent cycle), `cellsCollected` (unread worklist parts
+  disposed), the worklist's (Hb1): `visibleIssues` / `visibleSessions` (part
+  sets built), `membershipFlips` (ids placed in or removed from the visible
+  set), `orderMoves` (per-row placements), `orderShifted` (slots whose
+  occupant changed across them), `orderSorts` / `orderSorted` (full re-sorts
+  and the ids they sorted), then `tableWrites` (slots set to a different
   object or deleted), `rowsRemoved` (rows that left, each with its cells and
   record disposed), `recordsCreated`, `listenerCalls` (listener calls made by
   `publish`).
@@ -174,13 +221,23 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
   Defaults 3 seeds x 200 steps; the gate of record is 20 x 300
   (`POD_POOL_GATE_SEEDS`, `POD_POOL_GATE_FIRST_SEED` for chunks,
   `POD_POOL_GATE_STEPS`). The same file compares the own-row and one-hop
-  fields with the oracle's row views, after loading the visible rows.
+  fields with the oracle's row views, after loading the visible rows, and
+  (Hb1) the visible order with the legacy oracle's flat rows after every
+  step of every seed (the checker's own oracle comparison needs groups and
+  roll-ups, Hb2-Hb4's, so it stays off).
+- **Visible collection and order (Hb1)**, `pool/worklist/visible.test.tsx`:
+  parity with the legacy oracle at bootstrap and after #1-#5 at 1x (order,
+  settled snapshot against the rebuild, own-row fields), the #1 reads fence
+  (0 of the visible set, no placement), a rank change (one placement, only
+  the moved row commits), the #4-shaped hidden spin-off rename, the MobX
+  gate's evict/re-add sequence, a planted list that draws hidden rows
+  (fails #1 and the #4 shape), and that deciding visibility loads nothing.
 - **Residency**, `pool/residency.test.tsx` (bootstrap split by count, cells
   on first read with the list mounted, the loader, lazy relations with the
   pending marker, every transition) and `pool/bootstrap.test.ts` (counts at
   1x and 4x; walls with `POD_POOL_BOOT_WALLS=1`).
 - **Fence steps** #1, #2, #3, #4, #8, #8b, `pool/counts.test.tsx`: the
-  shared `assertCommits` (where the a1 list can meet it), `assertReads` and
+  shared `assertCommits` (on every step since Hb1), `assertReads` and
   `assertNoCopies`, no parity; the roster entry with parity is Hb4's
   (POD-4585; `harness/src/fences.test.tsx` names it pending). The load
   window never closes on its own there; the shared fence lands loads

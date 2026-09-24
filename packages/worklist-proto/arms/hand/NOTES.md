@@ -1,5 +1,121 @@
 # arms/hand — notes
 
+## Round three: visible collection and order, b1 (POD-4582) · 2026-09-24
+
+Code: `pool/worklist/visible.ts` (the brief's `arms/hand/worklist/visible.ts`
+is the frozen round-two arm's layout; the round-three pool lives under
+`pool/`, as the MobX arm's `pool/worklist/`), wiring in `pool/pool.ts`,
+`pool/rebuild.ts`, both lists, `pool/cells.ts` (cycle reads, collection),
+`pool/residency.ts` (`peek`, `rewritten`). Tests:
+`pool/worklist/visible.test.tsx`, the order-versus-oracle check in
+`pool/gate.test.ts`. The MobX lessons document the brief names
+(`docs/decisions/pod-4545-round-three-mobx-lessons.md`) does not exist on
+any branch; I read the MobX arm's Mb1 notes and code (POD-4569) instead. It
+filed no contract amendment; the schema's cold-rule amendment (POD-4665,
+schema doc §5.1) is what this build leans on.
+
+### Decisions
+
+- **R-VIS is the spec's and the oracle's; this file only computes it.** The
+  parts are the MobX arm's split of the legacy derivation (standing, seats,
+  members, retained, flat, keptBelow/keeps, present, nest parent, placed),
+  each citing its legacy line, in ONE rule table (`VISIBLE_RULES`) run by the
+  live cells and by the rebuild (`directVisibleParts`).
+- **One `visible` cell per RESIDENT issue**, created from the commit's own
+  row deltas (`admit`), never by a walk. A cold issue is never visible: the
+  shared cold rule (POD-4665) is an upper bound on the flat pass, so a cold
+  issue is not flat and is decided without its row.
+- **Cold rows are read, never loaded, to decide visibility.** Where a cold
+  row's own fields decide (a child keeps it, so `excluded`/`rescuable`
+  matter; or its `parent` edge is empty, which an archived ancestor also
+  shows) it is read by id through the feed (`Residency.peek`), counted by the
+  reads fence, tracked under `coldRows`, and re-read on its next update
+  (`rewritten` → `coldRow` delta; the residency did not report an update that
+  leaves a row cold before). The first version LOADED them (first access):
+  26 of 732 visible rows then appeared one load window after first paint
+  (706 painted), and each loaded issue then loaded its cold sessions (314
+  loads settling). Now first paint = settled (732) and deciding visibility
+  queues 0 loads.
+- **A cold member session keeps nothing** (the rule is cold only once every
+  member's keep has passed), so `retained` skips cold members and `unread`
+  reads activity first; a loaded-but-cold-by-rule issue no longer reads its
+  cold sessions.
+- **Keepers come from the children relation**: `keptBelow` composes each
+  child's cached `keeps`; no subtree walk. The nest parent walks UP through
+  ancestors' cached `present` and `parentLink` (as MobX), cycle-guarded.
+- **The order is maintained, not recomputed**: a sorted id array, each id
+  placed by the rank it had when placed; per-row insert / remove / move by
+  binary search, shifting only the slots between (`orderShifted`); a commit
+  reporting more than 1/8 of the visible rows re-sorts from cached ranks
+  (`orderSorts`). Rank reads the view's `own` part (already cached for a
+  drawn row), so a rename or heartbeat never re-ranks.
+- **Parent cycles** (`parent_id` has no cycle constraint,
+  `model/src/entities/cost.ts:327`; the relations suite's random rows make
+  them) made `keptBelow`/`keeps` recurse forever (stack overflow in 8
+  seeds). A cell read while its own body runs now returns its previous value
+  and is counted (`cycleReads`); the rebuild does the same. Not guaranteed
+  to equal legacy's single walk on a cycle; no fixture or generator has one.
+  The MobX arm on the same input throws inside the reaction (its row keeps a
+  stale value). Deferred: least-fixed-point maintenance in the cell engine.
+- **Unread parts are collected** (`cells.ts`): the H3 probe "a session
+  heartbeat after its issue left" (control: 0 cell runs) failed at 1 once
+  the worklist existed: the gone issue's parts had read the session's
+  `retention`, which then outlived every reader. A worklist part cell whose
+  last reader goes is disposed at the end of the drain.
+
+### Numbers (1x, `FIXED_NOW`; `harness/browser/results/hand-visible-*.json`, gitignored)
+
+Parity (`visible.test.tsx`), after bootstrap and after each of #1-#5: 732
+visible rows, order equal to the oracle's flat R-ORDER rows, snapshot equal to
+the rebuild, 0 own-row field differences.
+
+| step | oracle changed | drawn | reads / budget | placements | re-sorts | flips |
+|---|---|---|---|---|---|---|
+| #1 heartbeat | none | none | 2 / 3 (session, worktree; 0 visible) | 0 | 0 | 0 |
+| #2 phase | i214 | i214 | 1 / 3 (session) | 0 | 0 | 0 |
+| #3 click | i214 | i214 | 2 / 3 (issue, session) | 0 | 0 | 0 |
+| #4 rename | i214 | i214 | 1 / 3 (issue) | 0 | 0 | 0 |
+| #5 stage move | i5 | i5 | 2 / 24 (issue, session) | 0 | 0 | 0 |
+
+Rank change (pin the last unpinned visible row, `i299`): 1 placement, 0
+re-sorts, 697 slots shifted of 732 visible, only `i299` commits, order
+equals the oracle's after it.
+
+Bootstrap (no list mounted, `hand-visible-bootstrap-1x.json`): 0 loads
+queued; 148 cold rows read by id, each once (MobX: 3,112 feed reads at
+bootstrap, schema doc §5.1); 2,736 resident / 2,131 cold issues; 3,240 issue
+and 1,657 session part sets; 2,736 `visible` cells; 35,120 cells created.
+With the list mounted: first paint 732 rows = settled 732; 84 rows loaded
+settling, all ⤷ origins read by the row views (MobX: 84, schema doc §5.1).
+
+Commit fence on `counts.test.tsx` is asserted on every step now (#4's
+hidden spin-off is not drawn; #8b's grace rows are resident and drawn).
+
+Mutants (each alone, `visible.test.tsx`, restored with `cp`):
+
+| mutant | killed by |
+|---|---|
+| `keptBelow` always false | parity (bootstrap), rank, bootstrap tests |
+| nest parent: direct parent only | parity |
+| cold ancestor: `parent` edge only (no raw field) | parity, evict/re-add |
+| rank change not placed | rank test |
+| always re-sort | rank test (`orderSorts` 1) |
+| issue door untracked (plain presence) | evict/re-add |
+| `keeps` ignores `excluded` | SURVIVED the 1x parity test |
+| no R3 members | SURVIVED the 1x parity test |
+| draft vessel ignored | SURVIVED the 1x parity test |
+| decay ignores `unread` | SURVIVED the 1x parity test |
+
+The survivors are branches the 1x fixture never exercises, and the L4b
+rebuild shares the rule table, so it cannot see them either. Hence the
+order-versus-oracle check in `gate.test.ts` (every step of every seed).
+
+Changed bound: `relations.test.ts` "bucket upkeep is O(1)": the absolute
+element-op guard went from < 100 to < 200 (measured 62 add / 121 remove,
+identical at 4,000 and 8,000 members): the row's own worklist cells are
+built and unlinked with it, a per-row constant. The O(1) claim (equal at
+both sizes) is unchanged.
+
 ## Round three: a-phase gate, Ha4 (POD-4581) · 2026-09-23
 
 L4b (20 x 300, rebuild-only), the L5a reads fence and the L6a commit and
