@@ -447,6 +447,8 @@ export class HandPool {
       passed: (t) => this.clock.passed(t),
     }
     const knownDoor = (entity: 'issue' | 'session', id: string): boolean =>
+      tracked[entity].has(id) || (residency?.known(entity, id) ?? false)
+    const knownRaw = (entity: 'issue' | 'session', id: string): boolean =>
       this.tables[entity].has(id) || (this.residency?.isCold(entity, id) ?? false)
     this.visibleInputs = {
       relations: this.relations,
@@ -455,14 +457,28 @@ export class HandPool {
         (tracked.issue.get(id) ?? residency?.peek('issue', id)) as SliceIssue | undefined,
       sessionRow: (id) =>
         (tracked.session.get(id) ?? residency?.peek('session', id)) as SliceSession | undefined,
-      // Held parts first (no table touch at all), else the raw known check:
-      // a fenced presence check here would count every member on every
-      // recompute of a roster over them (#2's budget). Removals still reach
-      // every reader: the row and relation deltas dirty their cells, and the
-      // commit forgets the holders.
-      issue: (id) => this.worklist.peekIssue(id) ?? (knownDoor('issue', id) ? this.worklist.issue(id) : undefined),
+      // Held parts first (no table touch at all): the hot paths (rosters over
+      // bucket members) re-check membership on every recompute, and a fenced
+      // presence check there counts every member on the fence (#2's budget).
+      // Otherwise the raw check decides without counting; an unknown id falls
+      // back to the tracked door, so its later appearance still wakes this
+      // cell (a re-added parent re-nests its descendants). Removals still
+      // reach every reader: the row and relation deltas dirty their cells,
+      // and the commit forgets the holders.
+      issue: (id) =>
+        this.worklist.peekIssue(id) ??
+        (knownRaw('issue', id)
+          ? this.worklist.issue(id)
+          : knownDoor('issue', id)
+            ? this.worklist.issue(id)
+            : undefined),
       session: (id) =>
-        this.worklist.peekSession(id) ?? (knownDoor('session', id) ? this.worklist.session(id) : undefined),
+        this.worklist.peekSession(id) ??
+        (knownRaw('session', id)
+          ? this.worklist.session(id)
+          : knownDoor('session', id)
+            ? this.worklist.session(id)
+            : undefined),
       sessionActivity: (id) => this.sessionActivity(id),
       own: (id) => (tracked.issue.has(id) ? this.cellsOf(id).own : undefined),
       passed: (t) => this.clock.passed(t),
