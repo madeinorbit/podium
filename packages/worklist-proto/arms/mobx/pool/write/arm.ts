@@ -23,9 +23,9 @@
  * live pending view with a pending rebuild — never with server truth.
  *
  * The arm sends through the given `WriteTransport` (tests pass a fake; the
- * demo passes `createWriteTransport(runtime)` from L3b). It does not join
+ * demo and the L4b truth gate pass a live kernel transport). It does not join
  * the harness roster: the roster's `overlaid` pool stays the phase-a/b
- * candidate until Mc2 wires echo/settle (c2).
+ * candidate; this arm is the phase-c candidate on the `truth` feed.
  */
 
 import type {
