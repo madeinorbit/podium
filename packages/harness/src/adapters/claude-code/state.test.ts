@@ -32,38 +32,68 @@ const FOLDER_TRUST_SCREEN_NUMBERED = [
 ]
 
 describe('Claude terminal screen classifier', () => {
-  it('materializes the auto-mode onboarding prompt as an answerable question', () => {
-    const observation = classifyClaudeScreen([
+  describe('the auto-mode default offer', () => {
+    /** Claude Code 2.1.281's auto-mode default offer, as the daemon's VT buffer
+     *  renders it at 120 columns (captured from the real CLI). Unnumbered:
+     *  no "1."/"2." prefixes, just the ❯ cursor row. */
+    const AUTO_MODE_SCREEN = [
+      ' ⏸ manual mode on · ? for shortcuts · ← for agents',
+      'Make auto mode your default permission mode?',
+      'Auto mode lets Claude handle permission prompts automatically.',
+      '❯ Yes, set auto mode as my default permission mode',
+      'No, keep manual mode',
+    ]
+
+    /** The older copy of the same offer (2.1.231, POD-2843). */
+    const AUTO_MODE_SCREEN_LEGACY = [
       'Claude Code',
-      CLAUDE_AUTO_MODE_PROMPT,
-      'Set it up',
+      'Set up auto mode for your environment?',
+      '❯ Set it up',
       "Don't show again",
-    ])
+    ]
 
-    expect(observation.interactionVisible).toBe(true)
-    expect(observation.events).toHaveLength(1)
-    expect(observation.events[0]).toMatchObject({
-      kind: 'needs_user',
-      need: 'question',
-      summary: CLAUDE_AUTO_MODE_PROMPT,
-      source: 'classifier',
-      confidence: 0.3,
-      interview: {
-        questions: [
+    for (const [label, screen] of [
+      ['the current dialog', AUTO_MODE_SCREEN],
+      ['the older dialog', AUTO_MODE_SCREEN_LEGACY],
+    ] as const) {
+      it(`reports ${label} as a blocking question, never as ready`, () => {
+        const observation = classifyClaudeScreen(screen)
+
+        expect(observation.interactionVisible).toBe(true)
+        expect(observation.events).toEqual([
           {
-            question: CLAUDE_AUTO_MODE_PROMPT,
-            options: [{ label: 'Set it up' }, { label: "Don't show again" }],
+            kind: 'needs_user',
+            need: 'question',
+            summary: CLAUDE_AUTO_MODE_PROMPT,
+            source: 'classifier',
+            confidence: 0.3,
           },
-        ],
-      },
+        ])
+      })
+    }
+
+    it('carries no options, so nothing can be typed at a menu digits do not move', () => {
+      // Claude 2.1.281 draws this menu unnumbered (hideIndexes) and ignores a
+      // digit key: verified in a real pty, the cursor stays on its row and the
+      // dialog stays up after pressing 1 and after pressing 2. An option list
+      // here would become Chat buttons that type a digit and do nothing while
+      // the driver reports the answer typed. It is answered in the terminal
+      // (arrows + Enter) and never by Podium.
+      const [event] = classifyClaudeScreen(AUTO_MODE_SCREEN).events
+      expect(event).not.toHaveProperty('interview')
     })
-  })
 
-  it('requires an action label so ordinary Claude copy does not become a blocker', () => {
-    const observation = classifyClaudeScreen([CLAUDE_AUTO_MODE_PROMPT])
+    it('needs both the question and an answer row on screen', () => {
+      const titleOnly = classifyClaudeScreen([CLAUDE_AUTO_MODE_PROMPT])
+      expect(titleOnly.interactionVisible).toBe(false)
+      expect(titleOnly.events).toEqual([])
 
-    expect(observation.interactionVisible).toBe(false)
-    expect(observation.events).toEqual([])
+      const quoted = classifyClaudeScreen([
+        '⏺ The dialog says "Yes, set auto mode as my default permission mode".',
+      ])
+      expect(quoted.interactionVisible).toBe(false)
+      expect(quoted.events).toEqual([])
+    })
   })
 
   it('recognizes the native login-success signal without inspecting credentials', () => {

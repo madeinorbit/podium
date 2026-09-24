@@ -10,7 +10,6 @@
  * screen recognition by the classifier.
  */
 import { createHash } from 'node:crypto'
-import type { AgentInterview } from '@podium/model'
 import {
   type AgentScreenObservation,
   type AgentStateEvent,
@@ -69,32 +68,22 @@ export function claudePromptHookFingerprint(payload: unknown): string | null {
 // Screen rules, moved from agent-state/claude-screen.ts (POD-4472).
 // ---------------------------------------------------------------------------
 
-/** Stable copy emitted by Claude Code's environment onboarding modal. */
-export const CLAUDE_AUTO_MODE_PROMPT = 'Set up auto mode for your environment?'
+/** What a person reads for Claude Code's auto-mode default offer. */
+export const CLAUDE_AUTO_MODE_PROMPT = 'Make auto mode your default permission mode?'
 /** Stable warning emitted when inherited child-session controls disable history. */
 export const CLAUDE_TRANSCRIPT_DISABLED = 'Transcript saving is off'
 const CLAUDE_LOGIN_SUCCESS_SIGNALS = ['Login successful', 'Authentication successful'] as const
 
-const AUTO_MODE_OPTIONS = ['Set it up', "Don't show again"] as const
-
-const AUTO_MODE_INTERVIEW: AgentInterview = {
-  questions: [
-    {
-      question: CLAUDE_AUTO_MODE_PROMPT,
-      header: 'Auto mode',
-      options: [
-        {
-          label: AUTO_MODE_OPTIONS[0],
-          description: 'Let Claude inspect this environment and propose auto-mode guardrails.',
-        },
-        {
-          label: AUTO_MODE_OPTIONS[1],
-          description: 'Dismiss this setup prompt without configuring auto mode.',
-        },
-      ],
-    },
-  ],
-}
+/** The dialog's question, current copy first (2.1.281), then the older one (2.1.231, POD-2843). */
+const AUTO_MODE_QUESTIONS = [
+  'Make auto mode your default permission mode?',
+  'Set up auto mode for your environment?',
+] as const
+/** Its accept rows. A menu row is a line of its own, which is what keeps a
+ *  transcript that merely quotes the labels from matching. */
+const AUTO_MODE_ACCEPT_ROW =
+  /^(?:❯ )?(?:\d+\. )?Yes, set auto mode as my default permission mode$/
+const AUTO_MODE_ACCEPT_ROW_LEGACY = /^(?:❯ )?(?:\d+\. )?Set it up$/
 
 function plainScreen(lines: readonly string[]): string {
   // `lines` already come from the daemon's VT buffer, so escape sequences have
@@ -107,10 +96,22 @@ function screenLines(lines: readonly string[]): string[] {
   return lines.map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean)
 }
 
-function autoModeVisible(text: string): boolean {
+/**
+ * Claude Code's auto-mode default offer. It blocks the session before any hook
+ * fires for the choice, so the screen is the only channel that can see it. It
+ * is reported as a wait WITHOUT options on purpose: 2.1.281 draws the menu
+ * unnumbered (hideIndexes), and a real pty proves a digit key does not move
+ * it — the cursor stays on its row and the dialog stays up. An option list
+ * here would become Chat buttons that type a digit and do nothing while the
+ * driver reports the answer typed. It is answered in the terminal (arrows +
+ * Enter) and never by Podium.
+ */
+function autoModeVisible(text: string, visibleLines: readonly string[]): boolean {
   return (
-    text.includes(CLAUDE_AUTO_MODE_PROMPT) &&
-    AUTO_MODE_OPTIONS.some((option) => text.includes(option))
+    AUTO_MODE_QUESTIONS.some((question) => text.includes(question)) &&
+    visibleLines.some(
+      (line) => AUTO_MODE_ACCEPT_ROW.test(line) || AUTO_MODE_ACCEPT_ROW_LEGACY.test(line),
+    )
   )
 }
 
@@ -186,20 +187,13 @@ function inputDraftVisible(visibleLines: readonly string[]): string | undefined 
 export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObservation {
   const text = plainScreen(lines)
   const visibleLines = screenLines(lines)
-  const autoMode = autoModeVisible(text)
+  const autoMode = autoModeVisible(text, visibleLines)
   const folderTrust = !autoMode && folderTrustVisible(text, visibleLines)
   const interactionVisible = autoMode || folderTrust
   const transcriptDisabled = visibleLines.some((line) => line.includes(CLAUDE_TRANSCRIPT_DISABLED))
   const inputDraft = inputDraftVisible(visibleLines)
   const events: AgentStateEvent[] = autoMode
-    ? [
-        {
-          kind: 'needs_user',
-          need: 'question',
-          summary: CLAUDE_AUTO_MODE_PROMPT,
-          interview: AUTO_MODE_INTERVIEW,
-        },
-      ]
+    ? [{ kind: 'needs_user', need: 'question', summary: CLAUDE_AUTO_MODE_PROMPT }]
     : folderTrust
       ? [{ kind: 'needs_user', need: 'question', summary: CLAUDE_FOLDER_TRUST_SUMMARY }]
       : transcriptDisabled
