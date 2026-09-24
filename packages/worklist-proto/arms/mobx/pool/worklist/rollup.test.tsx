@@ -325,7 +325,7 @@ function summary(run: ColdProgressRun) {
  * closed child that counts as a done unit. Its view is observed (as a drawn
  * row), then the cold child is closed as cancelled (abandoned: it leaves the
  * members) and stays cold. `plant` takes the tracking away from exactly the
- * progress facts read (`untracked`).
+ * progress facts read: kept in a plain map, never refreshed.
  */
 async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
   const ctx = await startScenarioEngine(1)
@@ -334,9 +334,17 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
   const { pool } = handle
   const residency = pool.residency!
   if (plant) {
+    // Tracking removed: the facts kept in a plain map, read once, never
+    // refreshed (pitfall j). `untracked` alone is not enough to plant it: a
+    // cold row's update also notifies its residency atom, which the part's
+    // `spinOffs` size read tracks, so the part re-runs and re-reads.
     const inputs = pool.visibleInputs as { progressFacts: (id: string) => unknown }
     const progressFacts = inputs.progressFacts
-    inputs.progressFacts = (id) => untracked(() => progressFacts(id))
+    const kept = new Map<string, unknown>()
+    inputs.progressFacts = (id) => {
+      if (!kept.has(id)) kept.set(id, untracked(() => progressFacts(id)))
+      return kept.get(id)
+    }
   }
   let observe = () => {}
   try {
