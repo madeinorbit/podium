@@ -90,7 +90,8 @@ function stageTarget(pool: MobxPool): string {
   return tracked(() => {
     const id = [...pool.worklist.order].find((candidate) => {
       const node = pool.worklist.issue(candidate)
-      const standing = node?.standing
+      if (node === undefined) return false
+      const standing = node.standing
       return (
         standing !== undefined &&
         standing.activeHuman &&
@@ -109,8 +110,9 @@ function clickTarget(pool: MobxPool): string {
   return tracked(() => {
     const id = [...pool.worklist.order].find((candidate) => {
       const node = pool.worklist.issue(candidate)
+      if (node?.standing === undefined) return false
       return (
-        node?.standing?.activeHuman === true &&
+        node.standing.activeHuman === true &&
         node.standing.parentId === null &&
         node.unread === true
       )

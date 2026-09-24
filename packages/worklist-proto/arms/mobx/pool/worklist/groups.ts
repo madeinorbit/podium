@@ -284,17 +284,21 @@ export class GroupNode {
   get label(): string {
     const bucket = this.bucket
     if (bucket === undefined) return ''
-    let best: { rank: RowRank; label: string } | null = null
-    const consider = (id: string): void => {
-      const rank = this.groups.rankOf(id)
-      if (rank === undefined) return
-      const label = this.groups.filedLabel(id)
-      if (label === undefined) return
-      if (best === null || compareRank(rank, best.rank) < 0) best = { rank, label }
+    let bestRank: RowRank | null = null
+    let bestLabel = ''
+    for (const lane of [bucket.open, bucket.closed] as const) {
+      for (const id of lane) {
+        const rank = this.groups.rankOf(id)
+        if (rank === undefined) continue
+        const memberLabel = this.groups.filedLabel(id)
+        if (memberLabel === undefined) continue
+        if (bestRank === null || compareRank(rank, bestRank) < 0) {
+          bestRank = rank
+          bestLabel = memberLabel
+        }
+      }
     }
-    bucket.open.forEach(consider)
-    bucket.closed.forEach(consider)
-    return best?.label ?? ''
+    return bestLabel
   }
 
   /** The open lane, in rank order, no selection (the snapshot's lane). */
