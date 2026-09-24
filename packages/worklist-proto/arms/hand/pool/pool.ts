@@ -57,6 +57,14 @@
  * `admit`, then the order handler (`settle`), which places exactly the ids
  * whose `visible` or `rank` cell moved. The list and `snapshot()` read the
  * order; order listeners are called in `publish` when it moved.
+ *
+ * THE GROUPS (POD-4583, Hb2; `worklist/groups.ts`). Each visible issue has a
+ * `placement` cell (pinned, group key and label, fold verdict and stamp, from
+ * the own row hot or cold); the commit's settle step recomputes the layout
+ * only when the order moved or a placement reported, and the per-group lanes
+ * (the R-GROUP 5 latch applied) only when the layout or the selection moved.
+ * The list reads the grouped view, each header its own group's lanes, each
+ * row its own view.
  */
 
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
@@ -101,6 +109,12 @@ import {
   type ViewInputs,
 } from './views'
 import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
+import {
+  sliceOrderOf,
+  type GroupsView,
+  type GroupLanes,
+  WorklistGroups,
+} from './worklist/groups'
 
 /**
  * Everything that can change under the pool, as one closed union. Every
@@ -116,6 +130,8 @@ export type Delta =
   /** A known cold row was updated and stays cold (POD-4582): its `coldRows` readers re-run. */
   | { readonly kind: 'coldRow'; readonly entity: EntityName; readonly id: string }
   | { readonly kind: 'selection'; readonly to: string | null }
+  /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch, POD-4583). */
+  | { readonly kind: 'foldLatch'; readonly to: boolean }
   | { readonly kind: 'clock'; readonly to: number }
 
 function unhandled(delta: never): never {
@@ -149,6 +165,8 @@ function createStats(graph: CellGraph, residency: () => Residency | null): PoolS
     orderShifted: 0,
     orderSorts: 0,
     orderSorted: 0,
+    groupRuns: 0,
+    groupElements: 0,
   } satisfies Omit<PoolCounters, keyof CellCounters>) as PoolCounters
   const stats: PoolStats = {
     rowsDerived: 0,
@@ -296,9 +314,17 @@ export class HandPool {
   readonly visibleInputs: VisibleInputs
   /** Listeners of the order. */
   readonly orderListeners = new Set<() => void>()
+  /** The groups and closed folds over that order (POD-4583, `worklist/groups.ts`). */
+  readonly groups: WorklistGroups
+  /** Listeners of the grouped view (the list). */
+  readonly groupsListeners = new Set<() => void>()
+  /** Listeners per group key (its header). */
+  readonly groupListeners = new Map<string, Set<() => void>>()
   private readonly idsCell: Cell<readonly string[]>
   private readonly target: IngestTarget
   private selectedId: string | null
+  /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch, POD-4583). */
+  private foldLatch: boolean
   /** Keys whose value changed in this commit; published once at its end. */
   private readonly changedIds = new Set<string>()
   private idsChanged = false
@@ -326,6 +352,7 @@ export class HandPool {
     this.selection = new DepIndex<string>('selection')
     this.clock = new DeadlineClock(graph, locals.coarseNow)
     this.selectedId = locals.selectedIssueId
+    this.foldLatch = locals.selectedIssueWasFolded === true
     const { fenced, rowReaders, presence, relationReaders } = this
     this.tracked = tablesOf((entity) => ({
       get(id: string): unknown {
@@ -412,6 +439,15 @@ export class HandPool {
     this.worklist = new VisibleCollection({
       graph,
       inputs: this.visibleInputs,
+      counters: this.stats.counters,
+    })
+    const worklist = this.worklist
+    this.groups = new WorklistGroups({
+      graph,
+      inputs: this.visibleInputs,
+      order: () => worklist.order(),
+      selectedId: () => this.selectedId,
+      foldLatch: () => this.foldLatch,
       counters: this.stats.counters,
     })
     this.records = tablesOf(() => new Map<string, EntityRecord>())
@@ -602,24 +638,55 @@ export class HandPool {
   }
 
   /**
-   * The slice output: the VISIBLE rows in rank order, the pinned ones in rank
-   * order, no groups yet (Hb2). Settled: reading the rows (and deciding
-   * visibility) queues the cold rows they reach, and those are loaded and
-   * the rows read again until nothing is queued, as a reader that waits out
-   * its loading state would see them.
+   * What the list draws: the pinned ids and group keys with the latch
+   * applied; a new object only when the lanes moved (POD-4583). Reads no
+   * row: the list subscribes to this, never to rows.
+   */
+  readonly groupsView = (): GroupsView => this.groups.drawn()
+
+  /** One group's UI lanes (identity-kept: the same object while its lists are equal). */
+  readonly groupLanes = (key: string): GroupLanes => this.groups.lanesOf(key)
+
+  /** Listen to the grouped view; returns the unsubscribe. */
+  readonly subscribeGroups = (listener: () => void): (() => void) => {
+    this.groupsListeners.add(listener)
+    return () => {
+      this.groupsListeners.delete(listener)
+    }
+  }
+
+  /** Listen to one group's lanes; returns the unsubscribe. */
+  readonly subscribeGroup = (key: string, listener: () => void): (() => void) => {
+    let set = this.groupListeners.get(key)
+    if (set === undefined) {
+      set = new Set()
+      this.groupListeners.set(key, set)
+    }
+    set.add(listener)
+    return () => {
+      const current = this.groupListeners.get(key)
+      if (current === undefined || !current.delete(listener) || current.size > 0) return
+      this.groupListeners.delete(key)
+    }
+  }
+
+  /**
+   * The slice output: the VISIBLE rows in rank order, grouped with closed
+   * folds and no selection (POD-4583, `worklist/groups.ts`). Settled: reading
+   * the rows (and deciding visibility) queues the cold rows they reach, and
+   * those are loaded and the rows read again until nothing is queued, as a
+   * reader that waits out its loading state would see them.
    */
   snapshot(): SliceSnapshot {
     for (let round = 0; ; round += 1) {
       const rowsById: SliceSnapshot['rowsById'] = {}
-      const pinnedIds: string[] = []
       for (const id of this.order()) {
         const view = this.view(id)
         if (view === undefined) continue
         rowsById[id] = sliceRowOf(view)
-        if (view.pinned) pinnedIds.push(id)
       }
       if (this.residency?.hasQueued() !== true) {
-        return { order: { pinnedIds, groups: [] }, rowsById }
+        return { order: sliceOrderOf(this.groups.snapshot()), rowsById }
       }
       if (round >= MAX_SETTLE_ROUNDS) {
         throw new Error(`[pool] snapshot() did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
@@ -655,6 +722,12 @@ export class HandPool {
     if (changed.has('selectedIssueId') && locals.selectedIssueId !== this.selectedId) {
       deltas.push({ kind: 'selection', to: locals.selectedIssueId })
     }
+    if (
+      changed.has('selectedIssueWasFolded') &&
+      (locals.selectedIssueWasFolded === true) !== this.foldLatch
+    ) {
+      deltas.push({ kind: 'foldLatch', to: locals.selectedIssueWasFolded === true })
+    }
     if (changed.has('coarseNow')) deltas.push({ kind: 'clock', to: locals.coarseNow })
     this.commit(deltas)
   }
@@ -667,6 +740,7 @@ export class HandPool {
   /** Empty every table, cell, index, record and listener. */
   dispose(): void {
     this.worklist.clear()
+    this.groups.clear()
     for (const cells of this.issues.values()) cells.dispose()
     this.issues.clear()
     for (const cell of this.sessionCells.values()) this.graph.dispose(cell)
@@ -691,8 +765,11 @@ export class HandPool {
     this.listeners.clear()
     this.idsListeners.clear()
     this.orderListeners.clear()
+    this.groupsListeners.clear()
+    this.groupListeners.clear()
     this.changedIds.clear()
     this.selectedId = null
+    this.foldLatch = false
   }
 
   // ------------------------------------------------------------- handlers
@@ -714,7 +791,16 @@ export class HandPool {
     this.worklist.admit(entered, (id) => this.fenced.issue.has(id))
     this.graph.flush()
     this.worklist.settle()
-    this.publish()
+    // Handler 3b: the groups. The layout recomputes only when the order
+    // moved or a placement reported; the lanes only when the layout or the
+    // selection moved (POD-4583).
+    const orderMoved = this.worklist.takeMoved()
+    const selectionMoved = deltas.some(
+      (delta) => delta.kind === 'selection' || delta.kind === 'foldLatch',
+    )
+    this.groups.settle(orderMoved, selectionMoved)
+    const groupsMoved = this.groups.takeMoved()
+    this.publish(orderMoved, groupsMoved)
     this.stats.notifications += 1
   }
 
@@ -745,6 +831,9 @@ export class HandPool {
         if (delta.to !== null) this.graph.invalidateKey(this.selection, delta.to)
         return
       }
+      case 'foldLatch':
+        this.foldLatch = delta.to
+        return
       case 'clock':
         this.clock.move(delta.to)
         return
@@ -775,6 +864,7 @@ export class HandPool {
           this.issues.delete(delta.id)
         }
         if (this.residency?.isCold('issue', delta.id) !== true) this.worklist.forgetIssue(delta.id)
+        if (this.residency?.isCold('issue', delta.id) !== true) this.groups.forgetIssue(delta.id)
         return
       }
       case 'residency':
@@ -793,11 +883,13 @@ export class HandPool {
           this.residency?.isCold('issue', delta.id) !== true
         ) {
           this.worklist.forgetIssue(delta.id)
+          this.groups.forgetIssue(delta.id)
         }
         return
       case 'relation':
       case 'coldRow':
       case 'selection':
+      case 'foldLatch':
       case 'clock':
         return
       default:
@@ -815,10 +907,12 @@ export class HandPool {
   }
 
   /** Handler 4 (after the drain): each changed key's listeners, once. */
-  private publish(): void {
+  private publish(
+    orderMoved: boolean,
+    groupsMoved: { readonly moved: boolean; readonly changedKeys: readonly string[] },
+  ): void {
     const ids = this.idsChanged
     this.idsChanged = false
-    const orderMoved = this.worklist.takeMoved()
     const changed = [...this.changedIds]
     this.changedIds.clear()
     if (ids) {
@@ -829,6 +923,20 @@ export class HandPool {
     }
     if (orderMoved) {
       for (const listener of [...this.orderListeners]) {
+        this.stats.counters.listenerCalls += 1
+        listener()
+      }
+    }
+    if (groupsMoved.moved) {
+      for (const listener of [...this.groupsListeners]) {
+        this.stats.counters.listenerCalls += 1
+        listener()
+      }
+    }
+    for (const key of groupsMoved.changedKeys) {
+      const set = this.groupListeners.get(key)
+      if (set === undefined) continue
+      for (const listener of [...set]) {
         this.stats.counters.listenerCalls += 1
         listener()
       }

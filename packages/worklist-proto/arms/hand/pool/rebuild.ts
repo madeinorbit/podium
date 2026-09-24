@@ -17,11 +17,16 @@
  * memoized for this one pass), over EVERY row the feed holds: a cold row's
  * `flat` is computed from its data here, where the live parts take it from
  * the shared cold rule's bound (schema doc §5.1), so a cold row the rule
- * should have kept shown is a row-set difference. The pinned ids follow in
- * rank order; no groups yet (Hb2). Residency no longer shapes the row set:
- * the live `snapshot()` loads what it reaches and settles first, and every
- * row here reads full data (`loading` is always false). `resident` is
- * accepted and unused (the checker's call shape).
+ * should have kept shown is a row-set difference. Residency no longer shapes
+ * the row set: the live `snapshot()` loads what it reaches and settles
+ * first, and every row here reads full data (`loading` is always false).
+ * `resident` is accepted and unused (the checker's call shape).
+ *
+ * GROUPS (POD-4583, Hb2). The rebuild groups its own row views with L1b's
+ * pure functions (`groupKeyOf`, `compareClosedFold`, `shared/src/row-view.ts`),
+ * with no selection (the oracle's unselected baseline, spec §7), not with the
+ * live layout's `layoutOf`: the live pool's placement cells and its layout
+ * are held to the contract's own grouping.
  *
  * WHOLE VIEWS (POD-4674, H3-F3). `rebuildSnapshot` projects each view to the
  * slice fields (`sliceRowOf`), so the checker never compares `activityAt`,
@@ -31,9 +36,19 @@
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import { type RowView, sliceRowOf } from '../../../shared/src/row-view'
+import {
+  compareClosedFold,
+  groupKeyOf,
+  type RowView,
+  sliceRowOf,
+} from '../../../shared/src/row-view'
 import { type ModelSchema, SCHEMA } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
+import type {
+  SliceGroup,
+  SliceIssue,
+  SliceSession,
+  SliceSnapshot,
+} from '../../../shared/src/slice-types'
 import { PoolRelations } from './relations'
 import { createTables, ingestOut, ingestRecord } from './tables'
 import {
@@ -51,6 +66,7 @@ import {
   type VisibleInputs,
   type VisibleParts,
 } from './worklist/visible'
+import { repoLabelOf } from './worklist/groups'
 
 export function rebuildSnapshot(
   source: RowSource,
@@ -58,13 +74,31 @@ export function rebuildSnapshot(
   _resident?: ReadonlySet<string>,
   schema: ModelSchema = SCHEMA,
 ): SliceSnapshot {
+  const { views, issue } = rebuildViewsWithIssue(source, locals, schema)
   const rowsById: SliceSnapshot['rowsById'] = {}
   const pinnedIds: string[] = []
-  for (const [id, view] of rebuildViews(source, locals, schema)) {
+  const groups = new Map<string, { group: SliceGroup; closed: RowView[] }>()
+  for (const [id, view] of views) {
     rowsById[id] = sliceRowOf(view)
-    if (view.pinned) pinnedIds.push(id)
+    const placement = groupKeyOf({ ...view, selected: false }, {})
+    if (placement.section === 'pinned') {
+      pinnedIds.push(id)
+      continue
+    }
+    let entry = groups.get(placement.repoKey)
+    if (entry === undefined) {
+      const label = repoLabelOf((issue(id) as SliceIssue).repoPath)
+      entry = { group: { key: placement.repoKey, label, rowIds: [], closedIds: [] }, closed: [] }
+      groups.set(placement.repoKey, entry)
+    }
+    if (placement.lane === 'closed') entry.closed.push(view)
+    else entry.group.rowIds.push(id)
   }
-  return { order: { pinnedIds, groups: [] }, rowsById }
+  const sliceGroups = [...groups.values()].map(({ group, closed }) => ({
+    ...group,
+    closedIds: closed.sort(compareClosedFold).map((view) => view.id),
+  }))
+  return { order: { pinnedIds, groups: sliceGroups }, rowsById }
 }
 
 /** The rebuild's rows as whole views: the visible issues, keyed by id, in rank order. */
@@ -73,6 +107,14 @@ export function rebuildViews(
   locals: LocalsSource,
   schema: ModelSchema = SCHEMA,
 ): Map<string, RowView> {
+  return rebuildViewsWithIssue(source, locals, schema).views
+}
+
+function rebuildViewsWithIssue(
+  source: RowSource,
+  locals: LocalsSource,
+  schema: ModelSchema = SCHEMA,
+): { views: Map<string, RowView>; issue: ViewInputs['issue'] } {
   const tables = createTables()
   const relations = new PoolRelations({
     schema,
@@ -131,5 +173,5 @@ export function rebuildViews(
     const view = buildRowView(inputs, id, directParts(inputs, id))
     if (view !== undefined) views.set(id, view)
   }
-  return views
+  return { views, issue: inputs.issue }
 }

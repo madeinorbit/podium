@@ -699,6 +699,10 @@ export interface VisibleCounters {
   orderSorts: number
   /** Ids sorted across those re-sorts (the visible count per sort). */
   orderSorted: number
+  /** Runs of the groups' layout (POD-4583, `worklist/groups.ts`). */
+  groupRuns: number
+  /** Ids placed across those runs (the visible count per run). */
+  groupElements: number
 }
 
 /** What the collection needs from the pool. */
