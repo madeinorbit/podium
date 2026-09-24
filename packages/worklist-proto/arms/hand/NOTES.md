@@ -108,7 +108,25 @@ Mutants (each alone, `visible.test.tsx`, restored with `cp`):
 
 The survivors are branches the 1x fixture never exercises, and the L4b
 rebuild shares the rule table, so it cannot see them either. Hence the
-order-versus-oracle check in `gate.test.ts` (every step of every seed).
+order-versus-oracle check in `gate.test.ts` (every step of every seed). Run
+against it (3 x 200, heavy lease): decay-ignores-`unread` is KILLED; the
+other three still SURVIVE: the generator never makes a `proposed`/`shipping`
+child kept by its descendants (an archived or deleted child has no parent
+edge, so it never reaches `keeps`), an issueless (R3) session, or a draft
+vessel owning a starter session. Filed for the shared generator as POD-4681
+(it closes the same gap for the MobX arm).
+
+L4b gate (`pool/gate.test.ts`, 3 seeds x 200 steps, heavy lease, 728 s,
+code at 33f325ac3 plus formatting; `results/hand-pool-gate-1x-3x200.json`,
+`results/hand-visible-oracle-1x-3x200.json`): 3 tests green. Every seed
+compared the settled snapshot (now the visible rows in rank order, pinned
+ids) with the rebuild at 201 steps, scanned every relation and the hot/cold
+partition at each, and ran the full-residency checkpoint; every plant failed
+every seed (removal-deaf: rebuild at steps 5 / 41 / 40; relink-skipped,
+cold-deaf, cold relink: relations or partition; registry kept: checkpoint).
+Cold reads by id during the runs: 6 / 7 / 9. The visible order equalled the
+legacy oracle's at all 603 comparisons (201 per seed). The 20 x 300 gate of
+record was not re-run here.
 
 Changed bound: `relations.test.ts` "bucket upkeep is O(1)": the absolute
 element-op guard went from < 100 to < 200 (measured 62 add / 121 remove,
