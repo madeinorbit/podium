@@ -464,6 +464,51 @@ counter. On the rebased tip 0bcfef308 (integration at 66364c8a3), the pool's
 whole folder, the native lane, the fence lint and the schema tests ran with
 a 3 x 200 gate (every plant included): 12 files, 156 tests, green.
 
+**Gate of record with whole views (L4b, rebuild-only, live-shaped 1x,
+POD-4674), 2026-09-24: GREEN.** Seeds 1-20 x 300 steps, `gate.test.ts`
+"correctness gate", in four sequential chunks of five seeds
+(`POD_POOL_GATE_FIRST_SEED`) through `bun run test:file` (the package
+config), 04:49-06:56 (the chunks took 24-28 min each; box load about 9:
+pass/fail and counts only, no walls). The code was 669d49a70 (3498df55d
+changes only the notes) on top of integrate/4545-round-three at 98430f2df.
+Every compared step ran the checks above. It also held every resident
+issue's whole `RowView` to `rebuildViews`, field by field: 19,760,640 views
+compared over the 20 seeds, with no difference. All six plants failed every
+seed, and each was caught by the check it targets.
+`activityCached` (member activity cached in a plain `Map`) was caught by the
+view check at the boot snapshot on every seed: the first settle's loads
+already go stale through the cache.
+
+| seed | views compared | cold writes | loads | warmed | removal-deaf | relink-skipped | cold-deaf | cold relink (checkpoint off) | registry kept (per-step off) | activity cached |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 973645 | 65 | 6683 | 41 | rebuild 15 | relations 14 | partition 6 | relations 24 | checkpoint | views, boot |
+| 2 | 977585 | 90 | 7519 | 28 | rebuild 32 | relations 0 | relations 20 | relations 20 | checkpoint | views, boot |
+| 3 | 994441 | 81 | 3145 | 15 | rebuild 19 | relations 14 | relations 3 | relations 3 | checkpoint | views, boot |
+| 4 | 984443 | 75 | 5258 | 15 | rebuild 3 | relations 20 | partition 39 | relations 96 | checkpoint | views, boot |
+| 5 | 986178 | 60 | 4335 | 11 | rebuild 1 | relations 1 | relations 7 | relations 7 | checkpoint | views, boot |
+| 6 | 987418 | 81 | 7378 | 12 | rebuild 19 | relations 73 | relations 9 | relations 10 | checkpoint | views, boot |
+| 7 | 994450 | 78 | 3177 | 29 | rebuild 13 | relations 5 | relations 8 | relations 9 | checkpoint | views, boot |
+| 8 | 993063 | 56 | 7264 | 17 | rebuild 0 | relations 4 | relations 8 | relations 8 | checkpoint | views, boot |
+| 9 | 989829 | 63 | 6399 | 21 | rebuild 3 | relations 23 | relations 9 | relations 9 | checkpoint | views, boot |
+| 10 | 982712 | 74 | 8463 | 10 | rebuild 53 | relations 31 | relations 18 | relations 23 | checkpoint | views, boot |
+| 11 | 992666 | 68 | 4236 | 13 | rebuild 22 | relations 39 | partition 1 | relations 148 | checkpoint | views, boot |
+| 12 | 994161 | 69 | 5230 | 22 | rebuild 7 | relations 3 | partition 0 | relations 14 | checkpoint | views, boot |
+| 13 | 992305 | 62 | 7309 | 5 | rebuild 21 | relations 15 | relations 17 | relations 18 | checkpoint | views, boot |
+| 14 | 988821 | 64 | 9446 | 18 | rebuild 6 | relations 4 | relations 24 | relations 47 | checkpoint | views, boot |
+| 15 | 974495 | 56 | 3248 | 22 | rebuild 7 | relations 33 | partition 14 | relations 107 | checkpoint | views, boot |
+| 16 | 994408 | 95 | 4186 | 25 | rebuild 9 | relations 8 | relations 0 | relations 6 | checkpoint | views, boot |
+| 17 | 990751 | 63 | 10467 | 15 | rebuild 44 | relations 0 | partition 2 | relations 29 | checkpoint | views, boot |
+| 18 | 993603 | 83 | 7318 | 20 | rebuild 3 | relations 64 | partition 9 | relations 16 | checkpoint | views, boot |
+| 19 | 989756 | 66 | 9524 | 12 | rebuild 47 | relations 41 | relations 69 | relations 69 | checkpoint | views, boot |
+| 20 | 985910 | 56 | 13619 | 11 | rebuild 36 | relations 26 | relations 0 | relations 2 | checkpoint | views, boot |
+
+**Control (the view check off), seeds 1-3 x 300.** Only the view comparison
+was replaced with an empty diff. `activityCached` then passed all 300 steps
+on every seed: the rebuild, every relation scan, the partition and the
+full-residency checkpoint all missed it. The gate failed on the plant count
+(`activity: 0`, expected 3). The other five plants failed at the same steps
+as in the table. So the view check is what catches this plant.
+
 
 ### Open
 
