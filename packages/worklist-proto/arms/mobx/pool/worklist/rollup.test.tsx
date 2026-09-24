@@ -161,7 +161,7 @@ interface Chain {
 /**
  * A row with exactly four nest ancestors, each its raw `parentId` parent
  * (so the budget's ancestor count is the chain's), a seat on the row that
- * does not wait under a finished root, and a root whose aggregate has no such
+ * does not wait (under either kind of root), and a root whose aggregate has no
  * seat either. A question waits under either kind of root, so it flips the
  * finished-root flag of every aggregate up to the root: each composition
  * re-runs and changes. (At 1x both depth-4 missions already wait under an
@@ -184,7 +184,9 @@ function findChain(pool: MobxPool): Chain {
       const bottom = pool.worklist.issue(id)
       const seat = bottom?.rosterIds.find((sessionId) => {
         const verdict = pool.worklist.session(sessionId).verdict
-        return typeof verdict === 'object' && verdict.finished !== 'waiting'
+        return (
+          typeof verdict === 'object' && verdict.finished !== 'waiting' && verdict.open !== 'waiting'
+        )
       })
       if (seat !== undefined) return { rows, sessionId: seat }
     }

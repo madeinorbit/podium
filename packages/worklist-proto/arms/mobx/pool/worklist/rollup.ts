@@ -456,6 +456,12 @@ export interface Rollup
     'phase' | 'progressDone' | 'progressTotal' | 'working' | 'asking' | 'workingSince'
   > {
   readonly loading: boolean
+  /**
+   * The latest `lastActiveAt` among the seats of the row's visible subtree
+   * (own seats included), or null: the row view's `activityAt` is the max of
+   * this and its own-row stamp (`rows.ts:336-339`, `attach`).
+   */
+  readonly seatActivity: number | null
 }
 
 /**
@@ -469,8 +475,9 @@ export function rollupOf(input: {
   readonly agg: Aggregate
   readonly self: UnitOwn
   readonly below: Units
+  readonly seatActivity: number | null
 }): Rollup {
-  const { finished, own, agg, self, below } = input
+  const { finished, own, agg, self, below, seatActivity } = input
   const fromChildren = below.members > 0
   return {
     phase: phaseOf(agg, finished),
@@ -480,7 +487,20 @@ export function rollupOf(input: {
     progressTotal: fromChildren ? below.units : self.solo ? 1 : 0,
     workingSince: own.workingSince,
     loading: agg.pending > 0 || below.pending > 0 || self.pending,
+    seatActivity,
   }
+}
+
+/** THE ACTIVITY COMBINE: the latest of own seats' stamps and each nest child's. No store. */
+export function latestOf(input: {
+  readonly own: readonly (number | null)[]
+  readonly children: readonly (number | null)[]
+}): number | null {
+  let latest: number | null = null
+  for (const at of [...input.own, ...input.children]) {
+    if (at !== null && (latest === null || at > latest)) latest = at
+  }
+  return latest
 }
 
 // ------------------------------------------------------------ node parts
@@ -504,6 +524,8 @@ export interface RollupInputs {
   rollupNode(id: string): RollupParts | undefined
   /** A session's cached seat verdict (`LOADING` while its row is cold). */
   seat(id: string): Loaded<SeatVerdict>
+  /** A session's cached `lastActiveAt` (Mb1's `activityMs`). */
+  seatActivity(id: string): number | null
   /** A session's cached presence facts (Mb1's `retention`, hot or cold). */
   presence(id: string): { readonly issueId: string | null | undefined; readonly open: boolean } | null
   spinOffIds(id: string): readonly string[]
@@ -532,6 +554,8 @@ export interface RollupParts {
   readonly aggregate: Aggregate
   readonly unitOwn: UnitOwn
   readonly unitsBelow: Units
+  /** The latest seat activity in the visible subtree (`Rollup.seatActivity`). */
+  readonly seatActivity: number | null
   /** Some explicit session of its own is on the task (`openIssues`, `mission.ts:582-590`). */
   readonly openOwn: boolean
   /** A live spin-off descendant that started or is staffed (`liveSpinOffTip`), and cold ones pending. */
@@ -680,6 +704,23 @@ export function unitsBelowPartOf(input: RollupInputs, id: string, self: RollupSe
   return unitsOf({ children })
 }
 
+/**
+ * The latest seat activity of the visible subtree: own seats' cached stamps
+ * and each nest child's result. Its own composition, apart from `aggregate`,
+ * so a phase change never runs it and a heartbeat never runs `aggregate`.
+ */
+export function seatActivityPartOf(input: RollupInputs, id: string, self: RollupSelf): number | null {
+  input.counted()
+  if (!self.present || self.ownFacts.state === 'cold') return null
+  const own = self.rosterIds.map((sessionId) => input.seatActivity(sessionId))
+  const children: (number | null)[] = []
+  for (const childId of input.nested(id)) {
+    const child = input.rollupNode(childId)
+    if (child !== undefined) children.push(child.seatActivity)
+  }
+  return latestOf({ own, children })
+}
+
 export function rollupPartOf(self: RollupSelf): Rollup | undefined {
   if (self.finished === undefined) return undefined
   return rollupOf({
@@ -688,6 +729,7 @@ export function rollupPartOf(self: RollupSelf): Rollup | undefined {
     agg: self.aggregate,
     self: self.unitOwn,
     below: self.unitsBelow,
+    seatActivity: self.seatActivity,
   })
 }
 

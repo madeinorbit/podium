@@ -437,6 +437,7 @@ describe('row fields against the oracle', () => {
         'workingSince',
         'closed',
         'dismissed',
+        'activityAt',
       ]
       let closedByOracle = 0
       // POD-4671 (`worklist/known-gaps.ts`): the unscanned-worktree orphan has
@@ -449,7 +450,7 @@ describe('row fields against the oracle', () => {
         const got = actual[id]
         expect(got, id).toBeDefined()
         for (const field of same) {
-          if (id === gap && (field === 'phase' || field === 'working' || field === 'asking' || field === 'workingSince')) continue
+          if (id === gap && (field === 'phase' || field === 'working' || field === 'asking' || field === 'workingSince' || field === 'activityAt')) continue
           expect(got![field], `${id}.${field}`).toEqual(want[field])
         }
         if (!got!.title.startsWith('New ')) expect(got!.title, `${id}.title`).toBe(want.title)
