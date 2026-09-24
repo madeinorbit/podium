@@ -53,8 +53,9 @@ function harness(
     condition?: 'logged-out'
     phase?: string
     userTurns?: number
-    /** Whether the transcript can WITNESS a send — production's normal state for
-     *  an agent session, and what the confirmation gate keys off (POD-1100). */
+    /** Whether the session already carries transcript history — what the
+     *  starting-hold keys off: a starting session WITH history is rebinding
+     *  after a restart and holds rows until live (POD-4360). */
     transcriptAvailable?: boolean
     stateObservedAt?: string
     /** Exact live runtime binding facts reported by the daemon bind. */
@@ -661,32 +662,65 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.rejected).toEqual([expect.objectContaining({ reason: 'database revoked' })])
   })
 
-  it('settles a re-forwarded row the transcript already witnessed instead of typing it again', async () => {
-    // A server restart forgets custody and hands every remaining row back to
-    // the daemon. One the previous process typed — and whose outcome never
-    // came back — is in the transcript: settle it there (POD-4360).
+  // POD-4687: the deleted transcript witness settled any row whose text (or
+  // its first 80 characters) matched a recent user turn, so a deliberate
+  // repeat — "yes", "continue", re-asking the same question — vanished as
+  // `delivered` without ever reaching the daemon. The server never settles a
+  // row on what the transcript seems to say; duplicate custody is the daemon's
+  // to absorb by row id. Both rows below must forward.
+  it('forwards the same text queued twice within five minutes instead of settling the repeat', async () => {
     vi.useFakeTimers()
-    vi.setSystemTime(Date.parse('2026-09-18T18:44:00.000Z'))
-    // `starting`: nothing is forwarded at enqueue, so the bind below is the
-    // first custody this process takes — the restart shape.
-    const h = harness({ contractReceipts: [], transcriptAvailable: true, status: 'starting' })
-    const typed = 'Child session Atomic publication reaction boundaries (e8a131f9) finished (done). Your child session needs attention.'
-    const fresh = 'Child session Kernel benchmark acceptance budgets (1039900c) finished (done). Your child session needs attention.'
-    // An OLDER identical turn is not a witness: the row was queued after it.
-    h.transcript.push({ id: 'old', role: 'user', text: fresh, ts: '2026-09-18T18:00:00.000Z' } as never)
-    await h.inbox.queueText({ sessionId: SID, text: typed, mutationId: asMutationId('row-typed'), principal: agentPrincipal() })
-    await h.inbox.queueText({ sessionId: SID, text: fresh, mutationId: asMutationId('row-fresh'), principal: agentPrincipal() })
-    expect(h.rows.map((row) => row.id)).toEqual(['row-typed', 'row-fresh'])
-    // The previous process typed the first row; the CLI recorded it after queuing.
-    h.transcript.push({ id: 'u-typed', role: 'user', text: typed, ts: '2026-09-18T18:44:05.000Z' } as never)
+    vi.setSystemTime(Date.parse('2026-09-24T10:15:00.000Z'))
+    const h = harness({ contractReceipts: [] })
+    const text = 'What is 3 times 3? Reply with only the number followed by the word BEE in capitals.'
+    await h.inbox.queueText({ sessionId: SID, text, mutationId: asMutationId('repeat-first'), principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual(['repeat-first'])
+    // The agent answered: the first prompt is a user turn in the transcript.
+    h.transcript.push({ id: 'u-first', role: 'user', text, ts: '2026-09-24T10:15:05.000Z' } as never)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'repeat-first', outcome: 'delivered' })
+    expect(h.rows).toEqual([])
 
-    h.setStatus('live')
-    await h.inbox.drain(SID, { justBound: true })
+    // Within five minutes the operator sends the exact same text again.
+    vi.setSystemTime(Date.parse('2026-09-24T10:16:00.000Z'))
+    await h.inbox.queueText({ sessionId: SID, text, mutationId: asMutationId('repeat-second'), principal: agentPrincipal() })
     await vi.advanceTimersByTimeAsync(1_000)
 
-    expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual(['row-fresh'])
-    expect(h.rows.map((row) => row.id)).toEqual(['row-fresh'])
+    expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual([
+      'repeat-first',
+      'repeat-second',
+    ])
+    expect(h.rows.map((row) => row.id)).toEqual(['repeat-second'])
     expect(h.rejected).toEqual([])
+    expect(h.promptFailed).not.toHaveBeenCalled()
+  })
+
+  // POD-4687: the witness matched on a PREFIX (the first 80 normalized
+  // characters), so a long templated prompt sharing its head with an earlier
+  // turn was dropped even when the rest differed. Sharing a prefix is not
+  // identity: different row ids must both forward.
+  it('forwards a message sharing its first 80 characters with a recent turn', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.parse('2026-09-24T10:20:00.000Z'))
+    const h = harness({ contractReceipts: [] })
+    const head = 'Write the numbers from 1 to 200 in order, separated by commas, with no other text. '
+    const first = `${head}(run 40-41)`
+    const second = `${head}(run 65-43)`
+    expect(head.length).toBeGreaterThan(80)
+    await h.inbox.queueText({ sessionId: SID, text: first, mutationId: asMutationId('prefix-first'), principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(1_000)
+    h.transcript.push({ id: 'u-prefix', role: 'user', text: first, ts: '2026-09-24T10:20:05.000Z' } as never)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'prefix-first', outcome: 'delivered' })
+
+    vi.setSystemTime(Date.parse('2026-09-24T10:24:00.000Z'))
+    await h.inbox.queueText({ sessionId: SID, text: second, mutationId: asMutationId('prefix-second'), principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual([
+      'prefix-first',
+      'prefix-second',
+    ])
+    expect(h.rows.map((row) => row.id)).toEqual(['prefix-second'])
     expect(h.promptFailed).not.toHaveBeenCalled()
   })
 
@@ -854,11 +888,12 @@ describe('SessionInbox authorization and identity', () => {
    * catches a widening is the harness that shares the OTHER capability and is
    * still out, which is what the second row is for.
    */
-  it('queues a first Claude send after a bind, because nothing else can witness it', async () => {
+  it('queues a first Claude send after a bind, because agent sends always queue to the contract', async () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'claude-code' })
     // `live` says nothing about whether the composer is mounted, so the first
-    // send goes through the queue and is confirmed from the transcript.
+    // send goes through the durable queue and settles on the daemon's delivery
+    // event — never on what the server thinks the transcript says (POD-4687).
     expect(await h.inbox.sendText({ sessionId: SID, text: 'first' })).toEqual({ ok: true, queued: true })
     expect(h.sent).toEqual([])
     expect(h.rows).toHaveLength(1)

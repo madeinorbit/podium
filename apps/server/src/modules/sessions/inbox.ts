@@ -79,10 +79,6 @@ const log = createLogger('server:session-inbox')
  * is better left to finish its current pass than re-entered every few seconds.
  */
 export const QUEUED_INPUT_SWEEP_MS = 60_000
-/** Prefix of the normalized prompt used to recognise it in the transcript. */
-const CONFIRM_NEEDLE_CHARS = 80
-/** Below this, a needle matches too much of the transcript to be evidence. */
-const CONFIRM_NEEDLE_MIN_CHARS = 12
 
 /** Stable queue key for the prompt supplied in the session creation request. */
 const INITIAL_PROMPT_QUEUE_ID_PREFIX = 'session-initial-prompt:'
@@ -168,9 +164,8 @@ export interface QueuedInboxMessage {
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   id: string
   text: string
-  /** Epoch ms the row was accepted. The transcript witness below compares a
-   *  user turn's time against it, so an OLDER identical turn never settles a
-   *  NEWER row. */
+  /** Epoch ms the row was accepted. Orders the durable FIFO; the daemon
+   *  delivers rows in this order and dedupes re-forwards by row id. */
   queuedAt: number
   attempts: number
   deliveryOwner?: string | null
@@ -391,93 +386,11 @@ export interface InboxSendInput {
   allowErrored?: boolean
 }
 
-/** Wrapping and indentation are the harness's, not the author's — compare on
- *  neither. */
-const normalizeForMatch = (text: string): string => text.replace(/\s+/g, ' ').trim()
-
-/**
- * The fragment of a queued prompt we look for in the transcript to know the CLI
- * accepted it. A prefix, because a harness may elide or decorate the tail of a
- * long paste; the complete normalized prompt when its identity must be exact;
- * null when the prompt is too short to be evidence of anything.
- */
-const confirmationNeedle = (text: string, exact = false): string | null => {
-  const normalized = normalizeForMatch(text)
-  // Nothing to look for. The only genuinely unwitnessable send.
-  if (normalized.length === 0) return null
-  if (normalized.length < CONFIRM_NEEDLE_MIN_CHARS && !exact) return null
-  return exact ? normalized : normalized.slice(0, CONFIRM_NEEDLE_CHARS)
-}
-
 const initialPromptQueueId = (sessionId: SessionId): string =>
   `${INITIAL_PROMPT_QUEUE_ID_PREFIX}${sessionId}`
 
 const isInitialPromptRow = (sessionId: SessionId, row: QueuedInboxMessage): boolean =>
   row.id === initialPromptQueueId(sessionId)
-
-/** The LAST user turn, and whether it is ours. Deliberately the tail rather than
- *  a count: the daemon re-reads a resumed transcript as a `reset` delta, which
- *  moves every count but leaves the tail meaning what it means. */
-const tailUserTurnMatches = (session: Session, needle: string, exact = false): boolean => {
-  const items = session.terminal.transcriptItems()
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i]
-    if (item?.role !== 'user') continue
-    const normalized = normalizeForMatch(item.text)
-    return exact ? normalized === needle : normalized.includes(needle)
-  }
-  return false
-}
-
-/**
- * Clock tolerance between the server's `queuedAt` and the harness's own
- * transcript timestamps, which may come from another machine.
- */
-const WITNESS_CLOCK_SKEW_MS = 5 * 60_000
-
-/**
- * Was this queued row ALREADY DELIVERED by an earlier custody (POD-4360)? The
- * proof is the transcript: a user turn carrying the row's text, recorded at or
- * after the row was queued. A turn without a timestamp can only prove the TAIL
- * — the same rule the legacy drain's late-landing check uses.
- *
- * WHY THIS EXISTS. Custody of a forwarded row lives in server memory: a restart
- * forgets it and hands every remaining row to the daemon again. That is correct
- * for a row the previous process never got to — and a second copy for one it
- * did. The coordinator this was found on received the same nineteen
- * child-finished notices after every server update of the day, because the
- * outcomes that would have deleted the rows were being dropped upstream.
- */
-const transcriptWitnesses = (session: Session, row: QueuedInboxMessage): boolean => {
-  const needle = confirmationNeedle(row.text)
-  if (needle === null) return false
-  // Contract-era transcript lives in both surfaces: legacy provider deltas land
-  // in `transcriptItems`, driver runtime events land in `runtimeTranscript`
-  // (and are bridged into `transcript`). Check both so a witness is seen
-  // whichever path carried it after a restart. The runtime surface is optional
-  // only as a fixture affordance — production terminals always carry it.
-  const surfaces = [session.terminal.transcriptItems()]
-  const runtimeItems = session.terminal.runtimeTranscriptItems?.()
-  if (runtimeItems) surfaces.push(runtimeItems)
-  const notBefore = row.queuedAt - WITNESS_CLOCK_SKEW_MS
-  for (const items of surfaces) {
-    for (let i = items.length - 1; i >= 0; i--) {
-      const item = items[i]
-      if (item?.role !== 'user') continue
-      const at = item.ts ? Date.parse(item.ts) : Number.NaN
-      // Untimed turns: the tail is the only position that proves anything.
-      // A non-matching tail ends this surface, not the search: the other
-      // surface may still carry a timed witness.
-      if (!Number.isFinite(at)) {
-        if (normalizeForMatch(item.text).includes(needle)) return true
-        break
-      }
-      if (at < notBefore) break
-      if (normalizeForMatch(item.text).includes(needle)) return true
-    }
-  }
-  return false
-}
 
 /** Archive records deliberate human intent, never a provider failure that a
  * recovery answer may override. Keep this gate separate from
@@ -1194,11 +1107,12 @@ export class SessionInbox {
       const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
         session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
         // A starting session WITH transcript history is rebinding after a
-        // restart (POD-4360): its transcript may not yet carry the witness
-        // turns the previous custody delivered, so forwarding now would
-        // duplicate them. Hold until live, when hydration has landed and the
-        // witness check below is reliable. New sessions (no transcript) still
-        // forward from admission.
+        // restart (POD-4360): its driver may not be hydrated yet, and a forward
+        // now would meet an unready daemon and burn the row into a spurious
+        // unconfirmed failure. Hold until live, when the bind-time drain
+        // re-admits. New sessions (no transcript) still forward from admission.
+        // Duplicate custody itself is the daemon's to absorb by row id
+        // (POD-4687), never this gate's.
         (session.status === 'live' || (session.status === 'starting' && !session.transcriptAvailable)) &&
         // Drain only calls this for agents, and the contract is their only
         // delivery (POD-4427): there is no rollout gate and no second route.
@@ -1227,16 +1141,11 @@ export class SessionInbox {
           await this.deps.queue.delete(row.id)
           continue
         }
-        // ALREADY DELIVERED (POD-4360): a previous custody delivered it and
-        // the outcome never came back. Settle it here; delivering it again is
-        // the duplicate the agent would read as a replay.
-        if (transcriptWitnesses(session, row)) {
-          log.info('queued row already witnessed in the transcript; settling without redelivery', {
-            sessionId, rowId: row.id,
-          })
-          await this.settleDelivered(session, row)
-          continue
-        }
+        // Duplicate custody after a server restart is the DAEMON's to absorb
+        // (POD-4687): rows forward with their stable row id, and the daemon's
+        // delivery queue replays the already-delivered outcome instead of
+        // typing the prompt twice. The server never settles a row on what the
+        // transcript seems to say — only the daemon knows what it delivered.
         const recovery = row.attempts > 0 || row.deliveryOwner === 'daemon'
         // The durable reservation precedes every possible external write. On a
         // replacement owner it means confirm-or-fail, never replay the prompt.

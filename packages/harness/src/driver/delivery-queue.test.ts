@@ -164,6 +164,28 @@ describe('durable row delivery', () => {
     expect(f.emit.mock.calls.map(([event]) => event.outcome)).toEqual(['delivered', 'delivered'])
   })
 
+  // POD-4687: the server restart half of the duplicate story. The server
+  // re-forwards every still-queued row with its stable row id; a row this
+  // daemon already delivered must report "delivered" again WITHOUT typing —
+  // the delivery queue is idempotent by row id for its whole lifetime. The
+  // re-forward carries deliveryRecovery (the server reserved the row before
+  // the crash), which must not turn a proven delivery into a failure.
+  it('replays an already-delivered row id without typing a second time', async () => {
+    const f = fixture()
+    f.ready()
+    const options = { origin: 'human', delivery: 'when-ready' } as const
+    await f.handle.send({ rowId: 'repeat', text: 'same text twice' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'repeat', outcome: 'delivered' })
+    // The server restarts and re-forwards the row whose outcome never came back.
+    f.emit.mockClear()
+    await f.handle.send({ rowId: 'repeat', deliveryRecovery: true, text: 'same text twice' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'repeat', outcome: 'delivered' })
+  })
+
   it('replays completed acceptance when cancellation cannot retract it', async () => {
     const f = fixture()
     f.ready()
