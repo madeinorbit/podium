@@ -99,7 +99,11 @@ function answerUploads(
 }
 
 /** A live idle claude-code session the seance can address. */
-async function liveSession(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: string, cwd = '/p'): Promise<void> {
+async function liveSession(
+  o: Awaited<ReturnType<typeof makeOracle>>,
+  sessionId: string,
+  cwd = '/p',
+): Promise<void> {
   await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
@@ -396,25 +400,23 @@ describe('oracle: sessions.uploadImage', () => {
     expect(o.daemon.some((msg) => msg.type === 'imageUploadRequest')).toBe(false)
   })
 
-  it(`${MUST_NOT_CHANGE}: a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message`,
-    async () => {
-      const o = await makeOracle()
-      // A shell: the RPC path's error shape (an agent gets a typed refusal).
-      const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-      answerUploads(o, () => ({ path: '', error: 'disk full' }))
+  it(`${MUST_NOT_CHANGE}: a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message`, async () => {
+    const o = await makeOracle()
+    // A shell: the RPC path's error shape (an agent gets a typed refusal).
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    answerUploads(o, () => ({ path: '', error: 'disk full' }))
 
-      expect(
-        await messageOf(() =>
-          o.call.sessions.uploadImage({
-            sessionId,
-            filename: 'shot.png',
-            mimeType: 'image/png',
-            dataBase64: 'AA==',
-          }),
-        ),
-      ).toBe('disk full')
-    },
-  )
+    expect(
+      await messageOf(() =>
+        o.call.sessions.uploadImage({
+          sessionId,
+          filename: 'shot.png',
+          mimeType: 'image/png',
+          dataBase64: 'AA==',
+        }),
+      ),
+    ).toBe('disk full')
+  })
 
   it(`${MUST_NOT_CHANGE}: an answer with no path is treated as NOBODY ANSWERING — a TIMEOUT, not a silent success`, async () => {
     const o = await makeOracle()
@@ -727,7 +729,10 @@ describe('oracle: sessions.uploadImage', () => {
       await vi.advanceTimersByTimeAsync(10_000)
       expect(await stagedSettled).toEqual({ refusal: { reason: 'not_running' } })
       expect(o.daemon).toContainEqual(
-        expect.objectContaining({ type: 'runtimeStageAttachmentRequest', sessionId: agent.sessionId }),
+        expect.objectContaining({
+          type: 'runtimeStageAttachmentRequest',
+          sessionId: agent.sessionId,
+        }),
       )
     } finally {
       vi.useRealTimers()

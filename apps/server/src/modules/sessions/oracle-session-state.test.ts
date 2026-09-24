@@ -11,8 +11,8 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import { asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
-import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
 
@@ -22,7 +22,10 @@ afterEach(() => disposeOracles())
 const RESUME = { kind: 'claude-session', value: 'native-fence-1' } as const
 
 /** Bind a created session as a live, idle claude-code agent with a resume ref. */
-async function goLive(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: SessionId): Promise<void> {
+async function goLive(
+  o: Awaited<ReturnType<typeof makeOracle>>,
+  sessionId: SessionId,
+): Promise<void> {
   const machineId = o.reg.sessionStore.hostMachineId
   await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'bind',
@@ -52,8 +55,7 @@ async function goLive(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: Sess
  */
 const retirements = (daemon: ControlMessage[], sessionId: SessionId) =>
   daemon.filter(
-    (m) =>
-      (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
+    (m) => (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
   )
 
 /** Every spawn frame the server sent for one session, in order. */
@@ -129,7 +131,9 @@ describe('oracle: rename (the curated name slot)', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.reg.modules.sessions.setAgentName({ sessionId, name: 'first guess' })
 
-    expect((await o.reg.modules.sessions.setAgentName({ sessionId, name: 'second guess' })).ok).toBe(true)
+    expect(
+      (await o.reg.modules.sessions.setAgentName({ sessionId, name: 'second guess' })).ok,
+    ).toBe(true)
     expect(await o.meta(sessionId)).toMatchObject({ name: 'second guess', nameSource: 'agent' })
   })
 })
@@ -228,7 +232,7 @@ describe('oracle: read state', () => {
     const secondId = attachTestClient(o.reg.clientGateway, (m) => second.push(m))
     await o.reg.clientGateway.routeClientFrame(secondId, {
       type: 'hello',
-    caps: ['sync.http.v1'],
+      caps: ['sync.http.v1'],
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -404,9 +408,9 @@ describe('oracle: snoozes', () => {
     const until = new Date(Date.now() + 1_000).toISOString()
     await o.call.snoozes.set({ sessionId, until })
 
-    expect(
-      await o.store.sessions.listSnoozes(firstAdminMemberId(), Date.parse(until) + 1),
-    ).toEqual({})
+    expect(await o.store.sessions.listSnoozes(firstAdminMemberId(), Date.parse(until) + 1)).toEqual(
+      {},
+    )
     // The lazy delete is a real write: the row is gone on the next read too.
     expect(
       await o.store.sessions.listSnoozes(firstAdminMemberId(), Date.parse(until) - 500),
@@ -490,7 +494,7 @@ describe('oracle: composer drafts', () => {
     const watcher: ServerMessage[] = []
     await o.reg.clientGateway.routeClientFrame(authorId, {
       type: 'hello',
-    caps: ['sync.http.v1'],
+      caps: ['sync.http.v1'],
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -498,7 +502,7 @@ describe('oracle: composer drafts', () => {
     const watcherId = attachTestClient(o.reg.clientGateway, (m) => watcher.push(m))
     await o.reg.clientGateway.routeClientFrame(watcherId, {
       type: 'hello',
-    caps: ['sync.http.v1'],
+      caps: ['sync.http.v1'],
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -625,7 +629,9 @@ describe('oracle: the wake fence (POD-1472)', () => {
     })
 
     expect(reopened.sessionId).toBe(sessionId)
-    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([sessionId])
+    expect(
+      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId),
+    ).toEqual([sessionId])
     expect((await o.store.sessions.loadSessions()).map((r) => r.id)).toEqual([sessionId])
     expect((await o.meta(sessionId)).status).toBe('starting')
     // It is the resurrect path, so it fences too — one frame, under the old id.

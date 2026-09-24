@@ -102,7 +102,10 @@ async function twoIssueOracle() {
   const b = await o.reg.issues.create({ repoPath: '/r', title: 'issue B', startNow: false })
   await o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
   // The AGENT: a session inside A's worktree ⇒ capability scoped to A's subtree.
-  const agent = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/.worktrees/a' })
+  const agent = await o.reg.modules.sessions.createSession({
+    agentKind: 'shell',
+    cwd: '/r/.worktrees/a',
+  })
   return { o, a, b, agentSessionId: agent.sessionId }
 }
 
@@ -125,7 +128,10 @@ describe('oracle: the authenticated admin seam', () => {
 
     await o.call.sessions.rename({ sessionId: foreign.sessionId, name: 'taken over' })
 
-    expect(await o.meta(foreign.sessionId)).toMatchObject({ name: 'taken over', nameSource: 'user' })
+    expect(await o.meta(foreign.sessionId)).toMatchObject({
+      name: 'taken over',
+      nameSource: 'user',
+    })
   })
 })
 
@@ -363,21 +369,28 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     await waitFor(() => killIndex() >= 0, 'the deferred retirement to reach the daemon')
     expect(replyIndex).toBeGreaterThanOrEqual(0)
     expect(replyIndex).toBeLessThan(killIndex())
-    expect(o.daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === agentSessionId)).toEqual([
-      expect.objectContaining({ verb: 'stop' }),
-    ])
+    expect(
+      o.daemon.filter(
+        (m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === agentSessionId,
+      ),
+    ).toEqual([expect.objectContaining({ verb: 'stop' })])
     expect(o.daemon.some((m) => m.type === 'kill' && m.sessionId === agentSessionId)).toBe(false)
 
     // A shell parks as 'hibernated' (a fresh spawn IS its recovery, so stop keeps
     // it resumable) — the row survives the self-stop.
     expect(
-      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === agentSessionId)?.status,
+      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === agentSessionId,
+      )?.status,
     ).toBe('hibernated')
   })
 
   it(`${AGENT_ONLY}: stopping an ISSUELESS stranger is refused with a message DIFFERENT from the send path's — and --outside-scope DOES lift it here`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
-    const orphan = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const orphan = await o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/elsewhere',
+    })
 
     const denied = await o.relay({
       requestId: 'stop-issueless',
@@ -459,7 +472,10 @@ describe('oracle: the writes an agent CAN make, and what gates them', () => {
 
   it(`${AGENT_ONLY}: an ISSUELESS target is parent-or-operator only, and --outside-scope does NOT substitute`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
-    const orphan = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const orphan = await o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/elsewhere',
+    })
 
     const denied = await o.relay({
       requestId: 'send-issueless',
