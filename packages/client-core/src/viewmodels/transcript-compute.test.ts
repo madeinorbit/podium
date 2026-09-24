@@ -84,7 +84,12 @@ describe('computeTranscript', () => {
             ts: '2026-09-23T07:26:46.376Z',
             text: 'Not logged in · Please run /login',
           }),
-          item({ id: 'u1', role: 'user', ts: '2026-09-23T07:26:45.756Z', text: 'What is 8 times 9?' }),
+          item({
+            id: 'u1',
+            role: 'user',
+            ts: '2026-09-23T07:26:45.756Z',
+            text: 'What is 8 times 9?',
+          }),
         ]),
       ).toEqual(['u0', 'a0', 'u1', 'err'])
     })

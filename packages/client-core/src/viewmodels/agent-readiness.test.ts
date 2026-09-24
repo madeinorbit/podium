@@ -1,5 +1,5 @@
 import { asMachineId } from '@podium/model'
-import type { GitRepositoryWire, MachineWire } from '@podium/model'
+import type { GitRepositoryWire, HarnessAgent, MachineWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   activationAgentIsInstalled,
@@ -78,24 +78,22 @@ describe('activation agent readiness', () => {
 })
 
 describe('the harness a launch starts on (POD-4639)', () => {
-  const studio = (logins: Record<string, 'in' | 'out'>): MachineWire => {
+  type Logins = Partial<Record<HarnessAgent, 'in' | 'out'>>
+  const studio = (logins: Logins): MachineWire => {
     const base = machine(null)
     return {
       ...base,
       inventory: {
         ...base.inventory!,
         agents: Object.entries(logins).map(([kind, login]) => ({
-          kind,
+          kind: kind as HarnessAgent,
           installed: true,
           login: { state: login },
         })),
       },
     }
   }
-  const pick = (
-    logins: Record<string, 'in' | 'out'>,
-    picked?: 'claude-code' | 'opencode' | null,
-  ) =>
+  const pick = (logins: Logins, picked?: 'claude-code' | 'opencode' | null) =>
     launchAgentKind({
       picked,
       preferred: 'claude-code',

@@ -85,11 +85,15 @@ function machine(
 }
 
 const READY = [machine({ 'claude-code': 'in', opencode: 'in' })]
-const NOT_READY = 'The selected agent is not ready on this machine yet. Open Settings → Agents to finish setup.'
+const NOT_READY =
+  'The selected agent is not ready on this machine yet. Open Settings → Agents to finish setup.'
 
 describe('the phone launch sheet', () => {
   it('states the only project and starts from it, instead of asking for it', async () => {
-    await renderWithMobileStore(<NewWorkButton />, { repos: [repo('/home/dev/podium')], machines: READY })
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium')],
+      machines: READY,
+    })
     fireEvent.click(screen.getByLabelText('New work'))
 
     // Named on the primary control, so the sheet still says where this lands.
@@ -117,7 +121,10 @@ describe('the phone launch sheet', () => {
   })
 
   it('offers the shell inside the model list rather than as a second control', async () => {
-    await renderWithMobileStore(<NewWorkButton />, { repos: [repo('/home/dev/podium')], machines: READY })
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium')],
+      machines: READY,
+    })
     fireEvent.click(screen.getByLabelText('New work'))
     expect(screen.queryByLabelText('Shell')).toBeNull()
 

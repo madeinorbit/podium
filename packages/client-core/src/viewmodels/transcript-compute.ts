@@ -48,11 +48,12 @@ export function computeTranscript(input: TranscriptComputeInput): TranscriptComp
  *
  * Items arrive in the harness file's byte order, and that order is the cursor
  * contract — paging and merging depend on it, so it is not touched upstream.
- * But Claude Code writes a synthetic reply it produces WITHOUT a model call
+ * But Claude Code can write a synthetic reply it produces WITHOUT a model call
  * ("Not logged in · Please run /login") to its JSONL before it flushes the
  * prompt that caused it, so a signed-out launch rendered the reply above the
  * prompt on every client. Both lines carry honest timestamps; only the write
- * order is inverted.
+ * order is inverted. It is a race, not a format: 2.1.280 inverted it on a
+ * Podium launch, while a local 2.1.281 run wrote the same pair in order.
  *
  * So a prompt is lifted, here where rows are shaped, above the replies
  * directly over it that are stamped AFTER it. The lift is deliberately
