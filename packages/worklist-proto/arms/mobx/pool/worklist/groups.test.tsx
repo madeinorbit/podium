@@ -501,7 +501,20 @@ describe('the windowed web list (Mb2)', () => {
       const coldVisible = tracked(
         () => pool.worklist.order.filter((id) => pool.residency?.isCold('issue', id)).length,
       )
-      expect(queuedAtPaint).toBeLessThan(coldVisible)
+      // What drawing the WHOLE list would load: every cold visible row and
+      // every cold origin a visible spin-off's tick names. Since POD-4665 the
+      // schema keeps visible rows resident (coldVisible is 0), so what is left
+      // is the ticked origins; the window loads only those its rows reach.
+      const wholeListLoads = tracked(() => {
+        const cold = new Set<string>()
+        for (const id of pool.worklist.order) {
+          if (pool.residency?.isCold('issue', id)) cold.add(id)
+          const origin = pool.graph.one('issue', id, 'discoveredFrom')
+          if (origin !== null && pool.residency?.isCold('issue', origin)) cold.add(origin)
+        }
+        return cold.size
+      })
+      expect(queuedAtPaint).toBeLessThan(wholeListLoads)
       const hydratedBefore = pool.residency?.counters.hydrated ?? 0
       settle(pool)
       const loadedSettlingFirstWindow = (pool.residency?.counters.hydrated ?? 0) - hydratedBefore
@@ -555,6 +568,7 @@ describe('the windowed web list (Mb2)', () => {
       writeResult('mobx-groups-window-1x', {
         visible,
         coldVisible,
+        wholeListLoads,
         firstWindowDrawn: firstWindow,
         coldQueuedAtFirstPaint: queuedAtPaint,
         feedReadsAtBootstrap: byKind(feedReads.bootstrap),

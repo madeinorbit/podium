@@ -438,7 +438,9 @@ this change.
 | MobX: models at first paint | 991 / 4,218 | 2,085 / 8,477 |
 | MobX: models once first paint has settled (counted after the loads land) | 2,169 / 8,792 | 2,169 / 8,792 |
 | MobX: visibility nodes (IssueNode / SessionNode) | 4,867 / 19,468 · 2,641 / 9,415 | unchanged |
+| MobX windowed list (Mb2, `groups.test.tsx`), first window of 108 rows at 1x: loads queued at paint / rows loaded settling / feed reads settling | 59 / 156 / 482 (Mb2's NOTES, ad9fbb7e7) | 13 / 13 / 13 |
 | Parity (Mb1 `visible.test.tsx`, #1-#5 at 1x) | green | green |
+| L4b gate, both pools (3 seeds x 200, planted defects fail) | green | green |
 
 The last model rows are the point. Once first paint has settled, (a) and (b)
 hold exactly the same objects. (b) builds them before the paint, (a) builds
