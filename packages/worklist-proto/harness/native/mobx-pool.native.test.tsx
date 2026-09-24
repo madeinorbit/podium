@@ -13,16 +13,49 @@
  * per group): it draws a window from the top, not every row, so the renamed
  * row is the first drawn root. Parity and the counted scenarios are the web
  * lane's (`arms/mobx/pool/worklist/visible.test.tsx`, `groups.test.tsx`).
+ *
+ * THE TRAP (POD-4572, M3 note N3): this lane runs the pool under the MobX
+ * trap with `errors` on, so a warning, or a throw inside a reaction (which
+ * MobX reports through `console.error`), fails the test. Proven armed below
+ * with a planted warning and a planted reaction error.
  */
 
+import { observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
+import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
 import { tracked } from '../../arms/mobx/pool/pool'
 import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
 import { openFenceFeeds } from '../src/fence-scenarios'
+
+const trap = installMobxWarnTrap({ errors: true })
+
+describe('the MobX trap in the native lane (armed)', () => {
+  it('traps a planted warning and a planted reaction error', () => {
+    expect(() => console.warn('[plant] warning')).toThrow(/trapped/)
+    expect(trap.warnings).toEqual(['[plant] warning'])
+    const box = observable.box(0, { name: 'plant.box' })
+    const stop = reaction(
+      () => box.get(),
+      () => {
+        throw new Error('[plant] thrown inside a reaction')
+      },
+    )
+    try {
+      // MobX catches the throw and reports it through console.error.
+      expect(() => runInAction(() => box.set(1))).not.toThrow()
+    } finally {
+      stop()
+    }
+    expect(trap.errors.join('\n')).toMatch(/\[plant\] thrown inside a reaction/)
+    // Caught, so the proof itself passes the afterEach check.
+    trap.warnings.length = 0
+    trap.errors.length = 0
+  })
+})
 
 describe('mobx pool on the native renderer', () => {
   it('draws a window of the grouped rows; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row', async () => {

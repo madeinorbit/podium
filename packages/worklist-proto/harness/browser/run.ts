@@ -155,6 +155,7 @@ interface Args {
   offwindow: boolean
   strictParity: boolean
   markSettle: boolean
+  consolePlant: string | null
   dryRun: boolean
 }
 
@@ -182,6 +183,9 @@ function parseArgs(argv: string[]): Args {
     }
   }
   if (scenarios.includes('rescope')) rescopeScale(scale as Scale)
+  const consolePlant = get('--console-plant')
+  if (consolePlant !== undefined && (arm !== 'mobx' || !['warn', 'reaction'].includes(consolePlant)))
+    throw new Error('--console-plant is warn or reaction, for --arm mobx only')
   return {
     arm: arm as ArmName,
     scale: scale as Scale,
@@ -208,6 +212,10 @@ function parseArgs(argv: string[]): Args {
     strictParity: argv.includes('--strict-parity'),
     // Proof plant: drop the step's mark-read settle; the control's strays return.
     markSettle: !argv.includes('--no-mark-settle'),
+    // Proof plant (POD-4572): the MobX page plants a console warning (`warn`)
+    // or a reaction that throws (`reaction`) after boot; the console trap
+    // must fail the run. Never a timing run.
+    consolePlant: consolePlant ?? null,
     // Print the plan (rounds, rotated scenario order, what complete means) and exit.
     dryRun: argv.includes('--dry-run'),
   }
@@ -347,7 +355,7 @@ async function main(): Promise<number> {
   try {
     server = await serveDist(args.serve, args.port)
     const plant = args.plant === null ? '' : `&plant=${encodeURIComponent(args.plant)}`
-    const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}${args.markSettle ? '' : '&marksettle=0'}`
+    const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}${args.markSettle ? '' : '&marksettle=0'}${args.consolePlant === null ? '' : `&consoleplant=${args.consolePlant}`}`
     const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}${plant}${proof}`
     /**
      * One page load of the arm in its own browser context (a fresh renderer:
@@ -359,6 +367,17 @@ async function main(): Promise<number> {
       const context = await browser.newContext({ viewport: VIEWPORT })
       const page = await context.newPage()
       page.on('pageerror', (error) => fail(`page error: ${error.message}`))
+      // THE CONSOLE TRAP (POD-4572, M3 note N3): MobX reports a throw inside
+      // a reaction through console.error, and its enforcement only warns, so
+      // a candidate arm's run fails on any console warning or error. Other
+      // pages' messages are printed, not failed.
+      page.on('console', (message) => {
+        const type = message.type()
+        if (type !== 'warning' && type !== 'error') return
+        const text = `console ${type}: ${message.text().slice(0, 300)}`
+        if (CANDIDATE_ARMS.has(args.arm)) fail(text)
+        else console.log(`[browser] ${args.arm} ${text}`)
+      })
       await page.goto(hold ? `${url}&hold=1` : url, { waitUntil: 'domcontentloaded' })
       await page.waitForFunction(
         () => (window as unknown as { __proto?: { ready: boolean } }).__proto?.ready !== undefined,

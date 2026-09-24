@@ -8,7 +8,11 @@
  *   row, so a pass is not 0 == 0.
  * - Every ROUND-THREE arm (`roster.ts`) must pass, on every scenario: the
  *   exact-commit fence, parity, the reads budget (every step has one), and
- *   the copy sweep (no row held outside the wrapped tables).
+ *   the copy sweep (no row held outside the wrapped tables). An arm's
+ *   exception to one fence is a NAMED allowance on its roster entry
+ *   (`RosterAllowances`: the issue that removes it), applied here only,
+ *   recorded per step in the results cell, and failing the suite when no
+ *   step needed it (POD-4572).
  * - The roster and the `arms/<folder>/fence.json` manifests the lint fence
  *   reads name the same folders.
  *
@@ -25,10 +29,12 @@ import {
   FENCE_SCENARIOS,
   type FenceStep,
   openFenceFeeds,
+  parityLocals,
   runFenceScenarios,
   runFenceStep,
 } from './fence-scenarios'
-import { rowViewsFromStore } from './oracle/index'
+import { diffSnapshots } from '../../shared/src/gen/check'
+import { rowViewsFromStore, snapshotFromStore } from './oracle/index'
 import { referenceArmFor } from './reference-arm/arm'
 import { ROUND_THREE_ARMS } from './roster'
 
@@ -40,10 +46,10 @@ const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
 const ARMS_DIR = join(PACKAGE_DIR, 'arms')
 
 /** Per-scenario cells to the (git-ignored) results folder: the evidence behind a green run. */
-function writeResults(name: string, steps: FenceStep[]): void {
+function writeResults(name: string, steps: FenceStep[], allowed?: readonly AllowanceCell[]): void {
   const dir = join(PACKAGE_DIR, 'harness', 'browser', 'results')
   mkdirSync(dir, { recursive: true })
-  const cells = steps.map(({ result, readsBudget }) => ({
+  const cells = steps.map(({ result, readsBudget }, index) => ({
     methodology: result.methodology,
     scenario: result.scenario,
     oracleChanged: result.oracleChangedRows,
@@ -54,7 +60,9 @@ function writeResults(name: string, steps: FenceStep[]): void {
     visibleRows: result.visibleRows,
     readsPerChange: result.readsPerChange,
     readsBudget,
+    stats: result.stats,
     parity: result.parity,
+    ...(allowed === undefined ? {} : { allowed: allowed[index] }),
   }))
   writeFileSync(join(dir, name), `${JSON.stringify({ scale: 1, cells }, null, 2)}\n`)
 }
@@ -130,32 +138,89 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
   }, 120_000)
 })
 
+/** What each named allowance (`roster.ts`) did on one step. */
+interface AllowanceCell {
+  /** POD-4671-style parity patch: the row taken from the arm, or null. */
+  parity: string | null
+  /** Rows accepted undrawn by the commit allowance. */
+  undrawn: string[]
+  /** Extra reads granted beyond the step's budget. */
+  reads: number
+}
+
 for (const entry of ROUND_THREE_ARMS) {
   describe(`fences: ${entry.name}`, () => {
     it('passes the exact-commit fence, parity, the reads budgets and the copy sweep on every scenario', async () => {
       const ctx = await startScenarioEngine(1)
       const feeds = openFenceFeeds(ctx, entry.mode)
       const mounted = mountArmForCounts(entry.armFor(ctx), feeds.rows.source, feeds.locals)
+      const allow = entry.allowances ?? {}
+      const allowed: AllowanceCell[] = []
       try {
-        const steps = await runFenceScenarios(
-          mounted,
-          ctx,
-          feeds.flush,
-          ({ result, readsBudget }) => {
-            expect(result.parity, `${result.scenario}: ${result.parityDiff ?? ''}`).toBe(true)
+        const steps: FenceStep[] = []
+        for (const scenario of FENCE_SCENARIOS) {
+          // Counted BEFORE the write: the allowance never learns what the step read.
+          const extraReads = allow.reads?.before(ctx, mounted.handle, scenario) ?? 0
+          const viewsBefore = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+          const step = await runFenceStep(mounted, ctx, feeds.flush, scenario)
+          const { result, readsBudget } = step
+          const at = `${result.methodology} ${result.scenario}`
+          const cell: AllowanceCell = { parity: null, undrawn: [], reads: extraReads }
+          if (!result.parity) {
+            if (allow.parity === undefined) {
+              expect(result.parity, `${at}: ${result.parityDiff ?? ''}`).toBe(true)
+            }
+            const actual = mounted.handle.snapshot()
+            const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+            const patched = allow.parity!.accept(ctx, mounted.handle, oracle, actual)
+            expect(
+              diffSnapshots(actual, patched.snapshot),
+              `${at}: beyond ${allow.parity!.issue}'s parity allowance (${result.parityDiff ?? ''})`,
+            ).toBeNull()
+            cell.parity = patched.applied
+          }
+          try {
             assertCommits(result)
-            assertReads(result, { readsPerChange: readsBudget })
-            mounted.reads.assertNoCopies(mounted.handle)
-          },
-        )
+          } catch (error) {
+            if (allow.undrawn === undefined) throw error
+            const viewsAfter = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+            cell.undrawn = allow.undrawn.accept(result, viewsBefore, viewsAfter)
+          }
+          assertReads(result, { readsPerChange: readsBudget + extraReads })
+          mounted.reads.assertNoCopies(mounted.handle)
+          steps.push(step)
+          allowed.push(cell)
+        }
         console.info(`[fences] ${entry.name} changed/drawn per scenario: ${summary(steps)}`)
-        writeResults(`fences-${entry.folder}-1x.json`, steps)
+        writeResults(`fences-${entry.folder}-1x.json`, steps, allowed)
+        // A fixed gap takes its allowance with it: one never applied fails.
+        if (allow.parity !== undefined) {
+          expect(
+            allowed.some((cell) => cell.parity !== null),
+            `${allow.parity.issue}'s parity allowance was never applied: delete it`,
+          ).toBe(true)
+        }
+        if (allow.undrawn !== undefined) {
+          expect(
+            allowed.some((cell) => cell.undrawn.length > 0),
+            `${allow.undrawn.issue}'s commit allowance was never applied: delete it`,
+          ).toBe(true)
+        }
+        if (allow.reads !== undefined) {
+          expect(
+            steps.some(
+              ({ result, readsBudget }, index) =>
+                (result.readsPerChange ?? 0) > readsBudget && allowed[index]!.reads > 0,
+            ),
+            `${allow.reads.issue}'s reads allowance was never needed: delete it`,
+          ).toBe(true)
+        }
       } finally {
         mounted.unmount()
         feeds.dispose()
         ctx.engine.destroy()
       }
-    }, 120_000)
+    }, 300_000)
   })
 }
 
@@ -223,11 +288,10 @@ describe('wall-clock independence of the #9 steps', () => {
 /**
  * Arm folders that carry a fence manifest (so the lint fence covers them) but
  * are not on the roster yet, each with the issue that adds the entry and
- * removes the exception. Coordinator ruling on POD-4565: the a1 MobX pool has
- * no order or roll-ups, so it cannot pass parity on every scenario until Mb4.
+ * removes the exception. (The MobX pool's, from POD-4565, was removed by
+ * POD-4572 (Mb4), which put the pool on the roster.)
  */
 const PENDING_ROSTER: Readonly<Record<string, string>> = {
-  mobx: 'POD-4572 (Mb4) adds the MobX pool with every scenario and parity, and removes this exception',
   // Coordinator ruling on POD-4578 (symmetric with POD-4565): the a1 hand pool
   // has no order or roll-ups either. Moved from Ha4 to Hb4 by the coordinator's
   // correction of 2026-09-23 (parity needs the b phase's worklist).
