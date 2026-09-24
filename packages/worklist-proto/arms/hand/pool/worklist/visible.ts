@@ -745,10 +745,7 @@ class PartCells<P extends object> {
   }
 }
 
-function partsOver<P extends object>(
-  names: readonly (keyof P)[],
-  cells: PartCells<P>,
-): P {
+function partsOver<P extends object>(names: readonly (keyof P)[], cells: PartCells<P>): P {
   const parts = {} as P
   for (const name of names) {
     Object.defineProperty(parts, name, {

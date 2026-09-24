@@ -672,9 +672,7 @@ describe('transitions', () => {
     const { pool } = r
     const child = hotIssues.find(
       (issue) =>
-        issue.parentId != null &&
-        !isCold(issueById.get(issue.parentId)) &&
-        issue.archived !== true,
+        issue.parentId != null && !isCold(issueById.get(issue.parentId)) && issue.archived !== true,
     )!
     const parentId = child.parentId as string
     const children = () => [...pool.relations.many('issue', parentId, 'children')]
