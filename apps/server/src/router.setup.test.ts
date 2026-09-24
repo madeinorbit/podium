@@ -20,7 +20,6 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { createServerReadiness } from './server-readiness'
 import { OPERATOR } from './test-support/capabilities'
-import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
  * ONE registry per test, memoised: `setup.complete`'s optional password is a CREDENTIAL ROW
@@ -51,7 +50,7 @@ async function makeHarness() {
   installSetupParent()
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
-  await attachHostDaemon(registry, () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
@@ -86,7 +85,7 @@ async function activationHarness(opts: {
 }) {
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
-  await attachHostDaemon(registry, () => {})
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
