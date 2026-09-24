@@ -1581,7 +1581,17 @@ export class SessionRegistry {
           // live on every call, which is what the re-read after a hibernate
           // attempt depends on.
           const closed = await closedIssueIdsInScope()
-          const samples = [...liveSessions.values()]
+          // LIVE ONLY (POD-4657): the map holds every retained row — hibernated
+          // and exited included — and every sweep consumer filters
+          // `status === 'live'` first. Building a view (driver-family manifest
+          // scan plus four viewer-state lookups) for a dormant row is pure
+          // waste, paid five times per 5 s host sample; measured locally at
+          // ~30 ms of the tick on a 4.8k-row database (41.6 ms to 11.0 ms
+          // per sample). The list stays live-read per call, which is what
+          // the re-read after a hibernate attempt depends on.
+          const samples = [...liveSessions.values()].filter(
+            (session) => session.status === 'live',
+          )
           // Every shell resolves its owning issue through the one resolver
           // (POD-4526, mapping-first), so the reaper binds a dock shell to
           // its worktree's top-level issue even when its bound issue differs —
@@ -1590,7 +1600,10 @@ export class SessionRegistry {
           // what let one shell read as owner-open here and owner-closed
           // there. Non-shells never enter the map and keep their bound issue.
           // One mapping read per call, live shells only (POD-4627): the map
-          // below holds every stored session, dormant ones included.
+          // above holds no dormant session, and every reaper pass filters
+          // `status === 'live'` before it reads an owner, so a dormant
+          // shell's owner was never an input to a decision; skipping it
+          // changes no verdict.
           const ownerIssueIds = await resolveSampledShellOwners(
             {
               worktreesForSessions: (ids) => this.store.dockShells.worktreesForSessions(ids),
