@@ -994,8 +994,12 @@ describe('the reads fence and the write record', () => {
       expect(at4k.add.elements).toBeLessThanOrEqual(4)
       expect(at4k.remove.elements).toBeLessThanOrEqual(4)
       // Independent of the engine's own count: a small constant, nowhere near b.
-      expect(at4k.add.ops).toBeLessThan(100)
-      expect(at4k.remove.ops).toBeLessThan(100)
+      // POD-4582 raised it from 100: the row's worklist cells (a `visible` cell
+      // and a dozen parts, each linked to what it read) are built on the add
+      // and unlinked on the remove, a constant per ROW (62 / 121 ops at both
+      // sizes when measured), which the equality above already holds to b.
+      expect(at4k.add.ops).toBeLessThan(200)
+      expect(at4k.remove.ops).toBeLessThan(200)
       writeResult('hand-pool-bucket-upkeep', { bound: 'O(1) per edge', at4k, at8k })
     })
 
