@@ -217,6 +217,25 @@ export interface ProtoParity {
   oracle: string
   /** The first row (oracle order) where the two differ; null when they agree. */
   firstDifference: string | null
+  /** The arm's named parity allowance when it applied (`<issue>:<row>`), else null (POD-4572). */
+  allowance?: string | null
+}
+
+/**
+ * POD-4572 — an arm's NAMED parity allowance, the same one its fence-roster
+ * entry carries (`harness/src/roster.ts` `RosterAllowances.parity`): the
+ * oracle's snapshot patched for one known gap, named by the issue that
+ * removes it. Applied to the oracle side of every parity check on the page;
+ * the parity record names the row whenever it applied.
+ */
+export interface PageParityAllowance {
+  readonly issue: string
+  accept(
+    boot: ScenarioEngine,
+    handle: ArmHandle,
+    expected: SliceSnapshot,
+    actual: SliceSnapshot,
+  ): { snapshot: SliceSnapshot; applied: string | null }
 }
 
 /** A lifecycle step's record: the change fields, the step's phases, and for
@@ -422,6 +441,8 @@ export interface MountPageOptions {
   /** `performance.now()` at the entry module's first statement: the bundle
    *  fetched, parsed and evaluated (every static import), nothing else run. */
   scriptAt: number
+  /** The arm's named parity allowance (POD-4572); none by default. */
+  parityAllowance?: PageParityAllowance
 }
 
 export function readScale(): 1 | 2 | 4 {
@@ -443,7 +464,7 @@ export function mountPage(options: MountPageOptions): void {
   // No closure below reads `options`, and `boot`/`engine` move to the new
   // runtime on a principal switch: nothing on the page keeps the old one
   // alive, so the switch's retained heap is the arm's, not the harness's.
-  const { createArm, scale, counts, runtimeSha, el, scriptAt } = options
+  const { createArm, scale, counts, runtimeSha, el, scriptAt, parityAllowance } = options
   const armName = options.arm
   let boot = options.boot
   let engine = boot.engine
@@ -931,13 +952,17 @@ export function mountPage(options: MountPageOptions): void {
   /** The arm's output against the oracle's over the live engine, untimed. */
   function parityNow(): ProtoParity {
     const armSnapshot = live().handle.snapshot()
-    const oracle = oracleSnapshot(live().boot.engine.getSnapshot())
+    const raw = oracleSnapshot(live().boot.engine.getSnapshot())
+    const patched = parityAllowance?.accept(live().boot, live().handle, raw, armSnapshot)
+    const oracle = patched?.snapshot ?? raw
     const armHash = hashString(canonical(armSnapshot))
     const oracleHash = hashString(canonical(oracle))
     return {
       arm: armHash,
       oracle: oracleHash,
       firstDifference: armHash === oracleHash ? null : firstSnapshotDifference(armSnapshot, oracle),
+      allowance:
+        patched?.applied == null ? null : `${parityAllowance?.issue ?? ''}:${patched.applied}`,
     }
   }
 

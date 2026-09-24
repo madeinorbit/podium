@@ -25,7 +25,6 @@
  * `fences.test.tsx` fails when one of them is never applied.
  */
 
-import { isDeepStrictEqual } from 'node:util'
 import type { FixtureCorpus } from '../../../../harness/src/fixture/index'
 import type { CountResult } from '../../../../harness/src/count-harness'
 import type { RowViews } from '../../../../harness/src/oracle/index'
@@ -60,10 +59,10 @@ export function acceptUnscannedGap(
   }
   const want = expected.rowsById[issueId] as unknown as Record<string, unknown> | undefined
   const got = actual.rowsById[issueId] as unknown as Record<string, unknown> | undefined
-  if (want === undefined || got === undefined || isDeepStrictEqual(want, got)) {
+  if (want === undefined || got === undefined || same(want, got)) {
     return { snapshot: expected, applied: null }
   }
-  const fields = Object.keys(want).filter((field) => !isDeepStrictEqual(want[field], got[field]))
+  const fields = Object.keys(want).filter((field) => !same(want[field], got[field]))
   if (fields.some((field) => !SEAT_FIELDS.includes(field)))
     return { snapshot: expected, applied: null }
   return {
@@ -73,6 +72,24 @@ export function acceptUnscannedGap(
     },
     applied: issueId,
   }
+}
+
+/**
+ * Structural equality over plain row data (the browser page runs this too,
+ * so no `node:util`).
+ */
+function same(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const ka = Object.keys(a)
+  const kb = Object.keys(b)
+  if (ka.length !== kb.length) return false
+  return ka.every(
+    (key) =>
+      Object.hasOwn(b, key) &&
+      same((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+  )
 }
 
 /** The pool behind a roster handle (the fences create it through `mobxPoolArm`). */

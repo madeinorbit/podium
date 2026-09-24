@@ -2,7 +2,9 @@
  * POD-4572 (Mb4) — the MobX page mounts the ROUND-THREE pool
  * (`arms/mobx/pool`: the pool, its worklist, `pool/react/list.tsx`), built by
  * the page through `createArm(boot)` like every arm (`entrylib.ts`: held
- * pages, the lifecycle steps and parity per sample are the page's).
+ * pages, the lifecycle steps and parity per sample are the page's). Parity
+ * carries the pool's one named allowance, POD-4671's row, as the fence
+ * roster does (`worklist/known-gaps.ts`); each record names it when applied.
  *
  * THE CONSOLE TRAP (M3 note N3). The page is a production build, where
  * MobX's enforcement warnings are compiled out (`__MOBX_DEV__`); a throw
@@ -15,6 +17,7 @@
 
 import { observable, reaction, runInAction } from 'mobx'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
+import { MOBX_POOL_ALLOWANCES } from '../../../arms/mobx/pool/worklist/known-gaps'
 import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { buildCorpus } from '../../src/fixture/index'
 import { mountPage, readScale } from '../entrylib'
@@ -61,6 +64,8 @@ void startEngineOnCorpus(corpus).then((boot) => {
     runtimeSha: sha,
     el: document.getElementById('root')!,
     scriptAt,
+    // POD-4671's one row, the roster's own named allowance (`known-gaps.ts`).
+    parityAllowance: MOBX_POOL_ALLOWANCES.parity,
   })
   plantConsole(params.get('consoleplant'))
 })
