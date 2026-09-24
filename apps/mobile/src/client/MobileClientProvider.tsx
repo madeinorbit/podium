@@ -40,7 +40,7 @@ import {
   outboxCommandFor,
 } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type StoreNotices, StoreProvider, useStoreSelector } from '@podium/client-core/react'
+import { StoreProvider, useStoreSelector } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
   parseReplicaNamespaceKey,
@@ -110,7 +110,8 @@ import {
   type PendingProfileCleanup,
   profilePrincipal,
 } from './server-profiles'
-import { type MobileShell, MobileShellProvider, type NoticeTone } from './shell'
+import type { MobileShell, NoticeTone } from './shell'
+import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 
 const log = createLogger('mobile:replica')
 
@@ -628,9 +629,9 @@ function DemoProvider({ children }: { children: ReactNode }) {
       createReplicaFn={createReplicaFn}
       routerWindow={routerWindow}
     >
-      <MobileShellProvider value={DEMO_SHELL}>
+      <MobileShellSurface value={DEMO_SHELL}>
         <MobileSyncBoundary store={syncProgress}>{children}</MobileSyncBoundary>
-      </MobileShellProvider>
+      </MobileShellSurface>
     </StoreProvider>
   )
 }
@@ -768,7 +769,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // it holds two OS subscriptions, so a rebuild per render would leak them.
   const connectivity = useMemo(() => createPlatformConnectivity(), [])
   useEffect(() => () => connectivity?.dispose(), [connectivity])
-  const [error, setError] = useState<string | null>(null)
+  const { error, report: reportError, notices } = useShellErrorChannel()
   const [notice, setNotice] = useState<{ message: string; tone: NoticeTone } | null>(null)
   const authExpiryHandled = useRef(false)
   useEffect(() => {
@@ -779,13 +780,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
     authExpiryHandled.current = true
     void updateCredential(null).catch((cause: unknown) => {
       authExpiryHandled.current = false
-      setError(cause instanceof Error ? cause.message : String(cause))
+      reportError(cause instanceof Error ? cause.message : String(cause))
     })
   }, [bearer, updateCredential])
   const verifyLiveCredential = useCallback(() => {
     if (activation === 'offline-cache') {
       void revalidateOfflineProfile?.().catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        reportError(cause instanceof Error ? cause.message : String(cause))
       })
       return
     }
@@ -969,8 +970,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
         setBootStalled(false)
       } catch (cause) {
         // The boot is the ONE path with no store, no screens and therefore no
-        // other way to speak: `shell.error` is rendered by screens a failed boot
-        // never mounts. Swallowing here (or leaving the rejection unhandled, as
+        // other way to speak: `shell.error` is drawn under the store a failed
+        // boot never opens. Swallowing here (or leaving the rejection unhandled, as
         // this fire-and-forget IIFE did) is what made a broken start look exactly
         // like a slow one.
         if (alive) setBootFailure(cause instanceof Error ? cause.message : String(cause))
@@ -999,13 +1000,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
     retryBoot,
   ])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
-  // `info` stays a no-op: the engine's only info is a transient "a session moved
-  // to X" toast, and `notice` below is a STICKY banner for the storage facts the
-  // user is owed. Routing the toast into it would leave a stale line on screen.
-  const notices = useMemo<StoreNotices>(
-    () => ({ error: (message) => setError(message), info: () => {} }),
-    [],
-  )
+  // The engine's `notices` come from the same channel as `reportError` above: one
+  // error on screen at a time, drawn by the banner `MobileShellSurface` mounts
+  // over every route (POD-4662). See ./shell-surface.
   // The three composition-root facts no store snapshot can answer. Memoized on
   // the values themselves so a shell consumer re-renders when one MOVES and not
   // when the provider re-renders for another reason (see ./shell).
@@ -1050,7 +1047,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     <StoreProvider
       config={config}
       api={trpc}
-      onFatalError={setError}
+      onFatalError={reportError}
       notices={notices}
       // The principal the auth status named, and the store opened for exactly
       // it. The factory REFUSES any other principal rather than handing back
@@ -1093,11 +1090,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
         networkEnabled={networkEnabled}
         onDisconnected={verifyLiveCredential}
       />
-      <MobileShellProvider value={shell}>
+      <MobileShellSurface value={shell}>
         <MobileSyncBoundary store={openedReplica.syncProgress} onRetry={retryBoot}>
           {children}
         </MobileSyncBoundary>
-      </MobileShellProvider>
+      </MobileShellSurface>
     </StoreProvider>
   )
 }

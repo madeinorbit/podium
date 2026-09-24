@@ -1,5 +1,6 @@
 import type { StoreNotices } from '@podium/client-core/react'
 import { type ReactNode, useCallback, useMemo, useState } from 'react'
+import { ShellErrorBanner } from '../components/ShellErrorBanner'
 import { type MobileShell, MobileShellProvider } from './shell'
 
 /**
@@ -41,5 +42,10 @@ export function MobileShellSurface({
   value: MobileShell
   children: ReactNode
 }) {
-  return <MobileShellProvider value={value}>{children}</MobileShellProvider>
+  return (
+    <MobileShellProvider value={value}>
+      {children}
+      <ShellErrorBanner />
+    </MobileShellProvider>
+  )
 }

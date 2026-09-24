@@ -11,7 +11,7 @@ import { PressableScale } from './PressableScale'
  * wordmark forever. A thrown auth status, a storage engine that never opens, a
  * rejected replica migration — all of them were indistinguishable from a slow
  * network, and none of them reached `shell.error`, because that is only rendered
- * by screens that a failed boot never mounts.
+ * by the shell's banner, which sits under a store a failed boot never opens.
  *
  * The distinction this screen draws is between a boot that FAILED and one that
  * is merely SLOW, because the honest message differs:

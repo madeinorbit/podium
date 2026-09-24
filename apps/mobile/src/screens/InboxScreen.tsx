@@ -12,7 +12,6 @@ import {
   useStoreActions,
   useTrpc,
 } from '../client/hooks'
-import { useMobileShell } from '../client/shell'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
 import { Inbox as InboxIcon, Settings } from '../components/icons'
@@ -126,7 +125,6 @@ export function InboxScreen() {
   const bottomInset = useContentBottomInset()
   const booting = useBooting()
   const outboxSize = useOutboxSize()
-  const { error } = useMobileShell()
   const now = Date.now()
 
   const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
@@ -161,7 +159,6 @@ export function InboxScreen() {
         </>
       }
     >
-      {error ? <Text style={styles.error}>{error}</Text> : null}
       {/* Never silent (ADR 6 D4.4): queued work a storage migration could not
           attribute to this account, and storage degradation, are both things the
           user is owed rather than log lines. */}
@@ -265,12 +262,6 @@ const styles = StyleSheet.create({
     ...mono(600),
     color: color.needsYouText,
     fontSize: font.tiny,
-  },
-  error: {
-    color: color.dangerText,
-    fontSize: font.small,
-    paddingHorizontal: space.xl,
-    paddingBottom: space.sm,
   },
   inlineQuestion: {
     marginTop: space.xs,
