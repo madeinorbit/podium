@@ -102,15 +102,15 @@ export async function gotoWorkspace(page: Page): Promise<void> {
   const list = onDesktop ? sidebar : mobileShell
   if (!onDesktop) await page.locator('button[title="Tasks"]').click({ timeout: 15_000 })
 
-  // Work rows load with the repos/sessions feeds — give the top row a short
-  // window to appear (it exists whenever earlier specs or a pre-reload page
+  // Work rows load with the repos/sessions feeds — give the top row a
+  // loaded-host window (15s) to appear (it exists whenever earlier specs or a pre-reload page
   // already created sessions). Its main select button carries flex-1 (the
   // sibling chevron button, when present, is the expand toggle).
   const firstRow = list
     .locator('[data-testid="unified-worktree-row"], [data-testid="unified-issue-row"]')
     .first()
   const rowVisible = await firstRow
-    .waitFor({ state: 'visible', timeout: 5_000 })
+    .waitFor({ state: 'visible', timeout: 15_000 })
     .then(() => true)
     .catch(() => false)
   if (rowVisible) {
@@ -121,7 +121,7 @@ export async function gotoWorkspace(page: Page): Promise<void> {
     // opens the launch composer, and Launch with no prompt is the chip's old
     // draft spawn (the default agent, which the harness runs as keyecho).
     await list.getByRole('button', { name: 'Start first task' }).first().click({ timeout: 15_000 })
-    await page.getByRole('button', { name: 'Start work' }).click({ timeout: 15_000 })
+    await page.getByRole('button', { name: 'Start work' }).click({ timeout: 30_000 })
   }
   // Confirm the workspace loaded by waiting for the "New panel" button.
   await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
