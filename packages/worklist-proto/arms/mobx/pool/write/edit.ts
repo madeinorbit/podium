@@ -226,7 +226,7 @@ export function createMobxWriteApi(
         const shown = currentDisplay(id, server)
         const prior: Record<string, unknown> = {}
         for (const field of Object.keys(patch as Record<string, unknown>)) {
-          prior[field] = (shown as Record<string, unknown>)[field] ?? null
+          prior[field] = (shown as unknown as Record<string, unknown>)[field] ?? null
         }
         log.append({ txId, kind, id, patch, prior } as never, undefined)
         refreshOverlay(kind, id)
