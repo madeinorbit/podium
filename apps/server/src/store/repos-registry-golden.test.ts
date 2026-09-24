@@ -241,12 +241,16 @@ describe('ReposRepository.issueRepoIdResolver', () => {
   })
 
   it("prefers the pin's own report of the same path", async () => {
-    await repos.addRepo('/same', HOST, undefined, 'AA')
-    await repos.addRepo('/same', PIN, undefined, 'BB')
+    // Both with origins: an origin-less pin row's id IS the (pin, path) derivation,
+    // and could not tell "the pin's report won" from "the pin's report was skipped".
+    await repos.addRepo('/same', HOST, 'https://example.test/a.git', 'AA')
+    await repos.addRepo('/same', PIN, 'https://example.test/b.git', 'BB')
     const rows = await repos.listRepos()
+    const pinned = rows.find(r => r.machineId === PIN)?.repoId
     const resolve = await repos.issueRepoIdResolver()
 
-    expect(resolve('/same', PIN)).toBe(rows.find(r => r.machineId === PIN)?.repoId)
+    expect(pinned).not.toBe(deriveRepoId({ machineId: PIN, path: '/same' }))
+    expect(resolve('/same', PIN)).toBe(pinned)
   })
 
   it('derives under the pin when other machines report two identities for the path', async () => {
