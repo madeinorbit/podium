@@ -94,8 +94,13 @@ const SEEDS = Array.from(
   (_, i) => i + 1,
 )
 const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
-/** 2.5 s per seed-step: the default run's 25 min, scaled. */
-const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 2_500)
+/**
+ * 5 s per seed-step (was 2.5 s): since Mb3 (POD-4571) every snapshot and
+ * every rebuild of the five arms per seed also derives the roll-ups, and the
+ * gate's arms are unobserved, so each snapshot re-derives them. At load ~9
+ * the default 3 x 200 ran past the old 25 min.
+ */
+const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 5_000)
 
 /** The planted mistake: removals never reach the pool. */
 function deafToRemovals(source: RowSource): RowSource {
