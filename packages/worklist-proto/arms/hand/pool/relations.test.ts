@@ -823,7 +823,9 @@ describe('the reads fence and the write record', () => {
       // and view:I2 only: a non-draft's title reads no member. The worklist
       // (POD-4582): I2's seats, its members, whether one retains it (now
       // one does), the flat pass that reads that, and S2's own parts on
-      // their first read. Nothing of I1.
+      // their first read. The roll-ups (POD-4584, Hb3): S2's seat verdict on
+      // its first read, I2's own part, attention, activity and roll-up over
+      // it. Nothing of I1.
       expect(ran.stop().sort()).toEqual(
         [
           'sessionIds:I2',
@@ -837,6 +839,11 @@ describe('the reads fence and the write record', () => {
           'flat:I2',
           'resident:S2',
           'retention:S2',
+          'rollup:aggregate:I2',
+          'rollup:ownAttention:I2',
+          'rollup:rollup:I2',
+          'rollup:seatActivity:I2',
+          'rollup:verdict:S2',
         ].sort(),
       )
       // Evict S1 then re-add it: I1 falls back to its own time and comes back.
