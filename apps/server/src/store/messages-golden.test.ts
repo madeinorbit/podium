@@ -272,20 +272,38 @@ describe('guarded ledger transitions', () => {
     expect((await back('d'))?.status).toBe('delivered')
   })
 
-  it('markDeliveredByPull COALESCEs the push target instead of erasing it', async () => {
-    // The defect this guards: markInjected stamps the session a message was
-    // PUSHED to while leaving status queued, and a plain overwrite here erased
-    // that target the moment the agent opened its inbox — the row then read as
-    // "delivered to nobody" despite having landed in a transcript.
+  it('markDeliveredByPull leaves a peer-pushed row queued and records only the reader receipt [POD-4680]', async () => {
+    // POD-1420 COALESCE assumed deliveredTo meant the mail had landed. With
+    // POD-4661 at-once hand-off every send is pushed, so a peer pull that
+    // advanced the ledger claimed delivery to the push target who never read
+    // it — clearing their pending count. A peer pull now marks only the
+    // READER's receipt, not the row another session is still pending on.
     await add({ id: 'pushed' })
     await messages.markInjected('pushed', OTHER, 't1')
-    expect(await messages.markDeliveredByPull('pushed', String(READER), 't2')).toBe(true)
+    expect(await messages.markDeliveredByPull('pushed', String(READER), 't2')).toBe(false)
 
     const row = await back('pushed')
-    expect(row?.status).toBe('delivered')
+    expect(row?.status).toBe('queued')
     expect(row?.deliveredTo).toBe(OTHER)
+    expect(row?.injectedAt).toBe('t1')
     // The pull still proves THIS reader has it, whoever the row was pushed to.
     expect(await messages.readReceipts(READER, ['pushed'])).toEqual(new Set(['pushed']))
+    // The push target still has no receipt — its pending survives the peer read.
+    expect(await messages.readReceipts(OTHER, ['pushed'])).toEqual(new Set())
+  })
+
+  it('markDeliveredByPull COALESCEs the push target when the reader is the push target', async () => {
+    // The POD-1420 admission beside the POD-4680 denial: a pull by the session
+    // the row was pushed to DOES advance, and COALESCE still preserves the
+    // target instead of erasing it.
+    await add({ id: 'own-push' })
+    await messages.markInjected('own-push', READER, 't1')
+    expect(await messages.markDeliveredByPull('own-push', String(READER), 't2')).toBe(true)
+
+    const row = await back('own-push')
+    expect(row?.status).toBe('delivered')
+    expect(row?.deliveredTo).toBe(READER)
+    expect(await messages.readReceipts(READER, ['own-push'])).toEqual(new Set(['own-push']))
   })
 
   it('markDeliveredByPull fills delivered_to when nothing was pushed', async () => {
