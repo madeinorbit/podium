@@ -1188,6 +1188,19 @@ describe('the reads fence and the write record', () => {
         expect(edge.replaced, key).toEqual({ keys: 0, elements: 0, where: [] })
       }
       expect(verdict(at4k, at8k)).toEqual({ counter: [], identity: [] })
+      // The WHOLE push, derivations included. On the issue edges it is held to
+      // < 200 (it was < 100 before POD-4582): the coordinator accepted that
+      // relaxation ONLY because the count is equal at 4,000 and 8,000 (62 add,
+      // 121 remove when measured: the row's own worklist cells, a per-row
+      // constant). If the equality ever fails, the relaxation does not stand.
+      for (const key of ['newIssue', 'removedIssue'] as const) {
+        expect(at8k[key].pushOps, `${key}: whole push, 4,000 vs 8,000`).toBe(at4k[key].pushOps)
+        expect(at4k[key].pushOps, key).toBeLessThan(200)
+      }
+      // On the session edges the whole push is NOT O(1) (8,076 / 16,076 when
+      // measured): the worklist's member parts copy and sort issue E's b-member
+      // session bucket on every membership edge (POD-4683, a decision for both
+      // arms). Upkeep itself is O(1) above; the count is recorded, not asserted.
     })
 
     const PLANTS: readonly [string, (r: Rig) => void, { counter: boolean }][] = [
