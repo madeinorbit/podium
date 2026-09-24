@@ -34,8 +34,8 @@
  * `fences.test.tsx` fails when one of them is never applied.
  */
 
-import type { FixtureCorpus } from '../../../../harness/src/fixture/index'
 import type { CountResult } from '../../../../harness/src/count-harness'
+import type { FixtureCorpus } from '../../../../harness/src/fixture/index'
 import type { RowViews } from '../../../../harness/src/oracle/index'
 import type { RosterAllowances } from '../../../../harness/src/roster'
 import type { ArmHandle } from '../../../../shared/src/arm'

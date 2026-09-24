@@ -74,10 +74,31 @@ Code: `harness/src/roster.ts` (the pool on the roster, `RosterAllowances`),
   resource finished loading outside act" from the lazily imported native
   list, fixed by awaiting that module inside an act.
 
+### Numbers (flatblock; `docs/measurements/POD-4572-b.md`)
+
+- Counts #1-#10 at 1x: every step exact against the oracle, within its reads
+  budget, parity green, with Mb3's three named allowances (the table is §1).
+- Pool gate with the oracle at its default and the roll-up gate: green, 3 x 200,
+  every plant caught on every seed (§2).
+- Hot path at 1x (n = 20, load ≤ 8): within budget on click (13.7 / 23.8 ms
+  p50/p95), clock (0.5 / 0.6), rename (7.1 / 10.0), visible heartbeat (18.1 /
+  23.6); over on stage move (11.2 / 24.4 against 20.1) and the unrelated
+  heartbeat (21.7 against 21.5). The control: 130-135 ms p50, 276 row commits,
+  one long task per change. Excess slope over 1.2 on every scenario but the
+  clock; diagnosis and follow-up in POD-4686.
+- Lifecycle at 1x: cold bootstrap 775.7 ms against the control's 214.5 (budget
+  236.0), retained heap 81.1 MB against 22.6, principal switch 639.8 against
+  254.0 (budget 508.0): the a-phase pool's construction cost, recorded.
+
 ### Open
 
 - The page's rescope does not re-scan lanes for the grown corpus (harness
   fidelity, L5e): mailed to the coordinator.
+- POD-4686: stage move's whole-order layout and the click's visibility
+  re-validation grow with the visible set.
+- The bootstrap and switch walls (3-4x the control's): the pool's construction
+  (IssueNode per known issue with three reactions, 2,736 resident issues and
+  2,548 sessions at 1x). Not a b-phase mechanism; left for the decision.
 - A draft's "first" member: the legacy orders by the engine's session array
   (arrival), the pool by id. They agree on every scale here once shells are
   skipped; on data whose ids do not sort in arrival order they could differ.

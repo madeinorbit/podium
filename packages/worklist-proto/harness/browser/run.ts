@@ -184,7 +184,10 @@ function parseArgs(argv: string[]): Args {
   }
   if (scenarios.includes('rescope')) rescopeScale(scale as Scale)
   const consolePlant = get('--console-plant')
-  if (consolePlant !== undefined && (arm !== 'mobx' || !['warn', 'reaction'].includes(consolePlant)))
+  if (
+    consolePlant !== undefined &&
+    (arm !== 'mobx' || !['warn', 'reaction'].includes(consolePlant))
+  )
     throw new Error('--console-plant is warn or reaction, for --arm mobx only')
   return {
     arm: arm as ArmName,

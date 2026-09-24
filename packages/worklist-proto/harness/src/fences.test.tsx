@@ -22,6 +22,7 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { diffSnapshots } from '../../shared/src/gen/check'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import { assertCommits, assertReads, mountArmForCounts } from './count-harness'
 import {
@@ -33,7 +34,6 @@ import {
   runFenceScenarios,
   runFenceStep,
 } from './fence-scenarios'
-import { diffSnapshots } from '../../shared/src/gen/check'
 import { rowViewsFromStore, snapshotFromStore } from './oracle/index'
 import { referenceArmFor } from './reference-arm/arm'
 import { ROUND_THREE_ARMS } from './roster'
