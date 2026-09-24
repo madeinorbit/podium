@@ -97,7 +97,8 @@ function gapped(
 ): CheckedArm {
   return (ctx: ScenarioEngine) => ({
     create(source, locals, reads) {
-      const handle = arm(ctx).create(source, locals, reads) as WritableMobxPoolHandle
+      const resolved = typeof arm === 'function' ? arm(ctx) : arm
+      const handle = resolved.create(source, locals, reads) as WritableMobxPoolHandle
       const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
         const oracle = oracleSnapshot(ctx.engine.getSnapshot())
         const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
