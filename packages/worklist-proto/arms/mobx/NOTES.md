@@ -155,6 +155,14 @@ seed (twice a step, the same row). The untracked-nest plant fails every seed
 rebuild). Unobserved, the same plant passed all three: every computed
 re-ran per snapshot, so no stale cache could show.
 
+Pool gate (`pool/gate.test.ts`, rebuild-only, 3 x 200, its four plants),
+condition 2's A/B on the same seeds: base 98430f2df (A) and 2b42d453b
+(option A, B) both catch `coldRelinkSkipped` on 3/3 seeds at steps 24, 20
+and 3, and every other plant 3/3; the correct arm passes every seed. (The
+first version, which loaded cold children for progress, caught it 1/3, at
+step 88.) Its timeout is now 5 s per seed-step: with the roll-ups every
+unobserved snapshot and rebuild derives them (26.5 min at load ~9).
+
 L1d askers: every visible root over a `corpus.edgedAskers` hidden child reads
 the oracle's `asking` and `phase`.
 
