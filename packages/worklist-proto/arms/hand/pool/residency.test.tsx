@@ -235,14 +235,16 @@ describe('bootstrap', () => {
     expect(pool.stats.counters.tableWrites).toBe(slots)
     // Nothing loaded, no record built. Derived (POD-4582): the worklist's
     // visibility cells, one `visible` cell per resident issue, and of the row
-    // views only the `own` part of each VISIBLE row (its rank reads it).
+    // views only the `own` part of each VISIBLE row (its rank reads it);
+    // POD-4583: one `placement` cell per visible row (the groups' settle).
     const visible = pool.order()
     expect(visible.length).toBeGreaterThan(0)
     expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
     for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
     expect(pool.worklist.held('member')).toBe(hotIssues.length)
+    expect(pool.groups.held()).toBe(visible.length)
     expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
-      1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size,
+      1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size + pool.groups.held(),
     )
     expect(pool.stats.counters.recordsCreated).toBe(0)
     expect(pool.residency?.counters.requests).toBe(0)
@@ -298,8 +300,17 @@ describe('bootstrap', () => {
     const drawn = [...el.querySelectorAll('[data-issue-row]')].map(
       (row) => row.getAttribute('data-issue-row') as string,
     )
-    // POD-4582: the list draws the VISIBLE rows, in rank order.
-    expect(drawn).toEqual([...pool.order()])
+    // POD-4583: the list draws the VISIBLE rows grouped (the PINNED section,
+    // then each group's open lane and closed fold): the visible set, in
+    // grouped order.
+    const view = pool.groupsView()
+    expect(drawn).toEqual([
+      ...view.pinnedIds,
+      ...view.keys.flatMap((key) => {
+        const lanes = pool.groupLanes(key)
+        return [...lanes.rowIds, ...lanes.closedIds]
+      }),
+    ])
     // One IssueCells per drawn row, plus one per resident ⤷ origin a drawn
     // spin-off's tick reads (hidden origins are not drawn since POD-4582),
     // none for a cold one.
@@ -311,7 +322,7 @@ describe('bootstrap', () => {
     // Every view cell created belongs to a drawn row: its parts, and (POD-4581)
     // one activity cell per member session its `activityAt` asked about,
     // cold members included (the worklist's unread rollup asks for more);
-    // plus the id list and the worklist's own cells.
+    // plus the id list, the worklist's own cells and the groups' placements.
     let cells = 0
     const members = new Set<string>()
     for (const issue of pool.issues.values()) cells += issue.cells.size
@@ -320,7 +331,7 @@ describe('bootstrap', () => {
     }
     for (const member of members) expect(pool.sessionCells.has(member)).toBe(true)
     expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
-      cells + pool.sessionCells.size + 1 + pool.worklist.cellCount(),
+      cells + pool.sessionCells.size + 1 + pool.worklist.cellCount() + pool.groups.held(),
     )
     expect(pool.stats.counters.recordsCreated).toBe(0)
     // Cold rows were drawn as nothing and are asked for only when read.

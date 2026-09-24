@@ -99,6 +99,8 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     /** The worklist: one `visible` cell per resident issue, a rank per visible row, and the parts. */
     member: worklist.member,
     rank: worklist.rank,
+    /** The groups (POD-4583): one `placement` cell per visible row. */
+    placement: pool.groups.held(),
     issuePartSets: pool.worklist.held('issue'),
     issueParts: partCells(worklist.issue),
     sessionPartSets: pool.worklist.held('session'),
@@ -174,14 +176,15 @@ describe('bootstrap in the count harness', () => {
       expect(lazy.rows['session']! + lazy.cold.session).toBe(all.rows['session'])
       // Relations hold every row's ids either way; only the tables shrink.
       expect(lazy.relations).toEqual(all.relations)
-      // CELLS (POD-4582, Hb1): the worklist is built at bootstrap, as MobX
-      // builds one IssueNode per known issue (Mb1: 4,867 / 19,468). Every
-      // live cell is named: the id list, the `own` part of each visible row
-      // and nothing else of the views, a session activity cell per member
-      // asked about, a `visible` cell per RESIDENT issue, a rank per visible
-      // row, and the visibility parts of the known issues and sessions the
-      // rule reached (at most one set per known row; a cold row's set only
-      // when a resident one's rule asked).
+      // CELLS (POD-4582, Hb1; placements POD-4583, Hb2): the worklist is
+      // built at bootstrap, as MobX builds one IssueNode per known issue
+      // (Mb1: 4,867 / 19,468). Every live cell is named: the id list, the
+      // `own` part of each visible row and nothing else of the views, a
+      // session activity cell per member asked about, a `visible` cell per
+      // RESIDENT issue, a rank and a placement per visible row, and the
+      // visibility parts of the known issues and sessions the rule reached
+      // (at most one set per known row; a cold row's set only when a
+      // resident one's rule asked).
       for (const [arm, c] of [
         ['lazy', lazy],
         ['allResident', all],
@@ -193,11 +196,13 @@ describe('bootstrap in the count harness', () => {
             l.sessionActivity +
             l.member +
             l.rank +
+            l.placement +
             l.issueParts +
             l.sessionParts,
         )
         expect(l.member, arm).toBe(c.rows['issue'])
         expect(l.rank, arm).toBe(l.visible)
+        expect(l.placement, arm).toBe(l.visible)
         expect(l.visibleOwnOnly && l.visibleSetIsViewSet, arm).toBe(true)
         expect(l.rowViewParts, arm).toBe(l.visible)
         expect(l.issuePartSets, arm).toBeLessThanOrEqual(all.rows['issue']!)
@@ -263,8 +268,9 @@ describe('bootstrap in the count harness', () => {
       cells.push(cell)
     }
     // Cells grow with the known rows, not faster: live cells per known issue
-    // at 4x within 10% of 1x (7.23 at 1x and 7.20 at 4x; a per-row walk or a
-    // per-pair cell would break it).
+    // at 4x within 10% of 1x (about 7.4 at 1x and 4x, Hb2 counting the
+    // placement per visible row; a per-row walk or a per-pair cell would
+    // break it).
     expect(perKnown[1]!).toBeLessThanOrEqual(perKnown[0]! * 1.1)
     writeResult(WALLS ? 'hand-pool-bootstrap-walls' : 'hand-pool-bootstrap-counts', { cells })
   }, 600_000)

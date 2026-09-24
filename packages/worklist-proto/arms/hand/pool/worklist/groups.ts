@@ -245,10 +245,6 @@ export class WorklistGroups {
   private readonly lanes = new Map<string, GroupLanes>()
   /** Latch the lanes were built with (a lane rebuild is layout or selection news). */
   private latched: string | null = null
-  /** Listeners of the view (the list). */
-  private readonly viewListeners = new Set<() => void>()
-  /** Listeners per group key (its header). */
-  private readonly laneListeners = new Map<string, Set<() => void>>()
   private moved = false
   private readonly changedKeys = new Set<string>()
 
@@ -288,29 +284,6 @@ export class WorklistGroups {
   /** One group's UI lanes (identity-kept: the same object while its lists are equal). */
   lanesOf(key: string): GroupLanes {
     return this.lanes.get(key) ?? EMPTY_LANES
-  }
-
-  /** Listen to the view; returns the unsubscribe. */
-  readonly subscribeView = (listener: () => void): (() => void) => {
-    this.viewListeners.add(listener)
-    return () => {
-      this.viewListeners.delete(listener)
-    }
-  }
-
-  /** Listen to one group's lanes; returns the unsubscribe. */
-  readonly subscribeLanes = (key: string, listener: () => void): (() => void) => {
-    let set = this.laneListeners.get(key)
-    if (set === undefined) {
-      set = new Set()
-      this.laneListeners.set(key, set)
-    }
-    set.add(listener)
-    return () => {
-      const current = this.laneListeners.get(key)
-      if (current === undefined || !current.delete(listener) || current.size > 0) return
-      this.laneListeners.delete(key)
-    }
   }
 
   /**
@@ -460,8 +433,6 @@ export class WorklistGroups {
     this.view = EMPTY_VIEW
     this.lanes.clear()
     this.latched = null
-    this.viewListeners.clear()
-    this.laneListeners.clear()
     this.moved = false
     this.changedKeys.clear()
   }

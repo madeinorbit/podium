@@ -186,14 +186,17 @@ describe('ingest', () => {
       expect(repos.size).toBeGreaterThan(0)
       // POD-4582: the worklist decides visibility at bootstrap (a `visible`
       // cell per resident issue) and ranks the visible rows, which reads
-      // each one's `own` part and nothing else of its view.
+      // each one's `own` part and nothing else of its view. POD-4583: the
+      // groups place every visible row (a `placement` cell each) in the same
+      // settle.
       const visible = pool.order()
       expect(visible.length).toBeGreaterThan(0)
       expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
       for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
       expect(pool.worklist.held('member')).toBe(residentIssues.length)
+      expect(pool.groups.held()).toBe(visible.length)
       expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
-        1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size,
+        1 + visible.length + pool.worklist.cellCount() + pool.sessionCells.size + pool.groups.held(),
       )
       expect(pool.stats.rowsDerived).toBe(0)
     } finally {
@@ -484,15 +487,28 @@ describe('dispose', () => {
       unmount = r.handle.mountWeb(el)
     })
     const { pool } = r.handle
-    // POD-4582: the list draws the visible rows, in rank order.
+    // POD-4583: the list draws the grouped visible rows (the PINNED section,
+    // then each group's open lane and closed fold): the same row set as the
+    // rank order, in grouped order.
     const visible = pool.order()
+    const view = pool.groupsView()
+    const grouped = [
+      ...view.pinnedIds,
+      ...view.keys.flatMap((key) => {
+        const lanes = pool.groupLanes(key)
+        return [...lanes.rowIds, ...lanes.closedIds]
+      }),
+    ]
+    expect(new Set(grouped)).toEqual(new Set(visible))
     expect(el.querySelectorAll('[data-issue-row]').length).toBe(visible.length)
     const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
     expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(
       visible.length / 2,
     )
     expect(pool.listeners.size).toBe(visible.length)
-    expect(pool.orderListeners.size).toBe(1)
+    expect(pool.orderListeners.size).toBe(0)
+    expect(pool.groupsListeners.size).toBe(1)
+    expect(pool.groupListeners.size).toBe(view.keys.length)
     expect(pool.worklist.cellCount()).toBeGreaterThan(0)
 
     // A selection click reaches the mounted rows.
@@ -512,6 +528,8 @@ describe('dispose', () => {
     })
     expect(pool.listeners.size).toBe(0)
     expect(pool.orderListeners.size).toBe(0)
+    expect(pool.groupsListeners.size).toBe(0)
+    expect(pool.groupListeners.size).toBe(0)
 
     await act(async () => {
       r.dispose()
@@ -542,6 +560,8 @@ describe('dispose', () => {
     expect(pool.listeners.size).toBe(0)
     expect(pool.idsListeners.size).toBe(0)
     expect(pool.orderListeners.size).toBe(0)
+    expect(pool.groupsListeners.size).toBe(0)
+    expect(pool.groupListeners.size).toBe(0)
     // After disposal the feed can publish; nothing listens.
     r.push({ type: 'update', rows: [issueRecord(first, { title: 'after dispose' })] })
     expect(pool.tables.issue.size).toBe(0)
