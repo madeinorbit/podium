@@ -147,14 +147,24 @@ describe('visible collection and order (Hb1)', () => {
     const handle = mounted.handle as HandPoolHandle
     const { pool } = handle
     try {
+      // First paint: the order before any load lands. Answers that wait on a
+      // cold row's own fields are provisional until then.
+      const firstPaint = [...pool.order()]
+      const residentAtPaint = pool.tables.issue.size
       const bootstrapLoads = settle(handle)
+      const settled = new Set(pool.order())
+      const painted = new Set(firstPaint)
       const bootstrap = {
-        visibleIssues: pool.stats.counters.visibleIssues,
-        visibleSessions: pool.stats.counters.visibleSessions,
-        members: pool.worklist.held('member'),
-        loads: bootstrapLoads,
-        resident: pool.tables.issue.size,
-        cold: pool.residency?.size('issue') ?? 0,
+        visibleAtFirstPaint: firstPaint.length,
+        addedAfterFirstPaint: [...settled].filter((id) => !painted.has(id)),
+        removedAfterFirstPaint: firstPaint.filter((id) => !settled.has(id)),
+        rowsLoadedSettling: bootstrapLoads,
+        residentAtFirstPaint: residentAtPaint,
+        residentSettled: pool.tables.issue.size,
+        coldSettled: pool.residency?.size('issue') ?? 0,
+        issueCellSets: pool.worklist.held('issue'),
+        sessionCellSets: pool.worklist.held('session'),
+        visibleCells: pool.worklist.held('member'),
       }
       const parity: ParityCell[] = [checkParity(ctx, handle, 'bootstrap')]
       mounted.log.reset()

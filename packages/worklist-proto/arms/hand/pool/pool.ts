@@ -111,8 +111,10 @@ export type Delta =
   | ({ readonly kind: 'row' } & RowDelta)
   /** A relation slot the engine wrote: `relation` is `${entity}.${name}`, keyed by `id`. */
   | { readonly kind: 'relation'; readonly relation: string; readonly id: string }
-  /** A cold row entered or left the registry (POD-4580): its `coldness` readers re-run. */
+  /** A cold row entered or left the registry (POD-4580): its `coldness` and `coldRows` readers re-run. */
   | { readonly kind: 'residency'; readonly entity: EntityName; readonly id: string }
+  /** A known cold row was updated and stays cold (POD-4582): its `coldRows` readers re-run. */
+  | { readonly kind: 'coldRow'; readonly entity: EntityName; readonly id: string }
   | { readonly kind: 'selection'; readonly to: string | null }
   | { readonly kind: 'clock'; readonly to: number }
 
@@ -260,6 +262,8 @@ export class HandPool {
   readonly engine: PoolRelations
   /** The cells that asked whether a row is cold, keyed `${entity}:${id}` (POD-4580). */
   readonly coldness: DepIndex<string>
+  /** The cells that read a cold row by id (`Residency.peek`), keyed `${entity}:${id}` (POD-4582). */
+  readonly coldRows: DepIndex<string>
   /** Residency (POD-4580); null when the pool holds every row. */
   readonly residency: Residency | null
   /** The cells that read a table's membership (its id list). */
@@ -317,6 +321,8 @@ export class HandPool {
     this.membership = new DepIndex<EntityName>('membership')
     const coldness = new DepIndex<string>('coldness')
     this.coldness = coldness
+    const coldRows = new DepIndex<string>('coldRows')
+    this.coldRows = coldRows
     this.selection = new DepIndex<string>('selection')
     this.clock = new DeadlineClock(graph, locals.coarseNow)
     this.selectedId = locals.selectedIssueId
@@ -345,6 +351,8 @@ export class HandPool {
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             asked: (entity, id) => graph.track(coldness, `${entity}:${id}`),
             changed: (entity, id) => coldMoves.push({ kind: 'residency', entity, id }),
+            peeked: (entity, id) => graph.track(coldRows, `${entity}:${id}`),
+            rewritten: (entity, id) => coldMoves.push({ kind: 'coldRow', entity, id }),
           })
     this.residency = residency
     this.stats = createStats(graph, () => this.residency)
@@ -391,16 +399,10 @@ export class HandPool {
     this.visibleInputs = {
       relations: this.relations,
       resident: (entity, id) => tracked[entity].has(id),
-      issueRow: (id) => {
-        const row = tracked.issue.get(id) as SliceIssue | undefined
-        if (row === undefined) residency?.loading('issue', id)
-        return row
-      },
-      sessionRow: (id) => {
-        const row = tracked.session.get(id) as SliceSession | undefined
-        if (row === undefined) residency?.loading('session', id)
-        return row
-      },
+      issueRow: (id) =>
+        (tracked.issue.get(id) ?? residency?.peek('issue', id)) as SliceIssue | undefined,
+      sessionRow: (id) =>
+        (tracked.session.get(id) ?? residency?.peek('session', id)) as SliceSession | undefined,
       issue: (id) => (knownDoor('issue', id) ? this.worklist.issue(id) : undefined),
       session: (id) => (knownDoor('session', id) ? this.worklist.session(id) : undefined),
       sessionActivity: (id) => this.sessionActivity(id),
@@ -680,6 +682,7 @@ export class HandPool {
     this.relationReaders.clear()
     this.residency?.clear()
     this.coldness.clear()
+    this.coldRows.clear()
     this.coldMoves.length = 0
     this.membership.clear()
     this.selection.clear()
@@ -730,6 +733,10 @@ export class HandPool {
         return
       case 'residency':
         this.graph.invalidateKey(this.coldness, `${delta.entity}:${delta.id}`)
+        this.graph.invalidateKey(this.coldRows, `${delta.entity}:${delta.id}`)
+        return
+      case 'coldRow':
+        this.graph.invalidateKey(this.coldRows, `${delta.entity}:${delta.id}`)
         return
       case 'selection': {
         const from = this.selectedId
@@ -789,6 +796,7 @@ export class HandPool {
         }
         return
       case 'relation':
+      case 'coldRow':
       case 'selection':
       case 'clock':
         return

@@ -198,12 +198,22 @@ interface ColdTally {
   batches: number
   hydrated: number
   warmed: number
+  /** Cold rows read by id without loading (POD-4582, the worklist's walks). */
+  peeks: number
   /** Full-residency checkpoints passed. */
   checkpoints: number
 }
 
 function emptyTally(): ColdTally {
-  return { coldWrites: 0, requests: 0, batches: 0, hydrated: 0, warmed: 0, checkpoints: 0 }
+  return {
+    coldWrites: 0,
+    requests: 0,
+    batches: 0,
+    hydrated: 0,
+    warmed: 0,
+    peeks: 0,
+    checkpoints: 0,
+  }
 }
 
 /**

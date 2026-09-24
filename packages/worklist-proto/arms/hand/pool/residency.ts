@@ -45,7 +45,14 @@
  * (the choice the brief asks for, and Ma3's): the kernel holds the value and
  * a later load reads the current one, so a heartbeat on a closed issue's
  * session costs a registry write and a relink, never a load, and a reopen
- * never paints loading.
+ * never paints loading. It is REPORTED (`rewritten`), so a cell that read
+ * the row's fields without loading it (`peek`, POD-4582) re-reads them.
+ *
+ * READ WITHOUT LOADING (POD-4582, Hb1; the MobX pool's `coldRow`). A cell
+ * that needs a few of a cold row's own fields to decide something the row
+ * itself never shows (the worklist's rescue and nesting walks pass through
+ * closed issues) reads it by id through the feed (`peek`): counted by the
+ * reads fence, recorded under the row's key (`peeked`), never installed.
  *
  * NOTHING MAKES A HOT ROW COLD except a `replace`, which re-partitions
  * (`enumerate.ts` `reseed`): a row resident before and still in the slice
@@ -114,6 +121,10 @@ export interface ResidencyOptions {
   asked(entity: EntityName, id: string): void
   /** `entity:id` entered or left the registry (the pool emits a `residency` delta). */
   changed(entity: EntityName, id: string): void
+  /** A cell read cold `entity:id` by id (`peek`; the pool records the running cell). */
+  peeked(entity: EntityName, id: string): void
+  /** A known cold row was updated and stays cold (the pool emits a `coldRow` delta). */
+  rewritten(entity: EntityName, id: string): void
 }
 
 /** What residency did since the last reset (the pool's stats reset zeroes it). */
@@ -128,6 +139,8 @@ export interface ResidencyCounters {
   hydrated: number
   /** Rows installed because the row they inherit from stopped being cold, or a member can keep them shown. */
   warmed: number
+  /** Cold rows read by id without loading (`peek`), each read counted. */
+  peeks: number
 }
 
 const realSchedule: Schedule = (run, ms) => {
@@ -142,6 +155,7 @@ export class Residency {
     batches: 0,
     hydrated: 0,
     warmed: 0,
+    peeks: 0,
   }
   readonly windowMs: number
   private readonly options: ResidencyOptions
@@ -404,6 +418,18 @@ export class Residency {
     this.counters.hydrated += 1
   }
 
+  /**
+   * TRACKED: a cold row's current value, read by id through the feed and not
+   * installed (POD-4582); undefined when the row is not cold. Its next update
+   * (`rewritten`) or its leaving the registry (`changed`) re-runs the reader.
+   */
+  peek(entity: EntityName, id: string): object | undefined {
+    if (!this.isCold(entity, id)) return undefined
+    this.options.peeked(entity, id)
+    this.counters.peeks += 1
+    return this.options.load(entity as LoadableEntity, id)
+  }
+
   /** Read a cold row by id (the relation engine's collapse peers and flipped twins). */
   read(entity: EntityName, id: string): object | undefined {
     return this.isCold(entity, id) ? this.options.load(entity as LoadableEntity, id) : undefined
@@ -486,7 +512,9 @@ export class Residency {
 
   /** Relink a cold row with its new value, keeping only its id. */
   private keepCold(target: IngestTarget, entity: EntityName, id: string, value: StoredRow): void {
+    const known = this.isCold(entity, id)
     this.register(entity, id, value)
+    if (known) this.options.rewritten(entity, id)
     // No previous value is held: the engine re-resolves every link of the row
     // (a link that did not move writes nothing) and re-decides its collapse
     // group, reading cold peers back by id.

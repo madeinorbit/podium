@@ -60,8 +60,10 @@
  * maintains for cold rows too. Only when a cold row's own fields decide the
  * answer (a child keeps it, so `excluded` / `rescuable` matter; or its
  * `parent` edge is empty, which an archived row also shows) does a part read
- * it, and that read is the pool's first access: the row is queued, answers
- * "not yet" until its load lands, and is resident from then on. The bound's
+ * it, by id through the feed WITHOUT loading it (`Residency.peek`: counted,
+ * tracked, re-read on the row's next update). A first attempt loaded those
+ * rows instead (first access): 26 of the 732 visible rows at 1x then
+ * appeared one load window after first paint (POD-4582 NOTES). The bound's
  * two stated gaps (an issueless R3 session and a clock rewind) are not
  * covered: the rebuild decides `flat` from every row's data, so the L4b gate
  * fails if a cold row is ever shown.
@@ -106,8 +108,8 @@ export interface VisibleInputs {
   /** Whether the row is in the pool's tables (its presence only). */
   resident(entity: 'issue' | 'session', id: string): boolean
   /**
-   * An issue's row when resident. A cold one is asked for (the pool queues
-   * its load: first access) and reads undefined until it lands.
+   * An issue's row, resident or cold. A cold one is read by id without being
+   * loaded (`Residency.peek`), so a part asks only when its fields decide.
    */
   issueRow(id: string): SliceIssue | undefined
   /** A session's row, the same way. */
@@ -291,7 +293,7 @@ function retains(
 /** One known session's parts; each is a cell in the live pool. */
 export interface SessionVisibleParts {
   readonly resident: boolean
-  /** From the row; a cold session's is read (and loaded) only on the started-by path. */
+  /** From the row; a cold session's is read only on the started-by path. */
   readonly retention: Retention | null
   /** `session.issue` through the engine (members only: headless out, twins collapsed). */
   readonly issueLink: string | null
@@ -359,13 +361,19 @@ type VisibleRule<K extends VisiblePartName> = (
 /**
  * The retained members of `self` at the clock, stopping at the first
  * (`rows.ts:70-76`); `live` also drops exited ones (`sessionVisibleInLiveRoster`).
+ * A COLD member keeps nothing and is not read: a session is cold only while
+ * its issue is cold by the shared rule, which holds only once every member's
+ * keep has passed (schema doc §5.1). Its issue may be resident all the same
+ * (loaded on first access), so this is decided per member.
  */
 function anyRetained(input: VisibleInputs, id: string, self: VisibleParts, live: boolean): boolean {
   const standing = self.standing
   if (standing === undefined) return false
   let issue: SliceIssue | undefined
   for (const sessionId of self.memberIds) {
-    const retention = input.session(sessionId)?.retention
+    const session = input.session(sessionId)
+    if (session === undefined || !session.resident) continue
+    const retention = session.retention
     if (retention == null || !retention.seat || (live && retention.exited)) continue
     if (retention.finish.kind === 'idleDone' && standing.finished) issue ??= input.issueRow(id)
     if (retains(retention, issue, standing, input)) return true
@@ -380,7 +388,7 @@ function anyRetained(input: VisibleInputs, id: string, self: VisibleParts, live:
  * issue checked out at its worktree (lowest id: legacy takes the first in its
  * list order, which no pool has). A COLD session is cold through its issue
  * (`via`), so it names one and only the explicit branch applies; its row is
- * read (first access) only when that issue is present.
+ * read only when that issue is present.
  */
 function ownerOf(input: VisibleInputs, sessionId: string): string | null {
   const session = input.session(sessionId)
@@ -473,11 +481,15 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
     if (standing === undefined || standing.deleted) return false
     if (standing.readMs === null) return true
     if (standing.updatedMs !== null && standing.updatedMs > standing.readMs) return true
+    // Activity first: a cold seat reads as never active (its row is not
+    // held), which moves nothing: its issue is then cold by the shared rule,
+    // whose own deadline is the later of both decay windows, so `flat` does
+    // not depend on this answer (schema doc §5.1).
     for (const sessionId of self.seatIds) {
-      const retention = input.session(sessionId)?.retention
-      if (retention == null || retention.shell) continue
       const at = input.sessionActivity(sessionId)
-      if (at !== null && at > standing.readMs) return true
+      if (at === null || at <= standing.readMs) continue
+      const retention = input.session(sessionId)?.retention
+      if (retention != null && !retention.shell) return true
     }
     return false
   },
@@ -537,7 +549,7 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
    * its standing; a cold row's from the `parent` edge, which the engine keeps
    * for cold rows too. An empty edge is also what an archived or deleted row
    * shows (the relation's `where`), and legacy walks through those by the raw
-   * field, so only then is the cold row read (first access).
+   * field, so only then is the cold row read.
    */
   parentLink(input, id, self) {
     if (self.resident) return self.standing?.parentId ?? null
