@@ -6396,8 +6396,79 @@ describe('listDir routing', () => {
   })
 })
 
+/**
+ * THE DURABLE SEND, AS THE DAEMON SEES IT.
+ *
+ * A queued row leaves the server as ONE `runtimeDurableSendRequest` keyed by
+ * the queue row (`rowId` = `turnId` = the row id, 99ef2c33b "Daemon-owned
+ * inbox delivery"), handed on asynchronously by the drain's contract branch
+ * (`void forwardContractRows`, 358ad0ffb/81460a99b POD-4427/POD-4279). The
+ * server never types an agent send and never waits on the agent (cfb9924a7
+ * POD-4661): readiness is the daemon's delivery queue. Custody is the
+ * `runtimeSendResult`; only the driver's `delivery` runtime event settles the
+ * durable row (4bd403fed).
+ */
+type DurableSendRequest = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
+const durableSends = (daemon: ControlMessage[], sessionId: SessionId): DurableSendRequest[] =>
+  daemon.filter(
+    (message): message is DurableSendRequest =>
+      message.type === 'runtimeDurableSendRequest' && message.sessionId === sessionId,
+  )
+const durableSendsWith = (daemon: ControlMessage[], needle: string): DurableSendRequest[] =>
+  daemon.filter(
+    (message): message is DurableSendRequest =>
+      message.type === 'runtimeDurableSendRequest' && message.text.includes(needle),
+  )
+const ptyInputsWith = (daemon: ControlMessage[], needle: string) =>
+  daemon.filter(
+    (message) =>
+      message.type === 'input' && Buffer.from(message.data, 'base64').toString().includes(needle),
+  )
+/** The driver's delivery outcome for one durable row, on the runtime stream. */
+const deliveryEvent = (
+  daemon: ControlMessage[],
+  sessionId: SessionId,
+  rowId: string,
+  outcome: 'delivered' | 'failed' | 'dropped',
+) => {
+  const spawn = daemon.find(
+    (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+      message.type === 'spawn' && message.sessionId === sessionId,
+  )
+  if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
+  return {
+    type: 'runtimeEvent',
+    deliveryId: `delivery-${rowId}`,
+    sessionId,
+    event: {
+      t: 'delivery',
+      rowId,
+      outcome,
+      at: '2026-01-01T00:00:01.000Z',
+      provenance: 'live',
+      cursor: { segmentId: `delivery-${sessionId}`, components: { seq: 1 } },
+      observerGeneration: spawn.observationGeneration,
+      turnEpoch: 0,
+    },
+  } as const
+}
+
 describe('runtime queue abandonment composition [POD-2202]', () => {
-  it('carries a teardown report from the daemon frame into the durable terminal row', async () => {
+  /**
+   * TEARDOWN KEEPS DURABLE WORK (99ef2c33b, POD-3742).
+   *
+   * This used to pin that a driver's teardown report dead-letters the message.
+   * That was the design while the driver's queue owned the turn and its
+   * `turnId` was the message id. A queued send is now a durable server row the
+   * daemon only holds in custody: the delivery queue discards its custody on
+   * stop/kill/hibernate ("Teardown discards delivery state, not durable work.
+   * A new owner receives remaining rows again", harness delivery-queue.ts), and
+   * a report naming that row (its `turnId` is the row id) must not erase it. The
+   * report is still acknowledged, the row stays visibly queued, and the next
+   * bind hands it on again as a RECOVERY — which the daemon fails visibly
+   * rather than retyping.
+   */
+  it('a teardown report naming a durable row leaves it queued for the next owner', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -6426,31 +6497,37 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
         },
       )
       expect(sent.message.status).toBe('queued')
-      expect(daemon).toContainEqual(
-        expect.objectContaining({
-          type: 'runtimeSendRequest',
-          sessionId,
-          turnId: sent.message.id,
-        }),
-      )
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      const [request] = durableSends(daemon, sessionId)
+      expect(request).toMatchObject({
+        text: expect.stringContaining('lost during daemon restart'),
+        deliveryRecovery: false,
+      })
+      expect(request!.turnId).toBe(request!.rowId)
 
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeQueueDrainAbandoned',
         reportId: 'report-after-restart',
         sessionId,
-        turnIds: [sent.message.id],
+        turnIds: [request!.turnId],
         reason: 'teardown',
       })
 
-      expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'dead_letter',
-        deliveredTo: sessionId,
-        deliveryDeferredReason: 'teardown',
-        deadLetteredAt: expect.any(String),
-      })
       expect(daemon).toContainEqual({
         type: 'runtimeQueueDrainAbandonedAck',
         reportId: 'report-after-restart',
+      })
+      expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+      expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+
+      // The next owner receives the row again — as a recovery, never a fresh write.
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(2))
+      expect(durableSends(daemon, sessionId)[1]).toMatchObject({
+        rowId: request!.rowId,
+        deliveryRecovery: true,
       })
     } finally {
       await registry.dispose()
@@ -6484,13 +6561,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       { to: { kind: 'session', id: sessionId }, body: 'first prompt', urgency: 'next-turn' },
     )
 
-  const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
-    daemon.filter(
-      (message) =>
-        message.type === 'input' && Buffer.from(message.data, 'base64').toString().includes(needle),
-    )
-
-  it('a prompt sent during the starting window delivers through the contract on bind — never as PTY bytes', async () => {
+  it('a prompt sent during the starting window delivers through the contract — never as PTY bytes', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -6503,48 +6574,39 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       // flight: the row rides the durable queue, visibly.
       const sent = await sendFirstPrompt(registry, sessionId)
       expect(sent.message.status).toBe('queued')
-      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
 
-      // bind lands with the server-family facts; the drain must now route the
-      // queued row through the contract.
+      // The server does not wait for the agent (cfb9924a7 POD-4661): the row is
+      // handed to the daemon's delivery queue, whose readiness wait is its own.
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
-      // Real timers on purpose: the drain's ready poll is 200ms, and swapping in
-      // a fake clock around a full SessionRegistry orphans its background
-      // intervals into whichever test runs next.
-      await vi.waitFor(() =>
-        expect(
-          daemon.some(
-            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-          ),
-        ).toBe(true),
-      )
-      const request = daemon.find(
-        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
-      expect(request).toMatchObject({
-        turnId: sent.message.id,
-        text: expect.stringContaining('first prompt'),
-      })
-      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+      // Real timers on purpose: swapping in a fake clock around a full
+      // SessionRegistry orphans its background intervals into whichever test
+      // runs next.
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      const [request] = durableSends(daemon, sessionId)
+      expect(request).toMatchObject({ text: expect.stringContaining('first prompt') })
+      expect(ptyInputsWith(daemon, 'first prompt')).toEqual([])
 
-      // The driver acks the turn → the ledger row is honestly delivered.
+      // Custody is not delivery: the row stays queued until the driver's
+      // delivery event proves the turn landed.
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
         sessionId,
-        receipt: {
-          outcome: 'accepted',
-          turnEpoch: 1,
-          deliveredAs: 'when-ready',
-          provenBy: 'protocol-ack',
-          at: '2026-01-01T00:00:00.000Z',
-        },
+        receipt: { outcome: 'queued', position: 1, deliveredAs: 'queue', at: '2026-01-01T00:00:00.000Z' },
       })
+      expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+      await registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        deliveryEvent(daemon, sessionId, request!.rowId, 'delivered'),
+      )
       await vi.waitFor(async () =>
         expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
           status: 'delivered',
         }),
       )
+      expect(ptyInputsWith(daemon, 'first prompt')).toEqual([])
     } finally {
       await registry.dispose()
     }
@@ -6561,17 +6623,8 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       })
       const sent = await sendFirstPrompt(registry, sessionId)
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
-      await vi.waitFor(() =>
-        expect(
-          daemon.some(
-            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-          ),
-        ).toBe(true),
-      )
-      const request = daemon.find(
-        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
-      expect(request).toBeDefined()
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      const [request] = durableSends(daemon, sessionId)
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
@@ -6591,7 +6644,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
         status: 'queued',
       })
       expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
-      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+      expect(ptyInputsWith(daemon, 'first prompt')).toEqual([])
     } finally {
       await registry.dispose()
     }
@@ -6787,12 +6840,6 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       ...(driverId === undefined ? {} : { driverId }),
     }) as const
 
-  const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
-    daemon.filter(
-      (message) =>
-        message.type === 'input' && Buffer.from(message.data, 'base64').toString().includes(needle),
-    )
-
   const sendPrompt = async (registry: SessionRegistry, sessionId: SessionId) =>
     await registry.modules.messages.send(
       { kind: 'operator' },
@@ -6815,30 +6862,18 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         registry.sessionStore.hostMachineId,
         contractBind(sessionId, FUTURE_DRIVER),
       )
-      // Real timers, for the reason the POD-2291 pins above give: a fake clock
-      // around a live SessionRegistry orphans its background intervals.
-      //
-      // THE PTY ASSERTION IS INSIDE THE WAIT, AND FIRST, ON PURPOSE. With the
-      // fix the contract request lands in well under a second and this returns
-      // immediately — the generous timeout costs a passing run nothing. WITHOUT
-      // it, the terminal path types the row at the bridgeless session once the
-      // woken drain's 10s state grace expires, so the window has to outlast
-      // that; what this test then prints is the discarded payload itself
-      // rather than an opaque "no contract request".
-      await vi.waitFor(
-        () => {
-          expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
-          expect(
-            daemon.filter(
-              (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-            ),
-          ).toHaveLength(1)
-        },
-        { timeout: 12_000 },
-      )
+      // Real timers, for the reason the POD-2291 pins above give. The PTY
+      // assertion sits inside the wait so a regression prints the typed bytes.
+      await vi.waitFor(() => {
+        expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
+        expect(durableSends(daemon, sessionId)).toHaveLength(1)
+      })
+      expect(durableSends(daemon, sessionId)[0]?.text).toContain('skewed prompt')
+      // Custody was never acknowledged, so nothing may call it delivered.
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
         status: 'queued',
       })
+      expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
     } finally {
       await registry.dispose()
     }
@@ -6858,16 +6893,8 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         registry.sessionStore.hostMachineId,
         contractBind(sessionId, FUTURE_DRIVER),
       )
-      await vi.waitFor(() =>
-        expect(
-          daemon.some(
-            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-          ),
-        ).toBe(true),
-      )
-      const request = daemon.find(
-        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      const [request] = durableSends(daemon, sessionId)
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
@@ -6883,7 +6910,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         status: 'queued',
       })
       expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
-      expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+      expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
     } finally {
       await registry.dispose()
     }
@@ -6911,37 +6938,29 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         registry.sessionStore.hostMachineId,
         contractBind(sessionId),
       )
-      // Same shape as the forward-skew pin above, and the same reason for the
-      // wide window: without the fix the PTY frame appears once the woken
-      // drain's 10s state grace expires, and the failure prints those bytes.
-      await vi.waitFor(
-        () => {
-          expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
-          expect(
-            daemon.filter(
-              (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
-            ),
-          ).toHaveLength(1)
-        },
-        { timeout: 12_000 },
-      )
+      await vi.waitFor(() => {
+        expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
+        expect(durableSends(daemon, sessionId)).toHaveLength(1)
+      })
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
         status: 'queued',
       })
+      expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
     } finally {
       await registry.dispose()
     }
   })
 
   /**
-  * FINDING 4 OF THE POD-2291 REVIEW: `typeText`'s server-family refusal was
-   * pinned only through the inbox's mock harness, where `serverDriven` is a
-   * hand-written dep. Nothing drove the DIRECT chat-send path at a bound
-   * session through production wiring, so a regression in how that dep is
-   * composed would have gone unnoticed — which is precisely the class of bug
-   * the rest of this file is about.
+   * FINDING 4 OF THE POD-2291 REVIEW pinned the DIRECT chat-send path at a bound
+   * session through production wiring. It used to be a refusal (`typeText`
+   * would not type at a server-family session). Since 81460a99b (POD-4279)
+   * every agent send queues: the durable row down the contract branch is the
+   * only delivery, whatever the driver id says. What still matters — and is
+   * what these pin — is that the text reaches the daemon through the contract
+   * and never as PTY bytes.
    */
-  it('refuses a direct chat send at a bound server-family session, in production wiring', async () => {
+  it('a direct chat send at a bound server-family session rides the contract, in production wiring', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -6954,14 +6973,17 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
 
       expect(
         (await reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' })),
-      ).toEqual({ ok: false })
-      expect(inputFramesWith(daemon, 'typed at a server session')).toEqual([])
+      ).toEqual({ ok: true, queued: true })
+      await vi.waitFor(() =>
+        expect(durableSendsWith(daemon, 'typed at a server session')).toHaveLength(1),
+      )
+      expect(ptyInputsWith(daemon, 'typed at a server session')).toEqual([])
     } finally {
       await reg.dispose()
     }
   })
 
-  it('refuses a direct chat send at an UNKNOWN-driver session too', async () => {
+  it('a direct chat send at an UNKNOWN-driver session rides the contract too', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -6974,8 +6996,11 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
 
       expect(
         (await reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' })),
-      ).toEqual({ ok: false })
-      expect(inputFramesWith(daemon, 'typed at a skewed session')).toEqual([])
+      ).toEqual({ ok: true, queued: true })
+      await vi.waitFor(() =>
+        expect(durableSendsWith(daemon, 'typed at a skewed session')).toHaveLength(1),
+      )
+      expect(ptyInputsWith(daemon, 'typed at a skewed session')).toEqual([])
     } finally {
       await reg.dispose()
     }
@@ -6986,14 +7011,16 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
   /**
    * THE WIRING IS WHAT THIS PINS, NOT THE LATENCY (POD-2837).
    *
-   * The assertion below is the one it always was: the mail is NOT on the PTY
-   * while the session is unbound, and after the bind makes it eligible it
-   * arrives EXACTLY ONCE. What moved is that it no longer arrives inside the
-   * synchronous return of `flushDeliveryTriggers`. The target is a claude-code
-   * session, so the send rides the readiness queue and is typed once the
-   * composer window has run — see the note above `describe('sendText …')` for
-   * why that is the contract, and `inbox.test.ts` for the same answer stated
-   * against the same call.
+   * Issue mail to an issue with a fresh session reaches that session's daemon
+   * EXACTLY ONCE as a fresh write. It used to wait for the bind and then be
+   * typed at the PTY after the composer window. Since 4bd403fed ("Preserve
+   * durable delivery custody") a new session's rows are handed on from
+   * admission, while it is still starting; since 358ad0ffb (POD-4427) the
+   * server never types an agent send; and since cfb9924a7 (POD-4661) waiting
+   * for readiness is the daemon's delivery queue, not the server's. The bind
+   * re-forwards the row to whoever now owns the session, but only as a
+   * RECOVERY of the same row id (the daemon's queue de-duplicates it by row id
+   * and never retypes a recovery), so it is never a second fresh write.
    *
    * Fake timers, installed before the registry so the drain's own polling is
    * under this test's control, and `…Async` because the delivery path awaits.
@@ -7026,28 +7053,22 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         { to: { kind: 'issue', id: issue.id }, body: 'deliver after bind' },
       )
       expect(sent.message.status).toBe('queued')
-      expect(
-        daemon.some(
-          (message) =>
-            message.type === 'input' &&
-            Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
-        ),
-      ).toBe(false)
+      await vi.advanceTimersByTimeAsync(1_000)
+      const handedOn = () => durableSendsWith(daemon, 'deliver after bind')
+      expect(handedOn()).toHaveLength(1)
+      const [fresh] = handedOn()
+      expect(fresh).toMatchObject({ sessionId, deliveryRecovery: false })
 
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
       await registry.modules.messages.flushDeliveryTriggers()
-
-      const deliveredInputs = (): ControlMessage[] =>
-        daemon.filter(
-          (message) =>
-            message.type === 'input' &&
-            Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
-        )
-      // The bind alone does not put it on the wire; the readiness window does.
-      expect(deliveredInputs()).toHaveLength(0)
       await vi.advanceTimersByTimeAsync(15_000)
 
-      expect(deliveredInputs()).toHaveLength(1)
+      // One fresh write, ever. Anything after it is the same row, as a recovery.
+      expect(handedOn().filter((request) => !request.deliveryRecovery)).toEqual([fresh])
+      for (const request of handedOn()) {
+        expect(request).toMatchObject({ sessionId, rowId: fresh!.rowId })
+      }
+      expect(ptyInputsWith(daemon, 'deliver after bind')).toEqual([])
     } finally {
       await registry.dispose()
       vi.useRealTimers()
@@ -7070,7 +7091,8 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
    * THE ASSERTION IS THE MECHANISM, not a proxy for it. A refusal that merely
    * dropped the bad row would look identical to a crash on the bad row alone —
    * so a legitimate row is queued BEHIND it, and the property is that the
-   * second row still reaches the PTY. A dead tick cannot deliver it.
+   * second row still reaches the daemon (as a durable contract request since
+   * 358ad0ffb, POD-4427 — it used to be PTY bytes). A dead pass cannot hand it on.
    */
   it('refuses an unresolvable delegation without killing the pass', async () => {
     vi.useFakeTimers()
@@ -7110,14 +7132,12 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       })
       await vi.advanceTimersByTimeAsync(20_000)
 
-      const typed = daemon
-        .filter((message) => message.type === 'input')
-        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
-      // Refused: an unresolvable principal carries no authority, so its bytes
-      // never reach the terminal.
-      expect(typed.filter((data) => data.includes('from a session that is gone'))).toEqual([])
-      // And the pass lived: the row behind it was delivered.
-      expect(typed.filter((data) => data.includes('the row behind it'))).toHaveLength(1)
+      // Refused: an unresolvable principal carries no authority, so its text
+      // never reaches the daemon.
+      expect(durableSendsWith(daemon, 'from a session that is gone')).toEqual([])
+      // And the pass lived: the row behind it was handed on.
+      expect(durableSendsWith(daemon, 'the row behind it')).toHaveLength(1)
+      expect(ptyInputsWith(daemon, 'the row behind it')).toEqual([])
     } finally {
       await registry.dispose()
       vi.useRealTimers()
@@ -7134,7 +7154,8 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
    * queued path; an idle coordinator was typed into directly with no check, so
    * the same reply landed or died on timing. The unit test pins the verdict;
    * this pins the wiring: the row rides the real inbox, the real
-   * `authorizeAtDrain`, and comes out of the daemon gateway as input.
+   * `authorizeAtDrain`, and comes out of the daemon gateway as a durable
+   * contract request (PTY input before 358ad0ffb, POD-4427).
    */
   it("delivers a child worker's queued reply to the coordinator on the parent issue", async () => {
     vi.useFakeTimers()
@@ -7181,10 +7202,9 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       })
       await vi.advanceTimersByTimeAsync(20_000)
 
-      const typed = daemon
-        .filter((message) => message.type === 'input')
-        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
-      expect(typed.filter((data) => data.includes('reply from the child worker'))).toHaveLength(1)
+      expect(durableSendsWith(daemon, 'reply from the child worker')).toHaveLength(1)
+      expect(durableSendsWith(daemon, 'reply from the child worker')[0]?.sessionId).toBe(coordinator)
+      expect(ptyInputsWith(daemon, 'reply from the child worker')).toEqual([])
     } finally {
       await registry.dispose()
       vi.useRealTimers()
