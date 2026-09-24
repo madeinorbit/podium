@@ -67,7 +67,7 @@
 import { runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenarios'
-import { rowViewsFromStore } from '../../../harness/src/oracle/index'
+import { rowViewsFromStore, snapshotFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
@@ -79,6 +79,7 @@ import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
 import { rebuildSnapshot } from './rebuild'
+import { acceptUnscannedGap } from './worklist/known-gaps'
 
 installMobxWarnTrap()
 
@@ -438,11 +439,19 @@ describe('row fields against the oracle', () => {
         'dismissed',
       ]
       let closedByOracle = 0
+      // POD-4671 (`worklist/known-gaps.ts`): the unscanned-worktree orphan has
+      // no seat in the schema's R3 relation; its issue's seat-fed fields are
+      // left out here, and the exception itself throws once the seat exists.
+      const snapshot = handle.pool.snapshot()
+      const gap = acceptUnscannedGap(ctx.corpus, handle.pool, snapshotFromStore(ctx.engine.getSnapshot(), { selectedIssueId: null, coarseNow: engineLocals(ctx).coarseNow }), snapshot).applied
       for (const id of ids) {
         const want = expected[id]!
         const got = actual[id]
         expect(got, id).toBeDefined()
-        for (const field of same) expect(got![field], `${id}.${field}`).toEqual(want[field])
+        for (const field of same) {
+          if (id === gap && (field === 'phase' || field === 'working' || field === 'asking' || field === 'workingSince')) continue
+          expect(got![field], `${id}.${field}`).toEqual(want[field])
+        }
         if (!got!.title.startsWith('New ')) expect(got!.title, `${id}.title`).toBe(want.title)
         if (want.closed) closedByOracle += 1
         expect(got!.loading, `${id}.loading`).toBeUndefined()

@@ -11,6 +11,12 @@
  * roll-up fields included: no stub allowance is left) and reads within its
  * budget.
  *
+ * ONE NAMED EXCEPTION (POD-4671, `known-gaps.ts`): the corpus's unscanned-
+ * worktree orphan has no seat in the shared schema's R3 relation, so its
+ * issue's row may differ from the oracle's in the fields that seat feeds,
+ * and nowhere else; the exception throws once the seat exists. Each check
+ * records whether it applied.
+ *
  * THE L1d SHAPE (`corpus.edgedAskers`): an asking session on a hidden
  * (archived or proposed) child of a visible root. The pool's root reads not
  * asking, as the oracle's does; `hidden-askers.ts` holds the oracle to it.
@@ -64,6 +70,7 @@ import { issueAbandoned } from '../views'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
+import { acceptUnscannedGap } from './known-gaps'
 
 installMobxWarnTrap()
 
@@ -116,11 +123,13 @@ function settle(pool: MobxPool): number {
 }
 
 /** The settled snapshot against the oracle and the rebuild. */
-function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): void {
+function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): string | null {
   const snapshot = handle.snapshot()
-  const expected = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+  const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+  const { snapshot: expected, applied } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
   expect(diffSnapshots(snapshot, expected), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
+  return applied
 }
 
 async function withMounted<T>(
@@ -240,7 +249,8 @@ async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCe
 describe('row roll-ups (Mb3)', () => {
   it('parity with the oracle and the rebuild on every fence scenario; commits and reads follow the change', async () => {
     const cells = await withMounted(arm, async (ctx, mounted, handle, flush) => {
-      checkParity(ctx, handle, 'bootstrap')
+      const gapAtBoot = checkParity(ctx, handle, 'bootstrap')
+      expect(gapAtBoot, 'the POD-4671 row, named').toBe(ctx.corpus.unscannedWorktree.issueId)
       const out = []
       for (const entry of FENCE_SCENARIOS) {
         mounted.log.reset()
@@ -251,8 +261,9 @@ describe('row roll-ups (Mb3)', () => {
         assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
-        checkParity(ctx, handle, entry.methodology)
+        const gap = checkParity(ctx, handle, entry.methodology)
         out.push({
+          gap,
           methodology: entry.methodology,
           scenario: entry.scenario,
           oracleChanged: result.oracleChangedRows,
