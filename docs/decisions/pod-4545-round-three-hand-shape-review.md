@@ -60,10 +60,10 @@ POD-4545 (§5).
 | C6 | No whole-table walk outside the one declared enumeration | PASS, with a blind spot | *Tables:* walks sit only in `enumerate.ts` (`issueIdsOf` `:61-63`, `reseed` `:94, 99-104`, and the gate-only scan, diff, `knownTables` and `diffResidency`). Elsewhere a walk only empties tables (`pool.ts:612-617`) or reads the cold registry for reseed and the gate (`residency.ts:194-196`). **Plant** `[...this.fenced.issue.keys()]` in `pool.ts` → `fence/no-table-walk` fires (`555:14`). A bucket walk in `views.ts` is silent: the rule matches table names (M3 C11). *Collections:* a bucket is a `Set`, edited one member at a time (`relations.ts:470-494`). Bounded exceptions: `rootRemoved` copies a bucket whose every member moves (`:553-558`). `rootAdded` iterates the members under one root (`:537-546`, N3). A collapse re-decision reads one group (`:425-448`). `warmDependents` copies ids that all move (`residency.ts:388`). On the live export, one new issue into the 4,574-member `repo.issues` costs 2 index updates and 8 counter ops and replaces no container (§2.3). |
 | C7 | Lazy construction present | PASS, with a note (N1) | A view is a cell per part, born on first read (`pool.ts:190-221`), and records are born on first access (`:463-473`). An activity cell is born when an issue first asks (`:449-460`). Cold rows are never stored: `residency.ts:279-306` registers them, and the engine links them by id. Loads batch in one 50 ms window and one commit (`residency.ts:235-250`, `pool.ts:508-517`). A dependency index key exists only while a cell reads it (`cells.ts:46-64`). |
 | C8 | Untracked state read inside a derivation (pitfall j), and MobX's three defect shapes | PASS, with a note (N9) | The plain reads inside cells each follow a tracked record of the same key. The clock's `now` sits behind deadline keys (`clock.ts:328-332`). The selection is recorded under the asking id (`pool.ts:365-368`). The residency registry sits behind `asked` (`residency.ts:219-232`). The engine's maps sit behind `read` and presence (`relations.ts:257-260, 277`). The memo maps `issues`/`sessionCells` are safe because disposing a cell dirties its readers (`cells.ts:202-209`). *MobX's shapes:* (a) a removed parent's bucket stays, keyed by reference, and the scan agrees. (b) An index key is dropped only when its last reader leaves, and every registry move is a delta (`residency.ts:412, 425`). (c) A plain map read going deaf needs a cell reading around the graph. My `activity` plant is exactly that, and the stock gate misses it (H3-F3). |
-| C9 | Round-two bug 1: the clock reaches derivations as an input | PASS | A time rule asks `reached(t)`/`passed(t)`, which records the cell under deadline `t` (`clock.ts:328-337`). `move` dirties exactly the crossed deadlines (`:340-352`). The lint forbids `Date.now` (**plant** in `views.ts` → `fence/no-wall-clock`). **Plant** `clock` (the clock moves but dirties nothing, round two's no-op `ClockChanged`): the stock gate catches it (§2.5). The roll-ups are Hb3 stubs (`views.ts:63-77`). Re-check at Hb3 that each roll-up reads time only through `reached`/`passed`. |
+| C9 | Round-two bug 1: the clock reaches derivations as an input | PASS | A time rule asks `reached(t)`/`passed(t)`, which records the cell under deadline `t` (`clock.ts:328-337`). `move` dirties exactly the crossed deadlines (`:340-352`). The lint forbids `Date.now` (**plant** in `views.ts` → `fence/no-wall-clock`). **Plant** `clock` (the clock moves but dirties nothing, round two's no-op `ClockChanged`): the stock gate catches it on 5 of 5 seeds, through `closed` (§2.5). The roll-ups are Hb3 stubs (`views.ts:63-77`). Re-check at Hb3 that each roll-up reads time only through `reached`/`passed`. |
 | C10 | Round-two bug 2: chain invalidation inputs are exactly what was read | PASS by construction; **its gate is blind (H3-F3)** | Invalidation is the recorded reads, level-ordered, pulled on read (`cells.ts:150-199`). There is no early-stop rule to get wrong. **Plant** `chain` (a changed cell at level ≥ 2 does not dirty its readers): the stock gate misses it on 3 of 3 seeds, and the full-view check catches it on every seed (§2.5). |
 | C11 | Round-two bugs 3 and 5: order and groups under batched rank moves | N/A at this SHA | No order or group code yet: `snapshot()` returns `EMPTY_ORDER` (`pool.ts:175-178, 561`), and the a1 list is table order. The gate draws both shapes (§2.2) but runs `oracleEvery: 0`. Re-check at Hb2 with the oracle on. |
-| C12 | Round-two bug 4: evict then re-add re-seats relations | PASS | Buckets are keyed by the reference, not by the target's presence (`relations.ts:20-22, 470-494`). `one()` checks presence at read time (`:251-261`). A removed issue's cells are disposed and re-born on re-add (`pool.ts:681-696`), and the id-list listener is told either way (`:685`). `relations.test.ts:222` covers it. **Plant** `reseat` (a removed row takes its inverse buckets with it): §2.5. |
+| C12 | Round-two bug 4: evict then re-add re-seats relations | PASS | Buckets are keyed by the reference, not by the target's presence (`relations.ts:20-22, 470-494`). `one()` checks presence at read time (`:251-261`). A removed issue's cells are disposed and re-born on re-add (`pool.ts:681-696`), and the id-list listener is told either way (`:685`). `relations.test.ts:222` covers it. **Plant** `reseat` (a removed row takes its inverse buckets with it): the stock gate's relation check catches it on 5 of 5 seeds (§2.5). |
 | C13 | Stats honest | PASS, with notes (N3, N6) | `indexUpdates` counts elements (`relations.ts:564-566`, called per member, forward entry, index entry and collapse entry). `rowsDerived` counts view-cell runs (`pool.ts:197`). `notifications` counts commits with deltas (`:636-641`). `rollupsDerived` is 0 (`:137`). Each matches `arms/hand/README.md:130-144` except for the N6 wording. |
 | C14 | Size within reason | PASS | Non-test `pool/`: 2,401 code lines (3,503 with comments). That covers tables (130), cells (200), clock (62), records (58), relations (416), residency (293), views (246), pool (540), enumeration (227), rebuild (58), arm (93) and the React and native slots (78). Nothing is dead: every export has a production or gate caller. Round two's hand arm was 3,988 lines (audit §3.3). |
 | C15 | L4b correctness gate, 5 seeds × 300, run by me | PASS, with its reach limited (H3-F3) | 5 of 5 seeds green, 1,505 rebuild comparisons, 1,505 relation and partition checks, and 5 full-residency checkpoints. All five plants fail every seed (§2.2). |
@@ -115,6 +115,14 @@ in 220–239 s. Cells are in
 
 Zero divergence on the clean pool. Every plant fails every seed, each caught
 by its intended check.
+
+**Other suites at my branch** (pool code identical to `c128bf833`), one run:
+`arms/hand/pool/{bootstrap,cells,clock,counts,pool,records,relations,residency}`,
+`harness/native/hand-pool.native.test.tsx` and my three light probes
+(`h3-index-identity`, `h3-shape-probes` with the live export, `h3-step-load`)
+gave `Test Files 12 passed`, `Tests 108 passed`. `bun run typecheck --
+--filter @podium/worklist-proto` passes, and `bun run lint` in the package
+(both configs) exits 0.
 
 ### 2.3 Bucket upkeep: the code, and the F1 guard
 
@@ -168,7 +176,21 @@ resident issue's whole `RowView` against the rule table run directly over the
 feed's rows. The clean pool is green on the full-view arm on 5 of 5 seeds ×
 300 steps.
 
-RESULTS-TABLE
+Each plant ran on 300 steps. A seed the stock checks miss is re-run with the
+full-view check. Every run was a single foreground call, in 34–321 s.
+
+| Plant (the shape it re-creates) | Seeds | Stock gate | Full-view check (on the seeds stock missed) |
+|---|---|---|---|
+| none (clean) | 1–5 | pass | **pass on 5 of 5** |
+| `clock`: the clock moves but dirties nothing (round-two bug 1) | 1–5 | **caught 5 of 5**, rebuild at steps 3, 6, 34, 51, 60 (`row i1150: closed: false (expected true)`) | – |
+| `reseat`: a removed row takes its inverse buckets with it (round-two bug 4) | 1–5 | **caught 5 of 5**, relations at steps 64, 96, 8, 9, 3 (`issue:i1361.children: live [], scan ["i1394"]`) | – |
+| `chain`: a changed cell at level ≥ 2 does not dirty its readers (round-two bug 2) | 1–3 | **missed 3 of 3** (300 steps each) | caught 3 of 3, at steps 47, 1, 6 (`i3301.originTick: live {…"ref":"POD-3609"}, direct null`) |
+| `activity`: each member's activity cached in a plain `Map` (the MobX gates' deaf plain-Map read) | 1–3 | **missed 3 of 3** | caught 3 of 3, at boot (`i1015.activityAt: live 1786140935343, direct 1789684798430`) |
+| `presence`: `originId` asks the raw table, untracked (the MobX gates' untracked presence check) | 1–3 | **missed 3 of 3** | caught 3 of 3, at boot (`i1001.originTick: live null, direct {…"ref":"POD-3394"}`) |
+
+`activity` and `presence` break at boot, because the first settle's loads
+already go stale through them. The stock checks then ran all 300 steps on a
+pool whose `activityAt` or `originTick` was wrong throughout, and passed.
 
 The stock rebuild compares `sliceRowOf(view)` (`shared/src/row-view.ts:289-303`).
 So a part that reaches none of the 11 slice fields is held to nothing
@@ -308,7 +330,9 @@ passes.
 ## 5. What happens next
 
 - The Ha issues are closed, so each finding is filed as its own sub-issue
-  under POD-4545: H3-F1 to H3-F4. All four are test-only.
+  under POD-4545: POD-4672 (H3-F1), POD-4673 (H3-F2), POD-4674 (H3-F3) and
+  POD-4675 (H3-F4). All four are test-only. F1 and F2 touch the same test,
+  so one lane should take both.
 - By this issue's brief, Hb1 (POD-4582) stays blocked until a re-review
   records PASS. For M3's test-only G4, the operator decided that it would not
   block Mb1. That decision is the operator's again here.
