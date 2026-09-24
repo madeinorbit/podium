@@ -175,4 +175,32 @@ describe('a send stopped before it reached the server', () => {
     expect(outbox.pending().map((entry) => entry.mutationId)).toEqual(['msg_next'])
     outbox.dispose()
   })
+
+  it('a stopped send retires in the verdicts own commit: never POSTed again, no banner (POD-4690)', async () => {
+    const { api, sends } = authority({
+      ok: false,
+      reason: STOPPED_SEND_REASON,
+      disposition: 'dead_letter',
+    })
+    const outbox = await open(api)
+    online = true
+    await outbox.enqueue(
+      'resumeAndSend',
+      { sessionId: asSessionId('s1'), text: 'Write the numbers from 1 to 400' },
+      { mutationId: asMutationId('msg_stopped') },
+    )
+    await vi.waitFor(() => expect(sends).toEqual(['msg_stopped']))
+
+    // Synchronously after the verdict: nothing awaiting truth, nothing
+    // pending, nothing parked — the next message has a clear partition.
+    await vi.waitFor(() => expect(outbox.pending()).toEqual([]))
+    expect(outbox.awaiting()).toEqual([])
+    expect(outbox.deadLetters()).toEqual([])
+    expect(outbox.size()).toBe(0)
+
+    // A later drain — a screen change, a reconnect — sends nothing again.
+    await outbox.drain()
+    expect(sends).toEqual(['msg_stopped'])
+    outbox.dispose()
+  })
 })

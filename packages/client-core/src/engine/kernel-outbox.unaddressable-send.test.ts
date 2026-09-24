@@ -144,4 +144,36 @@ describe('a send to a session that no longer exists', () => {
     expect(errors).not.toContainEqual(expect.stringMatching(/session no longer exists/i))
     outbox.dispose()
   })
+
+  it('a dead-letter reply retires the entry in the verdicts own commit: never POSTed again, no banner (POD-4690)', async () => {
+    const { api, sends } = authority({
+      ok: false,
+      reason: UNADDRESSABLE_SEND_REASON,
+      disposition: 'dead_letter',
+    })
+    const { outbox, errors } = await open(api)
+    await outbox.enqueue(
+      'resumeAndSend',
+      { sessionId: asSessionId('s-gone'), text: 'What is 3 times 3?' },
+      { mutationId: asMutationId('msg_gone') },
+    )
+    online = true
+    await outbox.drain()
+
+    // Synchronously after the drain — no settle, no echo, no screen change:
+    // nothing awaiting truth, nothing pending (the queued banner reads
+    // pending), nothing parked for recovery.
+    expect(outbox.pending()).toEqual([])
+    expect(outbox.awaiting()).toEqual([])
+    expect(outbox.deadLetters()).toEqual([])
+    expect(outbox.size()).toBe(0)
+    expect(errors).toEqual([expect.stringMatching(/not sent.*session no longer exists/i)])
+
+    // A later drain — a screen change, a reconnect — sends nothing again.
+    await outbox.drain()
+    expect(sends).toEqual(['msg_gone'])
+    expect(outbox.pending()).toEqual([])
+    expect(outbox.size()).toBe(0)
+    outbox.dispose()
+  })
 })

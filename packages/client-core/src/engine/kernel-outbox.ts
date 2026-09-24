@@ -23,6 +23,7 @@ import {
   type OutboxEvent,
   type OutboxRecord,
   type OutboxStorePort,
+  type OutboxSubmitOutcome,
   type RetrySatisfaction,
 } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
@@ -406,11 +407,25 @@ export async function openKernelEngineOutbox(
     principal: options.principal,
     submit: {
       submit: async (envelope) => {
+        // A terminal reply resolves its entry FOR GOOD (POD-4690): the verdict
+        // retires in its own commit, so no later drain can re-read the entry
+        // and POST it again. The executor reports these through hooks (it owns
+        // the reading of the reply); the flag here only carries that reading
+        // to the kernel's terminal outcome.
+        const terminal = { resolved: false }
         try {
           await submit(options.api, envelope, {
-            sessionGone: (input) => adapter?.sessionGone(input),
+            sessionGone: (input) => {
+              terminal.resolved = true
+              adapter?.sessionGone(input)
+            },
+            stoppedSend: () => {
+              terminal.resolved = true
+            },
           })
-          return { kind: 'applied' }
+          return terminal.resolved
+            ? ({ kind: 'applied', retire: true } satisfies OutboxSubmitOutcome)
+            : ({ kind: 'applied' } satisfies OutboxSubmitOutcome)
         } catch (error) {
           const refusal = classifyRefusal(error)
           return refusal === undefined ? { kind: 'unreachable' } : { kind: 'rejected', refusal }

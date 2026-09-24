@@ -53,7 +53,19 @@ export type OutboxSubmitOutcome =
    *  optional hop — report `applied` directly when the hop is atomic). */
   | { readonly kind: 'accepted' }
   /** The Authority applied the command and recorded a receipt. */
-  | { readonly kind: 'applied' }
+  | {
+      readonly kind: 'applied'
+      /**
+       * The reply resolved the entry FOR GOOD (POD-4690): there is no covering
+       * truth to await, so the entry leaves the store in the verdict's own
+       * commit instead of entering awaiting-truth with a later retire. Set for
+       * replies whose meaning is terminal by construction — a send a Stop
+       * retracted first, a send to a session that no longer exists — where a
+       * second commit to lose is a second POST on the next drain. Absent (or
+       * anything else): the ordinary applied path, unchanged.
+       */
+      readonly retire?: true
+    }
   /** A DEFINITIVE refusal — policy, conflict or validation, never transport. */
   | { readonly kind: 'rejected'; readonly refusal: AuthorityRefusal }
   /** Network failure or an unreachable Authority (D9 invariant 4). */

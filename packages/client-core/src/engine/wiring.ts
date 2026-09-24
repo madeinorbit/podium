@@ -656,6 +656,12 @@ export function createEngineHub(args: {
 export interface OutboxExecutorHooks {
   /** A send resolved without delivery because its session no longer exists. */
   readonly sessionGone?: (input: OutboxKinds['resumeAndSend']) => void
+  /**
+   * A send resolved undelivered because a Stop reached the server first
+   * (POD-4654). The kernel retires the entry in the verdict's own commit
+   * (POD-4690); this hook only reports the reading, like `sessionGone`.
+   */
+  readonly stoppedSend?: () => void
 }
 
 /**
@@ -693,7 +699,10 @@ export function outboxExecutors(
       // A Stop that reached the server first retracted this send (POD-4654): the
       // stop took effect, so the entry is done. Parked, it would hold every later
       // message to the session behind it for good.
-      if (isStoppedSend(result)) return result
+      if (isStoppedSend(result)) {
+        hooks.stoppedSend?.()
+        return result
+      }
       // The session was deleted before this send arrived (POD-4660). No session
       // is left to deliver it to and a retry gets the same answer, so the entry
       // is done — the operator is told it was not sent instead.

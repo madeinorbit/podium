@@ -179,6 +179,33 @@ describe('local ack, acceptance and application are three distinct events', () =
     expect(store.durable()).toEqual([])
     expect(types(events)).toContain('retired')
   })
+
+  it('a terminal applied outcome removes the entry in the verdicts own commit (POD-4690)', async () => {
+    // A reply that resolves its entry for good — a send a Stop retracted, a
+    // send to a session that no longer exists — carries no covering truth to
+    // await, so the removal joins the verdict's draft. The entry is never
+    // observable as `applied`: one commit, `applied` then `retired`, and no
+    // later drain can resurrect it.
+    let submits = 0
+    const { outbox, store, events } = await harness(() => {
+      submits += 1
+      return { kind: 'applied', retire: true }
+    })
+    const record = await outbox.enqueue(close('POD-1'))
+
+    await outbox.drain()
+
+    expect(outbox.find(record.mutationId)).toBeUndefined()
+    expect(outbox.all()).toEqual([])
+    expect(store.durable()).toEqual([])
+    expect(types(events)).toEqual(['local-ack', 'sending', 'applied', 'retired'])
+
+    // A later drain — a screen change, a reconnect — submits nothing again.
+    await outbox.drain()
+    expect(submits).toBe(1)
+    expect(outbox.all()).toEqual([])
+    expect(store.durable()).toEqual([])
+  })
 })
 
 describe('automatic bookkeeping retirement', () => {

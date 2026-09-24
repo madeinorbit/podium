@@ -674,7 +674,11 @@ export class Outbox {
     }
 
     if (outcome.kind === 'applied') {
-      await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
+      if (outcome.retire === true) {
+        await this.applyTerminal(sending)
+      } else {
+        await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
+      }
       return true
     }
     if (outcome.kind === 'accepted') {
@@ -708,6 +712,59 @@ export class Outbox {
     // Returning true here would silently reorder writes to one aggregate.
     await this.transition(sending, 'transport-failed', this.backoffPatch(sending.attempts))
     return false
+  }
+
+  /**
+   * A TERMINAL reply, applied and retired in ONE commit (POD-4690).
+   *
+   * The ordinary applied path lands the entry in awaiting-truth and retires it
+   * later, in a second commit the caller fires and forgets. That gap is where a
+   * dead-lettered send came back from: the verdict was processed — the operator
+   * was told the message was not sent — but the retirement had not landed when
+   * the next drain (a screen change, a reconnect) re-read the entry and POSTed
+   * it again, behind a "changes are queued" banner.
+   *
+   * A terminal reply carries no covering truth to await — a send a Stop
+   * retracted first will never echo, a send to a deleted session has no session
+   * left to echo it — so the reply itself is D9 invariant 1's covering-truth
+   * licence, and the removal joins the verdict's own draft. The entry is never
+   * observable as `applied`: one commit, two events (`applied`, then
+   * `retired`), nothing for a later drain to resurrect.
+   */
+  private async applyTerminal(sending: OutboxRecord): Promise<void> {
+    await this.mutate((draft) => {
+      // The same lost-race guards as `transition`: the record is re-read from
+      // the rebased draft, and a move the verdict cannot leave from stops the
+      // partition instead of overwriting another writer.
+      const record = draft.find(sending.mutationId)
+      if (!record) {
+        throw new OutboxStaleError(
+          `outbox entry vanished before terminal resolution: ${sending.mutationId}`,
+        )
+      }
+      if (
+        record.state !== sending.state &&
+        nextOutboxState(record.state, 'authority-applied') === undefined
+      ) {
+        throw new OutboxStaleError(
+          `outbox entry ${sending.mutationId} moved to ${record.state} before terminal resolution`,
+        )
+      }
+      const applied: OutboxRecord = {
+        ...record,
+        appliedAt: this.config.now(),
+        state: applyOutboxTransition(record.state, 'authority-applied'),
+      }
+      // `undefined` in a patch means "clear it" — spread leaves the key present
+      // with an undefined value, which would serialise into the durable record.
+      const cleaned = Object.fromEntries(
+        Object.entries(applied).filter(([, v]) => v !== undefined),
+      ) as unknown as OutboxRecord
+      draft.put(cleaned)
+      for (const event of eventsForTransition(cleaned, 'authority-applied')) draft.emit(event)
+      draft.remove(cleaned.mutationId, 'covering-truth')
+      draft.emit({ type: 'retired', mutationId: cleaned.mutationId })
+    })
   }
 
   /**
