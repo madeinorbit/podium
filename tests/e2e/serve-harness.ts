@@ -412,21 +412,25 @@ let daemon = await startDaemon(daemonOptions)
 // contract, so this opt-in fixture supplies that one observation when its
 // named session becomes live.
 if (process.env.PODIUM_E2E_FLIGHT_DECK === '1') {
-  let reported = false
+  const reported = new Set<string>()
   const poll = setInterval(async () => {
-    if (reported) return
-    const owner = (await server.registry.modules.sessions.listSessions())
-      .find((session) => session.title === 'POD-1983 native owner' && session.status === 'live')
-    if (!owner) return
-    reported = true
-    clearInterval(poll)
-    server.registry.modules.sessions.onSessionDaemonFrame(inProcessMachinePrincipal(hostMachineId()), {
-      type: 'agentState', sessionId: owner.sessionId,
-      state: {
-        phase: 'working', since: new Date().toISOString(), nativeSubagentCount: 1,
-        nativeSubagents: [{ id: 'native-worker-1', type: 'Explore' }],
-      },
-    })
+    const sessions = await server.registry.modules.sessions.listSessions()
+    for (const [title, workerId] of [
+      ['POD-1983 coordinator', 'coordinator-worker-1'],
+      ['POD-1983 native owner', 'native-worker-1'],
+    ] as const) {
+      const owner = sessions.find((session) => session.title === title && session.status === 'live')
+      if (!owner || reported.has(workerId)) continue
+      reported.add(workerId)
+      server.registry.modules.sessions.onSessionDaemonFrame(inProcessMachinePrincipal(hostMachineId()), {
+        type: 'agentState', sessionId: owner.sessionId,
+        state: {
+          phase: 'working', since: new Date().toISOString(), nativeSubagentCount: 1,
+          nativeSubagents: [{ id: workerId, type: 'Explore' }],
+        },
+      })
+    }
+    if (reported.size === 2) clearInterval(poll)
   }, 250)
 }
 const QUEUE_POSITION_ISSUE_TITLE = 'POD-2920 A1b production queue'
