@@ -128,6 +128,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   // tree arrive derived rather than being rebuilt per consumer.
   const pinned = derivationOverride?.pinned ?? published.pinned
   const groups = derivationOverride?.groups ?? published.groups
+  const projects = derivationOverride?.projects ?? published.projects
 
   /**
    * EVICTION MOVES THE SELECTION ON, WITHOUT ANNOUNCING A DELETION (POD-407,
@@ -303,6 +304,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     work,
     pinned,
     groups,
+    projects,
     // The PROJECT tree, not just the rows in it (POD-1469): a repo with no work
     // at all contributes no group, so the empty-project band can only be drawn
     // from the sections themselves.

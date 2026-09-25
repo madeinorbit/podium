@@ -1,6 +1,8 @@
 import {
   groupUnifiedWorkRows,
   isDraftAgentVessel,
+  orderProjectGroups,
+  orderProjectItems,
   planReorderKeys,
   type RepoNavView,
   reuseUnifiedWorkRows,
@@ -30,6 +32,7 @@ import { type SidebarDerivation, useSidebarDerivation } from './derivation'
 import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
+import { ManageProjectsButton } from './ManageProjectsDialog'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { useCollapsedKeys } from './sidebar-common'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
@@ -119,7 +122,15 @@ export function SidebarUnified(): JSX.Element {
           that scrolls away while you are typing into it. `Add repository` rides
           its line (POD-1469) — see `new-task-row.tsx` for why that line and not
           the one above it. */}
-      <WorkSearchField filter={filter} trailing={<AddRepositoryButton />} />
+      <WorkSearchField
+        filter={filter}
+        trailing={
+          <div className="flex flex-none items-center gap-1">
+            <ManageProjectsButton />
+            <AddRepositoryButton />
+          </div>
+        }
+      />
       {/* NO COLUMN-WIDE STATUS INSTRUMENT (POD-516 round 3). A "12/40 done · 5
           running" meter summarising the whole column was cut: "there's now a
           overall progress section in the header of the sidebar. This was
@@ -176,6 +187,7 @@ export function WorkSections({
     work,
     pinned,
     groups: publishedGroups,
+    projects,
     sessions,
     issues,
     allWorktreePaths,
@@ -299,9 +311,12 @@ export function WorkSections({
   const targetGroups = useMemo(
     () =>
       selectedWasFolded
-        ? groupUnifiedWorkRows(splitPinnedWork(work).rest, selectedIssueId, true, now)
+        ? orderProjectGroups(
+            groupUnifiedWorkRows(splitPinnedWork(work).rest, selectedIssueId, true, now),
+            projects,
+          )
         : publishedGroups,
-    [publishedGroups, selectedWasFolded, work, selectedIssueId, now],
+    [publishedGroups, projects, selectedWasFolded, work, selectedIssueId, now],
   )
   // NO PROPOSED FOLD (POD-516 round 2, left sidebar item 3). A previous round
   // derived an intake queue here from the raw issue list and rendered it as a
@@ -818,6 +833,14 @@ export function WorkSections({
     : [...sections.pinnedRepos, ...sections.repos].filter(
         (repo) => !hasGroup(repo, renderedGroupKeys),
       )
+  const projectBands = orderProjectItems(
+    [
+      ...renderedGroups.map((group) => ({ kind: 'group' as const, key: group.key, group })),
+      ...emptyProjects.map((repo) => ({ kind: 'empty' as const, key: repoBandKey(repo), repo })),
+    ],
+    projects,
+    (band) => band.key,
+  )
   // The folded menu's subject, looked up rather than carried in the state above.
   const foldedMenuRow = foldedMenu
     ? work.find((row) => row.kind === 'issue' && row.issue.id === foldedMenu.issueId)
@@ -858,7 +881,35 @@ export function WorkSections({
           </FoldPanel>
         </m.div>
       )}
-      {renderedGroups.map((group, index) => {
+      {projectBands.map((band, index) => {
+        if (band.kind === 'empty') {
+          const { repo } = band
+          const key = repoBandKey(repo)
+          const collapsed = groupCollapsed(key)
+          return (
+            <div
+              key={`empty:${key}`}
+              className={cn(
+                'flex min-w-0 flex-col',
+                (index > 0 || filteredPinned.length > 0) && SECTION_GAP_CLASS,
+              )}
+              data-testid="project-group"
+              data-empty="true"
+              data-collapsed={collapsed ? 'true' : 'false'}
+            >
+              <ProjectGroupLabel
+                label={repo.name}
+                count={0}
+                collapsed={collapsed}
+                onToggle={() => toggleBand(projectFoldKey(key))}
+              />
+              <FoldPanel open={!collapsed} testId={`project-group-empty:${key}`}>
+                <StartFirstTaskRow repoPath={repo.path} />
+              </FoldPanel>
+            </div>
+          )
+        }
+        const { group } = band
         // A shut band takes the WHOLE group with it — its live rows and both
         // of its tail folds. Half a collapsed project (a band with a Closed
         // fold still hanging under it) would be the worst of both readings.
@@ -932,38 +983,6 @@ export function WorkSections({
               )}
             </FoldPanel>
           </m.div>
-        )
-      })}
-      {/* THE PROJECTS WITH NOTHING IN THEM, after the ones that have work
-          (POD-1469). Order is deliberate: a band with no rows is an invitation,
-          and invitations go under the work rather than over it. Each is a real
-          fold — shutting one is how an operator retires a project they are not
-          using without removing it. */}
-      {emptyProjects.map((repo, index) => {
-        const key = repoBandKey(repo)
-        const collapsed = groupCollapsed(key)
-        return (
-          <div
-            key={`empty:${key}`}
-            className={cn(
-              'flex min-w-0 flex-col',
-              (index > 0 || renderedGroups.length > 0 || filteredPinned.length > 0) &&
-                SECTION_GAP_CLASS,
-            )}
-            data-testid="project-group"
-            data-empty="true"
-            data-collapsed={collapsed ? 'true' : 'false'}
-          >
-            <ProjectGroupLabel
-              label={repo.name}
-              count={0}
-              collapsed={collapsed}
-              onToggle={() => toggleBand(projectFoldKey(key))}
-            />
-            <FoldPanel open={!collapsed} testId={`project-group-empty:${key}`}>
-              <StartFirstTaskRow repoPath={repo.path} />
-            </FoldPanel>
-          </div>
         )
       })}
       {/* How big the haystack was, under the last hit — the answer to the

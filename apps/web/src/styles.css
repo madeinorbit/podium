@@ -12018,7 +12018,7 @@ button.waterfall-fold:hover {
 .worklist-add-repo-label {
   display: none;
 }
-@container worklist (min-width: 280px) {
+@container worklist (min-width: 340px) {
   .worklist-add-repo-label {
     display: inline;
   }

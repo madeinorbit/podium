@@ -51,6 +51,7 @@ import { defineSlice } from '../publish'
 import { groupUnifiedWorkRows, splitPinnedWork, type UnifiedWorkGroup } from './folds'
 import { reposVisibleOnMachines } from './machine-scope'
 import { type SidebarSections, sidebarSections } from './nav'
+import { orderedSidebarProjects, orderProjectGroups, type SidebarProject } from './project-order'
 import type { UnifiedWorkRow } from './row-types'
 import { unifiedWorkList } from './rows'
 
@@ -76,6 +77,8 @@ export interface WorklistSlice {
    * separately can only ever agree by coincidence.
    */
   pinned: UnifiedWorkRow[]
+  /** Stable project order shared by the wide sidebar and the mobile worklist. */
+  projects: SidebarProject[]
   /**
    * THE PROJECT-GROUP STRUCTURE (POD-407) — the tree the sidebar renders: one
    * group per repo, each with its open rows and its snoozed and closed folds.
@@ -188,6 +191,7 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
       previous.machines !== next.machines ||
       previous.sessions !== next.sessions ||
       previous.pins !== next.pins ||
+      previous.sidebarSettings !== next.sidebarSettings ||
       previous.coarseNow !== next.coarseNow ||
       previous.selectedIssueId !== next.selectedIssueId
     ) {
@@ -229,12 +233,19 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
     // Placement, once, for every reader. `splitPinnedWork` first: pinned rows
     // leave their project group entirely, so grouping must see the remainder.
     const { pinned, rest } = splitPinnedWork(work)
+    const rawGroups = groupUnifiedWorkRows(rest, store.selectedIssueId, false, store.coarseNow)
+    const projects = orderedSidebarProjects(
+      sections,
+      rawGroups,
+      store.sidebarSettings?.repoSort === 'custom' ? store.sidebarSettings.repoOrder : [],
+    )
     return {
       sections,
       allWorktreePaths,
       work,
       pinned,
-      groups: groupUnifiedWorkRows(rest, store.selectedIssueId, false, store.coarseNow),
+      projects,
+      groups: orderProjectGroups(rawGroups, projects),
       now: store.coarseNow,
     }
   },
