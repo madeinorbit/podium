@@ -1354,6 +1354,19 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               <SetupError>{error} Your request and selections are still saved.</SetupError>
             </div>
           )}
+          {ready && !machineDenied && !busy && !error && !draft.pendingIssueId && (
+            <div className="mt-6 space-y-2 px-[22px] text-[13px] leading-[1.6] text-muted-foreground">
+              <p>
+                For complex tasks, be ambitious. Discuss the full scope with your agent and have
+                it organise everything. Try:
+              </p>
+              <p>
+                "You are the coordinator of this epic. Break this into sub-tasks, delegate
+                independent work to sub-agents, and coordinate the results. Check with me on key
+                decisions."
+              </p>
+            </div>
+          )}
         </div>
       </div>
       {/* One frame over the WHOLE deck, because that is what now accepts the
