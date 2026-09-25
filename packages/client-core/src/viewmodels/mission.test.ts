@@ -288,7 +288,7 @@ describe('flight deck independent facts and placement', () => {
   })
 
   it('reports only the signals actually hidden by branch and roster folds', () => {
-    const root = issue('root')
+    const root = issue('root', { needsHuman: true })
     const child = issue('child', { parentId: asIssueId('root'), needsHuman: true })
     const own = sess('own', { issueId: asIssueId('root'), agentState: workingState })
     const error = sess('error', { issueId: asIssueId('child'), agentState: erroredState(false) })
@@ -304,6 +304,16 @@ describe('flight deck independent facts and placement', () => {
       roster: { running: 1, errors: 0, requests: 0 },
       total: { running: 1, errors: 0, requests: 0 },
     })
+    expect(deckFoldHiddenFacts(rootRow, rows, { branchClosed: true, rosterClosed: true }).total.requests).toBe(1)
+  })
+
+  it('counts successfully closed proposed-stage work as accepted progress', () => {
+    const root = issue('root', { stage: 'proposed', closedReason: 'done' })
+    const child = issue('child', { parentId: asIssueId('root'), stage: 'proposed', closedReason: 'done' })
+    expect(missionProgress([root], [], 'root')).toMatchObject({ total: 1, done: 1 })
+    expect(missionProgress([root, child], [], 'root')).toMatchObject({ total: 1, done: 1 })
+    expect(shape(buildFlightDeckRows([root, child], [], 'root'))).toEqual(['root@0', 'child@1'])
+    expect(missionProposals([root, child], [], 'root')).toEqual([])
   })
 })
 

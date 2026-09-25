@@ -1,4 +1,4 @@
-import { deckSessionFacts, issueClosed, type FlightDeckRow } from './mission'
+import { deckSessionFacts, deckTaskFacts, issueClosed, type FlightDeckRow } from './mission'
 
 /** Explicit fold choices. Missing rows keep using the shared default. */
 export type FlightDeckFoldState = 'open' | 'closed'
@@ -67,7 +67,8 @@ export function writeFlightDeckFolds(folds: FlightDeckFoldMap): string | null {
 /** Resolve old issue-wide folds on the first explicit write. Callers pass the
  * unfiltered tree and IDs whose child topology is fully hydrated. A recorded
  * descendant proves a branch even before the full slice resolves; absence
- * never proves a leaf. Missing or unresolved leaves keep their legacy entry. */
+ * never proves a leaf. Keep every legacy entry as historical state alongside
+ * its resolved category; explicit category choices take precedence on read. */
 export function migrateResolvedDeckFolds(
   folds: FlightDeckFoldMap,
   rows: readonly Pick<FlightDeckRow, 'issue' | 'descendantIds'>[],
@@ -81,7 +82,6 @@ export function migrateResolvedDeckFolds(
     const kind = row.descendantIds.length > 0 ? 'branch' : 'roster'
     const key = deckFoldKey(kind, row.issue.id)
     if (!next.has(deckFoldKey('branch', row.issue.id)) && !next.has(deckFoldKey('roster', row.issue.id))) next.set(key, legacy)
-    next.delete(row.issue.id)
   }
   return next
 }
@@ -95,7 +95,7 @@ export function flightDeckBranchFolded(row: Pick<FlightDeckRow, 'issue' | 'desce
 export function flightDeckRosterFolded(row: Pick<FlightDeckRow, 'issue' | 'descendantIds' | 'sessions'>, folds: FlightDeckFoldMap): boolean {
   const explicit = folds.get(deckFoldKey('roster', row.issue.id)) ??
     (row.descendantIds.length === 0 && !folds.has(deckFoldKey('branch', row.issue.id)) ? folds.get(row.issue.id) : undefined)
-  return explicit === undefined ? (issueClosed(row.issue) || flightDeckRowDefaultFolded(row)) && !row.sessions.some((session) => {
+  return explicit === undefined ? (issueClosed(row.issue) || flightDeckRowDefaultFolded(row)) && !deckTaskFacts(row.issue, row.sessions).taskRequest && !row.sessions.some((session) => {
     const facts = deckSessionFacts(row.issue, session)
     return facts.running || facts.error !== null || facts.request
   }) : explicit === 'closed'

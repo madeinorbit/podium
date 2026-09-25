@@ -193,7 +193,7 @@ export function deriveHandoffNow(
   const entries: Array<{ entry: HandoffNowEntry; seq: number }> = []
 
   for (const issue of issues) {
-    if (!memberIds.has(issue.id) || issue.stage === 'proposed' || issue.archived || issue.deletedAt)
+    if (!memberIds.has(issue.id) || (issue.stage === 'proposed' && !issueClosed(issue)) || issue.archived || issue.deletedAt)
       continue
     const crew = sessionsOnIssue(issue, missionCrew)
     const present = crew.filter(sessionPresentOnTask)

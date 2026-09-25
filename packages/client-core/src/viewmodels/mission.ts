@@ -140,7 +140,9 @@ export function deckFoldHiddenFacts(
         if (current.error) errors.add(session.sessionId)
         if (current.request) requests.add(session.sessionId)
       }
-      if (facts.taskRequest) taskRequests.add(candidate.issue.id)
+      // A branch fold hides descendant tasks. Folding the row's roster leaves
+      // its task-level request visible on the strip.
+      if (facts.taskRequest && candidate.issue.id !== row.issue.id) taskRequests.add(candidate.issue.id)
     }
     return { running: running.size, errors: errors.size, requests: requests.size + taskRequests.size }
   }
@@ -1460,12 +1462,12 @@ function computeMissionRollup(
   // out of `scope`, so the fallback never resurrects it.
   const formal = formalMemberIds(issues, rootId)
   const members = scope.filter(
-    (issue) => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue),
+    (issue) => formal.has(issue.id) && (issue.stage !== 'proposed' || issueClosed(issue)) && !issueAbandoned(issue),
   )
   // The root can be abandoned too, and then there is nothing to measure at all
   // rather than one cancelled unit sitting in a band of its own.
   const fromChildren = members.length > 0
-  const units = (fromChildren ? members : scope.filter((issue) => issue.id === rootId && issue.stage !== 'proposed')).filter(
+  const units = (fromChildren ? members : scope.filter((issue) => issue.id === rootId && (issue.stage !== 'proposed' || issueClosed(issue)))).filter(
     (issue) => {
       if (issueAbandoned(issue)) return false
       // `isVacatedOrigin` is deliberately still asked about the issue's OWN

@@ -223,6 +223,17 @@ describe('Handoff mission derivations', () => {
     expect(deriveHandoffNow([root, target], [running], 'root').find((entry) => entry.issueId === 'root')?.kind).toBe('working')
   })
 
+  it('retains current running and parked errors on a closed proposed-stage task', () => {
+    const root = issue('root', { stage: 'proposed', closedReason: 'done' })
+    const running = session('running', { issueId: asIssueId('root'), agentState: { phase: 'working' } as SessionMeta['agentState'] })
+    const parkedError = session('parked-error', { issueId: asIssueId('root'), status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error', retryable: false } } as SessionMeta['agentState'] })
+    expect(deriveHandoffNow([root], [running, parkedError], 'root')[0]).toMatchObject({ kind: 'working', sessionId: 'running' })
+    expect(deriveHandoffNow([root], [parkedError], 'root')[0]).toMatchObject({ kind: 'error', sessionId: 'parked-error' })
+    expect(handoffCurrentFacts(root, [running, parkedError], new Map([[root.id, root]]), new Set([root.id]))).toMatchObject({
+      running: ['running'], errors: ['parked-error'], requests: [], taskRequest: false,
+    })
+  })
+
   it('uses formal blockers and waits for the last open child before resuming a parent', () => {
     const issues = [
       issue('root', { stage: 'in_progress' }),
