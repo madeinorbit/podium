@@ -120,7 +120,9 @@ describe('L4b with optimistic edits enabled (write layer attached, idle)', () =>
             `clean edit+reject diverged (seed 1, step ${result.step}) from the ${result.against}:\n${result.diff}`,
           )
         }
-        expect(transport.sent).toHaveLength(1)
+        // No send count asserted here: gen sequences reload, and each reload
+        // re-creates the arm (runCheck `create()`), which edits again. The
+        // edit tests pin the one-edit-one-send shape exactly.
       }
       let caught = 0
       for (const seed of SEEDS) {
