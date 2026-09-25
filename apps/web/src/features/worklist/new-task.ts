@@ -11,7 +11,7 @@
  *
  * `New task` makes none of those choices. It clears the selection, which is the
  * one state the shell already reads as "no mission on screen": the flight deck
- * goes to its empty tree and the workspace to the cold-start composer, which is
+ * folds and the workspace goes to the cold-start composer, which is
  * where agent, model, machine, repo AND prompt are all one instrument. Nothing
  * is created until the operator launches — an abandoned new task leaves no
  * empty vessel in the column behind it.
@@ -24,7 +24,10 @@
  */
 
 import { shallowEqual } from '@podium/client-core/store'
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
+import {
+  FIRST_TASK_ACTIVATION_DRAFT_KEY,
+  SUPERAGENT_MODE_KEY,
+} from '@podium/client-core/ui-state'
 import { useEffect, useRef } from 'react'
 import { useStoreSelector } from '@/app/store'
 import {
@@ -77,6 +80,9 @@ export function useNewTask(
       model: previous.model,
       effort: previous.effort,
     })
+    // A new prompt should not open beside the repository's unattached agents.
+    // Keep the folded rail available so Flightdeck can still be opened explicitly.
+    uiState.set(SUPERAGENT_MODE_KEY, 'folded')
     setSelectedIssueId(null)
     setSelectedWorktree(null)
     setView('workspace')
