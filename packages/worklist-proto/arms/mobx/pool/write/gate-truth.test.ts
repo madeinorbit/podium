@@ -221,9 +221,18 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
             if (diff !== null && firstDiff === null) {
+              const feedSource = run.feed().source
+              const store = run.ctx.engine.getSnapshot() as unknown as {
+                issues?: readonly unknown[]
+                sessions?: readonly unknown[]
+              }
+              const census =
+                `feed issues/sessions=${feedSource.snapshot('issue').length}/` +
+                `${feedSource.snapshot('session').length} ` +
+                `store issues/sessions=${store.issues?.length ?? '?'}/${store.sessions?.length ?? '?'}`
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-                `(${JSON.stringify(step.change)}):\n${diff}`
+                `(${JSON.stringify(step.change)}):\n${diff}\n${census}`
             }
           },
         })
