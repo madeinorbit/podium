@@ -1217,6 +1217,35 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(document.querySelector('[data-flight-session="leaf"]')).toBeNull()
   })
 
+  it('keeps a sessionless task request legible in the narrow Waterfall', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('ask', { parentId: 'root', title: 'Approval', needsHuman: true, humanQuestion: 'Approve the release plan?' }),
+    ]
+    harness.sessions = []
+    waterfallDeck()
+    const row = document.querySelector('[data-flight-issue="ask"]') as HTMLElement
+    expect(row.querySelector('.waterfall-future-label strong')?.textContent).toBe('Task request')
+    expect(row.querySelector('.waterfall-dependency-row')?.textContent).toContain('Task request · Approve the release plan?')
+  })
+
+  it('caps deep Waterfall indentation and names the displayed parent', () => {
+    harness.issues = [issue('root', { title: 'Mission' })]
+    for (let depth = 1; depth <= 10; depth++) {
+      harness.issues.push(issue(`depth${depth}`, { parentId: depth === 1 ? 'root' : `depth${depth - 1}`, title: `Nested task ${depth}` }))
+    }
+    harness.sessions = []
+    waterfallDeck()
+    const row = document.querySelector('[data-flight-issue="depth10"]') as HTMLElement
+    expect(row.getAttribute('data-depth')).toBe('10')
+    expect(row.style.getPropertyValue('--waterfall-depth')).toBe('2')
+    expect(row.querySelector('.waterfall-issue-context')?.textContent).toContain('Nested task 9')
+    expect(row.querySelector('.waterfall-issue-title')?.textContent).toBe('Nested task 10')
+    const css = readFileSync(resolve(import.meta.dirname, '../styles.css'), 'utf8')
+    expect(css).toMatch(/\.waterfall-issue-context\s*\{[^}]*overflow-wrap:\s*anywhere/s)
+    expect(css).toMatch(/\.waterfall-issue-title\s*\{[^}]*overflow-wrap:\s*anywhere/s)
+  })
+
   it('counts reported native workers honestly and discloses a full ID', () => {
     harness.sessions = [
       session('s1', { issueId: 't1' }),
@@ -2798,7 +2827,8 @@ describe('flight deck factory facts', () => {
     harness.issues = [issue('root', { title: 'Mission', coordinatorSessionId: 'lead', memberSessionIds: ['lead'] })]
     harness.sessions = [session('lead', { issueId: 'root', name: 'Lead', offer: { message: 'Review the drafted plan', actions: [{ label: 'Approve', prompt: 'Proceed' }] }, agentState: WORKING })]
     deck()
-    expect(screen.getByTestId('flight-coordinator').textContent).toContain('Running · Needs you')
+    expect(screen.getByTestId('flight-coordinator').textContent).toContain('Running')
+    expect(screen.getByTestId('flight-coordinator').querySelector('.text-attention')?.textContent).toBe('Needs you')
     expect(screen.getByTestId('flight-coordinator').textContent).toContain('Review the drafted plan')
     expect(screen.getByTestId('flight-coordinator').textContent).toContain('Suggested actions · Approve')
   })

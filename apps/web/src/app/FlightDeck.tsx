@@ -1857,10 +1857,9 @@ const TaskRow = memo(
                   {note && <IssueNoteChip note={note} />}
                   {seat && <SeatChip note={seat} />}
                   {folded && <CollapsedPayload summary={fullRow.collapsedSummary} />}
-                  {folded && fullRow.collapsedSummary.crew.length > 0 && (
+                  {(folded || collapsed) && fullRow.collapsedSummary.crew.length > 0 && (
                     <CrewCensus crew={fullRow.collapsedSummary.crew} issue={row.issue} byId={byId} />
                   )}
-                  {collapsed && !folded && row.sessions.length > 0 && <span className="shell-type-micro text-text-dim">{row.sessions.length} hidden agents</span>}
                   <StateLabel value={state} />
                 </span>
               )}

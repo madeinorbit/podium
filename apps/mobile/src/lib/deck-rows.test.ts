@@ -1,7 +1,11 @@
 import type { FlightDeckRow } from '@podium/client-core/viewmodels'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { BAND_H, STRIP_H } from '../components/spine'
 import { applyFolds, type DeckTally, deckContentHeight, deckPanelHeight } from './deck-rows'
+
+// These tests exercise the pure row projection. The native spine imports Expo
+// modules for rendering, which are outside this projection's test boundary.
+vi.mock('../components/spine', () => ({ BAND_H: 44, STRIP_H: 48, PROPOSED_H: 40 }))
 
 function row(id: string, depth: number): FlightDeckRow {
   return {

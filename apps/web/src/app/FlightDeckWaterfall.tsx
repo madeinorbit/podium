@@ -237,7 +237,7 @@ function issueFuture(row: FlightDeckRow, byId: ReadonlyMap<string, IssueNavigati
   if (dependency.label) return { label: dependency.label, state: 'blocked' }
   if (issue.stage === 'proposed' && !issueClosed(issue))
     return { label: 'Known next step', detail: 'Unassigned', state: 'future' }
-  if (row.sessions.length === 0 && issue.stage !== 'done')
+  if (row.sessions.length === 0)
     return { label: 'Unassigned', state: 'future' }
   return null
 }
@@ -1021,7 +1021,19 @@ const WaterfallIssue = memo(function WaterfallIssue({
   const foldable = !item.root && (hasBranch || fullRow.sessions.length > 0)
   const folded = hasBranch ? branchClosed : rosterClosed
   const hidden = deckFoldHiddenFacts(fullRow, allRows, { branchClosed, rosterClosed }).total
-  const indent = item.root ? 0 : Math.max(0, item.row.depth - 1)
+  // Keep the task label usable at deep nesting on a narrow deck. The parent
+  // breadcrumb below carries the hierarchy once the visual indent is capped.
+  const indent = item.root ? 0 : Math.min(2, Math.max(0, item.row.depth - 1))
+  const rowIndex = allRows.indexOf(fullRow)
+  let displayParent: FlightDeckRow | undefined
+  if (item.row.depth > 2) {
+    for (let index = rowIndex - 1; index >= 0; index--) {
+      if (allRows[index]?.depth === item.row.depth - 1) {
+        displayParent = allRows[index]
+        break
+      }
+    }
+  }
   const issueRef = issueDisplayRef(item.row.issue)
   const coordinator = item.sessions.find((session) =>
     isCoordinatorSession(item.row.issue, session.sessionId),
@@ -1128,6 +1140,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
               intent.commit(() => onSelectIssue(true))
             }}
           >
+            {displayParent && <span className="waterfall-issue-context">Under {issueDisplayRef(displayParent.issue)} · {displayParent.issue.title}</span>}
             <span className="waterfall-issue-title">{issueTitle}</span>
             <span className="waterfall-issue-meta font-mono">{issueMeta}</span>
           </button>
@@ -1169,7 +1182,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
             aria-label={[future.label, future.detail].filter(Boolean).join(': ')}
           >
             {future.state === 'attention' ? (
-              <span className="waterfall-attention-mark" aria-hidden="true" />
+              <><span className="waterfall-attention-mark" aria-hidden="true" /><strong>{future.label}</strong></>
             ) : (
               <strong>{future.label}</strong>
             )}
@@ -1194,7 +1207,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
           {hidden.errors > 0 && <span className="text-destructive">{hidden.errors} hidden agent errors</span>}
           {hidden.requests > 0 && <span className="text-attention">{hidden.requests} hidden requests</span>}
         </span>}
-        {future?.label === 'Task request' && item.sessions.length > 0 &&
+        {future?.label === 'Task request' &&
           <span className="shell-type-micro text-attention">Task request · {future.detail}</span>}
         <FlightDeckDependencyDetails issue={item.row.issue} byId={byId} members={missionMembers} onOpen={onOpenDependency} />
       </div>

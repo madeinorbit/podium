@@ -10416,23 +10416,26 @@ button.waterfall-fold:hover {
 }
 .waterfall-issue-meta {
   width: 100%;
-  overflow: hidden;
   color: var(--text-faint);
   font-size: 8.5px;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .waterfall-issue-title {
   width: 100%;
-  overflow: hidden;
   color: var(--text-dim);
   font-size: 11.5px;
   font-weight: 550;
   line-height: 1.15;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+.waterfall-issue-context {
+  width: 100%;
+  color: var(--text-faint);
+  font-size: 8.5px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 .waterfall-issue-open[aria-current="true"] .waterfall-issue-title {
   color: var(--text-strong);
