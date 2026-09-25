@@ -1491,3 +1491,26 @@ Decisions and findings (in the order met):
    Landed first on integration with the windowed native test restatement
    (branch `issue/4584-fix-integration-red`, 2 commits) before resuming
    Hb3, per the coordinator's fix-first order.
+
+### Hb3 close-out (still POD-4584, after the fix-first landing)
+
+- **Chain fence, both depths.** Depth 4 (`i2770 < i2763 < i2720 < i2666 <
+  i2577`, question on `s340`): 1 row read against 15, `rollupsDerived`
+  exactly 5; planted `everyAggregate`: 1,342 compositions at 1 read (reads
+  blind, count red). Deepest chain (`i3839 < i3784 < i3717 < i3634 < i3570 <
+  i3513`, 6 rows): 1 read against 18, exactly 6.
+- **Roster its own cell.** The question flips the seat's retention finish
+  kind (`idleDone` → `open`) without moving the roster; without a roster
+  cell that dirtied `seatActivity` and the count read 6 for 5. The roster
+  list is a cell now (as MobX's `rosterIds` computed): retention churn that
+  keeps the seats stops there.
+- **Row-fields activityAt (POD-4674 addendum).** 732 visible 1x rows exact;
+  mutant A (every explicit session) fails first at `i4603`, mutant B (no
+  subtree raise) first at `i3973` — the same lead rows as MobX's mutants.
+  The parity loop also diffs whole views against the oracle after
+  bootstrap and every scenario (the slice drops `activityAt`).
+- **L4b.** `rollup.gate.test.ts` 371192adc: green 3 seeds x 200 against
+  the oracle every step and the rebuild; the stale-filings plant fails
+  every seed. The stock pool gate 3 x 200 green with all eight plants
+  failing every seed (the `activity` plant wraps the shared per-session
+  method: one cached path is masked by the max of the rest).
