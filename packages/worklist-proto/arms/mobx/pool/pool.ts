@@ -104,9 +104,6 @@ export interface PoolCounters extends VisibleCounters {
 
 export type PoolStats = ArmStats & { readonly counters: PoolCounters }
 
-/** POD-4678: no seats (shared frozen, never written). */
-const EMPTY_SEATS: readonly string[] = Object.freeze([])
-
 function createStats(residency: Residency | null): PoolStats {
   const counters: PoolCounters = {
     modelsCreated: 0,
@@ -427,9 +424,22 @@ export class MobxPool {
       parts: (id) => this.issue(id),
       rollup: (id) => this.worklist.issue(id)?.rollup,
       retainedSeats: (id) => this.worklist.issue(id)?.retainedSeatIds ?? [],
-      // POD-4678: same maintained seat mirror as `visibleInputs.seats`
-      // (closure-held, never walked by the copy sweep: ids only, never rows).
-      seats: (id) => seats.get(id) ?? EMPTY_SEATS,
+      // POD-4678 (sent back item 1): the mirror IS the relation — every id
+      // it yields counts as a relation read, exactly as `many()` yields do.
+      // `seatIdsPartOf` spreads + sorts it (`[...seats].sort()`), so a new
+      // member re-reads its whole family here: expect #10 over budget (true
+      // state) until item 2 maintains the sorted list without iterating it.
+      // Closure-held (never walked by the copy sweep: ids only, never rows).
+      seats: (id) => ({
+        *[Symbol.iterator](): Generator<string> {
+          const set = seats.get(id)
+          if (set === undefined) return
+          for (const member of set) {
+            reads.touch('session', member, 'relation')
+            yield member
+          }
+        },
+      }),
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
@@ -451,10 +461,21 @@ export class MobxPool {
       issueRead: (id) => this.readStates.get(id),
       nested: (id) => this.worklist.nested(id),
       formalChildren: (id) => this.worklist.formalChildren(id),
-      // POD-4678: the maintained seat set (one element per move, never the
-      // family), read without touching the fenced relation reader. Closure-
-      // held, never walked by the copy sweep: ids only, never rows.
-      seats: (id) => seats.get(id) ?? EMPTY_SEATS,
+      // POD-4678 (sent back item 1): the mirror IS the relation — every id
+      // it yields counts, exactly as `many()` yields do. Spread + sort here
+      // re-reads the whole family: expect #10 over budget (true state) until
+      // item 2 returns the maintained sorted list without iterating it.
+      // Closure-held (never walked by the copy sweep: ids only, never rows).
+      seats: (id) => ({
+        *[Symbol.iterator](): Generator<string> {
+          const set = seats.get(id)
+          if (set === undefined) return
+          for (const member of set) {
+            reads.touch('session', member, 'relation')
+            yield member
+          }
+        },
+      }),
       counted: () => {
         stats.rollupsDerived += 1
       },
