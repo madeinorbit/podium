@@ -43,6 +43,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { runInAction } from 'mobx'
 import { createEngineLocals } from '../../../../harness/src/engine-locals'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
