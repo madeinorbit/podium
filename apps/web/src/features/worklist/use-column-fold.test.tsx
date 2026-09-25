@@ -44,7 +44,7 @@ const RAIL = 58
 const OPEN = 306
 
 let reduceMotion = false
-vi.mock('motion/react', () => ({
+vi.mock('@/lib/use-reduced-motion', () => ({
   useReducedMotion: () => reduceMotion,
 }))
 
@@ -159,12 +159,13 @@ afterEach(() => {
 
 /** The shell's shape, reduced to what the fold touches: one persistent wrapper,
  *  two subtrees, the ghost of the folded one, and the caller's collapsed state. */
-function Column(): JSX.Element {
+function Column({ compact = false }: { compact?: boolean }): JSX.Element {
   const [collapsed, setCollapsed] = useState(false)
   const fold = useColumnFold({
     foldedWidth: RAIL,
     openWidth: () => OPEN,
     onFold: setCollapsed,
+    resetKey: compact,
   })
   return (
     <div
@@ -194,6 +195,20 @@ function Column(): JSX.Element {
 const shell = (): HTMLElement => screen.getByTestId('shell')
 
 describe('useColumnFold', () => {
+  it('releases all held animation styles when responsive layout changes mid-fold', () => {
+    const view = render(<Column />)
+    fireEvent.click(screen.getByText('the work list'))
+    expect(shell().dataset.folding).toBe('true')
+
+    view.rerender(<Column compact />)
+
+    expect(shell().style.width).toBe('')
+    expect(shell().dataset.folding).toBeUndefined()
+    expect(screen.queryByTestId('ghost')).toBeNull()
+    expect(recorded).toHaveLength(4)
+    for (const animation of recorded) expect(animation.cancelled).toBe(1)
+  })
+
   it('holds the open column through the collapse and swaps at the end', () => {
     render(<Column />)
     fireEvent.click(screen.getByText('the work list'))

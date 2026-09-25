@@ -107,7 +107,7 @@
  * Reduced motion takes none of it: the state simply flips, which is what a
  * folded column looks like to someone who asked not to be moved.
  */
-import { type RefObject, useEffect, useRef, useState } from 'react'
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { COLUMN_FOLD_EASE, COLUMN_FOLD_MS } from './sidebar-common'
@@ -172,6 +172,7 @@ export function useColumnFold({
   foldedWidth,
   openWidth,
   onFold,
+  resetKey,
 }: {
   /** The column's closed width. Not 0 — this shell folds columns to a rail. */
   foldedWidth: number
@@ -179,6 +180,8 @@ export function useColumnFold({
   openWidth: () => number
   /** The caller's own collapsed state, flipped inside the fold's commit. */
   onFold: (collapsed: boolean) => void
+  /** Cancel a manual gesture when responsive layout changes its destination. */
+  resetKey?: unknown
 }): ColumnFold {
   const ref = useRef<HTMLDivElement>(null)
   const ghostRef = useRef<HTMLDivElement>(null)
@@ -189,6 +192,22 @@ export function useColumnFold({
   const slide = useRef<Animation | null>(null)
   const [width, setWidth] = useState<number | null>(null)
   const reduceMotion = useReducedMotion()
+  const previousResetKey = useRef(resetKey)
+  // A resize can cross the breakpoint midway through a manual fold. Release
+  // its held width before paint so it cannot override the responsive layout.
+  useLayoutEffect(() => {
+    if (Object.is(previousResetKey.current, resetKey)) return
+    previousResetKey.current = resetKey
+    animation.current?.cancel()
+    lid.current?.cancel()
+    rail.current?.cancel()
+    slide.current?.cancel()
+    animation.current = null
+    lid.current = null
+    rail.current = null
+    slide.current = null
+    setWidth(null)
+  }, [resetKey])
   useEffect(
     () => () => {
       animation.current?.cancel()
