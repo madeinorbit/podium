@@ -253,6 +253,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         let oracleChecks = 0
         let oracleFailed = 0
         let healed = 0
+        const failedSteps: number[] = []
         const result = await checkArm(gapped(arm, gap), sequence, {
           mode: 'truth',
           oracleEvery: 0,
@@ -310,6 +311,9 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
                 `(${JSON.stringify(step.change)}, settled=${settled}):\n${diff}`
             }
+            if (diff !== null) {
+              failedSteps.push(step.index)
+            }
           },
         })
         if (!result.ok) {
@@ -320,7 +324,9 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           )
         }
         if (firstDiff !== null) {
-          throw new Error(`${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks}`)
+          throw new Error(
+            `${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks} at steps [${failedSteps.join(',')}]`,
+          )
         }
         cells.push({
           seed,
