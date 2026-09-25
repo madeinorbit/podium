@@ -323,12 +323,14 @@ describe('scaling: the work follows the change (POD-4694)', () => {
             filed: Map<string, { pinned: boolean; repoKey: string; closed: boolean }>
             unfile(id: string, placement: unknown): number
             enfile(id: string, placement: unknown): number
+            count(elements: number): void
           }
           for (const id of order) {
             const filed = groups.filed.get(id)
             if (filed === undefined) continue
-            groups.unfile(id, filed)
-            groups.enfile(id, filed)
+            const behind = groups.unfile(id, filed)
+            const around = groups.enfile(id, filed)
+            groups.count(behind + around)
           }
         }
         const { groupElements: refiled } = pool.stats.counters
