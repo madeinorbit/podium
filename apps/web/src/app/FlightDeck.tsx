@@ -3017,7 +3017,7 @@ export function FlightDeck({
     () => reposToViews(repos).flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)),
     [repos],
   )
-  const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
+  const { focusedIssueId, focusLoading, setFocusedIssueId } = useOperatorFocus()
   // WHAT THE TASK DOCK IS ACTUALLY SHOWING, so a row can answer for it. The
   // explorer's own stack top — not this column's focus — because the operator
   // may have walked the explorer somewhere else since, and a row that claims to
@@ -3151,7 +3151,7 @@ export function FlightDeck({
     () => (root ? missionIssueIds(issues, root.id, sessions) : new Set<string>()),
     [issues, root, sessions],
   )
-  const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
+  const focused = resolveFocus(focusedIssueId, missionMembers, root?.id, focusLoading)
   const progress = missionProgress(issues, sessions, root?.id)
   // What this mission discovered and no longer owns. Derived beside the rows
   // from the same membership set, so a departure can never also be a strip.

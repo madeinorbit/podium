@@ -87,7 +87,7 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const { focusedIssueId } = useOperatorFocus()
+  const { focusedIssueId, focusLoading } = useOperatorFocus()
 
   // WHAT THE SHELL IS POINTING AT — the same resolution the dock used to do for
   // itself: the operator's focus inside the selected mission, falling back to
@@ -103,7 +103,7 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
     // and strand the explorer on the list while its mission is still selected.
     // Children fall out of the index on their own; this covers the rest.
     const focus =
-      focusedIssueId !== null && issues.some((i) => i.id === focusedIssueId && !i.deletedAt)
+      focusedIssueId !== null && (focusLoading || issues.some((i) => i.id === focusedIssueId && !i.deletedAt))
         ? focusedIssueId
         : null
     return resolveFocus(
@@ -116,8 +116,9 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       // empty draft vessel, or an id no longer in the replica — so the fallback
       // could only ever open the panel on a task the operator did not choose.
       root?.id ?? null,
+      focusLoading,
     )
-  }, [focusedIssueId, issues, selectedIssueId, sessions])
+  }, [focusedIssueId, focusLoading, issues, selectedIssueId, sessions])
 
   const [stack, setStack] = useState<ExplorerStack>(() => (target ? [target] : []))
   const [motion, setMotion] = useState<'push' | 'pop' | null>(null)
@@ -218,9 +219,9 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
   // ref card pointed at a deleted task (POD-1265) would silently land on whatever
   // the deck happens to be showing, which is not what anyone asked to see.
   const missing = useMemo(() => {
-    if (!grounded || current === null) return false
+    if (!grounded || current === null || (focusLoading && current === focusedIssueId)) return false
     return !issues.some((i) => i.id === current && !i.deletedAt)
-  }, [grounded, current, issues])
+  }, [grounded, current, issues, focusLoading, focusedIssueId])
 
   useEffect(() => {
     if (!missing) return

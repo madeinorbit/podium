@@ -41,6 +41,9 @@ const state = {
   selectedIssueId: null as string | null,
   sessions: [] as never[],
   issues: BASE_ISSUES,
+  workspaces: {} as Record<string, { deck?: { focusedIssueId?: string | null } }>,
+  workspaceKey: () => 'mission:p',
+  updateWorkspaceDeck: vi.fn(),
   trpc: {
     issues: {
       comments: { query: vi.fn(async () => []) },
@@ -152,10 +155,27 @@ afterEach(() => {
   state.selectedIssueId = null
   state.issues = BASE_ISSUES
   state.sessions = [] as never[]
+  state.workspaces = {}
   vi.clearAllMocks()
 })
 
 describe('issue explorer navigation', () => {
+  it('keeps a saved unknown child in the inspector until its issue row arrives', () => {
+    state.selectedIssueId = 'p'
+    state.workspaces = { 'mission:p': { deck: { focusedIssueId: 'late-child' } } }
+    const view = mount('p')
+
+    expect(screen.getByRole('status').textContent).toContain('Loading task')
+    expect(screen.getByTestId('pointer').dataset.current).toBe('late-child')
+    expect(screen.queryByTestId('detail')).toBeNull()
+
+    state.issues = [...BASE_ISSUES, makeIssue({ id: 'late-child', parentId: 'p', title: 'Loaded child' })]
+    act(() => view.rerender(tree('p')))
+
+    expect(detail().dataset.issueId).toBe('late-child')
+    expect(screen.queryByText('Loading task…')).toBeNull()
+  })
+
   it('caps remembered query scroll positions', () => {
     let values: number[] = []
     render(
