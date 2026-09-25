@@ -44,6 +44,24 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
   converge at the echo. Counted per oracle check as `kernelDiffers`.
   Ruling F4 keeps it a finding; the alternative (gen accept writing truth)
   is with the coordinator.
+- **The chained-hold stale title.** An entry enqueued behind a same-row
+  sibling is chained: the kernel holds its overlay past a newer server value
+  (no moved-past escape), showing stale Mine while arm, oracle and server
+  agree on Theirs. The gate skips exactly those rows (live == server ==
+  oracle-display, kernel retired value) and counts them as
+  `staleSkippedTotal` — incapable of masking an arm bug. Seed-2/step-139
+  minimal case: edit, remote, echo (marks GenServer applied), online-drain
+  re-send dedupe-resolves into the receipt both logs settle on.
+- **Deduped re-sends are receipts.** The echo step marks the GenServer id
+  applied; a later re-send (online drain, reload) is answered at once and
+  the arm settles on it. The oracle observes the same signal by scanning the
+  server's arrival log (`consumeServerAnswers`) — without it the oracle
+  holds entries the arm settled.
+- **Gate edits are titles + mark-reads** (`editFields`). A pending stage
+  moves progress roll-ups, which titles-overlaid-on-the-kernel-snapshot
+  cannot judge; pending stages flow through the same overlaid row inputs as
+  server stages (the server-stage fences prove that path), so Mc2 holds the
+  one drawn editable field and leaves stage edits to the full phase-c gate.
 - **(b) and (d) are commit-count plants.** Equal values are invisible to any
   snapshot comparison by construction, and MobX's `view: computedStruct`
   absorbs equal notifications, so their catching checks are the
