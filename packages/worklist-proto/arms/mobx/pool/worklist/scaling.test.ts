@@ -185,30 +185,27 @@ function maintenanceOf(runs: Map<string, number>): [string, number][] {
 }
 
 /**
- * Order elements iterated out of `VisibleCollection.order` while `run`
- * runs. The order array is wrapped in a counting proxy on the instance (the
- * underlying computed still evaluates and tracks normally, so order
- * liveness is preserved): every visited element and every `length` read
- * counts, through indexed access, iteration, spread and array methods. A
- * walk that iterates `host.order()` and reads a PLAIN map per id — invisible
- * to entity counters and to observable-map patches — shows up here at the
- * visible count. Bound per hot-path change: 0 elements, 0 lengths.
+ * Order elements iterated out of the groups host's `order()` while `run`
+ * runs. The host object is plain, so its `order` entry is swapped for one
+ * that wraps the returned array in a counting proxy (the underlying computed
+ * still evaluates and tracks normally, so order liveness is preserved):
+ * every visited element and every `length` read counts, through indexed
+ * access, iteration, spread and array methods. A walk that iterates
+ * `host.order()` and reads a PLAIN map per id — invisible to entity counters
+ * and to observable-map patches — shows up here at the visible count. Bound
+ * per hot-path change: 0 elements, 0 lengths.
  */
 function countOrderReads(
   pool: MobxPool,
   run: () => void,
 ): { elements: number; lengths: number } {
-  const host = pool.worklist as unknown as Record<string, unknown>
-  const descriptor =
-    Object.getOwnPropertyDescriptor(host, 'order') ??
-    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(host), 'order')
-  if (descriptor?.get === undefined) throw new Error('order has no getter to wrap')
-  const original = descriptor.get as (this: unknown) => readonly string[]
+  const groups = pool.groups as unknown as { host: { order(): readonly string[] } }
+  const original = groups.host.order
   let elements = 0
   let lengths = 0
   const wrap = (array: readonly string[]): readonly string[] =>
     new Proxy(array, {
-      get(target, property, receiver: unknown): unknown {
+      get(target, property, receiver): unknown {
         if (property === 'length') {
           lengths += 1
           return Reflect.get(target, property, receiver)
@@ -216,14 +213,17 @@ function countOrderReads(
         if (property === Symbol.iterator) {
           const inner = Reflect.get(target, property, array) as () => Iterator<string>
           const iterator = Reflect.apply(inner, array, []) as Iterator<string>
-          return function* (): Generator<string> {
-            let step = iterator.next()
-            while (!step.done) {
-              elements += 1
-              yield step.value
-              step = iterator.next()
-            }
+          const counting: Iterator<string> & { [Symbol.iterator](): Iterator<string> } = {
+            next: () => {
+              const step = iterator.next()
+              if (step.done !== true) elements += 1
+              return step
+            },
+            [Symbol.iterator]() {
+              return counting
+            },
           }
+          return () => counting
         }
         if (typeof property === 'string' && Number.isInteger(Number(property))) {
           elements += 1
@@ -231,16 +231,11 @@ function countOrderReads(
         return Reflect.get(target, property, receiver)
       },
     })
-  Object.defineProperty(host, 'order', {
-    configurable: true,
-    get(this: unknown): readonly string[] {
-      return wrap(original.call(this))
-    },
-  })
+  groups.host.order = () => wrap(original())
   try {
     run()
   } finally {
-    Object.defineProperty(host, 'order', descriptor)
+    groups.host.order = original
   }
   return { elements, lengths }
 }
