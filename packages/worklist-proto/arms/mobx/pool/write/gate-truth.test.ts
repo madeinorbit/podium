@@ -43,6 +43,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { runInAction } from 'mobx'
 import { createEngineLocals } from '../../../../harness/src/engine-locals'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
@@ -244,7 +245,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 const feedRows = new Map(
                   feedSource.snapshot('issue').map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
                 )
-                // Whole formal closure under the target: feed vs cache per row.
+                // TEMPORARY diagnosis (removed before landing): whole formal
+                // closure under the target, feed vs cache vs pool tables.
                 const seen = new Set<string>([target])
                 const queue = [target]
                 const lines: string[] = []
@@ -255,16 +257,23 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                       seen.add(id)
                       queue.push(id)
                       const cached = run.ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+                      const tabled = runInAction(
+                        () => h.pool.tables.issue.get(id) as unknown as Record<string, unknown> | undefined,
+                      )
                       const f = `${String(v['stage'])}/${String(v['closedReason'] ?? '-')}`
                       const c =
                         cached === undefined
                           ? '?'
                           : `${String(cached['stage'])}/${String(cached['closedReason'] ?? '-')}`
-                      lines.push(`${id}:feed(${f})cache(${c})${f === c ? '' : ' DIFF'}`)
+                      const t =
+                        tabled === undefined
+                          ? '?'
+                          : `${String(tabled['stage'])}/${String(tabled['closedReason'] ?? '-')}`
+                      lines.push(`${id}:feed(${f})cache(${c})table(${t})${f === c && f === t ? '' : ' DIFF'}`)
                     }
                   }
                 }
-                extra += `\nformal closure under ${target} (feed vs cache stage/closedReason):\n${lines.join('\n')}`
+                extra += `\nformal closure under ${target} (stage/closedReason):\n${lines.join('\n')}`
               }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
