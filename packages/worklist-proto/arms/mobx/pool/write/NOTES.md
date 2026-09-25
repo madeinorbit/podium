@@ -166,6 +166,15 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
   kernel and oracle hide). Lesson: derivations re-run only on observable
   change — a plant must move the overlay map, property patching alone goes
   stale; a cold target needs the same hydration a real edit does.
+- 20 × 300 gate 16/20: seeds 7/9/11/19 fail single-row membership at tail
+  steps (extra i2110/i3232, missing i656/i1771), each with a superseded
+  mark-read in its past. Root cause (probe: arm holds TWO wall-clock
+  mark-reads ms apart, oracle holds ZERO, no edit steps involved): a
+  supersede step presses one arm mark-read per handle, but feedStep never
+  fed them to the oracle (cut with the outcome mapping). Fix in the shared
+  feeding (authorized construction): append every claimed kernel id of a
+  supersede step like an edit intent. The collapse outcomes already arrive
+  through the stream on both sides.
 - The superseded seed-4 i1397 note (pending-mark-read membership vs the old
   title-patching oracle) is closed by the option-(b) whole-snapshot oracle:
   membership now follows the spec rules over the overlaid rows.
