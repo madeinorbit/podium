@@ -323,12 +323,20 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                   sessDiffs.push(`${id}:feed-only`)
                   continue
                 }
-                const fields = ['issueId', 'archived', 'readAt', 'unread', 'lastActiveAt'] as const
-                const df = fields.filter((k) => JSON.stringify(f?.[k]) !== JSON.stringify(s[k]))
-                if (df.length > 0) {
-                  sessDiffs.push(
-                    `${id}:(${df.map((k) => `${k}:feed=${JSON.stringify(f?.[k])} store=${JSON.stringify(s[k])}`).join(',')})`,
-                  )
+                const phaseOf = (v: Record<string, unknown> | undefined): string =>
+                  String((v?.['agentState'] as Record<string, unknown> | undefined)?.['phase'] ?? '-')
+                const offerOf = (v: Record<string, unknown> | undefined): string =>
+                  v?.['offer'] === undefined ? '-' : 'offer'
+                const fields = [
+                  `issueId:${JSON.stringify(f?.['issueId'])}=${JSON.stringify(s['issueId'])}`,
+                  `archived:${JSON.stringify(f?.['archived'])}=${JSON.stringify(s['archived'])}`,
+                  `status:${JSON.stringify(f?.['status'])}=${JSON.stringify(s['status'])}`,
+                  `stoppedAt:${JSON.stringify(f?.['stoppedAt'] ?? null)}=${JSON.stringify(s['stoppedAt'] ?? null)}`,
+                  `phase:${phaseOf(f)}=${phaseOf(s)}`,
+                  `offer:${offerOf(f)}=${offerOf(s)}`,
+                ]
+                if (fields.some((x) => !x.endsWith('=') && x.split('=')[1] !== x.split('=')[2])) {
+                  sessDiffs.push(`${id}:(${fields.join(',')})`)
                 }
                 if (sessDiffs.length >= 12) break
               }
