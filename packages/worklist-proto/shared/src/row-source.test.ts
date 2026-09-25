@@ -485,7 +485,9 @@ describe('row-source over the real facade (fake runtime)', () => {
       } finally {
         handle.dispose()
       }
-      expect(handle.source.row?.('issue', 'i1')).toBeUndefined()
+      // A disposed source throws on reads instead of serving stale rows
+      // (POD-4574: silent stale reads once looked like a 54-row rollup bug).
+      expect(() => handle.source.row?.('issue', 'i1')).toThrow(/disposed source/)
     }
   })
 
