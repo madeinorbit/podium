@@ -287,6 +287,17 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               const expected = oracle.patchSnapshot(kernel, run.feed().source)
               return { kernel, actual, expected, diff: diffSnapshots(actual, expected) }
             }
+            // TEMPORARY diagnosis (removed before landing): i1397 presence.
+            {
+              const { appendFileSync } = await import('node:fs')
+              const presence = (snap: SliceSnapshot): string =>
+                snap.rowsById['i1397'] === undefined ? 'absent' : 'present'
+              const kernel0 = oracleSnapshot(run.ctx.engine.getSnapshot())
+              appendFileSync(
+                '/tmp/presence.txt',
+                `seed ${seed} step ${step.index}: live=${presence(applyGap(h, run.ctx, kernel0, h.snapshot(), gap))} kernel=${presence(kernel0)}\n`,
+              )
+            }
             const first = compareOnce()
             if (diffSnapshots(first.kernel, first.expected) !== null) kernelDiffers += 1
             let diff = first.diff
