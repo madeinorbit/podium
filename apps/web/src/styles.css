@@ -7632,6 +7632,12 @@ a.ref-link--session::before {
   margin-inline: auto;
   scroll-margin-top: 0;
 }
+/* Tables use the pane instead of the prose measure. If their columns need more
+   room, scroll this block sideways without moving the rest of the document. */
+.markdown-preview > .md-block:has(> table) {
+  max-width: none;
+  overflow-x: auto;
+}
 .markdown-preview > .md-block:first-child > :first-child {
   margin-top: 0;
 }
@@ -7784,6 +7790,7 @@ a.ref-link--session::before {
 .markdown-preview :is(th, td) {
   border: 0;
   border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  min-width: 12rem;
   padding: 0.5em 0.75em;
   text-align: left;
   vertical-align: top;
@@ -7830,7 +7837,7 @@ a.ref-link--session::before {
 
 .calm-reader-sheet {
   display: flex;
-  width: min(62rem, 100%);
+  width: 100%;
   height: min(90vh, 58rem);
   min-height: 0;
   flex-direction: column;
