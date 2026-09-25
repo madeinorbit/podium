@@ -156,8 +156,8 @@ export const TAB_SURFACE = {
  * unreachable.
  */
 export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
-  'sidebar.repoSort': 'The sidebar’s own sort control — edited where it applies.',
-  'sidebar.repoOrder': 'Set by dragging repos in the sidebar.',
+  'sidebar.repoSort': 'Set in the sidebar’s Manage projects dialog.',
+  'sidebar.repoOrder': 'Set in the sidebar’s Manage projects dialog.',
   'sidebar.groupByRepo': 'The sidebar’s own grouping toggle.',
   'autoContinue.promptDismissed':
     'Written by dismissing the auto-continue prompt. A readAt/snooze-shaped fact (POD-351, POD-731): it records that THIS user dismissed something, and a settings row for it would invite an admin to un-dismiss it for everyone.',

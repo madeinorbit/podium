@@ -13,7 +13,10 @@ vi.mock('@/app/store', () => ({
     ],
   }),
   useStoreSelector: (select: (store: unknown) => unknown) =>
-    select({ setSidebarSettings: saveOrder }),
+    select({
+      setSidebarSettings: saveOrder,
+      sidebarSettings: { repoOrder: ['repo-a', 'repo-b'] },
+    }),
 }))
 
 afterEach(() => {

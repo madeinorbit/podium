@@ -2,7 +2,12 @@ import type { MachineId, RepoId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { UnifiedWorkGroup } from './folds'
 import type { RepoNavView, SidebarSections } from './nav'
-import { orderedSidebarProjects, orderProjectGroups, orderProjectItems } from './project-order'
+import {
+  mergeVisibleProjectOrder,
+  orderedSidebarProjects,
+  orderProjectGroups,
+  orderProjectItems,
+} from './project-order'
 
 const repo = (path: string, repoId?: string, otherPath?: string): RepoNavView => ({
   path,
@@ -64,5 +69,18 @@ describe('project order', () => {
       [],
     )
     expect(projects.map((project) => project.key)).toEqual(['/registered', '/a', '/z'])
+  })
+
+  it('keeps hidden saved projects in place while visible projects are reordered', () => {
+    const projects = orderedSidebarProjects(
+      sections(repo('/a', 'repo-a'), repo('/b', 'repo-b')),
+      [],
+      [],
+    )
+    expect(mergeVisibleProjectOrder([...projects].reverse(), ['/a', 'hidden', 'repo-b'])).toEqual([
+      'repo-b',
+      'hidden',
+      'repo-a',
+    ])
   })
 })

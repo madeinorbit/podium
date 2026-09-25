@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { worklistSlice } from '@podium/client-core/viewmodels'
+import { mergeVisibleProjectOrder, worklistSlice } from '@podium/client-core/viewmodels'
 import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -10,8 +10,11 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 /** A deliberate edit mode for project order; the busy worklist stays untouched. */
 export function ManageProjectsButton(): JSX.Element {
   const { projects } = useSlice(worklistSlice)
-  const { setSidebarSettings } = useStoreSelector(
-    (state) => ({ setSidebarSettings: state.setSidebarSettings }),
+  const { setSidebarSettings, savedOrder } = useStoreSelector(
+    (state) => ({
+      setSidebarSettings: state.setSidebarSettings,
+      savedOrder: state.sidebarSettings.repoOrder,
+    }),
     shallowEqual,
   )
   const [open, setOpen] = useState(false)
@@ -43,7 +46,7 @@ export function ManageProjectsButton(): JSX.Element {
     try {
       await setSidebarSettings({
         repoSort: 'custom',
-        repoOrder: visible.map((project) => project.key),
+        repoOrder: mergeVisibleProjectOrder(visible, savedOrder),
       })
       setOpen(false)
     } catch {
@@ -76,7 +79,7 @@ export function ManageProjectsButton(): JSX.Element {
           <div className="border-b border-border px-5 py-4">
             <DialogTitle className="text-base font-semibold">Manage projects</DialogTitle>
             <DialogDescription className="mt-1 text-sm text-muted-foreground">
-              Set their order in the sidebar. New projects appear at the end.
+              Set their order in the sidebar. Projects without a saved position follow.
             </DialogDescription>
           </div>
           <ol className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
