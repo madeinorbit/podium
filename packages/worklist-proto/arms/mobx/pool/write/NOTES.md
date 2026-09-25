@@ -52,6 +52,11 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
   `staleSkippedTotal` — incapable of masking an arm bug. Seed-2/step-139
   minimal case: edit, remote, echo (marks GenServer applied), online-drain
   re-send dedupe-resolves into the receipt both logs settle on.
+- **Plant (f): bootstrap drops a pending entry.** `bootstrap` skipping its
+  first entry (temporary mutation, `cp` aside and back, `git diff` empty
+  after): fixed sequence edit → refresh fails AT the refresh step with live
+  server title vs expected pending title. The post-swap compare (ruling)
+  catches it where a 10-step-later check might not.
 - **Plant (e): ignore receipts.** `handleAccepted` replaced by a no-op
   (temporary mutation, `cp` aside and back, `git diff` empty after): the
   seed-2 gate fails at step 139 with live "Title t10" vs expected "Theirs
