@@ -1357,8 +1357,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           {ready && !machineDenied && !busy && !error && !draft.pendingIssueId && (
             <aside aria-label="Prompt tip" className="cold-start-tip">
               <p>
-                <span className="font-medium">For complex tasks, be ambitious.</span> Discuss
-                the full scope with your agent and have it organise everything. Try:
+                For complex tasks, be ambitious. Discuss the full scope with your agent and have
+                it organise everything. Try:
               </p>
               <blockquote>
                 "You are the coordinator of this epic. Break this into sub-tasks, delegate
