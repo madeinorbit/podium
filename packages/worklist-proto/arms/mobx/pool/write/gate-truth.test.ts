@@ -295,6 +295,51 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
+            // TEMPORARY diagnosis (removed before landing): the coordinator's
+            // check — legacy derivation over the FEED's server rows. If it
+            // matches the kernel, the kernel converged and live+rebuild share
+            // a rollup bug; if it matches live, the kernel hasn't converged
+            // (harness fix with a real settle signal).
+            {
+              const { snapshotFromStore } = await import('../../../../harness/src/oracle/index')
+              const { appendFileSync } = await import('node:fs')
+              try {
+                const store = run.ctx.engine.getSnapshot()
+                const feedIssues = run
+                  .feed()
+                  .source.snapshot('issue')
+                  .map((r) => r.value)
+                  .filter((v) => v !== undefined)
+                const feedSessions = run
+                  .feed()
+                  .source.snapshot('session')
+                  .map((r) => r.value)
+                  .filter((v) => v !== undefined)
+                const fakeStore = {
+                  ...store,
+                  issues: feedIssues,
+                  sessions: feedSessions,
+                  issueProjections: [],
+                  replica: undefined,
+                }
+                const feedOracle = snapshotFromStore(fakeStore as never, {
+                  selectedIssueId: null,
+                  coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
+                } as never)
+                const r = feedOracle.rowsById['i3150'] as
+                  | { progressDone?: number; progressTotal?: number }
+                  | undefined
+                appendFileSync(
+                  '/tmp/feed-oracle.txt',
+                  `seed ${seed} step ${step.index}: feedOracle=${r === undefined ? 'absent' : `${r.progressDone}/${r.progressTotal}`}\n`,
+                )
+              } catch (error) {
+                appendFileSync(
+                  '/tmp/feed-oracle.txt',
+                  `seed ${seed} step ${step.index}: ERROR ${error instanceof Error ? error.message : String(error)}\n`,
+                )
+              }
+            }
             // TEMPORARY diagnosis (removed before landing): lane counts.
             {
               const { appendFileSync } = await import('node:fs')
