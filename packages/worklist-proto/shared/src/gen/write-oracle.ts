@@ -86,6 +86,8 @@ export class WriteOracle {
   /** Every row ever appended (pruned when its log empties; the log itself
    *  has no whole-log enumeration). */
   private readonly rows = new Set<string>()
+  /** Server arrivals already consumed (deduped re-sends below). */
+  private arrivalsSeen = 0
 
   private serverRows(source: RowSource): Map<string, ServerEditable> {
     const out = new Map<string, ServerEditable>()
@@ -137,12 +139,29 @@ export class WriteOracle {
   }
 
   /**
-   * Pass the current server values of every pending row through the log
-   * (echo/remote/stale coverage, W7/W8). Rows whose server values did not
-   * move since the last sync are skipped, so an untracked sync never bumps
-   * the rewind clock (W6).
+   * Observe the server's answers the runner never turns into changes: a
+   * re-sent call the server already applied (or refused) is answered at once,
+   * deduped by mutation id — for the arm that outcome arrives as a receipt
+   * (or rejection) through its transport, so the oracle records it here from
+   * the scripted server's arrival log. Unknown ids are no-ops either way.
    */
+  consumeServerAnswers(run: GenRun): void {
+    const arrivals = run.server.arrivals.slice(this.arrivalsSeen)
+    this.arrivalsSeen = run.server.arrivals.length
+    for (const arrival of arrivals) {
+      if (!arrival.deduped) continue
+      const txId = arrival.mutationId as TxId
+      if (run.server.applied.has(arrival.mutationId)) this.log.settle({ txId })
+      else if (run.server.refused.has(arrival.mutationId)) {
+        this.log.reject({ txId, error: { message: 'refused', parked: false } })
+      }
+    }
+  }
   syncPending(source: RowSource): void {
+    // Pass the current server values of every pending row through the log
+    // (echo/remote/stale coverage, W7/W8). Rows whose server values did not
+    // move since the last sync are skipped, so an untracked sync never bumps
+    // the rewind clock (W6).
     const server = this.serverRows(source)
     for (const id of this.pendingIds()) {
       const values = server.get(id)
@@ -286,5 +305,6 @@ export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): vo
     oracle.refresh(outboxPendingOf(run), source)
     return
   }
+  oracle.consumeServerAnswers(run)
   oracle.syncPending(source)
 }
