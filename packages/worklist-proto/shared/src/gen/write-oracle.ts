@@ -151,15 +151,6 @@ export class WriteOracle {
     for (const arrival of arrivals) {
       if (!arrival.deduped) continue
       const txId = arrival.mutationId as TxId
-      // TEMPORARY diagnosis (removed before landing)
-      if (process.env['POD_WRITE_ORACLE_TRACE'] === '1') {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { appendFileSync } = require('node:fs') as typeof import('node:fs')
-        appendFileSync(
-          '/tmp/gate-census.txt',
-          `[scan] deduped ${arrival.mutationId} applied=${run.server.applied.has(arrival.mutationId)} refused=${run.server.refused.has(arrival.mutationId)} sizeBefore=${this.log.size}\n`,
-        )
-      }
       if (run.server.applied.has(arrival.mutationId)) this.log.settle({ txId })
       else if (run.server.refused.has(arrival.mutationId)) {
         this.log.reject({ txId, error: { message: 'refused', parked: false } })

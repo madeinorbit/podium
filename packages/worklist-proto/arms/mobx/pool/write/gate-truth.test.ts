@@ -58,22 +58,8 @@ import { installMobxWarnTrap } from '../mobx-trap'
 import { tracked } from '../pool'
 import { acceptUnscannedGap } from '../worklist/known-gaps'
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
-import type { PendingLog } from '../../../../shared/src/write-contract'
 
 installMobxWarnTrap()
-
-/** TEMPORARY diagnosis aid (removed before landing): pending-state census. */
-async function census(line: string): Promise<void> {
-  const { appendFileSync } = await import('node:fs')
-  appendFileSync('/tmp/gate-census.txt', `${line}\n`)
-}
-
-function patchesOf(log: PendingLog, id: string): string {
-  const list = log
-    .pendingFor('issue', id)
-    .map((e) => `${String(e.txId).slice(0, 8)}:${JSON.stringify(e.patch)}`)
-  return list.length === 0 ? '-' : list.join('+')
-}
 
 const SEEDS = Array.from(
   { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
@@ -231,7 +217,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           mode: 'truth',
           oracleEvery: 0,
           editViaArm: adapter.editHook,
-          onStep: async (step, run) => {
+          onStep: (step, run) => {
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
             const last = step.index === sequence.length - 1
@@ -272,19 +258,6 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               staleSkipped += 1
             }
             const expected = { ...reference, rowsById: expRows }
-            {
-              const ids = oracle.pendingIds()
-              const parts = ids.map(
-                (id) => `${id}:arm=[${patchesOf(h.write.log, id)}]oracle=[${patchesOf(oracle.log, id)}]`,
-              )
-              const ledger = run.ctx.engine.pendingOverlaysByRow('issues')
-              await census(
-                `seed ${seed} step ${step.index} ${String(step.change.kind)}: ` +
-                  `armPending=${h.write.log.size} oraclePending=${oracle.log.size} ` +
-                  `ledgerRows=${ledger.size} outbox=${run.ctx.engine.outbox.pending().length}/` +
-                  `${run.ctx.engine.outbox.awaiting().length} :: ${parts.join(' ')}`,
-              )
-            }
             if (diffSnapshots(kernel, reference) !== null) kernelDiffers += 1
             staleSkippedTotal += staleSkipped
             const diff = diffSnapshots(actual, expected)
