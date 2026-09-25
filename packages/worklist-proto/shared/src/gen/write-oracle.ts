@@ -16,14 +16,14 @@
  *
  * COMPARISON SURFACE. The gate compares `SliceSnapshot`s. The expected
  * snapshot is the WHOLE display computed from server truth plus the
- * reference log (coordinator ruling, option b): the feed's current server
- * rows with the pending display overlaid per row, run through the shared
- * slice oracle (`snapshotFromStore`, the same function as the feed-oracle
- * check). Membership, order, groups, decay windows and roll-ups then follow
- * the spec rules over the overlaid rows — whether a pending readAt reopens
- * a window is decided by the slice rule itself, never by the kernel, the
- * arm, or a test exception. The kernel is never an input here; it stays a
- * counted legacy finding in the gate (`kernelDiffers`).
+ * reference log (coordinator ruling, option b): the store's rows with the
+ * pending display overlaid per row, run through the shared slice oracle
+ * (`snapshotFromStore`). Membership, order, groups, decay windows and
+ * roll-ups then follow the spec rules over the overlaid rows — whether a
+ * pending readAt reopens a window is decided by the slice rule itself,
+ * never by the kernel, the arm, or a test exception. The kernel is never
+ * an input here; it stays a counted legacy finding in the gate
+ * (`kernelDiffers`).
  *
  * INDEPENDENCE. This log is fed from the RUN (generated intents, kernel
  * outcomes, feed rows under kernel ids), never from the arm: an arm that
@@ -93,6 +93,10 @@ export class WriteOracle {
   /** Every row ever appended (pruned when its log empties; the log itself
    *  has no whole-log enumeration). */
   private readonly rows = new Set<string>()
+  /** Titles the log held per row, kept after they leave (chained-hold
+   *  detection in `expectedSnapshot`; cleared when the row goes pending
+   *  again is unnecessary — a pending row takes the display branch instead). */
+  private readonly seenTitles = new Map<string, Set<string>>()
   /** Server arrivals already consumed (deduped re-sends below). */
   private arrivalsSeen = 0
 
@@ -131,6 +135,15 @@ export class WriteOracle {
     }
     this.log.append({ txId: kernelId, kind: 'issue', id, patch, prior })
     this.rows.add(id)
+    const patchRecord = patch as { title?: string }
+    if (patchRecord.title !== undefined) {
+      let seen = this.seenTitles.get(id)
+      if (!seen) {
+        seen = new Set()
+        this.seenTitles.set(id, seen)
+      }
+      seen.add(patchRecord.title)
+    }
   }
 
   accept(kernelId: TxId): void {
@@ -220,6 +233,15 @@ export class WriteOracle {
       }
       if (entry.acked) this.log.settle({ txId: entry.txId })
       this.rows.add(mapped.id)
+      const patchRecord = mapped.patch as { title?: string }
+      if (patchRecord.title !== undefined) {
+        let seen = this.seenTitles.get(mapped.id)
+        if (!seen) {
+          seen = new Set()
+          this.seenTitles.set(mapped.id, seen)
+        }
+        seen.add(patchRecord.title)
+      }
       this.synced.delete(mapped.id)
     }
     this.syncPending(source)
@@ -238,40 +260,55 @@ export class WriteOracle {
     return out
   }
 
+  /** Whether the log currently holds a pending title for the row. */
+  private hasPendingTitle(id: string): boolean {
+    return this.log
+      .pendingFor('issue', id)
+      .some((e) => (e.patch as { title?: string }).title !== undefined)
+  }
+
   /**
    * The WHOLE expected snapshot (coordinator ruling, option b): the shared
-   * slice oracle over the feed's current server rows with the reference
-   * log's pending display overlaid per row. Rows with nothing pending pass
-   * through untouched; rows with pending edits get fresh objects carrying
-   * the display (titles, readAt, and anything later, through `displayOf`).
-   * Sessions come from the feed like the feed-oracle check; reference data
-   * the feed never carries (repos, machines, pins) comes from the store.
-   * The kernel is never an input: membership included, the display follows
-   * the spec rules over the overlaid rows. Unselected baseline at the
-   * store's clock, like `oracleSnapshot`.
+   * slice oracle over the store's rows with the reference log's pending
+   * display overlaid per row. The store's own rows, replica and projections
+   * stay intact, so issue view models resolve exactly as in `oracleSnapshot`
+   * (an empty log reproduces it); rows with pending edits get fresh objects
+   * carrying the display (titles, readAt, and anything later, through
+   * `displayOf`, over the feed's server values). Membership, order, groups,
+   * decay windows and roll-ups then follow the spec rules over the overlaid
+   * rows — whether a pending readAt reopens a window is decided by the slice
+   * rule itself, never by the kernel, the arm, or a test exception. Where
+   * the log is empty but the store still shows a title the log once held (a
+   * chained overlay the kernel retired past a newer server value), the
+   * feed's server truth is expected instead — with no condition on the arm,
+   * so an arm that copies the kernel's hold fails here. The kernel is never
+   * otherwise an input; it stays a counted legacy finding in the gate.
+   * Unselected baseline at the store's clock, like `oracleSnapshot`.
    */
   expectedSnapshot(store: Store<PodiumClientApi>, source: RowSource): SliceSnapshot {
-    const issues: unknown[] = []
-    for (const record of source.snapshot('issue')) {
-      const value = record.value as Record<string, unknown> | undefined
-      if (value === undefined) continue
-      if (this.log.pendingFor('issue', record.id).length === 0) {
-        issues.push(value)
-        continue
+    const feed = this.serverRows(source)
+    const storeIssues = (store.issues ?? []) as readonly Record<string, unknown>[]
+    const issues = storeIssues.map((row) => {
+      const id = row['id'] as string
+      if (this.log.pendingFor('issue', id).length > 0) {
+        const server = feed.get(id) ?? editableOf(row)
+        return { ...row, ...displayOf(this.log, id, server) }
       }
-      issues.push({ ...value, ...displayOf(this.log, record.id, editableOf(value)) })
-    }
-    const sessions: unknown[] = []
-    for (const record of source.snapshot('session')) {
-      if (record.value !== undefined) sessions.push(record.value)
-    }
-    const overlaid = {
-      ...store,
-      issues,
-      sessions,
-      issueProjections: [],
-      replica: undefined,
-    }
+      const titles = this.seenTitles.get(id)
+      const serverTitle = feed.get(id)?.title
+      if (
+        titles !== undefined &&
+        !this.hasPendingTitle(id) &&
+        typeof row['title'] === 'string' &&
+        titles.has(row['title'] as string) &&
+        serverTitle !== undefined &&
+        row['title'] !== serverTitle
+      ) {
+        return { ...row, title: serverTitle }
+      }
+      return row
+    })
+    const overlaid = { ...store, issues }
     return snapshotFromStore(overlaid as never, {
       selectedIssueId: null,
       coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
