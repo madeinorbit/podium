@@ -4,7 +4,12 @@ import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const fixture = vi.hoisted(() => ({
-  issues: [{ id: 'root', parentId: null }] as Array<{ id: string; parentId: string | null }>,
+  issues: [{ id: 'root', parentId: null }] as Array<{
+    id: string
+    parentId: string | null
+    archived?: boolean
+    deletedAt?: string | null
+  }>,
   workspaces: { 'mission:root': { deck: { focusedIssueId: 'late-child' } } },
   update: vi.fn(),
 }))
@@ -63,5 +68,17 @@ describe('saved inspector resolution', () => {
     render(<OperatorFocusProvider missionId="selected-child"><Probe /></OperatorFocusProvider>)
     expect(screen.getByTestId('focus').textContent).toBe('sibling:ready')
     expect(fixture.update).not.toHaveBeenCalled()
+  })
+
+  it.each(['archived', 'deleted'] as const)('reconciles a known %s focus immediately even when it remains a mission member', (status) => {
+    fixture.issues = [
+      { id: 'root', parentId: null },
+      { id: 'retired', parentId: 'root', ...(status === 'archived'
+        ? { archived: true } : { deletedAt: '2026-09-25T00:00:00.000Z' }) },
+    ]
+    fixture.workspaces = { 'mission:root': { deck: { focusedIssueId: 'retired' } } }
+    render(<OperatorFocusProvider missionId="root"><Probe /></OperatorFocusProvider>)
+    expect(screen.getByTestId('focus').textContent).toBe('root:ready')
+    expect(fixture.update).toHaveBeenCalledWith({ focusedIssueId: 'root' }, { passive: true })
   })
 })

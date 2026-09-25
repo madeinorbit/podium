@@ -37,6 +37,7 @@ import {
   knownTabIds,
   knownTabIdsForWorkspace,
   referencedTabIds,
+  restoredMissionWorkspace,
   visibleTabIds,
   workspaceKeyForState,
   workspaceWritePatch,
@@ -286,7 +287,8 @@ export class Reactions {
     this.clearPendingIssueFollow()
     const nextState = { ...st, selectedIssueId: pending.after as IssueId }
     const key = workspaceKeyForState(nextState)
-    const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), pending.sessionId, {
+    const base = restoredMissionWorkspace(st, key, pending.after as IssueId) ?? emptyWorkspace(key)
+    const nextLayout = openTab(base, pending.sessionId, {
       permanent: true,
     })
     this.ports.publish({

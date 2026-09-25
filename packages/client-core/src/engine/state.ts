@@ -309,6 +309,19 @@ export function workspaceFor(
   return st.workspaces[key] ?? emptyWorkspace(key)
 }
 
+/** Restore a mission from its current key or a legacy issue key. Root legacy
+ * wins; a child legacy layout is used when that is the only saved workspace. */
+export function restoredMissionWorkspace(
+  st: Pick<EngineState, 'workspaces'>,
+  key: WorkspaceKey,
+  requestedId: IssueId,
+): WorkspaceLayout | undefined {
+  const current = st.workspaces[key]
+  if (current || !key.startsWith('mission:')) return current
+  const legacy = st.workspaces[`issue:${key.slice(8)}`] ?? st.workspaces[`issue:${requestedId}`]
+  return legacy ? { ...legacy, key } : undefined
+}
+
 /** The workspace the operator is looking at. */
 export function currentWorkspace(
   st: WorkspaceSelection & Pick<EngineState, 'workspaces'>,

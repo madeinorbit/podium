@@ -110,6 +110,7 @@ import {
   userFocus,
   type WorkspacePatch,
   workspaceFor,
+  restoredMissionWorkspace,
   workspaceKeyForState,
   workspaceMirrorPatch,
   workspaceUiSnapshot,
@@ -542,9 +543,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.workspaceKey = workspaceKeyForState(this.state)
     if (this.workspaceKey.startsWith('mission:') && !this.state.workspaces[this.workspaceKey]) {
-      const legacy = this.state.workspaces[`issue:${this.workspaceKey.slice(8)}`] ??
-        (this.state.selectedIssueId ? this.state.workspaces[`issue:${this.state.selectedIssueId}`] : undefined)
-      if (legacy) this.state.workspaces = { ...this.state.workspaces, [this.workspaceKey]: { ...legacy, key: this.workspaceKey } }
+      const requestedId = initialOwner ?? this.state.selectedIssueId
+      const legacy = requestedId ? restoredMissionWorkspace(this.state, this.workspaceKey, requestedId) : undefined
+      if (legacy) this.state.workspaces = { ...this.state.workspaces, [this.workspaceKey]: legacy }
     }
     const savedLayout = this.state.workspaces[this.workspaceKey]
     const marker = initialMarker
@@ -1095,11 +1096,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private adoptMission(key: WorkspaceKey, requestedId: IssueId): boolean {
     if (this.state.workspaces[key]) return true
-    const rootLegacy = this.state.workspaces[`issue:${key.slice(8)}`]
-    const requestedLegacy = this.state.workspaces[`issue:${requestedId}`]
-    const legacy = rootLegacy ?? requestedLegacy
+    const legacy = restoredMissionWorkspace(this.state, key, requestedId)
     if (!legacy) return false
-    this.apply(workspaceWritePatch(this.state, key, { ...legacy, key }, true))
+    this.apply(workspaceWritePatch(this.state, key, legacy, true))
     return true
   }
 
@@ -1295,10 +1294,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.beginNavigation({ kind: 'mirror', issueId: asIssueId(marker.key.slice(8)) })
       }
     }
-    const previewTarget = route.pane && workspaceFor(st, workspaceKeyForState(st)).previewTabId === route.pane &&
-      focusedPaneSession(st) === route.pane
-    const explicitTarget = route.pane && !mirrored && !this.localRouteNavigation &&
-      (route.pane !== prev?.pane && route.pane !== focusedPaneSession(st) || previewTarget)
+    // An unmarked route is an explicit open even when its pane ID equals the
+    // active permanent tab. The inspector may be independently on a child.
+    const explicitTarget = route.pane && !mirrored && !this.localRouteNavigation
     const knownWorktreeTarget = route.pane && (
       st.fileTabs.some((tab) => tab.id === route.pane && !tab.issueId) ||
       st.sessions.some((session) => session.sessionId === route.pane && !session.issueId)

@@ -68,7 +68,10 @@ export function OperatorFocusProvider({
   const focusedIssueId = Object.hasOwn(localFocus, key) ? localFocus[key] ?? null :
     stored === undefined ? (missionId === null ? null : asIssueId(missionId)) : stored === null ? null : asIssueId(stored)
   const members = missionRootId ? missionIssueIds(issues, missionRootId, sessions) : new Set<string>()
-  const unresolvedFocus = focusedIssueId !== null && !members.has(focusedIssueId) &&
+  const focusedRecord = focusedIssueId ? issues.find((issue) => issue.id === focusedIssueId) : undefined
+  const knownInvalidFocus = Boolean(focusedRecord?.archived || focusedRecord?.deletedAt)
+  const displayFocusedIssueId = knownInvalidFocus && missionRootId ? asIssueId(missionRootId) : focusedIssueId
+  const unresolvedFocus = focusedIssueId !== null && !knownInvalidFocus && !members.has(focusedIssueId) &&
     !resolvedMissionRootFor(issues, focusedIssueId)
   const record = unknownSince.current.get(key)
   const focusLoading = Boolean(missionRootId && unresolvedFocus &&
@@ -77,10 +80,10 @@ export function OperatorFocusProvider({
     if (stored !== undefined) setLocalFocus((current) => ({ ...current, [key]: stored === null ? null : asIssueId(stored) }))
   }, [key, stored])
   useEffect(() => {
-    if (!missionRootId || !focusedIssueId || members.has(focusedIssueId) || unresolvedFocus) return
+    if (!missionRootId || !focusedIssueId || !knownInvalidFocus && (members.has(focusedIssueId) || unresolvedFocus)) return
     setLocalFocus((current) => ({ ...current, [key]: asIssueId(missionRootId) }))
     if (stored === focusedIssueId) updateWorkspaceDeck({ focusedIssueId: missionRootId }, { passive: true })
-  }, [missionRootId, focusedIssueId, members, unresolvedFocus, key, stored, updateWorkspaceDeck])
+  }, [missionRootId, focusedIssueId, knownInvalidFocus, members, unresolvedFocus, key, stored, updateWorkspaceDeck])
   useEffect(() => {
     if (!missionRootId || !focusedIssueId || !unresolvedFocus) {
       unknownSince.current.delete(key)
@@ -100,7 +103,7 @@ export function OperatorFocusProvider({
   }, [missionRootId, key, focusedIssueId, unresolvedFocus, stored, updateWorkspaceDeck])
   const value = useMemo(
     () => ({
-      focusedIssueId,
+      focusedIssueId: displayFocusedIssueId,
       focusLoading,
       setFocusedIssueId: (id: string | null, options?: { transientIfAbsent?: boolean }) => {
         const liveKey = workspaceKey()
@@ -108,7 +111,7 @@ export function OperatorFocusProvider({
         updateWorkspaceDeck({ focusedIssueId: id }, options)
       },
     }),
-    [focusedIssueId, focusLoading, workspaceKey, updateWorkspaceDeck],
+    [displayFocusedIssueId, focusLoading, workspaceKey, updateWorkspaceDeck],
   )
   return <OperatorFocusContext.Provider value={value}>{children}</OperatorFocusContext.Provider>
 }
