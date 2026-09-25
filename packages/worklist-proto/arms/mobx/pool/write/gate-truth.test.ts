@@ -397,6 +397,36 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             if (diff !== null) {
               oracleFailed += 1
             }
+            // TEMPORARY diagnosis (removed before landing): plain pool rebuilt
+            // from the same feed snapshot — same data, no write layer.
+            if (diff !== null && firstDiff === null) {
+              const { createReplaySource } = await import('../../../../harness/src/count-harness')
+              const { DISABLED_READ_FENCE } = await import('../../../../shared/src/instrument/reads')
+              const { mobxPoolArm: plainArm } = await import('../arm')
+              const { fixedLocals } = await import('../../../../shared/src/locals-source')
+              const replay = createReplaySource({
+                issues: run.feed().source.snapshot('issue'),
+                sessions: run.feed().source.snapshot('session'),
+                worktrees: run.feed().source.snapshot('worktree'),
+              })
+              const plain = plainArm.create(
+                replay.source,
+                fixedLocals({
+                  selectedIssueId: null,
+                  coarseNow: (run.ctx.engine.getSnapshot() as unknown as { coarseNow: number }).coarseNow,
+                }).source,
+                DISABLED_READ_FENCE,
+              )
+              const r = plain.snapshot().rowsById['i3150'] as
+                | { progressDone?: number; progressTotal?: number }
+                | undefined
+              const { appendFileSync } = await import('node:fs')
+              appendFileSync(
+                '/tmp/plain-fresh.txt',
+                `seed ${seed} step ${step.index}: plainFresh=${r === undefined ? 'absent' : `${r.progressDone}/${r.progressTotal}`}\n`,
+              )
+              plain.dispose()
+            }
             if (diff !== null && firstDiff === null) {
               // TEMPORARY diagnosis (removed before landing): spinOff fields
               // + pool spinOffs size across the closure of the first row.
