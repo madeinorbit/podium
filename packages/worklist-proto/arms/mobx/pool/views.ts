@@ -92,9 +92,10 @@ export interface IssueParts {
   readonly originTick: RowOriginTick | null
   /**
    * The own sessions (`issue.sessions`: explicit members, resume twins
-   * collapsed, session-id order). One bucket read, cached: a member's change
-   * does not re-read the bucket, and the parts below walk this array, never
-   * the relation, so they touch no member row they do not need.
+   * collapsed, session-id order). One maintained read (POD-4678), cached: a
+   * member's change does not re-read the family, and the parts below walk
+   * this array, never the relation, so they touch no member row they do not
+   * need.
    */
   readonly sessionIds: readonly string[]
   readonly activityAt: number
@@ -146,6 +147,14 @@ export interface ViewInputs {
    * `activityAt` takes (`rows.ts:98-116`, POD-4679).
    */
   retainedSeats(id: string): readonly string[]
+  /**
+   * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
+   * relation's own bucket deltas (one element per move, never the family).
+   * The live pool reads its `pool.seats` mirror (tracked, never through the
+   * fenced `many()`); the rebuild reads the scanned relation from scratch.
+   * `sessionIdsPartOf` sorts at view time.
+   */
+  seats(id: string): Iterable<string>
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -353,12 +362,14 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
 }
 
 /**
- * The own sessions, one bucket read (`IssueParts.sessionIds`), in session-id
- * order: the bucket is unordered, and the draft title's "first member" needs
- * one.
+ * The own sessions, one maintained read (`IssueParts.sessionIds`), in
+ * session-id order: the mirror is unordered, and the draft title's "first
+ * member" needs one. POD-4678: never the bucket re-listed through the fenced
+ * `many()` (which counts every id it yields, so a new member re-read its
+ * whole family, #10).
  */
 export function sessionIdsPartOf(input: ViewInputs, id: string): readonly string[] {
-  return [...input.relations.many('issue', id, 'sessions')].sort()
+  return [...input.seats(id)].sort()
 }
 
 /** A session's contribution to its issue's activity: its `lastActiveAt`, or null when absent. */

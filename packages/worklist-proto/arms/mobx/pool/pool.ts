@@ -417,6 +417,8 @@ export class MobxPool {
       parts: (id) => this.issue(id),
       rollup: (id) => this.worklist.issue(id)?.rollup,
       retainedSeats: (id) => this.worklist.issue(id)?.retainedSeatIds ?? [],
+      // POD-4678: same maintained seat mirror as `visibleInputs.seats`.
+      seats: (id) => this.seats.get(id) ?? EMPTY_SEATS,
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),

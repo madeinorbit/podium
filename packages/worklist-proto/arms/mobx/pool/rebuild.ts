@@ -139,6 +139,9 @@ function rebuild(
       tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).rollup : undefined,
     retainedSeats: (id) =>
       tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).retainedSeatIds : [],
+    // POD-4678: from scratch over the scanned relation (the live pool reads
+    // its maintained `seats` mirror, never the fenced `many()`).
+    seats: (id) => inputs.relations.many('issue', id, 'sessions'),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
