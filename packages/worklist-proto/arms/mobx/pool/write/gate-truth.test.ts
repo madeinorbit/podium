@@ -384,6 +384,37 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                   }
                 }
                 extra2 = `\nspinOffs:\n${lines.join('\n')}`
+                // TEMPORARY diagnosis (removed before landing): seatIds +
+                // openOwn per closure row with spinOffs.
+                const seatLines: string[] = []
+                for (const [id] of feedRows) {
+                  const so = runInAction(
+                    () => [...h.pool.relations.many('issue', id, 'spinOffs' as never)].length,
+                  )
+                  if (so === 0) continue
+                  const st = runInAction(() => {
+                    const n = h.pool.worklist.issue(id) as unknown as
+                      | {
+                        sessionIds: readonly string[]
+                        rollup: { loading: boolean } | undefined
+                      }
+                      | undefined
+                    if (n === undefined) return null
+                    const seats = [...n.sessionIds]
+                    const open: string[] = []
+                    for (const s of seats) {
+                      const r = h.pool.worklist.session(s) as unknown as
+                        | { retention: { issueId: string | null; archived: boolean; exited: boolean } | null }
+                        | undefined
+                      const ret = r?.retention ?? null
+                      open.push(`${s}:${ret === null ? 'null' : `${String(ret.issueId)}/${ret.archived ? 'A' : 'a'}${ret.exited ? 'E' : 'e'}`}`)
+                    }
+                    return `seats=[${open.join(',')}]`
+                  })
+                  seatLines.push(`${id}:so=${so} ${st ?? 'no-node'}`)
+                  if (seatLines.length >= 20) break
+                }
+                extra2 += `\nseats:\n${seatLines.join('\n')}`
               }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
