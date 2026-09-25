@@ -241,7 +241,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               }
               appendFileSync(
                 '/tmp/triangle.txt',
-                `seed ${seed} step ${step.index} ${String(step.change.kind)}: live=${row(actual)} rebuilt=${row(handle.rebuildFromScratch())} kernel=${row(kernel)}\n`,
+                `seed ${seed} step ${step.index} ${String(step.change.kind)}: live=${row(actual)} rebuilt=${row(h.rebuildFromScratch())} kernel=${row(kernel)}\n`,
               )
             }
             if (diff !== null) {
