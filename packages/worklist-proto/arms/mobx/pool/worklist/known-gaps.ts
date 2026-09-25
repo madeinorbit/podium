@@ -41,7 +41,7 @@ import type { RosterAllowances } from '../../../../harness/src/roster'
 import type { ArmHandle } from '../../../../shared/src/arm'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import type { MobxPoolHandle } from '../arm'
-import { type MobxPool, tracked } from '../pool'
+import type { MobxPool } from '../pool'
 
 /** The fields the orphan's seat feeds on its issue's row. */
 const SEAT_FIELDS: readonly string[] = ['phase', 'working', 'asking']
@@ -109,26 +109,10 @@ function poolOf(handle: ArmHandle): MobxPool {
   return pool
 }
 
-/**
- * POD-4678: a new explicit member re-lists its issue's `sessions` bucket, so
- * the #10 burst also reads each burst issue's other explicit sessions. The
- * family, counted from the pool BEFORE the step; 0 on every other step.
- */
-export function burstFamilyReads(pool: MobxPool, burstIssueIds: readonly string[]): number {
-  return tracked(() =>
-    burstIssueIds.reduce((sum, id) => sum + (pool.worklist.issue(id)?.seatIds.length ?? 0), 0),
-  )
-}
-
 export const MOBX_POOL_ALLOWANCES: RosterAllowances = {
   parity: {
     issue: 'POD-4671',
     accept: (corpus, handle, expected, actual) =>
       acceptUnscannedGap(corpus, poolOf(handle), expected, actual),
-  },
-  reads: {
-    issue: 'POD-4678',
-    before: (ctx, handle, step) =>
-      step.methodology === '#10' ? burstFamilyReads(poolOf(handle), ctx.targets.burstIssueIds) : 0,
   },
 }
