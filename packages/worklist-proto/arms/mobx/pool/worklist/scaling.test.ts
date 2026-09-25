@@ -39,13 +39,13 @@ import { ObservableMap, ObservableSet, Reaction, reaction, runInAction } from 'm
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../../harness/src/count-harness'
 import { buildCorpus } from '../../../../harness/src/fixture/index'
+import { writeResult } from '../../../../harness/src/results'
 import type { RowSource } from '../../../../shared/src/arm'
 import { createReadFence } from '../../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../../shared/src/locals-source'
 import { compareRank } from '../../../../shared/src/row-view'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { writeResult } from '../../../../harness/src/results'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import type { MobxPool } from '../pool'
 import { tracked } from '../pool'
@@ -207,16 +207,14 @@ function countMapReads(name: string, run: () => void): number {
 }
 
 /**
- * Always-fire observers over the groups computeds the page reads
- * (`PoolList` reads `keys` and `pinnedIds`, each header its lanes): every
- * re-evaluation counts, even one that keeps its value. Returned with a stop
- * function; creation settles baselines synchronously.
- *
- * NOTE: executions are counted through the `runReaction_` patch
- * (`countReactions`), not through these reactions' effects: an effect fires
- * only when its computed's value changes, but a scheduled re-evaluation that
- * keeps its value is still work. Filter the execution map by the `audit.`
- * prefix.
+ * Page-like observers over the groups computeds (`PoolList` reads `keys` and
+ * `pinnedIds`, each header its lanes). Executions are counted through the
+ * `runReaction_` patch, which runs for every scheduled reaction — including
+ * one whose expression keeps its value (MobX marks it stale optimistically,
+ * then short-circuits the bodies whose inputs did not move, so a counted
+ * execution is scheduling, not proof a body re-ran). The walk counter below
+ * is the proof no body walks the list: it counts the per-id index reads.
+ * Returned with a stop function; creation settles baselines synchronously.
  */
 
 /**
@@ -232,9 +230,7 @@ const ALL_LANES: readonly GroupLane[] = [
   'baseRowIds',
   'baseClosedIds',
 ]
-const availableLanes: readonly GroupLane[] = ALL_LANES.filter(
-  (lane) => lane in GroupNode.prototype,
-)
+const availableLanes: readonly GroupLane[] = ALL_LANES.filter((lane) => lane in GroupNode.prototype)
 
 function observeGroups(pool: MobxPool): { stop(): void } {
   const stops: (() => void)[] = []
@@ -348,9 +344,10 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         // No key-index walk: the head-rank order reads no per-id index.
         expect(mapReads, 'key-index reads').toBe(0)
         // Executions per groups observer: the moved row's own layout
-        // reaction runs once; the moved group's lanes run once each; the key
-        // order runs at most once (only when the move changes a head rank or
-        // a bucket membership); everything else never runs here.
+        // reaction runs once; the moved group's lanes are scheduled once
+        // each; the key order is scheduled at most once (its body re-sorts
+        // only when a head rank or a bucket membership actually moves);
+        // everything else never runs here.
         const evals = auditOf(runs)
         const layoutRuns = [...runs].filter(([name]) => name.startsWith('pool.layout.'))
         expect(layoutRuns.length, 'layout reactions executed').toBe(1)
@@ -464,44 +461,44 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           }
           expect(evals.get('keys') ?? 0, 'keys executions').toBe(0)
           expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)
-        // The cursor still works: the row reads as read, stays visible, files nothing.
-        expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(false)
-        expect(tracked(() => pool.worklist.issue(target)?.visible)).toBe(true)
-        expect(pool.stats.counters.groupRuns, 'filings').toBe(0)
-        expect(pool.stats.counters.membershipFlips, 'membership flips').toBe(0)
-        // The plant replaces the row's slot the old way — the volatile lane
-        // lifted, so the cursor update writes the slot like every other
-        // field, through the real feed (borrowed rows, fence-clean): at least
-        // the row's own three reactions re-validate, failing the same count.
-        const hook = pool as unknown as {
-          target: { volatile?: unknown }
-        }
-        const lane = hook.target.volatile
-        const planted = countReactions(() => {
-          hook.target.volatile = undefined
-          try {
-            r.push({
-              type: 'update',
-              rows: [
-                {
-                  kind: 'issue',
-                  id: target,
-                  value: { ...corpusIssue(r, target), readAt: '2027-06-02T00:00:00.000Z' },
-                },
-              ],
-            })
-          } finally {
-            hook.target.volatile = lane
+          // The cursor still works: the row reads as read, stays visible, files nothing.
+          expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(false)
+          expect(tracked(() => pool.worklist.issue(target)?.visible)).toBe(true)
+          expect(pool.stats.counters.groupRuns, 'filings').toBe(0)
+          expect(pool.stats.counters.membershipFlips, 'membership flips').toBe(0)
+          // The plant replaces the row's slot the old way — the volatile lane
+          // lifted, so the cursor update writes the slot like every other
+          // field, through the real feed (borrowed rows, fence-clean): at least
+          // the row's own three reactions re-validate, failing the same count.
+          const hook = pool as unknown as {
+            target: { volatile?: unknown }
           }
-        })
-        expect(maintenanceOf(planted).length, 'plant re-validations').toBeGreaterThanOrEqual(3)
-        writeResult(`mobx-scaling-4686-${scale}x-click`, {
-          scale,
-          at: 'click',
-          target,
-          reactions: 0,
-          groupsExecutions: Object.fromEntries(auditOf(runs)),
-        })
+          const lane = hook.target.volatile
+          const planted = countReactions(() => {
+            hook.target.volatile = undefined
+            try {
+              r.push({
+                type: 'update',
+                rows: [
+                  {
+                    kind: 'issue',
+                    id: target,
+                    value: { ...corpusIssue(r, target), readAt: '2027-06-02T00:00:00.000Z' },
+                  },
+                ],
+              })
+            } finally {
+              hook.target.volatile = lane
+            }
+          })
+          expect(maintenanceOf(planted).length, 'plant re-validations').toBeGreaterThanOrEqual(3)
+          writeResult(`mobx-scaling-4686-${scale}x-click`, {
+            scale,
+            at: 'click',
+            target,
+            reactions: 0,
+            groupsExecutions: Object.fromEntries(auditOf(runs)),
+          })
         } finally {
           audit?.stop?.()
         }
