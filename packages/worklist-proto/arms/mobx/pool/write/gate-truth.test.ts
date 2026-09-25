@@ -265,6 +265,20 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const last = step.index === sequence.length - 1
             if ((step.index + 1) % 10 !== 0 && !last) return
             oracleChecks += 1
+            // TEMPORARY diagnosis (removed before landing): kernel entry
+            // lifecycle for the mark-read under test.
+            {
+              const { appendFileSync } = await import('node:fs')
+              const outbox = run.ctx.engine.outbox
+              const ids = (list: { mutationId?: unknown }[]): string =>
+                list.map((e) => String(e.mutationId).slice(0, 8)).join(',')
+              const ledger = run.ctx.engine.pendingOverlaysByRow('issues')
+              appendFileSync(
+                '/tmp/lifecycle.txt',
+                `seed ${seed} step ${step.index}: pending=[${ids(outbox.pending() as never[])}] ` +
+                  `awaiting=[${ids(outbox.awaiting() as never[])}] ledgerHasI1397=${ledger.has('i1397')}\n`,
+              )
+            }
             // `handle` is the live arm after any swap: on a refresh step
             // checkArm recreates over the new feed before this runs, so the
             // fidelity compare below always reads the current arm — never a
