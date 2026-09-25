@@ -69,7 +69,9 @@ async function census(line: string): Promise<void> {
 }
 
 function patchesOf(log: PendingLog, id: string): string {
-  const list = log.pendingFor('issue', id).map((e) => JSON.stringify(e.patch))
+  const list = log
+    .pendingFor('issue', id)
+    .map((e) => `${String(e.txId).slice(0, 8)}:${JSON.stringify(e.patch)}`)
   return list.length === 0 ? '-' : list.join('+')
 }
 
