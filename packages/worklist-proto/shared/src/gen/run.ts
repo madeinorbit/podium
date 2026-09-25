@@ -451,12 +451,19 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const actions = ctx.engine.getSnapshot()
         const field = 'title' in c.patch ? 'title' : 'stage' in c.patch ? 'stage' : 'readAt'
         if (opts.editViaArm) {
+          // A mark-read press carries a wall-clock stamp like the kernel's
+          // own (POD-4574): the arm displays it while pending and the unread
+          // rollup branches on it, so a corpus-clock stamp days away from the
+          // kernel's flips visibility against the oracle. Wall stamps agree
+          // within milliseconds (never compared directly; SliceSnapshot
+          // drops readAt), and their orderings against session activity are
+          // stable run to run. The default (action) path is untouched.
           const armPatch: ArmEditPatch =
             'title' in c.patch
               ? { title: c.patch.title }
               : 'stage' in c.patch
                 ? { stage: c.patch.stage }
-                : { readAt: ctx.stamp() }
+                : { readAt: new Date(Date.now()).toISOString() }
           try {
             detail['armTxId'] = opts.editViaArm(c.id, armPatch)
           } catch (error) {
@@ -481,7 +488,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         for (const handle of c.handles) {
           if (opts.editViaArm) {
             try {
-              armTxIds.push(opts.editViaArm(c.id, { readAt: ctx.stamp() }))
+              // Wall-clock stamp like the kernel's (see the edit branch).
+              armTxIds.push(opts.editViaArm(c.id, { readAt: new Date(Date.now()).toISOString() }))
             } catch {
               continue
             }

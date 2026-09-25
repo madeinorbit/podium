@@ -327,12 +327,16 @@ export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): vo
   if (change.kind === 'edit' && step.skipped === undefined) {
     const kernelId = detail['mutationId']
     if (typeof kernelId === 'string') {
+      // Wall-clock stamp like the runner's hook and the kernel's own
+      // (POD-4574): the unread rollup branches on stamp recency, so a
+      // corpus-clock stamp days away flips visibility against both. Never
+      // compared directly (SliceSnapshot drops readAt).
       const patch: EditPatch<'issue'> =
         'title' in change.patch
           ? { title: change.patch.title }
           : 'stage' in change.patch
             ? { stage: change.patch.stage }
-            : { readAt: run.ctx.stamp() }
+            : { readAt: new Date(Date.now()).toISOString() }
       oracle.editApplied(source, kernelId as TxId, change.id, patch)
     }
   } else if (change.kind === 'accept' && step.skipped === undefined) {
