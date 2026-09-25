@@ -45,6 +45,7 @@ import type { ScenarioEngine } from '../scenarios'
 import { snapshotFromStore } from '../../../harness/src/oracle/index'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
+import type { Replica } from '@podium/client-core/replica'
 import { baseOf, subscribeReceipts } from '../receipts'
 import {
   createPendingLog,
@@ -316,20 +317,23 @@ export class WriteOracle {
   /**
    * The WHOLE expected snapshot (coordinator ruling, option b): the shared
    * slice oracle over the store's rows with the reference log's pending
-   * display overlaid per row. The store's own rows, replica and projections
-   * stay intact, so issue view models resolve exactly as in `oracleSnapshot`
-   * (an empty log reproduces it); rows with pending edits get fresh objects
-   * carrying the display (titles, readAt, and anything later, through
-   * `displayOf`, over the feed's server values). Membership, order, groups,
-   * decay windows and roll-ups then follow the spec rules over the overlaid
-   * rows — whether a pending readAt reopens a window is decided by the slice
-   * rule itself, never by the kernel, the arm, or a test exception. Where
-   * the log is empty but the store still shows a title the log once held (a
-   * chained overlay the kernel retired past a newer server value), the
-   * feed's server truth is expected instead — with no condition on the arm,
-   * so an arm that copies the kernel's hold fails here. The kernel is never
-   * otherwise an input; it stays a counted legacy finding in the gate.
-   * Unselected baseline at the store's clock, like `oracleSnapshot`.
+   * display overlaid per row. The overlay goes two levels deep, because that
+   * is where the derivation reads: the legacy rows (the supplement models
+   * are built from) AND a stub replica holding the same overlaid issue rows
+   * (the views — which win shared keys like `title` — derive from replica
+   * rows, so overlaying the legacy array alone leaves server values in the
+   * views). Every other kind delegates to the live replica, and the store's
+   * own projections stay intact, so an empty log reproduces `oracleSnapshot`
+   * exactly. Membership, order, groups, decay windows and roll-ups then
+   * follow the spec rules over the overlaid rows — whether a pending readAt
+   * reopens a window is decided by the slice rule itself, never by the
+   * kernel, the arm, or a test exception. Where the log is empty but the
+   * store still shows a title the log once held (a chained overlay the
+   * kernel retired past a newer server value), the feed's server truth is
+   * expected instead — with no condition on the arm, so an arm that copies
+   * the kernel's hold fails here. The kernel is never otherwise an input;
+   * it stays a counted legacy finding in the gate. Unselected baseline at
+   * the store's clock, like `oracleSnapshot`.
    */
   expectedSnapshot(store: Store<PodiumClientApi>, source: RowSource): SliceSnapshot {
     const feed = this.serverRows(source)
@@ -354,7 +358,23 @@ export class WriteOracle {
       }
       return row
     })
-    const overlaid = { ...store, issues }
+    // The stub replica serves the overlaid issue rows; everything else reads
+    // the live replica. Fresh per call, so no view-model memo can survive
+    // across overlaid generations (a caller with no previous generation gets
+    // wholly new views, the correct answer for it).
+    const live = store.replica as Replica | undefined | null
+    const liveRows = (kind: string): readonly unknown[] | undefined =>
+      (
+        live?.rows as ((k: string) => readonly unknown[] | undefined) | undefined
+      )?.call(live, kind)
+    const stub = {
+      rows: (kind: string) =>
+        kind === 'issues' ? issues : [...(liveRows(kind) ?? [])],
+      subscribeRows: () => () => {},
+      batch: <T>(fn: () => T): T => fn(),
+      persistent: true,
+    } as unknown as Replica
+    const overlaid = { ...store, replica: stub, issues }
     return snapshotFromStore(overlaid as never, {
       selectedIssueId: null,
       coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
