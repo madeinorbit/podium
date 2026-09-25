@@ -840,7 +840,11 @@ class IssueRollup implements RollupSelf {
   }
 
   get rosterIds(): readonly string[] {
-    return this.collection.host.rosterOf(this.id)
+    // Its own cell (as the visibility roster): a retention change that keeps
+    // the same seats stops here instead of re-running the compositions that
+    // read the roster (a question flips a seat's retention finish kind
+    // without moving the roster, and the chain count stays exact).
+    return this.read('roster', () => this.collection.host.rosterOf(this.id), sameData)
   }
 
   get seatIds(): readonly string[] {
