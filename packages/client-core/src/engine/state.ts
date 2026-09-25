@@ -112,6 +112,8 @@ export interface EngineState {
   selectedIssueId: IssueId | null
   issueVisitBaseline: IssueVisitBaseline | null
   transcriptReveal: TranscriptRevealRequest | null
+  /** Unresolved explicit URL target, kept outside any workspace until its owner resolves. */
+  pendingRouteTargetId: string | null
   /**
    * Editor-style tab workspaces (POD-710), one per task in the left sidebar,
    * keyed by {@link workspaceKeyForState}. THE source of truth for what is open:
@@ -722,6 +724,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     selectedIssueId: seed.persisted.selectedIssueId,
     issueVisitBaseline: null,
     transcriptReveal: null,
+    pendingRouteTargetId: null,
     // Restored exactly, across task switches AND across reloads (POD-710). The
     // pane scalars below were flushed from the same layouts, so they already
     // agree with them and need no boot-time re-derivation.

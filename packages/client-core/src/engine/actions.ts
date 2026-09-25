@@ -82,6 +82,7 @@ export const UI_LOCAL_ACTIONS = [
   'setPaletteOpen',
   'setSelectedWorktree',
   'setSelectedIssueId',
+  'enterMission',
   'updateWorkspaceDeck',
   'setPane',
   'setFocusedPane',
@@ -221,6 +222,8 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   onLayoutBaseInstalled?(snapshot: LayoutSnapshot): void
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
+  enterMission(issueId: IssueId, options?: Parameters<Store['enterMission']>[1]): void
+  cancelWorkspaceIntent(): void
   /**
    * Every published snapshot, for the actions that must WAIT for replicated
    * state rather than read it once. The runtime publishes on any state change,
@@ -415,6 +418,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
     selection?: Partial<WorkspaceSelection>,
   ): void => {
+    rt.cancelWorkspaceIntent()
     rt.apply(workspaceEdit(rt.state(), reduce, selection))
   }
 
@@ -440,6 +444,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     const state = rt.state()
     const meta = resolveSessionIdentifier(sessionIdOrRef, state.sessions)
     if (!meta) return
+    rt.cancelWorkspaceIntent()
     const worktree =
       reposToViews(state.repos)
         .flatMap((repo) => repo.worktrees)
@@ -562,13 +567,15 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       await rt.refreshSuperThreads().catch(() => {})
     },
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
-    setSelectedWorktree: (selectedWorktree) => rt.apply({ selectedWorktree }),
-    setSelectedIssueId: (selectedIssueId) => rt.apply({ selectedIssueId }),
+    setSelectedWorktree: (selectedWorktree) => { rt.cancelWorkspaceIntent(); rt.apply({ selectedWorktree }) },
+    setSelectedIssueId: (selectedIssueId) => { rt.cancelWorkspaceIntent(); rt.apply({ selectedIssueId }) },
+    enterMission: (issueId, options) => rt.enterMission(issueId, options),
     updateWorkspaceDeck: (deck, options) => {
       const st = rt.state()
       const key = workspaceKeyForState(st)
       if (!key.startsWith('mission:')) return
       if (options?.transientIfAbsent && !st.workspaces[key]) return
+      if (!options?.passive) rt.cancelWorkspaceIntent()
       const current = workspaceFor(st, key)
       rt.apply(workspaceWritePatch(st, key, { ...current, deck: { ...current.deck, ...deck } }, true))
     },
@@ -602,6 +609,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     openSessionTab: (sessionId, opts) => openInWorkspace(sessionId, opts),
     openSessionAtTranscript: (sessionId, itemKey, opts) => {
       if (!sessionId || !itemKey) return
+      rt.cancelWorkspaceIntent()
       const state = rt.state()
       transcriptRevealNonce += 1
       rt.apply({
@@ -620,6 +628,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // Closing a tab closes a VIEW: the session is untouched (it lives in the
     // flight deck now), and a file tab's buffer goes with its only view.
     closeWorkspaceTab: (tabId) => {
+      rt.cancelWorkspaceIntent()
       const st = rt.state()
       // A file tab's buffer dies with its view, so it leaves every workspace; a
       // session tab is only a view here and closes in the one on screen.
@@ -840,6 +849,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       })
     },
     closeFileTab: (id) => {
+      rt.cancelWorkspaceIntent()
       const state = rt.state()
       rt.apply({
         // The WHOLE mirror, not a hand-picked `workspaces`/`paneA`/`paneB`:

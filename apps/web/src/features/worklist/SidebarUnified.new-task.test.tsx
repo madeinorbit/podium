@@ -49,6 +49,7 @@ const ui = vi.hoisted(() => {
 
 const spawnDraftAgent = vi.hoisted(() => vi.fn())
 const setSelectedIssueId = vi.hoisted(() => vi.fn())
+const enterMission = vi.hoisted(() => vi.fn())
 const setSelectedWorktree = vi.hoisted(() => vi.fn())
 const setView = vi.hoisted(() => vi.fn())
 
@@ -129,6 +130,7 @@ vi.mock('@/app/store', () => {
     setSelectedWorktree,
     selectedIssueId: null,
     setSelectedIssueId,
+    enterMission,
     setOpenIssueId: vi.fn(),
     paneA: null,
     setPane: vi.fn(),
@@ -159,6 +161,7 @@ afterEach(() => {
   ui.reset()
   spawnDraftAgent.mockClear()
   setSelectedIssueId.mockClear()
+  enterMission.mockClear()
   setSelectedWorktree.mockClear()
   setView.mockClear()
 })
@@ -212,6 +215,18 @@ describe('the head is one button that makes no choices', () => {
     expect(draft().model).toBe('gpt-5.6-sol')
     expect(draft().effort).toBe('high')
     expect(draft().machineId).toBe('machine-a')
+  })
+})
+
+describe('existing task entry', () => {
+  it('routes a plain issue row through the shared mission decision', () => {
+    render(<SidebarUnified />)
+    const row = screen.getByText('Alpha').closest('[data-testid="unified-issue-row"]')
+    expect(row).not.toBeNull()
+    fireEvent.click(screen.getByText('Alpha'))
+    expect(enterMission).toHaveBeenCalledWith('a', {})
+    expect(setSelectedIssueId).not.toHaveBeenCalledWith('a')
+    expect(ui.get(SUPERAGENT_MODE_KEY)).toBe('open')
   })
 })
 
