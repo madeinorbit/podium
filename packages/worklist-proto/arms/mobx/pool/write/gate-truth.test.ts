@@ -836,21 +836,82 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
   )
 
   it(
-    'plant (iii): remotes held until receipt fail the skew steps',
+    'plant (iii): remotes held until receipt fail like the skew steps',
     async () => {
       // The old onStep-sync oracle's skew moved into an arm: remotes for a
       // row with an unreceipted pending entry arrive one receipt late, so the
       // accept's ackBase is stale and the released remote overtakes. The
-      // timely reference oracle holds Mine; the planted arm drops it. Must
-      // fail at the skew steps the shakedown found (1@119, 2@139, 3@9).
-      const expectations: Record<number, number> = { 1: 119, 2: 139, 3: 9 }
-      for (const seed of [1, 2, 3]) {
-        const cell = await runGateSeed(seed, lateRemoteUntilAccept)
-        expect(cell.ok).toBe(false)
-        expect(cell.against).toBe('oracle')
-        expect(cell.failedSteps).toContain(expectations[seed] as number)
+      // timely reference oracle holds Mine; the planted arm drops it. Fixed
+      // edit → remote → accept sequences on the skew rows the shakedown
+      // found (seed 1@119 i3012, seed 2@139 i1014, seed 3@9 i4560) — no echo
+      // step, so no echo-confirm race can heal either side; every
+      // intermediate state is pinned after a quiesce. (A random-seeds
+      // version of this plant proved flaky: an echo landing between the
+      // accept and the check confirms both sides and converges. Fixed
+      // sequences pin the mechanism deterministically.)
+      const targets = ['i3012', 'i1014', 'i4560']
+      for (const planted of [false, true]) {
+        const adapter = new ArmEditAdapter()
+        const oracle = new WriteOracle()
+        const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
+        const feed = run.feed()
+        const locals = createEngineLocals(run.ctx.engine)
+        const inner = writableMobxPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
+        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        const unwatch = oracle.watch(run.ctx, feed.source)
+        if (planted) lateRemoteUntilAccept(handle)
+        try {
+          for (const [index, id] of targets.entries()) {
+            const e = `e${index + 1}`
+            const mine = `Mine ${e} fixed title`
+            const theirs = `Theirs ${e} fixed title`
+            let step = await run.apply({ kind: 'edit', handle: e, id, patch: { title: mine } })
+            expect(step.skipped).toBeUndefined()
+            adapter.pairFromStep(step.detail ?? {})
+            feedStep(oracle, step, run)
+            await settleStep(run)
+            expect(handle.write.log.pendingFor('issue', id).length).toBe(1)
+            expect(oracle.log.pendingFor('issue', id).length).toBe(1)
+            step = await run.apply({ kind: 'remoteOnPending', handle: e, value: theirs })
+            expect(step.skipped).toBeUndefined()
+            adapter.pairFromStep(step.detail ?? {})
+            feedStep(oracle, step, run)
+            await settleStep(run)
+            expect(handle.write.log.pendingFor('issue', id).length).toBe(1)
+            expect(oracle.log.pendingFor('issue', id).length).toBe(1)
+            step = await run.apply({ kind: 'accept', handle: e })
+            expect(step.skipped).toBeUndefined()
+            adapter.pairFromStep(step.detail ?? {})
+            feedStep(oracle, step, run)
+            await settleStep(run)
+            locals.flush()
+            const liveTitle = handle.snapshot().rowsById[id]?.title
+            const store = run.ctx.engine.getSnapshot()
+            const expectedTitle = oracle.expectedSnapshot(store, feed.source).rowsById[id]?.title
+            if (!planted) {
+              // Clean: both sides saw the remote before the receipt and hold.
+              expect(handle.write.log.pendingFor('issue', id).length).toBe(1)
+              expect(oracle.log.pendingFor('issue', id).length).toBe(1)
+              expect(liveTitle).toBe(mine)
+              expect(expectedTitle).toBe(mine)
+            } else {
+              // Planted: the released remote overtakes against the stale
+              // ackBase and drops the arm entry; the oracle holds.
+              expect(handle.write.log.pendingFor('issue', id).length).toBe(0)
+              expect(oracle.log.pendingFor('issue', id).length).toBe(1)
+              expect(liveTitle).toBe(theirs)
+              expect(expectedTitle).toBe(mine)
+            }
+          }
+        } finally {
+          unwatch()
+          handle.dispose()
+          locals.dispose()
+          run.dispose()
+        }
       }
     },
-    GATE_TIMEOUT_MS,
+    300_000,
   )
 })
