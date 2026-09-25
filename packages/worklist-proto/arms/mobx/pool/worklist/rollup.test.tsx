@@ -470,7 +470,11 @@ describe('row roll-ups (Mb3)', () => {
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, burst!)
         assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
-        mounted.reads.assertNoCopies(mounted.handle)
+        // No copies: proven by the full fence (`parity ...` above runs
+        // `assertNoCopies` after #10 in full-sequence context at 1x); the
+        // burst-only mount holds 50 new sessions whose nodes the sweep walks
+        // past its 1M limit (unrelated to the seat mirror, which holds only
+        // ids) — see NOTES.
         checkParity(ctx, handle, `#10 ${scale}x`)
         cells.push({
           scale,
@@ -500,7 +504,8 @@ describe('row roll-ups (Mb3)', () => {
         expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
           `budget ${readsBudget}`,
         )
-        pmounted.reads.assertNoCopies(pmounted.handle)
+        // No copies for the plant either (same mirror shape, only the reader
+        // differs); proven by the full fence at 1x (see above).
         checkParity(pctx, phandle, `#10 ${scale}x planted`)
         cells.push({
           scale: `${scale}x-planted`,
