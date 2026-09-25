@@ -317,33 +317,41 @@ export class WriteOracle {
   /**
    * The WHOLE expected snapshot (coordinator ruling, option b): the shared
    * slice oracle over the store's rows with the reference log's pending
-   * display overlaid per row. The overlay goes two levels deep, because that
-   * is where the derivation reads: the legacy rows (the supplement models
-   * are built from) AND a stub replica holding the same overlaid issue rows
-   * (the views — which win shared keys like `title` — derive from replica
-   * rows, so overlaying the legacy array alone leaves server values in the
-   * views). Every other kind delegates to the live replica, and the store's
-   * own projections stay intact, so an empty log reproduces `oracleSnapshot`
-   * exactly. Membership, order, groups, decay windows and roll-ups then
-   * follow the spec rules over the overlaid rows — whether a pending readAt
-   * reopens a window is decided by the slice rule itself, never by the
-   * kernel, the arm, or a test exception. Where the log is empty but the
-   * store still shows a title the log once held (a chained overlay the
-   * kernel retired past a newer server value), the feed's server truth is
-   * expected instead — with no condition on the arm, so an arm that copies
-   * the kernel's hold fails here. The kernel is never otherwise an input;
-   * it stays a counted legacy finding in the gate. Unselected baseline at
-   * the store's clock, like `oracleSnapshot`.
+   * display overlaid per row. The overlay goes three levels deep, because
+   * that is where the derivation reads: the legacy rows (the models'
+   * supplement), the normalized projections (whose whole-row spelling,
+   * including the durable server title, is spread over the supplement), and
+   * a stub replica serving the same overlaid issue rows (the views derive
+   * from replica rows). Every other kind delegates to the live replica, and
+   * the store's remaining collections stay intact, so an empty log
+   * reproduces `oracleSnapshot` exactly. Membership, order, groups, decay
+   * windows and roll-ups then follow the spec rules over the overlaid rows
+   * — whether a pending readAt reopens a window is decided by the slice
+   * rule itself, never by the kernel, the arm, or a test exception. Where
+   * the log is empty but the store still shows a title the log once held (a
+   * chained overlay the kernel retired past a newer server value), the
+   * feed's server truth is expected instead — with no condition on the arm,
+   * so an arm that copies the kernel's hold fails here. The kernel is never
+   * otherwise an input; it stays a counted legacy finding in the gate.
+   * Unselected baseline at the store's clock, like `oracleSnapshot`.
    */
   expectedSnapshot(store: Store<PodiumClientApi>, source: RowSource): SliceSnapshot {
     const feed = this.serverRows(source)
     const storeIssues = (store.issues ?? []) as readonly Record<string, unknown>[]
-    const issues = storeIssues.map((row) => {
+    // The pending display per row with pending edits (fresh objects), plus
+    // the chained-hold repair against feed truth where the log is empty.
+    const displayById = new Map<string, { title: string; stage: string; readAt: string | null }>()
+    for (const row of storeIssues) {
       const id = row['id'] as string
       if (this.log.pendingFor('issue', id).length > 0) {
         const server = feed.get(id) ?? editableOf(row)
-        return { ...row, ...displayOf(this.log, id, server) }
+        displayById.set(id, displayOf(this.log, id, server))
       }
+    }
+    const issues = storeIssues.map((row) => {
+      const id = row['id'] as string
+      const display = displayById.get(id)
+      if (display !== undefined) return { ...row, ...display }
       const titles = this.seenTitles.get(id)
       const serverTitle = feed.get(id)?.title
       if (
@@ -358,23 +366,40 @@ export class WriteOracle {
       }
       return row
     })
-    // The stub replica serves the overlaid issue rows; everything else reads
-    // the live replica. Fresh per call, so no view-model memo can survive
-    // across overlaid generations (a caller with no previous generation gets
-    // wholly new views, the correct answer for it).
+    // The normalized projections carry the durable title/stage the model
+    // merge spreads over the supplement: overlay the pending display onto
+    // the fields each projection row actually carries.
+    const storeProjections = (store.issueProjections ?? []) as readonly Record<string, unknown>[]
+    const projections = storeProjections.map((row) => {
+      const id = row['id'] as string
+      const display = displayById.get(id)
+      if (display === undefined) return row
+      const overlaid: Record<string, unknown> = { ...row }
+      for (const [field, value] of Object.entries(display)) {
+        if (field in overlaid) overlaid[field] = value
+      }
+      return overlaid
+    })
+    // The stub replica serves the overlaid issue rows and projections;
+    // everything else reads the live replica. Fresh per call, so no
+    // view-model memo can survive across overlaid generations (a caller with
+    // no previous generation gets wholly new views, the correct answer).
     const live = store.replica as Replica | undefined | null
     const liveRows = (kind: string): readonly unknown[] | undefined =>
       (
         live?.rows as ((k: string) => readonly unknown[] | undefined) | undefined
       )?.call(live, kind)
     const stub = {
-      rows: (kind: string) =>
-        kind === 'issues' ? issues : [...(liveRows(kind) ?? [])],
+      rows: (kind: string) => {
+        if (kind === 'issues') return issues
+        if (kind === 'issueProjections') return projections
+        return [...(liveRows(kind) ?? [])]
+      },
       subscribeRows: () => () => {},
       batch: <T>(fn: () => T): T => fn(),
       persistent: true,
     } as unknown as Replica
-    const overlaid = { ...store, replica: stub, issues }
+    const overlaid = { ...store, replica: stub, issues, issueProjections: projections }
     return snapshotFromStore(overlaid as never, {
       selectedIssueId: null,
       coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
