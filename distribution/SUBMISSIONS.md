@@ -1,6 +1,6 @@
 # Directory submissions
 
-Last updated: 2026-09-24.
+Last updated: 2026-09-25.
 
 Scope: free, evergreen catalog forms. No awesome-list duplication, editorial outreach, paid upgrades, reciprocal badges, or launch campaigns. Account/contact email: till@podium.do. Never store credentials in this folder. Any outbound email requires Till to approve the complete message first. The Console Gmail draft was not touched or sent in this work.
 
@@ -14,9 +14,9 @@ Scope: free, evergreen catalog forms. No awesome-list duplication, editorial out
 | OpenSourceAlternative.to | Submitted to free waitlist; under review | https://www.opensourcealternative.to/project/podium | Wait for review. Form advertises 6+ months. No priority payment or newsletter opt-in. |
 | FutureTools | Submitted; awaiting review | https://futuretools.io/submit-a-tool | Confirmation: “Tool Submitted!”; publication not yet confirmed. |
 | Alternative.me | Account created; listing saved as draft | https://alternative.me/account/submissions | Final submission grants a non-exclusive content licence; approval requested. Account still reports unverified email; no verification message found yet. |
-| SourceForge Software | Approved to submit; blocked on required logo upload | https://sourceforge.net/software/vendors/new | Till checked the agreement. Submit validates a required logo; browser file chooser fails. Asked Till to attach the existing repo icon. |
+| SourceForge Software | Prepared; submission blocked by unresponsive form | https://sourceforge.net/software/vendors/new | Till attached logo and checked agreement. Server rejected description URL and price length; corrected both. All required controls validate, but subsequent Submit has no visible result. |
 | MacUpdate | Account requested by Till; awaiting verification email | https://www.macupdate.com/content/submit | UI says “Check your email”; no MacUpdate email found in Gmail, including spam/trash, at last check. |
-| G2 / Capterra / GetApp / Software Advice | G2 account verified; G2-only application in progress | https://www.g2.com/add_product_requests/new | Login link followed. Optional cross-publishing removed after approval review flagged a pay-per-click channel. URL verified; product form complete. Final terms/privacy confirmation requested. Admin claim is off after automatic approval review required specific approval. |
+| G2 / Capterra / GetApp / Software Advice | G2 account verified; product submission unconfirmed | https://www.g2.com/add_product_requests/new | Till checked final terms/privacy. Submit leaves the form unchanged, with no receipt or visible error. G2-only; admin claim and outreach off. |
 | Softpedia for Mac | Submission attempted; receipt unconfirmed | https://mac.softpedia.com/user/submit.shtml | Till entered CAPTCHA and authorized submission. Submit redirected to homepage without a visible receipt; no confirmation email found. Avoid duplicate submission until reconciled. |
 | Crozdesk | Blocked on required business details | https://vendor.revleads.com/user/signup | Requires phone number, headquarters country and marketing budget. Asked Till whether to skip or supply details. |
 
@@ -118,3 +118,13 @@ Used the supplied positioning guide and repository README: agent development env
 The earlier “Research Launch Directories” conversation explicitly said its full spreadsheet had **not** been committed. [CATALOG.md](CATALOG.md) reconstructs its directory shortlist; it is not a copy of that missing workbook.
 
 Validation: documentation-only tracking changes; runtime tests skipped under AGENTS.md. Submission status verified from directory UI responses.
+
+## Follow-up: 2026-09-25
+
+- Softpedia: searched Gmail including spam/trash; no message found. Prior homepage redirect remains an unconfirmed submission attempt. Form advertised up to 30 days for processing. No duplicate submitted.
+- SourceForge: Till attached the logo and approved the agreement. First POST returned explicit validation errors: URLs prohibited in description and starting-price field limited to 30 characters. Removed the GitHub URL from description and changed starting price to Free. Returned to the existing form to retain the attachment; read-only DOM verification confirms the logo and every required field valid, including selected AI Coding Assistants category. Further normal Submit/Enter attempts produced no visible result. No successful receipt.
+- G2: Till checked the final terms/privacy agreements. Normal Submit and keyboard activation did not yield a confirmation, redirect or visible validation error. No product-submission email found; only account login/welcome messages. Prepared form retained for manual completion, with G2-only distribution, no admin claim and no reviewer contacts.
+- Alternative.me: explained that non-exclusive permission concerns the submitted listing text/images, while ownership and ability to reuse them remain with the submitter. Still a saved draft pending approval.
+- MacUpdate: verification email still not found.
+
+No outbound email sent. Documentation-only update; runtime tests skipped.
