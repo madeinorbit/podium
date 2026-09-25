@@ -904,7 +904,6 @@ class IssueRollup implements RollupSelf {
 }
 
 const EMPTY_IDS: readonly string[] = Object.freeze([])
-const EMPTY_SET: ReadonlySet<string> = new Set()
 
 function verdictEquals(a: Loaded<SeatVerdict>, b: Loaded<SeatVerdict>): boolean {
   if (a === LOADING || b === LOADING || a === undefined || b === undefined) return a === b
@@ -976,13 +975,13 @@ export class RollupCollection {
   /** The nest children filed under `id` (tracked: a move dirties the composition). */
   nested(id: string): Iterable<string> {
     this.host.graph.track(this.nestedSlots, id)
-    return this.nestedBy.get(id) ?? EMPTY_SET
+    return this.nestedBy.get(id) ?? EMPTY_IDS
   }
 
   /** The formal children filed under `id` (tracked: a move dirties the composition). */
   formalChildren(id: string): Iterable<string> {
     this.host.graph.track(this.formalSlots, id)
-    return this.formalBy.get(id) ?? EMPTY_SET
+    return this.formalBy.get(id) ?? EMPTY_IDS
   }
 
   /** A known issue's parts; undefined otherwise. Public for tests. */

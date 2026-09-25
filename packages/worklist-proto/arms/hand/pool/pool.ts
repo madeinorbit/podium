@@ -92,7 +92,7 @@ import type {
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { type Cell, type CellCounters, CellGraph, DepIndex, sameData } from './cells'
 import { DeadlineClock } from './clock'
-import { issueIdsOf, reseed } from './enumerate'
+import { issueIdsOf, knownIssueIds, reseed } from './enumerate'
 import { type EntityRecord, RECORD_CLASSES, type RecordOf } from './records'
 import { PoolRelations } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
@@ -874,10 +874,7 @@ export class HandPool {
     // their filing cells (a `replace` re-files every known issue: raw doors,
     // no fence); the drain then runs the new and moved filings.
     if (fullSync) {
-      this.rollup.syncAll([
-        ...this.tables.issue.keys(),
-        ...(this.residency?.ids('issue') ?? []),
-      ])
+      this.rollup.syncAll(knownIssueIds(this))
     } else {
       const named: string[] = []
       for (const delta of deltas) {

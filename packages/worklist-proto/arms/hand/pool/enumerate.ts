@@ -9,6 +9,8 @@
  *   table's KEYS (the fence counts each id without reading its value,
  *   POD-4621) inside the list's cell, which records the table's membership
  *   as its one input: a rename does not re-run it; an add or a removal does.
+ * - `knownIssueIds`: every issue id the pool knows, hot or cold, which the
+ *   pool re-files at a `replace`.
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, as one
  *   event. With residency (POD-4580) it re-partitions: it walks the cold
@@ -61,6 +63,19 @@ import {
 /** Every issue id in `issue`, in table order; the fence counts each id. */
 export function issueIdsOf(issue: { keys(): IterableIterator<string> }): string[] {
   return [...issue.keys()]
+}
+
+/**
+ * Every issue id the pool KNOWS: the resident ones (the table's keys) plus
+ * the cold registry's. The pool re-files all of them at a `replace`; an
+ * update re-files only the ids it names. (Mirrors the MobX pool's
+ * `knownIssueIds`.)
+ */
+export function knownIssueIds(pool: {
+  readonly tables: Tables
+  readonly residency: Residency | null
+}): string[] {
+  return [...pool.tables.issue.keys(), ...(pool.residency?.ids('issue') ?? [])]
 }
 
 /**
