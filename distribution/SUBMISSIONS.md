@@ -13,10 +13,10 @@ Scope: free, evergreen catalog forms. No awesome-list duplication, editorial out
 | LibHunt | Existing public listing; improvements submitted for moderation | https://www.libhunt.com/r/madeinorbit/podium | Wait for moderator approval of suggested details. Do not submit another listing. |
 | OpenSourceAlternative.to | Submitted to free waitlist; under review | https://www.opensourcealternative.to/project/podium | Wait for review. Form advertises 6+ months. No priority payment or newsletter opt-in. |
 | FutureTools | Submitted; awaiting review | https://futuretools.io/submit-a-tool | Confirmation: “Tool Submitted!”; publication not yet confirmed. |
-| Alternative.me | Account created; listing saved as draft | https://alternative.me/account/submissions | Final submission grants a non-exclusive content licence; approval requested. Account still reports unverified email; no verification message found yet. |
-| SourceForge Software | Prepared; submission blocked by unresponsive form | https://sourceforge.net/software/vendors/new | Till attached logo and checked agreement. Server rejected description URL and price length; corrected both. All required controls validate, but subsequent Submit has no visible result. |
+| Alternative.me | Content licence approved; required icon blocks submission | https://alternative.me/account/submissions | Till approved non-exclusive content use. Submit reports “Please add an icon to your submission.” Browser file chooser fails; asked Till to attach repo icon. |
+| SourceForge Software | Fresh form rebuilt; required logo pending | https://sourceforge.net/software/vendors/new | Restart requested by Till. Corrected description/price, selected category and authorized agreement restored. Restart cleared prior attachment; asked Till to reattach logo. |
 | MacUpdate | Account requested by Till; awaiting verification email | https://www.macupdate.com/content/submit | UI says “Check your email”; no MacUpdate email found in Gmail, including spam/trash, at last check. |
-| G2 / Capterra / GetApp / Software Advice | G2 account verified; product submission unconfirmed | https://www.g2.com/add_product_requests/new | Till checked final terms/privacy. Submit leaves the form unchanged, with no receipt or visible error. G2-only; admin claim and outreach off. |
+| G2 / Capterra / GetApp / Software Advice | G2 submission confirmed: Profile Approved | https://www.g2.com/add_product_requests/new | Fresh submission succeeded. G2 says profile will be visible within minutes; direct link expected by email. Optional cross-publishing, admin claim and outreach off. |
 | Softpedia for Mac | Submission attempted; receipt unconfirmed | https://mac.softpedia.com/user/submit.shtml | Till entered CAPTCHA and authorized submission. Submit redirected to homepage without a visible receipt; no confirmation email found. Avoid duplicate submission until reconciled. |
 | Crozdesk | Blocked on required business details | https://vendor.revleads.com/user/signup | Requires phone number, headquarters country and marketing budget. Asked Till whether to skip or supply details. |
 
@@ -128,3 +128,9 @@ Validation: documentation-only tracking changes; runtime tests skipped under AGE
 - MacUpdate: verification email still not found.
 
 No outbound email sent. Documentation-only update; runtime tests skipped.
+
+### Fresh-session retry, 2026-09-25
+
+Till explicitly approved Alternative.me's non-exclusive listing-content licence and authorized checking G2/SourceForge agreements during the restart. Alternative.me's saved content was loaded and submitted; validation requires an icon. The documented upload control still times out. Asked Till to attach the repo icon to Alternative.me and the fresh SourceForge form. SourceForge rebuilt with URL-free description, Free starting price, AI Coding Assistants, and prior free/platform/support selections; agreement checked under explicit authorization. G2 restarted with optional cross-publishing deselected.
+
+Fresh G2 retry succeeded: after rebuilding the form and accepting the explicitly authorized terms/privacy checkboxes, submission displayed **Profile Approved!** and “Congratulations! Podium ADE has been approved for listing on G2.com.” It says public visibility follows within minutes while categories are assigned; direct profile link will be emailed. No paid option selected.
