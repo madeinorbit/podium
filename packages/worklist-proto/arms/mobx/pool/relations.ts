@@ -244,6 +244,19 @@ export interface PoolRelationsOptions {
   readonly onWrite?: (slots: number) => void
   /** Bumped by the bucket elements a write touched (POD-4568 rework, M3 F1). */
   readonly onElements?: (elements: number) => void
+  /**
+   * POD-4678 — a bucket's net member move, after the bucket applied it
+   * (inside the action): the collection (`issue.sessions`), the target, the
+   * member and whether it was added. The pool maintains its seat set from
+   * this delta (one element, never the family), never by re-listing the
+   * bucket through the fenced reader. Generic: no relation named here.
+   */
+  readonly onBucket?: (
+    collection: string,
+    target: string,
+    member: string,
+    added: boolean,
+  ) => void
   /** Residency (POD-4567): slots of rows that are not resident stay plain. */
   readonly cold?: ColdSlots
 }
@@ -266,6 +279,12 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly reads: ReadFence
   private readonly onWrite: (slots: number) => void
   private readonly onElements: (elements: number) => void
+  private readonly onBucket: (
+    collection: string,
+    target: string,
+    member: string,
+    added: boolean,
+  ) => void
   private readonly cold: ColdSlots | null
   private readonly links = new Map<string, Link>()
   /** Links by the entity their collection belongs to (buckets keyed by its ids). */
@@ -287,6 +306,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.reads = options.reads
     this.onWrite = options.onWrite ?? (() => {})
     this.onElements = options.onElements ?? (() => {})
+    this.onBucket = options.onBucket ?? (() => {})
     this.cold = options.cold ?? null
     for (const from of Object.keys(this.schema) as EntityName[]) {
       const entity = this.schema[from]
@@ -481,6 +501,9 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           if (added) bucket.add(member)
           else bucket.delete(member)
           elements += 1
+          // POD-4678: the seat mirror follows the same delta (one element,
+          // never the family), inside the same action.
+          this.onBucket(link.collection, target, member, added)
         }
         if (elements === 0 && !adopted) continue
         if (bucket.size === 0) {

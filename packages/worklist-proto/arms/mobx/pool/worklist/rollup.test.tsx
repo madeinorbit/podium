@@ -10,9 +10,9 @@
  * rebuild; each step commits exactly the rows whose oracle view changed (the
  * roll-up fields and `activityAt` included: no allowance is left on the
  * commit fence since POD-4674 made `activityAt` the legacy's, POD-4679) and
- * reads within its budget. #10 carries a named reads allowance (POD-4678): a new explicit
- * member re-lists its issue's `sessions` bucket, so the burst also reads the
- * burst issues' other explicit sessions, counted before the step.
+ * reads within its budget. #10 (POD-4678): a new explicit member costs the
+ * new member, not the family — the seat set is maintained from the
+ * relation's own bucket delta, never re-listed through the fenced `many()`.
  *
  * ONE NAMED EXCEPTION (POD-4671, `known-gaps.ts`): the corpus's unscanned-
  * worktree orphan has no seat in the shared schema's R3 relation, so its
@@ -407,26 +407,14 @@ describe('row roll-ups (Mb3)', () => {
       expect(gapAtBoot, 'the POD-4671 row, named').toBe(ctx.corpus.unscannedWorktree.issueId)
       const out = []
       for (const entry of FENCE_SCENARIOS) {
-        // POD-4678: a new explicit member re-lists its issue's `sessions`
-        // bucket, so #10 also reads each burst issue's other explicit
-        // sessions. That family term, counted before the step, is the only
-        // allowance, named.
-        const family =
-          entry.methodology === '#10'
-            ? tracked(() =>
-                ctx.targets.burstIssueIds.reduce(
-                  (sum, id) => sum + (handle.pool.worklist.issue(id)?.seatIds.length ?? 0),
-                  0,
-                ),
-              )
-            : 0
         mounted.log.reset()
         handle.stats.reset()
         mounted.reads.reset()
         const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, entry)
         const rollupsDerived = handle.stats.rollupsDerived
         assertCommits(result)
-        assertReads(result, { readsPerChange: readsBudget + family })
+        // POD-4678: no family term — a membership change reads O(1) sessions.
+        assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         const gap = checkParity(ctx, handle, entry.methodology)
         out.push({
@@ -437,7 +425,6 @@ describe('row roll-ups (Mb3)', () => {
           rowsCommitted: result.rowsCommitted,
           readsPerChange: result.readsPerChange,
           readsBudget,
-          familyAllowance: family,
           rollupsDerived,
         })
       }
@@ -451,6 +438,83 @@ describe('row roll-ups (Mb3)', () => {
     // A heartbeat composes nothing.
     expect(cells.find((cell) => cell.methodology === '#1')?.rollupsDerived).toBe(0)
     writeResult('mobx-rollups-1x', { scale: 1, cells })
+  }, 900_000)
+
+  it('burst seats are O(1): #10 reads within budget at 1x and 4x, and the re-list plant fails both (POD-4678)', async () => {
+    /**
+     * THE PLANTED MISTAKE (pre-POD-4678): `seatIds` re-lists its issue's
+     * `sessions` bucket through the fenced `many()`, which counts every id
+     * it yields — so a new member re-reads its whole family. Values stay
+     * right (parity is blind to it); only the reads fence can see it.
+     */
+    const seatRelist: CheckableArm = {
+      create(source, locals, reads) {
+        const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        const pool = handle.pool
+        const inputs = pool.visibleInputs as { seats: (id: string) => Iterable<string> }
+        inputs.seats = (id) => pool.relations.many('issue', id, 'sessions')
+        return handle
+      },
+    }
+    const burst = FENCE_SCENARIOS.find((entry) => entry.methodology === '#10')
+    expect(burst, '#10 burst50').toBeDefined()
+    const cells = []
+    for (const scale of [1, 4] as const) {
+      // Correct: the maintained seat set costs the new member, not the family.
+      const ctx = await startScenarioEngine(scale)
+      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+      try {
+        const handle = mounted.handle as MobxPoolHandle
+        settle(handle.pool)
+        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, burst!)
+        assertCommits(result)
+        assertReads(result, { readsPerChange: readsBudget })
+        mounted.reads.assertNoCopies(mounted.handle)
+        checkParity(ctx, handle, `#10 ${scale}x`)
+        cells.push({
+          scale,
+          readsPerChange: result.readsPerChange,
+          readsBudget,
+          rowsCommitted: result.rowsCommitted,
+        })
+      } finally {
+        mounted.unmount()
+        feeds.dispose()
+        ctx.engine.destroy()
+      }
+      // Planted: the re-list reads the family too, failing the same budget
+      // while parity stays green (the mistake is invisible to correctness).
+      const pctx = await startScenarioEngine(scale)
+      const pfeeds = openFenceFeeds(pctx, 'overlaid')
+      const pmounted = mountArmForCounts(seatRelist, pfeeds.rows.source, pfeeds.locals)
+      try {
+        const phandle = pmounted.handle as MobxPoolHandle
+        settle(phandle.pool)
+        const { result, readsBudget } = await runFenceStep(pmounted, pctx, pfeeds.flush, burst!)
+        assertCommits(result)
+        expect(
+          result.readsPerChange,
+          `#10 ${scale}x planted reads within ${readsBudget}`,
+        ).toBeGreaterThan(readsBudget)
+        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
+          `budget ${readsBudget}`,
+        )
+        pmounted.reads.assertNoCopies(pmounted.handle)
+        checkParity(pctx, phandle, `#10 ${scale}x planted`)
+        cells.push({
+          scale: `${scale}x-planted`,
+          readsPerChange: result.readsPerChange,
+          readsBudget,
+          rowsCommitted: result.rowsCommitted,
+        })
+      } finally {
+        pmounted.unmount()
+        pfeeds.dispose()
+        pctx.engine.destroy()
+      }
+    }
+    writeResult('mobx-rollups-burst-1x-4x', { cells })
   }, 900_000)
 
   it('the L1d shape: an ask on a hidden child leaves its visible root quiet, as in the oracle', async () => {

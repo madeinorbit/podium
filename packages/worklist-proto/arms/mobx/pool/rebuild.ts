@@ -178,6 +178,9 @@ function rebuild(
     // The scanned `children` relation, from scratch (the live pool files each node's parent slot).
     formalChildren: (id) =>
       tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).childIds : [],
+    // POD-4678: from scratch over the scanned relation (the live pool reads
+    // its maintained `seats` mirror, never the fenced `many()`).
+    seats: (id) => inputs.relations.many('issue', id, 'sessions'),
     counted: () => {},
   }
   const visible = issues

@@ -28,10 +28,11 @@
  *
  * THE ROSTER'S ALLOWANCES (POD-4572, `MOBX_POOL_ALLOWANCES`): the pool on the
  * fence roster (`harness/src/roster.ts`) carries exactly the exceptions Mb3
- * named, each removed by its issue: this gap on parity (POD-4671) and the
- * #10 burst's re-listed `sessions` family on the reads fence (POD-4678). The
- * third, rows whose oracle view moved in `activityAt` alone on the commit
- * fence, went with its fix (POD-4674: `activityAt` is the legacy's).
+ * named, each removed by its issue: this gap on parity (POD-4671). POD-4678
+ * (#10 burst's re-listed `sessions` family) went with its fix: the seat set
+ * is maintained from the relation's own delta, so a membership change reads
+ * O(1). The third, rows whose oracle view moved in `activityAt` alone on the
+ * commit fence, went with its fix (POD-4674: `activityAt` is the legacy's).
  * `fences.test.tsx` fails when one of them is never applied.
  */
 

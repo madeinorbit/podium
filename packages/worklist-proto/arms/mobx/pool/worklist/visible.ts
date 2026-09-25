@@ -27,10 +27,11 @@
  *   answers the HIDDEN side: a cold row's visibility is decided (it stays
  *   hidden) without loading it. Under the earlier rule 376 of 732 visible
  *   rows at 1x were cold (POD-4569 NOTES).
- * - `seatIds` (R2, `issue.sessions`) and `memberIds` (R2 then R3: the
+ * - `seatIds` (R2, `issue.sessions`, POD-4678: the maintained `seats`
+ *   mirror, one element per bucket move) and `memberIds` (R2 then R3: the
  *   sessions of `issue.worktree` with no `issueId`, `session-ownership.ts`
- *   `indexSessionOwnership`): bucket reads, cached, so a member's change never
- *   re-reads its family.
+ *   `indexSessionOwnership`): maintained reads, cached, so a member's change
+ *   never re-reads its family.
  * - `retainedSeatIds`: the retained seats (`rows.ts:71-76`,
  *   `retainedSessions`: seat members retained at the clock, exited ones
  *   included), whose stamps the own-row `activityAt` takes (`rows.ts:98-116`,
@@ -155,6 +156,14 @@ export interface VisibleInputs {
   nested(id: string): Iterable<string>
   /** The known issues whose declared `issue.parent` is `id` (filed from each one's forward slot). */
   formalChildren(id: string): Iterable<string>
+  /**
+   * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
+   * relation's own bucket deltas (one element per move, never the family).
+   * The live pool reads its `pool.seats` mirror (tracked, never through the
+   * fenced `many()`); the rebuild reads the scanned relation from scratch.
+   * Id order is applied at view time by `seatIdsPartOf`.
+   */
+  seats(id: string): Iterable<string>
   /** One composition run, reported through the shared `ArmStats.rollupsDerived`. */
   counted(): void
 }
@@ -478,7 +487,10 @@ export function standingPartOf(input: VisibleInputs, id: string): Standing | und
 
 /** R2: the explicit members (`issue.sessions`: headless out, twins collapsed), id order. */
 export function seatIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
-  return [...input.relations.many('issue', id, 'sessions')].sort()
+  // POD-4678: the maintained `seats` mirror (one element per bucket move),
+  // never the bucket re-listed through the fenced `many()` (which counts
+  // every id it yields, so a new member re-read its whole family, #10).
+  return [...input.seats(id)].sort()
 }
 
 /**

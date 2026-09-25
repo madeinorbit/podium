@@ -48,6 +48,7 @@ import {
   type IObservableValue,
   makeObservable,
   type ObservableMap,
+  type ObservableSet,
   observable,
   runInAction,
 } from 'mobx'
@@ -102,6 +103,9 @@ export interface PoolCounters extends VisibleCounters {
 }
 
 export type PoolStats = ArmStats & { readonly counters: PoolCounters }
+
+/** POD-4678: no seats (shared frozen, never written). */
+const EMPTY_SEATS: readonly string[] = Object.freeze([])
 
 function createStats(residency: Residency | null): PoolStats {
   const counters: PoolCounters = {
@@ -239,6 +243,14 @@ export class MobxPool {
   readonly relations: RelationReader
   /** The relation engine itself (tests read its write record; unfenced). */
   readonly graph: PoolRelations
+  /**
+   * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
+   * relation's own bucket deltas (one element per move, never the family),
+   * never re-listed through the fenced reader. The rule is declared once in
+   * the schema (`issue.sessions`); this mirror follows the engine's delta in
+   * the same action. Read via `visibleInputs.seats`, never via `many()`.
+   */
+  readonly seats: ObservableMap<string, ObservableSet<string>>
   /** The selection local: at most one entry, the selected issue id. */
   readonly selection: ObservableMap<string, true>
   /**
@@ -290,6 +302,11 @@ export class MobxPool {
     this.residency = residency
     this.stats = createStats(residency)
     const stats = this.stats
+    this.seats = observable.map<string, ObservableSet<string>>(undefined, {
+      deep: false,
+      name: 'pool.seats',
+    })
+    const seats = this.seats
     // The engine sees every KNOWN row: a resident one in its table, a cold one
     // by id (read back through the feed only when the engine needs its fields).
     const known =
@@ -314,6 +331,28 @@ export class MobxPool {
       },
       onElements: (elements) => {
         stats.counters.bucketElements += elements
+      },
+      // POD-4678: file the explicit seat delta (one element) into the
+      // maintained set, in the same action that moved the bucket. No
+      // per-session reactions; the schema declares the rule once.
+      onBucket: (collection, target, member, added) => {
+        if (collection !== 'issue.sessions') return
+        if (added) {
+          let bucket = seats.get(target)
+          if (bucket === undefined) {
+            bucket = observable.set<string>(undefined, {
+              deep: false,
+              name: 'pool.seats.bucket',
+            })
+            seats.set(target, bucket)
+          }
+          bucket.add(member)
+        } else {
+          const bucket = seats.get(target)
+          if (bucket === undefined) return
+          bucket.delete(member)
+          if (bucket.size === 0) seats.delete(target)
+        }
       },
       ...(residency === null
         ? {}
@@ -399,6 +438,9 @@ export class MobxPool {
       issueRead: (id) => this.readStates.get(id),
       nested: (id) => this.worklist.nested(id),
       formalChildren: (id) => this.worklist.formalChildren(id),
+      // POD-4678: the maintained seat set (one element per move, never the
+      // family), read without touching the fenced relation reader.
+      seats: (id) => this.seats.get(id) ?? EMPTY_SEATS,
       counted: () => {
         stats.rollupsDerived += 1
       },
@@ -424,6 +466,7 @@ export class MobxPool {
       fenced: false,
       relations: false,
       graph: false,
+      seats: false,
       selection: false,
       readStates: false,
       clock: false,
@@ -686,6 +729,7 @@ export class MobxPool {
       this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
+      this.seats.clear()
       this.selection.clear()
       this.readStates.clear()
     })
