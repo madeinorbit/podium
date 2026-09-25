@@ -28,6 +28,7 @@
  * candidate; this arm is the phase-c candidate on the `truth` feed.
  */
 
+import { runInAction } from 'mobx'
 import type {
   CheckableArm,
   CheckableArmHandle,
@@ -63,6 +64,28 @@ export function writableMobxPoolArm(
       // W11: pending edits survive a principal-preserving rebuild — the
       // outbox entries are re-applied from the queue before anything reads.
       write.bootstrap()
+      // Re-establish node tracking AFTER the row-reader overlays are
+      // installed. The seeding replace built every visibility node before the
+      // wrappers existed, so their reactions subscribed to the table slots
+      // alone and never to the overlay map: an arm-side edit flipping a
+      // verdict (a mark-read reopening a decay window) would leave the live
+      // set stale while the rebuild, deriving from scratch over the overlaid
+      // rows, moves. Clearing the collection and replaying the current feed
+      // snapshot re-creates every node with the wrappers active; the tables
+      // hold the same borrowed objects, so ingest writes nothing and only
+      // the reactions re-run. Models, residency, selection and the clock are
+      // untouched (models read through the same wrappers dynamically).
+      runInAction(() => {
+        handle.pool.worklist.clear()
+        handle.pool.apply({
+          type: 'replace',
+          rows: [
+            ...source.snapshot('session'),
+            ...source.snapshot('issue'),
+            ...source.snapshot('worktree'),
+          ],
+        })
+      })
       const offRemote = source.subscribe((event) => {
         for (const row of event.rows) {
           if (row.kind !== 'issue' || row.value === undefined) continue
