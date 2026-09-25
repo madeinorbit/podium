@@ -516,6 +516,7 @@ export class HandPool {
         waiting: (id) => this.rollup.waitingOf(id),
       },
       order: () => worklist.order(),
+      has: (id) => worklist.has(id),
       rankOf: (id) => worklist.placedRankOf(id),
       selectedId: () => this.selectedId,
       foldLatch: () => this.foldLatch,
@@ -816,10 +817,10 @@ export class HandPool {
     this.rollup.settleFilings()
     this.graph.flush()
     this.worklist.settle()
-    const orderMoved = this.worklist.takeMoved()
-    this.groups.settle(orderMoved, false)
+    const orderDelta = this.worklist.takeMoved()
+    this.groups.settle(orderDelta, false)
     const groupsMoved = this.groups.takeMoved()
-    this.publish(orderMoved, groupsMoved)
+    this.publish(orderDelta.moved, groupsMoved)
     this.stats.notifications += 1
   }
 
@@ -900,16 +901,16 @@ export class HandPool {
     this.rollup.settleFilings()
     this.graph.flush()
     this.worklist.settle()
-    // Handler 3b: the groups. The layout recomputes only when the order
-    // moved or a placement reported; the lanes only when the layout or the
-    // selection moved (POD-4583).
-    const orderMoved = this.worklist.takeMoved()
+    // Handler 3b: the groups. The filings move exactly the rows that moved
+    // (placements that reported, ids that entered or left); the lanes only
+    // for the touched groups, or the latch's on a selection move (POD-4694).
+    const orderDelta = this.worklist.takeMoved()
     const selectionMoved = deltas.some(
       (delta) => delta.kind === 'selection' || delta.kind === 'foldLatch',
     )
-    this.groups.settle(orderMoved, selectionMoved)
+    this.groups.settle(orderDelta, selectionMoved)
     const groupsMoved = this.groups.takeMoved()
-    this.publish(orderMoved, groupsMoved)
+    this.publish(orderDelta.moved, groupsMoved)
     this.stats.notifications += 1
   }
 

@@ -803,6 +803,10 @@ export class VisibleCollection {
   /** The order as last published: a new array only when it moved. */
   private published: readonly string[] = Object.freeze([])
   private moved = false
+  /** Membership delta of the last settle, drained by `takeMoved` (the groups file exactly these). */
+  private lastEntered: string[] = []
+  private lastLeft: string[] = []
+  private lastRankMoved: string[] = []
 
   constructor(private readonly host: VisibleHost) {}
 
@@ -887,6 +891,9 @@ export class VisibleCollection {
     const { graph, counters } = this.host
     const reported = [...this.reported]
     this.reported.clear()
+    const entered: string[] = []
+    const left: string[] = []
+    const rankMoved: string[] = []
     const resort = reported.length > Math.max(8, this.sorted.length * RESORT_FRACTION)
     for (const id of reported) {
       const member = this.members.get(id)
@@ -899,6 +906,7 @@ export class VisibleCollection {
         this.dropRank(id)
         counters.membershipFlips += 1
         this.moved = true
+        left.push(id)
         continue
       }
       const rank = this.rankCell(id)
@@ -906,8 +914,10 @@ export class VisibleCollection {
       if (placed === undefined) {
         if (!resort) this.insert(id, rank)
         counters.membershipFlips += 1
+        entered.push(id)
       } else if (!sameData(placed, rank)) {
         if (!resort) this.move(id, placed, rank)
+        rankMoved.push(id)
       } else continue
       this.placedRank.set(id, rank)
       this.moved = true
@@ -921,14 +931,33 @@ export class VisibleCollection {
       counters.orderSorts += 1
       counters.orderSorted += ids.length
     }
+    if (entered.length > 0 || left.length > 0 || rankMoved.length > 0) {
+      this.lastEntered.push(...entered)
+      this.lastLeft.push(...left)
+      this.lastRankMoved.push(...rankMoved)
+    }
   }
 
-  /** Whether the order moved since the last call (the pool's publish step asks once per commit). */
-  takeMoved(): boolean {
+  /**
+   * Whether the order moved since the last call, with the membership delta
+   * the groups file (the pool's publish step asks once per commit). The
+   * delta lists are drained here: exactly the ids that entered, left, or
+   * kept their seat with a new rank since the previous call.
+   */
+  takeMoved(): { readonly moved: boolean; readonly entered: readonly string[]; readonly left: readonly string[]; readonly rankMoved: readonly string[] } {
     const moved = this.moved
     this.moved = false
     if (moved) this.published = Object.freeze([...this.sorted])
-    return moved
+    const delta = {
+      moved,
+      entered: this.lastEntered,
+      left: this.lastLeft,
+      rankMoved: this.lastRankMoved,
+    }
+    this.lastEntered = []
+    this.lastLeft = []
+    this.lastRankMoved = []
+    return delta
   }
 
   /** The visible ids in rank order; a new array only when the order moved. */
