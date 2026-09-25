@@ -28,7 +28,10 @@
  * Page observers are attached throughout (keys, pinned ids, every group's
  * lanes, like `PoolList` and the headers), and every reaction execution
  * counts through the `runReaction_` patch — a scheduled re-evaluation counts
- * even when it keeps its value. Reported per scale to `mobx-scaling-4686`.
+ * even when it keeps its value. The order array itself is wrapped in a
+ * counting proxy, so every element iterated out of `host.order()` counts no
+ * matter which map (observable or plain) the walk reads through — bound 0
+ * per change at 1x and 4x. Reported per scale to `mobx-scaling-4686-*`.
  *
  * Direct pool, no React and no engine: the harness's fence steps already hold
  * commits, reads and parity per scenario (`groups.test.tsx`,
@@ -182,10 +185,72 @@ function maintenanceOf(runs: Map<string, number>): [string, number][] {
 }
 
 /**
+ * Order elements iterated out of `VisibleCollection.order` while `run`
+ * runs. The order array is wrapped in a counting proxy on the instance (the
+ * underlying computed still evaluates and tracks normally, so order
+ * liveness is preserved): every visited element and every `length` read
+ * counts, through indexed access, iteration, spread and array methods. A
+ * walk that iterates `host.order()` and reads a PLAIN map per id — invisible
+ * to entity counters and to observable-map patches — shows up here at the
+ * visible count. Bound per hot-path change: 0 elements, 0 lengths.
+ */
+function countOrderReads(
+  pool: MobxPool,
+  run: () => void,
+): { elements: number; lengths: number } {
+  const host = pool.worklist as unknown as Record<string, unknown>
+  const descriptor =
+    Object.getOwnPropertyDescriptor(host, 'order') ??
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(host), 'order')
+  if (descriptor?.get === undefined) throw new Error('order has no getter to wrap')
+  const original = descriptor.get as (this: unknown) => readonly string[]
+  let elements = 0
+  let lengths = 0
+  const wrap = (array: readonly string[]): readonly string[] =>
+    new Proxy(array, {
+      get(target, property, receiver: unknown): unknown {
+        if (property === 'length') {
+          lengths += 1
+          return Reflect.get(target, property, receiver)
+        }
+        if (property === Symbol.iterator) {
+          const inner = Reflect.get(target, property, array) as () => Iterator<string>
+          const iterator = Reflect.apply(inner, array, []) as Iterator<string>
+          return function* (): Generator<string> {
+            let step = iterator.next()
+            while (!step.done) {
+              elements += 1
+              yield step.value
+              step = iterator.next()
+            }
+          }
+        }
+        if (typeof property === 'string' && Number.isInteger(Number(property))) {
+          elements += 1
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+  Object.defineProperty(host, 'order', {
+    configurable: true,
+    get(this: unknown): readonly string[] {
+      return wrap(original.call(this))
+    },
+  })
+  try {
+    run()
+  } finally {
+    Object.defineProperty(host, 'order', descriptor)
+  }
+  return { elements, lengths }
+}
+
+/**
  * `ObservableMap.get` calls on one named map while `run` runs: the key-index
- * walk counter. The old group order walked every visible id through the
- * `pool.groups.keys` index per stage move; the head-rank order reads no
- * per-id index at all.
+ * walk counter. Kept beside the order counter above: the old group order
+ * walked every visible id through the `pool.groups.keys` index per stage
+ * move, while a walk through a plain map is invisible to it (and caught by
+ * the order counter instead).
  */
 function countMapReads(name: string, run: () => void): number {
   const proto = ObservableMap.prototype as unknown as Record<
@@ -310,25 +375,28 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         audit = observeGroups(pool)
         pool.stats.reset()
         let mapReads = 0
+        let orderReads = { elements: 0, lengths: 0 }
         let sets = 0
         const runs = countReactions(() => {
           sets = countGroupSets(() => {
             mapReads = countMapReads('pool.groups.keys', () => {
-              r.push({
-                type: 'update',
-                rows: [
-                  {
-                    kind: 'issue',
-                    id: target,
-                    value: {
-                      ...base,
-                      stage: 'done',
-                      closedAt: now,
-                      closedReason: 'done',
-                      tuckedAt: now,
+              orderReads = countOrderReads(pool, () => {
+                r.push({
+                  type: 'update',
+                  rows: [
+                    {
+                      kind: 'issue',
+                      id: target,
+                      value: {
+                        ...base,
+                        stage: 'done',
+                        closedAt: now,
+                        closedReason: 'done',
+                        tuckedAt: now,
+                      },
                     },
-                  },
-                ],
+                  ],
+                })
               })
             })
           })
@@ -343,6 +411,11 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         expect(sets, 'group set writes').toBeLessThanOrEqual(4)
         // No key-index walk: the head-rank order reads no per-id index.
         expect(mapReads, 'key-index reads').toBe(0)
+        // No order walk at all: nothing iterates the visible order or reads
+        // its length here — not through an observable index, and not through
+        // a plain map either.
+        expect(orderReads.elements, 'order elements iterated').toBe(0)
+        expect(orderReads.lengths, 'order length reads').toBe(0)
         // Executions per groups observer: the moved row's own layout
         // reaction runs once; the moved group's lanes are scheduled once
         // each; the key order is scheduled at most once (its body re-sorts
@@ -419,6 +492,8 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           laneMembers: groupElements,
           setWrites: sets,
           keyIndexReads: mapReads,
+          orderElements: orderReads.elements,
+          orderLengths: orderReads.lengths,
           evals: Object.fromEntries(evals),
         })
       } finally {
@@ -437,19 +512,24 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           const target = clickTarget(pool)
           expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(true)
           pool.stats.reset()
+          let orderReads = { elements: 0, lengths: 0 }
           const runs = countReactions(() => {
-            r.locals.set({ selectedIssueId: target })
-            r.locals.flush()
-            // Past every seat's stamp, so the row reads as read: sessions only
-            // ever stamped 2026 and earlier on this corpus.
-            const readAt = '2027-06-01T00:00:00.000Z'
-            r.push({
-              type: 'update',
-              rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), readAt } }],
+            orderReads = countOrderReads(pool, () => {
+              r.locals.set({ selectedIssueId: target })
+              r.locals.flush()
+              // Past every seat's stamp, so the row reads as read: sessions only
+              // ever stamped 2026 and earlier on this corpus.
+              const readAt = '2027-06-01T00:00:00.000Z'
+              r.push({
+                type: 'update',
+                rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), readAt } }],
+              })
             })
           })
           const maintenance = maintenanceOf(runs)
           expect(maintenance, 're-validated maintenance reactions').toEqual([])
+          expect(orderReads.elements, 'order elements iterated').toBe(0)
+          expect(orderReads.lengths, 'order length reads').toBe(0)
           // Executions per groups observer: the latch runs once (it must
           // look at the new selection); every lane runs once doing O(1)
           // latch-check work off cached lanes; nothing re-sorts and nothing
