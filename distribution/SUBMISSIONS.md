@@ -15,10 +15,12 @@ Scope: free, evergreen catalog forms. No awesome-list duplication, editorial out
 | FutureTools | Submitted; awaiting review | https://futuretools.io/submit-a-tool | Confirmation: “Tool Submitted!”; publication not yet confirmed. |
 | Alternative.me | Submitted; Pending Approval | https://alternative.me/account/submissions | Till attached icon and submitted. Refreshed dashboard confirms Pending Approval; saved drafts empty. |
 | SourceForge Software | Submitted; request received, awaiting review | https://sourceforge.net/software/vendors/new_submitted | Till submitted with icon. Request Received page and confirmation email verified. Account needed later to manage an approved page. |
-| MacUpdate | Account requested by Till; awaiting verification email | https://www.macupdate.com/content/submit | UI says “Check your email”; no MacUpdate email found in Gmail, including spam/trash, at last check. |
+| MacUpdate | Submitted; awaiting review | https://member.macupdate.com/content/submit | Confirmation: “Your app has been submitted!”; review response by email within 10 days. |
 | G2 / Capterra / GetApp / Software Advice | G2 submission confirmed: Profile Approved | https://www.g2.com/add_product_requests/new | Fresh submission succeeded. G2 says profile will be visible within minutes; direct link expected by email. Optional cross-publishing, admin claim and outreach off. |
 | Softpedia for Mac | Submission attempted; receipt unconfirmed | https://mac.softpedia.com/user/submit.shtml | Till entered CAPTCHA and authorized submission. Submit redirected to homepage without a visible receipt; no confirmation email found. Avoid duplicate submission until reconciled. |
 | Crozdesk | Blocked on required business details | https://vendor.revleads.com/user/signup | Requires phone number, headquarters country and marketing budget. Asked Till whether to skip or supply details. |
+| Made with Tauri | Submitted; awaiting manual review | https://madewithtauri.com/submit | “Successfully submitted”; review may take a few days. |
+| selfh.st/apps | Deferred: new-project eligibility restriction | https://selfh.st/submit/ | Directory form excludes newly launched projects; no submission or newsletter pitch made. |
 
 “Under review” and “submitted” do not mean a published/approved profile. LibHunt's listing existed before this work.
 
@@ -140,3 +142,11 @@ Fresh G2 retry succeeded: after rebuilding the form and accepting the explicitly
 - Alternative.me: Till attached icon and submitted. Refreshed dashboard shows Podium ADE under Pending Submissions with status **Pending Approval**; Saved Drafts is empty. No further submission action required.
 - SourceForge: Till submitted with icon. Verified `/software/vendors/new_submitted` heading **Request Received**. Gmail also received “SourceForge.net Software Request” from noreply@sourceforge.net. Request awaits review. A SourceForge account is recommended for managing the page once approved; no paid marketing selected.
 - G2: prior **Profile Approved!** confirmation stands. No direct-profile email found in latest mailbox check; no required user action currently identified. Admin claim remains optional and was not made.
+
+### Additional directories and MacUpdate recovery, 2026-09-25
+
+- Made with Tauri: submitted Podium ADE, till@podium.do, https://podium.do/ and canonical GitHub repository. Description: “Open-source agent development environment built with Tauri. Coordinate coding agents through shared issues, conversation and live team views. Run locally or on your own VPS.” Confirmation: **Successfully submitted**; manual review may take a few days. Initial description exceeded 200 characters and was corrected before successful submission.
+- selfh.st/apps: selected the directory-specific Suggest an App form. It states: “Newly launched projects will not be considered for the directory.” No age cutoff is supplied. Given Podium's recent launch and v0.1.0 release on August 21, deferred under that restriction. This is a conservative eligibility assessment, not a rejection from a reviewer. Did not switch to the suggested Self-Host Weekly launch pitch, which is outside scope.
+- MacUpdate: existing account was authenticated as till-2 and the app form was available; no account restart needed. Submitted Podium ADE 0.1.0, Made in Orbit, free ($0), Apache-2.0, macOS 11+, Apple Silicon and Intel. Primary download points to the v0.1.0 Apple Silicon DMG; review comments include the Intel DMG, public repository icon and screenshot URLs. Media files were not attached; the form accepted the submission with asset links in comments. Description covers shared issues, conversation, live team views, local/own-VPS access, pre-1.0 status and separate agent-account costs. Visible confirmation: **Your app has been submitted!** and email response within 10 days. No published profile link yet.
+
+No outbound email sent. Tracking-only changes; runtime tests skipped.

@@ -17,6 +17,7 @@ Recovered on 2026-09-24 from the “Research Launch Directories” conversation.
 | B | Capterra / GetApp / Software Advice | https://www.capterra.com/vendors/ | Live listing CTA routes to G2 /products/new (verified 2026-09-24). Handle once with G2; avoid duplicate requests. |
 | B | Alternative.me | https://alternative.me/how-to/submit-software/ | Account dashboard submission. |
 | B | Crozdesk | https://vendor.revleads.com/user/signup | Free listing advertised; confirm self-hosted developer-tool eligibility. |
+| B | Made with Tauri | https://madewithtauri.com/submit | Submitted 2026-09-25; free manual review, 200-character description. |
 | B | Softpedia for Mac | https://mac.softpedia.com/user/submit.shtml | Release and download metadata, assets, ongoing version maintenance. |
 
 ## Deferred or excluded from this batch
@@ -26,10 +27,9 @@ Recovered on 2026-09-24 from the “Research Launch Directories” conversation.
 | Yet Another Orchestrator | Research found curator contact on X, not an ordinary submission form. |
 | Toolhunt | Research found email-based editorial submission. No outreach in this batch. |
 | Console.dev | Explicitly on hold; leave Gmail draft unsent. See TOCONTACT.md. |
-| selfh.st / Self-Host Weekly | Separate app-directory eligibility from newsletter/editorial coverage before considering. |
+| selfh.st/apps | Directory form excludes newly launched projects, without specifying an age cutoff. Deferred given recent launch; newsletter route remains outside scope. |
 | Changelog News | Editorial/project news, outside scope. |
 | Terminal Trove | Conditional terminal-product fit and curated coverage, deferred. |
-| Made with Tauri | Conditional independent showcase; deferred beyond first catalogs. |
 | Homebrew | Packaging/distribution engineering, not ordinary catalog submission. |
 | OpenAlternative | Research did not verify a free submission path. |
 | AI Agents Directory | Research found reciprocal badge requirement on free route. Excluded. |
