@@ -41,7 +41,7 @@ import type { RosterAllowances } from '../../../../harness/src/roster'
 import type { ArmHandle } from '../../../../shared/src/arm'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import type { MobxPoolHandle } from '../arm'
-import type { MobxPool } from '../pool'
+import { type MobxPool, tracked } from '../pool'
 
 /** The fields the orphan's seat feeds on its issue's row. */
 const SEAT_FIELDS: readonly string[] = ['phase', 'working', 'asking']
