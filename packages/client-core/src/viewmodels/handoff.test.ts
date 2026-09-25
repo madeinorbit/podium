@@ -178,6 +178,7 @@ describe('Handoff mission derivations', () => {
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.kind).toBe('needs-you')
+    expect(rows[0]).toMatchObject({ sessionId: 's1' })
   })
 
   it('keeps idle requests, parked errors and offer plus execution as separate current facts', () => {
@@ -191,9 +192,26 @@ describe('Handoff mission derivations', () => {
     const current = handoffCurrentFacts(work, [asking, errored, running], new Map([[work.id, work], [target.id, target]]), members)
     expect(current).toMatchObject({ running: ['running'], errors: ['errored'], requests: ['asking', 'running'], taskRequest: false, openDependencies: ['target'] })
     const now = deriveHandoffNow([root, work, target], [asking, errored, running], 'root')
-    expect(now.find((entry) => entry.issueId === 'work')?.kind).toBe('needs-you')
+    expect(now.find((entry) => entry.issueId === 'work')?.kind).toBe('working')
     const errorOnly = deriveHandoffNow([root, work], [errored], 'root')
     expect(errorOnly.find((entry) => entry.issueId === 'work')?.kind).toBe('error')
+  })
+
+  it('keeps a task request unattributed when its old author session is idle', () => {
+    const root = issue('root')
+    const task = issue('task', {
+      parentId: asIssueId('root'), stage: 'in_progress', needsHuman: true,
+      humanQuestion: 'Choose an option', humanQuestionAskedBy: asSessionId('old-author'),
+    })
+    const oldAuthor = session('old-author', {
+      issueId: asIssueId('task'),
+      agentState: { phase: 'idle', idle: { kind: 'done' } } as SessionMeta['agentState'],
+    })
+    const facts = handoffCurrentFacts(task, [oldAuthor], new Map([[task.id, task]]), new Set([task.id]))
+    expect(facts).toMatchObject({ requests: [], taskRequest: true })
+    expect(deriveHandoffNow([root, task], [oldAuthor], 'root').find((entry) => entry.issueId === 'task')).toEqual({
+      kind: 'needs-you', issueId: task.id, text: 'Choose an option',
+    })
   })
 
   it('retires closed requests and active waits while keeping execution and errors', () => {

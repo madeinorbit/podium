@@ -199,33 +199,29 @@ export function deriveHandoffNow(
     const present = crew.filter(sessionPresentOnTask)
     const current = handoffCurrentFacts(issue, crew, byId, memberIds)
     const asking = crew.find((session) => current.requests.includes(session.sessionId))
-    const askedBy = issue.humanQuestionAskedBy
-      ? crew.find((session) => session.sessionId === issue.humanQuestionAskedBy)
-      : undefined
     const explicitNeed = current.taskRequest || asking !== undefined
+    const working = present.find((session) => current.running.includes(session.sessionId))
     let entry: HandoffNowEntry | null = null
 
-    if (explicitNeed && !issueClosed(issue)) {
-      const session = asking ?? askedBy
+    if (working) {
+      entry = {
+        kind: 'working',
+        issueId: issue.id,
+        sessionId: working.sessionId,
+        text: 'Agent computing now.',
+      }
+    } else if (explicitNeed && !issueClosed(issue)) {
       entry = {
         kind: 'needs-you',
         issueId: issue.id,
-        ...(session ? { sessionId: session.sessionId } : {}),
+        ...(asking ? { sessionId: asking.sessionId } : {}),
         text:
-          session?.agentState?.need?.summary?.trim() ||
+          asking?.agentState?.need?.summary?.trim() ||
           issue.humanQuestion?.trim() ||
           'Waiting on you.',
       }
     } else {
-      const working = present.find((session) => current.running.includes(session.sessionId))
-      if (working) {
-        entry = {
-          kind: 'working',
-          issueId: issue.id,
-          sessionId: working.sessionId,
-          text: 'Agent computing now.',
-        }
-      } else if (current.errors.length > 0) {
+      if (current.errors.length > 0) {
         const session = crew.find((candidate) => candidate.sessionId === current.errors[0]) as SessionMeta
         entry = {
           kind: 'error', issueId: issue.id, sessionId: session.sessionId,
