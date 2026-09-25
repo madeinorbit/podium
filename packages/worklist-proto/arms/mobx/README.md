@@ -152,10 +152,13 @@ tables go on holding BORROWED server rows, never a copy.
   pending log (`shared/src/write-contract.ts` `createPendingLog`, re-exported
   by `pool/write/pending.ts`; the arm owns no log of its own). It is overlaid
   at the row-reader boundary (`pool.inputs.issue`,
-  `pool.visibleInputs.issueRow` / `progressFacts` / `loadedIssue`): no pending
-  edit returns the server object unchanged (identity-preserving, idle layer
-  invisible); with one a transient `{...server, ...pending}` is returned
-  (never stored, so the copy sweep never sees it).
+  `pool.visibleInputs.issueRow` / `progressFacts` / `loadedIssue`) plus the
+  read cursor (`pool.visibleInputs.issueRead`, so a pending mark-read flips
+  the unread/decay verdicts at once, exactly as the overlaid row flips the
+  rebuild's): no pending edit returns the server object unchanged
+  (identity-preserving, idle layer invisible); with one a transient
+  `{...server, ...pending}` is returned (never stored, so the copy sweep
+  never sees it).
 - **What the kernel still owns.** The command (`commandFor`: title/stage ride
   `issues.update`, `readAt` rides `issues.markRead`), the queue and its
   persistence, the receipt (`accepted` = outbox `applied`, L3b), the echo
@@ -172,8 +175,10 @@ tables go on holding BORROWED server rows, never a copy.
   from the log and surfaces the error; `handleSuperseded` drops a collapsed
   mark-read without repainting; `expire` drops receipted edits past the TTL;
   a duplicate receipt is a no-op. `bootstrap` re-applies the outbox's pending
-  entries on creation under their own mutation ids without re-sending, so
-  pending edits survive a principal-preserving rebuild.
+  entries on creation under their own mutation ids without re-sending, over
+  the feed's server rows (the reference oracle's reload rebuild reads the
+  same rows, so the two resolutions agree exactly), so pending edits survive
+  a principal-preserving rebuild.
 - **The rebuild is optimism-aware.** `rebuildFromScratch` overlays the pending
   display onto the feed's server rows before deriving, so a gate with pending
   edits outstanding compares pending with pending — never with server truth.
@@ -187,8 +192,10 @@ tables go on holding BORROWED server rows, never a copy.
 Tests: `pool/write/edit.test.tsx` (paint, rewind, order, mark-read,
 stacking), `pool/write/settle.test.tsx` (echo zero-commit, remote-on-pending
 one commit, duplicate no-op, rebuild and bootstrap re-apply),
-`pool/write/gate-truth.test.ts` (L4b on the truth feed with arm edits, plus
-the (a)/(c) write-path plants on fixed sequences), `pool/write/gate-with-
+`pool/write/gate-truth.test.ts` (L4b on the truth feed with arm edits: the
+whole-snapshot shared write oracle, complete-or-fail per-seed rows, plus the
+(a)/(c) write-path plants on fixed sequences, the visibility plants (i)/(ii)
+and the late-remote plant (iii)), `pool/write/gate-with-
 edits.test.ts` (the phase-a/b gate still passes with the layer attached but
 idle).
 
