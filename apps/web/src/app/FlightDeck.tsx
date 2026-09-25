@@ -17,6 +17,7 @@ import {
   deckDependencies,
   deckFoldHiddenFacts,
   deckSessionFacts,
+  deckSessionRunning,
   deckSessionRequestsHuman,
   deckFoldKey,
   deckSessions,
@@ -42,7 +43,6 @@ import {
   issueDisplayTitle,
   issueNote,
   issueOwnContentUnread,
-  isSessionWorking,
   type MissionDeparture,
   machineViewsFromWire,
   missionDepartures,
@@ -925,7 +925,7 @@ function NativeRows({
             // type on the quietest rail in the spine, and nothing else. Giving
             // it a harness tile would put it in the same visual class as the
             // session that owns it.
-            className="shell-type-micro flex h-[22px] w-full items-center gap-1.5 pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
+            className="shell-type-micro flex min-h-6 w-full items-center gap-1.5 pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
             style={{ paddingLeft: NATIVE_INDENT + 4 }}
             onClick={onOpen}
             aria-label={`Open owning agent ${sessionDisplayName(session)} · ${agent.anonymous ? `${agent.count} additional native workers, identities unavailable` : agent.id}`}
@@ -1106,7 +1106,7 @@ function SessionRow({
   const intent = useClickIntent()
   const retired = session.archived || session.status === 'exited'
   const facts = issue ? deckSessionFacts(issue, session) : {
-    running: !retired && isSessionWorking(session),
+    running: !retired && deckSessionRunning(session),
     error: !retired ? sessionErrorLabel(session) : null,
     request: !retired && deckSessionRequestsHuman(session),
     lastRecordedRequest: false,
@@ -1660,7 +1660,7 @@ const TaskRow = memo(
     // so it holds no seat for an agent and takes the shorter band. Only one with
     // sub-tasks reaches this component — the childless ones leave the tree
     // entirely for the Proposed tail below it.
-    const proposed = row.issue.stage === 'proposed'
+    const proposed = row.issue.stage === 'proposed' && !issueClosed(row.issue)
     const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
     const mid = proposed ? PROPOSED_MID : BAND_MID
     const rawNote = issueNote(row.issue, byId, row.sessions)
@@ -1889,22 +1889,22 @@ const TaskRow = memo(
             </Button>
           </div>
         </div>
-        {!context && (
+        {(!context || hidden.running > 0 || hidden.errors > 0 || hidden.requests > 0) && (
           <div className="shell-type-micro flex flex-wrap gap-x-2 gap-y-0.5 break-words pb-1 text-text-dim" style={{ paddingLeft: Math.min(row.depth, 3) * DEPTH_STEP + GUTTER }}>
-            <span>{deckLifecycle(row.issue) === 'done' ? 'Done' : STAGE_LABELS[deckLifecycle(row.issue) as keyof typeof STAGE_LABELS] ?? deckLifecycle(row.issue)}</span>
-            {facts.running > 0 && <span className="text-text-strong">{issueClosed(row.issue) ? 'Agent still running' : `${facts.running} running`}</span>}
-            {facts.errors.length > 0 && <span className="text-destructive">{facts.errors.length} agent error{facts.errors.length === 1 ? '' : 's'}{facts.parked > 0 ? ' · parked agent' : ''}</span>}
-            {(facts.requests.length > 0 || facts.taskRequest) && <span className="text-attention">Needs you</span>}
-            {row.issue.blocked && !issueClosed(row.issue) && openDependencies.length === 0 && <span>Dependency status unavailable</span>}
-            {facts.assigned === 0 && <span>{row.sessions.length > 0 ? 'No active agent' : 'No agent assigned'}</span>}
-            {facts.assigned === 0 && row.sessions.length === 0 && (row.issue.stage === 'backlog' || row.issue.stage === 'planning') && <span>Not started</span>}
-            {facts.assigned === 0 && row.issue.ready && !issueClosed(row.issue) && openDependencies.length === 0 && unavailableDependencies.length === 0 && <span>Ready to start</span>}
+            {!context && <span>{deckLifecycle(row.issue) === 'done' ? 'Done' : STAGE_LABELS[deckLifecycle(row.issue) as keyof typeof STAGE_LABELS] ?? deckLifecycle(row.issue)}</span>}
+            {!context && facts.running > 0 && <span className="text-text-strong">{issueClosed(row.issue) ? 'Agent still running' : `${facts.running} running`}</span>}
+            {!context && facts.errors.length > 0 && <span className="text-destructive">{facts.errors.length} agent error{facts.errors.length === 1 ? '' : 's'}{facts.parked > 0 ? ' · parked agent' : ''}</span>}
+            {!context && (facts.requests.length > 0 || facts.taskRequest) && <span className="text-attention">Needs you</span>}
+            {!context && row.issue.blocked && !issueClosed(row.issue) && openDependencies.length === 0 && <span>Dependency status unavailable</span>}
+            {!context && facts.assigned === 0 && <span>{row.sessions.length > 0 ? 'No active agent' : 'No agent assigned'}</span>}
+            {!context && facts.assigned === 0 && row.sessions.length === 0 && (row.issue.stage === 'backlog' || row.issue.stage === 'planning') && <span>Not started</span>}
+            {!context && facts.assigned === 0 && row.issue.ready && !issueClosed(row.issue) && openDependencies.length === 0 && unavailableDependencies.length === 0 && <span>Ready to start</span>}
             {hidden.running > 0 && <span className="text-text-strong">{hidden.running} hidden running</span>}
             {hidden.errors > 0 && <span className="text-destructive">{hidden.errors} hidden agent errors</span>}
             {hidden.requests > 0 && <span className="text-attention">{hidden.requests} hidden requests</span>}
-            {proposedParent?.stage === 'proposed' && !issueClosed(proposedParent) && <span>Parent {issueDisplayRef(proposedParent)} · proposed · see Proposals</span>}
-            {row.issue.startedBySession && !row.issue.parentId && <span>Started by {nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}</span>}
-            {row.depth > 3 && row.issue.parentId && <span>Parent {proposedParent ? issueDisplayRef(proposedParent) : row.issue.parentId}</span>}
+            {!context && proposedParent?.stage === 'proposed' && !issueClosed(proposedParent) && <span>Parent {issueDisplayRef(proposedParent)} · proposed · see Proposals</span>}
+            {!context && row.issue.startedBySession && !row.issue.parentId && <span>Started by {nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}</span>}
+            {!context && row.depth > 3 && row.issue.parentId && <span>Parent {proposedParent ? issueDisplayRef(proposedParent) : row.issue.parentId}</span>}
           </div>
         )}
         <FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={onOpenDependency} className="pb-1" />
@@ -2005,7 +2005,7 @@ function ProposalRow({
         <span className="shell-type-secondary block break-words text-text-strong"><span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">{issueDisplayRef(issue)}</span>{issue.title}</span>
         <span className="shell-type-micro block whitespace-normal text-text-dim">Proposed · {withinEpic ? 'Within this epic' : 'Independent follow-up'}{author ? ` · Started by ${author}` : ''}{parent ? ` · Parent ${issueDisplayRef(parent)}` : ''}</span>
         {origins.length > 0 && <span className="shell-type-micro block whitespace-normal text-text-dim">Discovered from {origins.join(', ')}</span>}
-        {(facts.running > 0 || facts.errors.length > 0 || facts.requests.length > 0 || facts.taskRequest) && <span className="shell-type-micro block whitespace-normal text-text-dim">{facts.running > 0 ? `${facts.running} running · ` : ''}{facts.errors.length > 0 ? `${facts.errors.length} agent error · ` : ''}{facts.requests.length > 0 || facts.taskRequest ? 'Needs you' : ''}</span>}
+        {(facts.running > 0 || facts.errors.length > 0 || facts.requests.length > 0 || facts.taskRequest) && <span className="shell-type-micro flex flex-wrap gap-x-2 whitespace-normal">{facts.running > 0 && <span className="text-text-strong">{facts.running} running</span>}{facts.errors.length > 0 && <span className="text-destructive">{facts.errors.length} agent error{facts.errors.length === 1 ? '' : 's'}</span>}{facts.requests.length > 0 && <span className="text-attention">{facts.requests.length} agent request{facts.requests.length === 1 ? '' : 's'}</span>}{facts.taskRequest && <span className="text-attention">Task request</span>}</span>}
       </button>
       </div>
       <FlightDeckDependencyDetails issue={issue} byId={byId} members={members} onOpen={onOpenDependency} />
@@ -3209,7 +3209,7 @@ export function FlightDeck({
    */
   const continuationTargetId = rootContinuation?.target?.id
   const departures = useMemo(
-    () => allDepartures.filter((departure) => departure.issue.id !== continuationTargetId && departure.issue.stage !== 'proposed'),
+    () => allDepartures.filter((departure) => departure.issue.id !== continuationTargetId && (departure.issue.stage !== 'proposed' || issueClosed(departure.issue))),
     [allDepartures, continuationTargetId],
   )
   const continuationState =
@@ -3949,7 +3949,7 @@ export function FlightDeck({
                   operator guess. */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <div className="min-w-[9rem] flex-[1_1_9rem]">
-                    <MissionGauge progress={progress} live={deckSignals.crew.length} working={deckSignals.running.length} noAcceptedTasks={root.stage === 'proposed' && progress.total === 0} />
+                    <MissionGauge progress={progress} live={deckSignals.crew.length} working={deckSignals.running.length} noAcceptedTasks={root.stage === 'proposed' && !issueClosed(root) && progress.total === 0} />
                   </div>
                   {/* THE DECK'S ONE PRICE (POD-1862). One more object in this
                     row, so it inherits the wrap above rather than adding a drop
@@ -3975,7 +3975,7 @@ export function FlightDeck({
                   )}
                 </div>
                 <div className="shell-type-micro mt-2 flex flex-wrap gap-x-3 gap-y-1 text-text-dim" aria-label="Mission activity">
-                  <span aria-label={`${progress.done} of ${progress.total} eligible accepted formal tasks done`}>{root.stage === 'proposed' && progress.total === 0 ? 'No accepted tasks' : `Tasks done ${progress.done} of ${progress.total}`}</span>
+                  <span aria-label={`${progress.done} of ${progress.total} eligible accepted formal tasks done`}>{root.stage === 'proposed' && !issueClosed(root) && progress.total === 0 ? 'No accepted tasks' : `Tasks done ${progress.done} of ${progress.total}`}</span>
                   <span>{deckSignals.running.length} running agents</span>
                   {deckSignals.errors.length > 0 && <button data-pressable type="button" className="min-h-6 text-destructive underline" onClick={() => revealAttention(deckSignals.errors[0]?.issue.id ?? root.id)}>{deckSignals.errors.length} agent errors</button>}
                   {deckSignals.requests.length + deckSignals.taskRequests.length > 0 && <button data-pressable type="button" className="min-h-6 text-attention underline" onClick={() => revealAttention(deckSignals.requests[0]?.issue.id ?? deckSignals.taskRequests[0] ?? root.id)}>{deckSignals.requests.length + deckSignals.taskRequests.length} requests</button>}
@@ -3984,7 +3984,7 @@ export function FlightDeck({
                   <div className="shell-type-micro font-medium uppercase tracking-wide text-text-faint">Main coordinator</div>
                   {rootCoordinator ? <>
                     <div className="shell-type-secondary mt-1 flex flex-wrap items-center gap-2 text-text-strong"><span className="font-mono">{rootCoordinator.displayRef || rootCoordinator.sessionId}</span><span>{sessionDisplayName(rootCoordinator)}</span></div>
-                    <div className="shell-type-micro mt-1 text-text-dim">{rootCoordinator.status === 'hibernated' ? 'Parked' : coordinatorFacts?.running ? 'Running' : rootCoordinator.status === 'starting' ? 'Starting' : rootCoordinator.status === 'reconnecting' ? 'Reconnecting' : !rootCoordinator.agentState ? 'Activity unavailable' : sessionTurnFinished(rootCoordinator) ? 'Turn finished' : 'Idle'}{coordinatorFacts?.error ? ` · ${coordinatorFacts.error}` : ''}{coordinatorFacts?.request ? ' · Needs you' : ''}{coordinatorFacts?.lastRecordedRequest ? ' · Last recorded request' : ''}</div>
+                    <div className="shell-type-micro mt-1 flex flex-wrap gap-x-2 text-text-dim"><span>{rootCoordinator.status === 'hibernated' ? 'Parked' : coordinatorFacts?.running ? 'Running' : rootCoordinator.status === 'starting' ? 'Starting' : rootCoordinator.status === 'reconnecting' ? 'Reconnecting' : !rootCoordinator.agentState ? 'Activity unavailable' : sessionTurnFinished(rootCoordinator) ? 'Turn finished' : 'Idle'}</span>{coordinatorFacts?.error && <span className="text-destructive">{coordinatorFacts.error}</span>}{coordinatorFacts?.request && <span className="text-attention">Needs you</span>}{coordinatorFacts?.lastRecordedRequest && <span>Last recorded request</span>}</div>
                     {coordinatorFacts?.request && <div className="shell-type-secondary mt-1 break-words text-attention">{rootCoordinator.offer?.message?.trim() || rootCoordinator.agentState?.need?.summary?.trim() || 'Response requested'}</div>}
                     {rootCoordinator.offer?.actions?.length ? <div className="shell-type-micro mt-1 break-words text-text-dim">Suggested actions · {rootCoordinator.offer.actions.map((action) => action.label).join(' · ')}</div> : null}
                     <button data-pressable type="button" className="shell-type-secondary mt-1 min-h-6 text-left text-text-strong underline" onClick={() => selectSession(root.id, rootCoordinator, { permanent: true })}>Open coordinator</button>
@@ -4141,6 +4141,7 @@ export function FlightDeck({
                 <FlightDeckWaterfall
                   rootRow={rootRow}
                   rows={visibleRows}
+                  allRows={allRows}
                   displayTitles={rowDisplayTitles}
                   mode={mode}
                   display={display}
@@ -4150,8 +4151,10 @@ export function FlightDeck({
                   byId={byId}
                   missionMembers={missionMembers}
                   onOpenDependency={openDependency}
-                  isFolded={(row) => isFolded(row, folds)}
-                  onToggle={toggleFold}
+                  isBranchFolded={(row) => flightDeckBranchFolded(row, folds)}
+                  isRosterFolded={(row) => flightDeckRosterFolded(row, folds)}
+                  onToggleBranch={(row) => setFold('branch', row.issue.id, !flightDeckBranchFolded(row, folds))}
+                  onToggleRoster={(row) => setFold('roster', row.issue.id, !flightDeckRosterFolded(row, folds))}
                   onSelectIssue={(row, permanent) => {
                     if (!permanent && row.depth > 0 && hasPayload(row)) toggleFold(row)
                     selectIssue(row, permanent)
@@ -4180,7 +4183,7 @@ export function FlightDeck({
               />
             ) : view === 'dependencies' ? (
               <div className="flex flex-col gap-3 py-3" data-testid="flight-dependencies">
-                {rows.filter((row) => row.issue.stage !== 'proposed' && deckDependencies(row.issue, byId, missionMembers).length > 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
+                {rows.filter((row) => (row.issue.stage !== 'proposed' || issueClosed(row.issue)) && deckDependencies(row.issue, byId, missionMembers).length > 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
                   <section key={row.issue.id} className="rounded-row border border-hairline-soft px-3 py-2" data-flight-issue={row.issue.id}>
                     <div className="shell-type-micro mb-1 text-text-faint">Prerequisites → dependent · {deckLifecycle(row.issue)}{row.issue.startedBySession ? ` · Started by ${nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}` : ''}</div>
                     {dependencyCycleRecorded(row.issue.id, byId) && <div className="shell-type-micro text-text-dim">Dependency cycle recorded</div>}
@@ -4189,8 +4192,8 @@ export function FlightDeck({
                   </section>
                 ))}
                 <DeckSection label="No recorded prerequisites" testId="flight-no-prerequisites">
-                  {rows.filter((row) => row.issue.stage !== 'proposed' && deckDependencies(row.issue, byId, missionMembers).length === 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
-                    <div key={row.issue.id} data-flight-issue={row.issue.id}><button data-pressable type="button" className="shell-type-secondary block min-h-6 w-full break-words text-left text-text-dim" onClick={() => openDependency(row.issue)}>{issueDisplayRef(row.issue)} · {row.issue.title} · {deckLifecycle(row.issue)}</button><FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={openDependency} /></div>
+                  {rows.filter((row) => (row.issue.stage !== 'proposed' || issueClosed(row.issue)) && deckDependencies(row.issue, byId, missionMembers).length === 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
+                    <div key={row.issue.id} data-flight-issue={row.issue.id}><button data-pressable type="button" className="shell-type-secondary block min-h-6 w-full break-words text-left text-text-dim" onClick={() => openDependency(row.issue)}>{issueDisplayRef(row.issue)} · {row.issue.title} · {deckLifecycle(row.issue)}{row.issue.startedBySession ? ` · Started by ${nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}` : ''}</button><FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={openDependency} /></div>
                   ))}
                 </DeckSection>
               </div>
@@ -4381,7 +4384,7 @@ export function FlightDeck({
                 The continuation card lives HERE now rather than in the tree's
                 empty branch above — one region, one heading, one sentence. */}
               <WhereTheWorkWent
-                continuation={rootContinuation?.target?.stage === 'proposed' ? null : rootContinuation}
+                continuation={rootContinuation?.target && rootContinuation.target.stage === 'proposed' && !issueClosed(rootContinuation.target) ? null : rootContinuation}
                 continuationState={continuationState}
                 continuationFinished={rootFinished}
                 // `rootRow.sessions`, NOT `rootSessions`: the latter is
@@ -4445,7 +4448,7 @@ export function FlightDeck({
           // this is not) and Archive (which hides a row this column cannot get
           // back). The deck is its own surface because it has its own answers.
           surface="deck"
-          primaryStart={menuIssue.stage === 'proposed'}
+          primaryStart={menuIssue.stage === 'proposed' && !issueClosed(menuIssue)}
           anchor={issueMenu.anchor}
           onClose={() => setIssueMenu(null)}
           onRename={(id) => {

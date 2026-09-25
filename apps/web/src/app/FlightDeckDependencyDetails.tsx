@@ -17,10 +17,11 @@ export function FlightDeckDependencyDetails({
   className?: string
 }): JSX.Element | null {
   const { label, dependencies, authoredNotes } = deckDependencyNote(issue, byId, members)
-  if (dependencies.length === 0 && authoredNotes.length === 0) return null
+  if (!label && dependencies.length === 0 && authoredNotes.length === 0) return null
   return (
     <div className={`shell-type-micro flex flex-wrap gap-x-1 gap-y-1 break-words text-text-dim ${className}`} aria-label={`Dependencies for ${issueDisplayRef(issue)}`} data-testid="flight-dependency-details">
-      {dependencies.length > 0 && <span>{label ?? 'Recorded dependencies'}:</span>}
+      {label && <span>{label}{dependencies.length > 0 ? ':' : ''}</span>}
+      {!label && dependencies.length > 0 && <span>Recorded dependencies:</span>}
       {dependencies.map((dependency) => dependency.target ? (
         <button key={dependency.id} data-pressable type="button" className="min-h-6 break-words text-left underline decoration-hairline-soft hover:text-text-strong" onClick={(event) => { event.stopPropagation(); onOpen(dependency.target as IssueNavigationModel) }}>
           {issueDisplayRef(dependency.target)} · {dependency.target.title} · {dependency.lifecycle}{dependency.outsideMission ? ' · Outside this epic' : ''}

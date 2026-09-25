@@ -10449,6 +10449,17 @@ button.waterfall-fold:hover {
   overflow: hidden;
   touch-action: pan-y;
 }
+.waterfall-roster-toggle {
+  align-self: flex-start;
+  min-height: 24px;
+  padding-inline: 6px;
+  color: var(--text-dim);
+  text-decoration: underline;
+}
+.waterfall-visible-state {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .waterfall-session-lane {
   position: relative;
   min-height: var(--waterfall-lane-height);
@@ -10827,7 +10838,7 @@ button.waterfall-fold:hover {
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 18px;
+  min-height: 24px;
   align-items: center;
   gap: 6px;
   padding-inline: 4px;
@@ -10836,6 +10847,18 @@ button.waterfall-fold:hover {
   font-size: 8px;
   line-height: 1.2;
   text-align: left;
+}
+.waterfall-native-full-id {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  padding-inline: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  overflow-wrap: anywhere;
+  text-align: left;
+  text-decoration: underline;
 }
 .waterfall-native-worker:hover {
   background: var(--muted);
@@ -11063,6 +11086,30 @@ button.waterfall-fold:hover {
     text-overflow: clip;
     white-space: normal;
     line-height: 1.25;
+  }
+}
+
+/* Several independent state facts need a bounded line at 320px. */
+@container deck-rows (max-width: 360px) {
+  .deck-agent {
+    grid-template-areas:
+      "name name"
+      "ref role"
+      "state state";
+    grid-template-columns: 94px minmax(0, 1fr);
+  }
+  .deck-agent-state.deck-state-col {
+    min-width: 0;
+    max-width: 100%;
+    justify-self: stretch;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  .deck-agent-state > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }
 

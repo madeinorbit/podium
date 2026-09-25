@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
@@ -1186,6 +1188,73 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.preferPanelMode).toHaveBeenCalledWith('s2', 'native')
     expect(harness.setPanelMode).not.toHaveBeenCalled()
     expect(harness.onDisplayChange).not.toHaveBeenCalled()
+  })
+
+  it('hides own bars with roster folds and reports branch exceptions separately', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission' }),
+      issue('parent', { parentId: 'root', memberSessionIds: ['own'] }),
+      issue('child', { parentId: 'parent', memberSessionIds: ['run'] }),
+      issue('leaf', { parentId: 'root', memberSessionIds: ['leaf'] }),
+    ]
+    harness.sessions = [
+      session('own', { issueId: 'parent', agentState: WORKING }),
+      session('run', { issueId: 'child', agentState: WORKING }),
+      session('leaf', { issueId: 'leaf', agentState: WORKING }),
+    ]
+    deck()
+    const parent = () => document.querySelector('[data-flight-issue="parent"]') as HTMLElement
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Task parent' }))
+    expect(document.querySelector('[data-flight-issue="child"]')).toBeNull()
+    expect(parent().querySelector('[data-testid="waterfall-hidden-facts"]')?.textContent).toContain('1 hidden running')
+    expect(parent().querySelector('[data-flight-session="own"]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Task parent' }))
+    fireEvent.click(parent().querySelector('.waterfall-roster-toggle') as HTMLElement)
+    expect(parent().querySelector('[data-flight-session="own"]')).toBeNull()
+    expect(parent().querySelector('[data-testid="waterfall-hidden-facts"]')?.textContent).toContain('1 hidden running')
+    expect(document.querySelector('[data-flight-session="run"]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Task leaf' }))
+    expect(document.querySelector('[data-flight-session="leaf"]')).toBeNull()
+  })
+
+  it('counts reported native workers honestly and discloses a full ID', () => {
+    harness.sessions = [
+      session('s1', { issueId: 't1' }),
+      session('s2', { issueId: 't2', agentState: { phase: 'idle', nativeSubagentCount: 10, nativeSubagents: [{ id: 'worker-full-identity', type: 'Explore' }, { id: 'another-worker', type: 'Plan' }] } }),
+      session('s3', { issueId: 't2' }),
+      session('s4', { issueId: 't3' }),
+    ]
+    const view = deck()
+    const toggle = screen.getByRole('button', { name: 'Show 10 native workers for s2' })
+    fireEvent.click(toggle)
+    const list = screen.getByTestId('flight-native-agents')
+    expect(list.textContent).toContain('8 identities unavailable')
+    fireEvent.click(screen.getByRole('button', { name: 'Show full native worker ID worker-full-identity' }))
+    expect(list.textContent).toContain('worker-full-identity')
+    expect(sessionRow('s2').getAttribute('aria-label')).toContain('10 reported native workers')
+    expect(list.textContent).toContain('Individual activity unavailable')
+    harness.sessions = harness.sessions.map((candidate) => {
+      const raw = candidate as SessionMeta
+      return raw.sessionId === 's2' ? { ...raw, status: 'hibernated' } : raw
+    })
+    view.rerender(<DeckHarness />)
+    expect(sessionRow('s2').getAttribute('aria-label')).toContain('10 last reported native workers')
+  })
+
+  it('shows unknown activity, parked errors and requests without a hover', () => {
+    harness.issues = [issue('root', { title: 'Mission' }), issue('mixed', { parentId: 'root', memberSessionIds: ['unknown', 'parked', 'ask'] })]
+    harness.sessions = [
+      session('unknown', { issueId: 'mixed' }),
+      session('parked', { issueId: 'mixed', status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error' } } }),
+      session('ask', { issueId: 'mixed', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
+    ]
+    deck()
+    const row = document.querySelector('[data-flight-issue="mixed"]') as HTMLElement
+    expect(row.querySelector('[data-flight-session-state="unknown"]')?.textContent).toContain('Activity unavailable')
+    expect(row.querySelector('[data-flight-session-state="parked"]')?.textContent).toContain('Parked')
+    expect(row.querySelector('[data-flight-session-state="parked"] .text-destructive')?.textContent).toContain('Network error')
+    expect(row.querySelector('[data-flight-session-state="ask"] .text-attention')?.textContent).toContain('Needs you')
+    expect(row.textContent).not.toContain('standing by')
   })
 
   it('opens the shared session lifecycle menu from a waterfall bar', () => {
@@ -2720,7 +2789,9 @@ describe('flight deck factory facts', () => {
     expect(native).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Show full native worker ID worker-full-identity' }))
     expect(native?.textContent).toContain('worker-full-identity')
-    fireEvent.click(screen.getByRole('button', { name: /Open owning agent Lead/ }))
+    const nativeOwner = screen.getByRole('button', { name: /Open owning agent Lead/ })
+    expect(nativeOwner.className).toContain('min-h-6')
+    fireEvent.click(nativeOwner)
     expect(harness.openSessionTab).toHaveBeenCalledWith('lead', { permanent: false })
     expect(harness.preferPanelMode).toHaveBeenCalledWith('lead', 'native')
     cleanup()
@@ -2823,5 +2894,111 @@ describe('flight deck factory facts', () => {
     expect(timeline.textContent).toContain('1 running')
     expect(timeline.textContent).toContain('1 agent error')
     expect(timeline.textContent).toContain('1 agent request')
+    expect([...timeline.querySelectorAll('.text-destructive')].some((node) => node.textContent?.includes('1 agent error'))).toBe(true)
+    expect([...timeline.querySelectorAll('.text-attention')].some((node) => node.textContent?.includes('1 agent request'))).toBe(true)
+  })
+
+  it('keeps closed proposed work in Dependencies, Waterfall and Timeline', () => {
+    developerFeature.enabled = true
+    harness.issues = [
+      issue('root', { title: 'Mission', stage: 'proposed', closedReason: 'done' }),
+      issue('child', { parentId: 'root', stage: 'proposed', closedReason: 'done', memberSessionIds: ['run', 'err'], deps: [{ id: 'outside', type: 'blocks' }] }),
+      issue('outside', { title: 'Outside', stage: 'backlog' }),
+    ]
+    harness.sessions = [
+      session('run', { issueId: 'child', agentState: WORKING }),
+      session('err', { issueId: 'child', status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error' } } }),
+    ]
+    deck()
+    expect(screen.queryByTestId('flight-proposed')?.querySelector('[data-flight-issue="child"]') ?? null).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Dependencies' }))
+    expect(screen.getByTestId('flight-dependencies').querySelector('[data-flight-issue="child"]')?.textContent).toContain('done')
+    fireEvent.click(screen.getByRole('button', { name: 'Waterfall' }))
+    expect(screen.getByTestId('flight-deck-waterfall').querySelector('[data-flight-issue="root"]')).not.toBeNull()
+    expect(screen.getByTestId('flight-deck-waterfall').querySelector('[data-flight-issue="child"]')?.textContent).toContain('done')
+    fireEvent.click(screen.getByRole('button', { name: 'Timeline' }))
+    const current = screen.getByTestId('flight-deck-handoff')
+    expect(current.textContent).toContain('Task child')
+    expect(current.textContent).toContain('1 running')
+    expect(current.textContent).toContain('1 agent error')
+  })
+
+  it('keeps a closed proposed continuation visible after departure', () => {
+    harness.issues = [
+      issue('root', { title: 'Old mission', stage: 'done', closedReason: 'superseded', supersededBy: 'next' }),
+      issue('next', { title: 'Accepted continuation', stage: 'proposed', closedReason: 'done' }),
+    ]
+    harness.sessions = []
+    deck()
+    expect(screen.getByTestId('flight-continuation').textContent).toContain('Accepted continuation')
+  })
+
+  it('shows exact hidden exceptions on a folded context ancestor', () => {
+    harness.issues = [issue('root', { title: 'Mission' }), issue('parent', { parentId: 'root' }), issue('child', { parentId: 'parent', memberSessionIds: ['run'] })]
+    harness.sessions = [session('run', { issueId: 'child', agentState: WORKING })]
+    harness.ui.set('podium.flightDeck.mode', 'working')
+    deck()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse tasks under Task parent' }))
+    const parent = document.querySelector('[data-flight-issue="parent"]')
+    expect(parent?.textContent).toContain('1 hidden running')
+    expect(document.querySelector('[data-flight-issue="child"]')).toBeNull()
+  })
+
+  it('keeps hidden requests on a folded Needs you context ancestor', () => {
+    harness.issues = [issue('root', { title: 'Mission' }), issue('parent', { parentId: 'root' }), issue('child', { parentId: 'parent', memberSessionIds: ['ask'] })]
+    harness.sessions = [session('ask', { issueId: 'child', agentState: { phase: 'idle', idle: { kind: 'question' } } })]
+    harness.ui.set('podium.flightDeck.mode', 'needs-you')
+    deck()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse tasks under Task parent' }))
+    expect(document.querySelector('[data-flight-issue="parent"]')?.textContent).toContain('1 hidden requests')
+    expect(document.querySelector('[data-flight-issue="child"]')).toBeNull()
+  })
+
+  it('keeps a neutral unavailable dependency label without inventing an edge', () => {
+    harness.issues = [issue('root', { title: 'Mission' }), issue('blocked', { parentId: 'root', blocked: true, memberSessionIds: ['idle'] })]
+    harness.sessions = [session('idle', { issueId: 'blocked', agentState: { phase: 'idle' } })]
+    deck()
+    const detail = document.querySelector('[data-flight-issue="blocked"] [data-testid="flight-dependency-details"]')
+    expect(detail?.textContent).toContain('Dependency status unavailable')
+    expect(detail?.querySelectorAll('button')).toHaveLength(0)
+    expect(detail?.textContent).not.toContain('Ready to start')
+  })
+
+  it('keeps a graft origin in the no-prerequisite dependency group', () => {
+    harness.issues = [issue('root', { title: 'Mission', memberSessionIds: ['lead'] }), issue('graft', { title: 'Grafted work', startedBySession: 'lead' })]
+    harness.sessions = [session('lead', { issueId: 'root', name: 'Lead' })]
+    deck()
+    fireEvent.click(screen.getByRole('button', { name: 'Dependencies' }))
+    const group = screen.getByTestId('flight-no-prerequisites')
+    expect(group.querySelector('[data-flight-issue="graft"]')?.textContent).toContain('Started by Lead')
+  })
+
+  it('keeps error and request colors separate on coordinator and proposal facts', () => {
+    harness.issues = [
+      issue('root', { title: 'Mission', coordinatorSessionId: 'lead', memberSessionIds: ['lead'] }),
+      issue('proposal', { parentId: 'root', stage: 'proposed', memberSessionIds: ['run', 'err', 'ask'] }),
+    ]
+    harness.sessions = [
+      session('lead', { issueId: 'root', agentState: { phase: 'errored', error: { class: 'network_error' } }, offer: { message: 'Choose the route' } }),
+      session('run', { issueId: 'proposal', agentState: WORKING }),
+      session('err', { issueId: 'proposal', agentState: { phase: 'errored' } }),
+      session('ask', { issueId: 'proposal', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
+    ]
+    deck()
+    const coordinator = screen.getByTestId('flight-coordinator')
+    expect(coordinator.querySelector('.text-destructive')?.textContent).toContain('Network error')
+    expect(coordinator.querySelector('.text-attention')?.textContent).toContain('Needs you')
+    const proposal = screen.getByTestId('flight-proposed').querySelector('[data-flight-issue="proposal"]')
+    expect(proposal?.querySelector('.text-destructive')?.textContent).toContain('agent error')
+    expect(proposal?.querySelector('.text-attention')?.textContent).toContain('agent request')
+  })
+
+  it('puts combined agent state on a bounded wrapping line at 320px', () => {
+    const css = readFileSync(resolve(import.meta.dirname, '../styles.css'), 'utf8')
+    const narrow = css.slice(css.indexOf('@container deck-rows (max-width: 360px)'))
+    expect(narrow).toContain('"state state"')
+    expect(narrow).toContain('grid-template-columns: 94px minmax(0, 1fr)')
+    expect(narrow).toContain('overflow-wrap: anywhere')
+    expect(narrow).toContain('min-width: 0')
   })
 })

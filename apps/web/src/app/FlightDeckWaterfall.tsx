@@ -5,6 +5,7 @@ import {
 } from '@podium/client-core/ui-state'
 import {
   deckDependencyNote,
+  deckFoldHiddenFacts,
   deckLifecycle,
   deckSessionFacts,
   deckSessions,
@@ -13,6 +14,7 @@ import {
   type FlightDeckRow,
   type IssueNavigationModel,
   isCoordinatorSession,
+  issueClosed,
   nativeSubagentRows,
   sessionSettled,
   sessionUnreadEmphasized,
@@ -200,6 +202,7 @@ interface WaterfallFrame {
 interface FlightDeckWaterfallProps {
   rootRow: FlightDeckRow
   rows: readonly FlightDeckRow[]
+  allRows: readonly FlightDeckRow[]
   displayTitles: ReadonlyMap<string, string>
   mode: FlightDeckMode
   display: FlightDeckDisplay
@@ -209,8 +212,10 @@ interface FlightDeckWaterfallProps {
   byId: ReadonlyMap<string, IssueNavigationModel>
   missionMembers: ReadonlySet<string>
   onOpenDependency: (issue: IssueNavigationModel) => void
-  isFolded: (row: FlightDeckRow) => boolean
-  onToggle: (row: FlightDeckRow) => void
+  isBranchFolded: (row: FlightDeckRow) => boolean
+  isRosterFolded: (row: FlightDeckRow) => boolean
+  onToggleBranch: (row: FlightDeckRow) => void
+  onToggleRoster: (row: FlightDeckRow) => void
   onSelectIssue: (row: FlightDeckRow, permanent: boolean) => void
   onSelectSession: (
     issueId: IssueId,
@@ -230,7 +235,7 @@ function issueFuture(row: FlightDeckRow, byId: ReadonlyMap<string, IssueNavigati
   if (issue.closedReason || issue.stage === 'done') return null
   const dependency = deckDependencyNote(issue, byId, members)
   if (dependency.label) return { label: dependency.label, state: 'blocked' }
-  if (issue.stage === 'proposed')
+  if (issue.stage === 'proposed' && !issueClosed(issue))
     return { label: 'Known next step', detail: 'Unassigned', state: 'future' }
   if (row.sessions.length === 0 && issue.stage !== 'done')
     return { label: 'Unassigned', state: 'future' }
@@ -241,6 +246,18 @@ function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null 
   const facts = deckSessionFacts(row.issue, session)
   if (facts.request) return session.offer?.message?.trim() || session.agentState?.need?.summary?.trim() || 'Response requested'
   return facts.error
+}
+
+function waterfallActivityLabel(session: SessionMeta, state: WaterfallSessionState): string {
+  if (session.status === 'hibernated') return 'Parked'
+  if (session.status === 'reconnecting') return 'Reconnecting'
+  if (session.status === 'starting') return 'Starting'
+  if (state === 'working') return 'Working now'
+  if (state === 'finished') return 'Turn finished'
+  if (state === 'error') return 'Agent error'
+  if (!session.agentState) return 'Activity unavailable'
+  if (session.agentState.phase === 'idle') return 'Idle'
+  return 'Activity unavailable'
 }
 
 /**
@@ -540,16 +557,7 @@ function WaterfallHoverCard({
   const name = sessionDisplayName(session)
   const ref = session.displayRef?.trim()
   const summary = useMemo(() => summarizeWaterfallSegments(segments), [segments])
-  const stateLine =
-    state === 'finished'
-      ? `Finished ${formatWaterfallClock(endMs)}`
-      : state === 'working'
-        ? 'Working now'
-        : state === 'error'
-          ? facts.error ?? 'Agent error'
-        : state === 'attention'
-          ? 'Needs you'
-          : 'Live, standing by'
+  const stateLine = waterfallActivityLabel(session, state)
   const totalWorked = summary.workingMs > 0 ? summary.workingMs : session.agentState?.workingMsTotal
   return (
     <div className="waterfall-hover-card">
@@ -558,10 +566,13 @@ function WaterfallHoverCard({
         <strong>{name}</strong>
         {ref ? <span className="waterfall-hover-ref">{ref}</span> : null}
       </div>
-      <div className="waterfall-hover-line" data-state={state}>
-        {stateLine}{facts.running && state !== 'working' ? ' · Running' : ''}{facts.error && state !== 'error' ? ` · ${facts.error}` : ''}{facts.request && state !== 'attention' ? ' · Needs you' : ''}{facts.lastRecordedRequest ? ' · Last recorded request' : ''}
-        {coordinator ? ' · coordinator' : ''}
-        {unread ? ' · unread' : ''}
+      <div className="waterfall-hover-line flex flex-wrap gap-x-2" data-state={state}>
+        <span>{stateLine}</span>
+        {facts.error && <span className="text-destructive">{facts.error}</span>}
+        {facts.request && <span className="text-attention">Needs you</span>}
+        {facts.lastRecordedRequest && <span>Last recorded request</span>}
+        {coordinator && <span>Coordinator</span>}
+        {unread && <span>Unread</span>}
       </div>
       {/* Machine facts speak in the machine voice: mono, tabular digits. */}
       <div className="waterfall-hover-line waterfall-hover-mono">
@@ -585,7 +596,7 @@ function WaterfallHoverCard({
       {reason ? <div className="waterfall-hover-reason">{reason}</div> : null}
       {workers > 0 ? (
         <div className="waterfall-hover-line waterfall-hover-mono">
-          {workers} native worker{workers === 1 ? '' : 's'} active
+          {workers} {session.status === 'hibernated' || session.status === 'exited' ? 'last reported' : 'reported'} native worker{workers === 1 ? '' : 's'} · individual activity unavailable
         </div>
       ) : null}
     </div>
@@ -629,9 +640,11 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   const name = sessionDisplayName(session)
   const coordinator = isCoordinatorSession(row.issue, session.sessionId)
   const workers = useMemo(() => nativeSubagentRows(session), [session])
+  const workerCount = useMemo(() => workers.reduce((count, worker) => count + worker.count, 0), [workers])
   const pointed = useSessionHovered(session.sessionId)
   const unread = sessionUnreadEmphasized(session)
   const [nativeOpen, setNativeOpen] = useState(false)
+  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const nativeListId = useId()
@@ -657,13 +670,13 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
     coordinator ? 'coordinator' : null,
     reason,
     unread ? 'unread' : null,
-    workers.length > 0
-      ? `${workers.length} reported native worker${workers.length === 1 ? '' : 's'}; individual activity unavailable`
+    workerCount > 0
+      ? `${workerCount} ${session.status === 'hibernated' || session.status === 'exited' ? 'last reported' : 'reported'} native worker${workerCount === 1 ? '' : 's'}; individual activity unavailable`
       : null,
     formatWaterfallDuration(endMs - startMs),
-    state === 'finished' ? 'turn finished' : state === 'working' ? 'working now' : state === 'error' ? facts.error : state === 'attention' ? 'needs you' : 'activity unavailable',
-    facts.error && state !== 'error' ? facts.error : null,
-    facts.request && state !== 'attention' ? 'needs you' : null,
+    waterfallActivityLabel(session, state),
+    facts.error,
+    facts.request ? 'needs you' : null,
     facts.lastRecordedRequest ? 'last recorded request' : null,
   ]
     .filter(Boolean)
@@ -812,7 +825,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                 live={live}
                 segments={segments}
                 reason={reason}
-                workers={workers.length}
+                workers={workerCount}
                 coordinator={coordinator}
                 unread={unread}
                 facts={facts}
@@ -838,12 +851,12 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                 data-pressable
                 type="button"
                 className="waterfall-native-toggle"
-                aria-label={`${nativeOpen ? 'Hide' : 'Show'} ${workers.length} native worker${workers.length === 1 ? '' : 's'} for ${name}`}
+                aria-label={`${nativeOpen ? 'Hide' : 'Show'} ${workerCount} native worker${workerCount === 1 ? '' : 's'} for ${name}`}
                 aria-expanded={nativeOpen}
                 aria-controls={nativeListId}
                 onClick={() => setNativeOpen((open) => !open)}
               >
-                +{workers.length}
+                +{workerCount}
               </button>
             </div>
           ) : null}
@@ -854,22 +867,24 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
           {workers.map((worker) => {
             const workerName = worker.anonymous ? 'unnamed worker' : `worker ${worker.id}`
             return (
-              <button
-                data-pressable
-                key={`${session.sessionId}:${worker.id}`}
-                type="button"
-                className="waterfall-native-worker"
-                data-native-worker={worker.id}
-                aria-label={`Open ${name} native panel for ${worker.type} ${workerName}`}
-                title={`Open ${name} native panel · ${worker.type} ${workerName}`}
-                onClick={onOpenNative}
-              >
-                <span className="waterfall-native-worker-name">
-                  {worker.type}
-                  {!worker.anonymous ? ` · ${worker.id.slice(0, 8)}` : ''}
-                </span>
-                <span>{worker.anonymous ? `${worker.count} identities unavailable` : 'Individual activity unavailable'}</span>
-              </button>
+              <div key={`${session.sessionId}:${worker.id}`} className="waterfall-native-entry">
+                <button
+                  data-pressable
+                  type="button"
+                  className="waterfall-native-worker"
+                  data-native-worker={worker.id}
+                  aria-label={`Open ${name} native panel for ${worker.type} ${workerName}`}
+                  title={`Open ${name} native panel · ${worker.type} ${workerName}`}
+                  onClick={onOpenNative}
+                >
+                  <span className="waterfall-native-worker-name">
+                    {worker.type}
+                    {!worker.anonymous ? ` · ${worker.id.slice(0, 8)}` : ''}
+                  </span>
+                  <span>{worker.anonymous ? `${worker.count} identities unavailable` : 'Individual activity unavailable'}</span>
+                </button>
+                {!worker.anonymous && <button data-pressable type="button" className="waterfall-native-full-id" aria-label={`${expandedWorkerId === worker.id ? 'Hide' : 'Show'} full native worker ID ${worker.id}`} aria-expanded={expandedWorkerId === worker.id} onClick={() => setExpandedWorkerId((current) => current === worker.id ? null : worker.id)}>{expandedWorkerId === worker.id ? worker.id : 'Full ID'}</button>}
+              </div>
             )
           })}
         </div>
@@ -956,8 +971,12 @@ const WaterfallIssue = memo(function WaterfallIssue({
   activeSessionId,
   flashSessionId,
   renameSeed,
-  folded,
-  onToggle,
+  fullRow,
+  allRows,
+  branchClosed,
+  rosterClosed,
+  onToggleBranch,
+  onToggleRoster,
   onSelectIssue,
   onSelectSession,
   onSelectNative,
@@ -977,8 +996,12 @@ const WaterfallIssue = memo(function WaterfallIssue({
   activeSessionId: string | null
   flashSessionId: string | null
   renameSeed: string | null
-  folded: boolean
-  onToggle: () => void
+  fullRow: FlightDeckRow
+  allRows: readonly FlightDeckRow[]
+  branchClosed: boolean
+  rosterClosed: boolean
+  onToggleBranch: () => void
+  onToggleRoster: () => void
   onSelectIssue: (permanent: boolean) => void
   onSelectSession: (session: SessionMeta, permanent: boolean) => void
   onSelectNative: (session: SessionMeta) => void
@@ -994,7 +1017,10 @@ const WaterfallIssue = memo(function WaterfallIssue({
   const intent = useClickIntent()
   const [historyOpen, setHistoryOpen] = useState(false)
   const future = issueFuture(item.row, byId, missionMembers)
-  const foldable = !item.root && (item.row.descendantIds.length > 0 || item.row.sessions.length > 0)
+  const hasBranch = fullRow.descendantIds.length > 0
+  const foldable = !item.root && (hasBranch || fullRow.sessions.length > 0)
+  const folded = hasBranch ? branchClosed : rosterClosed
+  const hidden = deckFoldHiddenFacts(fullRow, allRows, { branchClosed, rosterClosed }).total
   const indent = item.root ? 0 : Math.max(0, item.row.depth - 1)
   const issueRef = issueDisplayRef(item.row.issue)
   const coordinator = item.sessions.find((session) =>
@@ -1025,8 +1051,9 @@ const WaterfallIssue = memo(function WaterfallIssue({
     () => new Set(foldedHistory.map((session) => session.sessionId)),
     [foldedHistory],
   )
-  const visibleSessions =
-    historyCollapsed && !historyOpen
+  const visibleSessions = rosterClosed
+    ? []
+    : historyCollapsed && !historyOpen
       ? item.sessions.filter((session) => !foldedIds.has(session.sessionId))
       : item.sessions
   const attention = future?.state === 'attention' || item.sessions.some((session) => deckSessionFacts(item.row.issue, session).request)
@@ -1057,7 +1084,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
             className="waterfall-fold"
             aria-label={folded ? `Expand ${item.displayTitle}` : `Collapse ${item.displayTitle}`}
             aria-expanded={!folded}
-            onClick={onToggle}
+            onClick={hasBranch ? onToggleBranch : onToggleRoster}
           >
             {folded ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
           </button>
@@ -1107,7 +1134,8 @@ const WaterfallIssue = memo(function WaterfallIssue({
         )}
       </div>
       <div className="waterfall-track-cell">
-        {item.sessions.length > 0 ? (
+        {hasBranch && fullRow.sessions.length > 0 && !item.root && <button data-pressable type="button" className="waterfall-roster-toggle shell-type-micro" aria-expanded={!rosterClosed} onClick={onToggleRoster}>{rosterClosed ? `Show ${fullRow.sessions.length} agents` : 'Hide agents'}</button>}
+        {item.sessions.length > 0 && !rosterClosed ? (
           <>
             {historyCollapsed ? (
               <WaterfallHistorySummary
@@ -1132,7 +1160,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
               />
             ))}
           </>
-        ) : future ? (
+        ) : item.sessions.length === 0 && future ? (
           <span
             role="note"
             className="waterfall-future-label"
@@ -1151,6 +1179,21 @@ const WaterfallIssue = memo(function WaterfallIssue({
       </div>
       <div className="waterfall-dependency-row">
         <span className="shell-type-micro text-text-faint">{deckLifecycle(item.row.issue)}</span>
+        {!rosterClosed && visibleSessions.map((session) => {
+          const facts = deckSessionFacts(item.row.issue, session)
+          const state = waterfallSessionState(session, item.row.issue)
+          return <span key={session.sessionId} className="waterfall-visible-state shell-type-micro flex flex-wrap gap-x-1" data-flight-session-state={session.sessionId}>
+            <span>{sessionDisplayName(session)} · {waterfallActivityLabel(session, state)}</span>
+            {facts.error && <span className="text-destructive">{facts.error}</span>}
+            {facts.request && <span className="text-attention">Needs you</span>}
+            {facts.lastRecordedRequest && <span>Last recorded request</span>}
+          </span>
+        })}
+        {(hidden.running > 0 || hidden.errors > 0 || hidden.requests > 0) && <span className="shell-type-micro flex flex-wrap gap-x-2" data-testid="waterfall-hidden-facts">
+          {hidden.running > 0 && <span className="text-text-strong">{hidden.running} hidden running</span>}
+          {hidden.errors > 0 && <span className="text-destructive">{hidden.errors} hidden agent errors</span>}
+          {hidden.requests > 0 && <span className="text-attention">{hidden.requests} hidden requests</span>}
+        </span>}
         {future?.label === 'Task request' && item.sessions.length > 0 &&
           <span className="shell-type-micro text-attention">Task request · {future.detail}</span>}
         <FlightDeckDependencyDetails issue={item.row.issue} byId={byId} members={missionMembers} onOpen={onOpenDependency} />
@@ -1162,14 +1205,17 @@ const WaterfallIssue = memo(function WaterfallIssue({
 export function FlightDeckWaterfall({
   rootRow,
   rows,
+  allRows,
   displayTitles,
   mode,
   display,
   focusedIssueId,
   activeSessionId,
   renameTarget,
-  isFolded,
-  onToggle,
+  isBranchFolded,
+  isRosterFolded,
+  onToggleBranch,
+  onToggleRoster,
   onSelectIssue,
   onSelectSession,
   onIssueMenu,
@@ -1183,7 +1229,7 @@ export function FlightDeckWaterfall({
   const now = useStoreSelector((store) => store.coarseNow)
   const projected = useMemo<WaterfallIssueRow[]>(
     () => [
-      ...(rootRow.issue.stage === 'proposed' ? [] : [{
+      ...(rootRow.issue.stage === 'proposed' && !issueClosed(rootRow.issue) ? [] : [{
         row: rootRow,
         displayTitle: displayTitles.get(rootRow.issue.id) ?? rootRow.issue.title,
         sessions: deckSessions(rootRow, mode),
@@ -1199,6 +1245,7 @@ export function FlightDeckWaterfall({
     [displayTitles, mode, rootRow, rows],
   )
   const sessions = useMemo(() => projected.flatMap((item) => item.sessions), [projected])
+  const allRowsById = useMemo(() => new Map(allRows.map((row) => [row.issue.id, row])), [allRows])
   const activity = useWaterfallActivity(sessions)
   const timelineStart = useMemo(() => waterfallTimelineStart(sessions), [sessions])
   const hasFuture = useMemo(
@@ -1695,8 +1742,12 @@ export function FlightDeckWaterfall({
               activeSessionId={activeSessionId}
               flashSessionId={flashSessionId}
               renameSeed={renameTarget?.id === item.row.issue.id ? renameTarget.seed : null}
-              folded={isFolded(item.row)}
-              onToggle={() => onToggle(item.row)}
+              fullRow={allRowsById.get(item.row.issue.id) ?? item.row}
+              allRows={allRows}
+              branchClosed={!item.root && isBranchFolded(allRowsById.get(item.row.issue.id) ?? item.row)}
+              rosterClosed={!item.root && isRosterFolded(allRowsById.get(item.row.issue.id) ?? item.row)}
+              onToggleBranch={() => onToggleBranch(allRowsById.get(item.row.issue.id) ?? item.row)}
+              onToggleRoster={() => onToggleRoster(allRowsById.get(item.row.issue.id) ?? item.row)}
               onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
               onSelectSession={(session, permanent) =>
                 onSelectSession(item.row.issue.id, session, { permanent })

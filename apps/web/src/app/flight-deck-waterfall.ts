@@ -1,4 +1,4 @@
-import { deckSessionFacts, deckSessionRequestsHuman, isSessionWorking, sessionErrorLabel, sessionSettled, type IssueNavigationModel } from '@podium/client-core/viewmodels'
+import { deckSessionFacts, deckSessionRequestsHuman, deckSessionRunning, sessionErrorLabel, sessionSettled, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { idleVerdictFinishedTurn } from '@podium/model'
 import type { SessionMeta } from '@podium/model/browser'
 
@@ -76,7 +76,7 @@ function time(value: string | null | undefined): number | null {
 
 export function waterfallSessionState(session: SessionMeta, issue?: IssueNavigationModel): WaterfallSessionState {
   const facts = issue ? deckSessionFacts(issue, session) : null
-  if (facts?.running || (!facts && isSessionWorking(session))) return 'working'
+  if (facts?.running || (!facts && deckSessionRunning(session))) return 'working'
   if (facts?.error || (!facts && sessionErrorLabel(session))) return 'error'
   if (facts?.request || (!facts && deckSessionRequestsHuman(session))) return 'attention'
   if (sessionSettled(session) || session.agentState?.phase === 'ended' ||
