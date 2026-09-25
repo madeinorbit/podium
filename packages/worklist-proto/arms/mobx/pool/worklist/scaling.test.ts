@@ -3,17 +3,19 @@
  * POD-4686 — each change's work follows the change, at 1x and 4x, counted
  * from outside the pool.
  *
- * - STAGE MOVE files one id between two lanes (`counters.groupRuns` 1, and
- *   `counters.groupElements` exactly its group's lanes after the move), with
- *   no order re-sort and no membership change. Its group-set writes (element
- *   `add`/`delete` on the named `pool.groups.*` sets, counted from outside)
- *   are at most four — out of one lane, into the other. The head-rank key
- *   order reads no per-id index (key-index reads 0) and re-evaluates at most
- *   once; pinned ids and the latch never re-evaluate; every other group's
- *   lanes never re-evaluate. The plants run the old whole-list layout
- *   (`layoutOf` over the visible order, touching the visible count) and
- *   re-file every visible id (touching a whole list of sets), each failing
- *   its bound.
+ * - STAGE MOVE of the moved head row files one id between two lanes
+ *   (`counters.groupRuns` 1, and `counters.groupElements` exactly its
+ *   group's lanes after the move), with no order re-sort and no membership
+ *   change. Its group-set writes (element `add`/`delete` on the named
+ *   `pool.groups.*` sets, counted from outside) are at most four — out of
+ *   one lane, into the other. The head-rank key order re-sorts once, reading
+ *   no order element and no per-id index (0 and 0); pinned ids and the latch
+ *   never execute; every other group's lanes never execute. The target is
+ *   its group's head on purpose: only a head move re-runs the key body at
+ *   all, so only it can expose a walk hidden there. The plants run the old
+ *   whole-list layout (`layoutOf` over the visible order, touching the
+ *   visible count) and re-file every visible id (touching a whole list of
+ *   sets), each failing its bound.
  * - CLICK (selection plus the app's mark-read of an unread keep row)
  *   re-validates zero per-node maintenance reactions
  *   (`pool.visible.<id>` / `pool.nested.<id>` / `pool.children.<id>`,
@@ -127,17 +129,24 @@ function stageTarget(pool: MobxPool): { id: string; wasHead: boolean } {
       )
     })
     if (candidates.length === 0) throw new Error('no childless open root in the visible order')
-    // Prefer a row that is not its group's head, so the move cannot change
-    // the group order and `keys` legitimately re-evaluates nothing.
+    // The head of its group: moving it changes the head rank, so the key
+    // order genuinely re-sorts instead of staying silent. A whole-order walk
+    // hidden in the key order can only execute here — a non-head move never
+    // re-runs the key body at all.
     for (const id of candidates) {
       const key = groupOf(id)
       const rank = pool.worklist.issue(id)?.rank
       const head = key === null ? undefined : pool.groups.group(key).headRank
-      if (key !== null && rank !== undefined && head !== undefined && compareRank(rank, head) > 0) {
-        return { id, wasHead: false }
+      if (
+        key !== null &&
+        rank !== undefined &&
+        head !== undefined &&
+        compareRank(rank, head) === 0
+      ) {
+        return { id, wasHead: true }
       }
     }
-    return { id: candidates[0]!, wasHead: true }
+    throw new Error('no head childless open root in the visible order')
   })
 }
 
@@ -419,7 +428,9 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         const evals = auditOf(runs)
         const layoutRuns = [...runs].filter(([name]) => name.startsWith('pool.layout.'))
         expect(layoutRuns.length, 'layout reactions executed').toBe(1)
-        expect(evals.get('keys') ?? 0, 'keys executions').toBeLessThanOrEqual(1)
+        // The head rank moved, so the key order re-sorts once, reading only
+        // bucket head ranks — never the order.
+        expect(evals.get('keys') ?? 0, 'keys executions').toBe(1)
         expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)
         expect(evals.get('latchedOpenId') ?? 0, 'latch executions').toBe(0)
         const moved = tracked(() => {
@@ -497,8 +508,108 @@ describe('scaling: the work follows the change (POD-4686)', () => {
       }
     }, 600_000)
 
-    it(`click re-validates no maintenance reaction at ${scale}x`, () => {
+    it(`archive leaves without walking the order at ${scale}x`, () => {
       const r = rig(scale)
+      let audit: { stop(): void } | undefined
+      try {
+        const { pool } = r.handle
+        // A childless unpinned open human root in a multi-member group (the
+        // #6b rule), so its bucket survives the removal.
+        const found = tracked(() => {
+          for (const id of pool.worklist.order) {
+            const node = pool.worklist.issue(id)
+            const standing = node?.standing
+            if (
+              standing === undefined ||
+              !standing.activeHuman ||
+              standing.pinned ||
+              standing.parentId !== null ||
+              (node?.childIds.length ?? 1) !== 0
+            ) {
+              continue
+            }
+            for (const key of pool.groups.keys) {
+              const group = pool.groups.group(key)
+              const size = group.rowIds.length + group.closedIds.length
+              if (group.rowIds.includes(id) || group.closedIds.includes(id)) {
+                if (size >= 2) return { id, key, size }
+              }
+            }
+          }
+          return null
+        })
+        expect(found, 'a removable row in a multi-member group').not.toBeNull()
+        const { id: target, key, size: before } = found!
+        const base = corpusIssue(r, target)
+        audit = observeGroups(pool)
+        pool.stats.reset()
+        let mapReads = 0
+        let orderReads = { elements: 0, lengths: 0 }
+        let sets = 0
+        const runs = countReactions(() => {
+          sets = countGroupSets(() => {
+            mapReads = countMapReads('pool.groups.keys', () => {
+              orderReads = countOrderReads(pool, () => {
+                r.push({
+                  type: 'update',
+                  rows: [{ kind: 'issue', id: target, value: { ...base, archived: true } }],
+                })
+              })
+            })
+          })
+        })
+        const { groupRuns, groupElements, orderSorts, membershipFlips } = pool.stats.counters
+        // One row leaves the visible set: one membership flip, one order
+        // re-sort, one un-filing of exactly its lane.
+        expect(membershipFlips, 'membership flips').toBe(1)
+        expect(orderSorts, 'order re-sorts').toBe(1)
+        expect(groupRuns, 'filings').toBe(1)
+        expect(groupElements, 'lane members left behind').toBe(before - 1)
+        expect(sets, 'group set writes').toBe(1)
+        expect(mapReads, 'key-index reads').toBe(0)
+        // The key order re-sorts (membership moved), but walks nothing: no
+        // order element and no length is read here at any scale.
+        expect(orderReads.elements, 'order elements iterated').toBe(0)
+        expect(orderReads.lengths, 'order length reads').toBe(0)
+        const evals = auditOf(runs)
+        const layoutRuns = [...runs].filter(([name]) => name.startsWith('pool.layout.'))
+        expect(layoutRuns.length, 'layout reactions executed').toBe(1)
+        expect(evals.get('keys') ?? 0, 'keys executions').toBe(1)
+        expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)
+        expect(evals.get('latchedOpenId') ?? 0, 'latch executions').toBe(0)
+        for (const [name, count] of evals) {
+          if (name === 'keys' || name === 'pinnedIds' || name === 'latchedOpenId') continue
+          if (name.endsWith(`:${key}`)) {
+            expect(count, `${name} executions (emptied group)`).toBe(1)
+          } else {
+            expect(count, `${name} executions (other group)`).toBe(0)
+          }
+        }
+        expect(
+          tracked(() => pool.worklist.issue(target)?.visible),
+          'archived row leaves',
+        ).toBe(false)
+        writeResult(`mobx-scaling-4686-${scale}x-archive`, {
+          scale,
+          at: 'archive',
+          target,
+          membershipFlips,
+          orderSorts,
+          filings: groupRuns,
+          laneMembers: groupElements,
+          setWrites: sets,
+          keyIndexReads: mapReads,
+          orderElements: orderReads.elements,
+          orderLengths: orderReads.lengths,
+          evals: Object.fromEntries(evals),
+        })
+      } finally {
+        audit?.stop?.()
+        r.dispose()
+      }
+    }, 600_000)
+
+    it(`click re-validates no maintenance reaction at ${scale}x`, () => {      const r = rig(scale)
       let audit: { stop(): void } | undefined
       try {
         const { pool } = r.handle
