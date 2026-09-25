@@ -204,6 +204,11 @@ async function withDirect<T>(
     unmount: () => handle.dispose(),
   }
   try {
+    // Preload like a mount renders the list (outside the counted step):
+    // read every visible row's view, queuing + landing its cold rows, so the
+    // burst step's own snapshot (for parity, after reads are sampled) queues
+    // nothing new (no late loads charged to no step, G2).
+    handle.snapshot()
     settle(handle.pool)
     return await run(ctx, mounted, handle, feeds.flush)
   } finally {
