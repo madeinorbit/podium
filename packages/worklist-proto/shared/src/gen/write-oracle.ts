@@ -80,7 +80,7 @@ function displayOf(
 }
 
 export class WriteOracle {
-  readonly log: PendingLog = createPendingLog()
+  log: PendingLog = createPendingLog()
   /** Last server values synced per pending row (a repeat sync is a no-op). */
   private readonly synced = new Map<string, ServerEditable>()
   /** Every row ever appended (pruned when its log empties; the log itself
@@ -163,11 +163,16 @@ export class WriteOracle {
 
   /**
    * Rebuild from the outbox after a reload (kernel ids, queue order):
-   * queued then awaiting entries mapped to slice edits, receipted ones
-   * settled at once, then pre-reload echoes confirmed through the current
-   * server values (W11). Unknown rows and non-slice entries are skipped.
+   * the in-memory log is gone, so it starts empty and re-appends what the
+   * queue still holds — entries the kernel retired (moved-past, TTL) stay
+   * dropped on both sides. Receipted ones settle at once, then pre-reload
+   * echoes confirm through the current server values (W11). Unknown rows
+   * and non-slice entries are skipped.
    */
   refresh(outboxPending: readonly OutboxPendingWrite[], source: RowSource): void {
+    this.log = createPendingLog()
+    this.rows.clear()
+    this.synced.clear()
     const server = this.serverRows(source)
     for (const entry of outboxPending) {
       const mapped = editForPendingWrite(entry)
