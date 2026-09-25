@@ -164,10 +164,11 @@ function armWithAdapter(
 
 /**
  * Plant (iii): the arm observes remotes late — every remote for a row with
- * an unreceipted pending entry is held until an outcome arrives, so the
- * receipt's `ackBase` is stale and the released remote overtakes exactly
- * like the old onStep-sync oracle's skew did. A receipt, rejection or
- * supersede flushes everything held (still late); dispose flushes too.
+ * an unreceipted pending entry is held until THAT row's receipt arrives, so
+ * the accept's `ackBase` is stale and the released remote overtakes exactly
+ * like the old onStep-sync oracle's skew did. Other rows' outcomes never
+ * flush a held remote (a global flush would release everything early and
+ * blunt the plant); dispose flushes the tail.
  */
 function lateRemoteUntilAccept(handle: WritableMobxPoolHandle): void {
   const write = handle.write
@@ -184,7 +185,28 @@ function lateRemoteUntilAccept(handle: WritableMobxPoolHandle): void {
     }
     remote(kind, id, values)
   }
-  const flush = (): void => {
+  // Release exactly the rows whose pending entry the outcome answers: the
+  // remote then lands post-receipt against a stale ackBase and overtakes.
+  const flushFor = (txId: unknown): void => {
+    for (const [id, h] of [...held]) {
+      const pending = write.log.pendingFor(h.kind, h.id)
+      if (pending.some((e) => String(e.txId) === String(txId))) {
+        held.delete(id)
+        remote(h.kind, h.id, h.values as never)
+      }
+    }
+  }
+  // Release held remotes whose entries are gone (rejected, superseded):
+  // server tracking must catch up once nothing is pending.
+  const releaseOrphaned = (): void => {
+    for (const [id, h] of [...held]) {
+      if (write.log.pendingFor(h.kind, h.id).length === 0) {
+        held.delete(id)
+        remote(h.kind, h.id, h.values as never)
+      }
+    }
+  }
+  const flushAll = (): void => {
     if (held.size === 0) return
     const due = [...held.values()]
     held.clear()
@@ -194,21 +216,24 @@ function lateRemoteUntilAccept(handle: WritableMobxPoolHandle): void {
   write.handleAccepted = (txId) => {
     accepted(txId)
     acked.add(String(txId))
-    flush()
+    flushFor(txId)
+    releaseOrphaned()
   }
   const reject = write.reject.bind(write)
   write.reject = (rejection) => {
     reject(rejection)
-    flush()
+    flushFor((rejection as { txId: unknown }).txId)
+    releaseOrphaned()
   }
   const superseded = write.handleSuperseded.bind(write)
   write.handleSuperseded = (txId) => {
     superseded(txId)
-    flush()
+    flushFor(txId)
+    releaseOrphaned()
   }
   const dispose = write.dispose.bind(write)
   write.dispose = () => {
-    flush()
+    flushAll()
     dispose()
   }
 }
