@@ -35,7 +35,7 @@ import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
 import { ArmEditAdapter } from '../../../../shared/src/gen/arm-edits'
 import { gen, type Change } from '../../../../shared/src/gen/changes'
-import { checkArm, diffSnapshots, type CheckedArm } from '../../../../shared/src/gen/check'
+import { checkArm, describeSequence, diffSnapshots, type CheckedArm } from '../../../../shared/src/gen/check'
 import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
@@ -170,7 +170,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         })
         if (!result.ok) {
           throw new Error(
-            `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}`,
+            `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
+              `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}`,
           )
         }
         cells.push({ seed, steps: STEPS, counts: result.counts, gapApplied: gap.applied })
