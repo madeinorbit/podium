@@ -29,12 +29,18 @@ ingest), `pool/tables.ts` + `pool/residency.ts` (volatile hooks),
   1x and 4x): stage move = 1 filing + its lanes + ≤4 set writes + 0
   key-index reads + 0 order walks, keys/pinned/latch execs bounded, moved
   lanes exactly once; click = 0 maintenance reactions, latch once, lanes
-  once each doing O(1) latch checks, rest silent. Whole-list plants
-  (732 / 2,928 walked reads; re-file-all set writes; slot replacement ≥3
-  reactions) fail each bound. Re-time (`results/4686-quiet`, 36 ok,
-  load ≤ 8): 1x walls near Mb4, 4x slopes still over on a heap story the
-  untouched paths share (pool page 311 MB at 4x) — follow-up, not
-  pool-chasing.
+  once each doing O(1) latch checks, rest silent; archive = 1 flip + 1
+  re-sort + 1 un-filing with 0 order walks. The order walk is counted
+  through a proxy on the host seam, so walks through plain maps count too.
+  A walk hidden in the key body only executes when the body genuinely
+  re-runs (membership change, as in archive) — on lane moves MobX
+  short-circuits it, so the walk test lives on archive, with the
+  coordinator's verbatim order-walking mutation as its red plant (731 /
+  2,927 walked reads vs 0). Whole-list plants (layoutOf touches;
+  re-file-all set writes; slot replacement ≥3 reactions) fail each bound.
+  Re-time (`results/4686-quiet`, 36 ok, load ≤ 8): 1x walls near Mb4, 4x
+  slopes still over on a heap story the untouched paths share (pool page
+  311 MB at 4x) — follow-up (Mc4), not pool-chasing.
 
 ### Observations (not fixed here)
 
