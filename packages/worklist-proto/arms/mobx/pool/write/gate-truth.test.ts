@@ -302,6 +302,43 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 `seed ${seed} step ${step.index}: feedWorktrees=${run.feed().source.snapshot('worktree').length}\n`,
               )
             }
+            // TEMPORARY diagnosis (removed before landing): full session
+            // value diff feed-vs-store on divergence.
+            if (diff !== null && firstDiff === null) {
+              const feedSess = new Map(
+                run
+                  .feed()
+                  .source.snapshot('session')
+                  .map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
+              )
+              const storeSess = new Map(
+                (
+                  (run.ctx.engine.getSnapshot() as unknown as { sessions?: Record<string, unknown>[] }).sessions ?? []
+                ).map((s) => [String(s['sessionId'] ?? s['id']), s]),
+              )
+              const sessDiffs: string[] = []
+              for (const [id, f] of feedSess) {
+                const s = storeSess.get(id)
+                if (s === undefined) {
+                  sessDiffs.push(`${id}:feed-only`)
+                  continue
+                }
+                const fields = ['issueId', 'archived', 'readAt', 'unread', 'lastActiveAt'] as const
+                const df = fields.filter((k) => JSON.stringify(f?.[k]) !== JSON.stringify(s[k]))
+                if (df.length > 0) {
+                  sessDiffs.push(
+                    `${id}:(${df.map((k) => `${k}:feed=${JSON.stringify(f?.[k])} store=${JSON.stringify(s[k])}`).join(',')})`,
+                  )
+                }
+                if (sessDiffs.length >= 12) break
+              }
+              for (const id of storeSess.keys()) {
+                if (!feedSess.has(id)) sessDiffs.push(`${id}:store-only`)
+                if (sessDiffs.length >= 14) break
+              }
+              const { appendFileSync } = await import('node:fs')
+              appendFileSync('/tmp/sessdiff.txt', `seed ${seed} step ${step.index}:\n${sessDiffs.join('\n')}\n`)
+            }
             if (diff !== null) {
               oracleFailed += 1
             }
