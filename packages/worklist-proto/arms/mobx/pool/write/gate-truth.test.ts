@@ -296,6 +296,22 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                   }
                 }
                 extra += `\nformal closure under ${target} (stage/closedReason):\n${lines.join('\n')}`
+                // TEMPORARY diagnosis (removed before landing): pool progress
+                // inputs vs feed for the target's children.
+                const factLines: string[] = []
+                for (const [id, v] of feedRows) {
+                  if (v !== undefined && (v['parentId'] as string | null) === target) {
+                    const facts = runInAction(() =>
+                      h.pool.visibleInputs.progressFacts(id),
+                    ) as { stage: string; closedReason?: string | null } | undefined
+                    factLines.push(
+                      `${id}:facts(${facts === undefined ? '?' : `${facts.stage}/${facts.closedReason ?? '-'}`})` +
+                        `feed(${String(v['stage'])}/${String(v['closedReason'] ?? '-')})`,
+                    )
+                    if (factLines.length >= 12) break
+                  }
+                }
+                extra += `\nprogressFacts vs feed:\n${factLines.join('\n')}`
               }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
