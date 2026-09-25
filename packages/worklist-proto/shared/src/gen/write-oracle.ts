@@ -41,10 +41,11 @@
 
 import type { RowSource } from '../arm'
 import type { SliceSnapshot } from '../slice-types'
+import type { ScenarioEngine } from '../scenarios'
 import { snapshotFromStore } from '../../../harness/src/oracle/index'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
-import { baseOf } from '../receipts'
+import { baseOf, subscribeReceipts } from '../receipts'
 import {
   createPendingLog,
   editForPendingWrite,
@@ -68,6 +69,13 @@ function editableOf(value: Record<string, unknown>): ServerEditable {
     stage: value['stage'] as string,
     readAt: (value['readAt'] ?? null) as string | null,
   }
+}
+
+/** One server value, shortened for the consumed-event lists. */
+function short(value: unknown): string {
+  if (value === null || value === undefined) return 'null'
+  const text = String(value)
+  return text.length > 28 ? `${text.slice(0, 28)}…` : text
 }
 
 /** The pending display for one row: the newest pending value per field. */
@@ -97,8 +105,64 @@ export class WriteOracle {
    *  detection in `expectedSnapshot`; cleared when the row goes pending
    *  again is unnecessary — a pending row takes the display branch instead). */
   private readonly seenTitles = new Map<string, Set<string>>()
-  /** Server arrivals already consumed (deduped re-sends below). */
-  private arrivalsSeen = 0
+  /** Ordered stream events consumed per row (ruling: a skew reads directly
+   *  from the result file, so every row ever touched keeps its list). */
+  readonly eventsByRow = new Map<string, string[]>()
+  /** Every row ever touched (never pruned; result rows report these). */
+  readonly touchedRows = new Set<string>()
+
+  private record(id: string, what: string): void {
+    this.touchedRows.add(id)
+    const list = this.eventsByRow.get(id)
+    if (list === undefined) this.eventsByRow.set(id, [what])
+    else list.push(what)
+  }
+
+  /** The ordered event lists for every touched row (per-seed result rows). */
+  consumedEvents(): Record<string, string[]> {
+    const out: Record<string, string[]> = {}
+    for (const id of this.touchedRows) out[id] = this.eventsByRow.get(id) ?? []
+    return out
+  }
+
+  /**
+   * Consume the SAME ordered delivery stream as the arm (coordinator ruling,
+   * option 1): feed row deliveries as remotes, kernel outcomes as receipts,
+   * in delivery order, at the same moment the arm's own subscriptions see
+   * them. Install at arm creation, before the step's apply starts, and drop
+   * on dispose (a reload re-creates over the new feed). W8's overtake reads
+   * `ackBase`, the value seen at receipt, so sharing the observation order
+   * is what keeps the two logs' resolutions identical; a later pipe (the old
+   * onStep sync) is a different sequence and resolves opposite.
+   */
+  watch(ctx: ScenarioEngine, source: RowSource): () => void {
+    const offRows = source.subscribe((event) => {
+      for (const row of event.rows) {
+        if (row.kind !== 'issue' || row.value === undefined) continue
+        const values = editableOf(row.value as unknown as Record<string, unknown>)
+        this.log.remote('issue', row.id, { ...values })
+        this.record(row.id, `remote t=${short(values.title)} s=${short(values.stage)} r=${short(values.readAt)}`)
+      }
+    })
+    const offReceipts = subscribeReceipts(ctx.engine, (event) => {
+      const tx8 = String(event.txId).slice(0, 8)
+      const id = event.id ?? tx8
+      if (event.type === 'accepted') {
+        this.log.settle({ txId: event.txId })
+        this.record(id, `accepted ${tx8}`)
+      } else if (event.type === 'rejected') {
+        this.log.reject({ txId: event.txId, error: { message: 'refused', parked: false } })
+        this.record(id, `rejected ${tx8}`)
+      } else {
+        this.log.supersede({ txId: event.txId })
+        this.record(id, `superseded ${tx8}`)
+      }
+    })
+    return () => {
+      offRows()
+      offReceipts()
+    }
+  }
 
   private serverRows(source: RowSource): Map<string, ServerEditable> {
     const out = new Map<string, ServerEditable>()
@@ -135,7 +199,15 @@ export class WriteOracle {
     }
     this.log.append({ txId: kernelId, kind: 'issue', id, patch, prior })
     this.rows.add(id)
-    const patchRecord = patch as { title?: string }
+    const patchRecord = patch as { title?: string; stage?: string; readAt?: string }
+    const shownPatch = [
+      patchRecord.title !== undefined ? `t=${short(patchRecord.title)}` : null,
+      (patch as { stage?: string }).stage !== undefined ? `s=${short((patch as { stage?: string }).stage)}` : null,
+      (patch as { readAt?: string }).readAt !== undefined ? `r=${short((patch as { readAt?: string }).readAt)}` : null,
+    ]
+      .filter((part) => part !== null)
+      .join(' ')
+    this.record(id, `edit ${shownPatch}`)
     if (patchRecord.title !== undefined) {
       let seen = this.seenTitles.get(id)
       if (!seen) {
@@ -146,42 +218,15 @@ export class WriteOracle {
     }
   }
 
-  accept(kernelId: TxId): void {
-    this.log.settle({ txId: kernelId })
-  }
-
-  reject(kernelId: TxId): void {
-    this.log.reject({ txId: kernelId, error: { message: 'refused', parked: false } })
-  }
-
-  supersede(kernelId: TxId): void {
-    this.log.supersede({ txId: kernelId })
-  }
-
   /**
-   * Observe the server's answers the runner never turns into changes: a
-   * re-sent call the server already applied (or refused) is answered at once,
-   * deduped by mutation id — for the arm that outcome arrives as a receipt
-   * (or rejection) through its transport, so the oracle records it here from
-   * the scripted server's arrival log. Unknown ids are no-ops either way.
+   * One-shot state sync, used only by `refresh` below: pass the current
+   * server values of every pending row through the log so pre-reload echoes
+   * confirm through them (W11). Rows whose server values did not move since
+   * the last sync are skipped, so an untracked sync never bumps the rewind
+   * clock (W6). Never on the per-step path: remotes arrive through `watch`,
+   * in delivery order with the arm.
    */
-  consumeServerAnswers(run: GenRun): void {
-    const arrivals = run.server.arrivals.slice(this.arrivalsSeen)
-    this.arrivalsSeen = run.server.arrivals.length
-    for (const arrival of arrivals) {
-      if (!arrival.deduped) continue
-      const txId = arrival.mutationId as TxId
-      if (run.server.applied.has(arrival.mutationId)) this.log.settle({ txId })
-      else if (run.server.refused.has(arrival.mutationId)) {
-        this.log.reject({ txId, error: { message: 'refused', parked: false } })
-      }
-    }
-  }
   syncPending(source: RowSource): void {
-    // Pass the current server values of every pending row through the log
-    // (echo/remote/stale coverage, W7/W8). Rows whose server values did not
-    // move since the last sync are skipped, so an untracked sync never bumps
-    // the rewind clock (W6).
     const server = this.serverRows(source)
     for (const id of this.pendingIds()) {
       const values = server.get(id)
@@ -233,6 +278,7 @@ export class WriteOracle {
       }
       if (entry.acked) this.log.settle({ txId: entry.txId })
       this.rows.add(mapped.id)
+      this.record(mapped.id, `refresh${entry.acked ? ' acked' : ''}`)
       const patchRecord = mapped.patch as { title?: string }
       if (patchRecord.title !== undefined) {
         let seen = this.seenTitles.get(mapped.id)
@@ -336,11 +382,12 @@ function outboxPendingOf(run: GenRun): OutboxPendingWrite[] {
 }
 
 /**
- * Feed one settled step into the oracle (shared with Hc2). Edit intent and
- * outcomes come from the step (kernel ids, as the runner records them);
- * echoes, remotes and row writes arrive through the per-step pending sync,
- * which reads the feed's current server rows. A skipped change feeds nothing
- * except the sync (which is a no-op without movement).
+ * Feed one settled step's INTENT into the oracle (shared with Hc2): a
+ * generated edit appends under its kernel id; a reload rebuilds the log
+ * from the outbox. Outcomes (receipts) and row writes (remotes, echoes)
+ * arrive through `watch`, in delivery order with the arm — never through a
+ * later onStep sample, which is a different sequence. A skipped change feeds
+ * nothing.
  */
 export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): void {
   const change = step.change
@@ -361,21 +408,7 @@ export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): vo
             : { readAt: new Date(Date.now()).toISOString() }
       oracle.editApplied(source, kernelId as TxId, change.id, patch)
     }
-  } else if (change.kind === 'accept' && step.skipped === undefined) {
-    const record = run.edits.get(change.handle)
-    if (record) oracle.accept(record.mutationId as TxId)
-  } else if (change.kind === 'reject' && step.skipped === undefined) {
-    const record = run.edits.get(change.handle)
-    if (record) oracle.reject(record.mutationId as TxId)
-  } else if (change.kind === 'supersede' && step.skipped === undefined) {
-    const ids = detail['mutationIds']
-    if (detail['collapsed'] === true && Array.isArray(ids) && typeof ids[0] === 'string') {
-      oracle.supersede(ids[0] as TxId)
-    }
   } else if (change.kind === 'refresh' && step.skipped === undefined) {
     oracle.refresh(outboxPendingOf(run), source)
-    return
   }
-  oracle.consumeServerAnswers(run)
-  oracle.syncPending(source)
 }
