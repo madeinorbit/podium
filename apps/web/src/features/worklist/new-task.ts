@@ -80,7 +80,7 @@ export function useNewTask(
       model: previous.model,
       effort: previous.effort,
     })
-    // A new prompt should not open beside the repository's unattached agents.
+    // Give the new prompt the space until there is a task to follow.
     // Keep the folded rail available so Flightdeck can still be opened explicitly.
     uiState.set(SUPERAGENT_MODE_KEY, 'folded')
     setSelectedIssueId(null)
