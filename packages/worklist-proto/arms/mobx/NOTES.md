@@ -344,10 +344,40 @@ round-two layout; the round-three pool lives under `pool/`.
   The fixture's `unscannedWorktree` (`i3485`, `s804`) is the one row off
   (phase/working). ONE named exception, `worklist/known-gaps.ts`, used by every
   oracle comparison; it throws once the seat exists.
-- **POD-4678** — #10 reads 192 against 168: a new explicit session re-lists
-  its issue's `sessions` bucket (91 other sessions). Fix is a design choice
-  (a filing per known session at bootstrap, or a fence rule). `rollup.test`
-  allows exactly that family term, counted before the step.
+- **POD-4678** — #10 burst50 reads within budget at 1x and 4x (fixed):
+  a new explicit session costs the new member, not the family. `seatIds`
+  (`visible.ts`) and `sessionIds` (`views.ts`, the row view's draft-title and
+  loading inputs — same family shape, found while proving #10 red) read a
+  maintained `pool.seats` mirror (one element per `issue.sessions` bucket
+  move, in the same action that moved the bucket), never the bucket re-listed
+  through the fenced `many()` (which counts every id it yields). Declared
+  once in the schema (`issue.sessions`); the mirror follows the engine's
+  delta via `PoolRelations.onBucket` (`relations.ts`, generic, no relation
+  named) in `MobxPool` (`pool.ts`, closure-held so the copy sweep never walks
+  it: ids only, never rows — closures stay a review item). No per-session
+  reactions; no second index in the view. `rollup.test` holds #10 to its
+  budget with no family term; the re-list plant (`seatRelist`, pre-fix
+  `seats` via fenced `many()`) fails #10 at both scales while parity stays
+  green (named `burst seats are O(1)`). Roster allowance deleted
+  (`known-gaps.ts`).
+  - Bootstrap (counts, `bootstrap.test.ts`, spy adds, no models): 1x lazy
+    210722 → 216503 observables (+5781, +2.7%; `pool.seats` 2133 sets,
+    `pool.seats.bucket` 3648 elements); allResident 225969 → 231750 (+5781);
+    4x lazy 843739 → 866881 (+23142, +2.7%); allResident 903550 → 926692
+    (+23142). `IssueNode` 155744, `SessionNode` 13710, `pool.visible.nodes`
+    4867 unchanged at 1x (no new nodes/reactions — option (a)'s cost, one node
+    + reaction per known session at bootstrap, avoided). Linear in scale
+    (4x ≈ 4× 1x for seats/elements). Time: test Durations 151s → 142s total
+    (load uncontrolled, no regression; walls with bench lock not run).
+  - Transfers to the hand arm (POD-4683, same family shape in `seatIds` /
+    `memberIds` / `childIds` copying + sorting E's bucket on every membership
+    edge, and `views.sessionIds`): maintain the member set from the relation's
+    own delta (one element per move, filter applied to the delta only; an
+    existing member's filter-input change carries its own update), in the
+    pool's relation-maintenance path or schema, never as a second hand-written
+    index in the view, no per-entity listeners. The hand idiom's equivalent is
+    a cell maintained from the bucket delta (not a re-list), read without
+    counting family; rebuild from scratch stays the oracle.
 
 ### Numbers (1x, `FIXED_NOW`, counts; `harness/browser/results/mobx-rollups-*.json`)
 
@@ -370,7 +400,7 @@ commits exact against the oracle's row views (roll-ups included).
 | #8 tick | 0 | 0 | 0 / 0 | 0 |
 | #8b grace tick | 6 | 6 | 6 / 144 | 0 |
 | #9a/b/c mark-read | 0 | 0 | 1 / 3 | 0 |
-| #10 burst | 48 | 47 (+ `i937`, activityAt alone: POD-4674) | 192 / 168 + 92 (POD-4678) | 37 |
+| #10 burst | 48 | 47 (+ `i937`, activityAt alone: POD-4674) | 101 / 168 (POD-4678, was 192 / 168 + 92) | 37 |
 
 Chain fence (depth 4, `i2770 < i2763 < i2720 < i2666 < i2577`, a question on
 `s340`): 1 row read (the session) against 15; **5 compositions = depth + 1**.
