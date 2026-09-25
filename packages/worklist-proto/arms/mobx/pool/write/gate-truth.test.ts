@@ -294,6 +294,14 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
+            // TEMPORARY diagnosis (removed before landing): lane counts.
+            {
+              const { appendFileSync } = await import('node:fs')
+              appendFileSync(
+                '/tmp/lanes.txt',
+                `seed ${seed} step ${step.index}: feedWorktrees=${run.feed().source.snapshot('worktree').length}\n`,
+              )
+            }
             if (diff !== null) {
               oracleFailed += 1
             }
