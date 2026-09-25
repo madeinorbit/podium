@@ -49,15 +49,16 @@ import {
   type RowView,
   sliceRowOf,
 } from '../../../shared/src/row-view'
-import { type ModelSchema, SCHEMA } from '../../../shared/src/schema'
+import { type ModelSchema, SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type {
   SliceGroup,
   SliceIssue,
   SliceSession,
   SliceSnapshot,
 } from '../../../shared/src/slice-types'
+import type { RowRecord } from '../../../shared/src/stats'
 import { PoolRelations } from './relations'
-import { createTables, ingestOut, ingestRecord } from './tables'
+import { createTables, ingestOut, ingestRecord, type Tables } from './tables'
 import {
   buildRowView,
   directParts,
@@ -125,26 +126,54 @@ export function rebuildViews(
   return rebuildViewsWithIssue(source, locals, schema).views
 }
 
-function rebuildViewsWithIssue(
+/**
+ * Every RESIDENT issue's whole view from scratch (POD-4598, H3): the same
+ * replayed tables and rule inputs as the snapshot rebuild, but over the ids
+ * the pool holds (`resident`) rather than the visible order — cold rows the
+ * pool never loaded stay out, exactly as the live `view(id)` they are held
+ * to. The review probes' independent full-view check; never the live pool's
+ * lazy cells.
+ */
+export function rebuildResidentViews(
   source: RowSource,
   locals: LocalsSource,
+  resident: ReadonlySet<string>,
   schema: ModelSchema = SCHEMA,
-): { views: Map<string, RowView>; issue: ViewInputs['issue'] } {
-  const tables = createTables()
-  const relations = new PoolRelations({
-    schema,
-    rows: tables,
-    roots: tables,
-    present: (entity, id) => tables[entity].has(id),
-  })
-  const target = { read: tables, write: tables, relations }
-  const out = ingestOut()
-  const issues = source.snapshot('issue')
-  for (const record of source.snapshot('session')) ingestRecord(target, record, out)
-  for (const record of issues) ingestRecord(target, record, out)
-  for (const record of source.snapshot('worktree')) ingestRecord(target, record, out)
-
+): Map<string, RowView> {
+  const { tables, relations, issues } = replayTables(source, schema)
   const { coarseNow, selectedIssueId } = locals.get()
+  const { inputs } = directScope({ tables, relations, issues, coarseNow, selectedIssueId })
+  const cold = tableColdRule(schema, (entity) => tables[entity], coarseNow)
+  const views = new Map<string, RowView>()
+  for (const { id } of issues) {
+    if (!resident.has(id) && cold('issue', id)) continue
+    const view = buildRowView(inputs, id, directParts(inputs, id))
+    if (view !== undefined) views.set(id, view)
+  }
+  return views
+}
+
+/**
+ * The from-scratch rule inputs over replayed tables: the `ViewInputs` the
+ * live cells and the probes both run (`buildRowView`, `directParts`), with
+ * the roll-up and visibility compositions computed directly (memoized for
+ * the one pass), never through the live pool's lazy cells.
+ */
+interface DirectScope {
+  readonly inputs: ViewInputs
+  readonly visible: VisibleInputs
+  rollupPartsOf(id: string): RollupSelf
+  visiblePartsOf(id: string): VisibleParts
+}
+
+function directScope(args: {
+  tables: Tables
+  relations: PoolRelations
+  issues: readonly RowRecord[]
+  coarseNow: number
+  selectedIssueId: string | null
+}): DirectScope {
+  const { tables, relations, issues, coarseNow, selectedIssueId } = args
   const inputs: ViewInputs = {
     relations,
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
@@ -233,9 +262,41 @@ function rebuildViewsWithIssue(
     own: (id) => directParts(inputs, id).own,
     passed: inputs.passed,
   }
+  return { inputs, visible, rollupPartsOf, visiblePartsOf: (id) => directVisibleParts(visible, id, memo) }
+}
+
+function replayTables(
+  source: RowSource,
+  schema: ModelSchema,
+): { tables: Tables; relations: PoolRelations; issues: RowRecord[] } {
+  const tables = createTables()
+  const relations = new PoolRelations({
+    schema,
+    rows: tables,
+    roots: tables,
+    present: (entity, id) => tables[entity].has(id),
+  })
+  const target = { read: tables, write: tables, relations }
+  const out = ingestOut()
+  const issues = source.snapshot('issue')
+  for (const record of source.snapshot('session')) ingestRecord(target, record, out)
+  for (const record of issues) ingestRecord(target, record, out)
+  for (const record of source.snapshot('worktree')) ingestRecord(target, record, out)
+  return { tables, relations, issues }
+}
+
+function rebuildViewsWithIssue(
+  source: RowSource,
+  locals: LocalsSource,
+  schema: ModelSchema = SCHEMA,
+): { views: Map<string, RowView>; issue: ViewInputs['issue'] } {
+  const { tables, relations, issues } = replayTables(source, schema)
+  const { coarseNow, selectedIssueId } = locals.get()
+  const scope = directScope({ tables, relations, issues, coarseNow, selectedIssueId })
+  const { inputs } = scope
   const order = sortByRank(
-    issues.map(({ id }) => id).filter((id) => directVisibleParts(visible, id, memo).visible),
-    (id) => directVisibleParts(visible, id, memo).rank,
+    issues.map(({ id }) => id).filter((id) => scope.visiblePartsOf(id).visible),
+    (id) => scope.visiblePartsOf(id).rank,
   )
   const views = new Map<string, RowView>()
   for (const id of order) {
