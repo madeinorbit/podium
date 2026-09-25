@@ -209,7 +209,25 @@ describe('Hc2 hand receipts and remote updates', () => {
       expect(stageOf(handle, id)).toBe(pendingStage)
       expect(write.log.pendingFor('issue', id)).toHaveLength(1)
 
-      // Rejecting now rewinds to the server value that landed while pending.
+      // The server moves the pending field itself to a THIRD value: the
+      // display keeps the local value, and the new server value becomes the
+      // rewind target (W5).
+      const thirdStage = (['backlog', 'planning', 'in_progress', 'review'] as const).find(
+        (s) => s !== serverStage && s !== pendingStage,
+      ) as EditableStage
+      await runCountScenario(mounted, {
+        scenario: 'handOptimisticRemoteOnPendingField',
+        methodology: '#4-write',
+        apply: () => {
+          serverWrite(ctx, id, { stage: thirdStage }, { stamp: false })
+        },
+        expected: baseline,
+      })
+      expect(stageOf(handle, id)).toBe(pendingStage)
+      expect(write.log.pendingFor('issue', id)).toHaveLength(1)
+
+      // Rejecting now rewinds to the server value that landed while pending
+      // — not to the edit-time value (a stale restore would show serverStage).
       await runCountScenario(mounted, {
         scenario: 'handOptimisticRemotePendingRejected',
         methodology: '#4-write',
@@ -218,7 +236,7 @@ describe('Hc2 hand receipts and remote updates', () => {
         },
         expected: baseline,
       })
-      expect(stageOf(handle, id)).toBe(serverStage)
+      expect(stageOf(handle, id)).toBe(thirdStage)
       expect(titleOf(handle, id)).toBe('Theirs remote title')
       expect(write.log.size).toBe(0)
     } finally {
@@ -306,6 +324,125 @@ describe('Hc2 hand receipts and remote updates', () => {
         expected: baseline,
       })
       expect(unknown.rowsCommitted).toBe(0)
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+
+  it('a superseded mark-read leaves without repaint; the successor carries the value', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const transport = fakeTransport()
+    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+    try {
+      const handle = mounted.handle as WritableHandPoolHandle
+      const write = handle.write
+      const id = ctx.targets.visibleRootId
+      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+
+      const first = new Date(ctx.engine.getSnapshot().coarseNow).toISOString()
+      let t1: TxId = '' as TxId
+      await runCountScenario(mounted, {
+        scenario: 'handOptimisticSupersedeFirst',
+        methodology: '#4-write',
+        apply: () => {
+          t1 = write.edit('issue', id, { readAt: first })
+        },
+        expected: baseline,
+      })
+      const second = new Date(ctx.engine.getSnapshot().coarseNow + 1).toISOString()
+      let t2: TxId = '' as TxId
+      await runCountScenario(mounted, {
+        scenario: 'handOptimisticSupersedeSecond',
+        methodology: '#4-write',
+        apply: () => {
+          t2 = write.edit('issue', id, { readAt: second })
+        },
+        expected: baseline,
+      })
+      expect(write.log.pendingFor('issue', id)).toHaveLength(2)
+
+      // The outbox collapses the still-queued first entry into the second
+      // (W9): it leaves without repainting — the successor carries the value.
+      const dropped = await runCountScenario(mounted, {
+        scenario: 'handOptimisticSuperseded',
+        methodology: '#4-write',
+        apply: () => {
+          write.handleSuperseded(t1)
+        },
+        expected: baseline,
+      })
+      expect(dropped.rowsCommitted).toBe(0)
+      expect(dropped.commitsByRow).toEqual({})
+      expect((handle.pool.inputs.issue(id) as SliceIssue | undefined)?.readAt).toBe(second)
+      expect(write.log.pendingFor('issue', id).map((e) => e.txId)).toEqual([t2])
+
+      // Rejecting the successor rewinds to server truth.
+      await runCountScenario(mounted, {
+        scenario: 'handOptimisticSupersedeRejected',
+        methodology: '#4-write',
+        apply: () => {
+          write.reject({ txId: t2, error: { message: 'refused', parked: false } })
+        },
+        expected: baseline,
+      })
+      const server = (handle.pool.tables.issue.get(id) as SliceIssue | undefined)?.readAt ?? null
+      expect(((handle.pool.inputs.issue(id) as SliceIssue | undefined)?.readAt ?? null)).toBe(server)
+      expect(write.log.size).toBe(0)
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+
+  it('expiry never drops an unreceipted edit', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const transport = fakeTransport()
+    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+    try {
+      const handle = mounted.handle as WritableHandPoolHandle
+      const write = handle.write
+      const id = ctx.targets.visibleRootId
+      const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+
+      let tx: TxId = '' as TxId
+      await runCountScenario(mounted, {
+        scenario: 'handOptimisticExpireEdit',
+        methodology: '#4-write',
+        apply: () => {
+          tx = write.edit('issue', id, { title: 'Unexpired title' })
+        },
+        expected: baseline,
+      })
+      // Unreceipted edits never expire (W10): the TTL only bounds lost echoes.
+      await runCountScenario(mounted, {
+        scenario: 'handOptimisticExpireUnreceipted',
+        methodology: '#4-write',
+        apply: () => {
+          write.expire()
+        },
+        expected: baseline,
+      })
+      expect(titleOf(handle, id)).toBe('Unexpired title')
+      expect(write.log.pendingFor('issue', id).map((e) => e.txId)).toEqual([tx])
+      // A receipted edit whose echo is still within its TTL stays too.
+      await runCountScenario(mounted, {
+        scenario: 'handOptimisticExpireReceipted',
+        methodology: '#4-write',
+        apply: () => {
+          write.handleAccepted(tx)
+          write.expire()
+        },
+        expected: baseline,
+      })
+      expect(titleOf(handle, id)).toBe('Unexpired title')
+      expect(write.log.pendingFor('issue', id)).toHaveLength(1)
     } finally {
       mounted.unmount()
       feeds.dispose()
