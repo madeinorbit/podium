@@ -213,6 +213,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         let firstDiff: string | null = null
         let kernelDiffers = 0
         let oracleChecks = 0
+        let oracleFailed = 0
         const result = await checkArm(gapped(arm, gap), sequence, {
           mode: 'truth',
           oracleEvery: 0,
@@ -230,6 +231,9 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
+            if (diff !== null) {
+              oracleFailed += 1
+            }
             if (diff !== null && firstDiff === null) {
               const feedSource = run.feed().source
               const store = run.ctx.engine.getSnapshot() as unknown as {
@@ -325,13 +329,16 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}`,
           )
         }
-        if (firstDiff !== null) throw new Error(firstDiff)
+        if (firstDiff !== null) {
+          throw new Error(`${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks}`)
+        }
         cells.push({
           seed,
           steps: STEPS,
           counts: result.counts,
           gapApplied: gap.applied,
           oracleChecks,
+          oracleFailed,
           kernelDiffers,
         })
       }
