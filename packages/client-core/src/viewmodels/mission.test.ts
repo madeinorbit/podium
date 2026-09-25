@@ -2644,8 +2644,10 @@ describe('presenceNote', () => {
       'review',
       'Review ready · session ended',
     ],
-    ['planned work', issue('a', { stage: 'planning' }), [], 'ready', 'Ready to start'],
-    ['backlogged work', issue('a', { stage: 'backlog' }), [], 'ready', 'Ready to start'],
+    ['ready planned work', issue('a', { stage: 'planning', ready: true }), [], 'ready', 'Ready to start'],
+    ['ready backlogged work', issue('a', { stage: 'backlog', ready: true }), [], 'ready', 'Ready to start'],
+    ['unready planned root', issue('root', { type: 'epic', stage: 'planning', ready: false }), [], 'ready', 'Not started'],
+    ['unready backlogged root', issue('root', { type: 'epic', stage: 'backlog', ready: false }), [], 'ready', 'Not started'],
     [
       'in-progress work whose agent left without a handoff',
       issue('a', { stage: 'in_progress' }),

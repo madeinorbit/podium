@@ -2612,7 +2612,7 @@ export function presenceNote(
     return { kind: 'shipping', text: 'Shipping service has custody', attention: false }
   }
   if (issue.stage === 'planning' || issue.stage === 'backlog') {
-    return { kind: 'ready', text: 'Ready to start', attention: false }
+    return { kind: 'ready', text: issue.ready === true ? 'Ready to start' : 'Not started', attention: false }
   }
   if (issue.stage === 'in_progress') {
     return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }
