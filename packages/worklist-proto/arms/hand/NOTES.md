@@ -1426,3 +1426,68 @@ F2 sessionRetains day-windows, F3 browser commit logging) plus:
   on every arm equally. Landed as `815e2e85f` after these counts; the new
   1x mount parity mismatch is the announced identical-across-arms failure
   and is not chased here.
+
+## Round three: lazy per-row roll-ups, b3 (POD-4584) · 2026-09-25
+
+Built after the MobX build: mirrored Mb3's combines, per-session rules and
+node parts (`arms/mobx/pool/worklist/rollup.ts`, POD-4571) and its milestone
+note, over the hand pool's cells. No contract amendment to reuse (MobX filed
+none; the cold-rule amendment POD-4665 is shared).
+
+Code: `pool/worklist/rollup.ts` (combines, rules, node parts,
+`RollupCollection` with per-issue roll-up cells, per-session verdict cells
+and the two maintained filings), wiring in `pool/pool.ts` (commit
+sync/settle, `ViewInputs.rollup`/`retainedSeats`, groups `waiting`),
+`pool/views.ts` (roll-up fields, retained-seat `activityAt`, subtree raise),
+`pool/worklist/groups.ts` (waiting conjunct for fold candidates),
+`pool/rebuild.ts` (direct parts), `pool/relations.ts` (`forward()`),
+`pool/worklist/visible.ts` (`retainedSeatIdsOf`, `peekIssue`/`peekSession`).
+Tests: `worklist/rollup.types.test.ts`, `worklist/rollup.test.tsx`,
+`worklist/rollup.gate.test.ts`, `worklist/known-gaps.ts`.
+
+Decisions and findings (in the order met):
+
+1. **Cells replace the chain walk.** A parent's composition reads its
+   children's cached cells, so invalidation propagates up the chain by
+   itself and `sameData` stops it where values stop. No `refreshChain`,
+   no sensitivity lists — the round-two hand shape is gone with
+   `arms/hand/rollup.ts` untouched (frozen arm).
+2. **Filings, not re-listings.** `nestedBy`/`formalBy` are maintained from
+   per-issue filing cells (`fileNest` over the visibility `nestParent`
+   part, `fileFormal` over the engine's raw forward slot — never `one()`,
+   whose presence read would re-run every cold child's filing on a parent
+   load). The pool syncs filings for the issues its deltas named (every
+   known issue after a `replace`) and settles reported moves before the
+   groups run.
+3. **The root without a walk.** Every aggregate carries the open-root and
+   finished-root verdicts; the row picks at `rollupOf`. The types test holds
+   the exact combine signatures plus combine laws (root verdict, order-free
+   composition, §3.9 precedence, pending/unit sums).
+4. **The fence counts `has`.** The first chain run read 8 rows against 3:
+   the visibility doors' fenced presence checks counted every roster member
+   on every recompute. Doors now return held parts with no table touch,
+   else a raw (unfenced, untracked) known check, else the tracked door —
+   so a re-added parent still wakes descendants that probed it while gone
+   (the L4b gate caught that at seed 1 step 112: `reAdd i234` left five
+   rows unnested). #2 now reads 1 row.
+5. **Cold rows, option A (as Mb3).** Progress peeks a cold child's
+   `{stage, closedReason}` (never loads); attention counts pending markers
+   and queues the load. First paint 1x/4x: 0 progress loads; the cold
+   progress and attention-pending tests prove both directions.
+6. **activityAt is the legacy's (POD-4674 addendum).** Own half = latest
+   `lastActiveAt` of the retained seats (exited included), else `updatedAt`
+   (`||` semantics), raised by the subtree's latest roster seat
+   (`seatActivity` composition over the nest filing). #10's `i937` proved
+   it: activityAt-alone under-commit without the raise. Three suites
+   encoded the old every-explicit-session rule (pool/residency/visible
+   censuses, the hidden-rows #1) and were updated as MobX's POD-4679 did.
+7. **The max masks one cached path.** The gate's `activity` plant cached
+   only the own-half door and passed 2/3 seeds: a live seat's stamp reaches
+   the view through the subtree half too. The plant now wraps the shared
+   per-session method, covering every path.
+8. **The layout built an O(bucket) index.** `layoutOf` did a `Map.set` per
+   order id for `rankIndex` (new-issue push 8,078 elements at 8k vs 4,078
+   at 4k). The latch now binary-searches the order's maintained ranks.
+   Landed first on integration with the windowed native test restatement
+   (branch `issue/4584-fix-integration-red`, 2 commits) before resuming
+   Hb3, per the coordinator's fix-first order.
