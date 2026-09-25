@@ -243,14 +243,6 @@ export class MobxPool {
   readonly relations: RelationReader
   /** The relation engine itself (tests read its write record; unfenced). */
   readonly graph: PoolRelations
-  /**
-   * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
-   * relation's own bucket deltas (one element per move, never the family),
-   * never re-listed through the fenced reader. The rule is declared once in
-   * the schema (`issue.sessions`); this mirror follows the engine's delta in
-   * the same action. Read via `visibleInputs.seats`, never via `many()`.
-   */
-  readonly seats: ObservableMap<string, ObservableSet<string>>
   /** The selection local: at most one entry, the selected issue id. */
   readonly selection: ObservableMap<string, true>
   /**
@@ -277,6 +269,12 @@ export class MobxPool {
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
   private selectedId: string | null
+  /**
+   * POD-4678 — clears the maintained seat mirror (a closure over it, so the
+   * copy sweep never walks the mirror: it holds only ids, never rows).
+   * Functions are skipped by the sweep; closures stay a review item.
+   */
+  private readonly clearSeats: () => void
 
   constructor(
     readonly reads: ReadFence,
@@ -302,11 +300,23 @@ export class MobxPool {
     this.residency = residency
     this.stats = createStats(residency)
     const stats = this.stats
-    this.seats = observable.map<string, ObservableSet<string>>(undefined, {
+    /**
+     * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
+     * relation's own bucket deltas (one element per move, never the family),
+     * never re-listed through the fenced reader. The rule is declared once
+     * in the schema (`issue.sessions`); this mirror follows the engine's
+     * delta in the same action. Held in a closure (not a field) so the copy
+     * sweep never walks it: it holds only ids, never rows (closures stay a
+     * review item). Read via `visibleInputs.seats` / `inputs.seats`, never
+     * via `many()`.
+     */
+    const seats = observable.map<string, ObservableSet<string>>(undefined, {
       deep: false,
       name: 'pool.seats',
     })
-    const seats = this.seats
+    this.clearSeats = () => {
+      seats.clear()
+    }
     // The engine sees every KNOWN row: a resident one in its table, a cold one
     // by id (read back through the feed only when the engine needs its fields).
     const known =
@@ -417,8 +427,9 @@ export class MobxPool {
       parts: (id) => this.issue(id),
       rollup: (id) => this.worklist.issue(id)?.rollup,
       retainedSeats: (id) => this.worklist.issue(id)?.retainedSeatIds ?? [],
-      // POD-4678: same maintained seat mirror as `visibleInputs.seats`.
-      seats: (id) => this.seats.get(id) ?? EMPTY_SEATS,
+      // POD-4678: same maintained seat mirror as `visibleInputs.seats`
+      // (closure-held, never walked by the copy sweep: ids only, never rows).
+      seats: (id) => seats.get(id) ?? EMPTY_SEATS,
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
@@ -441,8 +452,9 @@ export class MobxPool {
       nested: (id) => this.worklist.nested(id),
       formalChildren: (id) => this.worklist.formalChildren(id),
       // POD-4678: the maintained seat set (one element per move, never the
-      // family), read without touching the fenced relation reader.
-      seats: (id) => this.seats.get(id) ?? EMPTY_SEATS,
+      // family), read without touching the fenced relation reader. Closure-
+      // held, never walked by the copy sweep: ids only, never rows.
+      seats: (id) => seats.get(id) ?? EMPTY_SEATS,
       counted: () => {
         stats.rollupsDerived += 1
       },
@@ -463,12 +475,11 @@ export class MobxPool {
       foldLatch: () => this.foldLatch.get(),
       counters: stats.counters,
     })
-    makeObservable<MobxPool, 'models' | 'target' | 'selectedId' | 'select' | 'syncWorklist'>(this, {
+    makeObservable<MobxPool, 'models' | 'target' | 'selectedId' | 'select' | 'syncWorklist' | 'clearSeats'>(this, {
       tables: false,
       fenced: false,
       relations: false,
       graph: false,
-      seats: false,
       selection: false,
       readStates: false,
       clock: false,
@@ -484,6 +495,7 @@ export class MobxPool {
       models: false,
       target: false,
       selectedId: false,
+      clearSeats: false,
       reads: false,
       residency: false,
       residentIssueIds: false,
@@ -731,7 +743,7 @@ export class MobxPool {
       this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
-      this.seats.clear()
+      this.clearSeats()
       this.selection.clear()
       this.readStates.clear()
     })
