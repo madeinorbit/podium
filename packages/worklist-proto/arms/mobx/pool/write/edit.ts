@@ -203,7 +203,10 @@ export function createMobxWriteApi(
   // Overlay at the row-reader boundary. Each wrapper reads its overlay entry
   // (tracked) and delegates to the server reader it replaced. With no pending
   // edit the server object is returned unchanged, so identity-based commit
-  // counting holds and an idle layer is invisible.
+  // counting holds and an idle layer is invisible. The `issueRead` wrapper is
+  // the cursor half of the same boundary: the visibility parts read the
+  // read-state lane through it, so a pending mark-read flips their verdicts
+  // exactly as the overlaid row flips the rebuild's.
   const inputs = pool.inputs as { issue: (id: string) => SliceIssue | undefined }
   const originalIssue = inputs.issue.bind(pool.inputs)
   inputs.issue = (id: string) => withOverlay(id, originalIssue(id))
@@ -212,6 +215,7 @@ export function createMobxWriteApi(
     issueRow(id: string): SliceIssue | undefined
     progressFacts(id: string): { stage: string; closedReason?: string | null } | undefined
     loadedIssue(id: string): SliceIssue | symbol | undefined
+    issueRead(id: string): string | null | undefined
   }
   const originalIssueRow = visible.issueRow.bind(pool.visibleInputs)
   visible.issueRow = (id: string) => withOverlay(id, originalIssueRow(id))
@@ -232,6 +236,22 @@ export function createMobxWriteApi(
     const loaded = originalLoadedIssue(id)
     if (!isIssueOverlay(loaded) || typeof loaded === 'symbol') return loaded
     return withOverlay(id, loaded as SliceIssue)
+  }
+
+  // The read cursor with the pending display overlaid. The visibility parts
+  // (`unreadPartOf`, the decay branch of `flatPartOf`) read the cursor through
+  // `issueRead`, which the pool serves from its read-state lane (server
+  // truth only). A pending mark-read must flip those verdicts at once — the
+  // optimism-aware rebuild and the F4 oracle both see the pending cursor
+  // (overlaid row / reference display), so without this the live side keeps a
+  // decayed row hidden while both references show its reopened window. The
+  // pending value wins field-wise (an explicit null included); otherwise the
+  // lane answers, so a title-only edit changes nothing here.
+  const originalIssueRead = visible.issueRead.bind(pool.visibleInputs)
+  visible.issueRead = (id: string) => {
+    const overlay = overlayOf(id)
+    if (overlay !== undefined && overlay.readAt !== undefined) return overlay.readAt
+    return originalIssueRead(id)
   }
 
   /** Make a cold issue resident before editing it (W1.2), else throw. */
@@ -408,6 +428,7 @@ export function createMobxWriteApi(
       visible.issueRow = originalIssueRow
       visible.progressFacts = originalProgressFacts
       visible.loadedIssue = originalLoadedIssue
+      visible.issueRead = originalIssueRead
       listeners.clear()
     },
   }
