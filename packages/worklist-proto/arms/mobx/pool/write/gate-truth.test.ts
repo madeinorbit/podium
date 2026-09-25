@@ -46,7 +46,7 @@ import { describe, expect, it } from 'vitest'
 import { createEngineLocals } from '../../../../harness/src/engine-locals'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
-import type { CheckableArm } from '../../../../shared/src/arm'
+import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { ArmEditAdapter } from '../../../../shared/src/gen/arm-edits'
 import { gen, type Change } from '../../../../shared/src/gen/changes'
 import { checkArm, describeSequence, diffSnapshots, type CheckedArm } from '../../../../shared/src/gen/check'
@@ -75,23 +75,47 @@ const macrotask = (): Promise<void> => new Promise((resolve) => setTimeout(resol
 
 /**
  * Settle stragglers before an oracle comparison: run.apply already quiesced,
- * but post-reload replica/store trickle (settle timers, binding catch-up)
- * can land rows in the feed after the checker's own drain, leaving the pool
- * tables a beat behind the feed snapshot the rebuild reads. Bounded quiet
+ * but post-reload replica/store trickle (settle timers, binding catch-up,
+ * dep edges riding issue writes) can land rows in the feed after the
+ * checker's own drain, leaving pool tables behind the feed snapshot the
+ * rebuild reads — or the store behind the feed. Bounded content-stable
  * rounds with explicit feed drains; returns the rounds taken. A real
- * divergence survives them and still fails loudly below — this waits for
- * data delivery only (all arm logic is synchronous), so it cannot mask an
- * arm bug. Filed as a harness gap for L4a (quiesce sufficiency on reload).
+ * divergence is stable and still fails loudly below — this waits for data
+ * delivery only (all arm logic is synchronous), so it cannot mask an arm
+ * bug. Filed as a harness gap for L4a (quiesce sufficiency on reload).
  */
 async function settleStep(run: {
-  feed(): { flush(): unknown }
+  feed(): { flush(): unknown; source: RowSource }
+  ctx: ScenarioEngine
 }): Promise<number> {
+  const signature = (): string => {
+    const parts: string[] = []
+    for (const kind of ['issue', 'session', 'worktree'] as const) {
+      const rows = run.feed().source.snapshot(kind)
+      let maxStamp = 0
+      for (const row of rows) {
+        const v = row.value as Record<string, unknown> | undefined
+        for (const key of ['updatedAt', 'lastActiveAt'] as const) {
+          const t = v === undefined ? 0 : Date.parse(String(v[key] ?? 0)) || 0
+          if (t > maxStamp) maxStamp = t
+        }
+      }
+      parts.push(`${kind}:${rows.length}:${maxStamp}`)
+    }
+    return parts.join('|')
+  }
   let quiet = 0
   let rounds = 0
-  for (; rounds < 30 && quiet < 3; rounds += 1) {
+  let last = ''
+  const start = Date.now()
+  while (rounds < 100 && quiet < 3 && Date.now() - start < 3000) {
     await macrotask()
-    const event = run.feed().flush()
-    quiet = event === null || event === undefined ? quiet + 1 : 0
+    run.feed().flush()
+    const sig = signature()
+    if (sig === last) quiet += 1
+    else quiet = 0
+    last = sig
+    rounds += 1
   }
   return rounds
 }
