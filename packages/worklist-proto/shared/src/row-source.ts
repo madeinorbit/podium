@@ -64,7 +64,7 @@
  * row it holds only the id of (both round-three pools use it); the reads
  * fence counts it as one keyed read of that row (`reads.ts` `wrapSource`).
  * It leaves the emit memo alone, so the next flush still emits whatever
- * moved. A disposed source answers undefined.
+ * moved. A disposed source throws on reads.
  *
  * REPLACE. A bootstrap or rescope is the one place a flush enumerates the
  * slice (`replica.rows()` per kind, plus pending inserts); `snapshot()` is the
@@ -124,7 +124,9 @@
  * Lanes carry no optimism, so `overlaid` and `truth` emit the same rows.
  *
  * DISPOSAL. `dispose()` unsubscribes from both the runtime and the replica; a
- * disposed source never emits again (principal switch, methodology #11).
+ * disposed source never emits again (principal switch, methodology #11), and
+ * its `snapshot()` and `row()` throw instead of serving whatever they last
+ * held (POD-4574: silent stale reads once looked like a 54-row rollup bug).
  */
 
 import {
@@ -676,6 +678,14 @@ export function createRowSource(
   }
 
   function snapshot(kind: RowRecord['kind']): RowRecord[] {
+    // Fail fast (POD-4574): reading a disposed source silently serves
+    // whatever it last held — a stale arm reads stale rows and matches
+    // nothing, which once looked like a 54-row rollup bug. Both arms get it.
+    if (disposed) {
+      throw new Error(
+        'createRowSource: snapshot() on a disposed source (the principal switched; rebind first)',
+      )
+    }
     stats.enumerations += 1
     if (kind === 'worktree') return allLanes()
     return enumerate(kind, readPending())
@@ -684,9 +694,14 @@ export function createRowSource(
   /** One row by id, as `snapshot(kind)` would carry it, with no enumeration
    *  (POD-4567: a pool hydrating a cold row). Keeps the object last emitted
    *  when the fold recomposed an equal one; leaves the emit memo alone, so
-   *  the next flush still emits whatever moved. */
+   *  the next flush still emits whatever moved. Throws on a disposed source,
+   *  like `snapshot()` (POD-4574). */
   function row(kind: 'issue' | 'session', id: string): RowRecord['value'] {
-    if (disposed) return undefined
+    if (disposed) {
+      throw new Error(
+        'createRowSource: row() on a disposed source (the principal switched; rebind first)',
+      )
+    }
     stats.rowsVisited += 1
     return retain(`${kind}:${id}`, resolve(kind, id, readPending()))
   }

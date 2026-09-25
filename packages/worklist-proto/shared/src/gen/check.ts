@@ -86,8 +86,14 @@ export interface CheckOptions {
    * with the overlaid oracle. Absent: edits go through the runtime actions.
    */
   editViaArm?: ArmEditFn
-  /** Called after every settled step, before the next (forwarded to `startGenRun`). */
-  onStep?: (step: StepResult, run: GenRun) => void | Promise<void>
+  /**
+   * Called after every settled step with the LIVE handle — after a `refresh`
+   * disposes the old arm and creates the new one over the new feed, so this
+   * always sees the current arm (unlike a feed subscription made before the
+   * swap). Runs before the step's comparisons. Not forwarded to `startGenRun`
+   * (whose hook runs inside `apply`, before the swap).
+   */
+  onStep?: (step: StepResult, run: GenRun, handle: CheckableArmHandle) => void | Promise<void>
 }
 
 export type Against = 'rebuild' | 'oracle'
@@ -201,7 +207,6 @@ async function runCheck(
     ...(opts.corpus ? { corpus: opts.corpus } : {}),
     feedMode: opts.mode ?? 'overlaid',
     ...(opts.editViaArm ? { editViaArm: opts.editViaArm } : {}),
-    ...(opts.onStep ? { onStep: opts.onStep } : {}),
   })
   const armOf = (ctx: ScenarioEngine): CheckableArm => (typeof arm === 'function' ? arm(ctx) : arm)
   let feed = run.feed()
@@ -264,6 +269,11 @@ async function runCheck(
       const last = index === sequence.length - 1
       const withRebuild = rebuildEvery > 0 && ((index + 1) % rebuildEvery === 0 || last)
       const withOracle = oracleEvery > 0 && ((index + 1) % oracleEvery === 0 || last)
+      if (!withRebuild && !withOracle && opts.onStep === undefined) continue
+      // The subscriber hook sees the live handle: after a reload above, that
+      // is the new arm over the new feed (an in-apply hook would still hold
+      // the disposed one).
+      await opts.onStep?.(step, run, handle)
       if (!withRebuild && !withOracle) continue
       const divergence = compare(index, change, withRebuild, withOracle)
       if (divergence !== null) return { divergence, counts, timing }

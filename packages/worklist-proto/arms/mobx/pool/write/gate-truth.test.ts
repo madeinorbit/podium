@@ -245,18 +245,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       for (const seed of SEEDS) {
         const adapter = new ArmEditAdapter()
         const oracle = new WriteOracle()
-        let live: WritableMobxPoolHandle | null = null
-        const inner = armWithAdapter(adapter)
-        const arm: CheckedArm = (ctx: ScenarioEngine) => {
-          const resolved = typeof inner === 'function' ? inner(ctx) : inner
-          return {
-            create: (source, locals, reads) => {
-              const handle = resolved.create(source, locals, reads)
-              live = handle as WritableMobxPoolHandle
-              return handle
-            },
-          }
-        }
+        const arm = armWithAdapter(adapter)
         const sequence = gen(seed, STEPS, {}, { editFields: ['title', 'readAt'] })
         const gap = { applied: 0 }
         let firstDiff: string | null = null
@@ -268,278 +257,35 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           oracleEvery: 0,
           maxShrinkRuns: SHRINK_RUNS,
           editViaArm: adapter.editHook,
-          onStep: async (step, run) => {
+          onStep: async (step, run, handle) => {
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
-            // TEMPORARY diagnosis (removed before landing): skipped steps.
-            if (step.skipped !== undefined) {
-              const { appendFileSync } = await import('node:fs')
-              appendFileSync(
-                '/tmp/skipped.txt',
-                `seed ${seed} step ${step.index} ${String(step.change.kind)} skipped: ${step.skipped}\n`,
-              )
-            }
             const last = step.index === sequence.length - 1
             if ((step.index + 1) % 10 !== 0 && !last) return
             oracleChecks += 1
+            // `handle` is the live arm after any swap: on a refresh step
+            // checkArm recreates over the new feed before this runs, so the
+            // fidelity compare below always reads the current arm — never a
+            // disposed pre-refresh one.
+            const h = handle as WritableMobxPoolHandle
             // Settle stragglers before comparing: run.apply already quiesced,
             // but post-reload replica/store trickle (settle timers, binding
             // catch-up) can land rows in the feed after the checker's own
-            // drain. Bounded quiet rounds with explicit feed drains; a real
-            // divergence survives them and still fails loudly below.
+            // drain. Bounded content-stable rounds with explicit feed drains;
+            // a real divergence survives them and still fails loudly below.
             const settled = await settleStep(run)
-            const h = live
-            if (h === null) throw new Error('no live arm at oracle step')
             const kernel = oracleSnapshot(run.ctx.engine.getSnapshot())
             const actual = applyGap(h, run.ctx, kernel, h.snapshot(), gap)
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
-            // TEMPORARY diagnosis (removed before landing): the coordinator's
-            // check — legacy derivation over the FEED's server rows. If it
-            // matches the kernel, the kernel converged and live+rebuild share
-            // a rollup bug; if it matches live, the kernel hasn't converged
-            // (harness fix with a real settle signal).
-            {
-              const { snapshotFromStore } = await import('../../../../harness/src/oracle/index')
-              const { appendFileSync } = await import('node:fs')
-              try {
-                const store = run.ctx.engine.getSnapshot()
-                const feedIssues = run
-                  .feed()
-                  .source.snapshot('issue')
-                  .map((r) => r.value)
-                  .filter((v) => v !== undefined)
-                const feedSessions = run
-                  .feed()
-                  .source.snapshot('session')
-                  .map((r) => r.value)
-                  .filter((v) => v !== undefined)
-                const fakeStore = {
-                  ...store,
-                  issues: feedIssues,
-                  sessions: feedSessions,
-                  issueProjections: [],
-                  replica: undefined,
-                }
-                const feedOracle = snapshotFromStore(fakeStore as never, {
-                  selectedIssueId: null,
-                  coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
-                } as never)
-                const r = feedOracle.rowsById['i3150'] as
-                  | { progressDone?: number; progressTotal?: number }
-                  | undefined
-                appendFileSync(
-                  '/tmp/feed-oracle.txt',
-                  `seed ${seed} step ${step.index}: feedOracle=${r === undefined ? 'absent' : `${r.progressDone}/${r.progressTotal}`}\n`,
-                )
-              } catch (error) {
-                appendFileSync(
-                  '/tmp/feed-oracle.txt',
-                  `seed ${seed} step ${step.index}: ERROR ${error instanceof Error ? error.message : String(error)}\n`,
-                )
-              }
-            }
-            // TEMPORARY diagnosis (removed before landing): lane counts.
-            {
-              const { appendFileSync } = await import('node:fs')
-              appendFileSync(
-                '/tmp/lanes.txt',
-                `seed ${seed} step ${step.index}: feedWorktrees=${run.feed().source.snapshot('worktree').length}\n`,
-              )
-            }
-            // TEMPORARY diagnosis (removed before landing): full session
-            // value diff feed-vs-store on divergence.
-            if (diff !== null && firstDiff === null) {
-              const feedSess = new Map(
-                run
-                  .feed()
-                  .source.snapshot('session')
-                  .map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
-              )
-              const storeSess = new Map(
-                (
-                  (run.ctx.engine.getSnapshot() as unknown as { sessions?: Record<string, unknown>[] }).sessions ?? []
-                ).map((s) => [String(s['sessionId'] ?? s['id']), s]),
-              )
-              const sessDiffs: string[] = []
-              for (const [id, f] of feedSess) {
-                const s = storeSess.get(id)
-                if (s === undefined) {
-                  sessDiffs.push(`${id}:feed-only`)
-                  continue
-                }
-                const phaseOf = (v: Record<string, unknown> | undefined): unknown =>
-                  (v?.['agentState'] as Record<string, unknown> | undefined)?.['phase'] ?? null
-                const offerOf = (v: Record<string, unknown> | undefined): unknown =>
-                  v?.['offer'] === undefined ? null : 'offer'
-                const pairs: [string, unknown, unknown][] = [
-                  ['issueId', f?.['issueId'], s['issueId']],
-                  ['archived', f?.['archived'], s['archived']],
-                  ['status', f?.['status'], s['status']],
-                  ['stoppedAt', f?.['stoppedAt'] ?? null, s['stoppedAt'] ?? null],
-                  ['phase', phaseOf(f), phaseOf(s)],
-                  ['offer', offerOf(f), offerOf(s)],
-                ]
-                const df = pairs
-                  .filter(([, a, b]) => JSON.stringify(a) !== JSON.stringify(b))
-                  .map(([k, a, b]) => `${k}:feed=${JSON.stringify(a)} store=${JSON.stringify(b)}`)
-                if (df.length > 0) sessDiffs.push(`${id}:(${df.join(',')})`)
-                if (sessDiffs.length >= 12) break
-              }
-              for (const id of storeSess.keys()) {
-                if (!feedSess.has(id)) sessDiffs.push(`${id}:store-only`)
-                if (sessDiffs.length >= 14) break
-              }
-              const { appendFileSync } = await import('node:fs')
-              appendFileSync('/tmp/sessdiff.txt', `seed ${seed} step ${step.index}:\n${sessDiffs.join('\n')}\n`)
-            }
             if (diff !== null) {
               oracleFailed += 1
             }
-            // TEMPORARY diagnosis (removed before landing): plain pool rebuilt
-            // from the same feed snapshot — same data, no write layer.
             if (diff !== null && firstDiff === null) {
-              const { createReplaySource } = await import('../../../../harness/src/count-harness')
-              const { DISABLED_READ_FENCE } = await import('../../../../shared/src/instrument/reads')
-              const { mobxPoolArm: plainArm } = await import('../arm')
-              const { fixedLocals } = await import('../../../../shared/src/locals-source')
-              const replay = createReplaySource({
-                issues: run.feed().source.snapshot('issue'),
-                sessions: run.feed().source.snapshot('session'),
-                worktrees: run.feed().source.snapshot('worktree'),
-              })
-              const plain = plainArm.create(
-                replay.source,
-                fixedLocals({
-                  selectedIssueId: null,
-                  coarseNow: (run.ctx.engine.getSnapshot() as unknown as { coarseNow: number }).coarseNow,
-                }).source,
-                DISABLED_READ_FENCE,
-              )
-              const r = plain.snapshot().rowsById['i3150'] as
-                | { progressDone?: number; progressTotal?: number }
-                | undefined
-              const { appendFileSync } = await import('node:fs')
-              appendFileSync(
-                '/tmp/plain-fresh.txt',
-                `seed ${seed} step ${step.index}: plainFresh=${r === undefined ? 'absent' : `${r.progressDone}/${r.progressTotal}`}\n`,
-              )
-              plain.dispose()
-              // TEMPORARY: residency registry state for i3156 (a table(?)
-              // cold row): known? coldRow value?
-              const { runInAction: ria2 } = await import('mobx')
-              const residency = h.pool.residency
-              const reg = ria2(() => {
-                if (residency === null) return 'no-residency'
-                const ke = residency as unknown as {
-                  isCold(e: string, id: string): boolean
-                  known(e: string, id: string): boolean
-                  load(e: string, id: string): unknown
-                }
-                const knownCold = ke.isCold('issue', 'i3156')
-                const knownKnown = (() => {
-                  try {
-                    return String(ke.known('issue', 'i3156'))
-                  } catch {
-                    return 'throws'
-                  }
-                })()
-                const coldVal = h.pool.coldRow('issue', 'i3156') as unknown
-                let loadVal = '?'
-                try {
-                  loadVal = ke.load('issue', 'i3156') === undefined ? 'undef' : 'row'
-                } catch {
-                  loadVal = 'throws'
-                }
-                return `isCold=${knownCold} known=${knownKnown} coldRow=${coldVal === undefined ? 'undef' : 'row'} load=${loadVal}`
-              })
-              appendFileSync('/tmp/plain-fresh.txt', `residency i3156: ${reg}\n`)
-              // TEMPORARY diagnosis (removed before landing): source.row vs
-              // snapshot for the cold row the pool cannot materialize.
-              const src = run.feed().source
-              const byId = src.snapshot('issue').find((r) => r.id === 'i3156')?.value as
-                | Record<string, unknown>
-                | undefined
-              let one: string
-              try {
-                const v = src.row === undefined ? 'no-row-fn' : src.row('issue', 'i3156')
-                one = v === undefined ? 'undef' : String((v as Record<string, unknown>)['stage'])
-              } catch (error) {
-                one = `throws:${error instanceof Error ? error.message : String(error)}`
-              }
-              appendFileSync(
-                '/tmp/plain-fresh.txt',
-                `rowfn i3156: snapshot=${byId === undefined ? 'absent' : String(byId['stage'])} row()=${one}\n`,
-              )
-            }
-            if (diff !== null && firstDiff === null) {
-              // TEMPORARY diagnosis (removed before landing): spinOff fields
-              // + pool spinOffs size across the closure of the first row.
-              const m2 = /row (i[a-zA-Z0-9-]+): progressDone/.exec(diff)
-              let extra2 = ''
-              if (m2) {
-                const target = m2[1] as string
-                const feedRows = new Map(
-                  run
-                    .feed()
-                    .source.snapshot('issue')
-                    .map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
-                )
-                const seen = new Set<string>([target])
-                const queue = [target]
-                const lines: string[] = []
-                while (queue.length > 0 && lines.length < 30) {
-                  const cur = queue.shift() as string
-                  for (const [id, v] of feedRows) {
-                    if (v !== undefined && (v['parentId'] as string | null) === cur && !seen.has(id)) {
-                      seen.add(id)
-                      queue.push(id)
-                      const so = runInAction(
-                        () => [...h.pool.relations.many('issue', id, 'spinOffs' as never)].length,
-                      )
-                      lines.push(
-                        `${id}:df=${String(v['discoveredFrom'] ?? '-')}/so=${so}/st=${String(v['stage'])}`,
-                      )
-                    }
-                  }
-                }
-                extra2 = `\nspinOffs:\n${lines.join('\n')}`
-                // TEMPORARY diagnosis (removed before landing): seatIds +
-                // openOwn per closure row with spinOffs.
-                const seatLines: string[] = []
-                for (const [id] of feedRows) {
-                  const so = runInAction(
-                    () => [...h.pool.relations.many('issue', id, 'spinOffs' as never)].length,
-                  )
-                  if (so === 0) continue
-                  const st = runInAction(() => {
-                    const n = h.pool.worklist.issue(id) as unknown as
-                      | {
-                        sessionIds: readonly string[]
-                        rollup: { loading: boolean } | undefined
-                      }
-                      | undefined
-                    if (n === undefined) return null
-                    const seats = [...n.sessionIds]
-                    const open: string[] = []
-                    for (const s of seats) {
-                      const r = h.pool.worklist.session(s) as unknown as
-                        | { retention: { issueId: string | null; archived: boolean; exited: boolean } | null }
-                        | undefined
-                      const ret = r?.retention ?? null
-                      open.push(`${s}:${ret === null ? 'null' : `${String(ret.issueId)}/${ret.archived ? 'A' : 'a'}${ret.exited ? 'E' : 'e'}`}`)
-                    }
-                    return `seats=[${open.join(',')}]`
-                  })
-                  seatLines.push(`${id}:so=${so} ${st ?? 'no-node'}`)
-                  if (seatLines.length >= 20) break
-                }
-                extra2 += `\nseats:\n${seatLines.join('\n')}`
-              }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-                `(${JSON.stringify(step.change)}, settled=${settled}):\n${diff}${extra2}`
+                `(${JSON.stringify(step.change)}, settled=${settled}):\n${diff}`
             }
           },
         })
