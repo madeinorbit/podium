@@ -14,12 +14,16 @@
  * expectation from the contract instead: the feed's server rows with the
  * reference log's pending display overlaid.
  *
- * COMPARISON SURFACE. The gate compares `SliceSnapshot`s, which carry exactly
- * one editable field: `title` (`stage` and `readAt` never reach a row). The
- * log still tracks all three (stacked priors and echo confirmation need
- * them), but the patch touches titles only. Pending edits never move
- * visibility, order or groups, so those come from the kernel oracle
- * untouched.
+ * COMPARISON SURFACE. The gate compares `SliceSnapshot`s. The expected
+ * snapshot is the WHOLE display computed from server truth plus the
+ * reference log (coordinator ruling, option b): the feed's current server
+ * rows with the pending display overlaid per row, run through the shared
+ * slice oracle (`snapshotFromStore`, the same function as the feed-oracle
+ * check). Membership, order, groups, decay windows and roll-ups then follow
+ * the spec rules over the overlaid rows — whether a pending readAt reopens
+ * a window is decided by the slice rule itself, never by the kernel, the
+ * arm, or a test exception. The kernel is never an input here; it stays a
+ * counted legacy finding in the gate (`kernelDiffers`).
  *
  * INDEPENDENCE. This log is fed from the RUN (generated intents, kernel
  * outcomes, feed rows under kernel ids), never from the arm: an arm that
@@ -37,6 +41,9 @@
 
 import type { RowSource } from '../arm'
 import type { SliceSnapshot } from '../slice-types'
+import { snapshotFromStore } from '../../../harness/src/oracle/index'
+import type { PodiumClientApi } from '@podium/client-core/api'
+import type { Store } from '@podium/client-core/engine'
 import { baseOf } from '../receipts'
 import {
   createPendingLog,
@@ -86,10 +93,6 @@ export class WriteOracle {
   /** Every row ever appended (pruned when its log empties; the log itself
    *  has no whole-log enumeration). */
   private readonly rows = new Set<string>()
-  /** Titles the log held per row, kept after they leave (retired-hold
-   *  detection in `patchSnapshot`; cleared when the row goes pending again
-   *  is unnecessary — a pending row takes the display branch instead). */
-  private readonly seenTitles = new Map<string, Set<string>>()
   /** Server arrivals already consumed (deduped re-sends below). */
   private arrivalsSeen = 0
 
@@ -128,15 +131,6 @@ export class WriteOracle {
     }
     this.log.append({ txId: kernelId, kind: 'issue', id, patch, prior })
     this.rows.add(id)
-    const patchRecord = patch as { title?: string }
-    if (patchRecord.title !== undefined) {
-      let seen = this.seenTitles.get(id)
-      if (!seen) {
-        seen = new Set()
-        this.seenTitles.set(id, seen)
-      }
-      seen.add(patchRecord.title)
-    }
   }
 
   accept(kernelId: TxId): void {
@@ -226,15 +220,6 @@ export class WriteOracle {
       }
       if (entry.acked) this.log.settle({ txId: entry.txId })
       this.rows.add(mapped.id)
-      const patchRecord = mapped.patch as { title?: string }
-      if (patchRecord.title !== undefined) {
-        let seen = this.seenTitles.get(mapped.id)
-        if (!seen) {
-          seen = new Set()
-          this.seenTitles.set(mapped.id, seen)
-        }
-        seen.add(patchRecord.title)
-      }
       this.synced.delete(mapped.id)
     }
     this.syncPending(source)
@@ -253,44 +238,44 @@ export class WriteOracle {
     return out
   }
 
-  /** Whether the log currently holds a pending title for the row. */
-  private hasPendingTitle(id: string): boolean {
-    return this.log
-      .pendingFor('issue', id)
-      .some((e) => (e.patch as { title?: string }).title !== undefined)
-  }
-
   /**
-   * The expected display: server truth plus the shared reference log, for
-   * every row, whatever the kernel or the arm shows (F4). Each row keeps the
-   * kernel snapshot's shape and every field the gate does not edit; its title
-   * is the reference display (newest pending title) wherever the log holds
-   * one. Where the log is empty but the kernel still shows a title the log
-   * once held (a chained overlay retired past a newer server value), server
-   * truth is expected instead — with no condition on the arm, so an arm that
-   * copies the kernel's hold fails here. Titles never pending (draft display
-   * names and the like) are the kernel's own and are never rewritten.
+   * The WHOLE expected snapshot (coordinator ruling, option b): the shared
+   * slice oracle over the feed's current server rows with the reference
+   * log's pending display overlaid per row. Rows with nothing pending pass
+   * through untouched; rows with pending edits get fresh objects carrying
+   * the display (titles, readAt, and anything later, through `displayOf`).
+   * Sessions come from the feed like the feed-oracle check; reference data
+   * the feed never carries (repos, machines, pins) comes from the store.
+   * The kernel is never an input: membership included, the display follows
+   * the spec rules over the overlaid rows. Unselected baseline at the
+   * store's clock, like `oracleSnapshot`.
    */
-  patchSnapshot(oracle: SliceSnapshot, source: RowSource): SliceSnapshot {
-    const server = this.serverRows(source)
-    const rowsById = { ...oracle.rowsById }
-    for (const id of this.pendingIds()) {
-      const row = rowsById[id]
-      const values = server.get(id)
-      if (row === undefined || values === undefined) continue
-      const display = displayOf(this.log, id, values)
-      if (display.title !== row.title) rowsById[id] = { ...row, title: display.title }
-    }
-    for (const [id, titles] of this.seenTitles) {
-      if (this.hasPendingTitle(id)) continue
-      const row = rowsById[id]
-      const values = server.get(id)
-      if (row === undefined || values === undefined) continue
-      if (titles.has(row.title) && row.title !== values.title) {
-        rowsById[id] = { ...row, title: values.title }
+  expectedSnapshot(store: Store<PodiumClientApi>, source: RowSource): SliceSnapshot {
+    const issues: unknown[] = []
+    for (const record of source.snapshot('issue')) {
+      const value = record.value as Record<string, unknown> | undefined
+      if (value === undefined) continue
+      if (this.log.pendingFor('issue', record.id).length === 0) {
+        issues.push(value)
+        continue
       }
+      issues.push({ ...value, ...displayOf(this.log, record.id, editableOf(value)) })
     }
-    return { ...oracle, rowsById }
+    const sessions: unknown[] = []
+    for (const record of source.snapshot('session')) {
+      if (record.value !== undefined) sessions.push(record.value)
+    }
+    const overlaid = {
+      ...store,
+      issues,
+      sessions,
+      issueProjections: [],
+      replica: undefined,
+    }
+    return snapshotFromStore(overlaid as never, {
+      selectedIssueId: null,
+      coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
+    } as never)
   }
 }
 

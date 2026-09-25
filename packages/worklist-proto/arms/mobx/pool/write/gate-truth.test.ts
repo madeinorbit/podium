@@ -3,18 +3,24 @@
  * pool on the `truth` feed, generated edits routed through the arm's
  * `write.edit` into the real kernel transport (the shared `ArmEditAdapter`),
  * compared after every step with its optimism-aware rebuild and, every 10
- * steps and after the last, with the F4 write oracle (coordinator ruling:
- * server truth plus the shared reference log for every row, whatever the
- * kernel or the arm shows, `shared/src/gen/write-oracle.ts`). Kernel-fold
- * differences (an applied overlay retired on moved-past-baseline while the
- * contract holds, or a chained overlay held past a newer server value) count
- * per check as `kernelDiffers`: findings, not failures.
+ * steps and after the last, with the shared write oracle (coordinator
+ * ruling, option b: the WHOLE expected snapshot from server truth plus the
+ * shared reference log, `shared/src/gen/write-oracle.ts`). The kernel's own
+ * fold is never expected values: kernel-fold differences (an applied overlay
+ * retired on moved-past-baseline while the contract holds, or a chained
+ * overlay held past a newer server value) count per check as `kernelDiffers`:
+ * findings, not failures.
  *
  * Like `gate.test.ts`, the oracle comparison carries POD-4671's one-row gap
  * (`acceptUnscannedGap`), which throws once the seat exists. Seeds × steps
  * follow `gate.test.ts` (`POD_POOL_GATE_SEEDS`, default 3;
  * `POD_POOL_GATE_STEPS`, default 200). The gate of record is 20 × 300.
  * Timeout scales the same way (5 s per seed-step).
+ *
+ * COMPLETE-OR-FAIL. Every seed runs to the end and lands a per-seed row in
+ * the result file (steps run, ok, first failing step, change, diff, kernel
+ * finding); the test fails at the end when any seed failed — never on the
+ * first failing seed, which once lost the counts and left seeds unrun.
  *
  * VOCABULARY. Generated edits set titles and mark-reads only
  * (`editFields: ['title', 'readAt']`): a pending stage moves progress
@@ -187,6 +193,24 @@ function dropPendingOnRemote(handle: WritableMobxPoolHandle): void {
 }
 
 /**
+ * A hidden decayed issue on a fresh run: a server readAt the live set does
+ * not show, present in the pool tables (so a generated edit accepts it).
+ * Throws when the corpus carries none — the visibility plants need the shape.
+ */
+function hiddenDecayedTarget(handle: WritableMobxPoolHandle, source: RowSource, skipId: string): string {
+  const live = handle.snapshot()
+  for (const record of source.snapshot('issue')) {
+    const value = record.value as { readAt?: unknown } | undefined
+    if (value === undefined || typeof value.readAt !== 'string' || value.readAt === '') continue
+    if (record.id === skipId) continue
+    if (!handle.pool.tables.issue.has(record.id)) continue
+    if (record.id in live.rowsById) continue
+    return record.id
+  }
+  throw new Error('[plant] no hidden decayed issue in the fresh corpus')
+}
+
+/**
  * POD-4671's one-row gap patched into a snapshot (the same rule as
  * `gate.test.ts`'s `gapped`): the oracle's row taken for each row
  * `acceptUnscannedGap` names, counted in `tally.applied`. A gap row carrying
@@ -222,16 +246,22 @@ function applyGap(
 function gapped(
   arm: CheckedArm,
   tally: { applied: number },
+  oracle: WriteOracle,
 ): CheckedArm {
   return (ctx: ScenarioEngine) => ({
     create(source, locals, reads) {
       const resolved = typeof arm === 'function' ? arm(ctx) : arm
       const handle = resolved.create(source, locals, reads) as WritableMobxPoolHandle
+      // The gap base is the same whole expected snapshot the oracle compare
+      // uses below, so the known one-row exception is neutralized identically
+      // on both sides of the rebuild compare.
+      const base = (): SliceSnapshot =>
+        oracle.expectedSnapshot(ctx.engine.getSnapshot(), source)
       return {
         ...handle,
-        snapshot: () => applyGap(handle, ctx, oracleSnapshot(ctx.engine.getSnapshot()), handle.snapshot(), tally),
+        snapshot: () => applyGap(handle, ctx, base(), handle.snapshot(), tally),
         rebuildFromScratch: () =>
-          applyGap(handle, ctx, oracleSnapshot(ctx.engine.getSnapshot()), handle.rebuildFromScratch(), tally),
+          applyGap(handle, ctx, base(), handle.rebuildFromScratch(), tally),
       }
     },
   })
@@ -249,12 +279,16 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const sequence = gen(seed, STEPS, {}, { editFields: ['title', 'readAt'] })
         const gap = { applied: 0 }
         let firstDiff: string | null = null
+        let firstDiffStep = -1
+        let firstDiffChange: string | null = null
+        let firstKernelDiff: string | null = null
+        let firstKernelDiffStep = -1
         let kernelDiffers = 0
         let oracleChecks = 0
         let oracleFailed = 0
         let healed = 0
         const failedSteps: number[] = []
-        const result = await checkArm(gapped(arm, gap), sequence, {
+        const result = await checkArm(gapped(arm, gap, oracle), sequence, {
           mode: 'truth',
           oracleEvery: 0,
           maxShrinkRuns: SHRINK_RUNS,
@@ -282,13 +316,26 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               expected: SliceSnapshot
               diff: string | null
             } => {
-              const kernel = oracleSnapshot(run.ctx.engine.getSnapshot())
-              const actual = applyGap(h, run.ctx, kernel, h.snapshot(), gap)
-              const expected = oracle.patchSnapshot(kernel, run.feed().source)
+              const store = run.ctx.engine.getSnapshot()
+              const kernel = oracleSnapshot(store)
+              const expected = oracle.expectedSnapshot(store, run.feed().source)
+              const actual = applyGap(h, run.ctx, expected, h.snapshot(), gap)
               return { kernel, actual, expected, diff: diffSnapshots(actual, expected) }
             }
             const first = compareOnce()
-            if (diffSnapshots(first.kernel, first.expected) !== null) kernelDiffers += 1
+            // The kernel is the counted legacy finding, never expected
+            // values: record each step it disagrees with the reference
+            // display, with the first example, and write both to the note.
+            const kernelDiff = diffSnapshots(first.kernel, first.expected)
+            if (kernelDiff !== null) {
+              kernelDiffers += 1
+              if (firstKernelDiff === null) {
+                firstKernelDiffStep = step.index
+                firstKernelDiff =
+                  `step ${step.index} kernel-vs-expected ` +
+                  `(${JSON.stringify(step.change)}):\n${kernelDiff}`
+              }
+            }
             let diff = first.diff
             // Confirm-or-heal: the arm, the feed and the kernel converge over
             // async delivery (loads, binding catch-up, publish lag) that can
@@ -307,39 +354,94 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               }
             }
             if (diff !== null && firstDiff === null) {
+              firstDiffStep = step.index
+              firstDiffChange = JSON.stringify(step.change)
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-                `(${JSON.stringify(step.change)}, settled=${settled}):\n${diff}`
+                `(${firstDiffChange}, settled=${settled}):\n${diff}`
             }
             if (diff !== null) {
               failedSteps.push(step.index)
             }
           },
         })
+        // Complete-or-fail: every seed lands its row; the test fails at the
+        // end when any seed failed, never mid-loop.
         if (!result.ok) {
-          throw new Error(
-            `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
+          cells.push({
+            seed,
+            steps: STEPS,
+            ok: false,
+            against: result.against,
+            failStep: result.step,
+            change: result.change,
+            diff:
+              `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
               `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}\n` +
               `counts=${JSON.stringify(result.counts)}`,
-          )
+            counts: result.counts,
+            gapApplied: gap.applied,
+            oracleChecks,
+            oracleFailed,
+            kernelDiffers,
+            firstKernelDiffStep,
+            firstKernelDiff,
+            healed,
+            failedSteps,
+          })
+          continue
         }
         if (firstDiff !== null) {
-          throw new Error(
-            `${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks} at steps [${failedSteps.join(',')}]`,
-          )
+          cells.push({
+            seed,
+            steps: STEPS,
+            ok: false,
+            against: 'oracle',
+            failStep: firstDiffStep,
+            change: firstDiffChange,
+            diff:
+              `${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks} ` +
+              `at steps [${failedSteps.join(',')}]`,
+            counts: result.counts,
+            gapApplied: gap.applied,
+            oracleChecks,
+            oracleFailed,
+            kernelDiffers,
+            firstKernelDiffStep,
+            firstKernelDiff,
+            healed,
+            failedSteps,
+          })
+          continue
         }
         cells.push({
           seed,
           steps: STEPS,
+          ok: true,
           counts: result.counts,
           gapApplied: gap.applied,
           oracleChecks,
           oracleFailed,
           kernelDiffers,
+          firstKernelDiffStep,
+          firstKernelDiff,
           healed,
+          failedSteps,
         })
       }
       writeResult(`mobx-write-truth-gate-1x-${SEEDS.length}x${STEPS}`, { seeds: SEEDS, steps: STEPS, cells })
+      const failed = cells.filter((cell) => cell.ok !== true)
+      if (failed.length > 0) {
+        const lines = failed.map((cell) => {
+          const c = cell as { seed: number; against: unknown; failStep: unknown; diff: string }
+          const firstLine = c.diff.split('\n')[0]
+          return `seed ${c.seed} vs ${c.against} at step ${c.failStep}: ${firstLine}`
+        })
+        throw new Error(
+          `truth gate failed for ${failed.length}/${cells.length} seeds:\n${lines.join('\n')}\n` +
+            `(per-seed rows in the result file above)`,
+        )
+      }
     },
     GATE_TIMEOUT_MS,
   )
@@ -458,5 +560,130 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       expect(failures).toBe(SEEDS.length)
     },
     GATE_TIMEOUT_MS,
+  )
+
+  it(
+    'plant (i): ignoring a pending readAt for visibility hides the reopened window',
+    async () => {
+      for (const planted of [false, true]) {
+        const adapter = new ArmEditAdapter()
+        const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
+        const feed = run.feed()
+        const locals = createEngineLocals(run.ctx.engine)
+        const inner = writableMobxPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
+        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        // The plant: visibility reads the server-only lane, never the
+        // pending cursor — the pre-fix shape (since 80e65b1ca the wrapper
+        // overlays it).
+        if (planted) {
+          const visible = handle.pool.visibleInputs as {
+            issueRead(id: string): string | null | undefined
+          }
+          visible.issueRead = (id: string) => handle.pool.readStates.get(id)
+        }
+        try {
+          const id = hiddenDecayedTarget(
+            handle,
+            feed.source,
+            run.ctx.corpus.unscannedWorktree.issueId,
+          )
+          const step = await run.apply({ kind: 'edit', handle: 'e1', id, patch: { readAt: true } })
+          expect(step.skipped).toBeUndefined()
+          adapter.pairFromStep(step.detail ?? {})
+          locals.flush()
+          const live = handle.snapshot()
+          const rebuilt = handle.rebuildFromScratch()
+          if (!planted) {
+            // Clean: the pending cursor reopens the window on both sides.
+            expect(id in live.rowsById).toBe(true)
+            expect(id in rebuilt.rowsById).toBe(true)
+            expect(diffSnapshots(live, rebuilt)).toBeNull()
+          } else {
+            // Planted: live hides the row while the rebuild (overlaid rows)
+            // shows it — the gate's seed-1/step-6 shape.
+            expect(id in live.rowsById).toBe(false)
+            expect(id in rebuilt.rowsById).toBe(true)
+            expect(diffSnapshots(live, rebuilt)).not.toBeNull()
+          }
+        } finally {
+          handle.dispose()
+          locals.dispose()
+          run.dispose()
+        }
+      }
+    },
+    120_000,
+  )
+
+  it(
+    'plant (ii): a row visible with no pending read fails the shared oracle',
+    async () => {
+      for (const planted of [false, true]) {
+        const adapter = new ArmEditAdapter()
+        const oracle = new WriteOracle()
+        const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
+        const feed = run.feed()
+        const locals = createEngineLocals(run.ctx.engine)
+        const inner = writableMobxPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
+        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        try {
+          const id = hiddenDecayedTarget(
+            handle,
+            feed.source,
+            run.ctx.corpus.unscannedWorktree.issueId,
+          )
+          // The plant: a phantom fresh cursor the reference log never holds,
+          // seen by both arm derivations and by nothing else.
+          if (planted) {
+            const fresh = new Date(Date.now()).toISOString()
+            const visible = handle.pool.visibleInputs as {
+              issueRead(id: string): string | null | undefined
+            }
+            const originalRead = visible.issueRead.bind(handle.pool.visibleInputs)
+            visible.issueRead = (vid: string) => (vid === id ? fresh : originalRead(vid))
+            const display = handle.write.pendingDisplay.bind(handle.write) as (
+              kind: string,
+              vid: string,
+            ) => unknown
+            handle.write.pendingDisplay = ((kind: string, vid: string) =>
+              kind === 'issue' && vid === id ? { readAt: fresh } : display(kind, vid)) as unknown as typeof handle.write.pendingDisplay
+          }
+          await settleStep(run)
+          locals.flush()
+          const live = handle.snapshot()
+          const rebuilt = handle.rebuildFromScratch()
+          const store = run.ctx.engine.getSnapshot()
+          const kernel = oracleSnapshot(store)
+          const expected = oracle.expectedSnapshot(store, feed.source)
+          const gapTally = { applied: 0 }
+          const actual = applyGap(handle, run.ctx, expected, live, gapTally)
+          if (!planted) {
+            expect(id in live.rowsById).toBe(false)
+            expect(id in rebuilt.rowsById).toBe(false)
+            expect(id in expected.rowsById).toBe(false)
+            expect(diffSnapshots(actual, expected)).toBeNull()
+          } else {
+            // Both arm derivations show the phantom row (common-mode), the
+            // kernel hides it, and the shared oracle — nothing pending in
+            // the reference log — hides it too.
+            expect(id in live.rowsById).toBe(true)
+            expect(id in rebuilt.rowsById).toBe(true)
+            expect(diffSnapshots(live, rebuilt)).toBeNull()
+            expect(id in kernel.rowsById).toBe(false)
+            expect(id in expected.rowsById).toBe(false)
+            const diff = diffSnapshots(actual, expected)
+            expect(diff).not.toBeNull()
+            expect(diff).toContain(id)
+          }
+        } finally {
+          handle.dispose()
+          locals.dispose()
+          run.dispose()
+        }
+      }
+    },
+    120_000,
   )
 })
