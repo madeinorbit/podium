@@ -67,7 +67,6 @@ describe('readIssuesDisplay', () => {
     const desktop = {
       layout: 'list' as const,
       ordering: 'created' as const,
-      flatten: true,
       showAgentTasks: false,
       badges: { labels: false, type: true, estimate: false, due: true, sessions: false },
     }
@@ -205,13 +204,9 @@ describe('computeEpicProgress (#198)', () => {
   })
 })
 
-describe('flatten pref (#85)', () => {
-  it('defaults to nested (flatten=false) and survives a stale blob missing the field', () => {
-    expect(readIssuesDisplay(null).flatten).toBe(false)
-    expect(readIssuesDisplay(JSON.stringify({ layout: 'list' })).flatten).toBe(false)
-  })
-  it('round-trips flatten=true through write/read', () => {
-    const d = { ...readIssuesDisplay(null), flatten: true }
-    expect(readIssuesDisplay(writeIssuesDisplay(d)).flatten).toBe(true)
+describe('retired flatten preference', () => {
+  it('ignores a saved flat view and keeps tasks nested', () => {
+    expect(readIssuesDisplay(JSON.stringify({ flatten: true }))).toEqual(DEFAULT_DISPLAY)
+    expect(JSON.parse(writeIssuesDisplay(DEFAULT_DISPLAY)).flatten).toBeUndefined()
   })
 })

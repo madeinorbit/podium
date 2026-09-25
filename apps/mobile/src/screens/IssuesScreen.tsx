@@ -139,15 +139,6 @@ export function IssuesScreen() {
     ],
   )
   const chips = useMemo(() => filterChips(filter), [filter])
-  const types = useMemo(() => [...new Set(issues.map((issue) => issue.type))].sort(), [issues])
-  const assignees = useMemo(
-    () => [...new Set(issues.map((issue) => issue.assignee).filter(Boolean))].sort() as string[],
-    [issues],
-  )
-  const labels = useMemo(
-    () => [...new Set(issues.flatMap((issue) => issue.labels))].sort(),
-    [issues],
-  )
   const workingByIssue = useMemo(
     () => confirmedWorkingAgentCountsByIssue(issues, sessions, store.coarseNow),
     [issues, sessions, store.coarseNow],
@@ -250,9 +241,6 @@ export function IssuesScreen() {
         filter={filter}
         ordering={display.ordering}
         showAgentTasks={display.showAgentTasks}
-        types={types}
-        assignees={assignees}
-        labels={labels}
         onFilter={setFilter}
         onOrdering={(ordering) => setDisplay({ ...display, ordering })}
         onShowAgentTasks={(showAgentTasks) => setDisplay({ ...display, showAgentTasks })}
