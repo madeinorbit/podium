@@ -204,10 +204,7 @@ function maintenanceOf(runs: Map<string, number>): [string, number][] {
  * and to observable-map patches — shows up here at the visible count. Bound
  * per hot-path change: 0 elements, 0 lengths.
  */
-function countOrderReads(
-  pool: MobxPool,
-  run: () => void,
-): { elements: number; lengths: number } {
+function countOrderReads(pool: MobxPool, run: () => void): { elements: number; lengths: number } {
   const groups = pool.groups as unknown as { host: { order(): readonly string[] } }
   const original = groups.host.order
   let elements = 0
@@ -609,7 +606,8 @@ describe('scaling: the work follows the change (POD-4686)', () => {
       }
     }, 600_000)
 
-    it(`click re-validates no maintenance reaction at ${scale}x`, () => {      const r = rig(scale)
+    it(`click re-validates no maintenance reaction at ${scale}x`, () => {
+      const r = rig(scale)
       let audit: { stop(): void } | undefined
       try {
         const { pool } = r.handle
