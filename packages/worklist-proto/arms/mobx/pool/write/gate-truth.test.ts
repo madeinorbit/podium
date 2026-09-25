@@ -2,8 +2,13 @@
  * POD-4574 (Mc2) — L4b with the arm owning its optimism: the writable MobX
  * pool on the `truth` feed, generated edits routed through the arm's
  * `write.edit` into the real kernel transport (the shared `ArmEditAdapter`),
- * compared after every step with its optimism-aware rebuild and with the
- * overlaid oracle (the legacy's optimistic paint).
+ * compared after every step with its optimism-aware rebuild and, every 10
+ * steps and after the last, with the F4 write oracle (coordinator ruling:
+ * server truth plus the shared reference log, `shared/src/gen/write-
+ * oracle.ts`) — not with the kernel's optimistic paint, which retires an
+ * applied overlay as soon as the server row moved past its enqueue baseline
+ * while the contract holds the pending value until the echo (a finding, not
+ * a failure; counted per step as `kernelDiffers`).
  *
  * Like `gate.test.ts`, the oracle comparison carries POD-4671's one-row gap
  * (`acceptUnscannedGap`), which throws once the seat exists. Seeds × steps
@@ -37,6 +42,7 @@ import { ArmEditAdapter } from '../../../../shared/src/gen/arm-edits'
 import { gen, type Change } from '../../../../shared/src/gen/changes'
 import { checkArm, describeSequence, diffSnapshots, type CheckedArm } from '../../../../shared/src/gen/check'
 import { startGenRun } from '../../../../shared/src/gen/run'
+import { feedStep, WriteOracle } from '../../../../shared/src/gen/write-oracle'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
 import { installMobxWarnTrap } from '../mobx-trap'
@@ -51,7 +57,10 @@ const SEEDS = Array.from(
   (_, i) => i + Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1),
 )
 const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
-const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 5_000)
+const GATE_TIMEOUT_MS = Number(
+  process.env['POD_POOL_GATE_TIMEOUT_MS'] ?? Math.max(1_500_000, SEEDS.length * STEPS * 5_000),
+)
+const SHRINK_RUNS = Number(process.env['POD_POOL_GATE_SHRINK_RUNS'] ?? 200)
 
 /**
  * The writable arm over the adapter's transport, stashing the live write API
@@ -125,7 +134,9 @@ function dropPendingOnRemote(handle: WritableMobxPoolHandle): void {
 /**
  * POD-4671's one-row gap patched in the snapshot and the rebuild (the same
  * wrapper as `gate.test.ts`'s `gapped`): the oracle's row taken for each row
- * `acceptUnscannedGap` names, counted in `tally.applied`.
+ * `acceptUnscannedGap` names, counted in `tally.applied`. A gap row carrying
+ * a pending title keeps the live title: the gap is about the seat, and the
+ * write oracle judges the pending display.
  */
 function gapped(
   arm: CheckedArm,
@@ -141,7 +152,18 @@ function gapped(
         if (rows.length === 0) return snapshot
         tally.applied += rows.length
         const rowsById = { ...snapshot.rowsById }
-        for (const id of rows) rowsById[id] = oracle.rowsById[id]!
+        for (const id of rows) {
+          const patched = { ...oracle.rowsById[id]! }
+          const liveTitle = snapshot.rowsById[id]?.title
+          const pendingTitles = handle.write.log
+            .pendingFor('issue', id)
+            .map((e) => (e.patch as { title?: string }).title)
+            .filter((t) => t !== undefined)
+          if (pendingTitles.length > 0 && liveTitle === pendingTitles[pendingTitles.length - 1]) {
+            patched.title = liveTitle as string
+          }
+          rowsById[id] = patched
+        }
         return { ...snapshot, rowsById }
       }
       return {
@@ -155,18 +177,52 @@ function gapped(
 
 describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
   it(
-    'passes every seed against the rebuild and the overlaid oracle',
+    'passes every seed against the rebuild and the write oracle',
     async () => {
       const cells = []
       for (const seed of SEEDS) {
         const adapter = new ArmEditAdapter()
-        const arm = armWithAdapter(adapter)
+        const oracle = new WriteOracle()
+        let live: WritableMobxPoolHandle | null = null
+        const inner = armWithAdapter(adapter)
+        const arm: CheckedArm = (ctx: ScenarioEngine) => {
+          const resolved = typeof inner === 'function' ? inner(ctx) : inner
+          return {
+            create: (source, locals, reads) => {
+              const handle = resolved.create(source, locals, reads)
+              live = handle as WritableMobxPoolHandle
+              return handle
+            },
+          }
+        }
         const sequence = gen(seed, STEPS)
         const gap = { applied: 0 }
+        let firstDiff: string | null = null
+        let kernelDiffers = 0
+        let oracleChecks = 0
         const result = await checkArm(gapped(arm, gap), sequence, {
           mode: 'truth',
+          oracleEvery: 0,
           editViaArm: adapter.editHook,
-          onStep: (step) => adapter.pairFromStep(step.detail ?? {}),
+          onStep: (step, run) => {
+            adapter.pairFromStep(step.detail ?? {})
+            feedStep(oracle, step, run)
+            const last = step.index === sequence.length - 1
+            if ((step.index + 1) % 10 !== 0 && !last) return
+            oracleChecks += 1
+            const h = live
+            if (h === null) throw new Error('no live arm at oracle step')
+            const actual = h.snapshot()
+            const kernel = oracleSnapshot(run.ctx.engine.getSnapshot())
+            const expected = oracle.patchSnapshot(kernel, run.feed().source)
+            if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
+            const diff = diffSnapshots(actual, expected)
+            if (diff !== null && firstDiff === null) {
+              firstDiff =
+                `seed ${seed}: step ${step.index} diverged from the write oracle ` +
+                `(${JSON.stringify(step.change)}):\n${diff}`
+            }
+          },
         })
         if (!result.ok) {
           throw new Error(
@@ -174,7 +230,15 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}`,
           )
         }
-        cells.push({ seed, steps: STEPS, counts: result.counts, gapApplied: gap.applied })
+        if (firstDiff !== null) throw new Error(firstDiff)
+        cells.push({
+          seed,
+          steps: STEPS,
+          counts: result.counts,
+          gapApplied: gap.applied,
+          oracleChecks,
+          kernelDiffers,
+        })
       }
       writeResult(`mobx-write-truth-gate-1x-${SEEDS.length}x${STEPS}`, { seeds: SEEDS, steps: STEPS, cells })
     },
