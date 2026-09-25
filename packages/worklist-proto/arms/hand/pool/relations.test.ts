@@ -825,7 +825,9 @@ describe('the reads fence and the write record', () => {
       // one does), the flat pass that reads that, and S2's own parts on
       // their first read. The roll-ups (POD-4584, Hb3): S2's seat verdict on
       // its first read, I2's own part, attention, activity and roll-up over
-      // it. Nothing of I1.
+      // it — and I2's roster: the retained live roster reads I2's sessions
+      // bucket through memberIds (its own cell since eb0b2dad5, so retention
+      // churn stops there), and S2 just joined that bucket. Nothing of I1.
       expect(ran.stop().sort()).toEqual(
         [
           'sessionIds:I2',
@@ -842,6 +844,7 @@ describe('the reads fence and the write record', () => {
           'rollup:aggregate:I2',
           'rollup:ownAttention:I2',
           'rollup:rollup:I2',
+          'rollup:roster:I2',
           'rollup:seatActivity:I2',
           'rollup:verdict:S2',
         ].sort(),
