@@ -132,12 +132,38 @@ function dropPendingOnRemote(handle: WritableMobxPoolHandle): void {
 }
 
 /**
- * POD-4671's one-row gap patched in the snapshot and the rebuild (the same
- * wrapper as `gate.test.ts`'s `gapped`): the oracle's row taken for each row
+ * POD-4671's one-row gap patched into a snapshot (the same rule as
+ * `gate.test.ts`'s `gapped`): the oracle's row taken for each row
  * `acceptUnscannedGap` names, counted in `tally.applied`. A gap row carrying
  * a pending title keeps the live title: the gap is about the seat, and the
  * write oracle judges the pending display.
  */
+function applyGap(
+  handle: WritableMobxPoolHandle,
+  ctx: ScenarioEngine,
+  oracle: SliceSnapshot,
+  snapshot: SliceSnapshot,
+  tally: { applied: number },
+): SliceSnapshot {
+  const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
+  if (rows.length === 0) return snapshot
+  tally.applied += rows.length
+  const rowsById = { ...snapshot.rowsById }
+  for (const id of rows) {
+    const patched = { ...oracle.rowsById[id]! }
+    const liveTitle = snapshot.rowsById[id]?.title
+    const pendingTitles = handle.write.log
+      .pendingFor('issue', id)
+      .map((e) => (e.patch as { title?: string }).title)
+      .filter((t) => t !== undefined)
+    if (pendingTitles.length > 0 && liveTitle === pendingTitles[pendingTitles.length - 1]) {
+      patched.title = liveTitle as string
+    }
+    rowsById[id] = patched
+  }
+  return { ...snapshot, rowsById }
+}
+
 function gapped(
   arm: CheckedArm,
   tally: { applied: number },
@@ -146,30 +172,11 @@ function gapped(
     create(source, locals, reads) {
       const resolved = typeof arm === 'function' ? arm(ctx) : arm
       const handle = resolved.create(source, locals, reads) as WritableMobxPoolHandle
-      const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
-        const oracle = oracleSnapshot(ctx.engine.getSnapshot())
-        const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
-        if (rows.length === 0) return snapshot
-        tally.applied += rows.length
-        const rowsById = { ...snapshot.rowsById }
-        for (const id of rows) {
-          const patched = { ...oracle.rowsById[id]! }
-          const liveTitle = snapshot.rowsById[id]?.title
-          const pendingTitles = handle.write.log
-            .pendingFor('issue', id)
-            .map((e) => (e.patch as { title?: string }).title)
-            .filter((t) => t !== undefined)
-          if (pendingTitles.length > 0 && liveTitle === pendingTitles[pendingTitles.length - 1]) {
-            patched.title = liveTitle as string
-          }
-          rowsById[id] = patched
-        }
-        return { ...snapshot, rowsById }
-      }
       return {
         ...handle,
-        snapshot: () => patch(handle.snapshot()),
-        rebuildFromScratch: () => patch(handle.rebuildFromScratch()),
+        snapshot: () => applyGap(handle, ctx, oracleSnapshot(ctx.engine.getSnapshot()), handle.snapshot(), tally),
+        rebuildFromScratch: () =>
+          applyGap(handle, ctx, oracleSnapshot(ctx.engine.getSnapshot()), handle.rebuildFromScratch(), tally),
       }
     },
   })
@@ -212,8 +219,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             oracleChecks += 1
             const h = live
             if (h === null) throw new Error('no live arm at oracle step')
-            const actual = h.snapshot()
             const kernel = oracleSnapshot(run.ctx.engine.getSnapshot())
+            const actual = applyGap(h, run.ctx, kernel, h.snapshot(), gap)
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
