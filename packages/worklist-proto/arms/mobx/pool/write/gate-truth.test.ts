@@ -244,17 +244,27 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 const feedRows = new Map(
                   feedSource.snapshot('issue').map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
                 )
-                const kids: string[] = []
-                for (const [id, v] of feedRows) {
-                  if (v !== undefined && (v['parentId'] as string | null) === target) {
-                    const cached = run.ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
-                    kids.push(
-                      `${id}:feed(${String(v['stage'])}/${String(v['closedReason'] ?? '-')})` +
-                        `cache(${cached === undefined ? '?' : `${String(cached['stage'])}/${String(cached['closedReason'] ?? '-')}`})`,
-                    )
+                // Whole formal closure under the target: feed vs cache per row.
+                const seen = new Set<string>([target])
+                const queue = [target]
+                const lines: string[] = []
+                while (queue.length > 0 && lines.length < 40) {
+                  const cur = queue.shift() as string
+                  for (const [id, v] of feedRows) {
+                    if (v !== undefined && (v['parentId'] as string | null) === cur && !seen.has(id)) {
+                      seen.add(id)
+                      queue.push(id)
+                      const cached = run.ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+                      const f = `${String(v['stage'])}/${String(v['closedReason'] ?? '-')}`
+                      const c =
+                        cached === undefined
+                          ? '?'
+                          : `${String(cached['stage'])}/${String(cached['closedReason'] ?? '-')}`
+                      lines.push(`${id}:feed(${f})cache(${c})${f === c ? '' : ' DIFF'}`)
+                    }
                   }
                 }
-                extra += `\nchildren of ${target} (feed vs cache stage/closedReason):\n${kids.slice(0, 12).join('\n')}`
+                extra += `\nformal closure under ${target} (feed vs cache stage/closedReason):\n${lines.join('\n')}`
               }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
