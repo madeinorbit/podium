@@ -218,7 +218,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           mode: 'truth',
           oracleEvery: 0,
           editViaArm: adapter.editHook,
-          onStep: (step, run) => {
+          onStep: async (step, run) => {
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
             const last = step.index === sequence.length - 1
@@ -231,6 +231,19 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
+            // TEMPORARY diagnosis (removed before landing): who moves after a
+            // progress divergence — the pool sides or the kernel side?
+            {
+              const { appendFileSync } = await import('node:fs')
+              const row = (s: SliceSnapshot): string => {
+                const r = s.rowsById['i3150'] as { progressDone?: number; progressTotal?: number } | undefined
+                return r === undefined ? 'absent' : `${r.progressDone}/${r.progressTotal}`
+              }
+              appendFileSync(
+                '/tmp/triangle.txt',
+                `seed ${seed} step ${step.index} ${String(step.change.kind)}: live=${row(actual)} rebuilt=${row(handle.rebuildFromScratch())} kernel=${row(kernel)}\n`,
+              )
+            }
             if (diff !== null) {
               oracleFailed += 1
             }
