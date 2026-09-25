@@ -23,6 +23,21 @@
  *   nothing, flips no membership, walks no order element, and notifies no
  *   header and not the list: the cursor moves outside the placement, so only
  *   the clicked row's own cells re-run.
+ * - ENTER (a new visible issue) files one id into its group's lanes: one
+ *   membership flip, no re-sort, 0 order walks; only its group's header is
+ *   notified.
+ * - EVICT (a visible row deleted from the pool) un-files one id in the
+ *   settle: one membership flip, no re-sort, 0 order walks; only the emptied
+ *   group's header is notified.
+ * - PIN (an open row pinned) files one id from its bucket into the pinned
+ *   section: no membership flip, no re-sort, 0 order walks; its old group's
+ *   header is notified once, and the list (the pinned section moved).
+ * - RANK (a sort-key change inside one lane) files nothing: no membership
+ *   flip, 0 order walks; only its group's header is notified, once, for the
+ *   lane reorder.
+ * - REPARENT (a nested row moved between two present parents) files nothing:
+ *   the placement never reads the parent edge, so no membership flip, no
+ *   order walk, no header and no list notice.
  *
  * Page listeners are attached throughout (the grouped view, like `PoolList`,
  * and each group's lanes, like its header). Reported per scale to
@@ -465,6 +480,334 @@ describe('scaling: the work follows the change (POD-4694)', () => {
         writeResult(`hand-scaling-4694-${scale}x-click`, {
           scale,
           at: 'click',
+          target,
+          filings: 0,
+          orderElements: orderReads.elements,
+          orderLengths: orderReads.lengths,
+          headers: Object.fromEntries(notices.headers),
+          list: notices.list,
+        })
+      } finally {
+        r.dispose()
+      }
+    }, 600_000)
+
+    it(`enter files one id at ${scale}x`, () => {
+      const r = rig(scale)
+      try {
+        const { pool } = r.handle
+        // A new open human root filed into an existing multi-member group (its
+        // repoKey copied from a visible open row), so no group is born.
+        const baseId = (() => {
+          for (const id of visibleOrder(pool)) {
+            const placement = pool.groups.placement(id)
+            if (placement === undefined || placement.pinned || placement.closed) continue
+            const row = pool.visibleInputs.issueRow(id) as SliceIssue | undefined
+            if (row === undefined) continue
+            const human =
+              row.audience === 'human' &&
+              (row.stage === 'planning' || row.stage === 'in_progress' || row.stage === 'review')
+            if (!human || (row.parentId !== null && row.parentId !== undefined)) continue
+            const key = groupOf(pool, id)
+            if (key === null) continue
+            const group = pool.groups.snapshot().groups.find((candidate) => candidate.key === key)
+            if (group === undefined || group.rowIds.length < 2) continue
+            return { id, key, size: group.rowIds.length + group.closedIds.length, row }
+          }
+          throw new Error('no multi-member open group in the visible order')
+        })()
+        const id = `zxenter${scale}`
+        expect(pool.worklist.has(id), 'fresh enter id is unknown').toBe(false)
+        const value: SliceIssue = {
+          ...baseId.row,
+          id,
+          stage: 'in_progress',
+          closedReason: null,
+          closedAt: null,
+          tuckedAt: null,
+          archived: false,
+          pinned: false,
+          parentId: null,
+        }
+        pool.stats.reset()
+        let orderReads = { elements: 0, lengths: 0 }
+        const notices = countNotices(pool, () => {
+          orderReads = countOrderReads(pool, () => {
+            r.push({ type: 'update', rows: [{ kind: 'issue', id, value }] })
+          })
+        })
+        const { groupRuns, groupElements, orderSorts, membershipFlips } = pool.stats.counters
+        expect(membershipFlips, 'membership flips').toBe(1)
+        expect(orderSorts, 'order re-sorts').toBe(0)
+        expect(groupRuns, 'filings').toBe(1)
+        expect(groupElements, 'lane members around the filed row').toBe(baseId.size + 1)
+        expect(orderReads.elements, 'order elements iterated').toBe(0)
+        expect(orderReads.lengths, 'order length reads').toBe(0)
+        const moved = groupOf(pool, id)
+        expect(moved, 'the entered row is grouped').toBe(baseId.key)
+        expect(notices.headers.get(moved!), 'entered header notices').toBe(1)
+        for (const [name, count] of notices.headers) {
+          if (name === moved) continue
+          expect(count, `${name} header notices (other group)`).toBe(0)
+        }
+        writeResult(`hand-scaling-4694-${scale}x-enter`, {
+          scale,
+          at: 'enter',
+          target: id,
+          membershipFlips,
+          filings: groupRuns,
+          laneMembers: groupElements,
+          orderElements: orderReads.elements,
+          orderLengths: orderReads.lengths,
+          headers: Object.fromEntries(notices.headers),
+          list: notices.list,
+        })
+      } finally {
+        r.dispose()
+      }
+    }, 600_000)
+
+    it(`evict un-files one id at ${scale}x`, () => {
+      const r = rig(scale)
+      try {
+        const { pool } = r.handle
+        // A sessionless childless open root in a multi-member group, so its
+        // deletion moves no other row's visibility and its bucket survives.
+        let found: { id: string; key: string; size: number } | null = null
+        for (const id of visibleOrder(pool)) {
+          const parts = pool.worklist.issue(id)
+          const placement = pool.groups.placement(id)
+          if (parts === undefined || placement === undefined) continue
+          if (parts.childIds.length !== 0 || placement.pinned || placement.closed) continue
+          if (parts.seatIds.length !== 0 || parts.memberIds.length !== 0) continue
+          const row = pool.visibleInputs.issueRow(id) as SliceIssue | undefined
+          if (row === undefined) continue
+          const human =
+            row.audience === 'human' &&
+            (row.stage === 'planning' || row.stage === 'in_progress' || row.stage === 'review')
+          if (!human || (row.parentId !== null && row.parentId !== undefined)) continue
+          const key = groupOf(pool, id)
+          if (key === null) continue
+          const group = pool.groups.snapshot().groups.find((candidate) => candidate.key === key)
+          if (group === undefined) continue
+          const size = group.rowIds.length + group.closedIds.length
+          if (size >= 2) {
+            found = { id, key, size }
+            break
+          }
+        }
+        expect(found, 'a sessionless removable row in a multi-member group').not.toBeNull()
+        const { id: target, key, size: before } = found!
+        pool.stats.reset()
+        let orderReads = { elements: 0, lengths: 0 }
+        const notices = countNotices(pool, () => {
+          orderReads = countOrderReads(pool, () => {
+            r.push({ type: 'update', rows: [{ kind: 'issue', id: target, value: undefined }] })
+          })
+        })
+        const { groupRuns, groupElements, orderSorts, membershipFlips } = pool.stats.counters
+        expect(membershipFlips, 'membership flips').toBe(1)
+        expect(orderSorts, 'order re-sorts').toBe(0)
+        expect(groupRuns, 'filings').toBe(1)
+        expect(groupElements, 'lane members left behind').toBe(before - 1)
+        expect(orderReads.elements, 'order elements iterated').toBe(0)
+        expect(orderReads.lengths, 'order length reads').toBe(0)
+        expect(notices.headers.get(key), 'emptied header notices').toBe(1)
+        for (const [name, count] of notices.headers) {
+          if (name === key) continue
+          expect(count, `${name} header notices (other group)`).toBe(0)
+        }
+        expect(pool.worklist.has(target), 'evicted row leaves').toBe(false)
+        writeResult(`hand-scaling-4694-${scale}x-evict`, {
+          scale,
+          at: 'evict',
+          target,
+          membershipFlips,
+          filings: groupRuns,
+          laneMembers: groupElements,
+          orderElements: orderReads.elements,
+          orderLengths: orderReads.lengths,
+          headers: Object.fromEntries(notices.headers),
+          list: notices.list,
+        })
+      } finally {
+        r.dispose()
+      }
+    }, 600_000)
+
+    it(`pin files one id out of its bucket at ${scale}x`, () => {
+      const r = rig(scale)
+      try {
+        const { pool } = r.handle
+        let found: { id: string; key: string; size: number } | null = null
+        for (const id of visibleOrder(pool)) {
+          const parts = pool.worklist.issue(id)
+          const placement = pool.groups.placement(id)
+          if (parts === undefined || placement === undefined) continue
+          if (parts.childIds.length !== 0 || placement.pinned || placement.closed) continue
+          const row = pool.visibleInputs.issueRow(id) as SliceIssue | undefined
+          if (row === undefined || row.pinned === true) continue
+          const key = groupOf(pool, id)
+          if (key === null) continue
+          const group = pool.groups.snapshot().groups.find((candidate) => candidate.key === key)
+          if (group === undefined) continue
+          const size = group.rowIds.length + group.closedIds.length
+          if (size >= 2) {
+            found = { id, key, size }
+            break
+          }
+        }
+        expect(found, 'a pinnable row in a multi-member group').not.toBeNull()
+        const { id: target, key, size: before } = found!
+        const pinnedBefore = pool.groups.snapshot().pinnedIds.length
+        pool.stats.reset()
+        let orderReads = { elements: 0, lengths: 0 }
+        const notices = countNotices(pool, () => {
+          orderReads = countOrderReads(pool, () => {
+            r.push({
+              type: 'update',
+              rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), pinned: true } }],
+            })
+          })
+        })
+        const { groupRuns, groupElements, orderSorts, membershipFlips } = pool.stats.counters
+        // Bucket to pinned: one filing across two lanes, no membership change.
+        expect(membershipFlips, 'membership flips').toBe(0)
+        expect(orderSorts, 'order re-sorts').toBe(0)
+        expect(groupRuns, 'filings').toBe(1)
+        expect(groupElements, 'lanes around the filed row').toBe(
+          before - 1 + (pinnedBefore + 1),
+        )
+        expect(orderReads.elements, 'order elements iterated').toBe(0)
+        expect(orderReads.lengths, 'order length reads').toBe(0)
+        expect(pool.groups.snapshot().pinnedIds.includes(target), 'the row is pinned').toBe(true)
+        expect(notices.headers.get(key), 'emptied header notices').toBe(1)
+        for (const [name, count] of notices.headers) {
+          if (name === key) continue
+          expect(count, `${name} header notices (other group)`).toBe(0)
+        }
+        // The pinned section moved, so the list is notified.
+        expect(notices.list, 'list notices').toBe(1)
+        writeResult(`hand-scaling-4694-${scale}x-pin`, {
+          scale,
+          at: 'pin',
+          target,
+          filings: groupRuns,
+          laneMembers: groupElements,
+          orderElements: orderReads.elements,
+          orderLengths: orderReads.lengths,
+          headers: Object.fromEntries(notices.headers),
+          list: notices.list,
+        })
+      } finally {
+        r.dispose()
+      }
+    }, 600_000)
+
+    it(`rank move re-sorts only its lane at ${scale}x`, () => {
+      const r = rig(scale)
+      try {
+        const { pool } = r.handle
+        // The first open row of a group with at least three open members,
+        // sunk to the lane's end by a sort-key change: the placement is
+        // untouched, so nothing files.
+        let found: { id: string; key: string } | null = null
+        for (const group of pool.groups.snapshot().groups) {
+          if (group.rowIds.length < 3) continue
+          const id = group.rowIds[0] as string
+          const placement = pool.groups.placement(id)
+          if (placement === undefined || placement.pinned || placement.closed) continue
+          found = { id, key: group.key }
+          break
+        }
+        expect(found, 'a group with a non-trivial open lane').not.toBeNull()
+        const { id: target, key } = found!
+        pool.stats.reset()
+        let orderReads = { elements: 0, lengths: 0 }
+        const notices = countNotices(pool, () => {
+          orderReads = countOrderReads(pool, () => {
+            r.push({
+              type: 'update',
+              rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), sortKey: '~~~' } }],
+            })
+          })
+        })
+        const { groupRuns, groupElements, membershipFlips } = pool.stats.counters
+        expect(groupRuns, 'filings').toBe(0)
+        expect(membershipFlips, 'membership flips').toBe(0)
+        expect(groupElements, 'lane members re-sorted').toBe(0)
+        expect(orderReads.elements, 'order elements iterated').toBe(0)
+        expect(orderReads.lengths, 'order length reads').toBe(0)
+        // The lane reordered, so exactly its header is notified.
+        expect(notices.headers.get(key), 'reordered header notices').toBe(1)
+        for (const [name, count] of notices.headers) {
+          if (name === key) continue
+          expect(count, `${name} header notices (other group)`).toBe(0)
+        }
+        writeResult(`hand-scaling-4694-${scale}x-rank`, {
+          scale,
+          at: 'rankMove',
+          target,
+          filings: groupRuns,
+          orderElements: orderReads.elements,
+          orderLengths: orderReads.lengths,
+          headers: Object.fromEntries(notices.headers),
+          list: notices.list,
+        })
+      } finally {
+        r.dispose()
+      }
+    }, 600_000)
+
+    it(`reparent files nothing at ${scale}x`, () => {
+      const r = rig(scale)
+      try {
+        const { pool } = r.handle
+        // A visible nested row moved between two present top-level roots: the
+        // placement never reads the parent edge.
+        const order = visibleOrder(pool)
+        const presentTop = order.filter((id) => {
+          const row = pool.visibleInputs.issueRow(id) as SliceIssue | undefined
+          return (
+            row !== undefined &&
+            (row.parentId === null || row.parentId === undefined) &&
+            pool.groups.placement(id) !== undefined
+          )
+        })
+        let found: { id: string; from: string; to: string } | null = null
+        for (const id of order) {
+          const row = pool.visibleInputs.issueRow(id) as SliceIssue | undefined
+          if (row?.parentId === null || row?.parentId === undefined) continue
+          if (pool.groups.placement(id) === undefined) continue
+          const from = row.parentId as string
+          const to = presentTop.find((candidate) => candidate !== from && candidate !== id)
+          if (to === undefined) continue
+          if (!pool.worklist.has(from) || !pool.worklist.has(to)) continue
+          found = { id, from, to }
+          break
+        }
+        expect(found, 'a visible nested row and two present roots').not.toBeNull()
+        const { id: target, to } = found!
+        pool.stats.reset()
+        let orderReads = { elements: 0, lengths: 0 }
+        const notices = countNotices(pool, () => {
+          orderReads = countOrderReads(pool, () => {
+            r.push({
+              type: 'update',
+              rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), parentId: to } }],
+            })
+          })
+        })
+        expect(pool.worklist.has(target), 'reparented row stays visible').toBe(true)
+        expect(pool.stats.counters.groupRuns, 'filings').toBe(0)
+        expect(pool.stats.counters.membershipFlips, 'membership flips').toBe(0)
+        expect(orderReads.elements, 'order elements iterated').toBe(0)
+        expect(orderReads.lengths, 'order length reads').toBe(0)
+        expect([...notices.headers.values()].reduce((a, b) => a + b, 0), 'header notices').toBe(0)
+        expect(notices.list, 'list notices').toBe(0)
+        writeResult(`hand-scaling-4694-${scale}x-reparent`, {
+          scale,
+          at: 'reparent',
           target,
           filings: 0,
           orderElements: orderReads.elements,
