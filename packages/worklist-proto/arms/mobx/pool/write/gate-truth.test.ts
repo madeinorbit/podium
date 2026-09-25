@@ -440,6 +440,23 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 return `isCold=${knownCold} coldRow=${coldVal === undefined ? 'undef' : 'row'}`
               })
               appendFileSync('/tmp/plain-fresh.txt', `residency i3156: ${reg}\n`)
+              // TEMPORARY diagnosis (removed before landing): source.row vs
+              // snapshot for the cold row the pool cannot materialize.
+              const src = run.feed().source
+              const byId = src.snapshot('issue').find((r) => r.id === 'i3156')?.value as
+                | Record<string, unknown>
+                | undefined
+              let one: string
+              try {
+                const v = src.row === undefined ? 'no-row-fn' : src.row('issue', 'i3156')
+                one = v === undefined ? 'undef' : String((v as Record<string, unknown>)['stage'])
+              } catch (error) {
+                one = `throws:${error instanceof Error ? error.message : String(error)}`
+              }
+              appendFileSync(
+                '/tmp/plain-fresh.txt',
+                `rowfn i3156: snapshot=${byId === undefined ? 'absent' : String(byId['stage'])} row()=${one}\n`,
+              )
             }
             if (diff !== null && firstDiff === null) {
               // TEMPORARY diagnosis (removed before landing): spinOff fields
