@@ -426,6 +426,20 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 `seed ${seed} step ${step.index}: plainFresh=${r === undefined ? 'absent' : `${r.progressDone}/${r.progressTotal}`}\n`,
               )
               plain.dispose()
+              // TEMPORARY: residency registry state for i3156 (a table(?)
+              // cold row): known? coldRow value?
+              const { runInAction: ria2 } = await import('mobx')
+              const residency = h.pool.residency
+              const reg = ria2(() => {
+                if (residency === null) return 'no-residency'
+                const ke = residency as unknown as {
+                  isCold(e: string, id: string): boolean
+                }
+                const knownCold = ke.isCold('issue', 'i3156')
+                const coldVal = h.pool.coldRow('issue', 'i3156') as unknown
+                return `isCold=${knownCold} coldRow=${coldVal === undefined ? 'undef' : 'row'}`
+              })
+              appendFileSync('/tmp/plain-fresh.txt', `residency i3156: ${reg}\n`)
             }
             if (diff !== null && firstDiff === null) {
               // TEMPORARY diagnosis (removed before landing): spinOff fields
