@@ -150,3 +150,13 @@ Fresh G2 retry succeeded: after rebuilding the form and accepting the explicitly
 - MacUpdate: existing account was authenticated as till-2 and the app form was available; no account restart needed. Submitted Podium ADE 0.1.0, Made in Orbit, free ($0), Apache-2.0, macOS 11+, Apple Silicon and Intel. Primary download points to the v0.1.0 Apple Silicon DMG; review comments include the Intel DMG, public repository icon and screenshot URLs. Media files were not attached; the form accepted the submission with asset links in comments. Description covers shared issues, conversation, live team views, local/own-VPS access, pre-1.0 status and separate agent-account costs. Visible confirmation: **Your app has been submitted!** and email response within 10 days. No published profile link yet.
 
 No outbound email sent. Tracking-only changes; runtime tests skipped.
+
+### Yet Another Orchestrator: user-posted outreach, 2026-09-25
+
+- [x] Till reported posting to the curator on X. This was posted by Till, outside the ordinary-form submission batch.
+- [ ] Record the post URL when available; none supplied in this conversation.
+- [ ] Confirm directory inclusion if a listing or curator reply becomes available. Inclusion is not yet confirmed; do not duplicate outreach.
+
+Prepared text for the post:
+
+> What makes it special: Podium gives coding agents a shared, persistent issue system. Agents coordinate tasks, dependencies and progress, while you guide the work through conversation and live team views. Open source; runs locally or on your own VPS.

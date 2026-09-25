@@ -24,7 +24,7 @@ Recovered on 2026-09-24 from the “Research Launch Directories” conversation.
 
 | Destination | Reason |
 | --- | --- |
-| Yet Another Orchestrator | Research found curator contact on X, not an ordinary submission form. |
+| Yet Another Orchestrator | Till reported posting to the curator on X on 2026-09-25. Recorded in SUBMISSIONS.md; listing inclusion unconfirmed. No duplicate outreach. |
 | Toolhunt | Research found email-based editorial submission. No outreach in this batch. |
 | Console.dev | Explicitly on hold; leave Gmail draft unsent. See TOCONTACT.md. |
 | selfh.st/apps | Directory form excludes newly launched projects, without specifying an age cutoff. Deferred given recent launch; newsletter route remains outside scope. |
