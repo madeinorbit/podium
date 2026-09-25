@@ -758,7 +758,12 @@ export class WorklistGroups {
     this.resortTouched(touched, latched, false, false)
   }
 
-  /** An issue left the pool entirely: its placement cell and filing go. */
+  /**
+   * An issue left the pool entirely: its placement cell goes. Its filing
+   * stays for the settle, which unfles exactly the ids the order reports as
+   * left (counted, with the touched lanes re-sorted) — unfiling here would
+   * bypass the count and the header notices.
+   */
   forgetIssue(id: string): void {
     const cell = this.placements.get(id)
     if (cell !== undefined) {
@@ -766,11 +771,6 @@ export class WorklistGroups {
       this.placements.delete(id)
     }
     this.reported.delete(id)
-    const filed = this.filed.get(id)
-    if (filed !== undefined) {
-      this.unfile(id, filed)
-      this.filed.delete(id)
-    }
   }
 
   /** Dispose every placement cell and forget the layout (the pool's dispose). */
