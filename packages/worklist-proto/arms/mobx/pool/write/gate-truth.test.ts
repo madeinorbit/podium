@@ -265,20 +265,6 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const last = step.index === sequence.length - 1
             if ((step.index + 1) % 10 !== 0 && !last) return
             oracleChecks += 1
-            // TEMPORARY diagnosis (removed before landing): kernel entry
-            // lifecycle for the mark-read under test.
-            {
-              const { appendFileSync } = await import('node:fs')
-              const outbox = run.ctx.engine.outbox
-              const ids = (list: { mutationId?: unknown }[]): string =>
-                list.map((e) => String(e.mutationId).slice(0, 8)).join(',')
-              const ledger = run.ctx.engine.pendingOverlaysByRow('issues')
-              appendFileSync(
-                '/tmp/lifecycle.txt',
-                `seed ${seed} step ${step.index}: pending=[${ids(outbox.pending() as never[])}] ` +
-                  `awaiting=[${ids(outbox.awaiting() as never[])}] ledgerHasI1397=${ledger.has('i1397')}\n`,
-              )
-            }
             // `handle` is the live arm after any swap: on a refresh step
             // checkArm recreates over the new feed before this runs, so the
             // fidelity compare below always reads the current arm — never a
@@ -300,17 +286,6 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               const actual = applyGap(h, run.ctx, kernel, h.snapshot(), gap)
               const expected = oracle.patchSnapshot(kernel, run.feed().source)
               return { kernel, actual, expected, diff: diffSnapshots(actual, expected) }
-            }
-            // TEMPORARY diagnosis (removed before landing): i1397 presence.
-            {
-              const { appendFileSync } = await import('node:fs')
-              const presence = (snap: SliceSnapshot): string =>
-                snap.rowsById['i1397'] === undefined ? 'absent' : 'present'
-              const kernel0 = oracleSnapshot(run.ctx.engine.getSnapshot())
-              appendFileSync(
-                '/tmp/presence.txt',
-                `seed ${seed} step ${step.index}: live=${presence(applyGap(h, run.ctx, kernel0, h.snapshot(), gap))} kernel=${presence(kernel0)}\n`,
-              )
             }
             const first = compareOnce()
             if (diffSnapshots(first.kernel, first.expected) !== null) kernelDiffers += 1
