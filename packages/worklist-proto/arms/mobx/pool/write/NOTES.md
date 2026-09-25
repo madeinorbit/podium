@@ -12,6 +12,17 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
 
 ## Decisions
 
+- **Whole-snapshot shared oracle (coordinator ruling, option b).**
+  `WriteOracle.expectedSnapshot` runs the shared slice oracle
+  (`snapshotFromStore`) over the store's rows — replica and projections
+  intact, so view models resolve exactly as in `oracleSnapshot` — with the
+  reference display overlaid per pending row and the chained-hold repair
+  against feed truth kept. Proven construction: store rows + intact
+  replica/projections reproduces `oracleSnapshot` exactly; feed rows do NOT
+  (raw rows lack view-model fields, feed sessions carry parked twins). The
+  gate threads it through the gap base and the oracle compare; kernel stays
+  a counted finding with its first example recorded. Complete-or-fail: all
+  seeds run, per-seed rows in the result file, one error at the end.
 - **Pending readAt is overlaid onto `visibleInputs.issueRead` (POD-4574,
   2026-09-25).** Seed-1/step-6 diverged from the rebuild: a mark-read edit hid
   nothing, but the live pool dropped `i1380` from its visible set while the
@@ -125,23 +136,39 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
 
 ## Open
 
-- 20 × 300 gate of record: seeds 1–3 green; seed 4 fails the ORACLE compare
-  at steps 59/69/79 (live-extra `i1397`), seeds 5–20 unrun (the run throws on
-  the first failing seed). Causal trace (temporary probe, deleted after):
-  both logs hold a pending mark-read on `i1397` (arm + reference, wall-clock
-  stamps 26 ms apart) from step ~50; live AND rebuild show the row (the
-  pending cursor reopens its decay window); kernel and oracle hide it (echo
-  never arrived, lane/feed still at the August stamp). Step-89 `refresh`
-  rebuilds both logs from the outbox, the entry is gone on both sides
-  (answered/retired server-side, or acked-then-settled-at-once), and all four
-  agree again. So the arm is correct per the
-  contract and the F4 oracle's "pending edits never move visibility" no
-  longer holds for mark-reads: `patchSnapshot` patches titles only and takes
-  membership from the kernel. Asked the coordinator (mail, --expect-response)
-  whether to count pending-readAt membership diffs as findings (mask-proof
-  both ways: hiding a pending window already fails seed 1; showing a row with
-  no pending anywhere fails against kernel+oracle) or to model them in the
-  shared oracle (Hc2 reuses it). No shared-code change until ruled.
+- 20 × 300 gate NOT green: the shared oracle's remote pipe lags the arm's
+  across the accept boundary (W8 overtake resolves opposite). Shakedown
+  3 × 200 (new whole-snapshot oracle): all plants pass, main test fails all
+  3 seeds — seed 1 @119 (accept e7: live "Title t6" vs expected "Theirs r8"),
+  seed 2 @139 (newIssue bystander: live "Theirs r28" vs expected "Title t10"),
+  seed 3 @9 (reAdd bystander: live "Title t2" vs expected "Theirs r5"),
+  kernelDiffers=0 throughout (kernel agrees with expected). Complete-or-fail
+  works: every seed ran, per-seed rows (steps, ok, failStep, change, diff,
+  kernel finding) are in the result file, one error at the end.
+- Mechanism (proven, not speculation): seed-3/step-9 has IDENTICAL changes
+  in two runs (`gen` is prefix-consistent) with OPPOSITE oracle states — a
+  lifecycle probe holds/holds at step 9, the gate run held/dropped. The
+  reference log's `ackBase` (value seen at receipt) is timing-dependent: the
+  arm observes remotes via the feed subscription during `apply`, the oracle
+  via `syncPending` in `onStep`. If the oracle hasn't synced the remote by
+  the accept, `ackBase` is stale and the later remote OVERTAKES (W8,
+  write-contract.ts `remote`) and drops the entry; whichever side saw the
+  remote holds it. Contract-correct per F4 is holding Mine until the echo
+  (the arm held in all three seeds). No arm bug, no oracle-rule bug: the
+  test double observes through a later pipe. Any fix (shared harness
+  serialization, or contract W8 change) is outside the write path — asked
+  the coordinator (mail, QUESTION) before touching shared code. NOT
+  re-running 20 × 300 until ruled: a lucky-green run would prove nothing.
+- Plants (i)+(ii) proven red (in-test plants; (i) also by cp-revert of
+  80e65b1ca with byte-identical restore): (i) lane-only visibility fails the
+  fixed mark-read sequence (live hides, rebuild shows); (ii) an arm-log-only
+  phantom mark-read fails the shared oracle (both arm derivations show,
+  kernel and oracle hide). Lesson: derivations re-run only on observable
+  change — a plant must move the overlay map, property patching alone goes
+  stale; a cold target needs the same hydration a real edit does.
+- The superseded seed-4 i1397 note (pending-mark-read membership vs the old
+  title-patching oracle) is closed by the option-(b) whole-snapshot oracle:
+  membership now follows the spec rules over the overlaid rows.
 - TTL expiry has the `expire()` API but no gate exercise (the kernel's
   awaiting-truth expiry runs on the wall clock, which the gate does not
   drive); reference-log level is covered by L1c.
