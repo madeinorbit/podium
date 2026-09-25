@@ -31,6 +31,19 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
   `pending()` entries are translated kernel↔arm for receipts, rejections
   and bootstrap across reloads. The gate compares the truth-feed arm with
   the overlaid oracle. One adapter for MobX now, Hc2 later.
+- **No kernel-retirement mirroring (F4 consequence).** First built: watch
+  `outbox.retireAwaiting` in the adapter, mirror into `expireOne`. It made
+  things worse — the retire path fires for TTL/cover prunes the reference
+  oracle never takes, so the arm dropped entries the oracle holds. Under F4
+  both sides hold until echo/reject/overtake and kernel retirements tally as
+  findings. Removed the watch, `currentExpire` and `expireOne`; `expire()`
+  stays (undriven) for a future timer.
+- **The accept-after-remote finding.** edit → remote → accept: the kernel
+  drops its overlay at receipt (`mutationApplied` finding-2: server moved
+  past the enqueue baseline), the contract holds Mine until the echo. Both
+  converge at the echo. Counted per oracle check as `kernelDiffers`.
+  Ruling F4 keeps it a finding; the alternative (gen accept writing truth)
+  is with the coordinator.
 - **(b) and (d) are commit-count plants.** Equal values are invisible to any
   snapshot comparison by construction, and MobX's `view: computedStruct`
   absorbs equal notifications, so their catching checks are the
