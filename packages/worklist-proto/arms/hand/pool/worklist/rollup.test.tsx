@@ -26,10 +26,11 @@
  * asking, as the oracle's does.
  *
  * THE CHAIN FENCE. A session on a row four nest levels deep (four ancestors,
- * every one visible, the fixture's own shape) turns to a question. Counted:
- * the rows read (the shared reads fence, budget 3 x (4 + 1)), and the
- * roll-up compositions that ran (the shared `ArmStats.rollupsDerived`),
- * which must be EXACTLY 5: the changed row and each of its four ancestors.
+ * every one visible, the fixture's own shape) turns to a question — and
+ * again on the deepest such chain the fixture has. Counted: the rows read
+ * (the shared reads fence, budget 3 x (depth + 1)), and the roll-up
+ * compositions that ran (the shared `ArmStats.rollupsDerived`), which must
+ * be EXACTLY the chain length: the changed row and each of its ancestors.
  * The reads fence cannot see this alone, because a composition reads cached
  * results, which the fence does not count (coordinator ruling on L5a): a
  * roll-up that re-ran every aggregate would read no more rows. So the count
@@ -209,11 +210,43 @@ function findChain(pool: HandPool): Chain {
   throw new Error('no row four nest levels deep with a quiet seat in the fixture')
 }
 
+/**
+ * The deepest such chain the fixture has: same shape as `findChain`
+ * (raw-`parentId` edges, a quiet seat at the bottom, a root whose
+ * finished-root flag the question flips), no fixed depth. The composition
+ * count must equal the chain length whatever it is.
+ */
+function findDeepest(pool: HandPool): Chain {
+  let best: Chain | null = null
+  for (const id of pool.worklist.order()) {
+    const rows = [id]
+    let node = pool.visibleInputs.issue(id)
+    while (node !== undefined && node.nestParent !== null) {
+      if (node.standing?.parentId !== node.nestParent) break
+      rows.push(node.nestParent)
+      node = pool.visibleInputs.issue(node.nestParent)
+    }
+    if (rows.length < 2 || node?.nestParent !== null) continue
+    if (node?.standing?.parentId !== null) continue
+    if (pool.rollup.aggregateOf(rows[rows.length - 1]!)?.finished.waiting) continue
+    const seat = pool.rollup.node(id)?.rosterIds.find((sessionId) => {
+      const verdict = pool.rollup.inputs.seat(sessionId)
+      return (
+        typeof verdict === 'object' && verdict.finished !== 'waiting' && verdict.open !== 'waiting'
+      )
+    })
+    if (seat === undefined) continue
+    if (best === null || rows.length > best.rows.length) best = { rows, sessionId: seat }
+  }
+  if (best === null) throw new Error('no nested chain with a quiet seat in the fixture')
+  return best
+}
+
 /** The chain step: one session of the bottom row turns to a question. */
-function questionOn(chain: Chain): FenceScenario {
+function questionOn(chain: Chain, methodology = 'Hb3 depth 4'): FenceScenario {
   return {
     scenario: 'deepSessionQuestion',
-    methodology: 'Hb3 depth 4',
+    methodology,
     async write(ctx) {
       const current = ctx.cache.read('session', chain.sessionId)?.value as object | undefined
       if (current === undefined) throw new Error(`${chain.sessionId} missing from the server cache`)
@@ -238,13 +271,23 @@ interface ChainCell {
   readonly oracleChanged: readonly string[] | null
 }
 
-async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCell> {
+async function chainStep(
+  create: CheckableArm,
+  parity: boolean,
+  find: (pool: HandPool) => Chain = findChain,
+  methodology?: string,
+): Promise<ChainCell> {
   return withMounted(create, async (ctx, mounted, handle, flush) => {
-    const chain = findChain(handle.pool)
+    const chain = find(handle.pool)
     mounted.log.reset()
     handle.stats.reset()
     mounted.reads.reset()
-    const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, questionOn(chain))
+    const { result, readsBudget } = await runFenceStep(
+      mounted,
+      ctx,
+      flush,
+      questionOn(chain, methodology),
+    )
     const rollupsDerived = handle.stats.rollupsDerived
     if (parity) {
       assertCommits(result)
@@ -483,6 +526,16 @@ describe('row roll-ups (Hb3)', () => {
     expect(planted.readsPerChange!).toBeLessThanOrEqual(planted.readsBudget)
     expect(planted.rollupsDerived).toBeGreaterThan(planted.rows.length)
     writeResult('hand-rollups-chain-1x', { scale: 1, correct, planted })
+  }, 600_000)
+
+  it('a question on the deepest chain composes exactly the chain, whatever its depth', async () => {
+    const deepest = await chainStep(arm, true, findDeepest, 'Hb3 deepest')
+    expect(deepest.rows.length).toBeGreaterThanOrEqual(2)
+    expect(deepest.readsPerChange).not.toBeNull()
+    expect(deepest.readsPerChange!).toBeLessThanOrEqual(deepest.readsBudget)
+    expect(deepest.rollupsDerived).toBe(deepest.rows.length)
+    expect(deepest.oracleChanged).toContain(deepest.rows[0])
+    writeResult('hand-rollups-deepest-1x', { scale: 1, deepest })
   }, 600_000)
 
   it('first paint at 1x and 4x: no progress load, pending markers and cold reads counted from outside', async () => {
