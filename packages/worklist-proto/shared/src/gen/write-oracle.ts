@@ -444,7 +444,10 @@ function outboxPendingOf(run: GenRun): OutboxPendingWrite[] {
 
 /**
  * Feed one settled step's INTENT into the oracle (shared with Hc2): a
- * generated edit appends under its kernel id; a reload rebuilds the log
+ * generated edit appends under its kernel id, as does every mark-read a
+ * supersede step presses through the arm (the runner drives one arm edit
+ * per handle and claims one kernel id per handle; without these appends the
+ * oracle never learns entries the arm holds); a reload rebuilds the log
  * from the outbox. Outcomes (receipts) and row writes (remotes, echoes)
  * arrive through `watch`, in delivery order with the arm — never through a
  * later onStep sample, which is a different sequence. A skipped change feeds
@@ -468,6 +471,19 @@ export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): vo
             ? { stage: change.patch.stage }
             : { readAt: new Date(Date.now()).toISOString() }
       oracle.editApplied(source, kernelId as TxId, change.id, patch)
+    }
+  } else if (change.kind === 'supersede' && step.skipped === undefined) {
+    // One arm mark-read per handle above; one kernel id per handle claimed.
+    // Stamps agree with the arm's within milliseconds (same tolerance as
+    // generated mark-reads; never compared directly).
+    const ids = detail['mutationIds']
+    if (Array.isArray(ids)) {
+      for (const kernelId of ids) {
+        if (typeof kernelId !== 'string') continue
+        oracle.editApplied(source, kernelId as TxId, change.id, {
+          readAt: new Date(Date.now()).toISOString(),
+        })
+      }
     }
   } else if (change.kind === 'refresh' && step.skipped === undefined) {
     oracle.refresh(outboxPendingOf(run), source)
