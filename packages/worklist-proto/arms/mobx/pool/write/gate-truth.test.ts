@@ -130,10 +130,14 @@ async function settleStep(run: {
 /**
  * The writable arm over the adapter's transport, stashing the live write API
  * on every create so generated edits go through the current arm (a `refresh`
- * disposes the arm and creates a new one over the new engine).
+ * disposes the arm and creates a new one over the new engine). The reference
+ * oracle watches the same feed from the same create call — the same delivery
+ * stream, installed before the step's apply starts, dropped on dispose — so
+ * both logs resolve every entry from identically ordered observations.
  */
 function armWithAdapter(
   adapter: ArmEditAdapter,
+  oracle?: WriteOracle,
   plant?: (handle: WritableMobxPoolHandle) => void,
 ): CheckedArm {
   return (ctx: ScenarioEngine) => {
@@ -142,10 +146,70 @@ function armWithAdapter(
       create: (source, locals, reads) => {
         const handle = inner.create(source, locals, reads) as WritableMobxPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        const unwatch = oracle?.watch(ctx, source)
         plant?.(handle)
-        return handle
+        if (unwatch === undefined) return handle
+        const originalDispose = handle.dispose.bind(handle)
+        return {
+          ...handle,
+          dispose: () => {
+            unwatch()
+            originalDispose()
+          },
+        }
       },
     } as CheckableArm
+  }
+}
+
+/**
+ * Plant (iii): the arm observes remotes late — every remote for a row with
+ * an unreceipted pending entry is held until an outcome arrives, so the
+ * receipt's `ackBase` is stale and the released remote overtakes exactly
+ * like the old onStep-sync oracle's skew did. A receipt, rejection or
+ * supersede flushes everything held (still late); dispose flushes too.
+ */
+function lateRemoteUntilAccept(handle: WritableMobxPoolHandle): void {
+  const write = handle.write
+  const held = new Map<string, { kind: 'issue'; id: string; values: { title: string; stage: string; readAt: string | null } }>()
+  const acked = new Set<string>()
+  const remote = write.handleRemote.bind(write)
+  write.handleRemote = (kind, id, values) => {
+    if (kind === 'issue') {
+      const pending = write.log.pendingFor(kind, id)
+      if (pending.length > 0 && !pending.some((e) => acked.has(String(e.txId)))) {
+        held.set(id, { kind, id, values: values as { title: string; stage: string; readAt: string | null } })
+        return
+      }
+    }
+    remote(kind, id, values)
+  }
+  const flush = (): void => {
+    if (held.size === 0) return
+    const due = [...held.values()]
+    held.clear()
+    for (const h of due) remote(h.kind, h.id, h.values as never)
+  }
+  const accepted = write.handleAccepted.bind(write)
+  write.handleAccepted = (txId) => {
+    accepted(txId)
+    acked.add(String(txId))
+    flush()
+  }
+  const reject = write.reject.bind(write)
+  write.reject = (rejection) => {
+    reject(rejection)
+    flush()
+  }
+  const superseded = write.handleSuperseded.bind(write)
+  write.handleSuperseded = (txId) => {
+    superseded(txId)
+    flush()
+  }
+  const dispose = write.dispose.bind(write)
+  write.dispose = () => {
+    flush()
+    dispose()
   }
 }
 
@@ -295,176 +359,188 @@ function gapped(
   })
 }
 
+/** One seed's row in the gate result file (complete-or-fail: every seed lands one). */
+interface GateCell {
+  seed: number
+  steps: number
+  ok: boolean
+  against?: string
+  failStep?: number
+  change?: unknown
+  diff?: string
+  counts: unknown
+  gapApplied: number
+  oracleChecks: number
+  oracleFailed: number
+  kernelDiffers: number
+  firstKernelDiffStep: number
+  firstKernelDiff: string | null
+  healed: number
+  failedSteps: number[]
+  /** The reference oracle's consumed stream events per touched row (ruling:
+   *  a skew reads directly from the output). */
+  oracleEvents: Record<string, string[]>
+}
+
+/**
+ * One gate seed, start to finish: rebuild compare every step, oracle compare
+ * every 10th, per-seed row back (never throws — the caller fails at the end
+ * when any seed failed). An optional plant runs inside every arm create.
+ */
+async function runGateSeed(
+  seed: number,
+  plant?: (handle: WritableMobxPoolHandle) => void,
+): Promise<GateCell> {
+  const adapter = new ArmEditAdapter()
+  const oracle = new WriteOracle()
+  const arm = armWithAdapter(adapter, oracle, plant)
+  const sequence = gen(seed, STEPS, {}, { editFields: ['title', 'readAt'] })
+  const gap = { applied: 0 }
+  let firstDiff: string | null = null
+  let firstDiffStep = -1
+  let firstDiffChange: string | null = null
+  let firstKernelDiff: string | null = null
+  let firstKernelDiffStep = -1
+  let kernelDiffers = 0
+  let oracleChecks = 0
+  let oracleFailed = 0
+  let healed = 0
+  const failedSteps: number[] = []
+  const result = await checkArm(gapped(arm, gap, oracle), sequence, {
+    mode: 'truth',
+    oracleEvery: 0,
+    maxShrinkRuns: SHRINK_RUNS,
+    editViaArm: adapter.editHook,
+    onStep: async (step, run, handle) => {
+      adapter.pairFromStep(step.detail ?? {})
+      feedStep(oracle, step, run)
+      const last = step.index === sequence.length - 1
+      if ((step.index + 1) % 10 !== 0 && !last) return
+      oracleChecks += 1
+      // `handle` is the live arm after any swap: on a refresh step
+      // checkArm recreates over the new feed before this runs, so the
+      // fidelity compare below always reads the current arm — never a
+      // disposed pre-refresh one.
+      const h = handle as WritableMobxPoolHandle
+      // Settle stragglers before comparing: run.apply already quiesced,
+      // but post-reload replica/store trickle (settle timers, binding
+      // catch-up) can land rows in the feed after the checker's own
+      // drain. Bounded content-stable rounds with explicit feed drains;
+      // a real divergence survives them and still fails loudly below.
+      const settled = await settleStep(run)
+      const compareOnce = (): {
+        kernel: SliceSnapshot
+        actual: SliceSnapshot
+        expected: SliceSnapshot
+        diff: string | null
+      } => {
+        const store = run.ctx.engine.getSnapshot()
+        const kernel = oracleSnapshot(store)
+        const expected = oracle.expectedSnapshot(store, run.feed().source)
+        const actual = applyGap(h, run.ctx, expected, h.snapshot(), gap)
+        return { kernel, actual, expected, diff: diffSnapshots(actual, expected) }
+      }
+      const first = compareOnce()
+      // The kernel is the counted legacy finding, never expected
+      // values: record each step it disagrees with the reference
+      // display, with the first example, and write both to the note.
+      const kernelDiff = diffSnapshots(first.kernel, first.expected)
+      if (kernelDiff !== null) {
+        kernelDiffers += 1
+        if (firstKernelDiff === null) {
+          firstKernelDiffStep = step.index
+          firstKernelDiff =
+            `step ${step.index} kernel-vs-expected ` +
+            `(${JSON.stringify(step.change)}):\n${kernelDiff}`
+        }
+      }
+      let diff = first.diff
+      // Confirm-or-heal: the arm, the feed and the kernel converge over
+      // async delivery (loads, binding catch-up, publish lag) that can
+      // straddle the compare instant for exactly one check. Re-settle
+      // and re-read everything fresh once; a systematic divergence
+      // reproduces (all arm logic is synchronous), a delivery transient
+      // heals. Healed checks are counted, never hidden.
+      if (diff !== null) {
+        await settleStep(run)
+        const second = compareOnce()
+        if (second.diff === null) {
+          healed += 1
+          diff = null
+        } else {
+          oracleFailed += 1
+        }
+      }
+      if (diff !== null && firstDiff === null) {
+        firstDiffStep = step.index
+        firstDiffChange = JSON.stringify(step.change)
+        firstDiff =
+          `seed ${seed}: step ${step.index} diverged from the write oracle ` +
+          `(${firstDiffChange}, settled=${settled}):\n${diff}`
+      }
+      if (diff !== null) {
+        failedSteps.push(step.index)
+      }
+    },
+  })
+  const oracleEvents = oracle.consumedEvents()
+  const base = {
+    seed,
+    steps: STEPS,
+    counts: result.counts,
+    gapApplied: gap.applied,
+    oracleChecks,
+    oracleFailed,
+    kernelDiffers,
+    firstKernelDiffStep,
+    firstKernelDiff,
+    healed,
+    failedSteps,
+    oracleEvents,
+  }
+  // Complete-or-fail: every seed lands its row; the test fails at the
+  // end when any seed failed, never mid-loop.
+  if (!result.ok) {
+    return {
+      ...base,
+      ok: false,
+      against: result.against,
+      failStep: result.step,
+      change: result.change,
+      diff:
+        `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
+        `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}\n` +
+        `counts=${JSON.stringify(result.counts)}`,
+    }
+  }
+  if (firstDiff !== null) {
+    return {
+      ...base,
+      ok: false,
+      against: 'oracle',
+      failStep: firstDiffStep,
+      change: firstDiffChange,
+      diff:
+        `${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks} ` +
+        `at steps [${failedSteps.join(',')}]`,
+    }
+  }
+  return { ...base, ok: true }
+}
+
 describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
   it(
     'passes every seed against the rebuild and the write oracle',
     async () => {
-      const cells = []
-      for (const seed of SEEDS) {
-        const adapter = new ArmEditAdapter()
-        const oracle = new WriteOracle()
-        const arm = armWithAdapter(adapter)
-        const sequence = gen(seed, STEPS, {}, { editFields: ['title', 'readAt'] })
-        const gap = { applied: 0 }
-        let firstDiff: string | null = null
-        let firstDiffStep = -1
-        let firstDiffChange: string | null = null
-        let firstKernelDiff: string | null = null
-        let firstKernelDiffStep = -1
-        let kernelDiffers = 0
-        let oracleChecks = 0
-        let oracleFailed = 0
-        let healed = 0
-        const failedSteps: number[] = []
-        const result = await checkArm(gapped(arm, gap, oracle), sequence, {
-          mode: 'truth',
-          oracleEvery: 0,
-          maxShrinkRuns: SHRINK_RUNS,
-          editViaArm: adapter.editHook,
-          onStep: async (step, run, handle) => {
-            adapter.pairFromStep(step.detail ?? {})
-            feedStep(oracle, step, run)
-            const last = step.index === sequence.length - 1
-            if ((step.index + 1) % 10 !== 0 && !last) return
-            oracleChecks += 1
-            // `handle` is the live arm after any swap: on a refresh step
-            // checkArm recreates over the new feed before this runs, so the
-            // fidelity compare below always reads the current arm — never a
-            // disposed pre-refresh one.
-            const h = handle as WritableMobxPoolHandle
-            // Settle stragglers before comparing: run.apply already quiesced,
-            // but post-reload replica/store trickle (settle timers, binding
-            // catch-up) can land rows in the feed after the checker's own
-            // drain. Bounded content-stable rounds with explicit feed drains;
-            // a real divergence survives them and still fails loudly below.
-            const settled = await settleStep(run)
-            const compareOnce = (): {
-              kernel: SliceSnapshot
-              actual: SliceSnapshot
-              expected: SliceSnapshot
-              diff: string | null
-            } => {
-              const store = run.ctx.engine.getSnapshot()
-              const kernel = oracleSnapshot(store)
-              const expected = oracle.expectedSnapshot(store, run.feed().source)
-              const actual = applyGap(h, run.ctx, expected, h.snapshot(), gap)
-              return { kernel, actual, expected, diff: diffSnapshots(actual, expected) }
-            }
-            const first = compareOnce()
-            // The kernel is the counted legacy finding, never expected
-            // values: record each step it disagrees with the reference
-            // display, with the first example, and write both to the note.
-            const kernelDiff = diffSnapshots(first.kernel, first.expected)
-            if (kernelDiff !== null) {
-              kernelDiffers += 1
-              if (firstKernelDiff === null) {
-                firstKernelDiffStep = step.index
-                firstKernelDiff =
-                  `step ${step.index} kernel-vs-expected ` +
-                  `(${JSON.stringify(step.change)}):\n${kernelDiff}`
-              }
-            }
-            let diff = first.diff
-            // Confirm-or-heal: the arm, the feed and the kernel converge over
-            // async delivery (loads, binding catch-up, publish lag) that can
-            // straddle the compare instant for exactly one check. Re-settle
-            // and re-read everything fresh once; a systematic divergence
-            // reproduces (all arm logic is synchronous), a delivery transient
-            // heals. Healed checks are counted, never hidden.
-            if (diff !== null) {
-              await settleStep(run)
-              const second = compareOnce()
-              if (second.diff === null) {
-                healed += 1
-                diff = null
-              } else {
-                oracleFailed += 1
-              }
-            }
-            if (diff !== null && firstDiff === null) {
-              firstDiffStep = step.index
-              firstDiffChange = JSON.stringify(step.change)
-              firstDiff =
-                `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-                `(${firstDiffChange}, settled=${settled}):\n${diff}`
-            }
-            if (diff !== null) {
-              failedSteps.push(step.index)
-            }
-          },
-        })
-        // Complete-or-fail: every seed lands its row; the test fails at the
-        // end when any seed failed, never mid-loop.
-        if (!result.ok) {
-          cells.push({
-            seed,
-            steps: STEPS,
-            ok: false,
-            against: result.against,
-            failStep: result.step,
-            change: result.change,
-            diff:
-              `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
-              `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}\n` +
-              `counts=${JSON.stringify(result.counts)}`,
-            counts: result.counts,
-            gapApplied: gap.applied,
-            oracleChecks,
-            oracleFailed,
-            kernelDiffers,
-            firstKernelDiffStep,
-            firstKernelDiff,
-            healed,
-            failedSteps,
-          })
-          continue
-        }
-        if (firstDiff !== null) {
-          cells.push({
-            seed,
-            steps: STEPS,
-            ok: false,
-            against: 'oracle',
-            failStep: firstDiffStep,
-            change: firstDiffChange,
-            diff:
-              `${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks} ` +
-              `at steps [${failedSteps.join(',')}]`,
-            counts: result.counts,
-            gapApplied: gap.applied,
-            oracleChecks,
-            oracleFailed,
-            kernelDiffers,
-            firstKernelDiffStep,
-            firstKernelDiff,
-            healed,
-            failedSteps,
-          })
-          continue
-        }
-        cells.push({
-          seed,
-          steps: STEPS,
-          ok: true,
-          counts: result.counts,
-          gapApplied: gap.applied,
-          oracleChecks,
-          oracleFailed,
-          kernelDiffers,
-          firstKernelDiffStep,
-          firstKernelDiff,
-          healed,
-          failedSteps,
-        })
-      }
+      const cells: GateCell[] = []
+      for (const seed of SEEDS) cells.push(await runGateSeed(seed))
       writeResult(`mobx-write-truth-gate-1x-${SEEDS.length}x${STEPS}`, { seeds: SEEDS, steps: STEPS, cells })
-      const failed = cells.filter((cell) => cell.ok !== true)
+      const failed = cells.filter((cell) => !cell.ok)
       if (failed.length > 0) {
-        const lines = failed.map((cell) => {
-          const c = cell as { seed: number; against: unknown; failStep: unknown; diff: string }
-          const firstLine = c.diff.split('\n')[0]
-          return `seed ${c.seed} vs ${c.against} at step ${c.failStep}: ${firstLine}`
-        })
+        const lines = failed.map(
+          (c) =>
+            `seed ${c.seed} vs ${c.against ?? '?'} at step ${c.failStep ?? '?'}: ${(c.diff ?? '').split('\n')[0]}`,
+        )
         throw new Error(
           `truth gate failed for ${failed.length}/${cells.length} seeds:\n${lines.join('\n')}\n` +
             `(per-seed rows in the result file above)`,
@@ -575,13 +651,17 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       let failures = 0
       for (const seed of SEEDS) {
         const adapter = new ArmEditAdapter()
-        const planted = armWithAdapter(adapter, dropPendingOnRemote)
+        const oracle = new WriteOracle()
+        const planted = armWithAdapter(adapter, oracle, dropPendingOnRemote)
         const sequence = gen(seed, STEPS)
         const result = await checkArm(planted, sequence, {
           mode: 'truth',
           shrink: false,
           editViaArm: adapter.editHook,
-          onStep: (step) => adapter.pairFromStep(step.detail ?? {}),
+          onStep: (step, run) => {
+            adapter.pairFromStep(step.detail ?? {})
+            feedStep(oracle, step, run)
+          },
         })
         if (!result.ok) failures += 1
       }
@@ -728,5 +808,24 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       }
     },
     120_000,
+  )
+
+  it(
+    'plant (iii): remotes held until receipt fail the skew steps',
+    async () => {
+      // The old onStep-sync oracle's skew moved into an arm: remotes for a
+      // row with an unreceipted pending entry arrive one receipt late, so the
+      // accept's ackBase is stale and the released remote overtakes. The
+      // timely reference oracle holds Mine; the planted arm drops it. Must
+      // fail at the skew steps the shakedown found (1@119, 2@139, 3@9).
+      const expectations: Record<number, number> = { 1: 119, 2: 139, 3: 9 }
+      for (const seed of [1, 2, 3]) {
+        const cell = await runGateSeed(seed, lateRemoteUntilAccept)
+        expect(cell.ok).toBe(false)
+        expect(cell.against).toBe('oracle')
+        expect(cell.failedSteps).toContain(expectations[seed] as number)
+      }
+    },
+    GATE_TIMEOUT_MS,
   )
 })
