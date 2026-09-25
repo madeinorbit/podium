@@ -1742,7 +1742,7 @@ export function deckDependencyNote(
   const closed = issueClosed(issue)
   return {
     label: unresolved.length === 0
-      ? null
+      ? dependencies.length === 0 && !closed && issue.blocked ? 'Dependency status unavailable' : null
       : closed
         ? unresolved.some((dep) => dep.state === 'open')
           ? 'Recorded dependency still open'

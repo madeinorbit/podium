@@ -266,6 +266,8 @@ describe('flight deck independent facts and placement', () => {
     expect(note).toMatchObject({ label: 'Recorded dependency still open', authoredNotes: ['Author note'] })
     expect(note.dependencies.map((dep) => dep.state)).toEqual(['unavailable', 'open'])
     expect(deckDependencyNote(issue('notes-only', { dependencyNote: 'Recorded by the author' }), new Map(), new Set())).toMatchObject({ label: null, dependencies: [], authoredNotes: ['Recorded by the author'] })
+    expect(deckDependencyNote(issue('blocked-without-edges', { blocked: true }), new Map(), new Set())).toEqual({ label: 'Dependency status unavailable', dependencies: [], authoredNotes: [] })
+    expect(deckDependencyNote(issue('closed-without-edges', { stage: 'done', blocked: true }), new Map(), new Set())).toMatchObject({ label: null, dependencies: [] })
     expect(deckSessionFacts(closed, working)).toMatchObject({ running: true, request: false, lastRecordedRequest: true })
     expect(deckSessionFacts(closed, parkedError)).toMatchObject({ running: false, error: 'Network error', parked: true })
     expect(deckTaskFacts(closed, [working, parkedError])).toMatchObject({ lifecycle: 'done', running: 1, taskRequest: false })
