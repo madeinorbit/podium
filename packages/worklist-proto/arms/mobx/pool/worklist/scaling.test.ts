@@ -26,9 +26,9 @@
  *   least the row's own three reactions, failing the same bound.
  *
  * Page observers are attached throughout (keys, pinned ids, every group's
- * lanes, like `PoolList` and the headers), and every re-evaluation counts —
- * even one that keeps its value — through always-fire reactions, plus the
- * key-index walk counter. Reported per scale to `mobx-scaling-4686`.
+ * lanes, like `PoolList` and the headers), and every reaction execution
+ * counts through the `runReaction_` patch — a scheduled re-evaluation counts
+ * even when it keeps its value. Reported per scale to `mobx-scaling-4686`.
  *
  * Direct pool, no React and no engine: the harness's fence steps already hold
  * commits, reads and parity per scenario (`groups.test.tsx`,
@@ -49,7 +49,7 @@ import { writeResult } from '../../../../harness/src/results'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import type { MobxPool } from '../pool'
 import { tracked } from '../pool'
-import { layoutOf } from './groups'
+import { GroupNode, layoutOf } from './groups'
 
 interface Rig {
   replay: ReplaySource
@@ -211,38 +211,59 @@ function countMapReads(name: string, run: () => void): number {
  * (`PoolList` reads `keys` and `pinnedIds`, each header its lanes): every
  * re-evaluation counts, even one that keeps its value. Returned with a stop
  * function; creation settles baselines synchronously.
+ *
+ * NOTE: executions are counted through the `runReaction_` patch
+ * (`countReactions`), not through these reactions' effects: an effect fires
+ * only when its computed's value changes, but a scheduled re-evaluation that
+ * keeps its value is still work. Filter the execution map by the `audit.`
+ * prefix.
  */
-function observeGroups(pool: MobxPool): { evals: Map<string, number>; stop(): void } {
-  const evals = new Map<string, number>()
+
+/**
+ * Group lanes the page reads, present on the running code: newer than the
+ * keys-walk plant (to-do 3), which has no head rank or unlatched base lanes.
+ */
+type GroupLane = 'label' | 'headRank' | 'rowIds' | 'closedIds' | 'baseRowIds' | 'baseClosedIds'
+const ALL_LANES: readonly GroupLane[] = [
+  'label',
+  'headRank',
+  'rowIds',
+  'closedIds',
+  'baseRowIds',
+  'baseClosedIds',
+]
+const availableLanes: readonly GroupLane[] = ALL_LANES.filter(
+  (lane) => lane in GroupNode.prototype,
+)
+
+function observeGroups(pool: MobxPool): { stop(): void } {
   const stops: (() => void)[] = []
   const watch = (name: string, fn: () => unknown): void => {
-    stops.push(
-      reaction(
-        fn,
-        () => {
-          evals.set(name, (evals.get(name) ?? 0) + 1)
-        },
-        { equals: () => false, name: `audit.${name}` },
-      ),
-    )
+    stops.push(reaction(fn, () => {}, { name: `audit.${name}` }))
   }
   watch('keys', () => pool.groups.keys)
   watch('pinnedIds', () => pool.groups.pinnedIds)
   watch('latchedOpenId', () => pool.groups.latchedOpenId)
   for (const key of tracked(() => pool.groups.keys)) {
-    watch(`label:${key}`, () => pool.groups.group(key).label)
-    watch(`headRank:${key}`, () => pool.groups.group(key).headRank)
-    watch(`rowIds:${key}`, () => pool.groups.group(key).rowIds)
-    watch(`closedIds:${key}`, () => pool.groups.group(key).closedIds)
-    watch(`baseRowIds:${key}`, () => pool.groups.group(key).baseRowIds)
-    watch(`baseClosedIds:${key}`, () => pool.groups.group(key).baseClosedIds)
+    const group = pool.groups.group(key)
+    for (const lane of availableLanes) {
+      watch(`${lane}:${key}`, () => group[lane])
+    }
   }
   return {
-    evals,
     stop: () => {
       for (const stop of stops) stop()
     },
   }
+}
+
+/** executions of the `audit.*` observers, with the prefix stripped. */
+function auditOf(runs: Map<string, number>): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const [name, count] of runs) {
+    if (name.startsWith('audit.')) out.set(name.slice('audit.'.length), count)
+  }
+  return out
 }
 
 /**
@@ -280,6 +301,7 @@ describe('scaling: the work follows the change (POD-4686)', () => {
   for (const scale of [1, 4] as const) {
     it(`stage move files one id at ${scale}x`, () => {
       const r = rig(scale)
+      let audit: { stop(): void } | undefined
       try {
         const { pool } = r.handle
         const visible = tracked(() => pool.worklist.order.length)
@@ -287,26 +309,31 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         const base = corpusIssue(r, target)
         const now = new Date(base.updatedAt).toISOString()
         // The page's observers: keys, pinned ids, and every group's lanes.
-        const audit = observeGroups(pool)
+        // Executions are counted through the runReaction_ patch below, so a
+        // scheduled re-evaluation counts even when it keeps its value.
+        audit = observeGroups(pool)
         pool.stats.reset()
         let mapReads = 0
-        const sets = countGroupSets(() => {
-          mapReads = countMapReads('pool.groups.keys', () => {
-            r.push({
-              type: 'update',
-              rows: [
-                {
-                  kind: 'issue',
-                  id: target,
-                  value: {
-                    ...base,
-                    stage: 'done',
-                    closedAt: now,
-                    closedReason: 'done',
-                    tuckedAt: now,
+        let sets = 0
+        const runs = countReactions(() => {
+          sets = countGroupSets(() => {
+            mapReads = countMapReads('pool.groups.keys', () => {
+              r.push({
+                type: 'update',
+                rows: [
+                  {
+                    kind: 'issue',
+                    id: target,
+                    value: {
+                      ...base,
+                      stage: 'done',
+                      closedAt: now,
+                      closedReason: 'done',
+                      tuckedAt: now,
+                    },
                   },
-                },
-              ],
+                ],
+              })
             })
           })
         })
@@ -320,13 +347,16 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         expect(sets, 'group set writes').toBeLessThanOrEqual(4)
         // No key-index walk: the head-rank order reads no per-id index.
         expect(mapReads, 'key-index reads').toBe(0)
-        // The key order re-sorts at most once (only when the move changes a
-        // head rank or a bucket membership); the pinned section and the latch
-        // never re-evaluate here.
-        const evals = audit.evals
-        expect(evals.get('keys') ?? 0, 'keys re-evaluations').toBeLessThanOrEqual(1)
-        expect(evals.get('pinnedIds') ?? 0, 'pinnedIds re-evaluations').toBe(0)
-        expect(evals.get('latchedOpenId') ?? 0, 'latch re-evaluations').toBe(0)
+        // Executions per groups observer: the moved row's own layout
+        // reaction runs once; the moved group's lanes run once each; the key
+        // order runs at most once (only when the move changes a head rank or
+        // a bucket membership); everything else never runs here.
+        const evals = auditOf(runs)
+        const layoutRuns = [...runs].filter(([name]) => name.startsWith('pool.layout.'))
+        expect(layoutRuns.length, 'layout reactions executed').toBe(1)
+        expect(evals.get('keys') ?? 0, 'keys executions').toBeLessThanOrEqual(1)
+        expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)
+        expect(evals.get('latchedOpenId') ?? 0, 'latch executions').toBe(0)
         const moved = tracked(() => {
           for (const key of pool.groups.keys) {
             const group = pool.groups.group(key)
@@ -335,12 +365,12 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           return null
         })
         expect(moved, 'the moved row is still grouped').not.toBeNull()
-        for (const [name, runs] of evals) {
+        for (const [name, count] of evals) {
           if (name === 'keys' || name === 'pinnedIds' || name === 'latchedOpenId') continue
           if (name.endsWith(`:${moved}`)) {
-            expect(runs, `${name} re-evaluations (moved group)`).toBeGreaterThanOrEqual(1)
+            expect(count, `${name} executions (moved group)`).toBe(1)
           } else {
-            expect(runs, `${name} re-evaluations (other group)`).toBe(0)
+            expect(count, `${name} executions (other group)`).toBe(0)
           }
         }
         // The filing re-sorts exactly its own group's lanes.
@@ -382,7 +412,7 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           })
         })
         expect(refiled, 'whole-group rebuild set writes').toBeGreaterThan(4)
-        writeResult('mobx-scaling-4686', {
+        writeResult(`mobx-scaling-4686-${scale}x-stage`, {
           scale,
           at: 'stageMove',
           visible,
@@ -395,49 +425,45 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           evals: Object.fromEntries(evals),
         })
       } finally {
-        audit.stop()
+        audit?.stop?.()
         r.dispose()
       }
     }, 600_000)
 
     it(`click re-validates no maintenance reaction at ${scale}x`, () => {
       const r = rig(scale)
+      let audit: { stop(): void } | undefined
       try {
         const { pool } = r.handle
-        const audit = observeGroups(pool)
+        audit = observeGroups(pool)
         try {
           const target = clickTarget(pool)
           expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(true)
           pool.stats.reset()
-          audit.evals.clear()
-        const runs = countReactions(() => {
-          r.locals.set({ selectedIssueId: target })
-          r.locals.flush()
-          // Past every seat's stamp, so the row reads as read: sessions only
-          // ever stamped 2026 and earlier on this corpus.
-          const readAt = '2027-06-01T00:00:00.000Z'
-          r.push({
-            type: 'update',
-            rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), readAt } }],
+          const runs = countReactions(() => {
+            r.locals.set({ selectedIssueId: target })
+            r.locals.flush()
+            // Past every seat's stamp, so the row reads as read: sessions only
+            // ever stamped 2026 and earlier on this corpus.
+            const readAt = '2027-06-01T00:00:00.000Z'
+            r.push({
+              type: 'update',
+              rows: [{ kind: 'issue', id: target, value: { ...corpusIssue(r, target), readAt } }],
+            })
           })
-        })
-        const maintenance = maintenanceOf(runs)
-        expect(maintenance, 're-validated maintenance reactions').toEqual([])
-        // The selection marks every lane stale once, and each re-evaluates
-        // doing O(1) work (the latch check; the sorted lanes stay cached).
-        // Nothing else re-evaluates: no lane re-sorts, no order walks.
-        const evals = audit.evals
-        expect(evals.get('latchedOpenId') ?? 0, 'latch re-evaluations').toBe(1)
-        expect(evals.get('keys') ?? 0, 'keys re-evaluations').toBe(0)
-        expect(evals.get('pinnedIds') ?? 0, 'pinnedIds re-evaluations').toBe(0)
-        for (const [name, count] of evals) {
-          if (name === 'latchedOpenId' || name === 'keys' || name === 'pinnedIds') continue
-          if (name.startsWith('rowIds:') || name.startsWith('closedIds:')) {
-            expect(count, `${name} re-evaluations`).toBe(1)
-          } else {
-            expect(count, `${name} re-evaluations`).toBe(0)
+          const maintenance = maintenanceOf(runs)
+          expect(maintenance, 're-validated maintenance reactions').toEqual([])
+          // Executions per groups observer: at most one scheduling round per
+          // observer across both actions (selection, then the cursor write).
+          // The latch may execute once (it must look at the new selection);
+          // lanes may execute once (scheduled, O(1) latch-check bodies off
+          // cached lanes); nothing re-sorts and nothing walks an index.
+          const evals = auditOf(runs)
+          for (const [name, count] of evals) {
+            expect(count, `${name} executions`).toBeLessThanOrEqual(1)
           }
-        }
+          expect(evals.get('keys') ?? 0, 'keys executions').toBe(0)
+          expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)
         // The cursor still works: the row reads as read, stays visible, files nothing.
         expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(false)
         expect(tracked(() => pool.worklist.issue(target)?.visible)).toBe(true)
@@ -469,15 +495,15 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           }
         })
         expect(maintenanceOf(planted).length, 'plant re-validations').toBeGreaterThanOrEqual(3)
-        writeResult('mobx-scaling-4686', {
+        writeResult(`mobx-scaling-4686-${scale}x-click`, {
           scale,
           at: 'click',
           target,
           reactions: 0,
-          groupsEvals: Object.fromEntries(audit.evals),
+          groupsExecutions: Object.fromEntries(auditOf(runs)),
         })
         } finally {
-          audit.stop()
+          audit?.stop?.()
         }
       } finally {
         r.dispose()
