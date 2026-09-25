@@ -193,21 +193,49 @@ function dropPendingOnRemote(handle: WritableMobxPoolHandle): void {
 }
 
 /**
- * A hidden decayed issue on a fresh run: a server readAt the live set does
- * not show, present in the pool tables (so a generated edit accepts it).
- * Throws when the corpus carries none — the visibility plants need the shape.
+ * A hidden issue whose decay window a fresh read cursor reopens. Each id is
+ * probed with a transport-free log entry — appended and rejected without
+ * ever sending, so the kernel, the feed and the lane see nothing — and the
+ * first whose rebuild shows wins. The two named ids reopened their windows
+ * in the seed-1 and seed-4 gate runs; the scan behind them keeps the plant
+ * working when the corpus moves. Throws when nothing does: the visibility
+ * plants need a window-driven row, and a corpus without one must fail
+ * loudly, not settle for a row hidden for another reason.
  */
-function hiddenDecayedTarget(handle: WritableMobxPoolHandle, source: RowSource, skipId: string): string {
+function findWindowTarget(handle: WritableMobxPoolHandle, source: RowSource, skipId: string): string {
   const live = handle.snapshot()
+  const byId = new Map<string, { readAt?: unknown }>()
   for (const record of source.snapshot('issue')) {
-    const value = record.value as { readAt?: unknown } | undefined
-    if (value === undefined || typeof value.readAt !== 'string' || value.readAt === '') continue
-    if (record.id === skipId) continue
-    if (!handle.pool.tables.issue.has(record.id)) continue
-    if (record.id in live.rowsById) continue
-    return record.id
+    byId.set(record.id, (record.value ?? {}) as { readAt?: unknown })
   }
-  throw new Error('[plant] no hidden decayed issue in the fresh corpus')
+  const qualifies = (id: string): string | null => {
+    if (id === skipId) return null
+    const readAt = byId.get(id)?.readAt
+    if (typeof readAt !== 'string' || readAt === '') return null
+    if (id in live.rowsById) return null
+    return readAt
+  }
+  const dynamic: string[] = []
+  for (const id of byId.keys()) {
+    if (id === 'i1380' || id === 'i1397' || dynamic.length >= 40) continue
+    if (qualifies(id) !== null) dynamic.push(id)
+  }
+  const fresh = new Date(Date.now()).toISOString()
+  let probes = 0
+  for (const id of ['i1380', 'i1397', ...dynamic]) {
+    const readAt = qualifies(id)
+    if (readAt === null) continue
+    probes += 1
+    const txId = `probe-${probes}`
+    handle.write.log.append(
+      { txId, kind: 'issue', id, patch: { readAt: fresh }, prior: { readAt } } as never,
+      undefined,
+    )
+    const shows = id in handle.rebuildFromScratch().rowsById
+    handle.write.log.reject({ txId: txId as never, error: { message: '[probe] not an edit', parked: false } })
+    if (shows) return id
+  }
+  throw new Error('[plant] no window-driven hidden issue among the candidates')
 }
 
 /**
@@ -583,11 +611,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           visible.issueRead = (id: string) => handle.pool.readStates.get(id)
         }
         try {
-          const id = hiddenDecayedTarget(
-            handle,
-            feed.source,
-            run.ctx.corpus.unscannedWorktree.issueId,
-          )
+          const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId)
           const step = await run.apply({ kind: 'edit', handle: 'e1', id, patch: { readAt: true } })
           expect(step.skipped).toBeUndefined()
           adapter.pairFromStep(step.detail ?? {})
@@ -629,29 +653,48 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         try {
-          const id = hiddenDecayedTarget(
-            handle,
-            feed.source,
-            run.ctx.corpus.unscannedWorktree.issueId,
-          )
-          // The plant: a phantom fresh cursor the reference log never holds,
-          // seen by both arm derivations and by nothing else.
+          const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId)
+          // The plant: a mark-read the arm logs but never sends — the
+          // kernel, the feed and the reference log never learn it, yet both
+          // arm derivations paint it through the real overlay path (the
+          // remote repaints the overlay map observably, so verdicts re-run).
           if (planted) {
             const fresh = new Date(Date.now()).toISOString()
-            const visible = handle.pool.visibleInputs as {
-              issueRead(id: string): string | null | undefined
-            }
-            const originalRead = visible.issueRead.bind(handle.pool.visibleInputs)
-            visible.issueRead = (vid: string) => (vid === id ? fresh : originalRead(vid))
-            const display = handle.write.pendingDisplay.bind(handle.write) as (
-              kind: string,
-              vid: string,
-            ) => unknown
-            handle.write.pendingDisplay = ((kind: string, vid: string) =>
-              kind === 'issue' && vid === id ? { readAt: fresh } : display(kind, vid)) as unknown as typeof handle.write.pendingDisplay
+            const feedRow = feed.source.snapshot('issue').find((r) => r.id === id)
+            const server = feedRow?.value as
+              | { title: string; stage: string; readAt: string | null }
+              | undefined
+            if (server === undefined) throw new Error('[plant] target left the feed')
+            handle.write.log.append(
+              {
+                txId: 'phantom-tx',
+                kind: 'issue',
+                id,
+                patch: { readAt: fresh },
+                prior: { readAt: server.readAt ?? null },
+              } as never,
+              undefined,
+            )
+            handle.write.handleRemote('issue', id, {
+              title: server.title,
+              stage: server.stage,
+              readAt: server.readAt ?? null,
+            } as never)
           }
           await settleStep(run)
           locals.flush()
+          // A real edit would materialise a cold row (ensureResident); the
+          // phantom performs none, so hydrate the same way — otherwise the
+          // live set lacks the row for loading reasons, not verdict reasons.
+          {
+            const residency = handle.pool.residency
+            if (residency !== null && !handle.pool.tables.issue.has(id)) {
+              if (residency.isCold('issue', id)) {
+                residency.request('issue', id)
+                handle.pool.hydrate()
+              }
+            }
+          }
           const live = handle.snapshot()
           const rebuilt = handle.rebuildFromScratch()
           const store = run.ctx.engine.getSnapshot()
