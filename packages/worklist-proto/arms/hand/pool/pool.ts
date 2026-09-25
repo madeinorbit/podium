@@ -803,6 +803,26 @@ export class HandPool {
     this.commit(deltas)
   }
 
+  /**
+   * POD-4586 (Hc1) — one optimistic overlay commit: the write layer dirtied
+   * exactly the pending keys it moved via `invalidate`, then this drains,
+   * settles the filings, the order and the groups, and publishes once. No
+   * table, relation or residency write is involved; filings do not move on a
+   * title/stage/readAt edit, so no filing sync is needed.
+   */
+  commitOverlay(invalidate: () => void): void {
+    invalidate()
+    this.graph.flush()
+    this.rollup.settleFilings()
+    this.graph.flush()
+    this.worklist.settle()
+    const orderMoved = this.worklist.takeMoved()
+    this.groups.settle(orderMoved, false)
+    const groupsMoved = this.groups.takeMoved()
+    this.publish(orderMoved, groupsMoved)
+    this.stats.notifications += 1
+  }
+
   /** Called by a view cell whose value changed. */
   changed(id: string): void {
     this.changedIds.add(id)
