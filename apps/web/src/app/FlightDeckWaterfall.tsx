@@ -852,7 +852,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                   {worker.type}
                   {!worker.anonymous ? ` · ${worker.id.slice(0, 8)}` : ''}
                 </span>
-                <span>{worker.working ? 'working' : 'waiting'}</span>
+                <span>{worker.anonymous ? `${worker.count} identities unavailable` : 'Individual activity unavailable'}</span>
               </button>
             )
           })}
@@ -1154,12 +1154,12 @@ export function FlightDeckWaterfall({
   const now = useStoreSelector((store) => store.coarseNow)
   const projected = useMemo<WaterfallIssueRow[]>(
     () => [
-      {
+      ...(rootRow.issue.stage === 'proposed' ? [] : [{
         row: rootRow,
         displayTitle: displayTitles.get(rootRow.issue.id) ?? rootRow.issue.title,
         sessions: deckSessions(rootRow, mode),
         root: true,
-      },
+      }]),
       ...rows.map((row) => ({
         row,
         displayTitle: displayTitles.get(row.issue.id) ?? row.issue.title,

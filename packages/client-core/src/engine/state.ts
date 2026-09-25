@@ -47,7 +47,7 @@ import {
   type FileTab,
   leafPaneIds,
   missionIssueIds,
-  missionRootFor,
+  resolvedMissionRootFor,
   type PinState,
   type RecentFileEntry,
   type WorkspaceKey,
@@ -226,7 +226,7 @@ export function visibleLeafPaneIds(st: EngineState): string[] {
  */
 export function visibleTabIds(st: EngineState): SessionId[] {
   const ws = currentWorkspace(st)
-  if (allTabIds(ws).length === 0) {
+  if (allTabIds(ws).length === 0 && !st.workspaces[workspaceKeyForState(st)]) {
     return [st.paneA, st.split ? st.paneB : null].filter((id): id is SessionId => id != null)
   }
   return visibleLeafPaneIds(st)
@@ -247,7 +247,7 @@ export function visibleTabIds(st: EngineState): SessionId[] {
  */
 export function focusedPaneSession(st: EngineState): SessionId | null {
   const ws = currentWorkspace(st)
-  if (allTabIds(ws).length === 0) {
+  if (allTabIds(ws).length === 0 && !st.workspaces[workspaceKeyForState(st)]) {
     return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
   }
   const visible = visibleLeafPaneIds(st)
@@ -289,7 +289,8 @@ export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
   const selected = st.selectedIssueId
     ? st.issues.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
-  const root = selected ? missionRootFor(st.issues, selected.id) : undefined
+  const root = selected ? resolvedMissionRootFor(st.issues, selected.id) : undefined
+  if (st.selectedIssueId && !root) return 'none'
   return workspaceKeyFor({
     missionRootId: root?.id ?? null,
     issueId: st.selectedIssueId,
@@ -381,6 +382,7 @@ export function workspaceWritePatch(
   st: Pick<EngineState, 'workspaces'>,
   key: WorkspaceKey,
   next: WorkspaceLayout,
+  allowEmpty = false,
 ): WorkspacePatch {
   const mirror = workspaceMirrorPatch(next)
   const current = st.workspaces[key]
@@ -388,7 +390,7 @@ export function workspaceWritePatch(
   // task must not persist an empty layout for every task ever selected.
   const vacuous =
     current === undefined && leafPaneIds(next.root).length === 1 && allTabIds(next).length === 0
-  if (current === next || vacuous) return mirror
+  if (current === next || (vacuous && !allowEmpty)) return mirror
   return { workspaces: { ...st.workspaces, [key]: next }, ...mirror }
 }
 
@@ -453,13 +455,26 @@ export function knownTabIdsForWorkspace(
   key: WorkspaceKey,
 ): Set<string> {
   const ids = new Set<string>()
+  const byId = issuesById(st.issues)
+  const unresolvedRoot = key.startsWith('mission:') && !byId.has(key.slice(8)) ||
+    key.startsWith('issue:') && !byId.has(key.slice(6))
   for (const id of st.pendingSpawnIds) ids.add(id)
   for (const id of resolvableFileTabIds(st)) ids.add(id)
   // ONE resolution of the key, then a membership test per session. The rule is
   // unchanged; what moved is where the key's own share of the work happens.
   const belongs = workspaceMembership(st, key)
   for (const session of st.sessions) {
-    if (belongs(session)) ids.add(session.sessionId)
+    let unresolvedOwner = Boolean(session.issueId && !byId.has(session.issueId))
+    if (session.issueId && !unresolvedOwner) {
+      let owner = byId.get(session.issueId)
+      const seen = new Set<string>()
+      while (owner?.parentId && !seen.has(owner.id)) {
+        seen.add(owner.id)
+        owner = byId.get(owner.parentId)
+        if (!owner) { unresolvedOwner = true; break }
+      }
+    }
+    if (unresolvedRoot || unresolvedOwner || belongs(session)) ids.add(session.sessionId)
   }
   return ids
 }
@@ -593,6 +608,8 @@ export function workspaceUiSnapshot(st: EngineState): WorkspaceUiSnapshot {
     panelMode: st.panelMode,
     dockShells: st.dockShells,
     recentFiles: st.recentFiles,
+    workspaceKey: workspaceKeyForState(st),
+    focusedTabId: focusedPaneSession(st),
   }
 }
 

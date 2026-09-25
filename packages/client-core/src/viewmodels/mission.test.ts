@@ -19,6 +19,10 @@ import {
   coordinatorCount,
   deckDestinationFor,
   deckIssueState,
+  deckTaskFacts,
+  deckDependencies,
+  deckSessionTree,
+  deckSessionRequestsHuman,
   deckSessions,
   deckViewEmptyLine,
   type FlightDeckRow,
@@ -33,6 +37,7 @@ import {
   missionIndexStats,
   missionIssueIds,
   missionProgress,
+  missionProposals,
   missionRollup,
   missionRootFor,
   missionSessions,
@@ -46,6 +51,7 @@ import {
   selectedMissionRoot,
   sessionAsksOnIssue,
   sessionNeedsHuman,
+  nativeSubagentRows,
   waitingNote,
 } from './mission'
 import { type IssueNavigationModel, issuePendingDecision } from './slices/issues'
@@ -115,6 +121,47 @@ function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
 type AgentState = NonNullable<SessionMetaInput['agentState']>
 
 const SINCE = '2026-07-01T01:00:00.000Z'
+
+describe('flight deck independent facts and placement', () => {
+  it('keeps lifecycle, running, error, request and recorded dependencies independent', () => {
+    const root = issue('root', { stage: 'done', deps: [{ id: asIssueId('prereq'), type: 'blocks' }] })
+    const prereq = issue('prereq', { stage: 'backlog' })
+    const running = sess('running', { issueId: asIssueId('root'), agentState: { phase: 'working', since: SINCE, nativeSubagentCount: 0 } })
+    const error = sess('error', { issueId: asIssueId('root'), agentState: { phase: 'errored', since: SINCE, nativeSubagentCount: 0, error: { class: 'network_error', retryable: false } } })
+    const facts = deckTaskFacts(root, [running, error])
+    expect(facts.lifecycle).toBe('done')
+    expect(facts.running).toBe(1)
+    expect(facts.errors).toHaveLength(1)
+    expect(facts.requests).toHaveLength(0)
+    expect(deckDependencies(root, new Map([[root.id, root], [prereq.id, prereq]]), new Set([root.id]))).toMatchObject([{ state: 'open', outsideMission: true }])
+    expect(deckSessionRequestsHuman(error)).toBe(false)
+  })
+
+  it('keeps a parked raw working phase out of running and avoids native worker activity claims', () => {
+    const parked = sess('parked', { issueId: asIssueId('root'), status: 'hibernated', agentState: { phase: 'working', since: SINCE, nativeSubagentCount: 3, nativeSubagents: [{ id: 'worker-1', type: 'explore' }, { id: 'worker-1', type: 'explore' }] } })
+    expect(deckTaskFacts(issue('root'), [parked]).running).toBe(0)
+    expect(nativeSubagentRows(parked)).toMatchObject([{ id: 'worker-1', count: 1 }, { id: 'unidentified', count: 2 }])
+  })
+
+  it('renders accepted descendants beneath an omitted proposed parent and collects proposals once', () => {
+    const root = issue('root', { type: 'epic', seq: 1 })
+    const proposed = issue('proposed', { stage: 'proposed', parentId: asIssueId('root'), seq: 2 })
+    const nested = issue('nested', { stage: 'proposed', parentId: asIssueId('proposed'), seq: 3 })
+    const accepted = issue('accepted', { stage: 'backlog', parentId: asIssueId('proposed'), seq: 4 })
+    const external = issue('external', { stage: 'proposed', seq: 5, deps: [{ id: asIssueId('root'), type: 'discovered-from' }, { id: asIssueId('accepted'), type: 'discovered-from' }] })
+    const all = [root, proposed, nested, accepted, external]
+    expect(buildFlightDeckRows(all, [], 'root').map((row) => [row.issue.id, row.depth])).toEqual([['root', 0], ['accepted', 1]])
+    expect(missionProposals(all, [], 'root').map(({ issue: item, originIds }) => [item.id, originIds.length])).toEqual([['proposed', 0], ['nested', 0], ['external', 2]])
+    expect(missionProgress(all, [], 'root').total).toBe(1)
+  })
+
+  it('nests same-task spawned sessions once and leaves cross-task parents as references', () => {
+    const parent = sess('parent', { issueId: asIssueId('root') })
+    const child = sess('child', { issueId: asIssueId('root'), spawnedBy: 'session:parent' })
+    const outside = sess('outside', { issueId: asIssueId('root'), spawnedBy: 'session:other-task' })
+    expect(new Map(deckSessionTree(issue('root'), [parent, child, outside]).map(({ session, depth }) => [session.sessionId, depth]))).toEqual(new Map([['parent', 0], ['child', 1], ['outside', 0]]))
+  })
+})
 
 /** An instrumented agent mid-turn — the only shape that reads as `working`. */
 const workingState: AgentState = { phase: 'working', since: SINCE, nativeSubagentCount: 0 }
@@ -797,7 +844,7 @@ describe('buildFlightDeckRows', () => {
     const issues = [
       issue('root', { parentId: 'c' }),
       issue('b', { parentId: 'root' }),
-      issue('c', { parentId: 'b', stage: 'review' }),
+      issue('c', { parentId: 'b', stage: 'review', needsHuman: true }),
     ]
     const sessions = [
       sess('s-root', { issueId: 'root' }),
@@ -810,14 +857,14 @@ describe('buildFlightDeckRows', () => {
     const root = rowFor(rows, 'root')
     expect(root.descendantIds).toEqual(['b', 'c'])
     expect(root.liveAgentCount).toBe(3) // three issues, one live session each
-    expect(root.actionableCount).toBe(1) // only c is in review
+    expect(root.actionableCount).toBe(1) // only c has an explicit request
   })
 
   it('rolls descendants, needs-you count and live agents up the subtree', () => {
     const issues = [
       issue('root'),
       issue('c1', { parentId: 'root', seq: 1 }),
-      issue('g1', { parentId: 'c1', stage: 'review' }), // review ⇒ needs a human
+      issue('g1', { parentId: 'c1', stage: 'review', needsHuman: true }),
       issue('c2', { parentId: 'root', seq: 2 }),
     ]
     const sessions = [
@@ -899,7 +946,7 @@ describe('buildFlightDeckRows', () => {
     const issues = [
       issue('root'),
       issue('a', { startedBySession: 's-root' }),
-      issue('b', { startedBySession: 's-a', stage: 'review' }),
+      issue('b', { startedBySession: 's-a', stage: 'review', needsHuman: true }),
     ]
     const sessions = [sess('s-root', { issueId: 'root' }), sess('s-a', { issueId: 'a' })]
     expect(shape(buildFlightDeckRows(issues, sessions, 'root', 'needs-you'))).toEqual([
@@ -940,7 +987,7 @@ describe('buildFlightDeckRows', () => {
     const issues = [
       issue('root'),
       issue('c1', { parentId: 'root', seq: 1 }),
-      issue('g1', { parentId: 'c1', seq: 1, stage: 'review' }),
+      issue('g1', { parentId: 'c1', seq: 1, stage: 'review', needsHuman: true }),
       issue('g2', { parentId: 'c1', seq: 2, stage: 'done' }),
       issue('c2', { parentId: 'root', seq: 2, stage: 'done' }),
     ]
@@ -1785,6 +1832,8 @@ describe('collapsedSummary', () => {
       kinds: [],
       crew: [],
       needsYou: false,
+      errors: 0,
+      requests: 0,
     })
     // A leaf hides nothing.
     expect(rowFor(rows, 'a').collapsedSummary.tasks).toBe(0)

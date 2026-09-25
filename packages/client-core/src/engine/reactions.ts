@@ -26,6 +26,7 @@ import {
   planWorktreeMoves,
   pruneWorkspace,
   reposToViews,
+  resolvedMissionRootFor,
   type TabId,
 } from '../viewmodels'
 import {
@@ -238,6 +239,7 @@ export class Reactions {
       return
     }
     const nextState = { ...st, selectedIssueId: after }
+    if (!resolvedMissionRootFor(st.issues, after)) return
     const key = workspaceKeyForState(nextState)
     const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), focused, {
       permanent: true,

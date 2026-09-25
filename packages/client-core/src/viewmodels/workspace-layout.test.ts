@@ -443,24 +443,31 @@ describe('serialization', () => {
     expect(back['mission:m1']).toEqual(ws)
   })
 
-  it('releases the preview tab instead of storing it (POD-1247)', () => {
+  it('round-trips a preview tab without promoting it', () => {
     let ws = permanent(permanent(emptyWorkspace('mission:m1'), 'a'), 'b')
     ws = preview(ws, 'temp')
     const back = deserializeWorkspaces(serializeWorkspaces({ 'mission:m1': ws }))
-    // The glance is over: the tab is gone, and it did NOT come back promoted.
-    expect(allTabIds(back['mission:m1'] as WorkspaceLayout)).toEqual(['a', 'b'])
-    expect(back['mission:m1']?.previewTabId).toBeNull()
-    expect(back['mission:m1']?.panes.p1?.activeTabId).toBe('b')
+    expect(back['mission:m1']).toEqual(ws)
+    expect(back['mission:m1']?.previewTabId).toBe('temp')
   })
 
-  it('releases a preview left in an older blob on the way in', () => {
+  it('retains a preview in an older v1 blob', () => {
     let ws = permanent(emptyWorkspace('mission:m1'), 'a')
     ws = preview(ws, 'temp')
     // Written the way this used to write it — preview and all.
     const legacy = JSON.stringify({ v: 1, workspaces: { 'mission:m1': ws } })
     const back = deserializeWorkspaces(legacy)
-    expect(allTabIds(back['mission:m1'] as WorkspaceLayout)).toEqual(['a'])
-    expect(back['mission:m1']?.previewTabId).toBeNull()
+    expect(allTabIds(back['mission:m1'] as WorkspaceLayout)).toEqual(['a', 'temp'])
+    expect(back['mission:m1']?.previewTabId).toBe('temp')
+  })
+
+  it('keeps nested panes, an empty leaf, focus and deck metadata on reload', () => {
+    let ws = permanent(emptyWorkspace('mission:m1'), 'coordinator')
+    ws = splitPane(ws, 'p1', 'row', { tabId: 'child' })
+    ws = splitPane(ws, 'p2', 'column')
+    ws = focusPane(ws, 'p3')
+    ws = { ...ws, deck: { focusedIssueId: 'child-issue', view: 'dependencies' } }
+    expect(deserializeWorkspaces(serializeWorkspaces({ 'mission:m1': ws }))['mission:m1']).toEqual(ws)
   })
 
   it('is TOTAL over malformed, truncated and older-shaped input', () => {

@@ -61,6 +61,8 @@ export interface WorkspaceLayout {
   focusedPaneId: PaneId
   /** The ONE temporary tab in this workspace. Italic in the strip. */
   previewTabId: TabId | null
+  /** Optional operator display state, local to this mission. */
+  deck?: { focusedIssueId?: string | null; view?: 'overview' | 'working' | 'needs-you' | 'dependencies' | 'waterfall' | 'handoff' }
 }
 
 /** Every workspace this device remembers, keyed by {@link workspaceKeyFor}. */
@@ -590,25 +592,12 @@ export const WORKSPACES_BLOB_VERSION = 1
  * A GLANCE DOES NOT SURVIVE THE VISIT (POD-1247).
  *
  * The preview tab exists for exactly as long as you are looking at it: landing
- * on any other tab closes it. Persisting it broke that promise in the one way
- * the operator could not undo — a reload restored the italic tab, and the next
- * reload restored it again, so a session glanced at once sat in the strip
- * forever. Leaving the tab but clearing `previewTabId` would be worse: the
- * glance would come back PROMOTED, silently claiming to be part of the working
- * set.
- *
- * So the tab is RELEASED on the way to storage. `closeTab` re-homes the pane's
- * active tab and collapses a pane the release emptied, which is the same thing
- * navigating away from it does; what is stored is the layout as it would be
- * once the glance ended.
+ * on any other tab closes it. Serialization is a passive snapshot, so it keeps
+ * the preview and its pane exactly as they are. Only a tab gesture retires it.
  */
-function releasePreview(ws: WorkspaceLayout): WorkspaceLayout {
-  return ws.previewTabId === null ? ws : closeTab(ws, ws.previewTabId)
-}
-
 export function serializeWorkspaces(all: WorkspaceMap): string {
   const workspaces: WorkspaceMap = {}
-  for (const [key, ws] of Object.entries(all)) if (ws) workspaces[key] = releasePreview(ws)
+  for (const [key, ws] of Object.entries(all)) if (ws) workspaces[key] = ws
   return JSON.stringify({ v: WORKSPACES_BLOB_VERSION, workspaces })
 }
 
@@ -632,10 +621,7 @@ export function deserializeWorkspaces(raw: string | null): WorkspaceMap {
   const out: WorkspaceMap = {}
   for (const [key, value] of Object.entries(workspaces)) {
     const layout = normalizeWorkspace(value, key)
-    // Released here too, not only on the way out: a blob written before the
-    // release existed still carries a preview tab, and it must not come back as
-    // a kept tab on the one reload that migrates it.
-    if (layout) out[key] = releasePreview(layout)
+    if (layout) out[key] = layout
   }
   return out
 }
@@ -689,7 +675,14 @@ export function normalizeWorkspace(value: unknown, key: WorkspaceKey): Workspace
       : (leaves[0] as PaneId)
   const previewRaw = value.previewTabId
   const previewTabId = typeof previewRaw === 'string' && seen.has(previewRaw) ? previewRaw : null
-  return { key, panes, root, focusedPaneId, previewTabId }
+  const rawDeck = isRecord(value.deck) ? value.deck : null
+  const deck: NonNullable<WorkspaceLayout['deck']> = {}
+  if (rawDeck && (rawDeck.focusedIssueId === null || typeof rawDeck.focusedIssueId === 'string'))
+    deck.focusedIssueId = rawDeck.focusedIssueId
+  if (rawDeck && typeof rawDeck.view === 'string' &&
+    ['overview', 'working', 'needs-you', 'dependencies', 'waterfall', 'handoff'].includes(rawDeck.view))
+    deck.view = rawDeck.view as NonNullable<WorkspaceLayout['deck']>['view']
+  return { key, panes, root, focusedPaneId, previewTabId, ...(Object.keys(deck).length ? { deck } : {}) }
 }
 
 /** A pane id we are willing to use as an object key. `__proto__` is the one

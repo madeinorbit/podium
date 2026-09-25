@@ -219,4 +219,14 @@ describe('workspace ui-state routing', () => {
       dockShells: { '/repo/wt': 'shell1' },
     })
   })
+
+  it('marks a focused third-pane mirror and treats a copied URL as explicit navigation', () => {
+    const win = createMemoryRouterWindow('/workspace?wt=%2Frepo&pane=old')
+    const state = createRouterUiState({ local: memoryUi(), replicated: replicatedUi(), win })
+    state.mirrorWorkspaceRoute({ selectedWorktree: '/repo', paneA: 'first' as never, workspaceKey: 'mission:root', focusedTabId: 'third' })
+    expect(win.location.search).toContain('pane=third')
+    expect(state.router.workspaceMirrorMarker?.()).toMatchObject({ key: 'mission:root', tab: 'third' })
+    state.router.navigate({ ...state.router.current(), view: 'workspace', worktree: '/repo', pane: 'first' as never })
+    expect(state.router.workspaceMirrorMarker?.()).toBeNull()
+  })
 })

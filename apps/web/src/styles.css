@@ -9975,6 +9975,7 @@ a.ref-link--session::before {
 .deck-strip {
   container-type: inline-size;
   container-name: deck-strip;
+  margin-left: var(--deck-indent, 0px);
 }
 
 /* Let a task spend a second line before its title becomes an unusable sliver.
@@ -9992,10 +9993,15 @@ a.ref-link--session::before {
   margin-left: auto;
 }
 
-@container deck-strip (max-width: 370px) {
-  .deck-drop-relation {
-    display: none;
+@container deck-rows (max-width: 370px) {
+  .deck-strip { margin-left: var(--deck-narrow-indent, var(--deck-indent, 0px)); }
+  .deck-task-identity,
+  .deck-task-meta {
+    flex-basis: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
   }
+  .deck-task-identity .truncate { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 }
 
 @container deck-strip (max-width: 350px) {

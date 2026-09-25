@@ -6,12 +6,13 @@ import {
   type SessionId,
   type SessionMeta,
   spawnedByParentSessionId,
+  idleVerdictNeedsHuman,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
-import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
+import { isSessionWorking, motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './slices/issues'
 import { isCoordinatorSession } from './slices/terminal'
 
@@ -57,6 +58,8 @@ export interface CollapsedSummary {
    */
   crew: SessionMeta[]
   needsYou: boolean
+  errors?: number
+  requests?: number
 }
 
 export interface FlightDeckRow {
@@ -120,6 +123,8 @@ function sameCollapsedSummary(a: CollapsedSummary, b: CollapsedSummary): boolean
     a.done === b.done &&
     a.run === b.run &&
     a.needsYou === b.needsYou &&
+    a.errors === b.errors &&
+    a.requests === b.requests &&
     sameRefs(a.kinds, b.kinds) &&
     sameRefs(a.crew, b.crew)
   )
@@ -202,6 +207,8 @@ export interface MissionRollup {
 /** The mission's name for {@link sessionPresentOnTask} — one presence rule for
  *  the whole client (POD-756), spelled once in `./fleet`. */
 const openSession = sessionPresentOnTask
+const deckAgent = (session: SessionMeta): boolean =>
+  openSession(session) && session.agentKind !== 'shell' && session.headless !== true
 
 /**
  * A session that is no longer working: retired, or holding a finished turn.
@@ -234,7 +241,43 @@ export function sessionSettled(session: SessionMeta): boolean {
  * the row's own spinner and this filter must never disagree about who is busy.
  */
 function sessionWorking(session: SessionMeta): boolean {
-  return openSession(session) && motionPhase(session) === 'working'
+  return openSession(session) && isSessionWorking(session)
+}
+
+/** Facts on a deck row are independent: an offer can coexist with execution. */
+export function deckSessionRequestsHuman(session: SessionMeta): boolean {
+  return Boolean(session.offer) || session.agentState?.phase === 'needs_user' ||
+    (session.agentState?.phase === 'idle' &&
+      idleVerdictNeedsHuman(session.agentState.idle?.kind))
+}
+
+export function deckIssueRequestsHuman(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): boolean {
+  return !issueClosed(issue) && (issue.needsHuman === true ||
+    sessions.some((session) => !session.archived && session.status !== 'exited' && deckSessionRequestsHuman(session)))
+}
+
+export interface DeckTaskFacts {
+  lifecycle: string
+  assigned: number
+  running: number
+  errors: SessionMeta[]
+  requests: SessionMeta[]
+  taskRequest: boolean
+  parked: number
+}
+
+export function deckTaskFacts(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): DeckTaskFacts {
+  const assigned = [...new Map(sessions.filter(deckAgent).map((session) => [session.sessionId, session])).values()]
+  const requests = issueClosed(issue) ? [] : assigned.filter(deckSessionRequestsHuman)
+  return {
+    lifecycle: issue.closedReason && issue.closedReason !== 'done' ? issue.closedReason : issue.stage,
+    assigned: assigned.length,
+    running: assigned.filter(isSessionWorking).length,
+    errors: assigned.filter(sessionErrored),
+    requests,
+    taskRequest: !issueClosed(issue) && issue.needsHuman === true && requests.length === 0,
+    parked: assigned.filter((session) => session.status === 'hibernated').length,
+  }
 }
 
 /**
@@ -398,6 +441,24 @@ export function missionRootFor(
     seen.add(current.id)
     const parent = byId.get(current.parentId)
     if (!parent || parent.archived || parent.deletedAt) break
+    current = parent
+  }
+  return current
+}
+
+/** Workspace routing waits for the complete formal ancestor chain. */
+export function resolvedMissionRootFor(
+  issues: readonly IssueNavigationModel[], selectedIssueId: IssueId | null,
+): IssueNavigationModel | undefined {
+  if (!selectedIssueId) return undefined
+  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
+  let current = byId.get(selectedIssueId)
+  const seen = new Set<string>()
+  while (current?.parentId) {
+    if (seen.has(current.id)) return undefined
+    seen.add(current.id)
+    const parent = byId.get(current.parentId)
+    if (!parent || parent.archived || parent.deletedAt) return undefined
     current = parent
   }
   return current
@@ -1157,6 +1218,28 @@ export function deckSessionOrder(
   })
 }
 
+/** Same-task spawnedBy nesting. Unknown and cyclic parents stay flat. */
+export function deckSessionTree(issue: Pick<IssueNavigationModel, 'coordinatorSessionId'>, sessions: readonly SessionMeta[]): Array<{ session: SessionMeta; depth: number }> {
+  const ordered = deckSessionOrder(issue, [...new Map(sessions.map((session) => [session.sessionId, session])).values()])
+  const byId = new Map(ordered.map((session) => [session.sessionId, session]))
+  const parent = (session: SessionMeta): string | null => {
+    const id = spawnedByParentSessionId(session.spawnedBy)
+    const owner = id ? byId.get(id) : undefined
+    return owner && owner.sessionId !== session.sessionId && owner.issueId === session.issueId ? owner.sessionId : null
+  }
+  const out: Array<{ session: SessionMeta; depth: number }> = []
+  const visited = new Set<string>()
+  const walk = (session: SessionMeta, depth: number): void => {
+    if (visited.has(session.sessionId)) return
+    visited.add(session.sessionId)
+    out.push({ session, depth })
+    for (const child of ordered) if (parent(child) === session.sessionId) walk(child, depth + 1)
+  }
+  for (const session of ordered) if (!parent(session)) walk(session, 0)
+  for (const session of ordered) walk(session, 0)
+  return out
+}
+
 const EMPTY_PROGRESS: MissionProgress = Object.freeze({
   total: 0,
   done: 0,
@@ -1310,7 +1393,7 @@ function computeMissionRollup(
   // The root can be abandoned too, and then there is nothing to measure at all
   // rather than one cancelled unit sitting in a band of its own.
   const fromChildren = members.length > 0
-  const units = (fromChildren ? members : scope.filter((issue) => issue.id === rootId)).filter(
+  const units = (fromChildren ? members : scope.filter((issue) => issue.id === rootId && issue.stage !== 'proposed')).filter(
     (issue) => {
       if (issueAbandoned(issue)) return false
       // `isVacatedOrigin` is deliberately still asked about the issue's OWN
@@ -1466,7 +1549,90 @@ export function missionDepartures(
       })
     }
   }
-  return out.sort((a, b) => a.issue.seq - b.issue.seq)
+  return out.sort((a, b) => compareDeckIssues(a.issue, b.issue))
+}
+
+/** The stable issue order shared by tasks, dependencies and proposals. */
+export function compareDeckIssues(a: IssueNavigationModel, b: IssueNavigationModel): number {
+  const aKey = a.sortKey ?? ''
+  const bKey = b.sortKey ?? ''
+  return aKey && bKey && aKey !== bKey ? aKey.localeCompare(bKey) : a.seq - b.seq || a.id.localeCompare(b.id)
+}
+
+export interface DeckProposal {
+  issue: IssueNavigationModel
+  originIds: string[]
+  withinEpic: boolean
+}
+
+export function missionProposals(
+  issues: readonly IssueNavigationModel[], sessions: readonly SessionMeta[], rootId: string,
+): DeckProposal[] {
+  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
+  const members = missionIssueIds(issues, rootId, sessions)
+  const formal = formalMemberIds(issues, rootId)
+  const origins = new Map<string, Set<string>>()
+  for (const issue of issues) {
+    if (issue.archived || issue.deletedAt || issue.stage !== 'proposed' || issueClosed(issue)) continue
+    const refs = new Set<string>()
+    for (const dep of issue.deps ?? []) {
+      if (dep.type === 'discovered-from') refs.add(dep.id)
+    }
+    if (members.has(issue.id) || [...refs].some((id) => formal.has(id)) || issue.id === rootId) origins.set(issue.id, refs)
+  }
+  // Existing continuation and departure projections can expose a proposed
+  // destination even when it has no formal parent or direct discovery edge.
+  for (const id of members) {
+    const origin = byId.get(id)
+    if (!origin) continue
+    const target = issueContinuation(origin, byId, sessions)?.target
+    if (target?.stage === 'proposed' && !target.archived && !target.deletedAt && !issueClosed(target)) {
+      const refs = origins.get(target.id) ?? new Set<string>()
+      refs.add(id)
+      origins.set(target.id, refs)
+    }
+  }
+  return [...origins].map(([id, refs]) => ({
+    issue: byId.get(id) as IssueNavigationModel,
+    originIds: [...refs].sort((a, b) => {
+      const left = byId.get(a)
+      const right = byId.get(b)
+      return left && right ? compareDeckIssues(left, right) : a.localeCompare(b)
+    }),
+    withinEpic: formal.has(id),
+  })).sort((a, b) => compareDeckIssues(a.issue, b.issue))
+}
+
+export interface DeckDependency {
+  id: string
+  target: IssueNavigationModel | null
+  state: 'open' | 'closed' | 'unavailable'
+  outsideMission: boolean
+}
+
+export function deckDependencies(issue: IssueNavigationModel, byId: ReadonlyMap<string, IssueNavigationModel>, members: ReadonlySet<string>): DeckDependency[] {
+  const unique = new Set<string>()
+  for (const dep of issue.deps ?? []) if (dep.type === 'blocks') unique.add(dep.id)
+  return [...unique].map((id) => {
+    const target = byId.get(id) ?? null
+    return { id, target, state: !target ? 'unavailable' as const : issueClosed(target) ? 'closed' as const : 'open' as const, outsideMission: !members.has(id) }
+  }).sort((a, b) => a.target && b.target ? compareDeckIssues(a.target, b.target) : a.id.localeCompare(b.id))
+}
+
+export function dependencyCycleRecorded(issueId: string, byId: ReadonlyMap<string, IssueNavigationModel>): boolean {
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const walk = (id: string): boolean => {
+    if (visiting.has(id)) return true
+    if (visited.has(id)) return false
+    visited.add(id)
+    visiting.add(id)
+    for (const dep of byId.get(id)?.deps ?? [])
+      if (dep.type === 'blocks' && byId.has(dep.id) && walk(dep.id)) return true
+    visiting.delete(id)
+    return false
+  }
+  return walk(issueId)
 }
 
 /**
@@ -1514,15 +1680,41 @@ export function buildFlightDeckRows(
     if (!siblings.some((candidate) => candidate.id === issue.id)) siblings.push(issue)
     children.set(parentId, siblings)
   }
+  // A proposed parent is an offer, not an accepted task row. Retain accepted
+  // descendants under the nearest displayed ancestor without changing parentId.
+  for (const [parentId, siblings] of [...children]) {
+    const kept = siblings.filter((child) => child.stage !== 'proposed' || issueClosed(child))
+    if (kept.length !== siblings.length) children.set(parentId, kept)
+  }
+  for (const id of missionIds) {
+    const issue = byId.get(id)
+    if (!issue || id === rootId || issue.stage === 'proposed' && !issueClosed(issue)) continue
+    let parentId: string | undefined = issue.parentId ?? undefined
+    if (!parentId || !missionIds.has(parentId)) continue
+    const parent = byId.get(parentId)
+    if (!parent || parent.stage !== 'proposed' || issueClosed(parent)) continue
+    const seen = new Set<string>([issue.id])
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const ancestor = byId.get(parentId)
+      if (!ancestor || ancestor.stage !== 'proposed' || issueClosed(ancestor)) break
+      parentId = ancestor.parentId ?? rootId
+    }
+    const displayParent = parentId && missionIds.has(parentId) ? parentId : rootId
+    const siblings = children.get(displayParent) ?? []
+    if (!siblings.some((candidate) => candidate.id === issue.id)) siblings.push(issue)
+    children.set(displayParent, siblings)
+  }
+  // Proposed nodes have no place in the accepted spine. Their original child
+  // lists must not participate in ancestry or rollups after the rehome above.
+  for (const issue of visibleIssues) {
+    if (issue.stage === 'proposed' && !issueClosed(issue)) children.delete(issue.id)
+  }
   // Sorted AFTER grafting: `missionIds` is a Set whose iteration order is the
   // provenance walk, so sorting first would leave grafted siblings in whatever
   // order that walk happened to reach them.
   for (const siblings of children.values()) {
-    siblings.sort((a, b) => {
-      const aKey = a.sortKey ?? ''
-      const bKey = b.sortKey ?? ''
-      return aKey && bKey && aKey !== bKey ? aKey.localeCompare(bKey) : a.seq - b.seq
-    })
+    siblings.sort(compareDeckIssues)
   }
 
   // Memoizing under a parentId cycle would cache an issue as its OWN
@@ -1554,6 +1746,17 @@ export function buildFlightDeckRows(
       deckSessionOrder(issue, sessionsForIssue(issue, sessions, allWorktreePaths)),
     ]),
   )
+  const branchRank = (issue: IssueNavigationModel, path = new Set<string>()): number => {
+    if (path.has(issue.id)) return 1
+    const next = new Set(path).add(issue.id)
+    const descendants = children.get(issue.id) ?? []
+    const hasOpenDescendant = descendants.some((child) => !issueClosed(child) || branchRank(child, next) < 2)
+    if (issueClosed(issue) && !hasOpenDescendant) return 2
+    const own = sessionsByIssue.get(issue.id) ?? []
+    return deckIssueRequestsHuman(issue, own) || own.some((session) => openSession(session) && sessionErrored(session)) ||
+      descendants.some((child) => branchRank(child, next) === 0) ? 0 : 1
+  }
+  for (const siblings of children.values()) siblings.sort((a, b) => branchRank(a) - branchRank(b) || compareDeckIssues(a, b))
   /**
    * THE NARROWED VIEWS MATCH ON AGENTS, NOT ON STAGES (POD-1452).
    *
@@ -1570,7 +1773,7 @@ export function buildFlightDeckRows(
    */
   const selfMatches = (issue: IssueNavigationModel): boolean => {
     const ownSessions = sessionsByIssue.get(issue.id) ?? []
-    if (mode === 'needs-you') return issueNeedsHuman(issue, ownSessions)
+    if (mode === 'needs-you') return deckIssueRequestsHuman(issue, ownSessions)
     if (mode === 'working') return ownSessions.some(sessionAtWork)
     return true
   }
@@ -1578,8 +1781,16 @@ export function buildFlightDeckRows(
   // issue has no parentId, so a parentId-only walk would drop the ancestors a
   // filtered row needs to stay in context.
   const parentOf = new Map<string, string>()
-  for (const [parentId, siblings] of children) {
-    for (const child of siblings) if (!parentOf.has(child.id)) parentOf.set(child.id, parentId)
+  const ancestryStack = [rootId]
+  const ancestrySeen = new Set<string>([rootId])
+  while (ancestryStack.length > 0) {
+    const parentId = ancestryStack.pop() as string
+    for (const child of children.get(parentId) ?? []) {
+      if (ancestrySeen.has(child.id)) continue
+      ancestrySeen.add(child.id)
+      parentOf.set(child.id, parentId)
+      ancestryStack.push(child.id)
+    }
   }
   const included = new Set<string>()
   const includePath = (issue: IssueNavigationModel): void => {
@@ -1594,7 +1805,7 @@ export function buildFlightDeckRows(
   }
   for (const id of missionIds) {
     const issue = byId.get(id)
-    if (issue && selfMatches(issue)) includePath(issue)
+    if (issue && (issue.stage !== 'proposed' || issueClosed(issue)) && selfMatches(issue)) includePath(issue)
   }
   included.add(rootId)
 
@@ -1609,7 +1820,7 @@ export function buildFlightDeckRows(
     )
     const actionableCount = [id, ...descendantIds].filter((issueId) => {
       const candidate = byId.get(issueId)
-      return candidate ? issueNeedsHuman(candidate, sessionsByIssue.get(issueId) ?? []) : false
+      return candidate ? deckIssueRequestsHuman(candidate, sessionsByIssue.get(issueId) ?? []) : false
     }).length
     // Per-issue rather than over the flattened `subtreeSessions`, because
     // `sessionAsksOnIssue` has to see the task: a standing offer on a task
@@ -1618,7 +1829,7 @@ export function buildFlightDeckRows(
       const candidate = byId.get(issueId)
       if (!candidate) return total
       const own = sessionsByIssue.get(issueId) ?? []
-      return total + own.filter((session) => sessionAsksOnIssue(candidate, session)).length
+      return total + (issueClosed(candidate) ? 0 : own.filter((session) => deckAgent(session) && deckSessionRequestsHuman(session)).length)
     }, 0)
     const hidden = descendantIds
       .map((issueId) => byId.get(issueId))
@@ -1629,8 +1840,8 @@ export function buildFlightDeckRows(
       sessions: sessionsByIssue.get(id) ?? [],
       descendantIds,
       actionableCount,
-      liveAgentCount: subtreeSessions.filter(openSession).length,
-      workingAgentCount: subtreeSessions.filter(sessionWorking).length,
+      liveAgentCount: [...new Set(subtreeSessions.filter(deckAgent).map((session) => session.sessionId))].length,
+      workingAgentCount: [...new Set(subtreeSessions.filter(deckAgent).filter(isSessionWorking).map((session) => session.sessionId))].length,
       waitingAgentCount,
       matched: selfMatches(issue),
       collapsedSummary: {
@@ -1648,12 +1859,17 @@ export function buildFlightDeckRows(
         run: hidden.filter(
           (child) => !child.closedReason && (UNDERWAY.has(child.stage) || child.stage === 'review'),
         ).length,
-        kinds: [...new Set(subtreeSessions.filter(openSession).map((s) => s.agentKind))].slice(
+        kinds: [...new Set(subtreeSessions.filter(deckAgent).map((s) => s.agentKind))].slice(
           0,
           2,
         ),
-        crew: deckCrew(subtreeSessions),
+        crew: deckCrew(subtreeSessions.filter((session) => session.agentKind !== 'shell' && session.headless !== true)),
         needsYou: actionableCount > 0,
+        errors: [...new Set(subtreeSessions.filter((session) => deckAgent(session) && sessionErrored(session)).map((session) => session.sessionId))].length,
+        requests: waitingAgentCount + [id, ...descendantIds].filter((issueId) => {
+          const candidate = byId.get(issueId)
+          return candidate && !issueClosed(candidate) && candidate.needsHuman === true && !(sessionsByIssue.get(issueId) ?? []).some((session) => deckAgent(session) && deckSessionRequestsHuman(session))
+        }).length,
       },
     })
     const nextPath = new Set(path).add(id)
@@ -1996,37 +2212,29 @@ export function sessionRole(
 export interface NativeSubagentRow {
   id: string
   type: string
-  /**
-   * Native workers carry no phase of their own, so a row follows the SESSION
-   * that owns it: while that session computes — or is holding a finished turn
-   * open *for* them (`awaitingSubagents`) — they are working. Anything else and
-   * the fan-out is parked with its parent.
-   */
-  working: boolean
-  /** Counted by the harness but not yet identified; the row has no real id. */
+  /** Counted by the harness but not yet identified; this is one aggregate row. */
   anonymous: boolean
+  count: number
 }
 
 export function nativeSubagentRows(session: SessionMeta): NativeSubagentRow[] {
   const state = session.agentState
-  const named = state?.nativeSubagents ?? []
-  const missing = Math.max(0, (state?.nativeSubagentCount ?? 0) - named.length)
-  const working =
-    openSession(session) &&
-    (motionPhase(session) === 'working' || state?.awaitingSubagents === true)
+  const named = [...new Map((state?.nativeSubagents ?? []).filter((agent) => agent.id).map((agent) => [agent.id, agent])).values()]
+  const reported = Math.max(0, state?.nativeSubagentCount ?? 0)
+  const missing = Math.max(0, reported - named.length)
   return [
     ...named.map((agent) => ({
       id: agent.id,
-      type: agent.type?.trim() || 'subagent',
-      working,
+      type: agent.type?.trim() || 'Native worker',
       anonymous: false,
+      count: 1,
     })),
-    ...Array.from({ length: missing }, (_, index) => ({
-      id: `native-${index + 1}`,
-      type: 'subagent',
-      working,
+    ...(missing > 0 ? [{
+      id: 'unidentified',
+      type: 'Native worker',
       anonymous: true,
-    })),
+      count: missing,
+    }] : []),
   ]
 }
 

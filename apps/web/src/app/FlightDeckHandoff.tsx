@@ -239,7 +239,6 @@ export function FlightDeckHandoff({
   issues,
   sessions,
   visitReadAt,
-  proposed,
   onOpenTranscript,
   onOpenSession,
   onOpenIssue,
@@ -248,7 +247,6 @@ export function FlightDeckHandoff({
   issues: readonly IssueNavigationModel[]
   sessions: readonly SessionMeta[]
   visitReadAt: string | null
-  proposed: ReactNode
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
   onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
   onOpenIssue: (issueId: IssueId) => void
@@ -259,11 +257,11 @@ export function FlightDeckHandoff({
   )
   const transcript = useHandoffTranscript(true, crew)
   const current = useMemo(
-    () => deriveHandoffNow(issues, sessions, rootIssue.id),
+    () => deriveHandoffNow(issues, sessions, rootIssue.id).filter((entry) => issues.find((issue) => issue.id === entry.issueId)?.stage !== 'proposed'),
     [issues, sessions, rootIssue.id],
   )
   const next = useMemo(
-    () => deriveHandoffNext(issues, sessions, rootIssue.id),
+    () => deriveHandoffNext(issues, sessions, rootIssue.id).filter((entry) => issues.find((issue) => issue.id === entry.issueId)?.stage !== 'proposed'),
     [issues, sessions, rootIssue.id],
   )
   const summary = useMemo(() => summarizeHandoffSessions(crew), [crew])
@@ -478,7 +476,6 @@ export function FlightDeckHandoff({
         )}
       </HandoffSection>
 
-      {proposed && <div className="handoff-proposals">{proposed}</div>}
     </div>
   )
 }

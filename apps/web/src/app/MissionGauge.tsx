@@ -149,16 +149,18 @@ export function MissionGauge({
   progress,
   live,
   working,
+  noAcceptedTasks = false,
 }: {
   progress: ReturnType<typeof missionProgress>
   live: number
   working: number
+  noAcceptedTasks?: boolean
 }): JSX.Element {
   const { total, done, run, review, stall, block, wait } = progress
   const crew = missionCrewLabel(live, working)
   const work =
     total === 0
-      ? 'No tasks'
+      ? noAcceptedTasks ? 'No accepted tasks' : 'No tasks'
       : [
           `${done} of ${total} task${total === 1 ? '' : 's'} done`,
           run > 0 ? `${run} underway` : null,

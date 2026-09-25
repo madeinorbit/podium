@@ -82,6 +82,7 @@ export const UI_LOCAL_ACTIONS = [
   'setPaletteOpen',
   'setSelectedWorktree',
   'setSelectedIssueId',
+  'updateWorkspaceDeck',
   'setPane',
   'setFocusedPane',
   'openSessionTab',
@@ -563,6 +564,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
     setSelectedWorktree: (selectedWorktree) => rt.apply({ selectedWorktree }),
     setSelectedIssueId: (selectedIssueId) => rt.apply({ selectedIssueId }),
+    updateWorkspaceDeck: (deck, options) => {
+      const st = rt.state()
+      const key = workspaceKeyForState(st)
+      if (!key.startsWith('mission:')) return
+      if (options?.transientIfAbsent && !st.workspaces[key]) return
+      const current = workspaceFor(st, key)
+      rt.apply(workspaceWritePatch(st, key, { ...current, deck: { ...current.deck, ...deck } }, true))
+    },
     /**
      * PANE-SHAPED ADAPTER over the workspace model, and nothing more.
      *

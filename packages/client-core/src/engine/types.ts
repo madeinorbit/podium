@@ -49,6 +49,7 @@ import type {
   SplitAxis,
   TabId,
   WorkspaceKey,
+  WorkspaceLayout,
   WorkspaceMap,
 } from '../viewmodels'
 import type { SuperThreadView } from '../viewmodels/slices/superagent'
@@ -241,6 +242,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: IssueId | null
   setSelectedIssueId: (id: IssueId | null) => void
+  /** Explicit operator display edit in the selected mission. */
+  updateWorkspaceDeck: (deck: NonNullable<WorkspaceLayout['deck']>, options?: { transientIfAbsent?: boolean }) => void
   /** Captured before eager mark-read advances the issue's per-user cursor. */
   issueVisitBaseline: IssueVisitBaseline | null
   /** Consumed by the matching chat surface, then cleared by nonce. */

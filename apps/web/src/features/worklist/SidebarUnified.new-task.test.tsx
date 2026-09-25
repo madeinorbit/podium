@@ -22,7 +22,7 @@
  *      nothing. Empty projects keep their band, with one quiet door under it.
  */
 
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY, SUPERAGENT_MODE_KEY } from '@podium/client-core/ui-state'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
@@ -184,6 +184,7 @@ describe('the head is one button that makes no choices', () => {
     expect(setSelectedIssueId).toHaveBeenCalledWith(null)
     expect(setSelectedWorktree).toHaveBeenCalledWith(null)
     expect(setView).toHaveBeenCalledWith('workspace')
+    expect(ui.get(SUPERAGENT_MODE_KEY)).toBe('folded')
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
@@ -219,7 +220,7 @@ describe('the utilities came up out of the footer', () => {
     const view = render(<SidebarUnified />)
     const add = screen.getByTestId('add-repository')
     // Same row as the field it rides beside.
-    expect(add.parentElement?.querySelector('[data-testid="work-search"]')).toBeTruthy()
+    expect(add.parentElement?.parentElement?.querySelector('[data-testid="work-search"]')).toBeTruthy()
     // The words, and the glyph that survives a narrow column.
     expect(add.textContent).toContain('Add repository')
     expect(add.querySelector('svg')).toBeTruthy()

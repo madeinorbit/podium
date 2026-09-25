@@ -13,24 +13,24 @@
  */
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
+import { SUPERAGENT_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   type IssueNavigationModel,
-  missionIssueIds,
-  missionRootFor,
+  resolvedMissionRootFor,
   pickPaneSession,
   type RepoNavView,
-  sessionsForIssueNav,
   sessionsForWorktree,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import {
   asSessionId,
+  asIssueId,
   type IssueColorSlot,
   type IssueId,
   issueReturnedFromDefer,
   type SessionId,
 } from '@podium/model/browser'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import type { SidebarDerivation } from './derivation'
@@ -76,6 +76,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setOpenIssueId,
     paneA,
     setPane,
+    openSessionTab,
+    workspaces,
+    uiState,
     fileTabs,
     setView,
     markIssueRead,
@@ -97,6 +100,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       setOpenIssueId: s.setOpenIssueId,
       paneA: s.paneA,
       setPane: s.setPane,
+      openSessionTab: s.openSessionTab,
+      workspaces: s.workspaces,
+      uiState: s.uiState,
       fileTabs: s.fileTabs,
       setView: s.setView,
       markIssueRead: s.markIssueRead,
@@ -183,10 +189,22 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       beginSwitch({ sessionId: asSessionId(target), issueId })
     }
   }
+  const entryGeneration = useRef(0)
+  const principalUi = useRef(uiState)
+  const [pendingEntry, setPendingEntry] = useState<{ issueId: string; deadline: number; generation: number } | null>(null)
+  useEffect(() => {
+    if (principalUi.current === uiState) return
+    principalUi.current = uiState
+    entryGeneration.current += 1
+    setPendingEntry(null)
+  }, [uiState])
   const selectIssue = (issue: IssueNavigationModel, paneSession?: SessionId) => {
-    const root = missionRootFor(issues, issue.id)
+    const generation = ++entryGeneration.current
+    const root = resolvedMissionRootFor(issues, issue.id)
     setSelectedIssueId(root?.id ?? issue.id)
-    setFocusedIssueId(issue.id)
+    uiState.set(SUPERAGENT_MODE_KEY, 'open')
+    if (!root || issue.id !== root.id || !workspaces[`mission:${root.id}`])
+      setFocusedIssueId(issue.id, { transientIfAbsent: !root || !workspaces[`mission:${root.id}`] })
     // Opening an issue marks IT read (email-style, #126): clear the row's unread
     // emphasis optimistically. Its member sessions keep their own unread until
     // each is opened. No-op when already read.
@@ -202,33 +220,31 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     // goes with it — the queue keeps the clear and replays it.
     if (issueReturnedFromDefer(issue, now)) void deferIssue(issue.id, null)
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
-    // Open a pane too (#108): keep the current one if it already belongs to this
-    // issue (session or file tab), else the issue's most recently active session.
-    // The pane candidates span the whole MISSION, not just the clicked task, so
-    // selecting a sessionless child still lands you on the mission's live agent
-    // instead of nothing. Same projection the Flight Deck and the tab strip use.
-    const missionIds = missionIssueIds(issues, root?.id ?? issue.id, sessions)
-    const members = [
-      ...new Map(
-        issues
-          .filter((candidate) => missionIds.has(candidate.id))
-          .flatMap((candidate) =>
-            sessionsForIssueNav(candidate, sessions, allWorktreePaths, { includeShells: true }),
-          )
-          .map((session) => [session.sessionId, session] as const),
-      ).values(),
-    ]
-    const rowFileIds = issue.worktreePath
-      ? fileTabs.filter((f) => f.worktreePath === issue.worktreePath).map((f) => f.id)
-      : []
-    // `paneSession` (a row's specific member, from selectPanelForIssue) wins over
-    // the keep-or-most-recent pick, so the trace targets the session that really
-    // opens and the pane is only set once.
-    const target = paneSession ?? pickPaneSession(members, paneA, rowFileIds)
-    traceSwitchTo(target, issue.id)
-    // Sessionless task focus follows the inspector while the current chat stays
-    // put. Selecting work must never manufacture or require a session.
-    if (target) setPane('A', target)
+    // Explicit session targets override the saved active tab. Plain entry
+    // restores the exact layout; only a truly absent mission may seed its
+    // designated root coordinator.
+    const key = root ? `mission:${root.id}` : null
+    if (paneSession) {
+      setPendingEntry(null)
+      traceSwitchTo(paneSession, issue.id)
+      openSessionTab(paneSession, { permanent: true })
+      setFocusedIssueId(issue.id)
+    } else if (!root || (key && !workspaces[key])) {
+      const coordinator = root?.coordinatorSessionId
+        ? sessions.find((session) => session.sessionId === root.coordinatorSessionId)
+        : undefined
+      if (root && coordinator && coordinator.issueId === root.id && !coordinator.archived && coordinator.status !== 'exited' && coordinator.agentKind !== 'shell' && coordinator.headless !== true) {
+        openSessionTab(coordinator.sessionId, { permanent: true })
+        setFocusedIssueId(issue.id)
+        setPendingEntry(null)
+      } else {
+        // A cached issue with no coordinator field may be a partial seed.
+        // Absence becomes an answer only after the bounded entity interval.
+        setPendingEntry({ issueId: issue.id, deadline: Date.now() + 20_000, generation })
+      }
+    } else {
+      setPendingEntry(null)
+    }
     setView('workspace')
   }
   const selectPanelForIssue = (issue: IssueNavigationModel, sessionId: SessionId) => {
@@ -236,7 +252,32 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     // Opening a specific member session marks THAT session read too (#126).
     void markSessionRead(sessionId)
   }
+  useEffect(() => {
+    if (!pendingEntry) return
+    const root = resolvedMissionRootFor(issues, asIssueId(pendingEntry.issueId))
+    const key = root ? `mission:${root.id}` : null
+    if (pendingEntry.generation !== entryGeneration.current || Date.now() >= pendingEntry.deadline || selectedIssueId === null ||
+      selectedIssueId !== pendingEntry.issueId && selectedIssueId !== root?.id ||
+      key && workspaces[key]) {
+      setPendingEntry(null)
+      return
+    }
+    const coordinator = root?.coordinatorSessionId
+      ? sessions.find((session) => session.sessionId === root.coordinatorSessionId)
+      : undefined
+    if (root && coordinator && coordinator.issueId === root.id && !coordinator.archived && coordinator.status !== 'exited' && coordinator.agentKind !== 'shell' && coordinator.headless !== true) {
+      setSelectedIssueId(root.id)
+      openSessionTab(coordinator.sessionId, { permanent: true })
+      setFocusedIssueId(pendingEntry.issueId)
+      setPendingEntry(null)
+      return
+    }
+    const timer = window.setTimeout(() => setPendingEntry(null), Math.max(0, pendingEntry.deadline - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [pendingEntry, issues, sessions, selectedIssueId, workspaces, setSelectedIssueId, openSessionTab, setFocusedIssueId])
   const selectWorktree = (path: string) => {
+    entryGeneration.current += 1
+    setPendingEntry(null)
     setSelectedIssueId(null)
     setSelectedWorktree(path)
     // Same pane-opening rule as selectIssue, keyed by the worktree's sessions.

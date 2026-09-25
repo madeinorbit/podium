@@ -762,7 +762,9 @@ export function routePath(route: RouteState, currentSearch = ''): string {
 
 export interface RouterWindow {
   location: { pathname: string; search: string }
+  navigationType?: string
   history: {
+    readonly state?: unknown
     pushState(data: unknown, unused: string, url?: string | null): void
     replaceState(data: unknown, unused: string, url?: string | null): void
   }
@@ -774,9 +776,19 @@ export interface Router {
   current(): RouteState
   navigate(next: RouteState): void
   replace(next: RouteState): void
+  mirrorWorkspace?(next: RouteState, marker: WorkspaceMirrorMarker): void
+  workspaceMirrorMarker?(): WorkspaceMirrorMarker | null
+  isReload?(): boolean
   subscribe(cb: (route: RouteState) => void): () => void
   attach(): void
   dispose(): void
+}
+
+export interface WorkspaceMirrorMarker {
+  key: string
+  worktree: string | null
+  tab: string | null
+  path: string
 }
 
 export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView } = {}): Router {
@@ -833,6 +845,26 @@ export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView
     current: () => route,
     navigate: (next) => apply(next, 'push'),
     replace: (next) => apply(next, 'replace'),
+    mirrorWorkspace: (next, marker) => {
+      next = { ...defaults(next.view), ...next }
+      const nextUrl = routePath(next, win.location.search)
+      const old = win.history.state
+      const data = old && typeof old === 'object' && !Array.isArray(old) ? old as Record<string, unknown> : {}
+      win.history.replaceState({ ...data, podiumWorkspaceMirror: { ...marker, path: nextUrl } }, '', nextUrl)
+      route = next
+    },
+    workspaceMirrorMarker: () => {
+      const raw = win.history.state
+      if (!raw || typeof raw !== 'object') return null
+      const marker = (raw as Record<string, unknown>).podiumWorkspaceMirror
+      if (!marker || typeof marker !== 'object') return null
+      const value = marker as Record<string, unknown>
+      return value.path === `${win.location.pathname}${win.location.search}` && typeof value.key === 'string' &&
+        (typeof value.worktree === 'string' || value.worktree === null) &&
+        (typeof value.tab === 'string' || value.tab === null)
+        ? value as unknown as WorkspaceMirrorMarker : null
+    },
+    isReload: () => win.navigationType === 'reload' || (typeof performance !== 'undefined' && performance.getEntriesByType?.('navigation')[0]?.toJSON?.().type === 'reload'),
     subscribe: (cb) => {
       listeners.add(cb)
       return () => void listeners.delete(cb)
@@ -854,6 +886,7 @@ export function createMemoryRouterWindow(initialUrl = '/'): RouterWindow {
       : { pathname: url.slice(0, q), search: url.slice(q) }
   }
   let current = split(initialUrl)
+  let historyState: unknown = null
   const set = (url?: string | null): void => {
     if (typeof url === 'string') current = split(url)
   }
@@ -867,8 +900,9 @@ export function createMemoryRouterWindow(initialUrl = '/'): RouterWindow {
       },
     },
     history: {
-      pushState: (_data, _unused, url) => set(url),
-      replaceState: (_data, _unused, url) => set(url),
+      get state() { return historyState },
+      pushState: (data, _unused, url) => { historyState = data; set(url) },
+      replaceState: (data, _unused, url) => { historyState = data; set(url) },
     },
     addEventListener: () => {},
     removeEventListener: () => {},
@@ -891,6 +925,8 @@ export interface WorkspaceUiSnapshot {
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
   recentFiles: RecentFileEntry[]
+  workspaceKey?: string
+  focusedTabId?: string | null
 }
 
 function parseRecord<T>(
@@ -1072,7 +1108,7 @@ export interface RouterUiState {
   readonly ui: RoutedUiState
   hydrate(): WorkspaceUiSnapshot
   flush(state: WorkspaceUiSnapshot, changed?: ReadonlySet<string>): void
-  mirrorWorkspaceRoute(state: Pick<WorkspaceUiSnapshot, 'selectedWorktree' | 'paneA'>): void
+  mirrorWorkspaceRoute(state: Pick<WorkspaceUiSnapshot, 'selectedWorktree' | 'paneA'> & Partial<Pick<WorkspaceUiSnapshot, 'workspaceKey' | 'focusedTabId'>>): void
 }
 
 const ALL_SNAPSHOT_KEYS = new Set<keyof WorkspaceUiSnapshot>([
@@ -1159,8 +1195,11 @@ export function createRouterUiState(init: {
     mirrorWorkspaceRoute: (state) => {
       const route = router.current()
       if (route.view !== 'workspace') return
-      if (route.worktree === state.selectedWorktree && route.pane === state.paneA) return
-      router.replace({ ...route, worktree: state.selectedWorktree, pane: state.paneA })
+      const tab = state.focusedTabId === undefined ? state.paneA : state.focusedTabId
+      const next = { ...route, worktree: state.selectedWorktree, pane: tab }
+      if (router.mirrorWorkspace && state.workspaceKey) {
+        router.mirrorWorkspace(next, { key: state.workspaceKey, worktree: state.selectedWorktree, tab: tab ?? null, path: '' })
+      } else if (route.worktree !== state.selectedWorktree || route.pane !== tab) router.replace(next)
     },
   }
 }
