@@ -435,25 +435,24 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 const ke = residency as unknown as {
                   isCold(e: string, id: string): boolean
                   known(e: string, id: string): boolean
+                  load(e: string, id: string): unknown
                 }
-                const ids = ['i3156', 'i3170', 'i3173', 'i3182', 'i3195', 'i3200', 'i3208', 'i3214', 'i3229', 'i3232']
-                return ids
-                  .map((id) => {
-                    let known = '?'
-                    let cold = '?'
-                    try {
-                      known = String(ke.known('issue', id))
-                    } catch {
-                      known = 'throws'
-                    }
-                    try {
-                      cold = h.pool.coldRow('issue', id) === undefined ? 'undef' : 'row'
-                    } catch {
-                      cold = 'throws'
-                    }
-                    return `${id}:known=${known}/coldRow=${cold}`
-                  })
-                  .join(' ')
+                const knownCold = ke.isCold('issue', 'i3156')
+                const knownKnown = (() => {
+                  try {
+                    return String(ke.known('issue', 'i3156'))
+                  } catch {
+                    return 'throws'
+                  }
+                })()
+                const coldVal = h.pool.coldRow('issue', 'i3156') as unknown
+                let loadVal = '?'
+                try {
+                  loadVal = ke.load('issue', 'i3156') === undefined ? 'undef' : 'row'
+                } catch {
+                  loadVal = 'throws'
+                }
+                return `isCold=${knownCold} known=${knownKnown} coldRow=${coldVal === undefined ? 'undef' : 'row'} load=${loadVal}`
               })
               appendFileSync('/tmp/plain-fresh.txt', `residency i3156: ${reg}\n`)
               // TEMPORARY diagnosis (removed before landing): source.row vs
@@ -544,6 +543,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             }
           },
         })
+        // TEMPORARY diagnosis (removed before landing): creations so far.
+        // (Removed: creates is in result.counts; see failure message.)
         if (!result.ok) {
           throw new Error(
             `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
@@ -553,6 +554,11 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         }
         if (firstDiff !== null) {
           throw new Error(`${firstDiff}\noracle checks failed ${oracleFailed}/${oracleChecks}`)
+        }
+        // TEMPORARY diagnosis (removed before landing): creations so far.
+        {
+          const { appendFileSync } = await import('node:fs')
+          appendFileSync('/tmp/creates.txt', `seed ${seed} done\n`)
         }
         cells.push({
           seed,
