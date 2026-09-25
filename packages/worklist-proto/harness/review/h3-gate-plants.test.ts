@@ -57,7 +57,7 @@ import { rebuildResidentViews } from '../../arms/hand/pool/rebuild'
 import { createEngineLocals } from '../src/engine-locals'
 import type { CheckableArm, LocalsSource, RowSource } from '../../shared/src/arm'
 import { gen, type Change } from '../../shared/src/gen/changes'
-import { checkArm, diffViews } from '../../shared/src/gen/check'
+import { checkArm, diffViews as diffWholeViews } from '../../shared/src/gen/check'
 import { startGenRun } from '../../shared/src/gen/run'
 import type { RowView } from '../../shared/src/row-view'
 import { type EntityName } from '../../shared/src/schema'
@@ -207,7 +207,7 @@ async function differential(
           `vs only planted (${onlyPlanted.join(', ')})`,
       }
     }
-    const diffs = diffViews((id) => got.get(id), want)
+    const diffs = diffWholeViews((id) => got.get(id), want)
     if (diffs.length > 0) return { seed, inert: false, step, diff: `step ${step}: ${diffs.join(' | ')}` }
   }
   return { seed, inert: true, step: null, diff: '' }
