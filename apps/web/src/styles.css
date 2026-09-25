@@ -12149,7 +12149,7 @@ button.waterfall-fold:hover {
 /* The tip shares the prompt's text inset but has its own reading measure. */
 .cold-start-tip {
   max-width: 72ch;
-  margin-top: 24px;
+  margin-top: 32px;
   margin-inline: 22px;
   color: color-mix(in srgb, var(--muted-foreground) 50%, var(--text-dim));
   font-family: var(--font-mono);
