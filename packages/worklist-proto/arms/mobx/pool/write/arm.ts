@@ -62,8 +62,10 @@ export function writableMobxPoolArm(
       const handle = mobxPoolArm.create(source, locals, reads, loader) as MobxPoolHandle
       const write = createMobxWriteApi(handle.pool, transport)
       // W11: pending edits survive a principal-preserving rebuild — the
-      // outbox entries are re-applied from the queue before anything reads.
-      write.bootstrap()
+      // outbox entries are re-applied from the queue before anything reads,
+      // over the feed's server rows (the oracle's reload rebuild reads the
+      // same rows, so the two resolutions agree exactly).
+      write.bootstrap(source)
       // Re-establish node tracking AFTER the row-reader overlays are
       // installed. The seeding replace built every visibility node before the
       // wrappers existed, so their reactions subscribed to the table slots

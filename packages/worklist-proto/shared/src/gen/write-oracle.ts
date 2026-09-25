@@ -368,17 +368,33 @@ export class WriteOracle {
     })
     // The normalized projections carry the durable title/stage the model
     // merge spreads over the supplement: overlay the pending display onto
-    // the fields each projection row actually carries.
+    // the fields each projection row actually carries, and repair a chained
+    // hold the same way as legacy rows below (the store's projections can
+    // carry the kernel's paint as well as its truth).
     const storeProjections = (store.issueProjections ?? []) as readonly Record<string, unknown>[]
     const projections = storeProjections.map((row) => {
       const id = row['id'] as string
       const display = displayById.get(id)
-      if (display === undefined) return row
-      const overlaid: Record<string, unknown> = { ...row }
-      for (const [field, value] of Object.entries(display)) {
-        if (field in overlaid) overlaid[field] = value
+      if (display !== undefined) {
+        const overlaid: Record<string, unknown> = { ...row }
+        for (const [field, value] of Object.entries(display)) {
+          if (field in overlaid) overlaid[field] = value
+        }
+        return overlaid
       }
-      return overlaid
+      const titles = this.seenTitles.get(id)
+      const serverTitle = feed.get(id)?.title
+      if (
+        titles !== undefined &&
+        !this.hasPendingTitle(id) &&
+        typeof row['title'] === 'string' &&
+        titles.has(row['title'] as string) &&
+        serverTitle !== undefined &&
+        row['title'] !== serverTitle
+      ) {
+        return { ...row, title: serverTitle }
+      }
+      return row
     })
     // The stub replica serves the overlaid issue rows and projections;
     // everything else reads the live replica. Fresh per call, so no

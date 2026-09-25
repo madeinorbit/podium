@@ -66,6 +66,7 @@
 
 import { asMutationId } from '@podium/model'
 import { observable, runInAction } from 'mobx'
+import type { RowSource } from '../../../../shared/src/arm'
 import {
   commandFor,
   editForPendingWrite,
@@ -138,12 +139,15 @@ export interface MobxWriteApi {
   /**
    * Re-apply the kernel outbox's pending entries on creation (W11): queued
    * then awaiting-truth, in queue order, painted under their own mutation ids
-   * without re-sending; receipted ones settled at once; then each affected
-   * row's current server values passed through `log.remote` so a pre-reload
-   * echo settles there. Unknown rows and non-slice entries are skipped.
-   * Idempotent: re-running it settles nothing new.
+   * without re-sending, receipted ones settled at once, then each affected
+   * row's current server values passed through `log.remote` so an echo that
+   * landed before the reload settles there. Server rows come from the FEED
+   * source — the same rows the reference oracle's reload rebuild reads — so
+   * priors, ack bases and synthesis values agree exactly however the pool
+   * tables lag the feed at creation. Unknown rows and non-slice entries are
+   * skipped. Idempotent: re-running it settles nothing new.
    */
-  bootstrap(): { applied: number; skipped: number }
+  bootstrap(source: RowSource): { applied: number; skipped: number }
   /**
    * The pending display for (kind, id): the newest pending value per editable
    * field, or undefined when nothing is pending. The optimism-aware rebuild
@@ -348,8 +352,12 @@ export function createMobxWriteApi(
       })
     },
 
-    bootstrap() {
+    bootstrap(source: RowSource) {
       const entries = transport.pending()
+      const feedRows = new Map<string, SliceIssue>()
+      for (const record of source.snapshot('issue')) {
+        if (record.value !== undefined) feedRows.set(record.id, record.value as SliceIssue)
+      }
       let applied = 0
       let skipped = 0
       runInAction(() => {
@@ -360,7 +368,7 @@ export function createMobxWriteApi(
             skipped += 1
             continue
           }
-          const server = originalIssue(mapped.id) ?? originalIssueRow(mapped.id)
+          const server = feedRows.get(mapped.id)
           if (server === undefined) {
             skipped += 1
             continue
@@ -396,7 +404,7 @@ export function createMobxWriteApi(
           if (seen.has(key)) continue
           seen.add(key)
           if (log.pendingFor(kind, id).length === 0) continue
-          const server = originalIssue(id) ?? originalIssueRow(id)
+          const server = feedRows.get(id)
           if (server === undefined) continue
           log.remote(kind, id, {
             title: (server as SliceIssue).title,
