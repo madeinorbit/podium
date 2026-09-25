@@ -323,21 +323,22 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                   sessDiffs.push(`${id}:feed-only`)
                   continue
                 }
-                const phaseOf = (v: Record<string, unknown> | undefined): string =>
-                  String((v?.['agentState'] as Record<string, unknown> | undefined)?.['phase'] ?? '-')
-                const offerOf = (v: Record<string, unknown> | undefined): string =>
-                  v?.['offer'] === undefined ? '-' : 'offer'
-                const fields = [
-                  `issueId:${JSON.stringify(f?.['issueId'])}=${JSON.stringify(s['issueId'])}`,
-                  `archived:${JSON.stringify(f?.['archived'])}=${JSON.stringify(s['archived'])}`,
-                  `status:${JSON.stringify(f?.['status'])}=${JSON.stringify(s['status'])}`,
-                  `stoppedAt:${JSON.stringify(f?.['stoppedAt'] ?? null)}=${JSON.stringify(s['stoppedAt'] ?? null)}`,
-                  `phase:${phaseOf(f)}=${phaseOf(s)}`,
-                  `offer:${offerOf(f)}=${offerOf(s)}`,
+                const phaseOf = (v: Record<string, unknown> | undefined): unknown =>
+                  (v?.['agentState'] as Record<string, unknown> | undefined)?.['phase'] ?? null
+                const offerOf = (v: Record<string, unknown> | undefined): unknown =>
+                  v?.['offer'] === undefined ? null : 'offer'
+                const pairs: [string, unknown, unknown][] = [
+                  ['issueId', f?.['issueId'], s['issueId']],
+                  ['archived', f?.['archived'], s['archived']],
+                  ['status', f?.['status'], s['status']],
+                  ['stoppedAt', f?.['stoppedAt'] ?? null, s['stoppedAt'] ?? null],
+                  ['phase', phaseOf(f), phaseOf(s)],
+                  ['offer', offerOf(f), offerOf(s)],
                 ]
-                if (fields.some((x) => !x.endsWith('=') && x.split('=')[1] !== x.split('=')[2])) {
-                  sessDiffs.push(`${id}:(${fields.join(',')})`)
-                }
+                const df = pairs
+                  .filter(([, a, b]) => JSON.stringify(a) !== JSON.stringify(b))
+                  .map(([k, a, b]) => `${k}:feed=${JSON.stringify(a)} store=${JSON.stringify(b)}`)
+                if (df.length > 0) sessDiffs.push(`${id}:(${df.join(',')})`)
                 if (sessDiffs.length >= 12) break
               }
               for (const id of storeSess.keys()) {
