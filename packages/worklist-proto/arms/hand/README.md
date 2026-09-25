@@ -104,6 +104,8 @@ anywhere else in `pool/`): `issueIdsOf` (every resident issue id: the
 rebuild's residency input and the tests; the list and `snapshot()` read the
 visible order since Hb1; the id-list cell records the issue table's
 MEMBERSHIP as its input, so a rename never re-runs it),
+`knownIssueIds` (every known issue id, hot or cold, which the pool re-files
+at a `replace`),
 `reseed` (a `replace`; with residency it walks the cold registry for the ids
 the slice dropped), and `scanRelations` / `diffRelations`: every
 declared relation resolved from scratch by walking the tables, the oracle
@@ -140,6 +142,60 @@ directly (`directParts`), no cells, and the same `VISIBLE_RULES` directly
 rows and their order, grouped with L1b's `groupKeyOf` / `compareClosedFold`
 (Hb2: the live placement cells and layout are held to the contract's own
 grouping).
+
+### Write path (phase c: optimism on the model, Hc1/Hc2)
+
+`pool/write/` holds the pending display beside the pool; the kernel stays the
+transport, the durable queue and the authority on outcomes, and the pool's
+tables go on holding BORROWED server rows, never a copy and never edited.
+
+- **Where pending lives.** A plain map of per-row overlays
+  (`write.overlays`: the newest pending value per editable field —
+  title/stage/readAt only, never a full row), mirrored from the reference
+  pending log (`shared/src/write-contract.ts` `createPendingLog`, re-exported
+  by `pool/write/pending.ts`; the arm owns no log of its own). It is overlaid
+  at the row-reader boundary (`pool.inputs.issue` and
+  `pool.visibleInputs.issueRow`, the two doors every part reads through): no
+  pending edit returns the server object unchanged (identity-preserving, idle
+  layer invisible); with one a transient `{...server, ...pending}` is
+  returned (never stored, so the sweep never sees it). Each wrapper tracks
+  its overlay entry in a `DepIndex`, so a pending change dirties exactly the
+  cells that read that row.
+- **What the kernel still owns.** The command (`commandFor`: title/stage ride
+  `issues.update`, `readAt` rides `issues.markRead`), the queue and its
+  persistence, the receipt (`accepted` = outbox `applied`, L3b), the echo
+  (the server row, recognised by value: exact for title/stage, the server's
+  own stamp for `readAt`), the refusal (parked or discarded) and the collapse
+  (mark-read supersede). The arm never reads the kernel's fold (W12): its
+  feed runs in `truth` mode, server rows only.
+- **The loop.** `edit` captures `prior` from the current display with the
+  server row as `priorIdentity` (W6), paints in ONE `pool.commitOverlay` and
+  sends without awaiting; `handleAccepted` records the receipt (the entry
+  stays until its echo confirms every field — dropping on receipt alone
+  would flicker); the echo arrives as an ordinary feed row and settles with
+  zero extra commits when its values equal the pending ones (no equal
+  rewrite, PITFALL); a remote on a pending row keeps the local value and
+  takes the rest, and the new server value becomes the rewind target;
+  `reject` rewinds from the log and surfaces the error; `handleSuperseded`
+  drops a collapsed mark-read without repainting; `expire` drops receipted
+  edits past the TTL (unreceipted edits never expire); a duplicate receipt
+  is a no-op. `bootstrap` re-applies the outbox's pending entries on creation
+  under their own mutation ids without re-sending, so pending edits survive
+  a principal-preserving rebuild.
+- **The rebuild is optimism-aware.** `rebuildFromScratch` overlays the pending
+  display onto the feed's server rows before deriving, so a gate with pending
+  edits outstanding compares pending with pending — never with server truth.
+- **The phase-c gate** waits for Mc2's shared adapter
+  (`shared/src/gen/arm-edits.ts`) and reference overlay oracle
+  (`shared/src/gen/write-oracle.ts`): generated edits will call the live
+  arm's `write.edit` on the `truth` feed, as the MobX arm's Hc2 gate does.
+  Until then `pool/write/gate-with-edits.test.ts` holds the phase-a/b gate
+  with the layer attached but idle.
+
+Tests: `pool/write/edit.test.tsx` (paint, rewind, order, mark-read,
+stacking, the rewind-to-current plant), `pool/write/settle.test.tsx` (echo
+zero-commit, remote-on-pending one commit with rewind-target proof,
+duplicate no-op, supersede, expiry bounds, rebuild and bootstrap re-apply).
 
 ### The worklist (Hb1, `pool/worklist/visible.ts`)
 

@@ -1,3 +1,81 @@
+# Hc2 hand receipts and remote updates (POD-4587) · 2026-09-25
+
+Code: `edit.ts` (+`handleSuperseded`/`expire`/`bootstrap`/`pendingDisplay`),
+`arm.ts` (receipt subscription, bootstrap on create, optimism-aware
+`rebuildFromScratch`), `settle.test.tsx` (7). README: `arms/hand/README.md`
+"Write path (phase c)". Shape mirrors Mc2 (POD-4574); no shared code built
+(coordinator addendum: the gate adapter and reference oracle are Mc2's).
+
+## Decisions
+
+- **Receipt alone repaints nothing (W7).** `handleAccepted` records the
+  receipt on the reference log; the entry stays until its echo confirms
+  every field. Dropping on receipt alone would flicker (revert, then
+  re-paint on the echo). The brief's "drop on accepted" is what the observer
+  sees once receipt AND echo have arrived. `refreshOverlay` recomputes the
+  display from the log and `commitFor` runs only when it changed, so the
+  receipt step and the equal-echo step both commit zero rows (the echo row
+  itself is applied by `pool.apply` as an ordinary update; the view cell's
+  `sameData` absorbs it).
+- **Remote keeps local, tracks truth (W5/W8).** `handleRemote` feeds the
+  server values to `log.remote` (pending fields keep the local display;
+  the server value becomes the rewind target) and commits only when the
+  display moved — a remote on untouched fields costs the tables' own single
+  commit, never a second overlay one.
+- **Bootstrap passes `priorIdentity` (W6).** Like `edit`, each re-applied
+  entry records the server row object, so the log's `restoreIdentity` is
+  the borrowed row the tables already hold. The arm never re-sends: the
+  kernel replays its own queue under the same mutation ids.
+- **Echo equality isolates the stamp.** As in Mc2: a real server write bumps
+  `updatedAt`, which moves the view's `foldAt` and redraws the row once —
+  the server's change, not the settle's. The echo-equality steps preserve
+  the stamp so they test the settle rule alone.
+- **(b), (c), (d) proven red by mutation** (each planted alone in `edit.ts`,
+  `settle.test.tsx -t <its test>` red, restored byte-identical via
+  `git diff` against the aside copy):
+  - (b) `handleRemote` skipping `log.remote`: the echo never confirms —
+    echo test red (`log.size` 1, not 0).
+  - (c) `handleRemote` rejecting all pending (Mc2's drop-pending shape):
+    the pending stage is lost — remote test red (stage shows server).
+  - (d) `handleAccepted` re-sending: `transport.sent` grows to 3 — dup test
+    red on the no-resend assertion.
+  - (a) `reject` skipping the overlay refresh (Hc1's plant) against the
+    strengthened remote test: the stale pending stage stays painted —
+    red (shows pending, not the remote third stage).
+- **Rewind target proof.** The remote test moves the pending field itself
+  to a THIRD stage value while pending, then rejects: the row shows the
+  third value, not the edit-time one. A stale restore fails this step.
+
+## Evidence
+
+- `settle.test.tsx` 7/7: echo 0 commits (edit 1, receipt 0); remote 1 commit
+  with stage kept local and title taken + third-stage rewind; dup receipt 0
+  commits + `sent` stays 1 + late/unknown no-ops; supersede 0 commits with
+  the successor carried; expiry keeps unreceipted and within-TTL receipted
+  entries; rebuild equals snapshot with pending; bootstrap re-applies one
+  queued entry with no re-send.
+- `edit.test.tsx` 7/7 and `gate-with-edits.test.ts` 3/3 still green with the
+  Hc2 layer (idle there): the receipt subscription and bootstrap change
+  nothing while nothing is pending.
+- Package eslint (`bun run lint` in `packages/worklist-proto`) exits 0;
+  typecheck clean.
+
+## Open
+
+- L4b 20 × 300 with the full vocabulary BLOCKED on Mc2 (POD-4574): the
+  shared arm-edit adapter (`shared/src/gen/arm-edits.ts`) and reference
+  overlay oracle (`shared/src/gen/write-oracle.ts`) have not landed on
+  `integrate/4545-round-three`. Then: a hand `gate-truth.test.ts` plugging
+  this arm into them, plus the (a)/(c) fixed-sequence plants.
+- TTL expiry has the `expire()` API but no TTL-drop exercise (no timer
+  drives it; the kernel's awaiting-truth expiry runs on the wall clock,
+  which the gate does not drive); reference-log level is covered by L1c.
+- Cold-row edit materialisation is implemented (`ensureResident` requests and
+  hydrates) but exercised only for residency, not for commit counts: a cold
+  visible row would commit twice (load, then paint).
+
+---
+
 # Hc1 hand edits on the model (POD-4586) · 2026-09-25
 
 Write layer at `arms/hand/pool/write/` (the brief's `arms/hand/write` is the
@@ -59,11 +137,8 @@ frozen round-two layout; coordinator addendum 2026-09-24, as Mc1).
   planted `create()` edits once per incarnation — no send count is asserted
   there (the edit tests pin one-edit-one-send exactly).
 
-## Open
+## Open (Hc1, closed by Hc2 above except the gate)
 
-- Hc2 (c2): echo/settle (W7), overtake after receipt (W8), supersede (W9),
-  TTL expiry (W10), bootstrap re-apply (W11), and the optimism-aware rebuild
-  for a gate with pending edits outstanding.
-- Cold-row edit materialisation is implemented (`ensureResident` requests and
-  hydrates) but exercised only for residency, not for commit counts: a cold
-  visible row would commit twice (load, then paint).
+- ~~Hc2 (c2)~~: done — echo/settle, overtake, supersede, TTL `expire()`,
+  bootstrap, optimism-aware rebuild. Remaining: the 20 × 300 gate, blocked
+  on Mc2's shared adapter + oracle (see Hc2 Open above).
