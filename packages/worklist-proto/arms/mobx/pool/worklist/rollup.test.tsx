@@ -474,17 +474,31 @@ describe('row roll-ups (Mb3)', () => {
 
   it('burst seats are O(1): #10 reads within budget at 1x and 4x, and the re-list plant fails both (POD-4678)', async () => {
     /**
-     * THE PLANTED MISTAKE (pre-POD-4678): `seatIds` re-lists its issue's
-     * `sessions` bucket through the fenced `many()`, which counts every id
-     * it yields — so a new member re-reads its whole family. Values stay
-     * right (parity is blind to it); only the reads fence can see it.
+     * THE PLANTED MISTAKE (sent back item 3, landed code verbatim): `seatIds`
+     * as `[...input.seats(id)].sort()` over the FENCED mirror (item 1) —
+     * copies + sorts the WHOLE maintained mirror each time the bucket
+     * changes (50 runs, 145 ids at 1x: 50 new + ~91 family). Values stay right
+     * (parity blind); only the reads fence sees it (over budget). The O(1)
+     * code (`seatList`, item 2) returns the maintained SORTED list without
+     * iterating it: new member only.
      */
     const seatRelist: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as MobxPoolHandle
         const pool = handle.pool
-        const inputs = pool.visibleInputs as { seats: (id: string) => Iterable<string> }
-        inputs.seats = (id) => pool.relations.many('issue', id, 'sessions')
+        const visible = pool.visibleInputs as {
+          seats: (id: string) => Iterable<string>
+          seatList: (id: string) => readonly string[]
+        }
+        const views = pool.inputs as {
+          seats: (id: string) => Iterable<string>
+          seatList: (id: string) => readonly string[]
+        }
+        // Plant: old spread/sort over the fenced mirror (verbatim landed code
+        // before item 2), for BOTH readers (visible `seatIds`, views
+        // `sessionIds`). Counts the family, must FAIL #10; parity stays green.
+        visible.seatList = (id) => [...visible.seats(id)].sort()
+        views.seatList = (id) => [...views.seats(id)].sort()
         return handle
       },
     }
