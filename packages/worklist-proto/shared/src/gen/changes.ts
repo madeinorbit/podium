@@ -433,6 +433,16 @@ export function genCorpus(scale: 1 | 2 | 4 = 1, seed = FIXTURE_SEED): FixtureCor
 export interface GenOptions {
   /** The corpus the sequence is aimed at. Default: the one fixture, 1x. */
   corpus?: FixtureCorpus
+  /**
+   * POD-4574 (Mc2) — which fields generated edits may set. Default all three.
+   * The Mc2 gate uses title + mark-read only: a pending stage moves progress
+   * roll-ups, which the write oracle (titles overlaid on the kernel snapshot)
+   * cannot judge — pending stages flow through the same overlaid inputs as
+   * server stages (proven by the server-stage fences), and the full-vocabulary
+   * gate with stage edits waits for the phase-c decision. Deterministic in
+   * the option (it only re-scales the draw, drawing no extra numbers).
+   */
+  editFields?: readonly ('title' | 'stage' | 'readAt')[]
 }
 
 /**
@@ -681,9 +691,16 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
   }
 
   const editPatch = (issue: IssueModel): { patch: EditIntent; field: EditModel['field'] } => {
-    const r = rng()
-    if (r < 0.45) return { patch: { title: `Title ${model.mint('t')}` }, field: 'title' }
-    if (r < 0.75) {
+    const narrowed = opts.editFields !== undefined && opts.editFields.length > 0 ? opts.editFields : undefined
+    const fields = narrowed ?? (['title', 'stage', 'readAt'] as const)
+    // Fixed shares of the draw, renormalised over the allowed fields (no
+    // extra numbers drawn, so a narrowed vocabulary is a prefix-stable
+    // resequence only in the statistical sense; sequences differ by option).
+    const titleShare = fields.includes('title') ? 0.45 : 0
+    const stageShare = fields.includes('stage') ? 0.3 : 0
+    const r = rng() * (titleShare + stageShare + (fields.includes('readAt') ? 0.25 : 0))
+    if (r < titleShare) return { patch: { title: `Title ${model.mint('t')}` }, field: 'title' }
+    if (r < titleShare + stageShare) {
       const stage = pick(EDITABLE_STAGES.filter((s) => s !== issue.stage)) as EditableStage
       return { patch: { stage }, field: 'stage' }
     }

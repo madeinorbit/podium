@@ -16,6 +16,15 @@
  * `POD_POOL_GATE_STEPS`, default 200). The gate of record is 20 × 300.
  * Timeout scales the same way (5 s per seed-step).
  *
+ * VOCABULARY. Generated edits set titles and mark-reads only
+ * (`editFields: ['title', 'readAt']`): a pending stage moves progress
+ * roll-ups, which titles-overlaid-on-the-kernel-snapshot cannot judge.
+ * Pending stages flow through the same overlaid row inputs as server stages
+ * (the server-stage fences prove that path), so the Mc2 gate holds titles —
+ * the one editable field a row draws — to the reference display and leaves
+ * stage edits to the full phase-c gate. Mark-reads ride along invisibly
+ * (`SliceSnapshot` carries no `readAt`) and exercise the collapse path.
+ *
  * PLANTS (coordinator addendum). Two write-path plants on fixed sequences
  * (an edit, a remote on its pending field, then the rejection / comparison):
  * - (a) the rejection restores the server row captured at edit time instead
@@ -210,7 +219,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             },
           }
         }
-        const sequence = gen(seed, STEPS)
+        const sequence = gen(seed, STEPS, {}, { editFields: ['title', 'readAt'] })
         const gap = { applied: 0 }
         let firstDiff: string | null = null
         let kernelDiffers = 0
