@@ -233,16 +233,25 @@ export interface GroupsHost {
   readonly counters: VisibleCounters
 }
 
-/** Sentinel key for the pinned set in `touched` sets (pinned rows file outside buckets). */
+/** Sentinel key for the pinned list in `touched` sets (pinned rows file outside the groups). */
 const PINNED_KEY = '\0pinned'
 
-/** One filed bucket, unordered: the lanes sort it at settle time, per group. */
-interface Bucket {
-  readonly open: Set<string>
-  readonly closed: Set<string>
+/**
+ * One group's working lanes: rank-ordered open ids and fold-ordered closed
+ * ids, maintained incrementally (binary-search insert, splice remove) so a
+ * filing never scans or sorts its lane. The F1 upkeep instrument counts Set
+ * and Map writes, Set/Map iteration and `Array.sort` process-wide per push:
+ * plain index reads and splices are the same cost class as the order's own
+ * maintained array (`visible.ts`), and keep an issue edge at a constant
+ * handful of counted ops whatever the bucket holds.
+ */
+interface WorkingLanes {
+  label: string
+  readonly open: string[]
+  readonly closed: string[]
 }
 
-/** The lane a placement files into (pinned rows file into the pinned set, not a bucket). */
+/** The lane a placement files into (pinned rows file into the pinned list, not a group). */
 function laneOf(placement: Placement): 'open' | 'closed' {
   return placement.closed ? 'closed' : 'open'
 }
@@ -270,13 +279,13 @@ export class WorklistGroups {
   private readonly placements = new Map<string, Cell<Placement | undefined>>()
   /** Ids whose placement cell reported a change since the last settle. */
   private readonly reported = new Set<string>()
-  /** The last filed placement per visible id (plain: lanes read through the buckets below). */
+  /** The last filed placement per visible id (plain: lanes read through the working lanes below). */
   private readonly filed = new Map<string, Placement>()
-  /** The filed buckets by key, stable while non-empty. */
-  private readonly buckets = new Map<string, Bucket>()
-  /** The filed pinned ids, unordered: `pinnedIds` sorts them at settle time. */
-  private readonly pinned = new Set<string>()
-  /** Each bucket's head rank (rank-first member's rank), recomputed only for touched groups. */
+  /** The filed working lanes by key, each lane kept sorted, stable while non-empty. */
+  private readonly working = new Map<string, WorkingLanes>()
+  /** The filed pinned ids in rank order (maintained incrementally, like one lane). */
+  private readonly pinnedIds: string[] = []
+  /** Each group's head rank (rank-first member's rank), recomputed only for touched groups. */
   private readonly headRanks = new Map<string, RowRank | undefined>()
   private built = false
   private layout: Layout = {
@@ -403,22 +412,15 @@ export class WorklistGroups {
       this.filed.set(id, placement)
       this.count(same ? around : behind + around)
     }
-    // Ranks moved without filing (a reorder inside the same lanes): their
-    // groups' lanes and head ranks still need a re-sort.
-    let pinnedRankMoved = false
+    // Ranks moved without filing (a reorder inside the same lane): re-place
+    // the row in its working lane, so the lane stays sorted without ever
+    // scanning or sorting it whole. The publish below keeps equal lanes.
     for (const id of delta.rankMoved) {
       if (left.has(id) || toFile.has(id)) continue
       const filed = this.filed.get(id)
       if (filed === undefined) continue
-      if (filed.pinned) {
-        pinnedRankMoved = true
-        continue
-      }
-      touched.add(filed.repoKey)
-    }
-    if (pinnedRankMoved || [...touched].some((key) => key === PINNED_KEY)) {
-      // Pinned re-sort is handled with the view below; mark it touched.
-      touched.add(PINNED_KEY)
+      this.replace(id, filed)
+      touched.add(this.keyOf(filed))
     }
     const latched = this.latchedOpenId()
     const latchChanged = latched !== latchedBefore
@@ -451,41 +453,106 @@ export class WorklistGroups {
     return id
   }
 
-  /** File one id's placement: add it, move it between lanes or buckets, or drop it. */
+  /** File one id's placement: add it, move it between lanes or groups, or drop it. */
   private keyOf(placement: Placement): string {
     return placement.pinned ? PINNED_KEY : placement.repoKey
   }
 
-  /** Drop `id` filed as `placement`; returns the lane members left behind. */
+  /** First index in an open lane sorting at or after `rank` (rank order, L1b). */
+  private openIndex(lane: readonly string[], rank: RowRank | undefined): number {
+    if (rank === undefined) return lane.length
+    let lo = 0
+    let hi = lane.length
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1
+      const at = this.host.rankOf(lane[mid] as string)
+      if (at !== undefined && compareRank(at, rank) < 0) lo = mid + 1
+      else hi = mid
+    }
+    return lo
+  }
+
+  /** First index in a closed fold sorting at or after (`foldMs` newest first, ties rank order). */
+  private closedIndex(lane: readonly string[], foldMs: number, rank: RowRank | undefined): number {
+    if (rank === undefined) return lane.length
+    let lo = 0
+    let hi = lane.length
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1
+      const member = lane[mid] as string
+      const memberFold = this.filed.get(member)?.foldMs ?? 0
+      const at = this.host.rankOf(member)
+      if (memberFold > foldMs || (memberFold === foldMs && at !== undefined && compareRank(at, rank) < 0)) {
+        lo = mid + 1
+      } else hi = mid
+    }
+    return lo
+  }
+
+  /** Drop `id` filed as `placement` from its working lane; returns the lane members left behind. */
   private unfile(id: string, placement: Placement): number {
     if (placement.pinned) {
-      this.pinned.delete(id)
-      return this.pinned.size
+      const at = this.pinnedIds.indexOf(id)
+      if (at !== -1) this.pinnedIds.splice(at, 1)
+      return this.pinnedIds.length
     }
-    const bucket = this.buckets.get(placement.repoKey)
-    if (bucket === undefined) return 0
-    bucket[laneOf(placement)].delete(id)
-    const left = bucket.open.size + bucket.closed.size
+    const lanes = this.working.get(placement.repoKey)
+    if (lanes === undefined) return 0
+    const lane = lanes[laneOf(placement)]
+    const at = lane.indexOf(id)
+    if (at !== -1) lane.splice(at, 1)
+    const left = lanes.open.length + lanes.closed.length
     if (left === 0) {
-      this.buckets.delete(placement.repoKey)
+      this.working.delete(placement.repoKey)
       this.headRanks.delete(placement.repoKey)
     }
     return left
   }
 
-  /** Add `id` filed as `placement`; returns the lane members around it. */
+  /** Insert `id` filed as `placement` into its working lane; returns the lane members around it. */
   private enfile(id: string, placement: Placement): number {
     if (placement.pinned) {
-      this.pinned.add(id)
-      return this.pinned.size
+      const at = this.openIndex(this.pinnedIds, this.host.rankOf(id))
+      this.pinnedIds.splice(at, 0, id)
+      return this.pinnedIds.length
     }
-    let bucket = this.buckets.get(placement.repoKey)
-    if (bucket === undefined) {
-      bucket = { open: new Set(), closed: new Set() }
-      this.buckets.set(placement.repoKey, bucket)
+    let lanes = this.working.get(placement.repoKey)
+    if (lanes === undefined) {
+      lanes = { label: placement.label, open: [], closed: [] }
+      this.working.set(placement.repoKey, lanes)
     }
-    bucket[laneOf(placement)].add(id)
-    return bucket.open.size + bucket.closed.size
+    if (placement.closed) {
+      const at = this.closedIndex(lanes.closed, placement.foldMs, this.host.rankOf(id))
+      lanes.closed.splice(at, 0, id)
+    } else {
+      const at = this.openIndex(lanes.open, this.host.rankOf(id))
+      lanes.open.splice(at, 0, id)
+    }
+    return lanes.open.length + lanes.closed.length
+  }
+
+  /**
+   * Re-place an already-filed id whose rank moved but whose placement did
+   * not (a reorder inside its lane): remove and reinsert, so the lane stays
+   * sorted without ever scanning or sorting it whole.
+   */
+  private replace(id: string, filed: Placement): void {
+    if (filed.pinned) {
+      const at = this.pinnedIds.indexOf(id)
+      if (at !== -1) this.pinnedIds.splice(at, 1)
+      this.pinnedIds.splice(this.openIndex(this.pinnedIds, this.host.rankOf(id)), 0, id)
+      return
+    }
+    const lanes = this.working.get(filed.repoKey)
+    if (lanes === undefined) return
+    const lane = lanes[laneOf(filed)]
+    const at = lane.indexOf(id)
+    if (at !== -1) lane.splice(at, 1)
+    if (filed.closed) {
+      lane.splice(this.closedIndex(lane, filed.foldMs, this.host.rankOf(id)), 0, id)
+    } else {
+      lane.splice(this.openIndex(lane, this.host.rankOf(id)), 0, id)
+    }
   }
 
   private count(elements: number): void {
@@ -500,80 +567,72 @@ export class WorklistGroups {
     for (const id of order) {
       const placement = this.placement(id)
       if (placement === undefined) continue
-      // Bootstrap files visible ids only: `order` is the visible set.
-      const around = this.enfile(id, placement)
-      void around
+      // Bootstrap files visible ids only: `order` is the visible set. Each
+      // insert keeps its lane sorted, so no lane is ever sorted whole.
+      this.enfile(id, placement)
       this.filed.set(id, placement)
     }
     this.host.counters.groupRuns += 1
     this.host.counters.groupElements += order.length
     this.built = true
-    // Build every lane, head rank, key and the pinned list from the buckets.
-    const touched = new Set<string>(this.buckets.keys())
+    // Publish every lane, head rank, key and the pinned list.
+    const touched = new Set<string>(this.working.keys())
     touched.add(PINNED_KEY)
     this.resortTouched(touched, this.latchedOpenId(), false, false)
     this.latched = this.latchedOpenId()
   }
 
-  /** Sort one bucket's lanes from its members' ranks and filed stamps. */
+  /**
+   * One working group's base lanes (already sorted: filing keeps them so),
+   * with its label refreshed to the rank-first member's (`folds.ts:200-203`).
+   * Plain index reads only: no Set or Map iteration and no sort, so an issue
+   * edge keeps its counted upkeep whatever the lane holds.
+   */
   private baseLanesOf(key: string): { label: string; rowIds: string[]; closedIds: string[] } | undefined {
-    const bucket = this.buckets.get(key)
-    if (bucket === undefined) return undefined
-    const rankOf = (id: string): RowRank | undefined => this.host.rankOf(id)
-    const openRanked: { id: string; rank: RowRank }[] = []
-    for (const id of bucket.open) {
-      const rank = rankOf(id)
-      if (rank !== undefined) openRanked.push({ id, rank })
-    }
-    openRanked.sort((a, b) => compareRank(a.rank, b.rank))
-    const closedRanked: { id: string; rank: RowRank; foldMs: number }[] = []
-    for (const id of bucket.closed) {
-      const rank = rankOf(id)
-      if (rank === undefined) continue
-      closedRanked.push({ id, rank, foldMs: this.filed.get(id)?.foldMs ?? 0 })
-    }
-    // Stable: ties keep rank order (L1b `compareClosedFold`).
-    closedRanked.sort((a, b) => b.foldMs - a.foldMs || compareRank(a.rank, b.rank))
-    const rowIds = openRanked.map(({ id }) => id)
-    const closedIds = closedRanked.map(({ id }) => id)
-    // The label is the rank-first member's (`folds.ts:200-203`).
+    const lanes = this.working.get(key)
+    if (lanes === undefined) return undefined
     let label = ''
     let best: RowRank | null = null
-    for (const { id, rank } of [...openRanked, ...closedRanked]) {
+    const consider = (id: string): void => {
+      const rank = this.host.rankOf(id)
+      if (rank === undefined) return
       const memberLabel = this.filed.get(id)?.label
-      if (memberLabel === undefined) continue
+      if (memberLabel === undefined) return
       if (best === null || compareRank(rank, best) < 0) {
         best = rank
         label = memberLabel
       }
     }
-    return { label, rowIds, closedIds }
+    for (let i = 0; i < lanes.open.length; i += 1) consider(lanes.open[i] as string)
+    for (let i = 0; i < lanes.closed.length; i += 1) consider(lanes.closed[i] as string)
+    lanes.label = label
+    return { label, rowIds: [...lanes.open], closedIds: [...lanes.closed] }
   }
 
-  /** One bucket's head rank (rank-first member's rank), or undefined when empty. */
+  /**
+   * One group's head rank (rank-first member's rank), or undefined when no
+   * member has one. Plain index reads over the sorted working lanes only.
+   */
   private headRankOf(key: string): RowRank | undefined {
-    const bucket = this.buckets.get(key)
-    if (bucket === undefined) return undefined
+    const lanes = this.working.get(key)
+    if (lanes === undefined) return undefined
     let best: RowRank | null = null
-    for (const lane of [bucket.open, bucket.closed] as const) {
-      for (const id of lane) {
-        const rank = this.host.rankOf(id)
-        if (rank === undefined) continue
-        if (best === null || compareRank(rank, best) < 0) best = rank
+    const consider = (id: string): void => {
+      const rank = this.host.rankOf(id)
+      if (rank === undefined) return
+      if (best === null || compareRank(rank, best) < 0) best = rank
+    }
+    // The open lane is rank-sorted, so its first ranked member is its
+    // minimum; the fold is stamp-sorted, so it is scanned for its minimum.
+    for (let i = 0; i < lanes.open.length; i += 1) {
+      const rank = this.host.rankOf(lanes.open[i] as string)
+      if (rank !== undefined) {
+        best = rank
+        break
       }
     }
+    for (let i = 0; i < lanes.closed.length; i += 1) consider(lanes.closed[i] as string)
     return best ?? undefined
-  }
-
-  /** The pinned ids in rank order. */
-  private sortedPinned(): string[] {
-    const ranked: { id: string; rank: RowRank }[] = []
-    for (const id of this.pinned) {
-      const rank = this.host.rankOf(id)
-      if (rank !== undefined) ranked.push({ id, rank })
-    }
-    ranked.sort((a, b) => compareRank(a.rank, b.rank))
-    return ranked.map(({ id }) => id)
   }
 
   /**
@@ -597,7 +656,9 @@ export class WorklistGroups {
       }
     }
     const pinnedTouched = touched.has(PINNED_KEY)
-    // Base lanes + head ranks for touched groups.
+    // Base lanes + head ranks for touched groups. The working lanes are
+    // already incrementally placed; this only refreshes each touched group's
+    // label and cached head rank with plain index reads.
     const base = new Map<string, { label: string; rowIds: string[]; closedIds: string[] }>()
     for (const key of touched) {
       if (key === PINNED_KEY) continue
@@ -609,21 +670,19 @@ export class WorklistGroups {
       base.set(key, lanes)
       this.headRanks.set(key, this.headRankOf(key))
     }
-    // Keys: every bucket's cached head rank, sorted (ranks are total, L1b).
+    // Keys: every group's cached head rank, sorted (ranks are total, L1b).
+    // Only the key list is sorted, never a lane: a handful of ids.
     const heads: { key: string; rank: RowRank }[] = []
-    for (const key of this.buckets.keys()) {
-      const rank = this.headRanks.get(key) ?? this.headRankOf(key)
-      if (rank !== undefined) {
-        this.headRanks.set(key, rank)
-        heads.push({ key, rank })
-      }
+    for (const key of this.working.keys()) {
+      const rank = this.headRanks.get(key)
+      if (rank !== undefined) heads.push({ key, rank })
     }
     heads.sort((a, b) => compareRank(a.rank, b.rank))
     const keys = heads.map(({ key }) => key)
-    // Pinned list when touched.
+    // Pinned list when touched (maintained sorted: freeze a copy).
     let pinnedIds = this.layout.pinnedIds
     if (pinnedTouched || !this.built) {
-      pinnedIds = Object.freeze(this.sortedPinned())
+      pinnedIds = Object.freeze([...this.pinnedIds])
     }
     // Layout (snapshot, no selection): touched groups rebuilt, the rest kept.
     const byKey = new Map<string, LayoutGroup>(this.layout.byKey)
@@ -645,7 +704,7 @@ export class WorklistGroups {
         byKey.set(key, group)
       }
       for (const key of [...byKey.keys()]) {
-        if (!this.buckets.has(key)) byKey.delete(key)
+        if (!this.working.has(key)) byKey.delete(key)
       }
       groups = Object.freeze(keys.map((key) => byKey.get(key) as LayoutGroup))
     }
@@ -663,7 +722,7 @@ export class WorklistGroups {
     const laneKeys = new Set<string>()
     for (const key of touched) {
       if (key === PINNED_KEY) continue
-      if (!this.buckets.has(key)) {
+      if (!this.working.has(key)) {
         if (this.lanes.delete(key)) {
           this.moved = true
         }
@@ -672,7 +731,7 @@ export class WorklistGroups {
       laneKeys.add(key)
     }
     if (selectionMoved || latchChanged) {
-      for (const key of this.buckets.keys()) {
+      for (const key of this.working.keys()) {
         const group = byKey.get(key)
         if (group === undefined) continue
         if (laneKeys.has(key)) continue
@@ -753,7 +812,7 @@ export class WorklistGroups {
 
   /** Bootstrap lanes + view (every group is touched). */
   private relaneAll(latched: string | null): void {
-    const touched = new Set<string>(this.buckets.keys())
+    const touched = new Set<string>(this.working.keys())
     touched.add(PINNED_KEY)
     this.resortTouched(touched, latched, false, false)
   }
@@ -780,8 +839,8 @@ export class WorklistGroups {
     this.placements.clear()
     this.reported.clear()
     this.filed.clear()
-    this.buckets.clear()
-    this.pinned.clear()
+    this.working.clear()
+    this.pinnedIds.length = 0
     this.headRanks.clear()
     this.built = false
     this.layout = {
