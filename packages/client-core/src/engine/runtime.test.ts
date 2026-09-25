@@ -1141,6 +1141,26 @@ describe('mission entry and delayed identity', () => {
     engine.destroy()
   })
 
+  it('expires a focused rehome before late ancestry arrives without pruning its readable tab early', async () => {
+    const { engine } = makeEngine({ workspaceNavigationGraceMs: 35 })
+    engine.start()
+    await settle(40)
+    engine.replica.applySnapshot('issues', [root('old')])
+    engine.replica.applySnapshot('sessions', [owned('focused', 'old')])
+    await settle(30)
+    engine.getSnapshot().enterMission(asIssueId('old'), { sessionId: asSessionId('focused') })
+
+    engine.replica.applyChanges('sessions', [owned('focused', 'new-child')], [])
+    await settle(30)
+    expect(allTabIds(engine.getSnapshot().workspaces['mission:old']!)).toContain('focused')
+    await settle(60)
+    engine.replica.applyChanges('issues', [child('new-child', 'new-root'), root('new-root')], [])
+    await settle(30)
+    expect(engine.getSnapshot().selectedIssueId).toBe('old')
+    expect(engine.getSnapshot().workspaces['mission:new-root']).toBeUndefined()
+    engine.destroy()
+  })
+
   it('reconciles a background rehome on issue-only arrival without navigating', async () => {
     const { engine } = makeEngine()
     engine.start()

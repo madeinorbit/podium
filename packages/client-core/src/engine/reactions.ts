@@ -65,6 +65,7 @@ export const MARK_READ_ON_VIEW_MS = 1200
  * way, it just stops being persisted afterwards.
  */
 export const WORKSPACE_PRUNE_GRACE_MS = 20_000
+export const ISSUE_FOLLOW_GRACE_MS = 20_000
 
 export interface ReactionPorts {
   readonly state: () => EngineState
@@ -85,13 +86,22 @@ export interface ReactionPorts {
   readonly navigationGeneration: () => number
   /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
   readonly pruneGraceMs?: number
+  /** Test seam: overrides {@link ISSUE_FOLLOW_GRACE_MS}. */
+  readonly issueFollowGraceMs?: number
 }
 
 export class Reactions {
   private readonly ports: ReactionPorts
   private prevCwds: Record<string, string> = {}
   private prevIssueIds: Record<string, string> = {}
-  private pendingIssueFollow: { sessionId: SessionId; before: string; after: string; generation: number } | null = null
+  private pendingIssueFollow: {
+    sessionId: SessionId
+    before: string
+    after: string
+    generation: number
+    deadline: number
+  } | null = null
+  private issueFollowTimer: ReturnType<typeof setTimeout> | null = null
   private markReadKey: string | null = null
   private markReadTimer: ReturnType<typeof setTimeout> | null = null
   /** When the focused session's eager mark-read last actually fired (POD-272) —
@@ -106,10 +116,12 @@ export class Reactions {
   private pruneTimer: ReturnType<typeof setTimeout> | null = null
   /** Test seam for {@link WORKSPACE_PRUNE_GRACE_MS}. */
   private readonly pruneGraceMs: number
+  private readonly issueFollowGraceMs: number
 
   constructor(ports: ReactionPorts) {
     this.ports = ports
     this.pruneGraceMs = ports.pruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
+    this.issueFollowGraceMs = ports.issueFollowGraceMs ?? ISSUE_FOLLOW_GRACE_MS
   }
 
   private isVisible(): boolean {
@@ -145,7 +157,13 @@ export class Reactions {
     this.markReadKey = null
     this.issueMarkReadKey = null
     this.unknownSince.clear()
+    this.clearPendingIssueFollow()
+  }
+
+  private clearPendingIssueFollow(): void {
     this.pendingIssueFollow = null
+    if (this.issueFollowTimer !== null) clearTimeout(this.issueFollowTimer)
+    this.issueFollowTimer = null
   }
 
   /**
@@ -242,23 +260,30 @@ export class Reactions {
     const before = focused ? prev[focused] : undefined
     if (focused && after && before && before !== after &&
       (st.selectedIssueId === before || st.selectedIssueId === null)) {
-      this.pendingIssueFollow = {
+      this.clearPendingIssueFollow()
+      const pending = {
         sessionId: focused,
         before,
         after,
         generation: this.ports.navigationGeneration(),
+        deadline: Date.now() + this.issueFollowGraceMs,
       }
+      this.pendingIssueFollow = pending
+      this.issueFollowTimer = setTimeout(() => {
+        if (this.pendingIssueFollow === pending) this.clearPendingIssueFollow()
+      }, this.issueFollowGraceMs)
     }
     const pending = this.pendingIssueFollow
     if (!pending) return
-    if (pending.generation !== this.ports.navigationGeneration() || focused !== pending.sessionId ||
+    if (Date.now() >= pending.deadline ||
+      pending.generation !== this.ports.navigationGeneration() || focused !== pending.sessionId ||
       (st.selectedIssueId !== pending.before && st.selectedIssueId !== null) ||
       session?.issueId !== pending.after) {
-      this.pendingIssueFollow = null
+      this.clearPendingIssueFollow()
       return
     }
     if (!resolvedMissionRootFor(st.issues, pending.after as IssueId)) return
-    this.pendingIssueFollow = null
+    this.clearPendingIssueFollow()
     const nextState = { ...st, selectedIssueId: pending.after as IssueId }
     const key = workspaceKeyForState(nextState)
     const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), pending.sessionId, {

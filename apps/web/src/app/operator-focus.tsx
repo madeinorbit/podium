@@ -56,28 +56,33 @@ export function OperatorFocusProvider({
     sessions: store.sessions,
   }), shallowEqual)
   const issues = useReplicaIssues()
+  // AppShell supplies the selected issue, which may be a child after a session
+  // rehome. Membership and fallback still belong to its resolved mission root.
+  const missionRootId = missionId
+    ? resolvedMissionRootFor(issues, asIssueId(missionId))?.id ?? missionId
+    : null
   const key = workspaceKey()
   const [localFocus, setLocalFocus] = useState<Record<string, IssueId | null>>({})
   const unknownSince = useRef(new Map<string, { id: string; at: number }>())
   const stored = workspaces[key]?.deck?.focusedIssueId
   const focusedIssueId = Object.hasOwn(localFocus, key) ? localFocus[key] ?? null :
     stored === undefined ? (missionId === null ? null : asIssueId(missionId)) : stored === null ? null : asIssueId(stored)
-  const members = missionId ? missionIssueIds(issues, missionId, sessions) : new Set<string>()
+  const members = missionRootId ? missionIssueIds(issues, missionRootId, sessions) : new Set<string>()
   const unresolvedFocus = focusedIssueId !== null && !members.has(focusedIssueId) &&
     !resolvedMissionRootFor(issues, focusedIssueId)
   const record = unknownSince.current.get(key)
-  const focusLoading = Boolean(missionId && unresolvedFocus &&
+  const focusLoading = Boolean(missionRootId && unresolvedFocus &&
     (record?.id !== focusedIssueId || Date.now() - record.at < 20_000))
   useEffect(() => {
     if (stored !== undefined) setLocalFocus((current) => ({ ...current, [key]: stored === null ? null : asIssueId(stored) }))
   }, [key, stored])
   useEffect(() => {
-    if (!missionId || !focusedIssueId || members.has(focusedIssueId) || unresolvedFocus) return
-    setLocalFocus((current) => ({ ...current, [key]: asIssueId(missionId) }))
-    if (stored === focusedIssueId) updateWorkspaceDeck({ focusedIssueId: missionId }, { passive: true })
-  }, [missionId, focusedIssueId, members, unresolvedFocus, key, stored, updateWorkspaceDeck])
+    if (!missionRootId || !focusedIssueId || members.has(focusedIssueId) || unresolvedFocus) return
+    setLocalFocus((current) => ({ ...current, [key]: asIssueId(missionRootId) }))
+    if (stored === focusedIssueId) updateWorkspaceDeck({ focusedIssueId: missionRootId }, { passive: true })
+  }, [missionRootId, focusedIssueId, members, unresolvedFocus, key, stored, updateWorkspaceDeck])
   useEffect(() => {
-    if (!missionId || !focusedIssueId || !unresolvedFocus) {
+    if (!missionRootId || !focusedIssueId || !unresolvedFocus) {
       unknownSince.current.delete(key)
       return
     }
@@ -88,11 +93,11 @@ export function OperatorFocusProvider({
       const current = unknownSince.current.get(key)
       if (current?.id !== focusedIssueId || current.at !== at) return
       unknownSince.current.delete(key)
-      setLocalFocus((values) => ({ ...values, [key]: asIssueId(missionId) }))
-      if (stored === focusedIssueId) updateWorkspaceDeck({ focusedIssueId: missionId }, { passive: true })
+      setLocalFocus((values) => ({ ...values, [key]: asIssueId(missionRootId) }))
+      if (stored === focusedIssueId) updateWorkspaceDeck({ focusedIssueId: missionRootId }, { passive: true })
     }, Math.max(0, 20_000 - (Date.now() - at)))
     return () => window.clearTimeout(timer)
-  }, [missionId, key, focusedIssueId, unresolvedFocus, stored, updateWorkspaceDeck])
+  }, [missionRootId, key, focusedIssueId, unresolvedFocus, stored, updateWorkspaceDeck])
   const value = useMemo(
     () => ({
       focusedIssueId,

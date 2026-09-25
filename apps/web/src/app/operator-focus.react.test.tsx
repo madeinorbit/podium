@@ -52,4 +52,16 @@ describe('saved inspector resolution', () => {
     expect(screen.getByTestId('focus').textContent).toBe('root:ready')
     expect(fixture.update).toHaveBeenCalledWith({ focusedIssueId: 'root' }, { passive: true })
   })
+
+  it('keeps a saved sibling inspector when the selected session rehomes to another child', () => {
+    fixture.issues = [
+      { id: 'root', parentId: null },
+      { id: 'selected-child', parentId: 'root' },
+      { id: 'sibling', parentId: 'root' },
+    ]
+    fixture.workspaces = { 'mission:root': { deck: { focusedIssueId: 'sibling' } } }
+    render(<OperatorFocusProvider missionId="selected-child"><Probe /></OperatorFocusProvider>)
+    expect(screen.getByTestId('focus').textContent).toBe('sibling:ready')
+    expect(fixture.update).not.toHaveBeenCalled()
+  })
 })

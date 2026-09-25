@@ -210,7 +210,7 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   spawnConfirmGraceMs?: number
   /** Test seam: overrides WORKSPACE_PRUNE_GRACE_MS (POD-710). */
   workspacePruneGraceMs?: number
-  /** Test seam: overrides the bounded mission/route identity wait. */
+  /** Test seam: overrides the bounded mission/route and rehome identity waits. */
   workspaceNavigationGraceMs?: number
   /** Test seam: overrides DRAFT_SEND_DEBOUNCE_MS (POD-2045). */
   draftSendDebounceMs?: number
@@ -294,6 +294,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private baseIssues: EngineState['issues'] = []
   private baseIssueProjections: EngineState['issueProjections'] = []
   private prevRoute: RouteState
+  /** Internal history push for a tab already opened in its workspace. */
+  private localRouteNavigation = false
   /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
    *  the pane mirrors are re-derived from the workspace being switched to. */
   private workspaceKey: WorkspaceKey
@@ -465,6 +467,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       markIssueRead: (issueId) => void this.statics.markIssueRead(issueId),
       ...(init.workspacePruneGraceMs !== undefined
         ? { pruneGraceMs: init.workspacePruneGraceMs }
+        : {}),
+      ...(init.workspaceNavigationGraceMs !== undefined
+        ? { issueFollowGraceMs: init.workspaceNavigationGraceMs }
         : {}),
     })
     this.reactions.seedCwds(this.baseSessions)
@@ -1292,7 +1297,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     const previewTarget = route.pane && workspaceFor(st, workspaceKeyForState(st)).previewTabId === route.pane &&
       focusedPaneSession(st) === route.pane
-    const explicitTarget = route.pane && !mirrored &&
+    const explicitTarget = route.pane && !mirrored && !this.localRouteNavigation &&
       (route.pane !== prev?.pane && route.pane !== focusedPaneSession(st) || previewTarget)
     const knownWorktreeTarget = route.pane && (
       st.fileTabs.some((tab) => tab.id === route.pane && !tab.issueId) ||
@@ -1512,11 +1517,16 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // file listed as open with nothing rendering it — so the retirement path
     // owes the same sweep.
     this.dropOrphanFileTabs()
-    this.router.navigate({
-      ...routeDefaults('workspace'),
-      ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
-      pane: args.tabId,
-    })
+    this.localRouteNavigation = true
+    try {
+      this.router.navigate({
+        ...routeDefaults('workspace'),
+        ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
+        pane: args.tabId,
+      })
+    } finally {
+      this.localRouteNavigation = false
+    }
   }
 
   /** Forget `fileTabs` records no workspace layout still holds a tab for. */
