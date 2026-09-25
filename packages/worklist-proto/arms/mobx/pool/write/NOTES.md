@@ -12,6 +12,19 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
 
 ## Decisions
 
+- **Pending readAt is overlaid onto `visibleInputs.issueRead` (POD-4574,
+  2026-09-25).** Seed-1/step-6 diverged from the rebuild: a mark-read edit hid
+  nothing, but the live pool dropped `i1380` from its visible set while the
+  rebuild kept it. Cause: the visibility parts read the cursor through
+  `issueRead`, which the pool serves from its read-state lane (server truth
+  only, POD-4686), while the rebuild reads it from its tables — which the
+  optimism-aware rebuild fills with overlaid rows (pending cursor). A pending
+  mark-read reopens the row's decay window in the rebuild but not in live.
+  Fix (own file `edit.ts` only): wrap `issueRead` so a pending `readAt`
+  (explicit null included) wins, else the lane answers — bit-parity with the
+  rebuild's `readAtOf(overlaidRow.readAt)` in every case, and title-only edits
+  change nothing. Proven: the shrunk 1-edit replay goes live+rebuild present,
+  `DIFF=null`; 1x50 smoke green.
 - **Reference log as-is, no fork (coordinator ruling).** `handleAccepted`
   records the receipt; the entry stays until the echo confirms every field
   (W7). Dropping on receipt alone would flicker (revert, then re-paint on
@@ -112,10 +125,23 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
 
 ## Open
 
-- 20 × 300 gate of record on flatblock under `bench:flatblock` (lease held
-  by another session at time of writing; ludovico OOM-killed a 3 × 200
-  worker at load ~21). Whole package suite likewise on flatblock through
-  the package config.
+- 20 × 300 gate of record: seeds 1–3 green; seed 4 fails the ORACLE compare
+  at steps 59/69/79 (live-extra `i1397`), seeds 5–20 unrun (the run throws on
+  the first failing seed). Causal trace (temporary probe, deleted after):
+  both logs hold a pending mark-read on `i1397` (arm + reference, wall-clock
+  stamps 26 ms apart) from step ~50; live AND rebuild show the row (the
+  pending cursor reopens its decay window); kernel and oracle hide it (echo
+  never arrived, lane/feed still at the August stamp). Step-89 `refresh`
+  rebuilds both logs from the outbox, the entry is gone on both sides
+  (answered/retired server-side, or acked-then-settled-at-once), and all four
+  agree again. So the arm is correct per the
+  contract and the F4 oracle's "pending edits never move visibility" no
+  longer holds for mark-reads: `patchSnapshot` patches titles only and takes
+  membership from the kernel. Asked the coordinator (mail, --expect-response)
+  whether to count pending-readAt membership diffs as findings (mask-proof
+  both ways: hiding a pending window already fails seed 1; showing a row with
+  no pending anywhere fails against kernel+oracle) or to model them in the
+  shared oracle (Hc2 reuses it). No shared-code change until ruled.
 - TTL expiry has the `expire()` API but no gate exercise (the kernel's
   awaiting-truth expiry runs on the wall clock, which the gate does not
   drive); reference-log level is covered by L1c.
