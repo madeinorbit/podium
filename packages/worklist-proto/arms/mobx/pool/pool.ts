@@ -45,10 +45,10 @@ import './enforce'
 import {
   autorun,
   computedStruct,
+  type IObservableArray,
   type IObservableValue,
   makeObservable,
   type ObservableMap,
-  type ObservableSet,
   observable,
   runInAction,
 } from 'mobx'
@@ -103,6 +103,26 @@ export interface PoolCounters extends VisibleCounters {
 }
 
 export type PoolStats = ArmStats & { readonly counters: PoolCounters }
+
+/**
+ * POD-4678 (item 2): lower bound by id in a sorted seat list (default
+ * `.sort()` order, UTF-16 code units via `<`): first index with
+ * `list[i] >= id`. Insert there to keep id order; remove there when it holds
+ * `id`. Family-small: binary search + splice shifting is trivial.
+ */
+function sortedIndex(list: { readonly length: number; readonly [i: number]: string }, id: string): number {
+  let lo = 0
+  let hi = list.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if ((list[mid] as string) < id) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/** POD-4678 (item 2): no seats (shared frozen, never written; `seatList` absent case). */
+const EMPTY_SEAT_LIST: readonly string[] = Object.freeze([])
 
 function createStats(residency: Residency | null): PoolStats {
   const counters: PoolCounters = {
@@ -298,16 +318,25 @@ export class MobxPool {
     this.stats = createStats(residency)
     const stats = this.stats
     /**
-     * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
-     * relation's own bucket deltas (one element per move, never the family),
-     * never re-listed through the fenced reader. The rule is declared once
-     * in the schema (`issue.sessions`); this mirror follows the engine's
-     * delta in the same action. Held in a closure (not a field) so the copy
-     * sweep never walks it: it holds only ids, never rows (closures stay a
-     * review item). Read via `visibleInputs.seats` / `inputs.seats`, never
-     * via `many()`.
+     * POD-4678 (sent back items 1-2) — the explicit seats (`issue.sessions`),
+     * maintained SORTED from the relation's own bucket deltas (one element
+     * per move: binary search + splice at its id-order position, never the
+     * family). The rule is declared once in the schema (`issue.sessions`);
+     * this mirror follows the engine's delta in the same action. Held in a
+     * closure (not a field) so the copy sweep never walks it: it holds only
+     * ids, never rows (closures stay a review item).
+     *
+     * TWO DOORS (item 1 vs item 2):
+     * - `seats(id)` (fenced, below): every yielded id counts as a relation
+     *   read, exactly as `many()` yields do. `[...seats].sort()` (the landed
+     *   code verbatim) re-reads the whole family here: over budget (true
+     *   state). The plant uses it and must FAIL #10 at both scales.
+     * - `seatList(id)` (unfenced, below): the maintained SORTED array itself,
+     *   returned without iterating it. A membership change yields the new
+     *   member only: O(1) for real. `seatIdsPartOf` / `sessionIdsPartOf` read
+     *   it, never `seats()` nor `many()`.
      */
-    const seats = observable.map<string, ObservableSet<string>>(undefined, {
+    const seats = observable.map<string, IObservableArray<string>>(undefined, {
       deep: false,
       name: 'pool.seats',
     })
@@ -339,26 +368,29 @@ export class MobxPool {
       onElements: (elements) => {
         stats.counters.bucketElements += elements
       },
-      // POD-4678: file the explicit seat delta (one element) into the
-      // maintained set, in the same action that moved the bucket. No
-      // per-session reactions; the schema declares the rule once.
+      // POD-4678 (item 2): file the explicit seat delta (one element) into
+      // the maintained SORTED list, in the same action that moved the bucket:
+      // binary search by id (default `.sort()` order, UTF-16 code units) +
+      // splice at its position. No per-session reactions; the schema declares
+      // the rule once. Family-small (2-3 ids): splice shifting is trivial.
       onBucket: (collection, target, member, added) => {
         if (collection !== 'issue.sessions') return
         if (added) {
-          let bucket = seats.get(target)
-          if (bucket === undefined) {
-            bucket = observable.set<string>(undefined, {
+          let list = seats.get(target)
+          if (list === undefined) {
+            list = observable.array<string>([], {
               deep: false,
               name: 'pool.seats.bucket',
             })
-            seats.set(target, bucket)
+            seats.set(target, list)
           }
-          bucket.add(member)
+          list.splice(sortedIndex(list, member), 0, member)
         } else {
-          const bucket = seats.get(target)
-          if (bucket === undefined) return
-          bucket.delete(member)
-          if (bucket.size === 0) seats.delete(target)
+          const list = seats.get(target)
+          if (list === undefined) return
+          const at = sortedIndex(list, member)
+          if (at < list.length && list[at] === member) list.splice(at, 1)
+          if (list.length === 0) seats.delete(target)
         }
       },
       ...(residency === null
@@ -424,22 +456,26 @@ export class MobxPool {
       parts: (id) => this.issue(id),
       rollup: (id) => this.worklist.issue(id)?.rollup,
       retainedSeats: (id) => this.worklist.issue(id)?.retainedSeatIds ?? [],
-      // POD-4678 (sent back item 1): the mirror IS the relation — every id
-      // it yields counts as a relation read, exactly as `many()` yields do.
-      // `seatIdsPartOf` spreads + sorts it (`[...seats].sort()`), so a new
-      // member re-reads its whole family here: expect #10 over budget (true
-      // state) until item 2 maintains the sorted list without iterating it.
+      // POD-4678 (sent back item 1, plant/old): the mirror IS the relation —
+      // every id it yields counts, exactly as `many()` yields do.
+      // `[...seats].sort()` (landed code verbatim) re-reads the whole family
+      // here: over budget (true state). The plant uses it and must FAIL #10.
       // Closure-held (never walked by the copy sweep: ids only, never rows).
       seats: (id) => ({
         *[Symbol.iterator](): Generator<string> {
-          const set = seats.get(id)
-          if (set === undefined) return
-          for (const member of set) {
+          const list = seats.get(id)
+          if (list === undefined) return
+          for (const member of list) {
             reads.touch('session', member, 'relation')
             yield member
           }
         },
       }),
+      // POD-4678 (item 2, O(1) real): the maintained SORTED list itself,
+      // returned without iterating it. A membership change yields the new
+      // member only (its own row reads, already counted there); the family
+      // is never yielded here, so never counted. Closure-held, ids only.
+      seatList: (id) => seats.get(id) ?? EMPTY_SEAT_LIST,
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
@@ -461,21 +497,25 @@ export class MobxPool {
       issueRead: (id) => this.readStates.get(id),
       nested: (id) => this.worklist.nested(id),
       formalChildren: (id) => this.worklist.formalChildren(id),
-      // POD-4678 (sent back item 1): the mirror IS the relation — every id
-      // it yields counts, exactly as `many()` yields do. Spread + sort here
-      // re-reads the whole family: expect #10 over budget (true state) until
-      // item 2 returns the maintained sorted list without iterating it.
+      // POD-4678 (item 1, plant/old): the mirror IS the relation — every id
+      // yielded counts, exactly as `many()` yields do. Spread + sort
+      // (`[...seats].sort()`, landed code verbatim) re-reads the whole family:
+      // over budget (true state). The plant uses it and must FAIL #10.
       // Closure-held (never walked by the copy sweep: ids only, never rows).
       seats: (id) => ({
         *[Symbol.iterator](): Generator<string> {
-          const set = seats.get(id)
-          if (set === undefined) return
-          for (const member of set) {
+          const list = seats.get(id)
+          if (list === undefined) return
+          for (const member of list) {
             reads.touch('session', member, 'relation')
             yield member
           }
         },
       }),
+      // POD-4678 (item 2, O(1) real): the maintained SORTED list itself,
+      // returned without iterating it — a membership change yields the new
+      // member only. `seatIdsPartOf` reads it, never `seats()` nor `many()`.
+      seatList: (id) => seats.get(id) ?? EMPTY_SEAT_LIST,
       counted: () => {
         stats.rollupsDerived += 1
       },

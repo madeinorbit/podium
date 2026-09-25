@@ -139,9 +139,13 @@ function rebuild(
       tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).rollup : undefined,
     retainedSeats: (id) =>
       tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).retainedSeatIds : [],
-    // POD-4678: from scratch over the scanned relation (the live pool reads
-    // its maintained `seats` mirror, never the fenced `many()`).
+    // POD-4678 (item 1, plant/old): from scratch (the live pool's fenced
+    // `seats()` counts; the rebuild never counts). Unused after item 2
+    // (`sessionIdsPartOf` reads `seatList`), kept for the interface + plant.
     seats: (id) => inputs.relations.many('issue', id, 'sessions'),
+    // POD-4678 (item 2, O(1) real): from scratch, sorted (the live pool reads
+    // its maintained SORTED mirror without iterating it).
+    seatList: (id) => [...inputs.relations.many('issue', id, 'sessions')].sort(),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
@@ -181,9 +185,13 @@ function rebuild(
     // The scanned `children` relation, from scratch (the live pool files each node's parent slot).
     formalChildren: (id) =>
       tables.issue.has(id) ? directVisibility(visibleInputs, id, memo).childIds : [],
-    // POD-4678: from scratch over the scanned relation (the live pool reads
-    // its maintained `seats` mirror, never the fenced `many()`).
+    // POD-4678 (item 1, plant/old): from scratch (the live pool's fenced
+    // `seats()` counts; the rebuild never counts). Unused after item 2
+    // (`seatIdsPartOf` reads `seatList`), kept for the interface + plant.
     seats: (id) => inputs.relations.many('issue', id, 'sessions'),
+    // POD-4678 (item 2, O(1) real): from scratch, sorted (the live pool reads
+    // its maintained SORTED mirror without iterating it).
+    seatList: (id) => [...inputs.relations.many('issue', id, 'sessions')].sort(),
     counted: () => {},
   }
   const visible = issues

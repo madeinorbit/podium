@@ -157,13 +157,18 @@ export interface VisibleInputs {
   /** The known issues whose declared `issue.parent` is `id` (filed from each one's forward slot). */
   formalChildren(id: string): Iterable<string>
   /**
-   * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
-   * relation's own bucket deltas (one element per move, never the family).
-   * The live pool reads its `pool.seats` mirror (tracked, never through the
-   * fenced `many()`); the rebuild reads the scanned relation from scratch.
-   * Id order is applied at view time by `seatIdsPartOf`.
+   * POD-4678 (item 1, plant/old) — the explicit seats (`issue.sessions`) as
+   * the mirror IS the relation: every yielded id counts, exactly as `many()`
+   * yields do. `[...seats].sort()` (landed code verbatim) re-reads the whole
+   * family: over budget (true state). The plant uses it and must FAIL #10.
    */
   seats(id: string): Iterable<string>
+  /**
+   * POD-4678 (item 2, O(1) real) — the maintained SORTED seat list itself,
+   * returned without iterating it. A membership change yields the new member
+   * only. `seatIdsPartOf` reads it, never `seats()` nor `many()`.
+   */
+  seatList(id: string): readonly string[]
   /** One composition run, reported through the shared `ArmStats.rollupsDerived`. */
   counted(): void
 }
@@ -487,10 +492,11 @@ export function standingPartOf(input: VisibleInputs, id: string): Standing | und
 
 /** R2: the explicit members (`issue.sessions`: headless out, twins collapsed), id order. */
 export function seatIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
-  // POD-4678: the maintained `seats` mirror (one element per bucket move),
-  // never the bucket re-listed through the fenced `many()` (which counts
-  // every id it yields, so a new member re-read its whole family, #10).
-  return [...input.seats(id)].sort()
+  // POD-4678 (item 2, O(1) real): the maintained SORTED list itself, returned
+  // without iterating it — a membership change yields the new member only.
+  // Never `seats()` (fenced, plant/old `[...seats].sort()` re-reads the whole
+  // family and must FAIL #10) nor `many()`.
+  return input.seatList(id)
 }
 
 /**

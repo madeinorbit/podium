@@ -148,13 +148,18 @@ export interface ViewInputs {
    */
   retainedSeats(id: string): readonly string[]
   /**
-   * POD-4678 — the explicit seats (`issue.sessions`), maintained from the
-   * relation's own bucket deltas (one element per move, never the family).
-   * The live pool reads its `pool.seats` mirror (tracked, never through the
-   * fenced `many()`); the rebuild reads the scanned relation from scratch.
-   * `sessionIdsPartOf` sorts at view time.
+   * POD-4678 (item 1, plant/old) — the explicit seats (`issue.sessions`) as
+   * the mirror IS the relation: every yielded id counts, exactly as `many()`
+   * yields do. `[...seats].sort()` (landed code verbatim) re-reads the whole
+   * family: over budget (true state). The plant uses it and must FAIL #10.
    */
   seats(id: string): Iterable<string>
+  /**
+   * POD-4678 (item 2, O(1) real) — the maintained SORTED seat list itself,
+   * returned without iterating it. A membership change yields the new member
+   * only. `sessionIdsPartOf` reads it, never `seats()` nor `many()`.
+   */
+  seatList(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -362,14 +367,14 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
 }
 
 /**
- * The own sessions, one maintained read (`IssueParts.sessionIds`), in
- * session-id order: the mirror is unordered, and the draft title's "first
- * member" needs one. POD-4678: never the bucket re-listed through the fenced
- * `many()` (which counts every id it yields, so a new member re-read its
- * whole family, #10).
+ * The own sessions, one maintained read (`IssueParts.sessionIds`), already in
+ * session-id order (the mirror is maintained SORTED). POD-4678 (item 2, O(1)
+ * real): returned without iterating it — a membership change yields the new
+ * member only. Never `seats()` (fenced, plant/old `[...seats].sort()` re-reads
+ * the whole family and must FAIL #10) nor `many()`.
  */
 export function sessionIdsPartOf(input: ViewInputs, id: string): readonly string[] {
-  return [...input.seats(id)].sort()
+  return input.seatList(id)
 }
 
 /** A session's contribution to its issue's activity: its `lastActiveAt`, or null when absent. */
