@@ -236,9 +236,31 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 issues?: readonly unknown[]
                 sessions?: readonly unknown[]
               }
-              let extra = `feed issues/sessions=${feedSource.snapshot('issue').length}/` +
-                `${feedSource.snapshot('session').length} ` +
-                `store issues/sessions=${store.issues?.length ?? '?'}/${store.sessions?.length ?? '?'}`
+              // TEMPORARY diagnosis (removed before landing).
+              const feedSessions = new Map(
+                feedSource
+                  .snapshot('session')
+                  .map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
+              )
+              const storeSessions = new Map(
+                ((store.sessions ?? []) as Record<string, unknown>[]).map((s) => [
+                  String(s['sessionId'] ?? s['id']),
+                  s,
+                ]),
+              )
+              const onlyFeed: string[] = []
+              const onlyStore: string[] = []
+              for (const id of feedSessions.keys()) if (!storeSessions.has(id)) onlyFeed.push(id)
+              for (const id of storeSessions.keys()) if (!feedSessions.has(id)) onlyStore.push(id)
+              const describeSession = (id: string, v: Record<string, unknown> | undefined): string =>
+                v === undefined
+                  ? `${id}:gone`
+                  : `${id}:issue=${String(v['issueId'] ?? '-')},phase=${String((v['agentState'] as Record<string, unknown> | undefined)?.['phase'] ?? '-')}`;
+              let extra =
+                `feed issues/sessions=${feedSource.snapshot('issue').length}/` +
+                `${feedSessions.size} store issues/sessions=${store.issues?.length ?? '?'}/${storeSessions.size}\n` +
+                `sessions only-feed=[${onlyFeed.slice(0, 6).map((id) => describeSession(id, feedSessions.get(id))).join(' ')}] ` +
+                `only-store=[${onlyStore.slice(0, 6).map((id) => describeSession(id, storeSessions.get(id))).join(' ')}]`
               const m = /row (i[a-zA-Z0-9-]+): progressDone/.exec(diff)
               if (m) {
                 const target = m[1] as string
