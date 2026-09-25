@@ -352,9 +352,41 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               oracleFailed += 1
             }
             if (diff !== null && firstDiff === null) {
+              // TEMPORARY diagnosis (removed before landing): spinOff fields
+              // + pool spinOffs size across the closure of the first row.
+              const m2 = /row (i[a-zA-Z0-9-]+): progressDone/.exec(diff)
+              let extra2 = ''
+              if (m2) {
+                const target = m2[1] as string
+                const feedRows = new Map(
+                  run
+                    .feed()
+                    .source.snapshot('issue')
+                    .map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
+                )
+                const seen = new Set<string>([target])
+                const queue = [target]
+                const lines: string[] = []
+                while (queue.length > 0 && lines.length < 30) {
+                  const cur = queue.shift() as string
+                  for (const [id, v] of feedRows) {
+                    if (v !== undefined && (v['parentId'] as string | null) === cur && !seen.has(id)) {
+                      seen.add(id)
+                      queue.push(id)
+                      const so = runInAction(
+                        () => [...h.pool.relations.many('issue', id, 'spinOffs' as never)].length,
+                      )
+                      lines.push(
+                        `${id}:df=${String(v['discoveredFrom'] ?? '-')}/so=${so}/st=${String(v['stage'])}`,
+                      )
+                    }
+                  }
+                }
+                extra2 = `\nspinOffs:\n${lines.join('\n')}`
+              }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-                `(${JSON.stringify(step.change)}, settled=${settled}):\n${diff}`
+                `(${JSON.stringify(step.change)}, settled=${settled}):\n${diff}${extra2}`
             }
           },
         })
