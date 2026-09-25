@@ -58,6 +58,11 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
   r28" — the stale-hold mirror, caught by the reference oracle. Failing
   test: `gate-truth.test.ts` "passes every seed against the rebuild and the
   write oracle".
+- **Deduped re-sends are receipts.** The echo step marks the GenServer id
+  applied; a later re-send (online drain, reload) is answered at once and
+  the arm settles on it. The oracle observes the same signal by scanning the
+  server's arrival log (`consumeServerAnswers`) — without it the oracle
+  holds entries the arm settled.
 - **Gate edits are titles + mark-reads** (`editFields`). A pending stage
   moves progress roll-ups, which titles-overlaid-on-the-kernel-snapshot
   cannot judge; pending stages flow through the same overlaid row inputs as
