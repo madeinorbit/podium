@@ -235,13 +235,30 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 issues?: readonly unknown[]
                 sessions?: readonly unknown[]
               }
-              const census =
-                `feed issues/sessions=${feedSource.snapshot('issue').length}/` +
+              let extra = `feed issues/sessions=${feedSource.snapshot('issue').length}/` +
                 `${feedSource.snapshot('session').length} ` +
                 `store issues/sessions=${store.issues?.length ?? '?'}/${store.sessions?.length ?? '?'}`
+              const m = /row (i[a-zA-Z0-9-]+): progressDone/.exec(diff)
+              if (m) {
+                const target = m[1] as string
+                const feedRows = new Map(
+                  feedSource.snapshot('issue').map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
+                )
+                const kids: string[] = []
+                for (const [id, v] of feedRows) {
+                  if (v !== undefined && (v['parentId'] as string | null) === target) {
+                    const cached = run.ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+                    kids.push(
+                      `${id}:feed(${String(v['stage'])}/${String(v['closedReason'] ?? '-')})` +
+                        `cache(${cached === undefined ? '?' : `${String(cached['stage'])}/${String(cached['closedReason'] ?? '-')}`})`,
+                    )
+                  }
+                }
+                extra += `\nchildren of ${target} (feed vs cache stage/closedReason):\n${kids.slice(0, 12).join('\n')}`
+              }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-                `(${JSON.stringify(step.change)}):\n${diff}\n${census}`
+                `(${JSON.stringify(step.change)}):\n${diff}\n${extra}`
             }
           },
         })
