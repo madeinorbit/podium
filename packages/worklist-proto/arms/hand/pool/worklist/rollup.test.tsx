@@ -60,6 +60,7 @@ import {
 import {
   FENCE_SCENARIOS,
   type FenceScenario,
+  engineLocals,
   openFenceFeeds,
   parityLocals,
   runFenceStep,
@@ -67,7 +68,7 @@ import {
 import { rowViewsFromStore, snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
-import { diffSnapshots } from '../../../../shared/src/gen/check'
+import { diffSnapshots, diffViews } from '../../../../shared/src/gen/check'
 import type { RowView } from '../../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from '../arm'
@@ -445,6 +446,17 @@ describe('row roll-ups (Hb3)', () => {
     const cells = await withMounted(arm, async (ctx, mounted, handle, flush) => {
       const gapAtBoot = checkParity(ctx, handle, 'bootstrap')
       expect(gapAtBoot, 'the POD-4671 row, named').toBe(ctx.corpus.unscannedWorktree.issueId)
+      expect(
+        diffViews(
+          (id) => handle.pool.view(id),
+          new Map(
+            Object.entries(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))).filter(
+              ([id]) => id !== ctx.corpus.unscannedWorktree.issueId,
+            ),
+          ),
+        ),
+        'bootstrap: whole views vs oracle',
+      ).toEqual([])
       const out = []
       for (const entry of FENCE_SCENARIOS) {
         // POD-4678: a new explicit member re-lists its issue's `sessions`
@@ -464,6 +476,16 @@ describe('row roll-ups (Hb3)', () => {
         assertReads(result, { readsPerChange: readsBudget + family })
         mounted.reads.assertNoCopies(mounted.handle)
         const gap = checkParity(ctx, handle, entry.methodology)
+        // Per-step oracle check on whole views: `activityAt` lives outside
+        // the slice, so only a view-to-view comparison holds it to the
+        // oracle after every change (the POD-4671 orphan excepted).
+        const views = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+        const want = new Map(Object.entries(views))
+        want.delete(ctx.corpus.unscannedWorktree.issueId)
+        expect(
+          diffViews((id) => handle.pool.view(id), want),
+          `${entry.methodology}: whole views vs oracle`,
+        ).toEqual([])
         out.push({
           gap,
           methodology: entry.methodology,
