@@ -1,5 +1,60 @@
 # arms/mobx — notes
 
+## Round three: incremental grouping and the read-state lane (POD-4686) · 2026-09-25
+
+Code: `pool/worklist/groups.ts` (maintained buckets, per-group head rank,
+unlatched base lanes), `pool/worklist/visible.ts` (read-state lane input,
+placement filing reaction), `pool/pool.ts` (read-state lane, volatile
+ingest), `pool/tables.ts` + `pool/residency.ts` (volatile hooks),
+`pool/rebuild.ts` (lane input from the row), `pool/worklist/scaling.test.ts`
+(the counts).
+
+### Decisions
+
+- **The layout is maintained, not re-enumerated.** One reaction per node
+  (`pool.layout.<id>`) files its placement into buckets when it changes; a
+  stage move files one id between two lanes. Lanes sort per group at view
+  time; group keys sort each bucket's head rank. The old whole-order
+  `layoutOf` stays as the pure function the rebuild and the plants use.
+  First cut derived keys from the order and re-walked it per move (732 /
+  2,928 ids, invisible to the filing counters — coordinator verification);
+  keys now read only bucket membership and head ranks, and `order` stays
+  alive through a bare subscribed read so its sort counter stays honest.
+- **The read cursor lives beside its row.** `issue.readAt` is kept in a
+  per-key-tracked lane; a cursor-only update skips the slot write (no
+  relation, residency or cold-rule input reads it — checked against the
+  schema), so a click re-validates only the clicked row. `unread` and a
+  decay row's `flat` derive the same cursor from the lane.
+- **Counts, not walls, carry the verdict** (`scaling.test.ts`, direct pool,
+  1x and 4x): stage move = 1 filing + its lanes + ≤4 set writes + 0
+  key-index reads + 0 order walks, keys/pinned/latch execs bounded, moved
+  lanes exactly once; click = 0 maintenance reactions, latch once, lanes
+  once each doing O(1) latch checks, rest silent. Whole-list plants
+  (732 / 2,928 walked reads; re-file-all set writes; slot replacement ≥3
+  reactions) fail each bound. Re-time (`results/4686-quiet`, 36 ok,
+  load ≤ 8): 1x walls near Mb4, 4x slopes still over on a heap story the
+  untouched paths share (pool page 311 MB at 4x) — follow-up, not
+  pool-chasing.
+
+### Observations (not fixed here)
+
+- **Latch staleness on selection.** Tracing a click showed every lane
+  scheduled exactly once with O(1) bodies, which is the bound the test
+  pins — but a direct always-fire observer on `latchedOpenId` never fired
+  across two selection changes in a scratch probe, while the same closure
+  observed directly does. Unresolved whether MobX defers that reaction's
+  baseline past the change or the computed genuinely never propagates;
+  invisible to every gate (tests read fresh; the latch lane only matters
+  for a selected grace-folded row). Left for the latch's owner with this
+  pointer, not chased: it changes no count in this issue.
+- **Test hygiene that burned an hour.** A `ReferenceError: audit is not
+  defined` from a `finally` masked the real error twice over: (1) declare
+  audit handles OUTSIDE `try` so `finally` can never mask; (2) cross-check
+  `git status`/hashes before blaming logic — rapid `fetch` + `reset
+  --hard` + rerun cycles on one checkout can execute mixed code across
+  resets (symptom: impossible errors in self-consistent files). Slow down
+  the cycle or clear transform caches between resets.
+
 ## Round three: whole-row gate and `activityAt` (POD-4674, POD-4679) · 2026-09-24
 
 Code: `pool/gate.test.ts` (whole-view check, observer, three view plants),
