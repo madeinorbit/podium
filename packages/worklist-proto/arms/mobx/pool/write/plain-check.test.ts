@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
-import type { CheckableArm } from '../../../../shared/src/arm'
+import type { CheckableArm, LocalsSource, RowSource } from '../../../../shared/src/arm'
+import type { ReadFence } from '../../../../shared/src/instrument/reads'
 import { gen } from '../../../../shared/src/gen/changes'
-import { checkArm } from '../../../../shared/src/gen/check'
+import { checkArm, type CheckedArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import { installMobxWarnTrap } from '../mobx-trap'
@@ -11,9 +12,9 @@ import { mobxPoolArm, type MobxPoolHandle } from '../arm'
 
 installMobxWarnTrap()
 
-function gapped(arm: CheckableArm, tally: { applied: number }): CheckableArm {
+function gapped(arm: CheckedArm, tally: { applied: number }): CheckedArm {
   return (ctx: ScenarioEngine) => ({
-    create(source, locals, reads) {
+    create(source: RowSource, locals: LocalsSource, reads?: ReadFence) {
       const handle = (typeof arm === 'function' ? arm(ctx) : arm).create(source, locals, reads) as MobxPoolHandle
       const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
         const oracle = oracleSnapshot(ctx.engine.getSnapshot())
