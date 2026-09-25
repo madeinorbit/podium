@@ -86,6 +86,10 @@ export class WriteOracle {
   /** Every row ever appended (pruned when its log empties; the log itself
    *  has no whole-log enumeration). */
   private readonly rows = new Set<string>()
+  /** Titles the log held per row, kept after they leave (retired-hold
+   *  detection in `patchSnapshot`; cleared when the row goes pending again
+   *  is unnecessary — a pending row takes the display branch instead). */
+  private readonly seenTitles = new Map<string, Set<string>>()
   /** Server arrivals already consumed (deduped re-sends below). */
   private arrivalsSeen = 0
 
@@ -124,6 +128,15 @@ export class WriteOracle {
     }
     this.log.append({ txId: kernelId, kind: 'issue', id, patch, prior })
     this.rows.add(id)
+    const patchRecord = patch as { title?: string }
+    if (patchRecord.title !== undefined) {
+      let seen = this.seenTitles.get(id)
+      if (!seen) {
+        seen = new Set()
+        this.seenTitles.set(id, seen)
+      }
+      seen.add(patchRecord.title)
+    }
   }
 
   accept(kernelId: TxId): void {
@@ -213,6 +226,15 @@ export class WriteOracle {
       }
       if (entry.acked) this.log.settle({ txId: entry.txId })
       this.rows.add(mapped.id)
+      const patchRecord = mapped.patch as { title?: string }
+      if (patchRecord.title !== undefined) {
+        let seen = this.seenTitles.get(mapped.id)
+        if (!seen) {
+          seen = new Set()
+          this.seenTitles.set(mapped.id, seen)
+        }
+        seen.add(patchRecord.title)
+      }
       this.synced.delete(mapped.id)
     }
     this.syncPending(source)
@@ -231,24 +253,42 @@ export class WriteOracle {
     return out
   }
 
+  /** Whether the log currently holds a pending title for the row. */
+  private hasPendingTitle(id: string): boolean {
+    return this.log
+      .pendingFor('issue', id)
+      .some((e) => (e.patch as { title?: string }).title !== undefined)
+  }
+
   /**
    * The expected display: server truth plus the shared reference log, for
-   * every row the server holds, whatever the kernel or the arm shows (F4).
-   * Each row keeps the kernel snapshot's shape and every field the gate does
-   * not edit; its title is the reference display (newest pending title, else
-   * the server value). A row with nothing pending shows the server value —
-   * which is also what retires a kernel stale-hold (a chained overlay past a
-   * newer server value) back to truth without any condition on the arm. Rows
-   * the server no longer holds keep the kernel's row.
+   * every row, whatever the kernel or the arm shows (F4). Each row keeps the
+   * kernel snapshot's shape and every field the gate does not edit; its title
+   * is the reference display (newest pending title) wherever the log holds
+   * one. Where the log is empty but the kernel still shows a title the log
+   * once held (a chained overlay retired past a newer server value), server
+   * truth is expected instead — with no condition on the arm, so an arm that
+   * copies the kernel's hold fails here. Titles never pending (draft display
+   * names and the like) are the kernel's own and are never rewritten.
    */
   patchSnapshot(oracle: SliceSnapshot, source: RowSource): SliceSnapshot {
     const server = this.serverRows(source)
     const rowsById = { ...oracle.rowsById }
-    for (const [id, values] of server) {
+    for (const id of this.pendingIds()) {
       const row = rowsById[id]
-      if (row === undefined) continue
+      const values = server.get(id)
+      if (row === undefined || values === undefined) continue
       const display = displayOf(this.log, id, values)
       if (display.title !== row.title) rowsById[id] = { ...row, title: display.title }
+    }
+    for (const [id, titles] of this.seenTitles) {
+      if (this.hasPendingTitle(id)) continue
+      const row = rowsById[id]
+      const values = server.get(id)
+      if (row === undefined || values === undefined) continue
+      if (titles.has(row.title) && row.title !== values.title) {
+        rowsById[id] = { ...row, title: values.title }
+      }
     }
     return { ...oracle, rowsById }
   }
