@@ -20,8 +20,9 @@ import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { gen } from '../../../../shared/src/gen/changes'
 import { checkArm } from '../../../../shared/src/gen/check'
+import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
-import { writableHandPoolArm } from './arm'
+import { writableHandPoolArm, type WritableHandPoolHandle } from './arm'
 
 const SEEDS = Array.from(
   { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
@@ -102,4 +103,70 @@ describe('L4b with optimistic edits enabled (write layer attached, idle)', () =>
     },
     GATE_TIMEOUT_MS,
   )
+
+  it(
+    'the rewind-to-current plant fails every seed',
+    async () => {
+      // Non-vacuity first: an arm-side edit with a TRUE reject converges
+      // inside the gate (seed 1), so a divergence below is the plant's.
+      {
+        const transport = fakeTransport()
+        const result = await checkArm(editedArm(transport, false), gen(1, STEPS), {
+          oracleEvery: 0,
+          shrink: false,
+        })
+        if (!result.ok) {
+          throw new Error(
+            `clean edit+reject diverged (seed 1, step ${result.step}) from the ${result.against}:\n${result.diff}`,
+          )
+        }
+        expect(transport.sent).toHaveLength(1)
+      }
+      let caught = 0
+      for (const seed of SEEDS) {
+        const transport = fakeTransport()
+        const result = await checkArm(editedArm(transport, true), gen(seed, STEPS), {
+          oracleEvery: 0,
+          shrink: false,
+        })
+        if (!result.ok) caught += 1
+      }
+      expect(caught).toBe(SEEDS.length)
+    },
+    GATE_TIMEOUT_MS,
+  )
 })
+
+/**
+ * Write-specific plant: rewind to the CURRENT display instead of the kept
+ * prior. The arm bootstraps, makes one arm-side title edit on the first
+ * visible row, then rejects it. Clean (`plant: false`) rewinds through the
+ * log to the kept prior and the gate passes; planted (`plant: true`) drops
+ * the log entry without refreshing the overlay, so the stale pending title
+ * stays painted with an empty log and the very first rebuild comparison
+ * diverges. A title moves no relation and no rank, so the diff is that row's
+ * title alone.
+ */
+const PLANTED_TITLE = 'Planted write-path title'
+
+function editedArm(
+  transport: WriteTransport & { readonly sent: { txId: TxId; command: KernelCommand }[] },
+  plant: boolean,
+): CheckableArm {
+  const inner = writableHandPoolArm(transport)
+  return {
+    create: (source, locals, reads) => {
+      const handle = inner.create(source, locals, reads) as WritableHandPoolHandle
+      const ids = Object.keys(handle.snapshot().rowsById).sort()
+      const id = ids.find((candidate) => {
+        const title = (handle.pool.inputs.issue(candidate) as SliceIssue | undefined)?.title
+        return title !== undefined && title !== PLANTED_TITLE
+      })
+      if (id === undefined) throw new Error('[plant] no editable visible row at bootstrap')
+      const tx = handle.write.edit('issue', id, { title: PLANTED_TITLE })
+      if (plant) handle.write.log.reject({ txId: tx, error: { message: 'refused', parked: false } })
+      else handle.write.reject({ txId: tx, error: { message: 'refused', parked: false } })
+      return handle
+    },
+  }
+}

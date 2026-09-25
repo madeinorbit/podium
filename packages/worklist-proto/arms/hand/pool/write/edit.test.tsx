@@ -272,6 +272,43 @@ describe('Hc1 hand edits on the model', () => {
     }
   }, 120_000)
 
+  it('a plant that rewinds to the current value instead of the kept prior is caught', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const transport = fakeTransport()
+    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+    try {
+      const handle = mounted.handle as WritableHandPoolHandle
+      const write = handle.write
+      const id = ctx.targets.visibleRootId
+      const baseline = mounted.handle.snapshot()
+      const priorTitle = (handle.pool.inputs.issue(id) as SliceIssue)?.title
+
+      const tx = await act(async () => write.edit('issue', id, { title: 'Planted title' }))
+      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe('Planted title')
+
+      // PLANT: the log entry is removed but the overlay refresh is skipped —
+      // exactly what a reject() that rewinds to the CURRENT display instead
+      // of the kept prior leaves behind (the cp-mutant in NOTES). The stale
+      // pending value stays painted with an empty log.
+      await act(async () => {
+        write.log.reject({ txId: tx, error: { message: 'refused', parked: false } })
+      })
+      expect(write.log.size).toBe(0)
+      // The rewind did not happen: the row still shows the planted value,
+      // and the snapshot diverges from the pre-edit baseline where a true
+      // rewind converges (the rewind test above asserts parity there).
+      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe('Planted title')
+      expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).not.toBe(priorTitle)
+      expect(mounted.handle.snapshot()).not.toEqual(baseline)
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+
   it('editing an unknown issue throws before any state changes', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
