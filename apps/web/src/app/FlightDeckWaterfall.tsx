@@ -4,15 +4,20 @@ import {
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
 import {
+  deckDependencyNote,
+  deckLifecycle,
+  deckSessionFacts,
   deckSessions,
+  deckTaskFacts,
   type FlightDeckMode,
   type FlightDeckRow,
+  type IssueNavigationModel,
   isCoordinatorSession,
   nativeSubagentRows,
-  sessionAsksOnIssue,
   sessionSettled,
   sessionUnreadEmphasized,
 } from '@podium/client-core/viewmodels'
+import { FlightDeckDependencyDetails } from './FlightDeckDependencyDetails'
 import type { IssueId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -201,6 +206,9 @@ interface FlightDeckWaterfallProps {
   focusedIssueId: string | null
   activeSessionId: string | null
   renameTarget: { id: string; seed: string } | null
+  byId: ReadonlyMap<string, IssueNavigationModel>
+  missionMembers: ReadonlySet<string>
+  onOpenDependency: (issue: IssueNavigationModel) => void
   isFolded: (row: FlightDeckRow) => boolean
   onToggle: (row: FlightDeckRow) => void
   onSelectIssue: (row: FlightDeckRow, permanent: boolean) => void
@@ -215,14 +223,13 @@ interface FlightDeckWaterfallProps {
   onRenameDone: () => void
 }
 
-function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
+function issueFuture(row: FlightDeckRow, byId: ReadonlyMap<string, IssueNavigationModel>, members: ReadonlySet<string>): WaterfallFuture | null {
   const issue = row.issue
-  const question = issue.humanQuestion?.trim()
-  if (question) return { label: 'Needs you', detail: question, state: 'attention' }
-  const blocked = issue.blockedByNotes?.map((note) => note.trim()).find(Boolean)
-  if (blocked) return { label: 'Blocked', detail: blocked, state: 'blocked' }
-  const dependency = issue.dependencyNote?.trim()
-  if (dependency) return { label: 'Waiting', detail: dependency, state: 'blocked' }
+  const facts = deckTaskFacts(issue, row.sessions)
+  if (facts.taskRequest) return { label: 'Task request', detail: issue.humanQuestion?.trim() || 'Response requested', state: 'attention' }
+  if (issue.closedReason || issue.stage === 'done') return null
+  const dependency = deckDependencyNote(issue, byId, members)
+  if (dependency.label) return { label: dependency.label, state: 'blocked' }
   if (issue.stage === 'proposed')
     return { label: 'Known next step', detail: 'Unassigned', state: 'future' }
   if (row.sessions.length === 0 && issue.stage !== 'done')
@@ -231,10 +238,9 @@ function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
 }
 
 function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null {
-  const runtime = session.agentState?.need?.summary?.trim()
-  if (runtime) return runtime
-  if (!sessionAsksOnIssue(row.issue, session)) return null
-  return row.issue.humanQuestion?.trim() || 'Waiting for operator'
+  const facts = deckSessionFacts(row.issue, session)
+  if (facts.request) return session.offer?.message?.trim() || session.agentState?.need?.summary?.trim() || 'Response requested'
+  return facts.error
 }
 
 /**
@@ -517,6 +523,7 @@ function WaterfallHoverCard({
   workers,
   coordinator,
   unread,
+  facts,
 }: {
   session: SessionMeta
   state: WaterfallSessionState
@@ -528,6 +535,7 @@ function WaterfallHoverCard({
   workers: number
   coordinator: boolean
   unread: boolean
+  facts: ReturnType<typeof deckSessionFacts>
 }): JSX.Element {
   const name = sessionDisplayName(session)
   const ref = session.displayRef?.trim()
@@ -537,6 +545,8 @@ function WaterfallHoverCard({
       ? `Finished ${formatWaterfallClock(endMs)}`
       : state === 'working'
         ? 'Working now'
+        : state === 'error'
+          ? facts.error ?? 'Agent error'
         : state === 'attention'
           ? 'Needs you'
           : 'Live, standing by'
@@ -549,7 +559,7 @@ function WaterfallHoverCard({
         {ref ? <span className="waterfall-hover-ref">{ref}</span> : null}
       </div>
       <div className="waterfall-hover-line" data-state={state}>
-        {stateLine}
+        {stateLine}{facts.running && state !== 'working' ? ' · Running' : ''}{facts.error && state !== 'error' ? ` · ${facts.error}` : ''}{facts.request && state !== 'attention' ? ' · Needs you' : ''}{facts.lastRecordedRequest ? ' · Last recorded request' : ''}
         {coordinator ? ' · coordinator' : ''}
         {unread ? ' · unread' : ''}
       </div>
@@ -606,12 +616,10 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   const intent = useClickIntent()
   const renameSession = useStoreSelector((store) => store.renameSession)
   const startMs = waterfallSessionStart(session, frame.now)
-  const endMs = Math.max(startMs, waterfallSessionEnd(session, frame.now))
-  const state = (() => {
-    const asking = sessionAsksOnIssue(row.issue, session)
-    return asking ? 'attention' : waterfallSessionState(session)
-  })()
-  const live = state !== 'finished'
+  const endMs = Math.max(startMs, waterfallSessionEnd(session, frame.now, row.issue))
+  const facts = deckSessionFacts(row.issue, session)
+  const state = waterfallSessionState(session, row.issue)
+  const live = session.status !== 'hibernated' && state !== 'finished'
   const geometry = waterfallBarGeometry(startMs, endMs, frame.viewport)
   const segments = useMemo(() => {
     if (!samples || samples.length === 0) return []
@@ -650,10 +658,13 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
     reason,
     unread ? 'unread' : null,
     workers.length > 0
-      ? `${workers.length} active native worker${workers.length === 1 ? '' : 's'}`
+      ? `${workers.length} reported native worker${workers.length === 1 ? '' : 's'}; individual activity unavailable`
       : null,
     formatWaterfallDuration(endMs - startMs),
-    state === 'finished' ? 'finished' : state === 'working' ? 'working now' : 'live',
+    state === 'finished' ? 'turn finished' : state === 'working' ? 'working now' : state === 'error' ? facts.error : state === 'attention' ? 'needs you' : 'activity unavailable',
+    facts.error && state !== 'error' ? facts.error : null,
+    facts.request && state !== 'attention' ? 'needs you' : null,
+    facts.lastRecordedRequest ? 'last recorded request' : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -722,6 +733,8 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                   className="waterfall-session-bar"
                   data-flight-session={session.sessionId}
                   data-state={state}
+                  data-error={facts.error ? 'true' : undefined}
+                  data-request={facts.request ? 'true' : undefined}
                   data-selected={selected || undefined}
                   data-flash={flashed || undefined}
                   data-clipped-start={geometry.clippedStart || undefined}
@@ -787,6 +800,8 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                   <span className="sr-only">unread</span>
                 </>
               ) : null}
+              {facts.error && <span className="waterfall-error-mark" aria-hidden="true" />}
+              {facts.request && <span className="waterfall-request-mark" aria-hidden="true" />}
             </TooltipTrigger>
             <WaterfallHoverPopup>
               <WaterfallHoverCard
@@ -800,6 +815,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                 workers={workers.length}
                 coordinator={coordinator}
                 unread={unread}
+                facts={facts}
               />
             </WaterfallHoverPopup>
           </Tooltip>
@@ -950,6 +966,9 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onRenameIssue,
   onRenameDone,
   onLocalPick,
+  byId,
+  missionMembers,
+  onOpenDependency,
 }: {
   item: WaterfallIssueRow
   frame: WaterfallFrame
@@ -968,10 +987,13 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onRenameIssue: (title: string) => void
   onRenameDone: () => void
   onLocalPick: (sessionId: string) => void
+  byId: ReadonlyMap<string, IssueNavigationModel>
+  missionMembers: ReadonlySet<string>
+  onOpenDependency: (issue: IssueNavigationModel) => void
 }): JSX.Element {
   const intent = useClickIntent()
   const [historyOpen, setHistoryOpen] = useState(false)
-  const future = issueFuture(item.row)
+  const future = issueFuture(item.row, byId, missionMembers)
   const foldable = !item.root && (item.row.descendantIds.length > 0 || item.row.sessions.length > 0)
   const indent = item.root ? 0 : Math.max(0, item.row.depth - 1)
   const issueRef = issueDisplayRef(item.row.issue)
@@ -992,7 +1014,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
     () =>
       item.sessions.filter(
         (session) =>
-          waterfallSessionState(session) === 'finished' &&
+          waterfallSessionState(session, item.row.issue) === 'finished' &&
           !isCoordinatorSession(item.row.issue, session.sessionId) &&
           session.sessionId !== activeSessionId,
       ),
@@ -1007,9 +1029,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
     historyCollapsed && !historyOpen
       ? item.sessions.filter((session) => !foldedIds.has(session.sessionId))
       : item.sessions
-  const attention =
-    future?.state === 'attention' ||
-    item.sessions.some((session) => sessionAsksOnIssue(item.row.issue, session))
+  const attention = future?.state === 'attention' || item.sessions.some((session) => deckSessionFacts(item.row.issue, session).request)
   return (
     <div
       className="waterfall-issue-row"
@@ -1129,6 +1149,12 @@ const WaterfallIssue = memo(function WaterfallIssue({
           </span>
         ) : null}
       </div>
+      <div className="waterfall-dependency-row">
+        <span className="shell-type-micro text-text-faint">{deckLifecycle(item.row.issue)}</span>
+        {future?.label === 'Task request' && item.sessions.length > 0 &&
+          <span className="shell-type-micro text-attention">Task request · {future.detail}</span>}
+        <FlightDeckDependencyDetails issue={item.row.issue} byId={byId} members={missionMembers} onOpen={onOpenDependency} />
+      </div>
     </div>
   )
 })
@@ -1150,6 +1176,9 @@ export function FlightDeckWaterfall({
   onStatusPick,
   onRenameIssue,
   onRenameDone,
+  byId,
+  missionMembers,
+  onOpenDependency,
 }: FlightDeckWaterfallProps): JSX.Element {
   const now = useStoreSelector((store) => store.coarseNow)
   const projected = useMemo<WaterfallIssueRow[]>(
@@ -1173,8 +1202,8 @@ export function FlightDeckWaterfall({
   const activity = useWaterfallActivity(sessions)
   const timelineStart = useMemo(() => waterfallTimelineStart(sessions), [sessions])
   const hasFuture = useMemo(
-    () => projected.some((item) => item.sessions.length === 0 && issueFuture(item.row) !== null),
-    [projected],
+    () => projected.some((item) => item.sessions.length === 0 && issueFuture(item.row, byId, missionMembers) !== null),
+    [projected, byId, missionMembers],
   )
 
   const [manual, setManual] = useState<WaterfallViewport | null>(null)
@@ -1191,7 +1220,7 @@ export function FlightDeckWaterfall({
       projected.map((item) => {
         const collapsedFinished = item.sessions.filter(
           (session) =>
-            waterfallSessionState(session) === 'finished' &&
+            waterfallSessionState(session, item.row.issue) === 'finished' &&
             !isCoordinatorSession(item.row.issue, session.sessionId) &&
             session.sessionId !== activeSessionId,
         ).length
@@ -1682,6 +1711,9 @@ export function FlightDeckWaterfall({
               }
               onRenameDone={onRenameDone}
               onLocalPick={onLocalPick}
+              byId={byId}
+              missionMembers={missionMembers}
+              onOpenDependency={onOpenDependency}
             />
           ))}
         </div>

@@ -1,6 +1,8 @@
 import {
   deriveHandoffNext,
   deriveHandoffNow,
+  handoffCurrentFacts,
+  missionDeckCensus,
   missionSessions,
   reviewReturnCount,
   summarizeHandoffSessions,
@@ -177,7 +179,7 @@ function HandoffEntry({
   session?: SessionMeta
   state: string
   attention?: boolean
-  tone?: 'working' | 'review' | 'attention' | 'done'
+  tone?: 'working' | 'review' | 'attention' | 'done' | 'error'
   future?: boolean
   text: string
   onOpen: () => void
@@ -238,6 +240,7 @@ export function FlightDeckHandoff({
   rootIssue,
   issues,
   sessions,
+  allWorktreePaths,
   visitReadAt,
   onOpenTranscript,
   onOpenSession,
@@ -246,6 +249,7 @@ export function FlightDeckHandoff({
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
   sessions: readonly SessionMeta[]
+  allWorktreePaths: readonly string[]
   visitReadAt: string | null
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
   onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
@@ -260,6 +264,8 @@ export function FlightDeckHandoff({
     () => deriveHandoffNow(issues, sessions, rootIssue.id).filter((entry) => issues.find((issue) => issue.id === entry.issueId)?.stage !== 'proposed'),
     [issues, sessions, rootIssue.id],
   )
+  const census = useMemo(() => missionDeckCensus(issues, sessions, rootIssue.id, allWorktreePaths), [issues, sessions, rootIssue.id, allWorktreePaths])
+  const memberIds = useMemo(() => new Set(census.issues.map((issue) => issue.id)), [census])
   const next = useMemo(
     () => deriveHandoffNext(issues, sessions, rootIssue.id).filter((entry) => issues.find((issue) => issue.id === entry.issueId)?.stage !== 'proposed'),
     [issues, sessions, rootIssue.id],
@@ -396,20 +402,29 @@ export function FlightDeckHandoff({
                   ? sessionById.get(entry.sessionId)
                   : undefined
               const returnCount = returns.get(entry.issueId) ?? 0
+              const facts = handoffCurrentFacts(issue, census.crew.filter((member) => member.issue.id === issue.id).map((member) => member.session), issueById, memberIds)
               const text =
                 returnCount > 1
                   ? `${entry.text} Returned from review ${returnCount} times.`
                   : entry.text
+              const concurrent = [
+                facts.running.length > 0 ? `${facts.running.length} running` : null,
+                facts.errors.length > 0 ? `${facts.errors.length} agent error${facts.errors.length === 1 ? '' : 's'}` : null,
+                facts.requests.length > 0 ? `${facts.requests.length} agent request${facts.requests.length === 1 ? '' : 's'}` : null,
+                facts.taskRequest ? 'Task request' : null,
+              ].filter(Boolean).join(' · ')
               const state =
                 entry.kind === 'working'
                   ? 'Computing'
-                  : entry.kind === 'needs-you'
-                    ? 'Needs you'
-                    : entry.kind === 'stalled'
-                      ? 'Stalled'
-                      : entry.kind === 'review'
-                        ? 'Review'
-                        : 'Blocked'
+                  : entry.kind === 'error'
+                    ? 'Agent error'
+                    : entry.kind === 'needs-you'
+                      ? 'Needs you'
+                      : entry.kind === 'stalled'
+                        ? 'Stalled'
+                        : entry.kind === 'review'
+                          ? 'Review'
+                          : 'Blocked'
               return (
                 <HandoffEntry
                   key={entry.issueId}
@@ -420,13 +435,15 @@ export function FlightDeckHandoff({
                   tone={
                     entry.kind === 'working'
                       ? 'working'
-                      : entry.kind === 'review'
-                        ? 'review'
-                        : entry.kind === 'needs-you'
-                          ? 'attention'
-                          : undefined
+                      : entry.kind === 'error'
+                        ? 'error'
+                        : entry.kind === 'review'
+                          ? 'review'
+                          : entry.kind === 'needs-you'
+                            ? 'attention'
+                            : undefined
                   }
-                  text={text}
+                  text={concurrent ? `${text} ${concurrent}.` : text}
                   onOpen={() =>
                     session
                       ? onOpenSession(entry.issueId, session.sessionId)

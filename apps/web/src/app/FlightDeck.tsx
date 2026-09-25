@@ -12,9 +12,11 @@ import {
   type DeckIssueState,
   type DeckState,
   deckIssueState,
+  deckLifecycle,
   deckTaskFacts,
   deckDependencies,
-  deckIssueRequestsHuman,
+  deckFoldHiddenFacts,
+  deckSessionFacts,
   deckSessionRequestsHuman,
   deckFoldKey,
   deckSessions,
@@ -44,12 +46,10 @@ import {
   type MissionDeparture,
   machineViewsFromWire,
   missionDepartures,
+  missionDeckCensus,
   missionIssueIds,
   missionProgress,
-  missionProposals,
   migrateResolvedDeckFolds,
-  missionRootFor,
-  motionPhase,
   nativeSubagentRows,
   type PresenceNote,
   presenceNote,
@@ -58,9 +58,7 @@ import {
   reuseFlightDeckRows,
   type SessionRole,
   selectedMissionRoot,
-  sessionAsksOnIssue,
-  sessionErrored,
-  sessionNeedsHuman,
+  sessionErrorLabel,
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
@@ -70,7 +68,7 @@ import {
   treeGuides,
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, asSessionId, spawnedByParentSessionId } from '@podium/model'
+import { asIssueId, asSessionId, idleVerdictFinishedTurn, spawnedByParentSessionId } from '@podium/model'
 import type { IssueId, MachineId, SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -85,7 +83,6 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Ellipsis,
-  Hourglass,
   Maximize2,
   Minimize2,
   Search,
@@ -137,6 +134,7 @@ import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/
 import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
+import { FlightDeckDependencyDetails } from './FlightDeckDependencyDetails'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
@@ -669,19 +667,24 @@ function StateLabel({ value, label }: { value: DeckIssueState; label?: string })
  *  Deliberately a coarse word rather than a live clock — the icon exists so the
  *  operator can decide whether to unfold, and a tooltip that ticks would be one
  *  more thing animating in a column whose only motion is the working spinner. */
-function crewLine(session: SessionMeta, now: number): string {
+function sessionTurnFinished(session: SessionMeta): boolean {
+  return session.agentState?.phase === 'ended' ||
+    (session.agentState?.phase === 'idle' && idleVerdictFinishedTurn(session.agentState.idle?.kind))
+}
+
+function crewLine(session: SessionMeta, now: number, issue: IssueNavigationModel): string {
   const retired = session.archived || session.status === 'exited'
-  const phase = motionPhase(session)
-  const state = retired
-    ? `retired ${relativeTime(session.lastActiveAt, now)}`
-    : sessionNeedsHuman(session)
-      ? 'needs you'
-      : phase === 'working'
-        ? 'working'
-        : phase === 'done'
-          ? 'done'
-          : 'standing by'
-  return [session.displayRef?.trim(), sessionDisplayName(session), state]
+  const facts = deckSessionFacts(issue, session)
+  const state = retired ? [`retired ${relativeTime(session.lastActiveAt, now)}`] : [
+    facts.running ? 'working' : null,
+    facts.error,
+    facts.request ? 'needs you' : null,
+    facts.lastRecordedRequest ? 'last recorded request' : null,
+    !facts.running && !facts.error && !facts.request && !facts.lastRecordedRequest
+      ? session.agentState ? sessionTurnFinished(session) ? 'turn finished' : 'idle' : 'activity unavailable'
+      : null,
+  ]
+  return [session.displayRef?.trim(), sessionDisplayName(session), ...state]
     .filter(Boolean)
     .join(' · ')
 }
@@ -699,7 +702,7 @@ const CREW_SHOWN = 4
  * is hidden by default — and everything each icon stands for rides on its
  * tooltip, which is also where an icon dropped by a narrow column survives.
  */
-function CrewCensus({ crew }: { crew: readonly SessionMeta[] }): JSX.Element {
+function CrewCensus({ crew, issue, byId }: { crew: readonly SessionMeta[]; issue: IssueNavigationModel; byId: ReadonlyMap<string, IssueNavigationModel> }): JSX.Element {
   const now = useStoreSelector((store) => store.coarseNow)
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
@@ -711,7 +714,7 @@ function CrewCensus({ crew }: { crew: readonly SessionMeta[] }): JSX.Element {
           // The FIRST icon always survives: "there is somebody in here" is the
           // fact, and the rest are detail the tooltip keeps.
           className={index === 0 ? undefined : 'deck-drop-crew'}
-          title={crewLine(session, now)}
+          title={crewLine(session, now, byId.get(session.issueId ?? '') ?? issue)}
         >
           <KindIcon kind={session.agentKind} compact dimmed={sessionSettled(session)} />
         </span>
@@ -899,6 +902,7 @@ function NativeRows({
   onOpen: () => void
 }): JSX.Element | null {
   const rows = nativeSubagentRows(session)
+  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
   if (rows.length === 0) return null
   return (
     <div className="relative pb-0.5" data-testid="flight-native-agents">
@@ -912,6 +916,7 @@ function NativeRows({
           last={index === rows.length - 1}
           rail={HAIRLINE_RAIL}
         >
+          <div>
           <button
             data-pressable
             type="button"
@@ -952,6 +957,8 @@ function NativeRows({
                 the same column every other row in the spine parks in. */}
             <span className={cn('flex flex-none justify-end', STATE_COL)}>Activity unavailable</span>
           </button>
+          {!agent.anonymous && <button data-pressable type="button" className="shell-type-micro ml-5 min-h-6 break-all text-left font-mono text-text-dim underline" aria-expanded={expandedWorkerId === agent.id} aria-label={`${expandedWorkerId === agent.id ? 'Hide' : 'Show'} full native worker ID ${agent.id}`} onClick={() => setExpandedWorkerId((current) => current === agent.id ? null : agent.id)}>{expandedWorkerId === agent.id ? agent.id : 'Full ID'}</button>}
+          </div>
         </Hung>
       ))}
     </div>
@@ -1098,11 +1105,17 @@ function SessionRow({
   const [editing, setEditing] = useState(false)
   const intent = useClickIntent()
   const retired = session.archived || session.status === 'exited'
-  const starting = session.status === 'starting' || session.status === 'reconnecting'
-  const needs = !retired && (!issue || !issue.closedReason && issue.stage !== 'done') && deckSessionRequestsHuman(session)
-  const errored = !retired && sessionErrored(session)
-  const running = !retired && isSessionWorking(session)
-  const phase = motionPhase(session)
+  const facts = issue ? deckSessionFacts(issue, session) : {
+    running: !retired && isSessionWorking(session),
+    error: !retired ? sessionErrorLabel(session) : null,
+    request: !retired && deckSessionRequestsHuman(session),
+    lastRecordedRequest: false,
+    parked: session.status === 'hibernated',
+  }
+  const needs = facts.request
+  const errored = facts.error !== null
+  const running = facts.running
+  const finishedTurn = sessionTurnFinished(session)
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const now = useStoreSelector((store) => store.coarseNow)
   const stamp = relativeTime(session.lastActiveAt, now)
@@ -1121,7 +1134,8 @@ function SessionRow({
     session.displayRef,
     label,
     needs ? `Needs you${waited ? ` · ${waited}` : ''}` : null,
-    errored ? 'Agent error' : null,
+    facts.error,
+    facts.lastRecordedRequest ? 'Last recorded request' : null,
     retired ? `Retired · ${stamp}` : null,
   ]
     .filter(Boolean)
@@ -1239,7 +1253,7 @@ function SessionRow({
             pointed && !active && 'bg-muted text-foreground',
             // Settled agents dim one tier rather than leaving. Removing them is
             // the view bar's job, not the row's.
-            (retired || phase === 'done') && 'opacity-60',
+            (retired || finishedTurn) && 'opacity-60',
           )}
           // One click previews, two promote (see `useClickIntent`). Enter is the
           // keyboard's double click and must not go through the click path, so
@@ -1314,7 +1328,7 @@ function SessionRow({
             )}
           >
             {errored ? (
-              <span className="shell-type-micro font-semibold text-destructive">Agent error{session.status === 'hibernated' ? ' · Parked' : ''}{running ? ' · Running' : ''}{needs ? ' · Needs you' : ''}</span>
+              <span className="shell-type-micro font-semibold text-destructive">{facts.error}{facts.parked ? ' · Parked' : ''}{running ? ' · Running' : ''}{needs ? ' · Needs you' : ''}</span>
             ) : needs ? (
               <>
                 <span
@@ -1342,23 +1356,14 @@ function SessionRow({
               </span>
             ) : session.status === 'hibernated' ? (
               <span className="shell-type-micro font-mono text-text-dim">Parked</span>
-            ) : starting ? (
+            ) : session.status === 'reconnecting' ? (
+              <span className="shell-type-micro font-mono text-text-dim">Reconnecting</span>
+            ) : session.status === 'starting' ? (
               <span className="shell-type-micro font-mono text-text-dim">Starting</span>
             ) : running && Number.isFinite(since) ? (
               <PhaseTimer phase="working" sinceMs={since} baseMs={total ?? 0} />
             ) : (
-              <>
-                {phase === 'done' ? (
-                  <Check size={11} aria-hidden className="flex-none text-success" />
-                ) : (
-                  <Hourglass size={10} aria-hidden className="flex-none text-text-faint" />
-                )}
-                {phase === 'done' && total !== undefined && Number.isFinite(since) ? (
-                  <PhaseTimer phase="done" sinceMs={since} totalMs={total} />
-                ) : (
-                  <span className="shell-type-micro font-mono text-text-dim">{stamp}</span>
-                )}
-              </>
+              <span className="shell-type-micro text-text-dim">{finishedTurn ? 'Turn finished' : session.agentState ? 'Idle' : 'Activity unavailable'}</span>
             )}
           </span>
         </button>
@@ -1387,6 +1392,7 @@ function SessionRow({
           </Button>
         </div>
       )}
+      {facts.lastRecordedRequest && <span className="shell-type-micro ml-5 block text-text-dim">Last recorded request · {session.offer?.message?.trim() || session.agentState?.need?.summary?.trim() || 'Response was requested'}</span>}
       {spawnParent && (spawnParent.onOpen ? <button data-pressable type="button" className="shell-type-micro ml-5 min-h-6 text-left text-text-dim underline" onClick={spawnParent.onOpen}>Spawned by {spawnParent.label}</button> : <span className="shell-type-micro ml-5 block text-text-dim">Spawned by {spawnParent.label}</span>)}
       {nativeSubagentRows(session).length > 0 && onToggleNative && <button data-pressable type="button" className="shell-type-micro ml-5 min-h-6 text-left text-text-dim underline" aria-expanded={nativeOpen} onClick={onToggleNative}>{nativeOpen ? 'Hide native workers' : `Show ${nativeSubagentRows(session).reduce((count, row) => count + row.count, 0)} native workers`}</button>}
       {nativeOpen && <NativeRows session={session} onOpen={onOpenNative} />}
@@ -1534,6 +1540,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
 const TaskRow = memo(
   function TaskRow({
     row,
+    unfilteredRows,
     displayTitle,
     renameSeed,
     byId,
@@ -1567,6 +1574,7 @@ const TaskRow = memo(
     onRenameDone,
   }: {
     row: FlightDeckRow
+    unfilteredRows: readonly FlightDeckRow[]
     /** The shared human-facing issue name. A draft's stored title is only a
      *  placeholder until somebody names it. */
     displayTitle: string
@@ -1618,7 +1626,6 @@ const TaskRow = memo(
     onRenameDone: () => void
   }): JSX.Element {
     const intent = useClickIntent()
-    const payload = hasPayload(row)
     const bandLeft = SPINE_PAD + Math.min(row.depth, 3) * DEPTH_STEP
     const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
     const sessions = deckSessions(row, mode)
@@ -1656,7 +1663,8 @@ const TaskRow = memo(
     const proposed = row.issue.stage === 'proposed'
     const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
     const mid = proposed ? PROPOSED_MID : BAND_MID
-    const note = issueNote(row.issue, byId, row.sessions)
+    const rawNote = issueNote(row.issue, byId, row.sessions)
+    const note = rawNote?.kind === 'blocked' || rawNote?.kind === 'waiting' ? null : rawNote
     const dependencies = deckDependencies(row.issue, byId, missionMembers)
     const openDependencies = dependencies.filter((dep) => dep.state === 'open')
     const unavailableDependencies = dependencies.filter((dep) => dep.state === 'unavailable')
@@ -1667,8 +1675,10 @@ const TaskRow = memo(
     // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload
     // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
     // two inches to the left of it.
-    const folded = collapsed && payload
-    const unread = deckTaskUnread(row, collapsed, byId)
+    const fullRow = unfilteredRows.find((candidate) => candidate.issue.id === row.issue.id) ?? row
+    const folded = branchClosed && fullRow.descendantIds.length > 0
+    const hidden = deckFoldHiddenFacts(fullRow, unfilteredRows, { branchClosed, rosterClosed: collapsed }).total
+    const unread = deckTaskUnread(fullRow, collapsed || branchClosed, byId)
     return (
       <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
         <BranchGuides carries={carries} rails={rails} mid={mid} />
@@ -1751,7 +1761,7 @@ const TaskRow = memo(
           // imported, never forked.
           onContextMenu={onMenu}
         >
-          {row.descendantIds.length > 0 ? (
+          {fullRow.descendantIds.length > 0 ? (
             <button
               data-pressable
               type="button"
@@ -1846,10 +1856,11 @@ const TaskRow = memo(
                 <span className="deck-task-meta flex flex-none items-center gap-1.5">
                   {note && <IssueNoteChip note={note} />}
                   {seat && <SeatChip note={seat} />}
-                  {folded && <CollapsedPayload summary={row.collapsedSummary} />}
-                  {folded && row.collapsedSummary.crew.length > 0 && (
-                    <CrewCensus crew={row.collapsedSummary.crew} />
+                  {folded && <CollapsedPayload summary={fullRow.collapsedSummary} />}
+                  {folded && fullRow.collapsedSummary.crew.length > 0 && (
+                    <CrewCensus crew={fullRow.collapsedSummary.crew} issue={row.issue} byId={byId} />
                   )}
+                  {collapsed && !folded && row.sessions.length > 0 && <span className="shell-type-micro text-text-dim">{row.sessions.length} hidden agents</span>}
                   <StateLabel value={state} />
                 </span>
               )}
@@ -1880,7 +1891,7 @@ const TaskRow = memo(
         </div>
         {!context && (
           <div className="shell-type-micro flex flex-wrap gap-x-2 gap-y-0.5 break-words pb-1 text-text-dim" style={{ paddingLeft: Math.min(row.depth, 3) * DEPTH_STEP + GUTTER }}>
-            <span>{row.issue.closedReason && row.issue.closedReason !== 'done' ? row.issue.closedReason : STAGE_LABELS[row.issue.stage] ?? row.issue.stage}</span>
+            <span>{deckLifecycle(row.issue) === 'done' ? 'Done' : STAGE_LABELS[deckLifecycle(row.issue) as keyof typeof STAGE_LABELS] ?? deckLifecycle(row.issue)}</span>
             {facts.running > 0 && <span className="text-text-strong">{issueClosed(row.issue) ? 'Agent still running' : `${facts.running} running`}</span>}
             {facts.errors.length > 0 && <span className="text-destructive">{facts.errors.length} agent error{facts.errors.length === 1 ? '' : 's'}{facts.parked > 0 ? ' · parked agent' : ''}</span>}
             {(facts.requests.length > 0 || facts.taskRequest) && <span className="text-attention">Needs you</span>}
@@ -1888,24 +1899,15 @@ const TaskRow = memo(
             {facts.assigned === 0 && <span>{row.sessions.length > 0 ? 'No active agent' : 'No agent assigned'}</span>}
             {facts.assigned === 0 && row.sessions.length === 0 && (row.issue.stage === 'backlog' || row.issue.stage === 'planning') && <span>Not started</span>}
             {facts.assigned === 0 && row.issue.ready && !issueClosed(row.issue) && openDependencies.length === 0 && unavailableDependencies.length === 0 && <span>Ready to start</span>}
-            {folded && row.workingAgentCount > facts.running && <span className="text-text-strong">{row.workingAgentCount - facts.running} hidden running</span>}
-            {folded && (row.collapsedSummary.errors ?? 0) > facts.errors.length && <span className="text-destructive">{(row.collapsedSummary.errors ?? 0) - facts.errors.length} hidden agent errors</span>}
-            {folded && (row.collapsedSummary.requests ?? 0) > facts.requests.length + Number(facts.taskRequest) && <span className="text-attention">{(row.collapsedSummary.requests ?? 0) - facts.requests.length - Number(facts.taskRequest)} hidden requests</span>}
+            {hidden.running > 0 && <span className="text-text-strong">{hidden.running} hidden running</span>}
+            {hidden.errors > 0 && <span className="text-destructive">{hidden.errors} hidden agent errors</span>}
+            {hidden.requests > 0 && <span className="text-attention">{hidden.requests} hidden requests</span>}
             {proposedParent?.stage === 'proposed' && !issueClosed(proposedParent) && <span>Parent {issueDisplayRef(proposedParent)} · proposed · see Proposals</span>}
             {row.issue.startedBySession && !row.issue.parentId && <span>Started by {nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}</span>}
             {row.depth > 3 && row.issue.parentId && <span>Parent {proposedParent ? issueDisplayRef(proposedParent) : row.issue.parentId}</span>}
           </div>
         )}
-        {dependencies.length > 0 && (
-          <div className="shell-type-micro flex flex-wrap gap-x-1 gap-y-1 break-words pb-1 text-text-dim" style={{ paddingLeft: Math.min(row.depth, 3) * DEPTH_STEP + GUTTER }}>
-            <span>{issueClosed(row.issue) ? openDependencies.length > 0 ? 'Recorded dependency still open' : unavailableDependencies.length > 0 ? 'Recorded dependency unavailable' : 'Recorded dependency' : openDependencies.length > 0 ? 'Waiting on' : unavailableDependencies.length > 0 ? 'Dependency status unavailable' : 'Recorded dependencies'}:</span>
-            {dependencies.filter((dep) => dep.state !== 'closed').map((dep) => dep.target ? (
-              <button key={dep.id} data-pressable type="button" className="min-h-6 break-words text-left underline decoration-hairline-soft hover:text-text-strong" onClick={(event) => { event.stopPropagation(); onOpenDependency(dep.target as IssueNavigationModel) }}>{issueDisplayRef(dep.target)} · {dep.target.title} · {dep.target.stage}{dep.outsideMission ? ' · Outside this epic' : ''}</button>
-            ) : <span key={dep.id}>Dependency unavailable · {dep.id}</span>)}
-            {row.issue.dependencyNote && <span>Dependency note · {row.issue.dependencyNote}</span>}
-            {row.issue.blockedByNotes?.map((note, index) => <span key={index}>Dependency note · {note}</span>)}
-          </div>
-        )}
+        <FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={onOpenDependency} className="pb-1" />
         {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
           needs no measurement and no mount, so nothing choreographs on first
           paint: a transition only runs when a value actually changes. */}
@@ -1939,6 +1941,7 @@ const TaskRow = memo(
   },
   (previous, next) =>
     previous.row === next.row &&
+    previous.unfilteredRows === next.unfilteredRows &&
     previous.displayTitle === next.displayTitle &&
     previous.renameSeed === next.renameSeed &&
     previous.byId === next.byId &&
@@ -1977,7 +1980,7 @@ const TaskRow = memo(
  * the space of a row that has.
  */
 function ProposalRow({
-  issue, author, origins, withinEpic, parent, sessions, selected, onSelect, onMenu, onStatusPick,
+  issue, author, origins, withinEpic, parent, sessions, selected, byId, members, onOpenDependency, onSelect, onMenu, onStatusPick,
 }: {
   issue: IssueNavigationModel
   author: string | null
@@ -1986,13 +1989,17 @@ function ProposalRow({
   parent: IssueNavigationModel | null
   sessions: readonly SessionMeta[]
   selected: boolean
+  byId: ReadonlyMap<string, IssueNavigationModel>
+  members: ReadonlySet<string>
+  onOpenDependency: (issue: IssueNavigationModel) => void
   onSelect: () => void
   onMenu: (event: ReactMouseEvent) => void
   onStatusPick: (value: string) => void
 }): JSX.Element {
   const facts = deckTaskFacts(issue, sessions)
   return (
-    <div data-flight-issue={issue.id} className={cn('deck-strip flex min-w-0 items-start gap-2 rounded-row border px-2 py-1', selected ? 'border-fuchsia-500/40 bg-fuchsia-500/8' : 'border-fuchsia-500/15 bg-fuchsia-500/5')} onContextMenu={onMenu}>
+    <div data-flight-issue={issue.id} className={cn('deck-strip flex min-w-0 flex-col items-stretch gap-1 rounded-row border px-2 py-1', selected ? 'border-fuchsia-500/40 bg-fuchsia-500/8' : 'border-fuchsia-500/15 bg-fuchsia-500/5')} onContextMenu={onMenu}>
+      <div className="flex min-w-0 items-start gap-2">
       <IssueStatusPicker issue={issue} onPick={onStatusPick} />
       <button data-pressable type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="shell-type-secondary block break-words text-text-strong"><span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">{issueDisplayRef(issue)}</span>{issue.title}</span>
@@ -2000,6 +2007,8 @@ function ProposalRow({
         {origins.length > 0 && <span className="shell-type-micro block whitespace-normal text-text-dim">Discovered from {origins.join(', ')}</span>}
         {(facts.running > 0 || facts.errors.length > 0 || facts.requests.length > 0 || facts.taskRequest) && <span className="shell-type-micro block whitespace-normal text-text-dim">{facts.running > 0 ? `${facts.running} running · ` : ''}{facts.errors.length > 0 ? `${facts.errors.length} agent error · ` : ''}{facts.requests.length > 0 || facts.taskRequest ? 'Needs you' : ''}</span>}
       </button>
+      </div>
+      <FlightDeckDependencyDetails issue={issue} byId={byId} members={members} onOpen={onOpenDependency} />
     </div>
   )
 }
@@ -2955,7 +2964,7 @@ export function FlightDeck({
     workspaceKey,
     updateWorkspaceDeck,
     setSelectedWorktree,
-    setSelectedIssueId,
+    enterMission,
     openSessionTab,
     openSessionAtTranscript,
     issueVisitBaseline,
@@ -2979,9 +2988,7 @@ export function FlightDeck({
       workspaceKey: store.workspaceKey,
       updateWorkspaceDeck: store.updateWorkspaceDeck,
       setSelectedWorktree: store.setSelectedWorktree,
-      // POD-679's departure ticks RE-ROOT the deck: a departed spin-off is not a
-      // member of this mission any more, so focusing it would resolve to nothing.
-      setSelectedIssueId: store.setSelectedIssueId,
+      enterMission: store.enterMission,
       // The deck OPENS TABS now (POD-710 §2) rather than assigning pane A: a
       // preview open and a permanent open are different things, and only the
       // workspace layout can tell them apart. `paneA`/`paneB` below stay as the
@@ -3059,7 +3066,6 @@ export function FlightDeck({
   )
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const headerIntent = useClickIntent()
   const deckScrollerRef = useRef<HTMLElement | null>(null)
   type DeckScrollKey = 'spine' | 'waterfall' | 'handoff'
   const scrollKey: DeckScrollKey =
@@ -3095,6 +3101,18 @@ export function FlightDeck({
   const computedRows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
     [issues, sessions, root, mode, allWorktreePaths],
+  )
+  const allRows = useMemo(
+    () => (root ? buildFlightDeckRows(issues, sessions, root.id, 'full', allWorktreePaths) : []),
+    [issues, sessions, root, allWorktreePaths],
+  )
+  const allRowsById = useMemo(() => new Map(allRows.map((row) => [row.issue.id, row])), [allRows])
+  // A seen descendant proves branch topology even during partial hydration.
+  // An empty child list is not proof of a leaf, so legacy leaf entries stay
+  // readable until a full-topology signal is available.
+  const resolvedFoldIds = useMemo(
+    () => new Set(allRows.filter((row) => row.descendantIds.length > 0).map((row) => row.issue.id)),
+    [allRows],
   )
   const stableRowsRef = useRef<FlightDeckRow[]>([])
   const rows = useMemo(() => {
@@ -3196,7 +3214,8 @@ export function FlightDeck({
   )
   const continuationState =
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
-  const rootNote = root ? issueNote(root, byId, sessions) : null
+  const rawRootNote = root ? issueNote(root, byId, sessions) : null
+  const rootNote = rawRootNote?.kind === 'blocked' || rawRootNote?.kind === 'waiting' ? null : rawRootNote
   /**
    * The mission header's roster — content, and therefore the view bar's (POD-1356).
    *
@@ -3238,25 +3257,17 @@ export function FlightDeck({
     return rootRow.sessions.filter((session) => session.sessionId !== rootCoordinator.sessionId && descendants.has(session.sessionId))
   }, [rootCoordinator, rootRow])
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode).filter((session) => session.sessionId !== root?.coordinatorSessionId && !coordinatorHelpers.some((helper) => helper.sessionId === session.sessionId)) : []), [rootRow, mode, root?.coordinatorSessionId, coordinatorHelpers])
+  const rootFacts = root ? deckTaskFacts(root, rootRow?.sessions ?? []) : null
+  const coordinatorFacts = root && rootCoordinator ? deckSessionFacts(root, rootCoordinator) : null
   const [coordinatorCrewOpen, setCoordinatorCrewOpen] = useState(false)
-  const proposals = useMemo(
-    () => root ? missionProposals(issues, sessions, root.id) : [],
-    [issues, sessions, root],
+  const deckSignals = useMemo(
+    () => root ? missionDeckCensus(issues, sessions, root.id, allWorktreePaths) : {
+      issues: [], proposals: [], crew: [], running: [], errors: [], requests: [], taskRequests: [],
+    },
+    [issues, sessions, root, allWorktreePaths],
   )
+  const proposals = deckSignals.proposals
   const proposalIds = useMemo(() => new Set(proposals.map((proposal) => proposal.issue.id)), [proposals])
-  const deckSignals = useMemo(() => {
-    const assigned = new Map<string, { session: SessionMeta; issue: IssueNavigationModel }>()
-    const taskRequests: string[] = []
-    for (const issue of [...rows.map((row) => row.issue), ...proposals.map((proposal) => proposal.issue)]) {
-      const own = sessions.filter((session) => session.issueId === issue.id && !session.archived && session.status !== 'exited' && session.agentKind !== 'shell' && session.headless !== true)
-      for (const session of own) assigned.set(session.sessionId, { session, issue })
-      if (deckTaskFacts(issue, own).taskRequest) taskRequests.push(issue.id)
-    }
-    const crew = [...assigned.values()]
-    const errors = crew.filter(({ session }) => sessionErrored(session))
-    const requests = crew.filter(({ session, issue }) => deckIssueRequestsHuman(issue, [session]) && deckSessionRequestsHuman(session))
-    return { assigned: crew.length, running: crew.filter(({ session }) => isSessionWorking(session)).length, errors, requests, taskRequests }
-  }, [rows, proposals, sessions])
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
   // a spin-off its agent hopped to (see `staffedSpinOff`).
   const rootSeat = rootRow
@@ -3268,7 +3279,11 @@ export function FlightDeck({
    * filtered the column down to working agents is the POD-1233 bug in a new
    * costume; a parked agent still holds the task and this must keep saying so.
    */
-  const rootEmptyNote = root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null
+  const recordedRootEmptyNote = root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null
+  const rootEmptyNote: PresenceNote | null = root && issueClosed(root) &&
+    (recordedRootEmptyNote?.kind === 'blocked' || recordedRootEmptyNote?.kind === 'waiting')
+    ? { kind: 'done', text: issueAbandoned(root) ? 'Cancelled · session retired' : 'Completed · session retired', attention: false }
+    : recordedRootEmptyNote
   /** `done` is the note's word for "closed, and nobody is on it" — the one
    *  empty-spine state that still has a decision left in it. */
   const rootRetired = rootEmptyNote?.kind === 'done'
@@ -3278,8 +3293,9 @@ export function FlightDeck({
     const tree = rows.filter((row) => !proposalIds.has(row.issue.id))
     const hiddenByAncestor = new Set<string>()
     for (const row of tree) {
-      if (row.depth === 0 || !flightDeckBranchFolded(row, folds)) continue
-      for (const id of row.descendantIds) hiddenByAncestor.add(id)
+      const fullRow = allRowsById.get(row.issue.id) ?? row
+      if (row.depth === 0 || !flightDeckBranchFolded(fullRow, folds)) continue
+      for (const id of fullRow.descendantIds) hiddenByAncestor.add(id)
     }
     const unfolded = tree.filter((row) => row.depth > 0 && !hiddenByAncestor.has(row.issue.id))
     const needle = view === 'handoff' ? '' : query.trim().toLowerCase()
@@ -3293,7 +3309,7 @@ export function FlightDeck({
         for (const ancestor of trail) if (ancestor) keep.add(ancestor.issue.id)
     }
     return unfolded.filter((row) => keep.has(row.issue.id))
-  }, [rows, proposalIds, folds, query, view])
+  }, [rows, proposalIds, folds, query, view, allRowsById])
   /** The proposals themselves. The tree's folds do not govern them — they are
    *  not in the tree — so only the search narrows them. */
   const proposedRows = useMemo(() => {
@@ -3428,11 +3444,11 @@ export function FlightDeck({
   // The root is never in the fold set — see `rootRow`. Neither are proposals:
   // they left the tree, and "fold every branch" is about the tree.
   const foldable = useMemo(
-    () => rows.filter((row) => row.depth > 0 && !proposalIds.has(row.issue.id) && hasPayload(row)),
-    [rows, proposalIds],
+    () => rows.filter((row) => row.depth > 0 && !proposalIds.has(row.issue.id) && hasPayload(allRowsById.get(row.issue.id) ?? row)),
+    [rows, proposalIds, allRowsById],
   )
   const anyFoldable = foldable.length > 0
-  const allFolded = anyFoldable && foldable.every((row) => isFolded(row, folds))
+  const allFolded = anyFoldable && foldable.every((row) => isFolded(allRowsById.get(row.issue.id) ?? row, folds))
   /** Session arrivals animate once across the whole mission, never per row. */
   const sessionKeys = useMemo(
     () => rows.flatMap((row) => row.sessions.map((session) => session.sessionId)),
@@ -3445,22 +3461,25 @@ export function FlightDeck({
    *  operator just opened. */
   const setFold = useCallback(
     (kind: 'branch' | 'roster', id: string, closed: boolean): void => {
-      const next = migrateResolvedDeckFolds(folds, rows)
+      const next = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
       next.set(deckFoldKey(kind, id), closed ? 'closed' : 'open')
       setFolds(next)
     },
-    [folds, rows, setFolds],
+    [folds, allRows, resolvedFoldIds, setFolds],
   )
   const toggleFold = useCallback(
-    (row: FoldableRow): void => setFold(row.descendantIds.length > 0 ? 'branch' : 'roster', row.issue.id, !isFolded(row, folds)),
-    [folds, setFold],
+    (row: FoldableRow): void => {
+      const fullRow = allRowsById.get(row.issue.id) ?? row
+      setFold(fullRow.descendantIds.length > 0 ? 'branch' : 'roster', row.issue.id, !isFolded(fullRow, folds))
+    },
+    [folds, setFold, allRowsById],
   )
   const toggleNative = useCallback((issueId: string, session: SessionMeta): void => {
-    const next = migrateResolvedDeckFolds(folds, rows)
+    const next = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
     const key = deckFoldKey('native', issueId, session.sessionId)
     next.set(key, next.get(key) === 'closed' ? 'open' : 'closed')
     setFolds(next)
-  }, [folds, rows, setFolds])
+  }, [folds, allRows, resolvedFoldIds, setFolds])
 
   /**
    * REVEAL A SESSION'S ROW (POD-1077) — what the tab menu asks for when the
@@ -3483,12 +3502,15 @@ export function FlightDeck({
       if (!target) return
       if (target.issueId) {
         const owner = issues.find((issue) => issue.id === target.issueId)
-        if (owner) setSelectedIssueId(missionRootFor(issues, owner.id)?.id ?? owner.id)
+        if (owner && !missionMembers.has(owner.id)) {
+          enterMission(owner.id, { inspectIssueId: owner.id })
+          return
+        }
         setFocusedIssueId(target.issueId)
         // Every row whose subtree contains the owner is an ancestor of it, plus
         // the owner itself — one pass over the rows rather than walking parents,
         // because `descendantIds` is already the closure the deck computed.
-        const open = migrateResolvedDeckFolds(folds, rows)
+        const open = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
         for (const row of rows) {
           if (row.issue.id === target.issueId || row.descendantIds.includes(target.issueId)) {
             open.set(deckFoldKey('branch', row.issue.id), 'open')
@@ -3508,7 +3530,7 @@ export function FlightDeck({
     }
     window.addEventListener(REVEAL_IN_DECK_EVENT, onReveal)
     return () => window.removeEventListener(REVEAL_IN_DECK_EVENT, onReveal)
-  }, [sessions, issues, rows, folds, setFolds, setSelectedIssueId, setFocusedIssueId])
+  }, [sessions, issues, rows, allRows, resolvedFoldIds, folds, setFolds, enterMission, missionMembers, setFocusedIssueId])
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
     // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
@@ -3552,50 +3574,29 @@ export function FlightDeck({
     }
     setView('workspace')
   }
-  /**
-   * A departure tick is a way BACK to the work, so it re-roots the deck onto it
-   * rather than focusing something this mission no longer contains. Selecting
-   * an issue outside `missionMembers` would leave the focus resolver with
-   * nothing to resolve and the column showing the same spine.
-   *
-   * Its tab opens PERMANENT, not as a preview (POD-710): re-rooting the whole
-   * deck onto another mission is a deliberate departure from this one, not the
-   * glance a preview tab exists to serve.
-   */
+  /** A departure enters its own mission and restores that mission's saved tabs. */
   const openDeparture = (issue: IssueNavigationModel): void => {
-    setSelectedIssueId(issue.id)
-    setFocusedIssueId(issue.id)
+    enterMission(issue.id)
     void markIssueRead(issue.id)
-    if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
-    const live = sessions
-      .filter(
-        (session) =>
-          session.issueId === issue.id && !session.archived && session.status !== 'exited',
-      )
-      .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
-    if (live) {
-      openSessionTab(live.sessionId, { permanent: true })
-      void markSessionRead(live.sessionId)
-    }
     setView('workspace')
   }
   const openProposal = (issue: IssueNavigationModel): void => {
-    if (!missionMembers.has(issue.id)) setSelectedIssueId(issue.id)
-    setFocusedIssueId(issue.id)
+    if (missionMembers.has(issue.id)) setFocusedIssueId(issue.id)
+    else enterMission(issue.id)
     void markIssueRead(issue.id)
     setView('workspace')
   }
   const openDependency = (issue: IssueNavigationModel): void => {
-    if (!missionMembers.has(issue.id)) setSelectedIssueId(missionRootFor(issues, issue.id)?.id ?? issue.id)
-    setFocusedIssueId(issue.id)
+    if (missionMembers.has(issue.id)) setFocusedIssueId(issue.id)
+    else enterMission(issue.id, { inspectIssueId: issue.id })
     void markIssueRead(issue.id)
     setView('workspace')
   }
   const revealAttention = (issueId: string): void => {
     setPreferredView('full')
     setQuery('')
-    const next = migrateResolvedDeckFolds(folds, rows)
-    for (const row of rows) if (row.issue.id === issueId || row.descendantIds.includes(issueId)) {
+    const next = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
+    for (const row of allRows) if (row.issue.id === issueId || row.descendantIds.includes(issueId)) {
       next.set(deckFoldKey('branch', row.issue.id), 'open')
       next.set(deckFoldKey('roster', row.issue.id), 'open')
     }
@@ -3726,9 +3727,13 @@ export function FlightDeck({
       )
       if (nextDisplay !== display) onDisplayChange(nextDisplay)
     }
-    if (issueId) setFocusedIssueId(issueId)
-    if (session.cwd) setSelectedWorktree(session.cwd)
-    openSessionTab(session.sessionId, { permanent: opts.permanent })
+    if (issueId && !missionMembers.has(issueId)) {
+      enterMission(issueId, { inspectIssueId: issueId, sessionId: session.sessionId, permanent: opts.permanent })
+    } else {
+      if (issueId) setFocusedIssueId(issueId)
+      if (session.cwd) setSelectedWorktree(session.cwd)
+      openSessionTab(session.sessionId, { permanent: opts.permanent })
+    }
     // WHERE THE ROW WOULD LIKE THE PANEL TO OPEN, not what the operator chose
     // (POD-1702). The native worker rows below a session are navigation — their
     // job is "take me to the agent running this worker, on the terminal it is
@@ -3744,8 +3749,6 @@ export function FlightDeck({
   const openSpawnParent = (sessionId: SessionId): void => {
     const parent = sessions.find((session) => session.sessionId === sessionId)
     if (!parent) return
-    if (parent.issueId && !missionMembers.has(parent.issueId))
-      setSelectedIssueId(missionRootFor(issues, parent.issueId)?.id ?? parent.issueId)
     selectSession(parent.issueId ?? null, parent, { permanent: true })
   }
 
@@ -3882,7 +3885,7 @@ export function FlightDeck({
                 )}
                 <span className="flex-none leading-[24px]">{issueDisplayRef(root)}</span>
                 <span className="flex-none leading-[24px]">
-                  {STAGE_LABELS[root.stage].toLowerCase()}
+                  {deckLifecycle(root) === 'done' ? 'done' : (STAGE_LABELS[deckLifecycle(root) as keyof typeof STAGE_LABELS] ?? deckLifecycle(root)).toLowerCase()}
                 </span>
                 <span aria-hidden className="min-w-[8px] flex-1" />
                 {/* The mission's own dependency or provenance, and the seat it is
@@ -3905,19 +3908,13 @@ export function FlightDeck({
                   data-pressable
                   type="button"
                   className="block w-full min-w-0 text-left"
-                  // The header IS the root's strip (round 3 §4), so it takes the
-                  // strips' gesture: preview once, promote twice.
-                  onClick={() =>
-                    rootRow &&
-                    headerIntent.press(
-                      () => selectIssue(rootRow, false),
-                      () => selectIssue(rootRow, true),
-                    )
-                  }
+                  // Explicit mission entry restores this epic's workspace.
+                  onClick={() => { enterMission(root.id); void markIssueRead(root.id) }}
                   onKeyDown={(event) => {
-                    if (event.key !== 'Enter' || !rootRow) return
+                    if (event.key !== 'Enter') return
                     event.preventDefault()
-                    headerIntent.commit(() => selectIssue(rootRow, true))
+                    enterMission(root.id)
+                    void markIssueRead(root.id)
                   }}
                   title={`Focus ${issueDisplayRef(root)}`}
                 >
@@ -3941,6 +3938,7 @@ export function FlightDeck({
                     real brief is visibly a mission somebody described. */}
                   <MissionBrief html={briefHtml} standing={!authoredBrief} />
                 </div>
+                <FlightDeckDependencyDetails issue={root} byId={byId} members={missionMembers} onOpen={openDependency} className="mt-2" />
                 {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). The gauge, the
                   crew chip and the mission's one action were three heights on
                   two alignments; they are one row of 26px radius-8 objects now.
@@ -3951,7 +3949,7 @@ export function FlightDeck({
                   operator guess. */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <div className="min-w-[9rem] flex-[1_1_9rem]">
-                    <MissionGauge progress={progress} live={deckSignals.assigned} working={deckSignals.running} noAcceptedTasks={root.stage === 'proposed' && progress.total === 0} />
+                    <MissionGauge progress={progress} live={deckSignals.crew.length} working={deckSignals.running.length} noAcceptedTasks={root.stage === 'proposed' && progress.total === 0} />
                   </div>
                   {/* THE DECK'S ONE PRICE (POD-1862). One more object in this
                     row, so it inherits the wrap above rather than adding a drop
@@ -3978,7 +3976,7 @@ export function FlightDeck({
                 </div>
                 <div className="shell-type-micro mt-2 flex flex-wrap gap-x-3 gap-y-1 text-text-dim" aria-label="Mission activity">
                   <span aria-label={`${progress.done} of ${progress.total} eligible accepted formal tasks done`}>{root.stage === 'proposed' && progress.total === 0 ? 'No accepted tasks' : `Tasks done ${progress.done} of ${progress.total}`}</span>
-                  <span>{deckSignals.running} running agents</span>
+                  <span>{deckSignals.running.length} running agents</span>
                   {deckSignals.errors.length > 0 && <button data-pressable type="button" className="min-h-6 text-destructive underline" onClick={() => revealAttention(deckSignals.errors[0]?.issue.id ?? root.id)}>{deckSignals.errors.length} agent errors</button>}
                   {deckSignals.requests.length + deckSignals.taskRequests.length > 0 && <button data-pressable type="button" className="min-h-6 text-attention underline" onClick={() => revealAttention(deckSignals.requests[0]?.issue.id ?? deckSignals.taskRequests[0] ?? root.id)}>{deckSignals.requests.length + deckSignals.taskRequests.length} requests</button>}
                 </div>
@@ -3986,13 +3984,15 @@ export function FlightDeck({
                   <div className="shell-type-micro font-medium uppercase tracking-wide text-text-faint">Main coordinator</div>
                   {rootCoordinator ? <>
                     <div className="shell-type-secondary mt-1 flex flex-wrap items-center gap-2 text-text-strong"><span className="font-mono">{rootCoordinator.displayRef || rootCoordinator.sessionId}</span><span>{sessionDisplayName(rootCoordinator)}</span></div>
-                    <div className="shell-type-micro mt-1 text-text-dim">{rootCoordinator.status === 'hibernated' ? 'Parked' : isSessionWorking(rootCoordinator) ? 'Running' : rootCoordinator.status === 'starting' ? 'Starting' : rootCoordinator.status === 'reconnecting' ? 'Reconnecting' : 'Idle'}{sessionErrored(rootCoordinator) ? ' · Agent error' : ''}{deckIssueRequestsHuman(root, [rootCoordinator]) ? ' · Needs you' : ''}</div>
-                    {deckIssueRequestsHuman(root, [rootCoordinator]) && <div className="shell-type-secondary mt-1 break-words text-attention">{root.humanQuestion?.trim() || rootCoordinator.agentState?.need?.summary?.trim() || 'Response requested'}</div>}
+                    <div className="shell-type-micro mt-1 text-text-dim">{rootCoordinator.status === 'hibernated' ? 'Parked' : coordinatorFacts?.running ? 'Running' : rootCoordinator.status === 'starting' ? 'Starting' : rootCoordinator.status === 'reconnecting' ? 'Reconnecting' : !rootCoordinator.agentState ? 'Activity unavailable' : sessionTurnFinished(rootCoordinator) ? 'Turn finished' : 'Idle'}{coordinatorFacts?.error ? ` · ${coordinatorFacts.error}` : ''}{coordinatorFacts?.request ? ' · Needs you' : ''}{coordinatorFacts?.lastRecordedRequest ? ' · Last recorded request' : ''}</div>
+                    {coordinatorFacts?.request && <div className="shell-type-secondary mt-1 break-words text-attention">{rootCoordinator.offer?.message?.trim() || rootCoordinator.agentState?.need?.summary?.trim() || 'Response requested'}</div>}
+                    {rootCoordinator.offer?.actions?.length ? <div className="shell-type-micro mt-1 break-words text-text-dim">Suggested actions · {rootCoordinator.offer.actions.map((action) => action.label).join(' · ')}</div> : null}
                     <button data-pressable type="button" className="shell-type-secondary mt-1 min-h-6 text-left text-text-strong underline" onClick={() => selectSession(root.id, rootCoordinator, { permanent: true })}>Open coordinator</button>
+                    <NativeRows session={rootCoordinator} onOpen={() => selectSession(root.id, rootCoordinator, { permanent: false, native: true })} />
                     {coordinatorHelpers.length > 0 && <><button data-pressable type="button" className="shell-type-micro ml-3 min-h-6 text-text-dim underline" aria-expanded={coordinatorCrewOpen} onClick={() => setCoordinatorCrewOpen((open) => !open)}>{coordinatorHelpers.length} helpers</button>{coordinatorCrewOpen && <div className="mt-1"><HungRows issue={root} sessions={coordinatorHelpers} rootId={root.id} inMission={missionSessionIds} nameOf={nameOf} activeSessionId={activeSessionId} arrivals={arrivals} settle={settle} inset={0} rail={HAIRLINE_RAIL} tail={false} folds={folds} onToggleNative={(session) => toggleNative(root.id, session)} onOpenParent={openSpawnParent} onSelectSession={(session, permanent) => selectSession(root.id, session, { permanent })} onSelectNative={(session) => selectSession(root.id, session, { permanent: false, native: true })} /></div>}</>}
-                  </> : root.coordinatorSessionId ? <div className="shell-type-secondary mt-1 text-text-dim">{recordedCoordinator ? <>{recordedCoordinator.displayRef || recordedCoordinator.sessionId} · {recordedCoordinator.issueId && recordedCoordinator.issueId !== root.id ? `Coordinator unavailable · now on ${byId.has(recordedCoordinator.issueId) ? issueDisplayRef(byId.get(recordedCoordinator.issueId) as IssueNavigationModel) : recordedCoordinator.issueId}` : recordedCoordinator.archived || recordedCoordinator.status === 'exited' ? 'Coordinator retired' : 'Coordinator unavailable'}<button data-pressable type="button" className="ml-2 min-h-6 underline" onClick={() => selectSession(recordedCoordinator.issueId ?? null, recordedCoordinator, { permanent: true })}>Open recorded session</button></> : coordinatorTimedOut ? 'Coordinator unavailable' : 'Coordinator loading'}</div> : <div className="shell-type-secondary mt-1 text-text-dim">No coordinator assigned</div>}
+                  </> : root.coordinatorSessionId ? <div className="shell-type-secondary mt-1 text-text-dim">{recordedCoordinator ? <>{recordedCoordinator.displayRef || recordedCoordinator.sessionId} · {sessionDisplayName(recordedCoordinator)} · {recordedCoordinator.issueId && recordedCoordinator.issueId !== root.id ? `Coordinator unavailable · now on ${byId.has(recordedCoordinator.issueId) ? issueDisplayRef(byId.get(recordedCoordinator.issueId) as IssueNavigationModel) : recordedCoordinator.issueId}` : recordedCoordinator.archived || recordedCoordinator.status === 'exited' ? 'Coordinator retired' : 'Coordinator unavailable'}<button data-pressable type="button" className="ml-2 min-h-6 underline" onClick={() => selectSession(recordedCoordinator.issueId ?? null, recordedCoordinator, { permanent: true })}>Open recorded session</button></> : coordinatorTimedOut ? 'Coordinator unavailable' : 'Coordinator loading'}</div> : <div className="shell-type-secondary mt-1 text-text-dim">No coordinator assigned</div>}
                   {!rootCoordinator && <DropdownMenu><DropdownMenuTrigger data-pressable className="shell-type-secondary mt-1 min-h-6 text-left text-text-strong underline">Choose session</DropdownMenuTrigger><DropdownMenuContent align="start">{coordinatorCandidates.length > 0 ? coordinatorCandidates.map((session) => <DropdownMenuItem key={session.sessionId} onSelect={() => selectSession(session.issueId ?? root.id, session, { permanent: true })}>{session.displayRef || session.sessionId} · {sessionDisplayName(session)}</DropdownMenuItem>) : <DropdownMenuItem disabled>No sessions available</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>}
-                  {root.needsHuman === true && !rootCoordinator && !deckSignals.requests.some(({ issue }) => issue.id === root.id) && <div className="shell-type-secondary mt-1 text-attention">Task request · {root.humanQuestion?.trim() || 'Response requested'}</div>}
+                  {rootFacts?.taskRequest && <div className="shell-type-secondary mt-1 text-attention">Task request · {root.humanQuestion?.trim() || 'Response requested'}</div>}
                 </section>
               </div>
             </div>
@@ -4077,8 +4077,8 @@ export function FlightDeck({
                       onClick={() =>
                         setFolds(
                           new Map([
-                            ...migrateResolvedDeckFolds(folds, rows),
-                            ...foldable.map((row): [string, FoldState] => [deckFoldKey(row.descendantIds.length > 0 ? 'branch' : 'roster', row.issue.id), allFolded ? 'open' : 'closed']),
+                            ...migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds),
+                            ...foldable.map((row): [string, FoldState] => [deckFoldKey((allRowsById.get(row.issue.id) ?? row).descendantIds.length > 0 ? 'branch' : 'roster', row.issue.id), allFolded ? 'open' : 'closed']),
                           ]),
                         )
                       }
@@ -4147,6 +4147,9 @@ export function FlightDeck({
                   focusedIssueId={focused ?? null}
                   activeSessionId={activeSessionId}
                   renameTarget={renameTarget}
+                  byId={byId}
+                  missionMembers={missionMembers}
+                  onOpenDependency={openDependency}
                   isFolded={(row) => isFolded(row, folds)}
                   onToggle={toggleFold}
                   onSelectIssue={(row, permanent) => {
@@ -4167,6 +4170,7 @@ export function FlightDeck({
                 rootIssue={root}
                 issues={issues}
                 sessions={sessions}
+                allWorktreePaths={allWorktreePaths}
                 visitReadAt={
                   issueVisitBaseline?.issueId === root.id ? issueVisitBaseline.readAt : null
                 }
@@ -4178,22 +4182,15 @@ export function FlightDeck({
               <div className="flex flex-col gap-3 py-3" data-testid="flight-dependencies">
                 {rows.filter((row) => row.issue.stage !== 'proposed' && deckDependencies(row.issue, byId, missionMembers).length > 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
                   <section key={row.issue.id} className="rounded-row border border-hairline-soft px-3 py-2" data-flight-issue={row.issue.id}>
-                    <div className="shell-type-micro mb-1 text-text-faint">Prerequisites → dependent</div>
+                    <div className="shell-type-micro mb-1 text-text-faint">Prerequisites → dependent · {deckLifecycle(row.issue)}{row.issue.startedBySession ? ` · Started by ${nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}` : ''}</div>
                     {dependencyCycleRecorded(row.issue.id, byId) && <div className="shell-type-micro text-text-dim">Dependency cycle recorded</div>}
-                    <ul className="flex flex-col gap-1">
-                      {deckDependencies(row.issue, byId, missionMembers).map((dep) => (
-                        <li key={dep.id} className="shell-type-secondary min-w-0 break-words text-text-dim">
-                          {dep.target ? <button data-pressable type="button" className="min-h-6 text-left underline decoration-hairline-soft hover:text-text-strong" onClick={() => openDependency(dep.target as IssueNavigationModel)}>{issueDisplayRef(dep.target)} · {dep.target.title}</button> : <span>Dependency unavailable · {dep.id}</span>}
-                          {dep.target && <span> · {dep.target.stage}{dep.outsideMission ? ' · Outside this epic' : ''}</span>}
-                        </li>
-                      ))}
-                    </ul>
+                    <FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={openDependency} className="mt-1" />
                     <button data-pressable type="button" className="shell-type-secondary mt-2 min-h-6 break-words text-left font-medium text-text-strong" onClick={() => openDependency(row.issue)}>→ {issueDisplayRef(row.issue)} · {row.issue.title}</button>
                   </section>
                 ))}
                 <DeckSection label="No recorded prerequisites" testId="flight-no-prerequisites">
-                  {rows.filter((row) => row.issue.stage !== 'proposed' && deckDependencies(row.issue, byId, missionMembers).length === 0).map((row) => (
-                    <button key={row.issue.id} data-pressable type="button" className="shell-type-secondary block min-h-6 w-full break-words text-left text-text-dim" onClick={() => openDependency(row.issue)}>{issueDisplayRef(row.issue)} · {row.issue.title}</button>
+                  {rows.filter((row) => row.issue.stage !== 'proposed' && deckDependencies(row.issue, byId, missionMembers).length === 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
+                    <div key={row.issue.id} data-flight-issue={row.issue.id}><button data-pressable type="button" className="shell-type-secondary block min-h-6 w-full break-words text-left text-text-dim" onClick={() => openDependency(row.issue)}>{issueDisplayRef(row.issue)} · {row.issue.title} · {deckLifecycle(row.issue)}</button><FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={openDependency} /></div>
                   ))}
                 </DeckSection>
               </div>
@@ -4239,6 +4236,7 @@ export function FlightDeck({
                   {sectionStarts.has(row.issue.id) && <h3 className="shell-type-micro px-4 py-2 font-medium uppercase tracking-wide text-text-faint">{sectionStarts.get(row.issue.id)}</h3>}
                   <TaskRow
                     row={row}
+                    unfilteredRows={allRows}
                     displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
                     renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
                     byId={byId}
@@ -4255,11 +4253,11 @@ export function FlightDeck({
                     activeSessionId={activeSessionId}
                     arrivals={arrivals}
                     settle={settle}
-                    collapsed={flightDeckRosterFolded(row, folds)}
-                    branchClosed={flightDeckBranchFolded(row, folds)}
+                    collapsed={flightDeckRosterFolded(allRowsById.get(row.issue.id) ?? row, folds)}
+                    branchClosed={flightDeckBranchFolded(allRowsById.get(row.issue.id) ?? row, folds)}
                     folds={folds}
-                    onToggleBranch={() => setFold('branch', row.issue.id, !flightDeckBranchFolded(row, folds))}
-                    onToggleRoster={() => setFold('roster', row.issue.id, !flightDeckRosterFolded(row, folds))}
+                    onToggleBranch={() => setFold('branch', row.issue.id, !flightDeckBranchFolded(allRowsById.get(row.issue.id) ?? row, folds))}
+                    onToggleRoster={() => setFold('roster', row.issue.id, !flightDeckRosterFolded(allRowsById.get(row.issue.id) ?? row, folds))}
                     onSelectIssue={(permanent) => selectIssue(row, permanent)}
                     onSelectSession={(session, permanent) =>
                       selectSession(row.issue.id, session, { permanent })
@@ -4411,8 +4409,11 @@ export function FlightDeck({
                       origins={proposal.originIds.map((id) => byId.get(id) ? issueDisplayRef(byId.get(id) as IssueNavigationModel) : id)}
                       withinEpic={proposal.withinEpic}
                       parent={proposal.issue.parentId ? byId.get(proposal.issue.parentId) ?? null : null}
-                      sessions={sessions.filter((session) => session.issueId === proposal.issue.id && !session.archived)}
+                      sessions={deckSignals.crew.filter(({ issue }) => issue.id === proposal.issue.id).map(({ session }) => session)}
                       selected={focused === proposal.issue.id}
+                      byId={byId}
+                      members={missionMembers}
+                      onOpenDependency={openDependency}
                       onSelect={() => openProposal(proposal.issue)}
                       onMenu={(event) => openIssueMenu(proposal.issue.id, event)}
                       onStatusPick={(value) => pickRowStatus(proposal.issue.id, value)}

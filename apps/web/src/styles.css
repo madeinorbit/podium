@@ -5905,6 +5905,9 @@ html[data-density="compact"] .brief-shelf {
 .handoff-entry-node--working {
   background: var(--motion-working);
 }
+.handoff-entry-node--error {
+  background: var(--destructive);
+}
 .handoff-entry-node--review {
   background: var(--info);
 }
@@ -5965,6 +5968,10 @@ html[data-density="compact"] .brief-shelf {
 .handoff-entry-badge--working {
   border-color: color-mix(in srgb, var(--motion-working) 38%, var(--border));
   color: color-mix(in srgb, var(--motion-working) 58%, var(--foreground));
+}
+.handoff-entry-badge--error {
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+  color: var(--destructive);
 }
 .handoff-entry-badge--review {
   border-color: color-mix(in srgb, var(--info) 45%, var(--border));
@@ -10522,6 +10529,31 @@ button.waterfall-fold:hover {
   background: color-mix(in srgb, var(--attention) 24%, var(--bar));
   color: color-mix(in srgb, var(--attention) 76%, var(--text-strong));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 78%, transparent);
+}
+.waterfall-session-bar[data-state="error"]:not([data-segmented]) {
+  background: color-mix(in srgb, var(--destructive) 19%, var(--bar));
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--destructive) 70%, transparent);
+}
+.waterfall-error-mark,
+.waterfall-request-mark {
+  position: absolute;
+  z-index: 3;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+.waterfall-error-mark { left: 2px; background: var(--destructive); }
+.waterfall-request-mark { right: 2px; background: var(--attention); }
+.waterfall-dependency-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 8px 6px;
+  color: var(--text-dim);
 }
 .waterfall-session-bar[data-state="finished"]:not([data-segmented]) {
   background: color-mix(in srgb, var(--text-faint) 9%, var(--bar));

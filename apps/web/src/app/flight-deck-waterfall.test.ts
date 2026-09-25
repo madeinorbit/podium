@@ -16,6 +16,7 @@ import {
   waterfallPercent,
   waterfallSegments,
   waterfallSessionEnd,
+  waterfallSessionState,
   waterfallSessionStart,
   waterfallTicks,
   waterfallTimelineStart,
@@ -311,6 +312,14 @@ describe('waterfall segments', () => {
 })
 
 describe('waterfall labels and formats', () => {
+  it('keeps execution, error, and request independent of historical timing', () => {
+    const owner = { id: 'owner', stage: 'in_progress', archived: false, deletedAt: null } as IssueNavigationModel
+    const closed = { ...owner, closedReason: 'done' } as IssueNavigationModel
+    expect(waterfallSessionState(session('offered-working', { issueId: 'owner', agentState: { phase: 'working' }, offer: { message: 'Please review' } }), owner)).toBe('working')
+    expect(waterfallSessionState(session('parked-error', { issueId: 'owner', status: 'hibernated', agentState: { phase: 'errored' } }), owner)).toBe('error')
+    expect(waterfallSessionState(session('requesting-idle', { issueId: 'owner', agentState: { phase: 'idle', idle: { kind: 'question' } } }), owner)).toBe('attention')
+    expect(waterfallSessionState(session('old-offer', { issueId: 'owner', agentState: { phase: 'idle', idle: { kind: 'done' } }, offer: { message: 'Old request' } }), closed)).toBe('finished')
+  })
   it('walks the label ladder as the bar narrows', () => {
     expect(waterfallLabelPlacement(10, 120, 400)).toBe('inside')
     expect(waterfallLabelPlacement(10, 40, 400)).toBe('after')
