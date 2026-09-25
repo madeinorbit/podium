@@ -43,7 +43,6 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { runInAction } from 'mobx'
 import { createEngineLocals } from '../../../../harness/src/engine-locals'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
@@ -71,6 +70,31 @@ const GATE_TIMEOUT_MS = Number(
   process.env['POD_POOL_GATE_TIMEOUT_MS'] ?? Math.max(1_500_000, SEEDS.length * STEPS * 5_000),
 )
 const SHRINK_RUNS = Number(process.env['POD_POOL_GATE_SHRINK_RUNS'] ?? 200)
+
+const macrotask = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+/**
+ * Settle stragglers before an oracle comparison: run.apply already quiesced,
+ * but post-reload replica/store trickle (settle timers, binding catch-up)
+ * can land rows in the feed after the checker's own drain, leaving the pool
+ * tables a beat behind the feed snapshot the rebuild reads. Bounded quiet
+ * rounds with explicit feed drains; returns the rounds taken. A real
+ * divergence survives them and still fails loudly below — this waits for
+ * data delivery only (all arm logic is synchronous), so it cannot mask an
+ * arm bug. Filed as a harness gap for L4a (quiesce sufficiency on reload).
+ */
+async function settleStep(run: {
+  feed(): { flush(): unknown }
+}): Promise<number> {
+  let quiet = 0
+  let rounds = 0
+  for (; rounds < 30 && quiet < 3; rounds += 1) {
+    await macrotask()
+    const event = run.feed().flush()
+    quiet = event === null || event === undefined ? quiet + 1 : 0
+  }
+  return rounds
+}
 
 /**
  * The writable arm over the adapter's transport, stashing the live write API
@@ -217,6 +241,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const result = await checkArm(gapped(arm, gap), sequence, {
           mode: 'truth',
           oracleEvery: 0,
+          maxShrinkRuns: SHRINK_RUNS,
           editViaArm: adapter.editHook,
           onStep: async (step, run) => {
             adapter.pairFromStep(step.detail ?? {})
@@ -224,6 +249,12 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const last = step.index === sequence.length - 1
             if ((step.index + 1) % 10 !== 0 && !last) return
             oracleChecks += 1
+            // Settle stragglers before comparing: run.apply already quiesced,
+            // but post-reload replica/store trickle (settle timers, binding
+            // catch-up) can land rows in the feed after the checker's own
+            // drain. Bounded quiet rounds with explicit feed drains; a real
+            // divergence survives them and still fails loudly below.
+            const settled = await settleStep(run)
             const h = live
             if (h === null) throw new Error('no live arm at oracle step')
             const kernel = oracleSnapshot(run.ctx.engine.getSnapshot())
@@ -231,129 +262,13 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
-            // TEMPORARY diagnosis (removed before landing): feed-vs-store
-            // membership at divergence (late post-reload scope evictions?).
-            if (diff !== null && firstDiff === null) {
-              const feedIds = new Set(
-                run.feed().source.snapshot('issue').map((r) => r.id),
-              )
-              const storeIds = new Set(
-                ((run.ctx.engine.getSnapshot() as unknown as { issues?: { id?: string }[] }).issues ?? []).map(
-                  (r) => String(r.id),
-                ),
-              )
-              const onlyFeed: string[] = []
-              const onlyStore: string[] = []
-              for (const id of feedIds) if (!storeIds.has(id)) onlyFeed.push(id)
-              for (const id of storeIds) if (!feedIds.has(id)) onlyStore.push(id)
-              const { appendFileSync } = await import('node:fs')
-              appendFileSync(
-                '/tmp/membership.txt',
-                `seed ${seed} step ${step.index} ${String(step.change.kind)}: onlyFeed=[${onlyFeed.slice(0, 10).join(',')}] onlyStore=[${onlyStore.slice(0, 10).join(',')}]\n`,
-              )
-            }
-            // TEMPORARY diagnosis (removed before landing): who moves after a
-            // progress divergence — the pool sides or the kernel side?
-            {
-              const { appendFileSync } = await import('node:fs')
-              const row = (s: SliceSnapshot): string => {
-                const r = s.rowsById['i3150'] as { progressDone?: number; progressTotal?: number } | undefined
-                return r === undefined ? 'absent' : `${r.progressDone}/${r.progressTotal}`
-              }
-              appendFileSync(
-                '/tmp/triangle.txt',
-                `seed ${seed} step ${step.index} ${String(step.change.kind)}: live=${row(actual)} rebuilt=${row(h.rebuildFromScratch())} kernel=${row(kernel)}\n`,
-              )
-            }
             if (diff !== null) {
               oracleFailed += 1
             }
             if (diff !== null && firstDiff === null) {
-              const feedSource = run.feed().source
-              const store = run.ctx.engine.getSnapshot() as unknown as {
-                issues?: readonly unknown[]
-                sessions?: readonly unknown[]
-              }
-              // TEMPORARY diagnosis (removed before landing).
-              const feedSessions = new Map(
-                feedSource
-                  .snapshot('session')
-                  .map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
-              )
-              const storeSessions = new Map(
-                ((store.sessions ?? []) as Record<string, unknown>[]).map((s) => [
-                  String(s['sessionId'] ?? s['id']),
-                  s,
-                ]),
-              )
-              const onlyFeed: string[] = []
-              const onlyStore: string[] = []
-              for (const id of feedSessions.keys()) if (!storeSessions.has(id)) onlyFeed.push(id)
-              for (const id of storeSessions.keys()) if (!feedSessions.has(id)) onlyStore.push(id)
-              const describeSession = (id: string, v: Record<string, unknown> | undefined): string =>
-                v === undefined
-                  ? `${id}:gone`
-                  : `${id}:issue=${String(v['issueId'] ?? '-')},phase=${String((v['agentState'] as Record<string, unknown> | undefined)?.['phase'] ?? '-')}`;
-              let extra =
-                `feed issues/sessions=${feedSource.snapshot('issue').length}/` +
-                `${feedSessions.size} store issues/sessions=${store.issues?.length ?? '?'}/${storeSessions.size}\n` +
-                `sessions only-feed=[${onlyFeed.slice(0, 6).map((id) => describeSession(id, feedSessions.get(id))).join(' ')}] ` +
-                `only-store=[${onlyStore.slice(0, 6).map((id) => describeSession(id, storeSessions.get(id))).join(' ')}]`
-              const m = /row (i[a-zA-Z0-9-]+): progressDone/.exec(diff)
-              if (m) {
-                const target = m[1] as string
-                const feedRows = new Map(
-                  feedSource.snapshot('issue').map((r) => [r.id, r.value as Record<string, unknown> | undefined]),
-                )
-                // TEMPORARY diagnosis (removed before landing): whole formal
-                // closure under the target, feed vs cache vs pool tables.
-                const seen = new Set<string>([target])
-                const queue = [target]
-                const lines: string[] = []
-                while (queue.length > 0 && lines.length < 40) {
-                  const cur = queue.shift() as string
-                  for (const [id, v] of feedRows) {
-                    if (v !== undefined && (v['parentId'] as string | null) === cur && !seen.has(id)) {
-                      seen.add(id)
-                      queue.push(id)
-                      const cached = run.ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
-                      const tabled = runInAction(
-                        () => h.pool.tables.issue.get(id) as unknown as Record<string, unknown> | undefined,
-                      )
-                      const f = `${String(v['stage'])}/${String(v['closedReason'] ?? '-')}`
-                      const c =
-                        cached === undefined
-                          ? '?'
-                          : `${String(cached['stage'])}/${String(cached['closedReason'] ?? '-')}`
-                      const t =
-                        tabled === undefined
-                          ? '?'
-                          : `${String(tabled['stage'])}/${String(tabled['closedReason'] ?? '-')}`
-                      lines.push(`${id}:feed(${f})cache(${c})table(${t})${f === c && f === t ? '' : ' DIFF'}`)
-                    }
-                  }
-                }
-                extra += `\nformal closure under ${target} (stage/closedReason):\n${lines.join('\n')}`
-                // TEMPORARY diagnosis (removed before landing): pool progress
-                // inputs vs feed for the target's children.
-                const factLines: string[] = []
-                for (const [id, v] of feedRows) {
-                  if (v !== undefined && (v['parentId'] as string | null) === target) {
-                    const facts = runInAction(() =>
-                      h.pool.visibleInputs.progressFacts(id),
-                    ) as { stage: string; closedReason?: string | null } | undefined
-                    factLines.push(
-                      `${id}:facts(${facts === undefined ? '?' : `${facts.stage}/${facts.closedReason ?? '-'}`})` +
-                        `feed(${String(v['stage'])}/${String(v['closedReason'] ?? '-')})`,
-                    )
-                    if (factLines.length >= 12) break
-                  }
-                }
-                extra += `\nprogressFacts vs feed:\n${factLines.join('\n')}`
-              }
               firstDiff =
                 `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-                `(${JSON.stringify(step.change)}):\n${diff}\n${extra}`
+                `(${JSON.stringify(step.change)}, settled=${settled}):\n${diff}`
             }
           },
         })
