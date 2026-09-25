@@ -434,10 +434,26 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
                 if (residency === null) return 'no-residency'
                 const ke = residency as unknown as {
                   isCold(e: string, id: string): boolean
+                  known(e: string, id: string): boolean
                 }
-                const knownCold = ke.isCold('issue', 'i3156')
-                const coldVal = h.pool.coldRow('issue', 'i3156') as unknown
-                return `isCold=${knownCold} coldRow=${coldVal === undefined ? 'undef' : 'row'}`
+                const ids = ['i3156', 'i3170', 'i3173', 'i3182', 'i3195', 'i3200', 'i3208', 'i3214', 'i3229', 'i3232']
+                return ids
+                  .map((id) => {
+                    let known = '?'
+                    let cold = '?'
+                    try {
+                      known = String(ke.known('issue', id))
+                    } catch {
+                      known = 'throws'
+                    }
+                    try {
+                      cold = h.pool.coldRow('issue', id) === undefined ? 'undef' : 'row'
+                    } catch {
+                      cold = 'throws'
+                    }
+                    return `${id}:known=${known}/coldRow=${cold}`
+                  })
+                  .join(' ')
               })
               appendFileSync('/tmp/plain-fresh.txt', `residency i3156: ${reg}\n`)
               // TEMPORARY diagnosis (removed before landing): source.row vs
