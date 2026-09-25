@@ -450,17 +450,22 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           })
           const maintenance = maintenanceOf(runs)
           expect(maintenance, 're-validated maintenance reactions').toEqual([])
-          // Executions per groups observer: at most one scheduling round per
-          // observer across both actions (selection, then the cursor write).
-          // The latch may execute once (it must look at the new selection);
-          // lanes may execute once (scheduled, O(1) latch-check bodies off
-          // cached lanes); nothing re-sorts and nothing walks an index.
+          // Executions per groups observer: the latch runs once (it must
+          // look at the new selection); every lane runs once doing O(1)
+          // latch-check work off cached lanes; nothing re-sorts and nothing
+          // walks an index. Single batch, single wave: exact counts.
           const evals = auditOf(runs)
-          for (const [name, count] of evals) {
-            expect(count, `${name} executions`).toBeLessThanOrEqual(1)
-          }
           expect(evals.get('keys') ?? 0, 'keys executions').toBe(0)
           expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)
+          expect(evals.get('latchedOpenId') ?? 0, 'latch executions').toBe(1)
+          for (const [name, count] of evals) {
+            if (name === 'latchedOpenId' || name === 'keys' || name === 'pinnedIds') continue
+            if (name.startsWith('rowIds:') || name.startsWith('closedIds:')) {
+              expect(count, `${name} executions`).toBe(1)
+            } else {
+              expect(count, `${name} executions`).toBe(0)
+            }
+          }
           // The cursor still works: the row reads as read, stays visible, files nothing.
           expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(false)
           expect(tracked(() => pool.worklist.issue(target)?.visible)).toBe(true)

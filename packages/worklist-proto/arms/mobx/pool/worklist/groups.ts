@@ -480,6 +480,11 @@ export class WorklistGroups {
 
   /** The group keys in spec order: each bucket's head rank, sorted (ranks are total, L1b). */
   get keys(): readonly string[] {
+    // Subscribe to the visible order without walking it: this keeps `order`
+    // alive (and its sort counter honest) while the list is mounted, and
+    // re-sorts the keys when membership or a rank actually moves. No per-id
+    // reads here — a stage move touches only the moved bucket (POD-4686).
+    this.host.order()
     const heads: { key: string; rank: RowRank }[] = []
     for (const key of this.buckets.keys()) {
       const rank = this.group(key).headRank
