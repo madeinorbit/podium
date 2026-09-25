@@ -37,6 +37,28 @@ frozen round-two layout; coordinator addendum 2026-09-24, as Mc1).
   only in `pool/enumerate.ts`. `reject` uses the log outcome's own kind/id;
   nothing here enumerates a table.
 
+## Plants (coordinator addendum 2026-09-25)
+
+- **Rewind to the current value instead of the kept prior** (the minimum
+  write-specific plant). The cp-mutant is `reject()` skipping the overlay
+  refresh (log entry removed, stale pending value stays painted with an empty
+  log). Applied alone to the committed `edit.ts` and restored with `cp`, it
+  fails exactly the 4 rewind cases of `edit.test.tsx` (rejection rewinds,
+  stage consistency, mark-read rewind, stacked rejection) and passes the 2
+  that never reject (rename paints, unknown throws) — the coordinator's own
+  guard, reproduced.
+- The guard lives in the repo two ways: `edit.test.tsx` "a plant that rewinds
+  to the current value instead of the kept prior is caught" (the mutant's
+  observable state — log empty, display stale — diverges from the pre-edit
+  baseline where a true rewind converges), and `gate-with-edits.test.ts`
+  "the rewind-to-current plant fails every seed" (per-seed arm-side edit +
+  planted reject diverges at the first rebuild comparison; a clean edit +
+  true reject on seed 1 converges first, so the check is not vacuous).
+  `removal-deaf` alone never touches the write path.
+- Gen sequences reload, and each reload re-creates the arm, so the gate's
+  planted `create()` edits once per incarnation — no send count is asserted
+  there (the edit tests pin one-edit-one-send exactly).
+
 ## Open
 
 - Hc2 (c2): echo/settle (W7), overtake after receipt (W8), supersede (W9),
