@@ -33,7 +33,7 @@ import { issueViewModelsFromReplica } from '../replica/issue-view-models'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import { type RouterWindow, ISSUE_SEL_KEY, PANE_A_KEY, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY, WORKSPACES_KEY, WT_KEY } from '../ui-state'
-import { allTabIds, emptyWorkspace, openTab, serializeWorkspaces } from '../viewmodels'
+import { allTabIds, deserializeWorkspaces, emptyWorkspace, openTab, serializeWorkspaces } from '../viewmodels'
 import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -1156,6 +1156,42 @@ describe('mission entry and delayed identity', () => {
     expect(link.engine.getSnapshot().workspaces['mission:root']?.focusedPaneId).toBe('p1')
     expect(link.engine.getSnapshot().workspaces['mission:root']?.previewTabId).toBeNull()
     link.engine.destroy()
+  })
+
+  it('persists an explicit incoming session URL before the next reload', () => {
+    const storage = memoryStorage()
+    const base = nestedSaved('mission:root', 'lead', 'preview')
+    const saved = {
+      ...base,
+      panes: {
+        ...base.panes,
+        p2: { id: 'p2', tabs: ['second', 'file:readme'], activeTabId: 'file:readme' },
+      },
+      previewTabId: 'preview',
+      deck: { focusedIssueId: 'inspect' },
+    }
+    const prior = makeEngine({ storage })
+    prior.engine.ui.set(ISSUE_SEL_KEY, 'root')
+    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'mission:root': saved }))
+    prior.engine.replica.applySnapshot('issues', [root('root'), child('inspect', 'root'), child('incoming', 'root')])
+    prior.engine.replica.applySnapshot('sessions', [
+      owned('lead', 'root'), owned('second', 'root'),
+      owned('preview', 'inspect'), owned('target', 'incoming'),
+    ])
+    prior.engine.destroy()
+
+    const link = makeEngine({ storage, url: '/workspace?pane=target' })
+    const expected = {
+      ...openTab(saved, 'target', { permanent: true }),
+      deck: { focusedIssueId: 'incoming' },
+    }
+    expect(link.engine.getSnapshot().workspaces['mission:root']).toEqual(expected)
+    expect(deserializeWorkspaces(link.engine.ui.get(WORKSPACES_KEY))['mission:root']).toEqual(expected)
+    link.engine.destroy()
+
+    const next = makeEngine({ storage, url: '/workspace' })
+    expect(next.engine.getSnapshot().workspaces['mission:root']).toEqual(expected)
+    next.engine.destroy()
   })
 
   it('preserves a cold legacy reload layout after session and ancestor rows arrive', async () => {

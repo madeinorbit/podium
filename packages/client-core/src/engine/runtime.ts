@@ -560,18 +560,30 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       route.pane !== null && route.pane === this.ui.get(PANE_A_KEY) &&
       hydratedSelectionRoot?.id === this.workspaceKey.slice(8) &&
       (!initialRoot || initialRoot.id === hydratedSelectionRoot.id)
+    let initialUrlOpenedWorkspace = false
     if (savedLayout) {
       if (route.pane && !marked && !legacyReload && (initialRoot || initialFile && !initialFile.issueId ||
         this.workspaceKey.startsWith('wt:') && initialTarget && !initialTarget.issueId)) {
         const opened = openTab(savedLayout, route.pane, { permanent: true })
         this.state.workspaces = { ...this.state.workspaces, [this.workspaceKey]: initialOwner ? { ...opened, deck: { ...opened.deck, focusedIssueId: initialOwner } } : opened }
         Object.assign(this.state, workspaceMirrorPatch(opened))
+        initialUrlOpenedWorkspace = true
       } else Object.assign(this.state, workspaceMirrorPatch(savedLayout))
     } else if (route.pane && !marked && (initialRoot || initialFile && !initialFile.issueId ||
       this.workspaceKey.startsWith('wt:') && initialTarget && !initialTarget.issueId)) {
       const opened = openTab(workspaceFor(this.state, this.workspaceKey), route.pane, { permanent: true })
       this.state.workspaces = { ...this.state.workspaces, [this.workspaceKey]: initialOwner ? { ...opened, deck: { ...opened.deck, focusedIssueId: initialOwner } } : opened }
       Object.assign(this.state, workspaceMirrorPatch(opened))
+      initialUrlOpenedWorkspace = true
+    }
+    // Constructor-time URL opens precede the subscription store and therefore
+    // bypass apply()/react(). Persist the adopted layout now: otherwise the
+    // target renders for this document but a second reload restores the old
+    // preview and loses the explicit link.
+    if (initialUrlOpenedWorkspace) {
+      this.routerUi.flush(workspaceUiSnapshot(this.state), new Set([
+        'selectedWorktree', 'selectedIssueId', 'paneA', 'paneB', 'split', 'workspaces',
+      ]))
     }
     if (route.pane && !marked && !legacyReload && !initialRoot &&
       (!initialFile || !!initialFile.issueId) && !(this.workspaceKey.startsWith('wt:') && initialTarget && !initialTarget.issueId)) {
