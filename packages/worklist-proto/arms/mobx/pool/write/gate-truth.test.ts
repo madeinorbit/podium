@@ -231,6 +231,27 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             const expected = oracle.patchSnapshot(kernel, run.feed().source)
             if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
+            // TEMPORARY diagnosis (removed before landing): feed-vs-store
+            // membership at divergence (late post-reload scope evictions?).
+            if (diff !== null && firstDiff === null) {
+              const feedIds = new Set(
+                run.feed().source.snapshot('issue').map((r) => r.id),
+              )
+              const storeIds = new Set(
+                ((run.ctx.engine.getSnapshot() as unknown as { issues?: { id?: string }[] }).issues ?? []).map(
+                  (r) => String(r.id),
+                ),
+              )
+              const onlyFeed: string[] = []
+              const onlyStore: string[] = []
+              for (const id of feedIds) if (!storeIds.has(id)) onlyFeed.push(id)
+              for (const id of storeIds) if (!feedIds.has(id)) onlyStore.push(id)
+              const { appendFileSync } = await import('node:fs')
+              appendFileSync(
+                '/tmp/membership.txt',
+                `seed ${seed} step ${step.index} ${String(step.change.kind)}: onlyFeed=[${onlyFeed.slice(0, 10).join(',')}] onlyStore=[${onlyStore.slice(0, 10).join(',')}]\n`,
+              )
+            }
             // TEMPORARY diagnosis (removed before landing): who moves after a
             // progress divergence — the pool sides or the kernel side?
             {
