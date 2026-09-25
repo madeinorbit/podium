@@ -4,11 +4,11 @@
  * `write.edit` into the real kernel transport (the shared `ArmEditAdapter`),
  * compared after every step with its optimism-aware rebuild and, every 10
  * steps and after the last, with the F4 write oracle (coordinator ruling:
- * server truth plus the shared reference log, `shared/src/gen/write-
- * oracle.ts`) — not with the kernel's optimistic paint, which retires an
- * applied overlay as soon as the server row moved past its enqueue baseline
- * while the contract holds the pending value until the echo (a finding, not
- * a failure; counted per step as `kernelDiffers`).
+ * server truth plus the shared reference log for every row, whatever the
+ * kernel or the arm shows, `shared/src/gen/write-oracle.ts`). Kernel-fold
+ * differences (an applied overlay retired on moved-past-baseline while the
+ * contract holds, or a chained overlay held past a newer server value) count
+ * per check as `kernelDiffers`: findings, not failures.
  *
  * Like `gate.test.ts`, the oracle comparison carries POD-4671's one-row gap
  * (`acceptUnscannedGap`), which throws once the seat exists. Seeds × steps
@@ -211,7 +211,6 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const gap = { applied: 0 }
         let firstDiff: string | null = null
         let kernelDiffers = 0
-        let staleSkippedTotal = 0
         let oracleChecks = 0
         const result = await checkArm(gapped(arm, gap), sequence, {
           mode: 'truth',
@@ -227,39 +226,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             if (h === null) throw new Error('no live arm at oracle step')
             const kernel = oracleSnapshot(run.ctx.engine.getSnapshot())
             const actual = applyGap(h, run.ctx, kernel, h.snapshot(), gap)
-            const reference = oracle.patchSnapshot(kernel, run.feed().source)
-            // F4 stale-hold allowance: the kernel keeps a chained overlay the
-            // reference dropped (both logs settled it on the same receipt),
-            // so kernel, arm and oracle agree on server truth everywhere
-            // except the kernel's stale title. Skip exactly those rows: live
-            // and oracle both show the server value while the kernel shows a
-            // retired one. Counted per check (the finding), never silent, and
-            // incapable of masking an arm bug (any live/oracle/server
-            // disagreement still compares normally).
-            const serverTitles = new Map<string, string>()
-            for (const record of run.feed().source.snapshot('issue')) {
-              if (record.value !== undefined) {
-                serverTitles.set(record.id, (record.value as { title: string }).title)
-              }
-            }
-            const expRows = { ...reference.rowsById }
-            let staleSkipped = 0
-            for (const [id, liveRow] of Object.entries(actual.rowsById)) {
-              const serverTitle = serverTitles.get(id)
-              const expRow = expRows[id]
-              if (serverTitle === undefined || expRow === undefined) continue
-              if (liveRow.title !== serverTitle) continue
-              if (expRow.title === serverTitle) continue
-              const oracleTitles = oracle.log
-                .pendingFor('issue', id)
-                .map((e) => (e.patch as { title?: string }).title)
-              if (oracleTitles.length > 0) continue
-              expRows[id] = { ...expRow, title: liveRow.title }
-              staleSkipped += 1
-            }
-            const expected = { ...reference, rowsById: expRows }
-            if (diffSnapshots(kernel, reference) !== null) kernelDiffers += 1
-            staleSkippedTotal += staleSkipped
+            const expected = oracle.patchSnapshot(kernel, run.feed().source)
+            if (diffSnapshots(kernel, expected) !== null) kernelDiffers += 1
             const diff = diffSnapshots(actual, expected)
             if (diff !== null && firstDiff === null) {
               const feedSource = run.feed().source
@@ -291,7 +259,6 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           gapApplied: gap.applied,
           oracleChecks,
           kernelDiffers,
-          staleSkippedTotal,
         })
       }
       writeResult(`mobx-write-truth-gate-1x-${SEEDS.length}x${STEPS}`, { seeds: SEEDS, steps: STEPS, cells })

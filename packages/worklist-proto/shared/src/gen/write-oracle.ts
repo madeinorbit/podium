@@ -232,16 +232,21 @@ export class WriteOracle {
   }
 
   /**
-   * The kernel oracle snapshot with the reference display's pending titles
-   * overlaid. Rows the kernel snapshot no longer holds are left alone.
+   * The expected display: server truth plus the shared reference log, for
+   * every row the server holds, whatever the kernel or the arm shows (F4).
+   * Each row keeps the kernel snapshot's shape and every field the gate does
+   * not edit; its title is the reference display (newest pending title, else
+   * the server value). A row with nothing pending shows the server value —
+   * which is also what retires a kernel stale-hold (a chained overlay past a
+   * newer server value) back to truth without any condition on the arm. Rows
+   * the server no longer holds keep the kernel's row.
    */
   patchSnapshot(oracle: SliceSnapshot, source: RowSource): SliceSnapshot {
     const server = this.serverRows(source)
     const rowsById = { ...oracle.rowsById }
-    for (const id of this.pendingIds()) {
+    for (const [id, values] of server) {
       const row = rowsById[id]
-      const values = server.get(id)
-      if (row === undefined || values === undefined) continue
+      if (row === undefined) continue
       const display = displayOf(this.log, id, values)
       if (display.title !== row.title) rowsById[id] = { ...row, title: display.title }
     }
