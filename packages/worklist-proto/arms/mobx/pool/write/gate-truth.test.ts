@@ -274,6 +274,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             // catch-up) can land rows in the feed after the checker's own
             // drain. Bounded content-stable rounds with explicit feed drains;
             // a real divergence survives them and still fails loudly below.
+            const settled = await settleStep(run)
             const compareOnce = (): {
               kernel: SliceSnapshot
               actual: SliceSnapshot
