@@ -552,6 +552,59 @@ describe('correctness gate (L4b), rebuild-only', () => {
   )
 })
 
+/** Mutant A: the old own half (every explicit session, not the retained seats). */
+const oldHalfArm: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = handPoolArm.create(source, locals, reads) as HandPoolHandle
+    const inputs = handle.pool.inputs as {
+      retainedSeats(id: string): readonly string[]
+    }
+    inputs.retainedSeats = (id) => handle.pool.cellsOf(id).sessionIds
+    return handle
+  },
+}
+
+/** Mutant B: no subtree raise (the roll-up's `seatActivity` nulled). */
+const noRaiseArm: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = handPoolArm.create(source, locals, reads) as HandPoolHandle
+    const inputs = handle.pool.inputs
+    const rollup = inputs.rollup
+    inputs.rollup = (id) => {
+      const value = rollup(id)
+      return value === undefined ? value : { ...value, seatActivity: null }
+    }
+    return handle
+  },
+}
+
+/** Every visible 1x row's `activityAt` against the oracle's, the orphan excepted. */
+async function activityDiffs(arm: CheckableArm): Promise<{ rows: number; diffs: string[] }> {
+  const ctx = await startScenarioEngine(1)
+  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const handle = arm.create(feeds.rows.source, feeds.locals.source) as HandPoolHandle
+  try {
+    const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+    const ids = Object.keys(expected)
+    const orphan = ctx.corpus.unscannedWorktree.issueId
+    for (const id of ids) handle.pool.resident('issue', id)
+    handle.pool.snapshot()
+    const diffs: string[] = []
+    for (const id of ids) {
+      if (id === orphan) continue
+      const got = handle.pool.view(id)?.activityAt
+      if (got !== expected[id]!.activityAt) {
+        diffs.push(`${id}: live ${got}, oracle ${expected[id]!.activityAt}`)
+      }
+    }
+    return { rows: ids.length, diffs }
+  } finally {
+    handle.dispose()
+    feeds.dispose()
+    ctx.engine.destroy()
+  }
+}
+
 describe('own-row and one-hop fields against the oracle', () => {
   it('matches the oracle on every visible row', async () => {
     const ctx = await startScenarioEngine(1)
@@ -603,6 +656,28 @@ describe('own-row and one-hop fields against the oracle', () => {
       feeds.dispose()
       ctx.engine.destroy()
     }
+  }, 120_000)
+
+  it('holds activityAt to the oracle on every visible row, and both halves mutants fail it', async () => {
+    // Correct arm: the retained seats' latest stamp, else `updatedAt`
+    // (`rows.ts:98-116`), raised by the latest seat nested below
+    // (`rows.ts:336-339`) — exactly the oracle's on every visible row, the
+    // POD-4671 orphan excepted (its seat-fed fields include the stamp).
+    const correct = await activityDiffs(handPoolArm)
+    expect(correct.rows).toBeGreaterThan(100)
+    expect(correct.diffs, 'activityAt equals the oracle').toEqual([])
+    // Mutant A: the old own half (every explicit session). It stamps rows
+    // whose decayed sessions the legacy ignores.
+    const oldHalf = await activityDiffs(oldHalfArm)
+    expect(oldHalf.diffs.length, 'mutant A fails').toBeGreaterThan(0)
+    // Mutant B: no subtree raise. It understamps rows with seats below.
+    const noRaise = await activityDiffs(noRaiseArm)
+    expect(noRaise.diffs.length, 'mutant B fails').toBeGreaterThan(0)
+    writeResult('hand-pool-row-fields-activityAt-1x', {
+      rows: correct.rows,
+      mutantA: oldHalf.diffs.slice(0, 5),
+      mutantB: noRaise.diffs.slice(0, 5),
+    })
   }, 120_000)
 })
 
