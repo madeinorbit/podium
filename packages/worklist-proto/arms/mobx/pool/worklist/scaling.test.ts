@@ -5,35 +5,47 @@
  *
  * - STAGE MOVE files one id between two lanes (`counters.groupRuns` 1, and
  *   `counters.groupElements` exactly its group's lanes after the move), with
- *   no order re-sort and no membership flip. Its group-set writes (element
+ *   no order re-sort and no membership change. Its group-set writes (element
  *   `add`/`delete` on the named `pool.groups.*` sets, counted from outside)
- *   are at most four — out of one lane, into the other. The plants run the
- *   old whole-list layout (`layoutOf` over the visible order, touching the
- *   visible count) and re-file every visible id (touching a whole list of
- *   sets), each failing its bound.
+ *   are at most four — out of one lane, into the other. The head-rank key
+ *   order reads no per-id index (key-index reads 0) and re-evaluates at most
+ *   once; pinned ids and the latch never re-evaluate; every other group's
+ *   lanes never re-evaluate. The plants run the old whole-list layout
+ *   (`layoutOf` over the visible order, touching the visible count) and
+ *   re-file every visible id (touching a whole list of sets), each failing
+ *   its bound.
  * - CLICK (selection plus the app's mark-read of an unread keep row)
  *   re-validates zero per-node maintenance reactions
  *   (`pool.visible.<id>` / `pool.nested.<id>` / `pool.children.<id>`,
  *   counted by patching `Reaction.runReaction_` from the test): the cursor
  *   moves through the read-state lane, so only the clicked row's `unread`
- *   re-runs — and it is unobserved here, scheduling nothing. The plant
- *   replaces the row's slot the old way and schedules at least the row's own
- *   three reactions, failing the same bound.
+ *   re-runs — and it is unobserved here, scheduling nothing. The selection
+ *   marks every lane stale once (each does O(1) latch-check work off cached
+ *   lanes; nothing re-sorts, no order walks); the latch itself re-evaluates
+ *   once. The plant replaces the row's slot the old way and schedules at
+ *   least the row's own three reactions, failing the same bound.
+ *
+ * Page observers are attached throughout (keys, pinned ids, every group's
+ * lanes, like `PoolList` and the headers), and every re-evaluation counts —
+ * even one that keeps its value — through always-fire reactions, plus the
+ * key-index walk counter. Reported per scale to `mobx-scaling-4686`.
  *
  * Direct pool, no React and no engine: the harness's fence steps already hold
  * commits, reads and parity per scenario (`groups.test.tsx`,
  * `counts.test.tsx`); this file holds the SCALING of the pool's own work.
  */
 
-import { ObservableSet, Reaction, runInAction } from 'mobx'
+import { ObservableMap, ObservableSet, Reaction, reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../../harness/src/count-harness'
 import { buildCorpus } from '../../../../harness/src/fixture/index'
 import type { RowSource } from '../../../../shared/src/arm'
 import { createReadFence } from '../../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../../shared/src/locals-source'
+import { compareRank } from '../../../../shared/src/row-view'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
+import { writeResult } from '../../../../harness/src/results'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import type { MobxPool } from '../pool'
 import { tracked } from '../pool'
@@ -89,9 +101,17 @@ function corpusIssue(r: Rig, id: string): SliceIssue {
 }
 
 /** A childless, unpinned open human root in the visible order (the stage-move rule). */
-function stageTarget(pool: MobxPool): string {
+function stageTarget(pool: MobxPool): { id: string; wasHead: boolean } {
   return tracked(() => {
-    const id = [...pool.worklist.order].find((candidate) => {
+    const order = [...pool.worklist.order]
+    const groupOf = (candidate: string): string | null => {
+      for (const key of pool.groups.keys) {
+        const group = pool.groups.group(key)
+        if (group.rowIds.includes(candidate) || group.closedIds.includes(candidate)) return key
+      }
+      return null
+    }
+    const candidates = order.filter((candidate) => {
       const node = pool.worklist.issue(candidate)
       if (node === undefined) return false
       const standing = node.standing
@@ -103,8 +123,18 @@ function stageTarget(pool: MobxPool): string {
         node.childIds.length === 0
       )
     })
-    if (id === undefined) throw new Error('no childless open root in the visible order')
-    return id
+    if (candidates.length === 0) throw new Error('no childless open root in the visible order')
+    // Prefer a row that is not its group's head, so the move cannot change
+    // the group order and `keys` legitimately re-evaluates nothing.
+    for (const id of candidates) {
+      const key = groupOf(id)
+      const rank = pool.worklist.issue(id)?.rank
+      const head = key === null ? undefined : pool.groups.group(key).headRank
+      if (key !== null && rank !== undefined && head !== undefined && compareRank(rank, head) > 0) {
+        return { id, wasHead: false }
+      }
+    }
+    return { id: candidates[0]!, wasHead: true }
   })
 }
 
@@ -152,6 +182,70 @@ function maintenanceOf(runs: Map<string, number>): [string, number][] {
 }
 
 /**
+ * `ObservableMap.get` calls on one named map while `run` runs: the key-index
+ * walk counter. The old group order walked every visible id through the
+ * `pool.groups.keys` index per stage move; the head-rank order reads no
+ * per-id index at all.
+ */
+function countMapReads(name: string, run: () => void): number {
+  const proto = ObservableMap.prototype as unknown as Record<
+    'get',
+    (this: { name_?: string }, id: string) => unknown
+  >
+  const original = proto.get
+  let reads = 0
+  proto.get = function (this: { name_?: string }, id: string) {
+    if ((this.name_ ?? '') === name) reads += 1
+    return original.call(this, id)
+  }
+  try {
+    run()
+  } finally {
+    proto.get = original
+  }
+  return reads
+}
+
+/**
+ * Always-fire observers over the groups computeds the page reads
+ * (`PoolList` reads `keys` and `pinnedIds`, each header its lanes): every
+ * re-evaluation counts, even one that keeps its value. Returned with a stop
+ * function; creation settles baselines synchronously.
+ */
+function observeGroups(pool: MobxPool): { evals: Map<string, number>; stop(): void } {
+  const evals = new Map<string, number>()
+  const stops: (() => void)[] = []
+  const watch = (name: string, fn: () => unknown): void => {
+    stops.push(
+      reaction(
+        fn,
+        () => {
+          evals.set(name, (evals.get(name) ?? 0) + 1)
+        },
+        { equals: () => false, name: `audit.${name}` },
+      ),
+    )
+  }
+  watch('keys', () => pool.groups.keys)
+  watch('pinnedIds', () => pool.groups.pinnedIds)
+  watch('latchedOpenId', () => pool.groups.latchedOpenId)
+  for (const key of tracked(() => pool.groups.keys)) {
+    watch(`label:${key}`, () => pool.groups.group(key).label)
+    watch(`headRank:${key}`, () => pool.groups.group(key).headRank)
+    watch(`rowIds:${key}`, () => pool.groups.group(key).rowIds)
+    watch(`closedIds:${key}`, () => pool.groups.group(key).closedIds)
+    watch(`baseRowIds:${key}`, () => pool.groups.group(key).baseRowIds)
+    watch(`baseClosedIds:${key}`, () => pool.groups.group(key).baseClosedIds)
+  }
+  return {
+    evals,
+    stop: () => {
+      for (const stop of stops) stop()
+    },
+  }
+}
+
+/**
  * Element writes (`add`/`delete`) on the groups' named maintenance sets
  * (`pool.groups.*`) while `run` runs, counted from outside the pool
  * (POD-4686, answering the F1 exemption: this upkeep has its own bound).
@@ -189,26 +283,31 @@ describe('scaling: the work follows the change (POD-4686)', () => {
       try {
         const { pool } = r.handle
         const visible = tracked(() => pool.worklist.order.length)
-        const target = stageTarget(pool)
+        const { id: target, wasHead } = stageTarget(pool)
         const base = corpusIssue(r, target)
         const now = new Date(base.updatedAt).toISOString()
+        // The page's observers: keys, pinned ids, and every group's lanes.
+        const audit = observeGroups(pool)
         pool.stats.reset()
+        let mapReads = 0
         const sets = countGroupSets(() => {
-          r.push({
-            type: 'update',
-            rows: [
-              {
-                kind: 'issue',
-                id: target,
-                value: {
-                  ...base,
-                  stage: 'done',
-                  closedAt: now,
-                  closedReason: 'done',
-                  tuckedAt: now,
+          mapReads = countMapReads('pool.groups.keys', () => {
+            r.push({
+              type: 'update',
+              rows: [
+                {
+                  kind: 'issue',
+                  id: target,
+                  value: {
+                    ...base,
+                    stage: 'done',
+                    closedAt: now,
+                    closedReason: 'done',
+                    tuckedAt: now,
+                  },
                 },
-              },
-            ],
+              ],
+            })
           })
         })
         const { groupRuns, groupElements, orderSorts, membershipFlips } = pool.stats.counters
@@ -219,6 +318,31 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         // The filing touches one lane's sets: out of one lane, into the
         // other (a cross-bucket move touches both buckets' lanes: four).
         expect(sets, 'group set writes').toBeLessThanOrEqual(4)
+        // No key-index walk: the head-rank order reads no per-id index.
+        expect(mapReads, 'key-index reads').toBe(0)
+        // The key order re-sorts at most once (only when the move changes a
+        // head rank or a bucket membership); the pinned section and the latch
+        // never re-evaluate here.
+        const evals = audit.evals
+        expect(evals.get('keys') ?? 0, 'keys re-evaluations').toBeLessThanOrEqual(1)
+        expect(evals.get('pinnedIds') ?? 0, 'pinnedIds re-evaluations').toBe(0)
+        expect(evals.get('latchedOpenId') ?? 0, 'latch re-evaluations').toBe(0)
+        const moved = tracked(() => {
+          for (const key of pool.groups.keys) {
+            const group = pool.groups.group(key)
+            if (group.rowIds.includes(target) || group.closedIds.includes(target)) return key
+          }
+          return null
+        })
+        expect(moved, 'the moved row is still grouped').not.toBeNull()
+        for (const [name, runs] of evals) {
+          if (name === 'keys' || name === 'pinnedIds' || name === 'latchedOpenId') continue
+          if (name.endsWith(`:${moved}`)) {
+            expect(runs, `${name} re-evaluations (moved group)`).toBeGreaterThanOrEqual(1)
+          } else {
+            expect(runs, `${name} re-evaluations (other group)`).toBe(0)
+          }
+        }
         // The filing re-sorts exactly its own group's lanes.
         const lane = tracked(() => {
           for (const key of pool.groups.keys) {
@@ -258,7 +382,20 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           })
         })
         expect(refiled, 'whole-group rebuild set writes').toBeGreaterThan(4)
+        writeResult('mobx-scaling-4686', {
+          scale,
+          at: 'stageMove',
+          visible,
+          target,
+          wasHead,
+          filings: groupRuns,
+          laneMembers: groupElements,
+          setWrites: sets,
+          keyIndexReads: mapReads,
+          evals: Object.fromEntries(evals),
+        })
       } finally {
+        audit.stop()
         r.dispose()
       }
     }, 600_000)
@@ -267,9 +404,12 @@ describe('scaling: the work follows the change (POD-4686)', () => {
       const r = rig(scale)
       try {
         const { pool } = r.handle
-        const target = clickTarget(pool)
-        expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(true)
-        pool.stats.reset()
+        const audit = observeGroups(pool)
+        try {
+          const target = clickTarget(pool)
+          expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(true)
+          pool.stats.reset()
+          audit.evals.clear()
         const runs = countReactions(() => {
           r.locals.set({ selectedIssueId: target })
           r.locals.flush()
@@ -283,6 +423,21 @@ describe('scaling: the work follows the change (POD-4686)', () => {
         })
         const maintenance = maintenanceOf(runs)
         expect(maintenance, 're-validated maintenance reactions').toEqual([])
+        // The selection marks every lane stale once, and each re-evaluates
+        // doing O(1) work (the latch check; the sorted lanes stay cached).
+        // Nothing else re-evaluates: no lane re-sorts, no order walks.
+        const evals = audit.evals
+        expect(evals.get('latchedOpenId') ?? 0, 'latch re-evaluations').toBe(1)
+        expect(evals.get('keys') ?? 0, 'keys re-evaluations').toBe(0)
+        expect(evals.get('pinnedIds') ?? 0, 'pinnedIds re-evaluations').toBe(0)
+        for (const [name, count] of evals) {
+          if (name === 'latchedOpenId' || name === 'keys' || name === 'pinnedIds') continue
+          if (name.startsWith('rowIds:') || name.startsWith('closedIds:')) {
+            expect(count, `${name} re-evaluations`).toBe(1)
+          } else {
+            expect(count, `${name} re-evaluations`).toBe(0)
+          }
+        }
         // The cursor still works: the row reads as read, stays visible, files nothing.
         expect(tracked(() => pool.worklist.issue(target)?.unread)).toBe(false)
         expect(tracked(() => pool.worklist.issue(target)?.visible)).toBe(true)
@@ -314,6 +469,16 @@ describe('scaling: the work follows the change (POD-4686)', () => {
           }
         })
         expect(maintenanceOf(planted).length, 'plant re-validations').toBeGreaterThanOrEqual(3)
+        writeResult('mobx-scaling-4686', {
+          scale,
+          at: 'click',
+          target,
+          reactions: 0,
+          groupsEvals: Object.fromEntries(audit.evals),
+        })
+        } finally {
+          audit.stop()
+        }
       } finally {
         r.dispose()
       }

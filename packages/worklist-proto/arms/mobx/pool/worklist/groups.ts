@@ -31,10 +31,12 @@
  * THE LANES SORT AT VIEW TIME, PER GROUP (audit §7: Linear sorts a collection
  * when a view reads it). Each lane is a shallow-compared computed over its
  * own bucket's set and its members' ranks: a filing re-sorts only its own
- * group's lanes, so a lane change redraws only its own header. The group keys
- * come from the visible order itself (distinct keys in rank order), so they
- * move only when membership or a rank moves. The latch re-inserts a selected
- * row at its rank by comparing ranks, never through a whole-order index.
+ * group's lanes, so a lane change redraws only its own header. The group
+ * keys sort each bucket's head rank (one computed per group over its own
+ * lanes), so a move inside a bucket re-validates O(lane) plus O(groups) —
+ * never O(visible) — and usually re-runs nothing outside its bucket at all.
+ * The latch re-inserts a selected row at its rank by comparing ranks, never
+ * through a whole-order index.
  *
  * THE SNAPSHOT'S LAYOUT HAS NO SELECTION (spec §7: the oracle projects the
  * unselected baseline). The UI's lanes add the R-GROUP 5 latch
@@ -266,6 +268,7 @@ export class GroupNode {
       groups: false,
       bucket: computed,
       label: computed,
+      headRank: computed,
       baseRowIds: computed({ equals: compareShallow }),
       baseClosedIds: computed({ equals: compareShallow }),
       rowIds: computed({ equals: compareShallow }),
@@ -276,6 +279,21 @@ export class GroupNode {
   /** The filed bucket, or undefined once its last member files out. */
   private get bucket(): Bucket | undefined {
     return this.groups.bucket(this.key)
+  }
+
+  /** The rank-first member's rank, or undefined when no member has one. */
+  get headRank(): RowRank | undefined {
+    const bucket = this.bucket
+    if (bucket === undefined) return undefined
+    let best: RowRank | null = null
+    for (const lane of [bucket.open, bucket.closed] as const) {
+      for (const id of lane) {
+        const rank = this.groups.rankOf(id)
+        if (rank === undefined) continue
+        if (best === null || compareRank(rank, best) < 0) best = rank
+      }
+    }
+    return best ?? undefined
   }
 
   /** The rank-first member's label (`folds.ts:200-203`). */
@@ -356,18 +374,12 @@ export class WorklistGroups {
   private readonly nodes = new Map<string, GroupNode>()
   /** The last filed placement per visible id (plain: lanes subscribe through the sets below). */
   private readonly filed = new Map<string, Placement>()
-  /** The filed group key per grouped id (pinned ids file into the pinned set instead). */
-  private readonly filedKey: ObservableMap<string, string>
   /** The filed buckets by key, stable while non-empty. */
   private readonly buckets: ObservableMap<string, Bucket>
   /** The filed pinned ids, unordered: `pinnedIds` sorts them at view time. */
   private readonly pinnedSet: ObservableSet<string>
 
   constructor(private readonly host: GroupsHost) {
-    this.filedKey = observable.map<string, string>(undefined, {
-      deep: false,
-      name: 'pool.groups.keys',
-    })
     this.buckets = observable.map<string, Bucket>(undefined, {
       deep: false,
       name: 'pool.groups.buckets',
@@ -376,13 +388,9 @@ export class WorklistGroups {
       deep: false,
       name: 'pool.groups.pinned',
     })
-    makeObservable<
-      WorklistGroups,
-      'nodes' | 'filed' | 'filedKey' | 'buckets' | 'pinnedSet' | 'host'
-    >(this, {
+    makeObservable<WorklistGroups, 'nodes' | 'filed' | 'buckets' | 'pinnedSet' | 'host'>(this, {
       nodes: false,
       filed: false,
-      filedKey: false,
       buckets: false,
       pinnedSet: false,
       host: false,
@@ -434,14 +442,10 @@ export class WorklistGroups {
       return this.pinnedSet.size
     }
     const bucket = this.buckets.get(placement.repoKey)
-    if (bucket === undefined) {
-      this.filedKey.delete(id)
-      return 0
-    }
+    if (bucket === undefined) return 0
     bucket[laneOf(placement)].delete(id)
     const left = bucket.open.size + bucket.closed.size
     if (left === 0) this.buckets.delete(placement.repoKey)
-    this.filedKey.delete(id)
     return left
   }
 
@@ -460,7 +464,6 @@ export class WorklistGroups {
       this.buckets.set(placement.repoKey, bucket)
     }
     bucket[laneOf(placement)].add(id)
-    this.filedKey.set(id, placement.repoKey)
     return bucket.open.size + bucket.closed.size
   }
 
@@ -475,17 +478,15 @@ export class WorklistGroups {
     return rankSorted(this.pinnedSet, (id) => this.rankOf(id))
   }
 
-  /** The group keys in spec order: distinct filed keys in rank order of first member. */
+  /** The group keys in spec order: each bucket's head rank, sorted (ranks are total, L1b). */
   get keys(): readonly string[] {
-    const seen = new Set<string>()
-    const out: string[] = []
-    for (const id of this.host.order()) {
-      const key = this.filedKey.get(id)
-      if (key === undefined || seen.has(key)) continue
-      seen.add(key)
-      out.push(key)
+    const heads: { key: string; rank: RowRank }[] = []
+    for (const key of this.buckets.keys()) {
+      const rank = this.group(key).headRank
+      if (rank !== undefined) heads.push({ key, rank })
     }
-    return out
+    heads.sort((a, b) => compareRank(a.rank, b.rank))
+    return heads.map(({ key }) => key)
   }
 
   /**
@@ -563,7 +564,6 @@ export class WorklistGroups {
   clear(): void {
     this.nodes.clear()
     this.filed.clear()
-    this.filedKey.clear()
     this.buckets.clear()
     this.pinnedSet.clear()
   }
