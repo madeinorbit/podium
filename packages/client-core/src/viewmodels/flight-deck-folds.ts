@@ -1,4 +1,4 @@
-import type { FlightDeckRow } from './mission'
+import { deckSessionFacts, issueClosed, type FlightDeckRow } from './mission'
 
 /** Explicit fold choices. Missing rows keep using the shared default. */
 export type FlightDeckFoldState = 'open' | 'closed'
@@ -64,15 +64,24 @@ export function writeFlightDeckFolds(folds: FlightDeckFoldMap): string | null {
   return JSON.stringify({ v: 2, open, closed, branch, roster, native })
 }
 
-/** Resolve old issue-wide folds only when topology is known, at an explicit write. */
-export function migrateResolvedDeckFolds(folds: FlightDeckFoldMap, rows: readonly Pick<FlightDeckRow, 'issue' | 'descendantIds'>[]): Map<string, FlightDeckFoldState> {
+/** Resolve old issue-wide folds on the first explicit write. Callers pass the
+ * unfiltered tree and IDs whose child topology is fully hydrated. A recorded
+ * descendant proves a branch even before the full slice resolves; absence
+ * never proves a leaf. Missing or unresolved leaves keep their legacy entry. */
+export function migrateResolvedDeckFolds(
+  folds: FlightDeckFoldMap,
+  rows: readonly Pick<FlightDeckRow, 'issue' | 'descendantIds'>[],
+  resolvedIds: ReadonlySet<string> = new Set(),
+): Map<string, FlightDeckFoldState> {
   const next = new Map(folds)
   for (const row of rows) {
+    if (row.descendantIds.length === 0 && !resolvedIds.has(row.issue.id)) continue
     const legacy = folds.get(row.issue.id)
     if (!legacy) continue
     const kind = row.descendantIds.length > 0 ? 'branch' : 'roster'
     const key = deckFoldKey(kind, row.issue.id)
     if (!next.has(deckFoldKey('branch', row.issue.id)) && !next.has(deckFoldKey('roster', row.issue.id))) next.set(key, legacy)
+    next.delete(row.issue.id)
   }
   return next
 }
@@ -86,7 +95,10 @@ export function flightDeckBranchFolded(row: Pick<FlightDeckRow, 'issue' | 'desce
 export function flightDeckRosterFolded(row: Pick<FlightDeckRow, 'issue' | 'descendantIds' | 'sessions'>, folds: FlightDeckFoldMap): boolean {
   const explicit = folds.get(deckFoldKey('roster', row.issue.id)) ??
     (row.descendantIds.length === 0 && !folds.has(deckFoldKey('branch', row.issue.id)) ? folds.get(row.issue.id) : undefined)
-  return explicit === undefined ? (row.issue.stage === 'done' || Boolean(row.issue.closedReason) || flightDeckRowDefaultFolded(row)) : explicit === 'closed'
+  return explicit === undefined ? (issueClosed(row.issue) || flightDeckRowDefaultFolded(row)) && !row.sessions.some((session) => {
+    const facts = deckSessionFacts(row.issue, session)
+    return facts.running || facts.error !== null || facts.request
+  }) : explicit === 'closed'
 }
 
 type FoldableRow = Pick<FlightDeckRow, 'issue' | 'descendantIds' | 'sessions'>

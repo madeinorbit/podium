@@ -66,14 +66,15 @@ const asking = issue({
   parentId: asIssueId('root'),
   seq: 3,
   stage: 'review',
+  needsHuman: true,
   title: 'Asking subtask',
 })
 
-async function mount(onContentHeight: (height: number) => void = () => {}) {
+async function mount(onContentHeight: (height: number) => void = () => {}, issueList: IssueWire[] = [root, quiet, asking]) {
   return renderWithMobileStore(
     <MissionDeck
       root={root}
-      issues={[root, quiet, asking]}
+      issues={issueList}
       sessions={[]}
       allWorktreePaths={[]}
       accent="#8b5cf6"
@@ -86,11 +87,25 @@ async function mount(onContentHeight: (height: number) => void = () => {}) {
       onOpenDeparture={() => {}}
       onContentHeight={onContentHeight}
     />,
-    { issues: [root, quiet, asking] },
+    { issues: issueList },
   )
 }
 
 describe('MissionDeck view bar', () => {
+  it('keeps a contained mobile proposal in the proposal tail', async () => {
+    const proposal = issue({ id: asIssueId('mobile-proposal'), parentId: asIssueId('root'), stage: 'proposed', seq: 4, title: 'Mobile proposal' })
+    await mount(() => {}, [root, quiet, asking, proposal])
+    expect(screen.getByText('Mobile proposal')).toBeTruthy()
+    expect(screen.getByText('Proposed')).toBeTruthy()
+  })
+
+  it('keeps a proposed mobile parent with an accepted child in the spine', async () => {
+    const parent = issue({ id: asIssueId('mobile-parent'), parentId: asIssueId('root'), stage: 'proposed', seq: 4, title: 'Mobile parent' })
+    const child = issue({ id: asIssueId('mobile-child'), parentId: asIssueId('mobile-parent'), stage: 'backlog', seq: 5, title: 'Mobile child' })
+    await mount(() => {}, [root, quiet, asking, parent, child])
+    expect(screen.getByText('Mobile parent')).toBeTruthy()
+    expect(screen.getByText('Mobile child')).toBeTruthy()
+  })
   it('shows every task in Full', async () => {
     await mount()
     expect(screen.getByText('Quiet subtask')).toBeTruthy()

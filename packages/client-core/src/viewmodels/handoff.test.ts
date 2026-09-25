@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import {
   deriveHandoffNext,
   deriveHandoffNow,
+  handoffCurrentFacts,
   pairLatestPromptAndAnswer,
   reviewReturnCount,
   selectLatestPromptSession,
@@ -61,7 +62,7 @@ describe('Handoff transcript context', () => {
     expect(
       selectLatestPromptSession([
         session('older', { lastInputAt: '2026-09-01T09:00:00.000Z' }),
-        session('shell', { agentKind: 'shell', lastInputAt: '2026-09-01T12:00:00.000Z' }),
+        session('shell', { agentKind: 'shell', transcriptAvailable: false, lastInputAt: '2026-09-01T12:00:00.000Z' }),
         session('newer', { lastInputAt: '2026-09-01T11:00:00.000Z' }),
       ])?.sessionId,
     ).toBe('newer')
@@ -132,7 +133,7 @@ describe('Handoff mission derivations', () => {
         memberSessionIds: [asSessionId('s1')],
       }),
       issue('i2', { parentId: asIssueId('root'), stage: 'review' }),
-      issue('i3', { parentId: asIssueId('root'), stage: 'in_progress', blocked: true }),
+      issue('i3', { parentId: asIssueId('root'), stage: 'in_progress', blocked: true, deps: [{ id: asIssueId('i4'), type: 'blocks' }] }),
       issue('i4', { parentId: asIssueId('root'), stage: 'in_progress' }),
       issue('i5', { parentId: asIssueId('root'), stage: 'in_progress', needsHuman: true }),
     ]
@@ -153,6 +154,7 @@ describe('Handoff mission derivations', () => {
       'stalled',
       'needs-you',
     ])
+    expect(rows.find((row) => row.issueId === 'i3')?.text).toContain('POD-4')
   })
 
   it('makes a session waiting state one needs-you row', () => {
@@ -176,6 +178,31 @@ describe('Handoff mission derivations', () => {
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]?.kind).toBe('needs-you')
+  })
+
+  it('keeps idle requests, parked errors and offer plus execution as separate current facts', () => {
+    const root = issue('root', { stage: 'in_progress' })
+    const target = issue('target', { stage: 'backlog' })
+    const work = issue('work', { parentId: asIssueId('root'), stage: 'in_progress', deps: [{ id: asIssueId('target'), type: 'blocks' }] })
+    const asking = session('asking', { issueId: asIssueId('work'), agentState: { phase: 'idle', idle: { kind: 'question' } } as SessionMeta['agentState'] })
+    const errored = session('errored', { issueId: asIssueId('work'), status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error', retryable: false } } as SessionMeta['agentState'] })
+    const running = session('running', { issueId: asIssueId('work'), agentState: { phase: 'working' } as SessionMeta['agentState'], offer: { message: 'Review this', actions: [], createdAt: '2026-09-01T10:00:00.000Z' } })
+    const members = new Set(['root', 'work'])
+    const current = handoffCurrentFacts(work, [asking, errored, running], new Map([[work.id, work], [target.id, target]]), members)
+    expect(current).toMatchObject({ running: ['running'], errors: ['errored'], requests: ['asking', 'running'], taskRequest: false, openDependencies: ['target'] })
+    const now = deriveHandoffNow([root, work, target], [asking, errored, running], 'root')
+    expect(now.find((entry) => entry.issueId === 'work')?.kind).toBe('needs-you')
+    const errorOnly = deriveHandoffNow([root, work], [errored], 'root')
+    expect(errorOnly.find((entry) => entry.issueId === 'work')?.kind).toBe('error')
+  })
+
+  it('retires closed requests and active waits while keeping execution and errors', () => {
+    const root = issue('root', { stage: 'in_progress', closedReason: 'done', needsHuman: true, blocked: true, deps: [{ id: asIssueId('target'), type: 'blocks' }] })
+    const target = issue('target', { stage: 'backlog' })
+    const running = session('running', { issueId: asIssueId('root'), agentState: { phase: 'working' } as SessionMeta['agentState'], offer: { message: 'Old request', actions: [], createdAt: '2026-09-01T10:00:00.000Z' } })
+    const facts = handoffCurrentFacts(root, [running], new Map([[root.id, root], [target.id, target]]), new Set([root.id]))
+    expect(facts).toMatchObject({ running: ['running'], requests: [], taskRequest: false, openDependencies: [] })
+    expect(deriveHandoffNow([root, target], [running], 'root').find((entry) => entry.issueId === 'root')?.kind).toBe('working')
   })
 
   it('uses formal blockers and waits for the last open child before resuming a parent', () => {

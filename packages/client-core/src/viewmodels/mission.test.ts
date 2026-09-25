@@ -20,6 +20,11 @@ import {
   deckDestinationFor,
   deckIssueState,
   deckTaskFacts,
+  deckFoldHiddenFacts,
+  deckSessionFacts,
+  deckLifecycle,
+  deckDependencyNote,
+  missionDeckCensus,
   deckDependencies,
   deckSessionTree,
   deckSessionRequestsHuman,
@@ -160,6 +165,145 @@ describe('flight deck independent facts and placement', () => {
     const child = sess('child', { issueId: asIssueId('root'), spawnedBy: 'session:parent' })
     const outside = sess('outside', { issueId: asIssueId('root'), spawnedBy: 'session:other-task' })
     expect(new Map(deckSessionTree(issue('root'), [parent, child, outside]).map(({ session, depth }) => [session.sessionId, depth]))).toEqual(new Map([['parent', 0], ['child', 1], ['outside', 0]]))
+  })
+
+  it('retains accepted formal children and session grafts through proposed display parents', () => {
+    const root = issue('root', { stage: 'proposed' })
+    const proposed = issue('proposal', { stage: 'proposed', parentId: asIssueId('root') })
+    const child = issue('child', { stage: 'done', parentId: asIssueId('proposal') })
+    const grandchild = issue('grandchild', { stage: 'done', parentId: asIssueId('child') })
+    const graft = issue('graft', { parentId: undefined, startedBySession: 'author' as SessionMeta['sessionId'] })
+    const author = sess('author', { issueId: asIssueId('proposal') })
+    const all = [root, proposed, child, grandchild, graft]
+    expect(shape(buildFlightDeckRows(all, [author], 'root'))).toEqual(['root@0', 'graft@1', 'child@1', 'grandchild@2'])
+    expect(missionIssueIds(all, 'root', [author]).has('graft')).toBe(true)
+    expect(missionProgress(all, [author], 'root')).toMatchObject({ total: 2, done: 2 })
+    expect(missionProposals(all, [author], 'root').map((candidate) => candidate.issue.id)).toEqual(['proposal', 'root'])
+  })
+
+  it('collects root-only discoveries and every proposal origin once without changing membership', () => {
+    const root = issue('root', { type: 'epic' })
+    const child = issue('child', { parentId: asIssueId('root') })
+    const contained = issue('contained', { stage: 'proposed', parentId: asIssueId('root') })
+    const external = issue('external', { stage: 'proposed', deps: [{ id: asIssueId('root'), type: 'discovered-from' }] })
+    const multiple = issue('multiple', { stage: 'proposed', deps: [{ id: asIssueId('root'), type: 'discovered-from' }, { id: asIssueId('child'), type: 'discovered-from' }] })
+    const started = issue('started', { stage: 'proposed', startedBySession: 'author' as SessionMeta['sessionId'] })
+    const acceptedGraft = issue('accepted-graft', { stage: 'backlog', startedBySession: 'author' as SessionMeta['sessionId'] })
+    const author = sess('author', { issueId: asIssueId('child') })
+    const all = [root, child, contained, external, multiple, started, acceptedGraft]
+    const proposals = missionProposals(all, [author], 'root')
+    expect(proposals.map(({ issue: candidate }) => candidate.id)).toEqual(['contained', 'external', 'multiple', 'started'])
+    expect(proposals.find(({ issue: candidate }) => candidate.id === 'multiple')?.originIds).toEqual(['child', 'root'])
+    expect(missionIssueIds(all, 'root', [author]).has('external')).toBe(false)
+    expect(missionIssueIds(all, 'root', [author]).has('accepted-graft')).toBe(true)
+    expect(missionProgress(all, [author], 'root').total).toBe(1)
+    expect(missionDeckCensus(all, [author], 'root').proposals).toHaveLength(4)
+  })
+
+  it('keeps the complete proposal and departure fixture distinct across unfiltered views', () => {
+    const root = issue('root', { type: 'epic', seq: 1 })
+    const formal = issue('formal', { parentId: asIssueId('root'), seq: 2 })
+    const proposedParent = issue('proposed-parent', { parentId: asIssueId('root'), stage: 'proposed', seq: 3 })
+    const proposedNested = issue('proposed-nested', { parentId: asIssueId('proposed-parent'), stage: 'proposed', seq: 4 })
+    const acceptedChild = issue('accepted-child', { parentId: asIssueId('proposed-parent'), stage: 'done', seq: 5 })
+    const acceptedGrandchild = issue('accepted-grandchild', { parentId: asIssueId('accepted-child'), stage: 'done', seq: 6 })
+    const external = issue('external', { stage: 'proposed', seq: 7, deps: [{ id: asIssueId('root'), type: 'discovered-from' }] })
+    const started = issue('started', { stage: 'proposed', seq: 8, startedBySession: 'author' as SessionMeta['sessionId'] })
+    const multi = issue('multi', { stage: 'proposed', seq: 9, startedBySession: 'author' as SessionMeta['sessionId'], deps: [{ id: asIssueId('root'), type: 'discovered-from' }, { id: asIssueId('formal'), type: 'discovered-from' }] })
+    const graft = issue('graft', { stage: 'backlog', seq: 10, startedBySession: 'author' as SessionMeta['sessionId'] })
+    const backlogSpinOff = issue('backlog-spinoff', { stage: 'backlog', seq: 11, startedBySession: 'author' as SessionMeta['sessionId'], deps: [{ id: asIssueId('formal'), type: 'discovered-from' }] })
+    const departed = issue('departed', { stage: 'in_progress', seq: 12, startedBySession: 'author' as SessionMeta['sessionId'], deps: [{ id: asIssueId('formal'), type: 'discovered-from' }] })
+    const continuationOrigin = issue('continuation-origin', { parentId: asIssueId('root'), stage: 'done', closedReason: 'superseded', supersededBy: asIssueId('continuation-target'), seq: 13 })
+    const continuationTarget = issue('continuation-target', { stage: 'proposed', seq: 14 })
+    const departureProposal = issue('departure-proposal', { stage: 'proposed', seq: 15, deps: [{ id: asIssueId('departed'), type: 'discovered-from' }] })
+    const issues = [root, formal, proposedParent, proposedNested, acceptedChild, acceptedGrandchild, external, started, multi, graft, backlogSpinOff, departed, continuationOrigin, continuationTarget, departureProposal]
+    const author = sess('author', { issueId: asIssueId('formal') })
+    const running = sess('departure-runner', { issueId: asIssueId('departed'), agentState: workingState })
+    const proposalError = sess('proposal-error', { issueId: asIssueId('multi'), agentState: erroredState(false), offer })
+    const sessions = [author, running, proposalError]
+    const expected = ['proposed-parent', 'proposed-nested', 'external', 'started', 'multi', 'continuation-target']
+    const proposals = missionProposals(issues, sessions, 'root')
+    expect(proposals.map(({ issue: candidate }) => candidate.id)).toEqual(expected)
+    expect(new Set(proposals.map(({ issue: candidate }) => candidate.id)).size).toBe(expected.length)
+    expect(missionProposals(issues, sessions, 'departed').map(({ issue: candidate }) => candidate.id)).toEqual(['departure-proposal'])
+    expect(shape(buildFlightDeckRows(issues, sessions, 'root'))).toContain('accepted-child@1')
+    expect(shape(buildFlightDeckRows(issues, sessions, 'root'))).toContain('accepted-grandchild@2')
+    const memberIds = missionIssueIds(issues, 'root', sessions)
+    expect(memberIds.has('graft')).toBe(true)
+    expect(memberIds.has('backlog-spinoff')).toBe(true)
+    expect(memberIds.has('departed')).toBe(false)
+    expect(memberIds.has('external')).toBe(false)
+    expect(missionDepartures(issues, sessions, 'root').map(({ issue: candidate }) => candidate.id)).toContain('departed')
+    const census = missionDeckCensus(issues, sessions, 'root')
+    expect(census.errors.map(({ session }) => session.sessionId)).toEqual(['proposal-error'])
+    expect(census.requests.map(({ session }) => session.sessionId)).toEqual(['proposal-error'])
+    expect(census.crew.some(({ session }) => session.sessionId === 'departure-runner')).toBe(false)
+    for (const mode of ['full', 'working', 'needs-you'] as const) {
+      buildFlightDeckRows(issues, sessions, 'root', mode)
+      expect(missionDeckCensus(issues, sessions, 'root').proposals.map(({ issue: candidate }) => candidate.id)).toEqual(expected)
+    }
+  })
+
+  it('counts 33 of 35 accepted formal tasks and no proposed root unit', () => {
+    const root = issue('root', { stage: 'proposed', type: 'epic' })
+    const children = Array.from({ length: 29 }, (_, index) => issue(`task-${index}`, {
+      parentId: asIssueId('root'), stage: index < 27 ? 'done' : 'backlog', seq: index + 2,
+    }))
+    const grandchildren = Array.from({ length: 6 }, (_, index) => issue(`nested-${index}`, {
+      parentId: asIssueId(`task-${index}`), stage: 'done', seq: index + 31,
+    }))
+    expect(missionProgress([root, ...children, ...grandchildren], [], 'root')).toMatchObject({ total: 35, done: 33 })
+    expect(missionProgress([root], [], 'root')).toMatchObject({ total: 0, done: 0 })
+  })
+
+  it('keeps closure, dependency state, current execution, parked error and request separate', () => {
+    const closed = issue('closed', { stage: 'in_progress', closedReason: 'done', needsHuman: true, blocked: true, dependencyNote: 'Author note', blockedByNotes: ['Author note'], deps: [{ id: asIssueId('open'), type: 'blocks' }, { id: asIssueId('open'), type: 'blocks' }, { id: asIssueId('missing'), type: 'blocks' }] })
+    const open = issue('open', { stage: 'backlog' })
+    const working = sess('working', { issueId: asIssueId('closed'), agentState: workingState, offer })
+    const parkedError = sess('parked', { issueId: asIssueId('closed'), status: 'hibernated', agentState: erroredState(false) })
+    const note = deckDependencyNote(closed, new Map([[closed.id, closed], [open.id, open]]), new Set([closed.id]))
+    expect(deckLifecycle(closed)).toBe('done')
+    expect(note).toMatchObject({ label: 'Recorded dependency still open', authoredNotes: ['Author note'] })
+    expect(note.dependencies.map((dep) => dep.state)).toEqual(['unavailable', 'open'])
+    expect(deckDependencyNote(issue('notes-only', { dependencyNote: 'Recorded by the author' }), new Map(), new Set())).toMatchObject({ label: null, dependencies: [], authoredNotes: ['Recorded by the author'] })
+    expect(deckSessionFacts(closed, working)).toMatchObject({ running: true, request: false, lastRecordedRequest: true })
+    expect(deckSessionFacts(closed, parkedError)).toMatchObject({ running: false, error: 'Network error', parked: true })
+    expect(deckTaskFacts(closed, [working, parkedError])).toMatchObject({ lifecycle: 'done', running: 1, taskRequest: false })
+    expect(deckTaskFacts(closed, [working, parkedError]).errors).toHaveLength(1)
+  })
+
+  it('includes only actual asking agents in Needs you while counting offer plus work once', () => {
+    const root = issue('root')
+    const asking = sess('ask', { issueId: asIssueId('root'), agentState: { phase: 'idle', since: SINCE, nativeSubagentCount: 0, idle: { kind: 'question' } } })
+    const error = sess('error', { issueId: asIssueId('root'), agentState: erroredState(false) })
+    const workingOffer = sess('work-offer', { issueId: asIssueId('root'), agentState: workingState, offer })
+    const all = [asking, error, workingOffer]
+    const rows = buildFlightDeckRows([root], all, 'root', 'needs-you')
+    expect(deckSessions(rows[0] as FlightDeckRow, 'needs-you').map((session) => session.sessionId)).toEqual(['ask', 'work-offer'])
+    const census = missionDeckCensus([root], all, 'root')
+    expect(census.crew).toHaveLength(3)
+    expect(census.running).toHaveLength(1)
+    expect(census.errors).toHaveLength(1)
+    expect(census.requests).toHaveLength(2)
+  })
+
+  it('reports only the signals actually hidden by branch and roster folds', () => {
+    const root = issue('root')
+    const child = issue('child', { parentId: asIssueId('root'), needsHuman: true })
+    const own = sess('own', { issueId: asIssueId('root'), agentState: workingState })
+    const error = sess('error', { issueId: asIssueId('child'), agentState: erroredState(false) })
+    const rows = buildFlightDeckRows([root, child], [own, error], 'root')
+    const rootRow = rows[0] as FlightDeckRow
+    expect(deckFoldHiddenFacts(rootRow, rows, { branchClosed: true, rosterClosed: false })).toMatchObject({
+      branch: { running: 0, errors: 1, requests: 1 },
+      roster: { running: 0, errors: 0, requests: 0 },
+      total: { running: 0, errors: 1, requests: 1 },
+    })
+    expect(deckFoldHiddenFacts(rootRow, rows, { branchClosed: false, rosterClosed: true })).toMatchObject({
+      branch: { running: 0, errors: 0, requests: 0 },
+      roster: { running: 1, errors: 0, requests: 0 },
+      total: { running: 1, errors: 0, requests: 0 },
+    })
   })
 })
 
