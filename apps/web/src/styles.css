@@ -12146,6 +12146,20 @@ button.waterfall-fold:hover {
   margin-top: clamp(14px, 3.4dvh, 30px);
 }
 
+/* The tip shares the prompt's text inset but has its own reading measure. */
+.cold-start-tip {
+  max-width: 72ch;
+  margin-top: 24px;
+  margin-inline: 22px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.cold-start-tip blockquote {
+  margin: 12px 0 0;
+}
+
 /* ── THE WELL'S TWO HEIGHTS [POD-1469] ───────────────────────────────────────
    The box has a CLI mode and a prompt mode (see ColdStartComposer), and the
    fold starts from the two explicit heights below. Once open,
