@@ -246,6 +246,14 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           onStep: async (step, run) => {
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
+            // TEMPORARY diagnosis (removed before landing): skipped steps.
+            if (step.skipped !== undefined) {
+              const { appendFileSync } = await import('node:fs')
+              appendFileSync(
+                '/tmp/skipped.txt',
+                `seed ${seed} step ${step.index} ${String(step.change.kind)} skipped: ${step.skipped}\n`,
+              )
+            }
             const last = step.index === sequence.length - 1
             if ((step.index + 1) % 10 !== 0 && !last) return
             oracleChecks += 1
@@ -275,7 +283,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         if (!result.ok) {
           throw new Error(
             `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
-              `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}`,
+              `shrunk (${result.shrunk.length} changes):\n${describeSequence(result.shrunk)}\n` +
+              `counts=${JSON.stringify(result.counts)}`,
           )
         }
         if (firstDiff !== null) {
