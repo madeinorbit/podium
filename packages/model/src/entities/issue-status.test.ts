@@ -3,6 +3,7 @@ import {
   ALL_ISSUE_STATUSES,
   canonicalIssueCloseReason,
   ISSUE_STATUS_LABELS,
+  issueStatusControlLabel,
   issueStatusIntent,
   issueStatusLabel,
   issueStatusMenuEntries,
@@ -57,8 +58,15 @@ describe('status projection', () => {
   it('reads an unrecognized reason as closed, and shows the raw word', () => {
     expect(issueStatusOf({ stage: 'done', closedReason: 'shipped' })).toBe('done')
     expect(issueStatusLabel({ stage: 'done', closedReason: 'shipped' })).toBe('Shipped')
+    expect(issueStatusControlLabel({ stage: 'done', closedReason: 'shipped' })).toBe('Done')
     expect(issueStatusLabel({ stage: 'done', closedReason: 'wontfix' })).toBe('Cancelled')
     expect(issueStatusLabel({ stage: 'planning' })).toBe('Planning')
+  })
+
+  it('keeps a narrative close reason out of status controls', () => {
+    const row = { stage: 'done' as const, closedReason: 'Delivered to the team after 36 tasks.' }
+    expect(issueStatusLabel(row)).toBe(row.closedReason)
+    expect(issueStatusControlLabel(row)).toBe('Done')
   })
 })
 

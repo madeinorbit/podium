@@ -1,6 +1,7 @@
 import {
   type IssueStatusFields,
   isSystemOwnedIssueStage,
+  issueStatusControlLabel,
   issueStatusLabel,
   issueStatusMenuEntries,
   issueStatusOf,
@@ -67,7 +68,8 @@ export function IssueStatusPicker({
   onPick: (value: string) => void
 }): JSX.Element {
   const status = issueStatusOf(issue)
-  const label = issueStatusLabel(issue)
+  const label = issueStatusControlLabel(issue)
+  const detail = issueStatusLabel(issue)
   // Shipping custody is the service's, not the operator's — the same rule the
   // panel dock states by disabling its status pill. The row still shows its
   // status; it just is not a door, and saying so in the tooltip beats opening a
@@ -76,7 +78,7 @@ export function IssueStatusPicker({
     return (
       <span
         className={cn('grid flex-none place-items-center', className)}
-        title={`${label} · handled by the shipping service`}
+        title={`${detail} · handled by the shipping service`}
       >
         <StatusGlyph status={status} size={size} />
       </span>
@@ -95,7 +97,7 @@ export function IssueStatusPicker({
             tabIndex={0}
             data-testid="issue-status-picker"
             aria-label={`Status: ${label}`}
-            title={`${label} — change status`}
+            title={`${detail} — change status`}
             className={cn(
               '-m-[4px] grid flex-none cursor-pointer place-items-center rounded-[5px] p-[4px]',
               'transition-colors hover:bg-hairline-soft',

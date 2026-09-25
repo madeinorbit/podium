@@ -14,7 +14,7 @@ import {
   type IssueBoardStage,
   type IssueCloseReason,
   type IssueWire,
-  issueStatusLabel,
+  issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
@@ -258,7 +258,7 @@ export function IssuesScreen() {
                 },
                 {
                   label: 'Status…',
-                  meta: issueStatusLabel(rowMenu.issue),
+                  meta: issueStatusControlLabel(rowMenu.issue),
                   onPress: () => setRowMenu({ issue: rowMenu.issue, kind: 'status' }),
                 },
                 {

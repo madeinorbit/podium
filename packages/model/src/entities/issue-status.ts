@@ -238,6 +238,11 @@ export function issueStatusLabel(row: IssueStatusFields): string {
   return ISSUE_STATUS_LABELS[issueStatusOf(row)]
 }
 
+/** A picker names the selectable status, not an arbitrary free-text close reason. */
+export function issueStatusControlLabel(row: IssueStatusFields): string {
+  return ISSUE_STATUS_LABELS[issueStatusOf(row)]
+}
+
 // ---------------------------------------------------------------------------
 // Pickers
 // ---------------------------------------------------------------------------

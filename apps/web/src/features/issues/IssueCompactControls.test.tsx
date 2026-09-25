@@ -164,6 +164,17 @@ const unstarted = (over: Parameters<typeof makeIssue>[0] = {}) =>
   makeIssue({ id: 'i', stage: 'backlog', worktreePath: null, ...over })
 
 describe('IssueCompactControls', () => {
+  it('keeps a narrative close reason out of the status trigger', () => {
+    const reason = 'Delivered to the team after 36 tasks and many agent sessions.'
+    render(<IssueCompactControls issue={makeIssue({ id: 'i', stage: 'done', closedReason: reason })} />)
+
+    const status = screen.getByRole('button', { name: 'Status' })
+    expect(status.textContent).toContain('Done')
+    expect(status.textContent).not.toContain(reason)
+    expect(status.title).toBe(reason)
+    expect(screen.getByRole('button', { name: 'Reopen issue' })).toBeTruthy()
+  })
+
   it('carries no chip at all when the task needs a human', () => {
     mockSessions = [session({ sessionId: 'coord' })]
     render(<IssueCompactControls issue={makeIssue({ id: 'i', needsHuman: true })} />)

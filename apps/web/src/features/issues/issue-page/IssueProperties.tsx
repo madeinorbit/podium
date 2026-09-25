@@ -60,7 +60,7 @@ import { shallowEqual } from '@podium/client-core'
 import {
   type IssueId,
   IssueType,
-  issueStatusLabel,
+  issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
@@ -183,7 +183,7 @@ export function IssueProperties({
             trigger={
               <TriggerButton disabled={busy} testId="status-trigger">
                 <StatusGlyph status={issueStatusOf(issue)} />
-                {issueStatusLabel(issue)}
+                {issueStatusControlLabel(issue)}
               </TriggerButton>
             }
           />
