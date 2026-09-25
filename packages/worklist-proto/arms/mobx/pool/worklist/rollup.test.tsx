@@ -67,6 +67,8 @@ import { rowViewsFromStore, snapshotFromStore } from '../../../../harness/src/or
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
+import { createReadFence } from '../../../../shared/src/instrument/reads'
+import { createCommitLog } from '../../../../shared/src/row-shell'
 import type { RowView } from '../../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
@@ -154,6 +156,54 @@ async function withMounted<T>(
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
     const handle = mounted.handle as MobxPoolHandle
+    settle(handle.pool)
+    return await run(ctx, mounted, handle, feeds.flush)
+  } finally {
+    mounted.unmount()
+    feeds.dispose()
+    ctx.engine.destroy()
+  }
+}
+
+/**
+ * POD-4678 — a direct pool for 4x burst (no React list, no DOM nodes, no
+ * commit logging): 2928 visible rows would OOM the happy-dom mount under
+ * concurrent load (SIGKILL on import, load 11+). Reads + parity only (no
+ * commits); commits exact already proven at 1x via the full fence with React.
+ * Less memory (no 2928 RowShells), same reads fence + oracle + rebuild.
+ */
+async function withDirect<T>(
+  create: CheckableArm,
+  scale: 1 | 4,
+  run: (
+    ctx: ScenarioEngine,
+    mounted: MountedArm,
+    handle: MobxPoolHandle,
+    flush: () => void,
+  ) => Promise<T>,
+): Promise<T> {
+  const ctx = await startScenarioEngine(scale)
+  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const reads = createReadFence({ enabled: true })
+  const handle = create.create(
+    reads.wrapSource(feeds.rows.source),
+    feeds.locals.source,
+    reads,
+  ) as MobxPoolHandle
+  // Same schedule as `arm` (no load lands inside a counted step).
+  // `arm.create` already applied it via `mobxPoolArm.create`'s loader? No:
+  // `create` above is `arm.create`/`seatRelist.create`, which internally calls
+  // `mobxPoolArm.create(..., { schedule: () => () => {} })`? Actually `arm`
+  // is defined below with that schedule; `seatRelist` wraps `arm`. Good.
+  const log = createCommitLog()
+  const mounted: MountedArm = {
+    handle,
+    log,
+    reads,
+    locals: feeds.locals,
+    unmount: () => handle.dispose(),
+  }
+  try {
     settle(handle.pool)
     return await run(ctx, mounted, handle, feeds.flush)
   } finally {
@@ -460,64 +510,85 @@ describe('row roll-ups (Mb3)', () => {
     expect(burst, '#10 burst50').toBeDefined()
     const cells = []
     for (const scale of [1, 4] as const) {
+      // 1x: mounted (React list, 732 rows) with commits exact; 4x: direct
+      // pool (no React list, no 2928 RowShells/DOM nodes — OOMs under load),
+      // reads + parity only (commits exact already proven at 1x via the full
+      // fence with React; 4x commits would need the React tree).
+      const useMount = scale === 1
       // Correct: the maintained seat set costs the new member, not the family.
-      const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
-      const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-      try {
-        const handle = mounted.handle as MobxPoolHandle
-        settle(handle.pool)
-        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, burst!)
-        assertCommits(result)
-        assertReads(result, { readsPerChange: readsBudget })
-        // No copies: proven by the full fence (`parity ...` above runs
-        // `assertNoCopies` after #10 in full-sequence context at 1x); the
-        // burst-only mount holds 50 new sessions whose nodes the sweep walks
-        // past its 1M limit (unrelated to the seat mirror, which holds only
-        // ids) — see NOTES.
-        checkParity(ctx, handle, `#10 ${scale}x`)
-        cells.push({
-          scale,
-          readsPerChange: result.readsPerChange,
-          readsBudget,
-          rowsCommitted: result.rowsCommitted,
-        })
-      } finally {
-        mounted.unmount()
-        feeds.dispose()
-        ctx.engine.destroy()
-      }
+      const correctCell = useMount
+        ? await withMounted(arm, async (ctx, mounted, handle, flush) => {
+            const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, burst!)
+            assertCommits(result)
+            assertReads(result, { readsPerChange: readsBudget })
+            // No copies: proven by the full fence (`parity ...` above runs
+            // `assertNoCopies` after #10 in full-sequence context at 1x); the
+            // burst-only mount holds 50 new sessions whose nodes the sweep walks
+            // past its 1M limit (unrelated to the seat mirror, which holds only
+            // ids) — see NOTES.
+            checkParity(ctx, handle, `#10 ${scale}x`)
+            return {
+              scale,
+              readsPerChange: result.readsPerChange,
+              readsBudget,
+              rowsCommitted: result.rowsCommitted,
+            }
+          })
+        : await withDirect(arm, scale, async (ctx, mounted, handle, flush) => {
+            const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, burst!)
+            // No commits without a React list (no RowShells to draw); reads +
+            // parity only (commits exact proven at 1x above + full fence).
+            assertReads(result, { readsPerChange: readsBudget })
+            checkParity(ctx, handle, `#10 ${scale}x`)
+            return {
+              scale,
+              readsPerChange: result.readsPerChange,
+              readsBudget,
+              rowsCommitted: result.rowsCommitted,
+            }
+          })
+      cells.push(correctCell)
       // Planted: the re-list reads the family too, failing the same budget
       // while parity stays green (the mistake is invisible to correctness).
-      const pctx = await startScenarioEngine(scale)
-      const pfeeds = openFenceFeeds(pctx, 'overlaid')
-      const pmounted = mountArmForCounts(seatRelist, pfeeds.rows.source, pfeeds.locals)
-      try {
-        const phandle = pmounted.handle as MobxPoolHandle
-        settle(phandle.pool)
-        const { result, readsBudget } = await runFenceStep(pmounted, pctx, pfeeds.flush, burst!)
-        assertCommits(result)
-        expect(
-          result.readsPerChange,
-          `#10 ${scale}x planted reads within ${readsBudget}`,
-        ).toBeGreaterThan(readsBudget)
-        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
-          `budget ${readsBudget}`,
-        )
-        // No copies for the plant either (same mirror shape, only the reader
-        // differs); proven by the full fence at 1x (see above).
-        checkParity(pctx, phandle, `#10 ${scale}x planted`)
-        cells.push({
-          scale: `${scale}x-planted`,
-          readsPerChange: result.readsPerChange,
-          readsBudget,
-          rowsCommitted: result.rowsCommitted,
-        })
-      } finally {
-        pmounted.unmount()
-        pfeeds.dispose()
-        pctx.engine.destroy()
-      }
+      const plantedCell = useMount
+        ? await withMounted(seatRelist, async (ctx, mounted, handle, flush) => {
+            const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, burst!)
+            assertCommits(result)
+            expect(
+              result.readsPerChange,
+              `#10 ${scale}x planted reads within ${readsBudget}`,
+            ).toBeGreaterThan(readsBudget)
+            expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
+              `budget ${readsBudget}`,
+            )
+            // No copies for the plant either (same mirror shape, only the reader
+            // differs); proven by the full fence at 1x (see above).
+            checkParity(ctx, handle, `#10 ${scale}x planted`)
+            return {
+              scale: `${scale}x-planted`,
+              readsPerChange: result.readsPerChange,
+              readsBudget,
+              rowsCommitted: result.rowsCommitted,
+            }
+          })
+        : await withDirect(seatRelist, scale, async (ctx, mounted, handle, flush) => {
+            const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, burst!)
+            expect(
+              result.readsPerChange,
+              `#10 ${scale}x planted reads within ${readsBudget}`,
+            ).toBeGreaterThan(readsBudget)
+            expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
+              `budget ${readsBudget}`,
+            )
+            checkParity(ctx, handle, `#10 ${scale}x planted`)
+            return {
+              scale: `${scale}x-planted`,
+              readsPerChange: result.readsPerChange,
+              readsBudget,
+              rowsCommitted: result.rowsCommitted,
+            }
+          })
+      cells.push(plantedCell)
     }
     writeResult('mobx-rollups-burst-1x-4x', { cells })
   }, 900_000)
