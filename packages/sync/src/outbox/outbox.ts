@@ -677,6 +677,9 @@ export class Outbox {
       if (outcome.retire === true) {
         try {
           await this.applyTerminal(sending)
+          // Strictly after durability (this issue): anything the verdict
+          // announces must not outrun the commit a reload could still race.
+          outcome.onCommitted?.()
         } catch (error) {
           if (
             error instanceof OutboxStaleError ||

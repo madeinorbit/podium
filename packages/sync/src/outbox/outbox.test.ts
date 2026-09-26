@@ -206,6 +206,68 @@ describe('local ack, acceptance and application are three distinct events', () =
     expect(outbox.all()).toEqual([])
     expect(store.durable()).toEqual([])
   })
+
+  it('announces a terminal verdict strictly after its retire commits (this issue)', async () => {
+    // The announcement (a toast, a badge) must not outrun the commit a reload
+    // could still race: a reload between the reply and the retire reconciles
+    // `sending` back to `queued` and POSTs the dead message again. Firing
+    // `onCommitted` after durability means navigating away on the announcement
+    // can never race the commit it announces.
+    const announced: string[] = []
+    const { outbox, store } = await harness(() => ({
+      kind: 'applied',
+      retire: true,
+      onCommitted: () => {
+        announced.push('verdict')
+      },
+    }))
+    const record = await outbox.enqueue(close('POD-1'))
+
+    await outbox.drain()
+
+    expect(announced).toEqual(['verdict'])
+    // And at that point the entry is durably gone, not just missing in memory.
+    expect(store.durable()).toEqual([])
+  })
+
+  it('withholds the terminal announcement when the verdict commit does not land', async () => {
+    // A commit that never lands announces nothing: the requeue (backoff, then
+    // the same id re-POSTed and deduped by receipt) announces on its own
+    // landing instead. Otherwise the operator is told the entry resolved while
+    // a reload can still resurrect it.
+    const announced: string[] = []
+    const store = new InMemoryOutboxStore()
+    let verdictCommits = 0
+    const origApply = store.apply.bind(store)
+    store.apply = (async (mutation, span) => {
+      const removes = (mutation.remove ?? []).length > 0
+      verdictCommits += removes ? 1 : 0
+      if (removes && verdictCommits === 1) throw new Error('transient durability failure')
+      return await origApply(mutation, span)
+    }) as typeof store.apply
+    const clock = new ManualClock()
+    const { outbox } = await harness(
+      () => ({
+        kind: 'applied',
+        retire: true,
+        onCommitted: () => {
+          announced.push('verdict')
+        },
+      }),
+      { store, clock },
+    )
+    const record = await outbox.enqueue(close('POD-1'))
+
+    await outbox.drain()
+    expect(announced).toEqual([])
+    expect(outbox.find(record.mutationId)?.state).toBe('queued')
+
+    clock.advance(60_000)
+    await outbox.drain()
+    expect(announced).toEqual(['verdict'])
+    expect(outbox.find(record.mutationId)).toBeUndefined()
+    expect(store.durable()).toEqual([])
+  })
 })
 
 describe('automatic bookkeeping retirement', () => {

@@ -423,23 +423,40 @@ export async function openKernelEngineOutbox(
         // and POST it again. The executor reports these through hooks (it owns
         // the reading of the reply); the flag here only carries that reading
         // to the kernel's terminal outcome.
-        const terminal = { resolved: false }
+        //
+        // The announcement waits for the commit (this issue): the hook fires on
+        // the reply, but the retire lands an async store commit later, and a
+        // reload between the two re-reads `sending`, reconciles it back to
+        // `queued`, and POSTs the dead message again behind a queued banner.
+        // `onCommitted` runs strictly after durability, so navigating away on
+        // the notice can never race the commit it announces. A commit that
+        // never lands announces nothing; the retry announces on its own
+        // landing instead (deduped below, still once per id per session).
+        const terminal = { resolved: false, goneInput: undefined as OutboxKinds['resumeAndSend'] | undefined }
         try {
           await submit(options.api, envelope, {
             sessionGone: (input) => {
               terminal.resolved = true
-              if (!noticedGone.has(envelope.mutationId)) {
-                noticedGone.add(envelope.mutationId)
-                adapter?.sessionGone(input)
-              }
+              terminal.goneInput = input
             },
             stoppedSend: () => {
               terminal.resolved = true
             },
           })
-          return terminal.resolved
-            ? ({ kind: 'applied', retire: true } satisfies OutboxSubmitOutcome)
-            : ({ kind: 'applied' } satisfies OutboxSubmitOutcome)
+          if (!terminal.resolved) return { kind: 'applied' } satisfies OutboxSubmitOutcome
+          const goneInput = terminal.goneInput
+          return {
+            kind: 'applied',
+            retire: true,
+            onCommitted: goneInput
+              ? () => {
+                  if (!noticedGone.has(envelope.mutationId)) {
+                    noticedGone.add(envelope.mutationId)
+                    adapter?.sessionGone(goneInput)
+                  }
+                }
+              : undefined,
+          } satisfies OutboxSubmitOutcome
         } catch (error) {
           const refusal = classifyRefusal(error)
           return refusal === undefined ? { kind: 'unreachable' } : { kind: 'rejected', refusal }

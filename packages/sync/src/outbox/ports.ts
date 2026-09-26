@@ -65,6 +65,19 @@ export type OutboxSubmitOutcome =
        * anything else): the ordinary applied path, unchanged.
        */
       readonly retire?: true
+      /**
+       * Runs after the verdict's own commit lands (this issue). A terminal
+       * reply is REPORTED the moment it arrives but only DURABLE once its
+       * retire commits — and anything the verdict announces (a toast, a badge)
+       * sent between those two moments teaches the operator the entry is
+       * resolved while a reload can still resurrect it: the new kernel reads
+       * `sending`, reconciles it back to `queued`, and POSTs it again. Firing
+       * the announcement here — strictly after durability — means navigating
+       * away on the announcement can never race the commit it announces.
+       * Never runs when the commit does not land (requeue, loud failure): the
+       * retry announces on its own landing instead.
+       */
+      readonly onCommitted?: () => void
     }
   /** A DEFINITIVE refusal — policy, conflict or validation, never transport. */
   | { readonly kind: 'rejected'; readonly refusal: AuthorityRefusal }

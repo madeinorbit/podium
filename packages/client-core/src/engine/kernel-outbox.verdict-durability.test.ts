@@ -23,14 +23,19 @@
  *   server dedupes it by receipt (ADR 3 D11.7) without re-running, reports the
  *   same dead letter, and the second retire lands. One extra POST on the wire,
  *   harmless server-side, and no reload replay.
- * - the engine shows the "session no longer exists" notice once per id in this
- *   session. Without it the same-session retry would toast twice for one
- *   message.
+ * - the engine announces the "session no longer exists" notice strictly AFTER
+ *   the verdict commit lands, never on the reply. Announcing on the reply
+ *   teaches the operator the entry is resolved while a reload can still
+ *   resurrect it; announcing after durability means navigating away on the
+ *   notice can never race the commit it announces. A commit that never lands
+ *   announces nothing — the retry announces on its own landing instead, still
+ *   once per id per session.
  *
  * The test runs the live flow with a store that drops the verdict commit once:
- * offline enqueue, online drain (notice, verdict commit fails), clock past
- * backoff, same-session retry (second POST, retires), remount from the same
- * persisted store (no third POST, no banner, no second notice).
+ * offline enqueue, online drain (no notice yet — the commit did not land),
+ * clock past backoff, same-session retry (second POST, retires, one notice),
+ * remount from the same persisted store (no third POST, no banner, no second
+ * notice).
  */
 
 import { asMutationId, asSessionId, UNADDRESSABLE_SEND_REASON } from '@podium/model'
@@ -141,21 +146,22 @@ describe('a dead-letter verdict that does not reach durability', () => {
     online = true
     await first.drain()
 
-    // The verdict was reported (the operator was told) but its commit did not
-    // land: the entry is requeued with backoff, not stuck in `sending` until
-    // a reload replays it. One notice for the verdict, not zero (lost) and
-    // the retry must not toast again.
-    expect(errors).toEqual([expect.stringMatching(/not sent.*session no longer exists/i)])
+    // The verdict was reported by the server but its commit did not land: the
+    // entry is requeued with backoff, not stuck in `sending` until a reload
+    // replays it — and nothing is announced yet, because announcing on the
+    // reply would teach the operator the entry is resolved while a reload can
+    // still resurrect it. One announcement, on the landing retry below.
+    expect(errors).toEqual([])
     expect(first.pending().map((entry) => entry.mutationId)).toEqual(['msg_gone'])
     expect(first.size()).toBe(1)
 
     // Past backoff, the same session retries: the same id POSTs again (the
     // server dedupes it by receipt without re-running), the retire lands, and
-    // the retry does not toast a second time.
+    // the landing announces the verdict — once, not twice.
     clock.advance(60_000)
     await first.drain()
     expect(sends).toEqual(['msg_gone', 'msg_gone'])
-    expect(errors).toHaveLength(1)
+    expect(errors).toEqual([expect.stringMatching(/not sent.*session no longer exists/i)])
     expect(first.pending()).toEqual([])
     expect(first.size()).toBe(0)
     expect(first.deadLetters()).toEqual([])
