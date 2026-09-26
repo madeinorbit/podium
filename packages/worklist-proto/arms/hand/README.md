@@ -185,12 +185,13 @@ tables go on holding BORROWED server rows, never a copy and never edited.
 - **The rebuild is optimism-aware.** `rebuildFromScratch` overlays the pending
   display onto the feed's server rows before deriving, so a gate with pending
   edits outstanding compares pending with pending — never with server truth.
-- **The phase-c gate** waits for Mc2's shared adapter
-  (`shared/src/gen/arm-edits.ts`) and reference overlay oracle
-  (`shared/src/gen/write-oracle.ts`): generated edits will call the live
-  arm's `write.edit` on the `truth` feed, as the MobX arm's Hc2 gate does.
-  Until then `pool/write/gate-with-edits.test.ts` holds the phase-a/b gate
-  with the layer attached but idle.
+- **The phase-c gate** (`pool/write/gate-truth.test.ts`) plugs the arm into
+  Mc2's shared adapter (`shared/src/gen/arm-edits.ts`) and reference overlay
+  oracle (`shared/src/gen/write-oracle.ts`): generated edits call the live
+  arm's `write.edit` on the `truth` feed, compared every step with the
+  optimism-aware rebuild and every 10th with the oracle; the kernel fold is
+  a counted finding, never expected values. `pool/write/gate-with-edits.test.ts`
+  keeps holding the phase-a/b gate with the layer attached but idle.
 
 Tests: `pool/write/edit.test.tsx` (paint, rewind, order, mark-read,
 stacking, the rewind-to-current plant), `pool/write/settle.test.tsx` (echo
