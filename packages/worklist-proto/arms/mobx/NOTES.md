@@ -1442,3 +1442,12 @@ mailed POD-4286 for MobX-first ordering per the addendum.
 - Attribution in hand: bootstrap spy counts at 6eda2826e (lazy 212,855
   observables at 1x, 73.2% IssueNode = one node + 4 firing reactions per
   KNOWN issue at every `replace`, cold ones included).
+
+### Mc3 15:45 UTC: still queued
+
+Coordinator suite overrunning (~85 min past the ~2 h estimate); queue
+position #1 held, flatblock quiet (load ~2.2). Matrix + first-paint both
+alive and waiting. Audit §6/§7 re-read: G6 is this issue's gate; the audit
+already names the mechanism ("every issue is instantiated at bootstrap,
+including ~2,600 closed ones") with Linear's fix direction (observability on
+first access).
