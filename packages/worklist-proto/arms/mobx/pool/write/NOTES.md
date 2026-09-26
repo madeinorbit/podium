@@ -153,9 +153,12 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
   result files byte-identical (diff empty, both runs 3/3 ok, 20 oracle
   checks each, 0 failed, 0 healed; kernelDiffers 0/0/1). No Date.now()
   remains in the gate path.
-- 20 × 300 GATE GREEN (2026-09-26, ludovico foreground, ~107 min): 20/20
-  seeds, 30 oracle checks each, 0 failed, 0 healed; plants
-  (a)/(c)-fixed/(c)-random/(i)/(ii)/(iii) all pass in the same file.
+- 20 × 300 GATE GREEN (2026-09-26, post-rebase d65eefe83 onto
+  integrate/4545-round-three, foreground, 4 chunks of 5 seeds): 20/20
+  seeds, 30 oracle checks each, 0 failed, 0 healed; kernelDiffers per
+  seed 1–20: 0,0,4,1,0,0,6,0,0,2,0,4,1,7,2,0,9,0,1,0 (first example
+  per seed in the result files). Full file 7/7 green at 3×200 on the
+  same tree: clean gate + plants (a)/(c)-fixed/(c)-random/(i)/(ii)/(iii).
   kernelDiffers tallied per seed (0–8, first example per seed in the result
   file): accept-after-remote holds, chained holds, reject shapes — the
   legacy flicker the prototype removes, for the decision document
