@@ -109,6 +109,7 @@ import { type HandPoolHandle, handPoolArm } from './arm'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { rebuildSnapshot, rebuildViews } from './rebuild'
 import type { Residency } from './residency'
+import { VISIBLE_RULES, type VisibleInputs, type VisibleParts } from './worklist/visible'
 
 const FIRST_SEED = Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1)
 const SEEDS = Array.from(
@@ -749,4 +750,142 @@ describe('visible order against the oracle (Hb1)', () => {
     },
     GATE_TIMEOUT_MS,
   )
+})
+
+/**
+ * POD-4681 — the three R-VIS plants as PERMANENT tests. Each planted mistake
+ * runs a default 3x200 against the shared oracle (the same `orderChecked`
+ * comparison as Hb1) and must FAIL every seed: the forced prefix
+ * (`excludedKeeper`, `orphanInWorktree`, `draftVesselStarter`) reaches the
+ * branch on every seed, so a plant that stops failing means the shape no
+ * longer reaches it. Each plant is installed in memory and restored in a
+ * `finally` (a copy of the rule where the rule is more than a line); arm
+ * files on disk are never touched.
+ */
+describe('visibility plants against the oracle (POD-4681)', () => {
+  /** Copy of `ownerOf` (`worklist/visible.ts`) for the draft plant below. */
+  function plantOwnerOf(input: VisibleInputs, sessionId: string): string | null {
+    const session = input.session(sessionId)
+    if (session === undefined) return null
+    if (!session.resident) {
+      const link = session.issueLink
+      if (link === null || input.issue(link)?.present !== true) return null
+      const retention = session.retention
+      return retention !== null && !retention.archived && retention.issueId === link ? link : null
+    }
+    const retention = session.retention
+    if (retention === null || retention.archived) return null
+    if (retention.issueId !== undefined) {
+      const issueId = session.issueLink
+      return issueId !== null &&
+        issueId === retention.issueId &&
+        input.issue(issueId)?.present === true
+        ? issueId
+        : null
+    }
+    const worktree = session.worktreeLink
+    if (worktree === null) return null
+    let owner: string | null = null
+    for (const issueId of input.relations.many('worktree', worktree, 'issues')) {
+      if (owner !== null && issueId > owner) continue
+      const issue = input.issue(issueId)
+      if (issue?.present === true && issue.standing?.excluded === false) owner = issueId
+    }
+    return owner
+  }
+
+  /** Copy of the `nestParent` rule without the draft-vessel exception. */
+  function plantNestParentNoDraft(input: VisibleInputs, id: string, self: VisibleParts): string | null {
+    if (!self.present) return null
+    const standing = self.standing
+    if (standing === undefined) return null
+    const seen = new Set<string>([id])
+    let parentId = standing.parentId
+    while (parentId !== null) {
+      if (seen.has(parentId)) return null
+      seen.add(parentId)
+      const parent = input.issue(parentId)
+      if (parent === undefined) break
+      if (parent.present) return parentId
+      parentId = parent.parentLink
+    }
+    if (standing.parentId !== null || standing.startedBy === null) return null
+    const owner = plantOwnerOf(input, standing.startedBy)
+    if (owner === null || owner === id) return null
+    return owner
+  }
+
+  async function expectPlant(
+    install: () => void,
+    restore: () => void,
+    want: { snapshot: number; missing: string; extra: string },
+  ): Promise<void> {
+    install()
+    try {
+      for (const seed of SEEDS) {
+        const sequence = gen(seed, STEPS)
+        const arm = orderChecked()
+        let failure: string | null = null
+        try {
+          const result = await checkArm(arm, sequence, { oracleEvery: 0, shrink: false })
+          if (!result.ok) failure = `step ${result.step} (${result.against}): ${result.diff}`
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure, `seed ${seed}: plant not caught`).not.toBeNull()
+        if (seed === FIRST_SEED) {
+          expect(failure as string).toContain(`snapshot ${want.snapshot}`)
+          if (want.missing) expect(failure as string).toContain(want.missing)
+          if (want.extra) expect(failure as string).toContain(want.extra)
+        }
+      }
+    } finally {
+      restore()
+    }
+  }
+
+  it('plant keeps ignoring excluded fails every seed', async () => {
+    const original = VISIBLE_RULES.keeps
+    const rules = VISIBLE_RULES as unknown as { keeps: typeof original }
+    await expectPlant(
+      () => {
+        rules.keeps = (_input: VisibleInputs, _id: string, self: VisibleParts) => {
+          if (!self.flat && !self.keptBelow) return false
+          return self.standing !== undefined
+        }
+      },
+      () => {
+        rules.keeps = original
+      },
+      { snapshot: 6, missing: '', extra: 'i-g1' },
+    )
+  }, GATE_TIMEOUT_MS)
+
+  it('plant no R3 members fails every seed', async () => {
+    const original = VISIBLE_RULES.memberIds
+    const rules = VISIBLE_RULES as unknown as { memberIds: typeof original }
+    await expectPlant(
+      () => {
+        rules.memberIds = (_input: VisibleInputs, _id: string, self: VisibleParts) => self.seatIds
+      },
+      () => {
+        rules.memberIds = original
+      },
+      { snapshot: 11, missing: 'i-g4', extra: '' },
+    )
+  }, GATE_TIMEOUT_MS)
+
+  it('plant draft vessel ignored fails every seed', async () => {
+    const original = VISIBLE_RULES.nestParent
+    const rules = VISIBLE_RULES as unknown as { nestParent: typeof original }
+    await expectPlant(
+      () => {
+        rules.nestParent = plantNestParentNoDraft
+      },
+      () => {
+        rules.nestParent = original
+      },
+      { snapshot: 15, missing: 'i-g9', extra: '' },
+    )
+  }, GATE_TIMEOUT_MS)
 })
