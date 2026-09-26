@@ -2067,19 +2067,28 @@ export function createTerminalRuntime(
         // no row and nothing waiting on an event, so a refusal would push the
         // retry onto the server — a server-side retry keyed on agent state,
         // which the server must never do (POD-4661). The daemon holds it
-        // instead: the send is admitted to the same outer delivery FIFO under
-        // an ephemeral id and its promise adopts the row's settlement
-        // (`awaitSettlement`), typed when the turn ends, in arrival order with
-        // the durable rows. `interrupt` stays exempt (cutting in is its job)
-        // and `needs_user` is still refused inside `deliver`.
+        // instead: the send joins the same outer delivery FIFO under the
+        // server's turn id, typed when the turn ends, in arrival order with
+        // the durable rows.
+        //
+        // THE REPLY DOES NOT WAIT FOR THE TURN. The server's RPC gives up at
+        // 12 s, and any turn longer than that would read as a false
+        // `unverified` while the daemon typed the message later — so the
+        // hold answers `queued` AT ONCE (daemon custody, inside the window)
+        // and the turn's TYPING settles it the way direct sends always
+        // settle: transcript echo for enveloped mail, the optimistic
+        // injection mark for operator sends. Only a NEVER-TYPED loss is
+        // reported later, by turn id through abandonment. `interrupt` stays
+        // exempt (cutting in is its job) and `needs_user` is still refused
+        // inside `deliver`.
         if (
           requested === 'when-ready' &&
           ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '')
         ) {
           if (options.deliveryAttempt) return { outcome: 'refused', refusal: refuse('busy') }
           return handle.send(
-            { ...input, rowId: `direct:${randomUUID()}` },
-            { ...options, awaitSettlement: true },
+            { ...input, rowId: input.id ?? `direct:${randomUUID()}` },
+            { ...options, daemonHeld: true },
           )
         }
 
@@ -2381,6 +2390,19 @@ export function createTerminalRuntime(
       (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'),
       deliveryReady,
       () => !session.disposed,
+      // A daemon-held direct send (POD-4700) that will never be typed is a
+      // loss with a receipt outstanding: log it unconditionally like the
+      // injection queue's abandonment, then forward by turn id so the server
+      // dead-letters it. Success needs no report — it settles by echo.
+      ({ turns, reason }) => {
+        log.warn('held turns were never delivered', {
+          sessionId: session.sessionId,
+          reason,
+          turns: turns.length,
+          turnIds: turns.map((turn) => turn.id),
+        })
+        host.onDrainAbandoned?.({ sessionId: session.sessionId, turns, reason })
+      },
     )
   }
 

@@ -1,6 +1,19 @@
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
-import type { RefusalReason, SendOptions, TurnInput, TurnReceipt } from './turns.js'
+import type { InputOrigin, SendOptions, TurnInput, TurnReceipt } from './turns.js'
+
+/**
+ * One daemon-held direct send (POD-4700) that will never be typed. Carries
+ * the server's turn id, which is what the server's failure channel keys on —
+ * the same `{ id, text }` shape the terminal injection queue reports, so the
+ * daemon can forward both through one abandonment frame.
+ */
+export interface HeldAbandonedTurn {
+  readonly id: string
+  readonly text: string
+  readonly origin: InputOrigin
+}
 
 /**
  * Phases a row waits through for up to {@link BOUNDARY_CEILING_MS}: each ends on
@@ -23,6 +36,19 @@ export function withDeliveryQueue(
   emit: (event: RuntimeEventBody) => void,
   ready: () => boolean = () => true,
   alive: () => boolean = () => true,
+  /**
+   * Reported when a daemon-held direct send (POD-4700) leaves the queue
+   * without being typed. Durable rows are never reported here: teardown
+   * discards delivery state, not durable work, and the next owner recovers
+   * those rows. A held row has no server ledger row behind it and nobody
+   * waiting on its delivery event, so without this report it would vanish
+   * silently — the server dead-letters the turn ids instead.
+   * Absent on hosts with no receipt to correct.
+   */
+  onHeldAbandoned?: (input: {
+    turns: readonly HeldAbandonedTurn[]
+    reason: QueueDrainAbandonedReason
+  }) => void,
 ): AgentSessionHandle {
   type Row = {
     input: TurnInput
@@ -34,16 +60,6 @@ export function withDeliveryQueue(
   const rows = new Map<string, Row>()
   type Outcome = Extract<RuntimeEventBody, { t: 'delivery' }>
   const finished = new Map<string, Outcome>()
-  /**
-   * Opt-in settlement waits (POD-4700), keyed by row id and INDEPENDENT of
-   * `rows` on purpose: an aborted row can leave `rows` through the drain's
-   * delete-without-settle path while its canceller is still settling it, and
-   * a teardown clear drops rows without settling at all. Looking the resolver
-   * up here means `settle()` reaches it in every case, and the teardown paths
-   * below resolve every entry they own — so an admitted marked row always
-   * settles exactly once and an awaiter can never hang.
-   */
-  const settlements = new Map<string, (receipt: TurnReceipt) => void>()
   const send = handle.send.bind(handle)
   let draining = false
   const pause = (ms: number) =>
@@ -51,51 +67,42 @@ export function withDeliveryQueue(
       const timer = setTimeout(resolve, ms)
       timer.unref?.()
     })
-  function refused(reason: RefusalReason, detail?: string): TurnReceipt {
-    return { outcome: 'refused', refusal: detail === undefined ? { reason } : { reason, detail } }
-  }
-  function settle(id: string, outcome: 'delivered' | 'failed' | 'dropped', reason?: string, receipt?: TurnReceipt) {
-    const settleMarked = settlements.get(id)
-    if (finished.has(id) && !settleMarked) return
+  function settle(id: string, outcome: 'delivered' | 'failed' | 'dropped', reason?: string) {
+    if (finished.has(id)) return
     const event: Outcome = { t: 'delivery', rowId: id, outcome, ...(reason ? { reason } : {}) }
     finished.set(id, event)
     rows.delete(id)
     emit(event)
-    // A marked row id is minted fresh per hold, so it never replays a prior
-    // outcome; the finished guard above stays the durable rows' idempotency
-    // exactly. The receipt is the drain's own where it has one (accepted,
-    // refused, unverified); the thin paths synthesize the truthful refusal —
-    // a ceiling expiry is still busy, a retraction is not_running.
-    settlements.delete(id)
-    // A `queued` inner receipt parks the text in another local queue the
-    // waiter cannot follow (the drain never produces one; defensively mapped
-    // so a marked send always resolves to something its caller can settle).
-    settleMarked?.(
-      receipt === undefined || receipt.outcome === 'queued'
-        ? outcome === 'dropped'
-          ? refused('not_running')
-          : refused('busy', reason)
-        : receipt,
+  }
+  /**
+   * Report daemon-held rows (POD-4700) that will never be typed. Only rows
+   * carrying the server's turn id are reported — a held row with no id has
+   * nothing the server could settle, and the daemon logs the loss instead
+   * (see the terminal driver's adapter). Durable rows are the caller's to
+   * filter: every call site below passes only held rows.
+   */
+  function abandonHeld(held: readonly Row[], reason: QueueDrainAbandonedReason): void {
+    const turns = held.flatMap((row) =>
+      row.input.id === undefined
+        ? []
+        : [{ id: row.input.id, text: row.input.text, origin: row.options.origin }],
     )
+    if (turns.length) onHeldAbandoned?.({ turns, reason })
   }
-  /** Teardown discards delivery state: resolve every marked row this queue
-   * owns rather than hanging a caller that never stops waiting. Never emits:
-   * the server never learned these ids, so there is no receipt to correct. */
-  function resolveMarkedRows(reason: RefusalReason): void {
-    for (const [id, resolve] of settlements) {
-      settlements.delete(id)
-      resolve(refused(reason))
-    }
-  }
+  const isHeld = (row: Row): boolean => row.options.daemonHeld === true
   async function drain() {
     if (draining) return
     draining = true
     try {
       while (rows.size) {
         if (!alive()) {
+          // Teardown discards delivery state, not durable work: a new owner
+          // receives the durable rows again, so they are cleared silently.
+          // Daemon-held rows (POD-4700) have no next owner — report them, so
+          // the server dead-letters the turns instead of dropping them.
+          abandonHeld([...rows.values()].filter(isHeld), 'teardown')
           for (const row of rows.values()) row.abort.abort()
           rows.clear()
-          resolveMarkedRows('not_running')
           return
         }
         const [id, row] = rows.entries().next().value!
@@ -119,6 +126,12 @@ export function withDeliveryQueue(
           if (state.phase !== 'idle' || !ready()) {
             const ceiling = ENDS_ON_ITS_OWN.has(state.phase) ? BOUNDARY_CEILING_MS : STUCK_CEILING_MS
             if (Date.now() - row.admittedAt >= ceiling) {
+              // The readiness wait is over and the turn was never typed. A
+              // durable row's failure stays recoverable for an operator retry;
+              // a held row (POD-4700) has no ledger row to keep it alive, so
+              // its turn id goes out through abandonment instead of vanishing
+              // with a delivery event nobody settles.
+              if (isHeld(row)) abandonHeld([row], 'never-live')
               settle(id, 'failed', 'the agent did not become ready before the delivery deadline')
             } else {
               await pause(200)
@@ -145,7 +158,7 @@ export function withDeliveryQueue(
         }
         if (row.abort.signal.aborted) continue
         if (receipt.outcome === 'accepted') {
-          settle(id, 'delivered', undefined, receipt)
+          settle(id, 'delivered')
           continue
         }
         if (
@@ -153,7 +166,11 @@ export function withDeliveryQueue(
           ['busy', 'needs_user', 'lease_held'].includes(receipt.refusal.reason)
         ) {
           if (Date.now() - row.admittedAt >= BOUNDARY_CEILING_MS) {
-            settle(id, 'failed', 'the agent stayed busy before accepting this input', receipt)
+            // Same never-typed rule as the readiness ceiling above: a held
+            // row's turn id is reported, a durable row's failure stays on the
+            // delivery event for an operator retry.
+            if (isHeld(row)) abandonHeld([row], 'never-live')
+            settle(id, 'failed', 'the agent stayed busy before accepting this input')
           } else {
             await pause(200)
           }
@@ -165,15 +182,18 @@ export function withDeliveryQueue(
             receipt.refusal.reason,
           )
         ) {
-          settle(id, 'failed', receipt.refusal.detail ?? receipt.refusal.reason, receipt)
+          settle(id, 'failed', receipt.refusal.detail ?? receipt.refusal.reason)
           continue
         }
         // Neither an unverified write nor admission to another local queue
         // proves loss. Retyping either can open a duplicate turn. The durable
         // failure keeps the text recoverable for an explicit operator retry.
+        // A held row is left on its delivery event here too: the write may
+        // have landed, and the transcript echo remains its settler — an
+        // abandonment would dead-letter a turn that was actually typed.
         settle(id, 'failed', row.input.initialPrompt
           ? 'the creation prompt was not confirmed; it will not be typed again automatically'
-          : 'delivery could not be confirmed; check the transcript before retrying', receipt)
+          : 'delivery could not be confirmed; check the transcript before retrying')
       }
     } finally {
       draining = false
@@ -186,22 +206,16 @@ export function withDeliveryQueue(
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
     const prior = finished.get(input.rowId)
-    if (prior && !options.awaitSettlement) emit(prior)
+    if (prior) emit(prior)
     if (!prior && !rows.has(input.rowId)) {
+      // A daemon-held direct send (POD-4700) joins the same FIFO under the
+      // server's turn id and answers `queued` AT ONCE — the reply must land
+      // inside the server's RPC window, never after the turn it waits on.
+      // Success settles the way direct sends always do (transcript echo /
+      // the optimistic injection mark); only a never-typed loss is reported,
+      // through abandonment.
       rows.set(input.rowId, { input, options, abort: new AbortController(), admittedAt: Date.now() })
-      // A daemon-held direct send (POD-4700) adopts its row's settlement
-      // instead of the stub: the holder minted a fresh id, so no prior row or
-      // receipt can exist for it, and the resolver is registered before the
-      // drain runs so no settle can slip past it.
-      let awaited: Promise<TurnReceipt> | undefined
-      if (options.awaitSettlement && input.rowId) {
-        const rowId = input.rowId
-        awaited = new Promise<TurnReceipt>((resolve) => {
-          settlements.set(rowId, resolve)
-        })
-      }
       void drain()
-      if (awaited) return awaited
     }
     return {
       outcome: 'queued',
@@ -218,13 +232,16 @@ export function withDeliveryQueue(
       // Preserve that proof and tell the server the row could not be retracted.
       const receipt = await row.inFlight?.catch(() => undefined)
       if (receipt?.outcome === 'accepted') {
-        settle(id, 'delivered', undefined, receipt)
+        settle(id, 'delivered')
         return { reason: 'busy', detail: 'the row was already delivered' }
       }
       if (receipt && receipt.outcome !== 'refused') {
-        settle(id, 'failed', 'cancellation could not retract an unconfirmed delivery; check the transcript before retrying', receipt.outcome === 'queued' ? undefined : receipt)
+        settle(id, 'failed', 'cancellation could not retract an unconfirmed delivery; check the transcript before retrying')
         return { reason: 'busy', detail: 'delivery may already have occurred' }
       }
+      // An explicit retraction, owned by its caller: the holder of the
+      // `queued` receipt knows it cancelled, so a held row needs no
+      // abandonment report — that channel is for losses nobody ordered.
       settle(id, 'dropped')
     } else if (finished.get(id)?.outcome === 'delivered') {
       emit(finished.get(id)!)
@@ -243,9 +260,11 @@ export function withDeliveryQueue(
     // remaining rows again; only explicit cancel produces a dropped outcome.
     ;(handle as any)[method] = async () => {
       if (method === 'hibernate' && !handle.binding.resume) return original()
+      // Same split as the alive() path above: durable rows go quietly to
+      // their next owner, held rows (POD-4700) are reported by turn id.
+      abandonHeld([...rows.values()].filter(isHeld), 'teardown')
       for (const row of rows.values()) row.abort.abort()
       rows.clear()
-      resolveMarkedRows('not_running')
       return original()
     }
   }

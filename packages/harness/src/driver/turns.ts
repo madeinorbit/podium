@@ -199,18 +199,20 @@ export interface SendOptions {
   /** Driver-local attempt: refuse busy/lease races instead of nesting queues. */
   deliveryAttempt?: boolean
   /**
-   * Hold this row in the delivery FIFO and resolve with its settlement
-   * receipt instead of the queued stub (POD-4700).
+   * Daemon-held direct send (POD-4700).
    *
-   * The stub is the right answer for a durable row — the server settles it
-   * off the delivery event by row id. A daemon-held direct send has no ledger
-   * row and nothing waiting on an event, so answering `queued` would strand
-   * it: instead the send promise adopts the row's settlement and resolves
-   * with the receipt the drain actually got (accepted/unverified/refused).
-   * Only the holder that minted the row id may set this; the flag never
-   * crosses the wire.
+   * A direct `when-ready` that found the agent computing, admitted to the
+   * delivery FIFO under the server's turn id instead of being typed mid-turn.
+   * The RPC already answered `queued`, so unlike a durable row nothing waits
+   * on a delivery event — success settles the way direct sends always do
+   * (transcript echo for enveloped mail, the optimistic injection mark for
+   * operator sends). But if the row leaves the queue WITHOUT being typed
+   * (teardown, session end, an expired wait), nobody would ever settle it:
+   * those turn ids go out through the abandonment channel instead, so the
+   * server dead-letters them rather than dropping them silently.
+   * Daemon-local; never crosses the wire.
    */
-  awaitSettlement?: boolean
+  daemonHeld?: boolean
   signal?: AbortSignal
   origin: InputOrigin
   delivery: TurnDelivery
