@@ -196,6 +196,13 @@ export const DEFAULT_WEIGHTS: Readonly<Record<ChangeKind | 'shapes', number>> = 
   online: 3,
   refresh: 1.5,
   shapes: 8,
+  // Shape-only kinds (POD-4681): emitted by the named shapes and the forced
+  // prefix, never by the random draw. Weight 0 keeps them out of the draw
+  // table, so the default sequences are unchanged.
+  newOrphanSession: 0,
+  newDraftIssue: 0,
+  setWorktree: 0,
+  setStartedBy: 0,
 }
 
 /** Clock steps, weighted toward the runtime's own minute tick. 25 h crosses
