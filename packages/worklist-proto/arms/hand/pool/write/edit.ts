@@ -222,6 +222,12 @@ export function createHandWriteApi(
   const commitFor = (kind: WritableKind, id: string): void => {
     pool.commitOverlay(() => {
       pool.graph.invalidateKey(pendingReaders, overlayKey(kind, id))
+      // The row's table readers too: cells created before the layer wrapped
+      // the doors tracked the table slot, never the overlay key, so an
+      // overlay-only commit would wake nothing (a pending edit could never
+      // flip visibility). Re-running them re-subscribes them going forward;
+      // row isolation holds — one row's readers, like a row delta.
+      pool.graph.invalidateKey(pool.rowReaders[kind], id)
     })
   }
 

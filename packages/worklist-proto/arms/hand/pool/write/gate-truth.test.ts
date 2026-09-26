@@ -122,8 +122,9 @@ async function settleStep(run: {
   let quiet = 0
   let rounds = 0
   let last = ''
-  const start = Date.now()
-  while (rounds < 100 && quiet < 3 && Date.now() - start < 3000) {
+  // No wall clock (a timed cap makes seeds non-reproducible): bounded
+  // content-stable rounds, throwing when delivery never settles.
+  while (rounds < 100 && quiet < 3) {
     await macrotask()
     run.feed().flush()
     const sig = signature()
@@ -132,6 +133,7 @@ async function settleStep(run: {
     last = sig
     rounds += 1
   }
+  if (quiet < 3) throw new Error('[gate] feed did not settle after 100 rounds')
   return rounds
 }
 
@@ -276,6 +278,56 @@ function staleRewind(handle: WritableHandPoolHandle): void {
       handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: stale.id, value: stale.row }] })
     }
   }
+}
+
+/**
+ * A hidden issue whose decay window a fresh read cursor reopens. Each id is
+ * probed with a transport-free log entry — appended and rejected without
+ * ever sending, so the kernel, the feed and the lane see nothing — and the
+ * first whose rebuild shows wins. The probe stamp is the engine's own clock
+ * (no wall clock: determinism lint). Throws when nothing does: the
+ * visibility plants need a window-driven row, and a corpus without one must
+ * fail loudly, not settle for a row hidden for another reason.
+ */
+function findWindowTarget(
+  handle: WritableHandPoolHandle,
+  source: RowSource,
+  skipId: string,
+  nowMs: number,
+): string {
+  const live = handle.snapshot()
+  const byId = new Map<string, { readAt?: unknown }>()
+  for (const record of source.snapshot('issue')) {
+    byId.set(record.id, (record.value ?? {}) as { readAt?: unknown })
+  }
+  const qualifies = (id: string): string | null => {
+    if (id === skipId) return null
+    const readAt = byId.get(id)?.readAt
+    if (typeof readAt !== 'string' || readAt === '') return null
+    if (id in live.rowsById) return null
+    return readAt
+  }
+  const dynamic: string[] = []
+  for (const id of byId.keys()) {
+    if (id === 'i1380' || id === 'i1397' || dynamic.length >= 40) continue
+    if (qualifies(id) !== null) dynamic.push(id)
+  }
+  const fresh = new Date(nowMs).toISOString()
+  let probes = 0
+  for (const id of ['i1380', 'i1397', ...dynamic]) {
+    const readAt = qualifies(id)
+    if (readAt === null) continue
+    probes += 1
+    const txId = `probe-${probes}`
+    handle.write.log.append(
+      { txId, kind: 'issue', id, patch: { readAt: fresh }, prior: { readAt } } as never,
+      undefined,
+    )
+    const shows = id in handle.rebuildFromScratch().rowsById
+    handle.write.log.reject({ txId: txId as never, error: { message: '[probe] not an edit', parked: false } })
+    if (shows) return id
+  }
+  throw new Error('[plant] no window-driven hidden issue among the candidates')
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
@@ -656,6 +708,157 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       expect(failures).toBe(SEEDS.length)
     },
     GATE_TIMEOUT_MS,
+  )
+
+  it(
+    'plant (i): ignoring a pending readAt for visibility hides the reopened window',
+    async () => {
+      for (const planted of [false, true]) {
+        const adapter = new ArmEditAdapter()
+        const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
+        const feed = run.feed()
+        const locals = createEngineLocals(run.ctx.engine)
+        const inner = writableHandPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as WritableHandPoolHandle
+        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        // The plant: visibility reads the server-only row, never the
+        // pending display — the hand shape of the pre-fix MobX lane (their
+        // wrapper now overlays the pending cursor; here the overlaid
+        // `issueRow` door is replaced with the raw table read).
+        if (planted) {
+          const visible = handle.pool.visibleInputs as {
+            issueRow(id: string): SliceIssue | undefined
+          }
+          const tables = handle.pool.tables
+          visible.issueRow = (id: string) => tables.issue.get(id) as SliceIssue | undefined
+        }
+        try {
+          const id = findWindowTarget(
+            handle,
+            feed.source,
+            run.ctx.corpus.unscannedWorktree.issueId,
+            run.ctx.engine.getSnapshot().coarseNow,
+          )
+          const step = await run.apply({ kind: 'edit', handle: 'e1', id, patch: { readAt: true } })
+          expect(step.skipped).toBeUndefined()
+          adapter.pairFromStep(step.detail ?? {})
+          locals.flush()
+          const live = handle.snapshot()
+          const rebuilt = handle.rebuildFromScratch()
+          if (!planted) {
+            // Clean: the pending cursor reopens the window on both sides.
+            expect(id in live.rowsById).toBe(true)
+            expect(id in rebuilt.rowsById).toBe(true)
+            expect(diffSnapshots(live, rebuilt)).toBeNull()
+          } else {
+            // Planted: live hides the row while the rebuild (overlaid rows)
+            // shows it — the gate's hidden-window shape.
+            expect(id in live.rowsById).toBe(false)
+            expect(id in rebuilt.rowsById).toBe(true)
+            expect(diffSnapshots(live, rebuilt)).not.toBeNull()
+          }
+        } finally {
+          handle.dispose()
+          locals.dispose()
+          run.dispose()
+        }
+      }
+    },
+    120_000,
+  )
+
+  it(
+    'plant (ii): a row visible with no pending read fails the shared oracle',
+    async () => {
+      for (const planted of [false, true]) {
+        const adapter = new ArmEditAdapter()
+        const oracle = new WriteOracle()
+        const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
+        const feed = run.feed()
+        const locals = createEngineLocals(run.ctx.engine)
+        const inner = writableHandPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as WritableHandPoolHandle
+        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        try {
+          const id = findWindowTarget(
+            handle,
+            feed.source,
+            run.ctx.corpus.unscannedWorktree.issueId,
+            run.ctx.engine.getSnapshot().coarseNow,
+          )
+          // The plant: a mark-read the arm logs but never sends — the
+          // kernel, the feed and the reference log never learn it, yet both
+          // arm derivations paint it through the real overlay path.
+          if (planted) {
+            const fresh = new Date(run.ctx.engine.getSnapshot().coarseNow).toISOString()
+            const feedRow = feed.source.snapshot('issue').find((r) => r.id === id)
+            const server = feedRow?.value as
+              | { title: string; stage: string; readAt: string | null }
+              | undefined
+            if (server === undefined) throw new Error('[plant] target left the feed')
+            handle.write.log.append(
+              {
+                txId: 'phantom-tx',
+                kind: 'issue',
+                id,
+                patch: { readAt: fresh },
+                prior: { readAt: server.readAt ?? null },
+              } as never,
+              undefined,
+            )
+            handle.write.handleRemote('issue', id, {
+              title: server.title,
+              stage: server.stage,
+              readAt: server.readAt ?? null,
+            } as never)
+          }
+          await settleStep(run)
+          locals.flush()
+          // A real edit would materialise a cold row (ensureResident); the
+          // phantom performs none, so hydrate the same way — otherwise the
+          // live set lacks the row for loading reasons, not verdict reasons.
+          {
+            const residency = handle.pool.residency
+            if (residency !== null && !handle.pool.tables.issue.has(id)) {
+              if (residency.isCold('issue', id)) {
+                residency.request('issue', id)
+                handle.pool.hydrate()
+              }
+            }
+          }
+          const live = handle.snapshot()
+          const rebuilt = handle.rebuildFromScratch()
+          const store = run.ctx.engine.getSnapshot()
+          const kernel = oracleSnapshot(store)
+          const expected = oracle.expectedSnapshot(store, feed.source)
+          const gapTally = { applied: 0 }
+          const actual = applyGap(handle, run.ctx, expected, live, gapTally)
+          if (!planted) {
+            expect(id in live.rowsById).toBe(false)
+            expect(id in rebuilt.rowsById).toBe(false)
+            expect(id in expected.rowsById).toBe(false)
+            expect(diffSnapshots(actual, expected)).toBeNull()
+          } else {
+            // Both arm derivations show the phantom row (common-mode), the
+            // kernel hides it, and the shared oracle — nothing pending in
+            // the reference log — hides it too.
+            expect(id in live.rowsById).toBe(true)
+            expect(id in rebuilt.rowsById).toBe(true)
+            expect(diffSnapshots(live, rebuilt)).toBeNull()
+            expect(id in kernel.rowsById).toBe(false)
+            expect(id in expected.rowsById).toBe(false)
+            const diff = diffSnapshots(actual, expected)
+            expect(diff).not.toBeNull()
+            expect(diff).toContain(id)
+          }
+        } finally {
+          handle.dispose()
+          locals.dispose()
+          run.dispose()
+        }
+      }
+    },
+    120_000,
   )
 
   it(
