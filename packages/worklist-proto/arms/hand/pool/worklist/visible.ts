@@ -807,6 +807,8 @@ export class VisibleCollection {
   private lastEntered: string[] = []
   private lastLeft: string[] = []
   private lastRankMoved: string[] = []
+  /** Whether the last settle re-sorted whole (bulk commit: the groups rebuild touched lanes). */
+  private lastResort = false
 
   constructor(private readonly host: VisibleHost) {}
 
@@ -936,15 +938,17 @@ export class VisibleCollection {
       this.lastLeft.push(...left)
       this.lastRankMoved.push(...rankMoved)
     }
+    if (resort) this.lastResort = true
   }
 
   /**
    * Whether the order moved since the last call, with the membership delta
    * the groups file (the pool's publish step asks once per commit). The
    * delta lists are drained here: exactly the ids that entered, left, or
-   * kept their seat with a new rank since the previous call.
+   * kept their seat with a new rank since the previous call, plus whether
+   * the order re-sorted whole (bulk commit).
    */
-  takeMoved(): { readonly moved: boolean; readonly entered: readonly string[]; readonly left: readonly string[]; readonly rankMoved: readonly string[] } {
+  takeMoved(): { readonly moved: boolean; readonly entered: readonly string[]; readonly left: readonly string[]; readonly rankMoved: readonly string[]; readonly resort: boolean } {
     const moved = this.moved
     this.moved = false
     if (moved) this.published = Object.freeze([...this.sorted])
@@ -953,10 +957,12 @@ export class VisibleCollection {
       entered: this.lastEntered,
       left: this.lastLeft,
       rankMoved: this.lastRankMoved,
+      resort: this.lastResort,
     }
     this.lastEntered = []
     this.lastLeft = []
     this.lastRankMoved = []
+    this.lastResort = false
     return delta
   }
 

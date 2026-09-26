@@ -341,14 +341,20 @@ export class WorklistGroups {
   /**
    * The groups handler (after the order handler): file exactly the rows that
    * moved — placements that reported, ids that entered or left the visible
-   * set — then re-sort only the touched groups' lanes and the key order.
+   * set — then publish only the touched groups' lanes and the key order.
    * Reads no row itself beyond the moved placements (cells, current after
    * the drain) and never iterates the visible order in steady state:
    * bootstrap files it once. `delta` is the order's membership delta, drained
-   * by `VisibleCollection.takeMoved`.
+   * by `VisibleCollection.takeMoved`. On a bulk commit (`delta.resort`: the
+   * order re-sorted whole, e.g. a replace) the touched lanes are rebuilt
+   * deterministically from their filed members instead of trusting insert
+   * order: across hundreds of filings in one commit, transient derivation
+   * values can misplace an insert with no later report to correct it, while
+   * a bulk re-sort reads final values (a rescope onto 2x left rows stranded
+   * out of rank order with the flat order exact).
    */
   settle(
-    delta: { readonly moved: boolean; readonly entered: readonly string[]; readonly left: readonly string[]; readonly rankMoved: readonly string[] },
+    delta: { readonly moved: boolean; readonly entered: readonly string[]; readonly left: readonly string[]; readonly rankMoved: readonly string[]; readonly resort: boolean },
     selectionMoved: boolean,
   ): void {
     if (!this.built) {
@@ -401,7 +407,19 @@ export class WorklistGroups {
         continue
       }
       const before = this.filed.get(id)
-      if (before !== undefined && placementEqual(before, placement)) continue
+      if (before !== undefined && placementEqual(before, placement)) {
+        // Same placement, but the row may have been filed before its rank
+        // arrived (a rankless filing lands at the lane end): re-place it by
+        // its current rank so a rank arrival is never dropped. The worklist
+        // reports a first rank arrival on the entered path, not the rank
+        // path, so without this the lane keeps its stale position forever
+        // while the order (which inserts on the entered path) moves on.
+        // Not a filing: no count. The publish keeps equal lanes.
+        this.replace(id, before)
+        touched.add(this.keyOf(before))
+        continue
+      }
+
       const same =
         before !== undefined &&
         (before.pinned ? placement.pinned : !placement.pinned && before.repoKey === placement.repoKey)
@@ -414,14 +432,19 @@ export class WorklistGroups {
     }
     // Ranks moved without filing (a reorder inside the same lane): re-place
     // the row in its working lane, so the lane stays sorted without ever
-    // scanning or sorting it whole. The publish below keeps equal lanes.
-    for (const id of delta.rankMoved) {
-      if (left.has(id) || toFile.has(id)) continue
-      const filed = this.filed.get(id)
-      if (filed === undefined) continue
-      this.replace(id, filed)
-      touched.add(this.keyOf(filed))
+    // scanning or sorting it whole — except on a bulk commit, where the
+    // deterministic rebuild below subsumes per-row placements. The publish
+    // below keeps equal lanes.
+    if (!delta.resort) {
+      for (const id of delta.rankMoved) {
+        if (left.has(id) || toFile.has(id)) continue
+        const filed = this.filed.get(id)
+        if (filed === undefined) continue
+        this.replace(id, filed)
+        touched.add(this.keyOf(filed))
+      }
     }
+    if (delta.resort) this.rebuildTouched(touched);
     const latched = this.latchedOpenId()
     const latchChanged = latched !== latchedBefore
     this.latched = latched
@@ -525,10 +548,52 @@ export class WorklistGroups {
       const at = this.closedIndex(lanes.closed, placement.foldMs, this.host.rankOf(id))
       lanes.closed.splice(at, 0, id)
     } else {
-      const at = this.openIndex(lanes.open, this.host.rankOf(id))
+      const rank = this.host.rankOf(id)
+      const at = this.openIndex(lanes.open, rank)
       lanes.open.splice(at, 0, id)
     }
     return lanes.open.length + lanes.closed.length
+  }
+
+  /**
+   * Rebuild the touched lanes deterministically from their filed members
+   * (bulk commits only): open by rank, closed newest-fold first with ties in
+   * rank order (L1b `compareClosedFold`), the pinned list by rank. Reads
+   * final values, so transient comparison values during a hundreds-strong
+   * filing sequence cannot strand a row. Single-id commits never take this
+   * path (their inserts keep the F1 upkeep bound).
+   */
+  private rebuildTouched(touched: Set<string>): void {
+    for (const key of touched) {
+      if (key === PINNED_KEY) continue
+      const lanes = this.working.get(key)
+      if (lanes === undefined) continue
+      const rankOf = (id: string): RowRank | undefined => this.host.rankOf(id)
+      lanes.open.sort((a, b) => {
+        const ra = rankOf(a)
+        const rb = rankOf(b)
+        if (ra === undefined || rb === undefined) return ra === rb ? 0 : ra === undefined ? 1 : -1
+        return compareRank(ra, rb)
+      })
+      lanes.closed.sort((a, b) => {
+        const fa = this.filed.get(a)?.foldMs ?? 0
+        const fb = this.filed.get(b)?.foldMs ?? 0
+        if (fa !== fb) return fb - fa
+        const ra = rankOf(a)
+        const rb = rankOf(b)
+        if (ra === undefined || rb === undefined) return ra === rb ? 0 : ra === undefined ? 1 : -1
+        return compareRank(ra, rb)
+      })
+    }
+    if (touched.has(PINNED_KEY)) {
+      const rankOf = (id: string): RowRank | undefined => this.host.rankOf(id)
+      this.pinnedIds.sort((a, b) => {
+        const ra = rankOf(a)
+        const rb = rankOf(b)
+        if (ra === undefined || rb === undefined) return ra === rb ? 0 : ra === undefined ? 1 : -1
+        return compareRank(ra, rb)
+      })
+    }
   }
 
   /**

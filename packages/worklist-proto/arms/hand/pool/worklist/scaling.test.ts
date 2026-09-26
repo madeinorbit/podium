@@ -53,22 +53,23 @@ import { writeResult } from '../../../../harness/src/results'
 import type { RowSource } from '../../../../shared/src/arm'
 import { createReadFence } from '../../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../../shared/src/locals-source'
+import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { compareRank } from '../../../../shared/src/row-view'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
 import { type HandPoolHandle, handPoolArm } from '../arm'
 import type { HandPool } from '../pool'
-import { layoutOf } from './groups'
+import { layoutOf, sliceOrderOf } from './groups'
 
 interface Rig {
   replay: ReplaySource
   locals: SettableLocalsHandle
   handle: HandPoolHandle
-  push(event: { type: 'update'; rows: RowRecord[] }): void
+  push(event: { type: 'update' | 'replace'; rows: RowRecord[] }): void
   dispose(): void
 }
 
-function rig(scale: 1 | 4): Rig {
+function rig(scale: 1 | 2 | 4): Rig {
   const corpus = buildCorpus(scale)
   const replay = createReplaySource({
     issues: corpus.sliceIssues.map((value) => ({ kind: 'issue', id: value.id, value })),
@@ -762,8 +763,7 @@ describe('scaling: the work follows the change (POD-4694)', () => {
       }
     }, 600_000)
 
-    it(`reparent files nothing at ${scale}x`, () => {
-      const r = rig(scale)
+    it(`reparent files nothing at ${scale}x`, () => {      const r = rig(scale)
       try {
         const { pool } = r.handle
         // A visible nested row moved between two present top-level roots: the
@@ -823,4 +823,50 @@ describe('scaling: the work follows the change (POD-4694)', () => {
       }
     }, 600_000)
   }
+
+  /**
+   * A bulk replace files the same lanes as a fresh bootstrap of the grown
+   * rows. A row filed before its rank arrived lands at the lane end; its
+   * rank arrival comes back on the worklist's entered path (its rank cell
+   * runs for the first time), and the settle re-places it by its current
+   * rank instead of dropping the arrival on the placement-equal skip —
+   * without this, bulk grows (rescope onto 2x) leave rows stranded out of
+   * rank order while the flat order stays exact.
+   */
+  it('bulk replace matches a fresh bootstrap at 2x', () => {
+    const grown = buildCorpus(2)
+    const grownRows: RowRecord[] = [
+      ...grown.sliceSessions.map(
+        (value): RowRecord => ({ kind: 'session', id: value.sessionId, value }),
+      ),
+      ...grown.sliceIssues.map((value): RowRecord => ({ kind: 'issue', id: value.id, value })),
+      ...grown.sliceWorktrees.map((value): RowRecord => ({ kind: 'worktree', id: value.path, value })),
+    ]
+    const a = rig(1)
+    try {
+      a.push({ type: 'replace', rows: grownRows })
+      a.handle.settleLoads()
+      const b = rig(2)
+      try {
+        expect([...a.handle.pool.order()], 'flat order after replace').toEqual([
+          ...b.handle.pool.order(),
+        ])
+        const after = sliceOrderOf(a.handle.pool.groups.snapshot())
+        const fresh = sliceOrderOf(b.handle.pool.groups.snapshot())
+        expect(
+          diffSnapshots({ order: after, rowsById: {} }, { order: fresh, rowsById: {} }),
+          'grouped order after replace',
+        ).toBeNull()
+        writeResult('hand-scaling-4694-2x-replace', {
+          scale: 2,
+          at: 'bulkReplace',
+          visible: b.handle.pool.order().length,
+        })
+      } finally {
+        b.dispose()
+      }
+    } finally {
+      a.dispose()
+    }
+  }, 600_000)
 })
