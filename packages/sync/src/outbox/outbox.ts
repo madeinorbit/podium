@@ -675,14 +675,63 @@ export class Outbox {
 
     if (outcome.kind === 'applied') {
       if (outcome.retire === true) {
-        await this.applyTerminal(sending)
+        try {
+          await this.applyTerminal(sending)
+        } catch (error) {
+          if (
+            error instanceof OutboxStaleError ||
+            error instanceof OutboxInvariantError ||
+            error instanceof OutboxUsageError
+          ) {
+            throw error
+          }
+          // The verdict was reported but its commit did not land (a transient
+          // durability failure: an aborted IndexedDB transaction under memory
+          // pressure, a quota denial that eases). Getting stuck in `sending`
+          // until a reload reconciles it back to `queued` is what replays the
+          // dead message on the next screen (this issue): the reload re-reads
+          // the entry and POSTs it again behind a queued banner. Requeue with
+          // backoff instead, like a transport failure: the retry re-POSTs the
+          // same id, the Authority dedupes it by receipt (D11.7) without
+          // re-running, reports the same verdict, and the second retire lands.
+          // One extra POST on the wire, harmless server-side, and no reload
+          // replay. A lost race (Stale) and a programming bug (Invariant,
+          // Usage) stay loud: requeueing those would hide another writer's
+          // decision or a kernel breach behind a retry.
+          await this.transition(sending, 'transport-failed', this.backoffPatch(sending.attempts))
+          return false
+        }
       } else {
-        await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
+        try {
+          await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
+        } catch (error) {
+          if (
+            error instanceof OutboxStaleError ||
+            error instanceof OutboxInvariantError ||
+            error instanceof OutboxUsageError
+          ) {
+            throw error
+          }
+          await this.transition(sending, 'transport-failed', this.backoffPatch(sending.attempts))
+          return false
+        }
       }
       return true
     }
     if (outcome.kind === 'accepted') {
-      await this.transition(sending, 'authority-accepted', { acceptedAt: this.config.now() })
+      try {
+        await this.transition(sending, 'authority-accepted', { acceptedAt: this.config.now() })
+      } catch (error) {
+        if (
+          error instanceof OutboxStaleError ||
+          error instanceof OutboxInvariantError ||
+          error instanceof OutboxUsageError
+        ) {
+          throw error
+        }
+        await this.transition(sending, 'transport-failed', this.backoffPatch(sending.attempts))
+        return false
+      }
       // Order within the partition holds: nothing may be submitted behind an
       // envelope the Authority has taken but not yet applied.
       return false

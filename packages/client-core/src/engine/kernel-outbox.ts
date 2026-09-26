@@ -402,6 +402,17 @@ export async function openKernelEngineOutbox(
 ): Promise<CreateEngineOutbox> {
   let adapter: KernelEngineOutbox | undefined
   const now = options.now ?? Date.now
+  // Notices shown once per id in this session. A verdict commit that did not
+  // land requeues with backoff and re-POSTs the same id (the Authority
+  // dedupes it by receipt without re-running); without this the same-session
+  // retry would toast "Message not sent" twice for one message. The terminal
+  // flag is still set on every verdict — only the toast is deduped, never the
+  // retirement. Per kernel (per boot): a reload that replays a stale durable
+  // copy is a different session with its own notice, which is correct — but
+  // after the requeue fix above that reload replay should not happen, so this
+  // Set stays small (one entry per dead message, a few per boot) and needs no
+  // eviction.
+  const noticedGone = new Set<string>()
   const kernel = await KernelOutbox.open({
     store: options.store,
     principal: options.principal,
@@ -417,7 +428,10 @@ export async function openKernelEngineOutbox(
           await submit(options.api, envelope, {
             sessionGone: (input) => {
               terminal.resolved = true
-              adapter?.sessionGone(input)
+              if (!noticedGone.has(envelope.mutationId)) {
+                noticedGone.add(envelope.mutationId)
+                adapter?.sessionGone(input)
+              }
             },
             stoppedSend: () => {
               terminal.resolved = true
