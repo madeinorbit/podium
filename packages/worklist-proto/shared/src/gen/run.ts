@@ -505,6 +505,15 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
     return patchIssue(edit.issueId, { [edit.field]: v, ...(edit.field === 'readAt' ? { unread: false } : {}) })
   }
 
+  /**
+   * POD-4574 (Mc2) — the mark-read stamp both the arm and the reference
+   * oracle press: the engine's coarse clock at this step, never the wall
+   * clock. The same seed and step always press the same stamp on both
+   * sides (zero-gap agreement on recency verdicts), and reruns are
+   * byte-identical. Never compared directly (SliceSnapshot drops readAt).
+   */
+  const markStamp = (): string => new Date(ctx.engine.getSnapshot().coarseNow).toISOString()
+
   const applyWrite = async (c: Change, detail: Record<string, unknown>): Promise<string | null> => {
     switch (c.kind) {
       case 'edit': {
@@ -512,19 +521,16 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const actions = ctx.engine.getSnapshot()
         const field = 'title' in c.patch ? 'title' : 'stage' in c.patch ? 'stage' : 'readAt'
         if (opts.editViaArm) {
-          // A mark-read press carries a wall-clock stamp like the kernel's
-          // own (POD-4574): the arm displays it while pending and the unread
-          // rollup branches on it, so a corpus-clock stamp days away from the
-          // kernel's flips visibility against the oracle. Wall stamps agree
-          // within milliseconds (never compared directly; SliceSnapshot
-          // drops readAt), and their orderings against session activity are
-          // stable run to run. The default (action) path is untouched.
+          // A mark-read press carries the run-clock stamp (markStamp): the
+          // arm displays it while pending and the unread rollup branches on
+          // it, so both sides press the same deterministic value per step.
+          // The default (action) path is untouched.
           const armPatch: ArmEditPatch =
             'title' in c.patch
               ? { title: c.patch.title }
               : 'stage' in c.patch
                 ? { stage: c.patch.stage }
-                : { readAt: new Date(Date.now()).toISOString() }
+                : { readAt: markStamp() }
           try {
             detail['armTxId'] = opts.editViaArm(c.id, armPatch)
           } catch (error) {
@@ -549,8 +555,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         for (const handle of c.handles) {
           if (opts.editViaArm) {
             try {
-              // Wall-clock stamp like the kernel's (see the edit branch).
-              armTxIds.push(opts.editViaArm(c.id, { readAt: new Date(Date.now()).toISOString() }))
+              // Run-clock stamp like the edit branch above.
+              armTxIds.push(opts.editViaArm(c.id, { readAt: markStamp() }))
             } catch {
               continue
             }

@@ -146,17 +146,19 @@ export class WriteOracle {
       }
     })
     const offReceipts = subscribeReceipts(ctx.engine, (event) => {
-      const tx8 = String(event.txId).slice(0, 8)
-      const id = event.id ?? tx8
+      // No txids in the record: kernel and arm ids are minted per run
+      // (random), so naming them would break byte-identical reruns. Order
+      // plus values is what a skew reads from.
+      const id = event.id ?? 'unknown-row'
       if (event.type === 'accepted') {
         this.log.settle({ txId: event.txId })
-        this.record(id, `accepted ${tx8}`)
+        this.record(id, 'accepted')
       } else if (event.type === 'rejected') {
         this.log.reject({ txId: event.txId, error: { message: 'refused', parked: false } })
-        this.record(id, `rejected ${tx8}`)
+        this.record(id, 'rejected')
       } else {
         this.log.supersede({ txId: event.txId })
-        this.record(id, `superseded ${tx8}`)
+        this.record(id, 'superseded')
       }
     })
     return () => {
@@ -448,40 +450,39 @@ function outboxPendingOf(run: GenRun): OutboxPendingWrite[] {
  * supersede step presses through the arm (the runner drives one arm edit
  * per handle and claims one kernel id per handle; without these appends the
  * oracle never learns entries the arm holds); a reload rebuilds the log
- * from the outbox. Outcomes (receipts) and row writes (remotes, echoes)
- * arrive through `watch`, in delivery order with the arm — never through a
- * later onStep sample, which is a different sequence. A skipped change feeds
- * nothing.
+ * from the outbox. Mark-read stamps come from the engine's coarse clock at
+ * this step — the same value the runner pressed on the arm side, so recency
+ * verdicts agree exactly and reruns are byte-identical. Outcomes (receipts)
+ * and row writes (remotes, echoes) arrive through `watch`, in delivery
+ * order with the arm — never through a later onStep sample, which is a
+ * different sequence. A skipped change feeds nothing.
  */
 export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): void {
   const change = step.change
   const detail = step.detail ?? {}
   const source = run.feed().source
+  // The runner's stamp for this step (markStamp there): identical values on
+  // both sides, deterministic per seed and step.
+  const stamp = new Date(run.ctx.engine.getSnapshot().coarseNow).toISOString()
   if (change.kind === 'edit' && step.skipped === undefined) {
     const kernelId = detail['mutationId']
     if (typeof kernelId === 'string') {
-      // Wall-clock stamp like the runner's hook and the kernel's own
-      // (POD-4574): the unread rollup branches on stamp recency, so a
-      // corpus-clock stamp days away flips visibility against both. Never
-      // compared directly (SliceSnapshot drops readAt).
       const patch: EditPatch<'issue'> =
         'title' in change.patch
           ? { title: change.patch.title }
           : 'stage' in change.patch
             ? { stage: change.patch.stage }
-            : { readAt: new Date(Date.now()).toISOString() }
+            : { readAt: stamp }
       oracle.editApplied(source, kernelId as TxId, change.id, patch)
     }
   } else if (change.kind === 'supersede' && step.skipped === undefined) {
     // One arm mark-read per handle above; one kernel id per handle claimed.
-    // Stamps agree with the arm's within milliseconds (same tolerance as
-    // generated mark-reads; never compared directly).
     const ids = detail['mutationIds']
     if (Array.isArray(ids)) {
       for (const kernelId of ids) {
         if (typeof kernelId !== 'string') continue
         oracle.editApplied(source, kernelId as TxId, change.id, {
-          readAt: new Date(Date.now()).toISOString(),
+          readAt: stamp,
         })
       }
     }

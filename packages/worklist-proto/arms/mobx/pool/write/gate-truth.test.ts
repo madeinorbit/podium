@@ -80,51 +80,41 @@ const SHRINK_RUNS = Number(process.env['POD_POOL_GATE_SHRINK_RUNS'] ?? 200)
 
 const macrotask = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
+/** The test instrument itself cannot settle (never the arm under test). */
+class InstrumentError extends Error {}
+
 /**
  * Settle stragglers before an oracle comparison: run.apply already quiesced,
  * but post-reload replica/store trickle (settle timers, binding catch-up,
  * dep edges riding issue writes) can land rows in the feed after the
  * checker's own drain, leaving pool tables behind the feed snapshot the
- * rebuild reads — or the store behind the feed. Bounded content-stable
- * rounds with explicit feed drains; returns the rounds taken. A real
- * divergence is stable and still fails loudly below — this waits for data
- * delivery only (all arm logic is synchronous), so it cannot mask an arm
- * bug. Filed as a harness gap for L4a (quiesce sufficiency on reload).
+ * rebuild reads. One macrotask lets scheduled trickle arrive (a scheduling
+ * primitive, not a wait heuristic); then the feed's own drain and the arm's
+ * load hooks do the rest, each reporting directly: flush() delivers pending
+ * feed signals synchronously, settleLoads() lands every queued load,
+ * pendingLoads() says what is left. A load still pending after it was
+ * landed is a stuck instrument, not a slow one — THROW (InstrumentError)
+ * instead of continuing on stale state. No wall-clock cap, no quiet-round
+ * heuristic, no round count. A real divergence is stable and still fails
+ * loudly below.
  */
-async function settleStep(run: {
-  feed(): { flush(): unknown; source: RowSource }
-  ctx: ScenarioEngine
-}): Promise<number> {
-  const signature = (): string => {
-    const parts: string[] = []
-    for (const kind of ['issue', 'session', 'worktree'] as const) {
-      const rows = run.feed().source.snapshot(kind)
-      let maxStamp = 0
-      for (const row of rows) {
-        const v = row.value as Record<string, unknown> | undefined
-        for (const key of ['updatedAt', 'lastActiveAt'] as const) {
-          const t = v === undefined ? 0 : Date.parse(String(v[key] ?? 0)) || 0
-          if (t > maxStamp) maxStamp = t
-        }
-      }
-      parts.push(`${kind}:${rows.length}:${maxStamp}`)
-    }
-    return parts.join('|')
+async function settleStep(
+  run: {
+    feed(): { flush(): unknown; source: RowSource }
+    ctx: ScenarioEngine
+  },
+  handle: WritableMobxPoolHandle,
+): Promise<void> {
+  await macrotask()
+  run.feed().flush()
+  await handle.settleLoads()
+  run.feed().flush()
+  const pending = handle.pendingLoads()
+  if (pending > 0) {
+    throw new InstrumentError(
+      `arm loads never settled (pendingLoads=${pending}): refusing to compare on stale state`,
+    )
   }
-  let quiet = 0
-  let rounds = 0
-  let last = ''
-  const start = Date.now()
-  while (rounds < 100 && quiet < 3 && Date.now() - start < 3000) {
-    await macrotask()
-    run.feed().flush()
-    const sig = signature()
-    if (sig === last) quiet += 1
-    else quiet = 0
-    last = sig
-    rounds += 1
-  }
-  return rounds
 }
 
 /**
