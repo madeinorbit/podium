@@ -134,12 +134,17 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  // A clean slate every test: panes/split are restored from localStorage.
+  // A clean slate every test: panes/split are restored from localStorage, and
+  // the ?pane= link is read from the URL (POD-4642 cold link opens it as a
+  // tab) — so the URL is part of the slate too. Without this, the previous
+  // test's mirrored ?pane=s3 is adopted as a tab on the next mount and the
+  // split reports a session the operator is not looking at.
   try {
     localStorage.clear()
   } catch {
     // ignore — happy-dom provides it, but be defensive
   }
+  window.history.replaceState(null, '', '/')
   Object.defineProperty(document, 'visibilityState', {
     configurable: true,
     get: () => 'visible',
@@ -153,6 +158,7 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   api = null
+  window.history.replaceState(null, '', '/')
   vi.clearAllMocks()
 })
 
