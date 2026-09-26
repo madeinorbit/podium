@@ -86,8 +86,10 @@ same shape MobX closed with (1 filing + its lanes).
 
 Matrix: `matrix.ts --arms noop,control,hand --scales 1,2,4 --rounds 4
 --samples 5 --tag hand-4694 --host flatblock --remote-dir podium-timing-4694`
-(36 runs; remote checkout at the landed SHA with its own `.toolchain`,
-`harness/web/dist` built there). BLOCKED — see §6.
+(36 runs; remote checkout with its own `.toolchain`,
+`harness/web/dist` built there). STATUS: round-0 noop/control green (6/6);
+hand-1x failed on the round-two entry (see §6, since fixed); the rerun with
+the pool entry is queued behind the current bench holder (see §7).
 
 | scenario | noop p50 1x/2x/4x | control p50 1x/2x/4x | hand p50 1x/2x/4x | excess slope | heap hand per scale |
 |---|---|---|---|---|---|
@@ -98,27 +100,36 @@ Matrix: `matrix.ts --arms noop,control,hand --scales 1,2,4 --rounds 4
 | clock | — | — | — | — | — |
 | click | — | — | — | — | — |
 
-## 6. Browser parity finding (pre-existing, not this issue)
+## 6. Browser parity finding (pre-existing, fixed forward here)
 
-The matrix refuses to time on a parity mismatch, and the hand arm mismatches
-from bootstrap on every scenario and sample: `i1026: phase arm="queued"
-oracle="waiting"; asking arm=false oracle=true` (arm snapshot `1aa2491f` vs
-oracle `9da2200d`, identical on all 36 records). The MobX arm at the same
-landed SHA passes the same probe (`parity=ok`).
+The matrix refused to time on a parity mismatch, and the first matrix run
+showed the hand arm mismatching from bootstrap on every scenario and sample:
+`i1026: phase arm="queued" oracle="waiting"; asking arm=false oracle=true`
+(arm snapshot `1aa2491f` vs oracle `9da2200d`, identical on all 36 records).
+The MobX arm at the same landed SHA passes the same probe (`parity=ok`).
 
-Control experiment at the BASE SHA (`4c45b6dd7`, pre-change, separate
-flatblock worktree + fresh install + fresh dist): the hand arm fails
-IDENTICALLY — same arm hash `1aa2491f`, same first-difference row `i1026`
-with the same field values. Nothing in this issue touches the roll-up, the
-views, residency, or loading (`git diff` base→landed is groups filing +
-order-delta plumbing + tests + this doc); the identical snapshot hashes
-confirm zero behavioral difference in the browser run.
+Shrink (ruling step 1): the smallest reason is the page, not the pool. The
+direct pool reads i1026 as waiting/true after bootstrap (probe), so the
+composition is correct when settled. `harness/web/entries/hand.ts` mounted
+`handArm` — the frozen round-two `HandStore` with its known correctness
+bugs — while the matrix timed it as the round-three pool; MobX's entry was
+switched to its pool by Mb4 (POD-4572), the hand entry never was. A
+base-SHA control fails identically (same arm hash `1aa2491f`) because the
+base entry mounts the same round-two arm. Arm-vs-harness decided from that
+evidence: the pool is exonerated by the direct-pool probe and the identical
+hashes; the entry was the defect.
 
-Reading: `i1026` reads `queued`/not-asking while the oracle reads
-`waiting`/asking — a cold descendant never loaded in the real browser entry
-(real 50ms load windows; the happy-dom gates settle loads manually and the
-windowed list draws ~108 of 732 rows, so an undrawn row's cold subtree never
-queues). Owning lanes: the browser entry / load-settling interaction, not
-pool layout. Filed for the coordinator to route; the re-time waits for its
-ruling (options: a) fix-forward in the owning lane, then re-run this matrix;
-b) rule the matrix with this gap named, as Mb4's allowances).
+Fix (ruling step 2): `entries/hand.ts` now mounts `handPoolArm` with
+`HAND_POOL_ALLOWANCES.parity` (new, mirroring `MOBX_POOL_ALLOWANCES`),
+first pinned by the failing-without-Chromium `harness/browser/entries.test.ts`
+(red before: hand mounted the round-two arm; green after). Single-sample
+probe on flatblock at the fix SHA: hand 1x heartbeat `parity=ok` (was
+MISMATCH on every record). Hc2 (POD-4587) confirms its bootstrap-from-feed
+change cannot move asking/phase and stays out of worklist/react.
+
+## 7. Lease queue
+
+`bench:flatblock` was held by Mc2 verification, then by issue #4414
+(dev-mw workspace, renewed TTL ~2.5h at last check). The rerun matrix is
+parked backgrounded with `--resume` (safe across kills: completed pairs are
+kept) and takes the lease per invocation when the machine frees.
