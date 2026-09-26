@@ -289,4 +289,86 @@ describe('durable row delivery', () => {
     expect(f.emit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ outcome: 'failed' }))
   })
 
+  // POD-4700: a daemon-held direct send has no ledger row, so the queued stub
+  // would strand it — its send promise adopts the row's settlement instead.
+  it('resolves a marked row with the drain receipt instead of the queued stub', async () => {
+    const f = fixture()
+    f.ready()
+    const settled = await f.handle.send(
+      { rowId: 'held', text: 'direct while busy' },
+      { origin: 'human', delivery: 'when-ready', awaitSettlement: true },
+    )
+    // The drain's own receipt, intact — proof and epoch included, nothing
+    // re-typed or thinned on the way back to the holder.
+    expect(settled).toEqual({
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack',
+      at: expect.any(String),
+    })
+    // The uniform stream still carries the row; the server ignores ids it
+    // never issued.
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({
+      t: 'delivery',
+      rowId: 'held',
+      outcome: 'delivered',
+    })
+  })
+
+  it('passes an unconfirmed inner receipt through to the marked waiter', async () => {
+    const f = fixture()
+    f.ready()
+    f.send.mockResolvedValue({
+      outcome: 'unverified',
+      deliveredAs: 'when-ready',
+      verificationWindowMs: 10,
+      at: new Date().toISOString(),
+    } as never)
+    const pending = f.handle.send(
+      { rowId: 'held-once', text: 'unproven' },
+      { origin: 'human', delivery: 'when-ready', awaitSettlement: true },
+    )
+    await vi.advanceTimersByTimeAsync(400)
+    await expect(pending).resolves.toMatchObject({ outcome: 'unverified' })
+    expect(f.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ rowId: 'held-once', outcome: 'failed' }),
+    )
+  })
+
+  it('resolves a marked row not_running on teardown instead of hanging', async () => {
+    vi.useFakeTimers()
+    const send = vi.fn(async () => ({
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack',
+      at: new Date().toISOString(),
+    }))
+    const emit = vi.fn()
+    const handle = withDeliveryQueue(
+      {
+        send,
+        state: async () => ({ phase: 'working' }),
+        lease: { state: async () => null },
+        stop: async () => {},
+      } as unknown as AgentSessionHandle,
+      emit,
+    )
+    const pending = handle.send(
+      { rowId: 'held-gone', text: 'never typed' },
+      { origin: 'human', delivery: 'when-ready', awaitSettlement: true },
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(send).not.toHaveBeenCalled()
+    await (handle as unknown as { stop(): Promise<unknown> }).stop()
+    await expect(pending).resolves.toEqual({
+      outcome: 'refused',
+      refusal: { reason: 'not_running' },
+    })
+    // Teardown reports nothing on the stream: the server never learned this
+    // id, so there is no receipt to correct — the waiter IS the report.
+    expect(emit).not.toHaveBeenCalled()
+  })
+
 })

@@ -2054,21 +2054,33 @@ export function createTerminalRuntime(
         // durable/initialPrompt windows) is untouched.
         //
         // BUSY IS NOT IDLE (POD-4700). The paragraph above is about a session
-        // with nothing running; a session with a turn running is the opposite
-        // case and takes the opposite answer. Typing a `when-ready` into a
-        // running TUI cuts the turn off — OpenCode answers the second prompt
-        // and the first row is later reported lost as "target gone" (POD-4604
-        // run 13) — so EVERY `when-ready` that finds the agent computing is
-        // refused `busy`, direct sends and durable `deliveryAttempt` retries
-        // alike. The server requeues on `busy`, so nothing is lost and order is
-        // preserved; the outer durable queue waits the same way on the same
-        // refusal. `interrupt` stays exempt (cutting in is its job) and
-        // `needs_user` is still refused inside `deliver`.
+        // with nothing running; a session with a turn running takes the
+        // opposite answer. Typing a `when-ready` into a running TUI cuts the
+        // turn off — OpenCode answers the second prompt and the first row is
+        // later reported lost as "target gone" (POD-4604 run 13) — so a send
+        // that finds the agent computing never types mid-turn.
+        //
+        // WHO HOLDS IT DEPENDS ON WHO OWNS THE ROW. A durable
+        // `deliveryAttempt` retry already has a ledger row behind it: refusing
+        // `busy` lets the outer durable queue (and the server FIFO behind it)
+        // wait for the turn end instead of nesting queues. A DIRECT send has
+        // no row and nothing waiting on an event, so a refusal would push the
+        // retry onto the server — a server-side retry keyed on agent state,
+        // which the server must never do (POD-4661). The daemon holds it
+        // instead: the send is admitted to the same outer delivery FIFO under
+        // an ephemeral id and its promise adopts the row's settlement
+        // (`awaitSettlement`), typed when the turn ends, in arrival order with
+        // the durable rows. `interrupt` stays exempt (cutting in is its job)
+        // and `needs_user` is still refused inside `deliver`.
         if (
           requested === 'when-ready' &&
           ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '')
         ) {
-          return { outcome: 'refused', refusal: refuse('busy') }
+          if (options.deliveryAttempt) return { outcome: 'refused', refusal: refuse('busy') }
+          return handle.send(
+            { ...input, rowId: `direct:${randomUUID()}` },
+            { ...options, awaitSettlement: true },
+          )
         }
 
         if (requested === 'interrupt') {

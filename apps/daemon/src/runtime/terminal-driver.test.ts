@@ -1983,11 +1983,12 @@ describe('busy OpenCode delivery (POD-4700)', () => {
     // THE RUN-13 SHAPE (POD-4604): a headed OpenCode session accepts a first
     // turn; while it runs, a second message arrives. Typing into the running
     // turn cuts it off — OpenCode answers the second prompt and the first row
-    // is later reported lost as "target gone". The daemon must hold every
-    // when-ready send until the turn ends (POD-4661: the server never holds on
-    // agent state; the daemon owns delivery): durable rows wait in the delivery
-    // queue, and a direct send made while busy is refused `busy` (which the
-    // server requeues) rather than typed.
+    // is later reported lost as "target gone". The daemon holds every
+    // when-ready send until the turn ends (POD-4661: the server never holds or
+    // retries on agent state; the daemon owns delivery): durable rows wait in
+    // the delivery queue, and a direct send made while busy is admitted to
+    // that same FIFO under an ephemeral id — held, typed when the turn ends,
+    // in order, with no refusal and no server round-trip.
     const world = makeWorld()
     const driver = world.runtime.driverFor('opencode', OPENCODE)
     const session = await driver.create({ ...SPEC, harness: 'opencode' })
@@ -2085,23 +2086,27 @@ describe('busy OpenCode delivery (POD-4700)', () => {
       ).outcome,
     ).toBe('queued')
 
-    // A direct send made while busy must NOT cut into the turn either: refused
-    // `busy` (the server requeues it) rather than typed.
+    // A direct send made while busy is HELD daemon-side in the same FIFO —
+    // not refused (a refusal would push the retry onto the server, which must
+    // never retry on agent state) and not typed (which would cut the turn
+    // off). Its promise stays pending until the turn ends.
     const direct = session.send(
       { text: 'cut in line' },
       { origin: 'controller', delivery: 'when-ready' },
     )
     await pump()
     expect(pastes()).not.toContain('cut in line')
-    await expect(direct).resolves.toMatchObject({
-      outcome: 'refused',
-      refusal: { reason: 'busy' },
+    let directSettled = false
+    void direct.then(() => {
+      directSettled = true
     })
 
-    // Let the outer drain poll while the turn runs: still nothing typed, and
-    // the first row stays delivered (no duplicate turn, no loss).
+    // Let the outer drain poll while the turn runs: still nothing typed, the
+    // held send still pending, and the first row stays delivered (no duplicate
+    // turn, no loss).
     await new Promise((resolve) => setTimeout(resolve, 450))
     expect(pastes()).toEqual(['first turn'])
+    expect(directSettled).toBe(false)
     expect(deliveryOutcomes()).toEqual([{ rowId: 'row-first', outcome: 'delivered' }])
 
     // The turn ends. The queued row drains, and both rows end delivered.
@@ -2118,20 +2123,27 @@ describe('busy OpenCode delivery (POD-4700)', () => {
     await waitForPaste('second turn')
     await waitForDelivery('row-second', 'delivered')
 
-    // The refused direct send, retried after the turn (the server requeue),
-    // lands on the idle session.
-    const retry = session.send(
-      { text: 'cut in line' },
-      { origin: 'controller', delivery: 'when-ready' },
-    )
-    await pump()
-    await expect(retry).resolves.toMatchObject({ outcome: 'accepted' })
+    // The held direct send drains in arrival order behind the durable row —
+    // typed when the turn ended, its promise resolving with the real receipt.
+    // No refusal, no server retry.
+    await waitForPaste('cut in line')
+    await expect(direct).resolves.toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'transcript-echo',
+      deliveredAs: 'when-ready',
+    })
 
     expect(pastes()).toEqual(['first turn', 'second turn', 'cut in line'])
-    expect(deliveryOutcomes()).toEqual([
+    const outcomes = deliveryOutcomes()
+    expect(outcomes.slice(0, 2)).toEqual([
       { rowId: 'row-first', outcome: 'delivered' },
       { rowId: 'row-second', outcome: 'delivered' },
     ])
+    // The held send settles through the same FIFO, under an ephemeral id the
+    // server never learned — uniform stream, nothing for it to correct.
+    expect(outcomes).toHaveLength(3)
+    expect(outcomes[2]).toMatchObject({ outcome: 'delivered' })
+    expect(outcomes[2]?.rowId.startsWith('direct:')).toBe(true)
     world.runtime.dispose()
   })
 })
