@@ -19,6 +19,7 @@ function targetOf(c: RowChange): string {
     case 'heartbeat':
     case 'phaseChange':
     case 'offerChange':
+    case 'newOrphanSession':
       return c.sessionId
     case 'newWorktree':
       return c.path
@@ -82,13 +83,75 @@ describe('gen', () => {
     }
     for (const c of tagged('rankMoveWithinGroup')) expect(c.kind).toBe('rankMove')
   })
+
+  it('POD-4681: emits each R-VIS shape in its defining pattern', () => {
+    const changes = gen(1, 3000)
+    const tagged = (shape: string): Change[] => changes.filter((c) => 'shape' in c && c.shape === shape)
+    // Excluded keeper: backlog parent, proposed child, flat grandchild.
+    const keeper = tagged('excludedKeeper')
+    expect(keeper.length).toBeGreaterThan(0)
+    for (let k = 0; k + 4 < keeper.length; k += 5) {
+      expect(keeper[k]).toMatchObject({ kind: 'newIssue' })
+      expect(keeper[k + 1]).toMatchObject({ kind: 'stageChange', stage: 'backlog' })
+      expect(keeper[k + 2]).toMatchObject({ kind: 'newIssue' })
+      expect(keeper[k + 3]).toMatchObject({ kind: 'newIssue' })
+      expect(keeper[k + 4]).toMatchObject({ kind: 'stageChange', stage: 'proposed' })
+      const parent = (keeper[k] as { id: string }).id
+      expect((keeper[k + 1] as { id: string }).id).toBe(parent)
+      const child = (keeper[k + 2] as { id: string }).id
+      expect((keeper[k + 2] as { parentId: string }).parentId).toBe(parent)
+      expect((keeper[k + 3] as { parentId: string }).parentId).toBe(child)
+      expect((keeper[k + 4] as { id: string }).id).toBe(child)
+    }
+    // Orphan in worktree: backlog owner given a scanned lane, then an issueless session.
+    const orphan = tagged('orphanInWorktree')
+    expect(orphan.length).toBeGreaterThan(0)
+    for (let k = 0; k + 4 < orphan.length; k += 5) {
+      expect(orphan[k]).toMatchObject({ kind: 'newIssue' })
+      expect(orphan[k + 1]).toMatchObject({ kind: 'stageChange', stage: 'backlog' })
+      expect(orphan[k + 2]).toMatchObject({ kind: 'newWorktree' })
+      expect(orphan[k + 3]).toMatchObject({ kind: 'setWorktree' })
+      expect(orphan[k + 4]).toMatchObject({ kind: 'newOrphanSession' })
+      const owner = (orphan[k] as { id: string }).id
+      expect((orphan[k + 1] as { id: string }).id).toBe(owner)
+      expect((orphan[k + 3] as { id: string }).id).toBe(owner)
+      expect((orphan[k + 3] as { path: string }).path).toBe((orphan[k + 2] as { path: string }).path)
+      expect((orphan[k + 4] as { ownerId: string }).ownerId).toBe(owner)
+    }
+    // Draft-vessel starter: agent draft, its live session, parentless starter, link.
+    const starter = tagged('draftVesselStarter')
+    expect(starter.length).toBeGreaterThan(0)
+    for (let k = 0; k + 3 < starter.length; k += 4) {
+      expect(starter[k]).toMatchObject({ kind: 'newDraftIssue' })
+      expect(starter[k + 1]).toMatchObject({ kind: 'newSession' })
+      expect(starter[k + 2]).toMatchObject({ kind: 'newIssue', parentId: null })
+      expect(starter[k + 3]).toMatchObject({ kind: 'setStartedBy' })
+      const vessel = (starter[k] as { id: string }).id
+      expect((starter[k + 1] as { issueId: string }).issueId).toBe(vessel)
+      const issue = (starter[k + 2] as { id: string }).id
+      expect((starter[k + 3] as { id: string }).id).toBe(issue)
+      expect((starter[k + 3] as { sessionId: string }).sessionId).toBe(
+        (starter[k + 1] as { sessionId: string }).sessionId,
+      )
+    }
+  })
+
+  it('POD-4681: each R-VIS shape occurs in every default 3x200 seed', () => {
+    for (const seed of [1, 2, 3]) {
+      const changes = gen(seed, 200)
+      const { shapes } = countKinds(changes)
+      expect(shapes['excludedKeeper'] ?? 0, `seed ${seed} excludedKeeper`).toBeGreaterThanOrEqual(1)
+      expect(shapes['orphanInWorktree'] ?? 0, `seed ${seed} orphanInWorktree`).toBeGreaterThanOrEqual(1)
+      expect(shapes['draftVesselStarter'] ?? 0, `seed ${seed} draftVesselStarter`).toBeGreaterThanOrEqual(1)
+    }
+  })
 })
 
 describe('gen through the engine', () => {
   it(
-    'COVERAGE: 1,000 steps at seed 1 apply every change kind at least 10 times, with every audit shape and every L1c write-path event',
+    'COVERAGE: 2,000 steps at seed 1 apply every change kind at least 10 times, with every audit shape and every L1c write-path event',
     async () => {
-      const changes = gen(1, 1000)
+      const changes = gen(1, 2000)
       const { steps, run } = await runChanges(changes)
       try {
         const applied = steps.filter((s) => !s.skipped)

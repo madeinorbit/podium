@@ -19,7 +19,9 @@
  *
  * SHAPES. The five small shapes that turned round two's hand arm red (audit
  * `docs/decisions/4441-round-two-audit.md` §3.3) are named generators, drawn
- * like a kind and tagged on the changes they emit ({@link SHAPES}).
+ * like a kind and tagged on the changes they emit ({@link SHAPES}). POD-4681
+ * adds three R-VIS shapes (`excludedKeeper`, `orphanInWorktree`,
+ * `draftVesselStarter`), each forced once at the start of every run.
  *
  * THE MODEL. `gen` keeps a light model of the corpus (which issues and
  * sessions exist, parents, stages, sort keys, which rows are evicted, which
@@ -53,6 +55,10 @@ export const ROW_KINDS = [
   'rankMove',
   'evict',
   'reAdd',
+  'newOrphanSession',
+  'newDraftIssue',
+  'setWorktree',
+  'setStartedBy',
 ] as const
 
 /** The optimistic write path (L1c §5) and the client's own lifecycle. */
@@ -82,6 +88,9 @@ export const SHAPES = [
   'rankMoveWithinGroup',
   'evictThenReAdd',
   'twoRankMovesInOneBatch',
+  'excludedKeeper',
+  'orphanInWorktree',
+  'draftVesselStarter',
 ] as const
 export type ShapeName = (typeof SHAPES)[number]
 
@@ -109,6 +118,14 @@ export type RowChange = Tagged &
     | { kind: 'evict'; id: string }
     /** The evicted row comes back, same value, `readmitted`. */
     | { kind: 'reAdd'; id: string }
+    /** An issueless session seated by prefix under its owner's worktree (R3). */
+    | { kind: 'newOrphanSession'; sessionId: string; ownerId: string; phase: SessionPhase }
+    /** An agent draft with no worktree (a vessel when it has live sessions). */
+    | { kind: 'newDraftIssue'; id: string; title: string }
+    /** An issue's checkout moves to a scanned lane. */
+    | { kind: 'setWorktree'; id: string; path: string }
+    /** An issue's starter session (started-by nesting). */
+    | { kind: 'setStartedBy'; id: string; sessionId: string }
   )
 
 /** What an edit sets. `readAt: true` is a mark-read press: the runtime stamps it. */
@@ -218,11 +235,15 @@ interface IssueModel {
   archived: boolean
   sortKey: string | null
   sessions: Set<string>
+  audience: 'human' | 'agent'
+  draft: boolean
+  worktreePath: string | null
+  startedBySession: string | null
 }
 
 interface SessionModel {
   id: string
-  issueId: string | null
+  issueId: string | null | undefined
   phase: SessionPhase
   offer: boolean
 }
@@ -267,6 +288,9 @@ class GenModel {
       closedAt?: string | null
       audience?: string
       sortKey?: string | null
+      draft?: boolean
+      worktreePath?: string | null
+      startedBySession?: string | null
     }
     const wires = corpus.issues as unknown as Wire[]
     for (const w of wires) {
@@ -279,6 +303,10 @@ class GenModel {
         archived: Boolean(w.archived),
         sortKey: w.sortKey ?? null,
         sessions: new Set(),
+        audience: w.audience === 'agent' ? 'agent' : 'human',
+        draft: w.draft === true,
+        worktreePath: typeof w.worktreePath === 'string' ? w.worktreePath : null,
+        startedBySession: typeof w.startedBySession === 'string' ? w.startedBySession : null,
       })
       this.allIssues.push(w.id)
     }
@@ -450,8 +478,14 @@ export interface GenOptions {
  * deterministic in `(seed, steps, weights, corpus)`. A drawn kind whose
  * precondition does not hold in the model (nothing evicted to re-add, no
  * held edit to answer, already online) is redrawn, so the output is always
- * exactly `steps` changes. A shape may emit up to three changes; the tail is
+ * exactly `steps` changes. A shape may emit up to five changes; the tail is
  * cut at `steps`.
+ *
+ * FORCED PREFIX (POD-4681). Every run starts with one of each R-VIS shape
+ * (`excludedKeeper`, `orphanInWorktree`, `draftVesselStarter`), so each of
+ * the three visibility branches occurs in a default 3x200 run. The prefix is
+ * deterministic in the seed (it draws repo ids through the same PRNG) and
+ * counts toward `steps`.
  */
 export function gen(seed: number, steps: number, weights: Weights = {}, opts: GenOptions = {}): Change[] {
   const corpus = opts.corpus ?? genCorpus()
@@ -487,7 +521,7 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
     for (let tries = 0; tries < 40; tries += 1) {
       const id = chance(0.8) ? pick(model.hotSessions) : pick(model.allSessions)
       const s = id === undefined ? undefined : model.sessions.get(id)
-      if (s && filter(s) && (s.issueId === null || model.present(s.issueId))) return s
+      if (s && filter(s) && (s.issueId == null || model.present(s.issueId))) return s
     }
     return undefined
   }
@@ -509,6 +543,10 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
           archived: false,
           sortKey: null,
           sessions: new Set(),
+          audience: 'human',
+          draft: false,
+          worktreePath: null,
+          startedBySession: null,
         })
         model.hot.push(id)
         model.allIssues.push(id)
@@ -598,6 +636,13 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
         model.evicted.delete(id)
         return { kind, id, ...tag }
       }
+      case 'newOrphanSession':
+      case 'newDraftIssue':
+      case 'setWorktree':
+      case 'setStartedBy':
+        // Emitted only via their shapes (forced prefix + random shape draws),
+        // never drawn directly (no default weight) and never inside a batch.
+        return null
     }
   }
 
@@ -686,6 +731,168 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
         const first = rankMove(g.issue, g.siblings, {})
         const second = rankMove(model.issues.get(other) as IssueModel, g.siblings, {})
         return [{ kind: 'batch', changes: [first, second], ...tag }]
+      }
+      case 'excludedKeeper': {
+        // R-VIS `keeps` ignoring `excluded`: a proposed child kept below by a
+        // flat grandchild, under a sessionless backlog parent. Correct: the
+        // child keeps nothing (excluded), so the parent stays hidden. A plant
+        // that keeps through excluded materialises the parent.
+        const parentId = model.mint('i-g')
+        const parentRepo = pick(model.repoIds) ?? null
+        model.issues.set(parentId, {
+          id: parentId,
+          parentId: null,
+          repoId: parentRepo,
+          stage: 'in_progress',
+          archived: false,
+          sortKey: null,
+          sessions: new Set(),
+          audience: 'human',
+          draft: false,
+          worktreePath: null,
+          startedBySession: null,
+        })
+        model.hot.push(parentId)
+        model.allIssues.push(parentId)
+        const parent = model.issues.get(parentId) as IssueModel
+        parent.stage = 'backlog'
+        const childId = model.mint('i-g')
+        model.issues.set(childId, {
+          id: childId,
+          parentId,
+          repoId: parentRepo,
+          stage: 'in_progress',
+          archived: false,
+          sortKey: null,
+          sessions: new Set(),
+          audience: 'human',
+          draft: false,
+          worktreePath: null,
+          startedBySession: null,
+        })
+        model.hot.push(childId)
+        model.allIssues.push(childId)
+        const child = model.issues.get(childId) as IssueModel
+        const grandId = model.mint('i-g')
+        model.issues.set(grandId, {
+          id: grandId,
+          parentId: childId,
+          repoId: parentRepo,
+          stage: 'in_progress',
+          archived: false,
+          sortKey: null,
+          sessions: new Set(),
+          audience: 'human',
+          draft: false,
+          worktreePath: null,
+          startedBySession: null,
+        })
+        model.hot.push(grandId)
+        model.allIssues.push(grandId)
+        child.stage = 'proposed'
+        return [
+          { kind: 'newIssue', id: parentId, parentId: null, title: `Generated ${parentId}`, ...tag },
+          { kind: 'stageChange', id: parentId, stage: 'backlog', ...tag },
+          { kind: 'newIssue', id: childId, parentId, title: `Generated ${childId}`, ...tag },
+          { kind: 'newIssue', id: grandId, parentId: childId, title: `Generated ${grandId}`, ...tag },
+          { kind: 'stageChange', id: childId, stage: 'proposed', ...tag },
+        ]
+      }
+      case 'orphanInWorktree': {
+        // R-VIS R3: an issueless session seated by prefix under its owner's
+        // worktree. The owner is a fresh sessionless backlog parent given a
+        // scanned lane, so the orphan alone makes it flat. A plant that drops
+        // R3 members hides the owner.
+        const ownerId = model.mint('i-g')
+        const ownerRepo = pick(model.repoIds) ?? null
+        model.issues.set(ownerId, {
+          id: ownerId,
+          parentId: null,
+          repoId: ownerRepo,
+          stage: 'in_progress',
+          archived: false,
+          sortKey: null,
+          sessions: new Set(),
+          audience: 'human',
+          draft: false,
+          worktreePath: null,
+          startedBySession: null,
+        })
+        model.hot.push(ownerId)
+        model.allIssues.push(ownerId)
+        const owner = model.issues.get(ownerId) as IssueModel
+        owner.stage = 'backlog'
+        const wtId = model.mint('wt')
+        const lane = `/w/gen-${wtId}`
+        owner.worktreePath = lane
+        const sessionId = model.mint('s-g')
+        model.sessions.set(sessionId, { id: sessionId, issueId: null, phase: 'working', offer: false })
+        model.hotSessions.push(sessionId)
+        model.allSessions.push(sessionId)
+        return [
+          { kind: 'newIssue', id: ownerId, parentId: null, title: `Generated ${ownerId}`, ...tag },
+          { kind: 'stageChange', id: ownerId, stage: 'backlog', ...tag },
+          { kind: 'newWorktree', repoId: ownerRepo ?? (model.repoIds[0] as string), path: lane, ...tag },
+          { kind: 'setWorktree', id: ownerId, path: lane, ...tag },
+          { kind: 'newOrphanSession', sessionId, ownerId, phase: 'working', ...tag },
+        ]
+      }
+      case 'draftVesselStarter': {
+        // R-VIS started-by draft-vessel exception: a parentless non-spin-off
+        // starter whose session is owned by an agent draft with no worktree
+        // and a live session. Correct: the starter stays top-level. A plant
+        // that nests under the vessel hides it under a hidden agent row.
+        const vesselId = model.mint('i-g')
+        const vesselRepo = pick(model.repoIds) ?? null
+        model.issues.set(vesselId, {
+          id: vesselId,
+          parentId: null,
+          repoId: vesselRepo,
+          stage: 'backlog',
+          archived: false,
+          sortKey: null,
+          sessions: new Set(),
+          audience: 'agent',
+          draft: true,
+          worktreePath: null,
+          startedBySession: null,
+        })
+        model.hot.push(vesselId)
+        model.allIssues.push(vesselId)
+        const vessel = model.issues.get(vesselId) as IssueModel
+        const starterSessionId = model.mint('s-g')
+        model.sessions.set(starterSessionId, {
+          id: starterSessionId,
+          issueId: vesselId,
+          phase: 'working',
+          offer: false,
+        })
+        vessel.sessions.add(starterSessionId)
+        model.hotSessions.push(starterSessionId)
+        model.allSessions.push(starterSessionId)
+        const starterId = model.mint('i-g')
+        const starterRepo = pick(model.repoIds) ?? null
+        model.issues.set(starterId, {
+          id: starterId,
+          parentId: null,
+          repoId: starterRepo,
+          stage: 'in_progress',
+          archived: false,
+          sortKey: null,
+          sessions: new Set(),
+          audience: 'human',
+          draft: false,
+          worktreePath: null,
+          startedBySession: starterSessionId,
+        })
+        model.hot.push(starterId)
+        model.allIssues.push(starterId)
+        return [
+          { kind: 'newDraftIssue', id: vesselId, title: `Generated ${vesselId}`, ...tag },
+          { kind: 'newSession', sessionId: starterSessionId, issueId: vesselId, phase: 'working', ...tag },
+          { kind: 'newIssue', id: starterId, parentId: null, title: `Generated ${starterId}`, ...tag },
+          { kind: 'setStartedBy', id: starterId, sessionId: starterSessionId, ...tag },
+        ]
       }
     }
   }
@@ -803,7 +1010,11 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
       const n = int(2, 6)
       const changes: RowChange[] = []
       for (let k = 0; k < n; k += 1) {
-        const inner = pick(ROW_KINDS.filter((r) => r !== 'newWorktree')) as RowKind
+        const inner = pick(
+          ROW_KINDS.filter(
+            (r) => r !== 'newWorktree' && r !== 'newOrphanSession' && r !== 'newDraftIssue' && r !== 'setWorktree' && r !== 'setStartedBy',
+          ),
+        ) as RowKind
         const c = rowChange(inner)
         if (c) changes.push(c)
       }
@@ -816,6 +1027,13 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
     return writeChange(kind as (typeof WRITE_KINDS)[number])
   }
 
+  if ((w['shapes'] ?? 0) > 0) {
+    for (const forced of ['excludedKeeper', 'orphanInWorktree', 'draftVesselStarter'] as const) {
+      if (out.length >= steps) break
+      const emitted = shape(forced)
+      if (emitted !== null) out.push(...emitted)
+    }
+  }
   let stalls = 0
   while (out.length < steps) {
     const emitted = step(draw())

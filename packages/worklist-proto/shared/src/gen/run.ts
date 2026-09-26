@@ -431,6 +431,67 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         ctx.hub.emit('worktreesChanged')
         return null
       }
+      case 'newOrphanSession': {
+        if (readRow('session', c.sessionId)) return `session ${c.sessionId} exists`
+        const owner = readRow('issue', c.ownerId)
+        if (!owner) return `issue ${c.ownerId} not in scope`
+        const wt = owner['worktreePath'] as string | undefined
+        if (!wt) return `issue ${c.ownerId} has no worktree`
+        const now = ctx.stamp()
+        upsert(ctx, 'session', c.sessionId, {
+          sessionId: c.sessionId,
+          agentKind: 'codex',
+          cwd: `${wt}/sub`,
+          title: `Session ${c.sessionId}`,
+          status: 'live',
+          controllerId: `c-${c.sessionId}`,
+          geometry: { cols: 80, rows: 24 },
+          epoch: 1,
+          clientCount: 1,
+          createdAt: now,
+          lastActiveAt: now,
+          origin: { kind: 'spawn' },
+          archived: false,
+          readAt: now,
+          unread: false,
+          agentState: { phase: c.phase, since: now, nativeSubagentCount: 0 },
+        })
+        return null
+      }
+      case 'newDraftIssue': {
+        if (readRow('issue', c.id)) return `issue ${c.id} exists`
+        const now = ctx.stamp()
+        const seq = corpus.issues.length + Number(c.id.replace(/\D/g, ''))
+        const common = {
+          id: c.id,
+          seq,
+          title: c.title,
+          stage: 'backlog',
+          parentId: null,
+          createdAt: now,
+          updatedAt: now,
+          archived: false,
+          audience: 'agent',
+          draft: true,
+          repoId: ctx.targets.newIssueRepo.repoId,
+        }
+        ctx.replica.batch(() => {
+          upsert(ctx, 'issue', c.id, {
+            ...common,
+            repoPath: ctx.targets.newIssueRepo.repoPath,
+            readAt: null,
+            unread: true,
+            needsHuman: false,
+            blocked: false,
+          })
+          upsert(ctx, 'issueProjection', c.id, { ...common, description: { value: '' }, priority: 2, type: 'task' })
+        })
+        return null
+      }
+      case 'setWorktree':
+        return patchIssue(c.id, { worktreePath: c.path })
+      case 'setStartedBy':
+        return patchIssue(c.id, { startedBySession: c.sessionId })
     }
   }
 
