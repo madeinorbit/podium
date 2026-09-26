@@ -367,6 +367,9 @@ describe('scaling: the work follows the change (POD-4694)', () => {
           orderLengths: orderReads.lengths,
           headers: Object.fromEntries(notices.headers),
           list: notices.list,
+          plantOrderElements: plantReads.elements,
+          plantVisible: touched,
+          refiledLaneTouches: refiled,
         })
       } finally {
         r.dispose()
