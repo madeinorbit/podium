@@ -279,9 +279,15 @@ function dropPendingOnRemote(handle: WritableMobxPoolHandle): void {
  * in the seed-1 and seed-4 gate runs; the scan behind them keeps the plant
  * working when the corpus moves. Throws when nothing does: the visibility
  * plants need a window-driven row, and a corpus without one must fail
- * loudly, not settle for a row hidden for another reason.
+ * loudly, not settle for a row hidden for another reason. The probe cursor
+ * is the caller's run-clock stamp (never the wall clock), so reruns agree.
  */
-function findWindowTarget(handle: WritableMobxPoolHandle, source: RowSource, skipId: string): string {
+function findWindowTarget(
+  handle: WritableMobxPoolHandle,
+  source: RowSource,
+  skipId: string,
+  fresh: string,
+): string {
   const live = handle.snapshot()
   const byId = new Map<string, { readAt?: unknown }>()
   for (const record of source.snapshot('issue')) {
@@ -299,7 +305,6 @@ function findWindowTarget(handle: WritableMobxPoolHandle, source: RowSource, ski
     if (id === 'i1380' || id === 'i1397' || dynamic.length >= 40) continue
     if (qualifies(id) !== null) dynamic.push(id)
   }
-  const fresh = new Date(Date.now()).toISOString()
   let probes = 0
   for (const id of ['i1380', 'i1397', ...dynamic]) {
     const readAt = qualifies(id)
@@ -315,6 +320,11 @@ function findWindowTarget(handle: WritableMobxPoolHandle, source: RowSource, ski
     if (shows) return id
   }
   throw new Error('[plant] no window-driven hidden issue among the candidates')
+}
+
+/** The run-clock mark-read stamp for probes and plants (never the wall clock). */
+function runStamp(run: { ctx: ScenarioEngine }): string {
+  return new Date(run.ctx.engine.getSnapshot().coarseNow).toISOString()
 }
 
 /**
@@ -440,9 +450,10 @@ async function runGateSeed(
       // Settle stragglers before comparing: run.apply already quiesced,
       // but post-reload replica/store trickle (settle timers, binding
       // catch-up) can land rows in the feed after the checker's own
-      // drain. Bounded content-stable rounds with explicit feed drains;
-      // a real divergence survives them and still fails loudly below.
-      const settled = await settleStep(run)
+      // drain. settleStep waits on the feed drain and the arm's load
+      // hooks (throwing on a stuck instrument, never masking); a real
+      // divergence survives it and still fails loudly below.
+      await settleStep(run, h)
       const compareOnce = (): {
         kernel: SliceSnapshot
         actual: SliceSnapshot
@@ -477,7 +488,7 @@ async function runGateSeed(
       // reproduces (all arm logic is synchronous), a delivery transient
       // heals. Healed checks are counted, never hidden.
       if (diff !== null) {
-        await settleStep(run)
+        await settleStep(run, h)
         const second = compareOnce()
         if (second.diff === null) {
           healed += 1
@@ -491,7 +502,7 @@ async function runGateSeed(
         firstDiffChange = JSON.stringify(step.change)
         firstDiff =
           `seed ${seed}: step ${step.index} diverged from the write oracle ` +
-          `(${firstDiffChange}, settled=${settled}):\n${diff}`
+          `(${firstDiffChange}):\n${diff}`
       }
       if (diff !== null) {
         failedSteps.push(step.index)
@@ -706,7 +717,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           visible.issueRead = (id: string) => handle.pool.readStates.get(id)
         }
         try {
-          const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId)
+          const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId, runStamp(run))
           const step = await run.apply({ kind: 'edit', handle: 'e1', id, patch: { readAt: true } })
           expect(step.skipped).toBeUndefined()
           adapter.pairFromStep(step.detail ?? {})
@@ -748,13 +759,13 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         try {
-          const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId)
+          const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId, runStamp(run))
           // The plant: a mark-read the arm logs but never sends — the
           // kernel, the feed and the reference log never learn it, yet both
           // arm derivations paint it through the real overlay path (the
           // remote repaints the overlay map observably, so verdicts re-run).
           if (planted) {
-            const fresh = new Date(Date.now()).toISOString()
+            const fresh = runStamp(run)
             const feedRow = feed.source.snapshot('issue').find((r) => r.id === id)
             const server = feedRow?.value as
               | { title: string; stage: string; readAt: string | null }
@@ -776,7 +787,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
               readAt: server.readAt ?? null,
             } as never)
           }
-          await settleStep(run)
+          await settleStep(run, handle)
           locals.flush()
           // A real edit would materialise a cold row (ensureResident); the
           // phantom performs none, so hydrate the same way — otherwise the
@@ -860,21 +871,21 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             expect(step.skipped).toBeUndefined()
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
-            await settleStep(run)
+            await settleStep(run, handle)
             expect(handle.write.log.pendingFor('issue', id).length).toBe(1)
             expect(oracle.log.pendingFor('issue', id).length).toBe(1)
             step = await run.apply({ kind: 'remoteOnPending', handle: e, value: theirs })
             expect(step.skipped).toBeUndefined()
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
-            await settleStep(run)
+            await settleStep(run, handle)
             expect(handle.write.log.pendingFor('issue', id).length).toBe(1)
             expect(oracle.log.pendingFor('issue', id).length).toBe(1)
             step = await run.apply({ kind: 'accept', handle: e })
             expect(step.skipped).toBeUndefined()
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
-            await settleStep(run)
+            await settleStep(run, handle)
             locals.flush()
             const liveTitle = handle.snapshot().rowsById[id]?.title
             const store = run.ctx.engine.getSnapshot()
