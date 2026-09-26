@@ -111,7 +111,6 @@ const actions = {
   closeWorkspacePane: vi.fn(),
   focusWorkspacePane: vi.fn(),
   resizeWorkspaceSplit: vi.fn(),
-  setSelectedIssueId: vi.fn(),
 }
 
 let state: Record<string, unknown>
@@ -212,18 +211,6 @@ const label = (id: string): HTMLElement => {
 }
 
 describe('Workspace tab strip', () => {
-  it('keeps an unresolved active preview in its strip with a close action', () => {
-    state.workspaces = { 'mission:task-1': {
-      ...makeLayout(),
-      panes: { p1: { id: 'p1', tabs: ['s1', 'missing'], activeTabId: 'missing' } },
-      previewTabId: 'missing',
-    } }
-    render(<Workspace />)
-    expect(screen.getByTestId('unresolved-workspace-tab').textContent).toContain('missing')
-    expect(screen.getByTestId('workspace-loading-target').textContent).toContain('missing')
-    fireEvent.click(screen.getByRole('button', { name: 'Close loading tab missing' }))
-    expect(actions.closeWorkspaceTab).toHaveBeenCalledWith('missing')
-  })
   it('keeps dnd-kit cold through startup and loads it on the first draggable-tab intent', async () => {
     const runtime = delayedDragRuntime()
     render(<Workspace loadDragRuntime={runtime.load} />)
@@ -1231,24 +1218,6 @@ describe('Workspace splitting', () => {
 // sidebar and the mission off the deck, and this column has to go cold with
 // them rather than offer a ＋ menu with nothing to attach to.
 describe('Workspace with no mission on screen', () => {
-  it('shows unresolved selected task data instead of opening the new-task composer', () => {
-    replicaIssues = []
-    state.selectedIssueId = 'not-yet-loaded'
-    state.workspaces = {}
-    state.workspaceKey = () => 'none'
-    render(<Workspace />)
-    expect(screen.getByTestId('workspace-unresolved-mission').textContent).toContain('Loading task data')
-    expect(screen.queryByTestId('partial-recovery-composer')).toBeNull()
-  })
-
-  it('shows an incoming unknown session outside the saved layout and lets the operator cancel it', () => {
-    state.workspaces = {}
-    state.pendingRouteTargetId = 'incoming'
-    render(<Workspace />)
-    expect(screen.getByTestId('workspace-pending-link').textContent).toContain('incoming')
-    fireEvent.click(screen.getByRole('button', { name: 'Close target' }))
-    expect(actions.setSelectedIssueId).toHaveBeenCalledWith('task-1')
-  })
   const emptyPane = () => ({
     'mission:task-1': {
       ...makeLayout(),

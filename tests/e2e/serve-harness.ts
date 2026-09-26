@@ -29,7 +29,7 @@ import {
   type LaunchOptions,
   type LaunchSpec,
 } from '@podium/harness'
-import { asUserId, type AgentKind } from '@podium/model'
+import type { AgentKind } from '@podium/model'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { ensurePodiumCodexHooks } from '../../apps/daemon/src/codex-hooks'
 import { startDaemon } from '../../apps/daemon/src/daemon'
@@ -244,20 +244,6 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
 }
 
 let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
-if (process.env.PODIUM_E2E_FLIGHT_DECK === '1') {
-  const harnessStore = (server.registry as unknown as { store: SessionStore }).store
-  await harnessStore.machines.setServiceAssignment(hostMachineId(), {
-    server: true,
-    agentExecution: true,
-  })
-  await harnessStore.repos.addRepo(REPO_ROOT, hostMachineId())
-  const claimHost = setInterval(async () => {
-    const admin = (await harnessStore.users.list()).find((user) => user.role === 'admin')
-    if (!admin) return
-    await harnessStore.machines.setMachineOwner(hostMachineId(), asUserId(admin.id))
-    clearInterval(claimHost)
-  }, 100)
-}
 
 // The ordinary harness must never read authenticated provider quota just to paint
 // a health chip. Keep it deterministic (and make mixed-pool UI testable) unless
@@ -407,32 +393,6 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)
-// The isolated flight-deck proof creates ordinary issues/sessions over RPC after
-// the harness is ready. Only agentState must enter through the daemon frame
-// contract, so this opt-in fixture supplies that one observation when its
-// named session becomes live.
-if (process.env.PODIUM_E2E_FLIGHT_DECK === '1') {
-  const reported = new Set<string>()
-  const poll = setInterval(async () => {
-    const sessions = await server.registry.modules.sessions.listSessions()
-    for (const [title, workerId] of [
-      ['POD-1983 coordinator', 'coordinator-worker-1'],
-      ['POD-1983 native owner', 'native-worker-1'],
-    ] as const) {
-      const owner = sessions.find((session) => session.title === title && session.status === 'live')
-      if (!owner || reported.has(workerId)) continue
-      reported.add(workerId)
-      server.registry.modules.sessions.onSessionDaemonFrame(inProcessMachinePrincipal(hostMachineId()), {
-        type: 'agentState', sessionId: owner.sessionId,
-        state: {
-          phase: 'working', since: new Date().toISOString(), nativeSubagentCount: 1,
-          nativeSubagents: [{ id: workerId, type: 'Explore' }],
-        },
-      })
-    }
-    if (reported.size === 2) clearInterval(poll)
-  }, 250)
-}
 const QUEUE_POSITION_ISSUE_TITLE = 'POD-2920 A1b production queue'
 if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
   const issue = server.registry.modules.issues.create({

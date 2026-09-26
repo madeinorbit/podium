@@ -12,25 +12,13 @@ import {
   type DeckIssueState,
   type DeckState,
   deckIssueState,
-  deckLifecycle,
-  deckTaskFacts,
-  deckDependencies,
-  deckFoldHiddenFacts,
-  deckSessionFacts,
-  deckSessionRunning,
-  deckSessionRequestsHuman,
-  deckFoldKey,
   deckSessions,
-  deckSessionTree,
-  dependencyCycleRecorded,
   deckViewEmptyLine,
   type FlightDeckFoldMap,
   type FlightDeckFoldState,
   type FlightDeckMode,
   type FlightDeckRow,
   flightDeckRowDefaultFolded,
-  flightDeckBranchFolded,
-  flightDeckRosterFolded,
   flightDeckRowHasPayload,
   flightDeckRowIsFolded,
   type IssueContinuation,
@@ -38,7 +26,6 @@ import {
   type IssueNote,
   isCoordinatorSession,
   issueAbandoned,
-  issueClosed,
   issueContinuation,
   issueDisplayTitle,
   issueNote,
@@ -46,10 +33,10 @@ import {
   type MissionDeparture,
   machineViewsFromWire,
   missionDepartures,
-  missionDeckCensus,
   missionIssueIds,
   missionProgress,
-  migrateResolvedDeckFolds,
+  missionRootFor,
+  motionPhase,
   nativeSubagentRows,
   type PresenceNote,
   presenceNote,
@@ -58,7 +45,8 @@ import {
   reuseFlightDeckRows,
   type SessionRole,
   selectedMissionRoot,
-  sessionErrorLabel,
+  sessionAsksOnIssue,
+  sessionNeedsHuman,
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
@@ -68,7 +56,7 @@ import {
   treeGuides,
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, asSessionId, idleVerdictFinishedTurn, spawnedByParentSessionId } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -83,6 +71,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Ellipsis,
+  Hourglass,
   Maximize2,
   Minimize2,
   Search,
@@ -134,7 +123,6 @@ import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/
 import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
-import { FlightDeckDependencyDetails } from './FlightDeckDependencyDetails'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
@@ -161,13 +149,12 @@ import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
  * asking agents: busy and stuck-on-you are different facts, and a tab that held
  * both left `Needs you` looking like it had done nothing.
  */
-type FlightDeckView = FlightDeckMode | 'dependencies' | 'waterfall' | 'handoff'
+type FlightDeckView = FlightDeckMode | 'waterfall' | 'handoff'
 
 const MODES: Array<{ id: FlightDeckView; label: string }> = [
-  { id: 'full', label: 'Overview' },
+  { id: 'full', label: 'Full spine' },
   { id: 'working', label: 'Working' },
   { id: 'needs-you', label: 'Needs you' },
-  { id: 'dependencies', label: 'Dependencies' },
 ]
 const WATERFALL_MODE = { id: 'waterfall', label: 'Waterfall' } as const
 const TIMELINE_MODE = { id: 'handoff', label: 'Timeline' } as const
@@ -290,7 +277,7 @@ function MissionAgentMenu({
  * and lets one branch line carry everything a task owns.
  */
 const SPINE_PAD = 8
-const DEPTH_STEP = 20
+const DEPTH_STEP = 16
 /** Where a nesting level's rail sits inside its own step. Also the inset of a
  *  task's agent rail inside its own band, because they are the same line. */
 const RAIL_INSET = 8
@@ -459,7 +446,7 @@ const railFor = (tone: RailTone): Rail =>
 const readMode = (raw: string | null): FlightDeckView =>
   raw === 'active'
     ? 'working'
-    : raw === 'working' || raw === 'needs-you' || raw === 'dependencies' || raw === 'waterfall' || raw === 'handoff'
+    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall' || raw === 'handoff'
       ? raw
       : 'full'
 const writeMode = (mode: FlightDeckView): string | null => (mode === 'full' ? null : mode)
@@ -667,24 +654,19 @@ function StateLabel({ value, label }: { value: DeckIssueState; label?: string })
  *  Deliberately a coarse word rather than a live clock — the icon exists so the
  *  operator can decide whether to unfold, and a tooltip that ticks would be one
  *  more thing animating in a column whose only motion is the working spinner. */
-function sessionTurnFinished(session: SessionMeta): boolean {
-  return session.agentState?.phase === 'ended' ||
-    (session.agentState?.phase === 'idle' && idleVerdictFinishedTurn(session.agentState.idle?.kind))
-}
-
-function crewLine(session: SessionMeta, now: number, issue: IssueNavigationModel): string {
+function crewLine(session: SessionMeta, now: number): string {
   const retired = session.archived || session.status === 'exited'
-  const facts = deckSessionFacts(issue, session)
-  const state = retired ? [`retired ${relativeTime(session.lastActiveAt, now)}`] : [
-    facts.running ? 'working' : null,
-    facts.error,
-    facts.request ? 'needs you' : null,
-    facts.lastRecordedRequest ? 'last recorded request' : null,
-    !facts.running && !facts.error && !facts.request && !facts.lastRecordedRequest
-      ? session.agentState ? sessionTurnFinished(session) ? 'turn finished' : 'idle' : 'activity unavailable'
-      : null,
-  ]
-  return [session.displayRef?.trim(), sessionDisplayName(session), ...state]
+  const phase = motionPhase(session)
+  const state = retired
+    ? `retired ${relativeTime(session.lastActiveAt, now)}`
+    : sessionNeedsHuman(session)
+      ? 'needs you'
+      : phase === 'working'
+        ? 'working'
+        : phase === 'done'
+          ? 'done'
+          : 'standing by'
+  return [session.displayRef?.trim(), sessionDisplayName(session), state]
     .filter(Boolean)
     .join(' · ')
 }
@@ -702,7 +684,7 @@ const CREW_SHOWN = 4
  * is hidden by default — and everything each icon stands for rides on its
  * tooltip, which is also where an icon dropped by a narrow column survives.
  */
-function CrewCensus({ crew, issue, byId }: { crew: readonly SessionMeta[]; issue: IssueNavigationModel; byId: ReadonlyMap<string, IssueNavigationModel> }): JSX.Element {
+function CrewCensus({ crew }: { crew: readonly SessionMeta[] }): JSX.Element {
   const now = useStoreSelector((store) => store.coarseNow)
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
@@ -714,7 +696,7 @@ function CrewCensus({ crew, issue, byId }: { crew: readonly SessionMeta[]; issue
           // The FIRST icon always survives: "there is somebody in here" is the
           // fact, and the rest are detail the tooltip keeps.
           className={index === 0 ? undefined : 'deck-drop-crew'}
-          title={crewLine(session, now, byId.get(session.issueId ?? '') ?? issue)}
+          title={crewLine(session, now)}
         >
           <KindIcon kind={session.agentKind} compact dimmed={sessionSettled(session)} />
         </span>
@@ -902,11 +884,9 @@ function NativeRows({
   onOpen: () => void
 }): JSX.Element | null {
   const rows = nativeSubagentRows(session)
-  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
   if (rows.length === 0) return null
   return (
     <div className="relative pb-0.5" data-testid="flight-native-agents">
-      <div className="shell-type-micro pl-5 text-text-faint">{session.status === 'hibernated' || session.status === 'exited' ? 'Last reported native workers' : 'Native workers'} · Individual activity unavailable{session.agentState?.awaitingSubagents ? ' · Parent waiting for native workers' : ''}</div>
       {rows.map((agent, index) => (
         <Hung
           key={`${session.sessionId}:${agent.id}`}
@@ -916,7 +896,6 @@ function NativeRows({
           last={index === rows.length - 1}
           rail={HAIRLINE_RAIL}
         >
-          <div>
           <button
             data-pressable
             type="button"
@@ -925,11 +904,10 @@ function NativeRows({
             // type on the quietest rail in the spine, and nothing else. Giving
             // it a harness tile would put it in the same visual class as the
             // session that owns it.
-            className="shell-type-micro flex min-h-6 w-full items-center gap-1.5 pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
+            className="shell-type-micro flex h-[22px] w-full items-center gap-1.5 pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
             style={{ paddingLeft: NATIVE_INDENT + 4 }}
             onClick={onOpen}
-            aria-label={`Open owning agent ${sessionDisplayName(session)} · ${agent.anonymous ? `${agent.count} additional native workers, identities unavailable` : agent.id}`}
-            title={`${agent.id} · Open owning agent`}
+            title={`Focus ${sessionDisplayName(session)} in CLI · ${agent.anonymous ? 'unnamed worker' : agent.id}`}
           >
             {/* The artifact's `native-row`: TYPE first and lit, its id dimmed
                 behind a separator. The full 17-character harness id was the
@@ -937,7 +915,7 @@ function NativeRows({
                 distinguish concurrent workers, and the whole id is on the title
                 for anyone who needs to match it against a transcript. */}
             <span className="min-w-0 flex-1 truncate">
-              <span className="font-medium text-text-dim">{agent.anonymous ? `${agent.count} additional workers, identities unavailable` : agent.type}</span>
+              <span className="font-medium text-text-dim">{agent.type}</span>
               {!agent.anonymous && (
                 <span className="text-text-faint/70"> · {agent.id.slice(0, 8)}</span>
               )}
@@ -955,10 +933,10 @@ function NativeRows({
             </span>
             {/* Their state follows the session that owns them, and it parks in
                 the same column every other row in the spine parks in. */}
-            <span className={cn('flex flex-none justify-end', STATE_COL)}>Activity unavailable</span>
+            <span className={cn('flex flex-none justify-end', STATE_COL)}>
+              {agent.working ? 'working' : 'waiting'}
+            </span>
           </button>
-          {!agent.anonymous && <button data-pressable type="button" className="shell-type-micro ml-5 min-h-6 break-all text-left font-mono text-text-dim underline" aria-expanded={expandedWorkerId === agent.id} aria-label={`${expandedWorkerId === agent.id ? 'Hide' : 'Show'} full native worker ID ${agent.id}`} onClick={() => setExpandedWorkerId((current) => current === agent.id ? null : agent.id)}>{expandedWorkerId === agent.id ? agent.id : 'Full ID'}</button>}
-          </div>
         </Hung>
       ))}
     </div>
@@ -1070,9 +1048,6 @@ function SessionRow({
   flat = false,
   onOpen,
   onOpenNative,
-  nativeOpen = true,
-  onToggleNative,
-  spawnParent,
 }: {
   session: SessionMeta
   /** The task this row hangs on. Needed to answer "is it asking?", which a
@@ -1092,9 +1067,6 @@ function SessionRow({
    *  tab rather than as the workspace's one preview. */
   onOpen: (permanent: boolean) => void
   onOpenNative: () => void
-  nativeOpen?: boolean
-  onToggleNative?: () => void
-  spawnParent?: { label: string; onOpen?: () => void }
 }): JSX.Element {
   // SESSION LIFECYCLE LIVES HERE NOW (POD-710 §4). The tab is a view and stops
   // owning the session, so rename / snooze / hibernate / handoff / archive /
@@ -1105,17 +1077,10 @@ function SessionRow({
   const [editing, setEditing] = useState(false)
   const intent = useClickIntent()
   const retired = session.archived || session.status === 'exited'
-  const facts = issue ? deckSessionFacts(issue, session) : {
-    running: !retired && deckSessionRunning(session),
-    error: !retired ? sessionErrorLabel(session) : null,
-    request: !retired && deckSessionRequestsHuman(session),
-    lastRecordedRequest: false,
-    parked: session.status === 'hibernated',
-  }
-  const needs = facts.request
-  const errored = facts.error !== null
-  const running = facts.running
-  const finishedTurn = sessionTurnFinished(session)
+  const starting = session.status === 'starting' || session.status === 'reconnecting'
+  const needs =
+    !retired && (issue ? sessionAsksOnIssue(issue, session) : sessionNeedsHuman(session))
+  const phase = motionPhase(session)
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const now = useStoreSelector((store) => store.coarseNow)
   const stamp = relativeTime(session.lastActiveAt, now)
@@ -1134,8 +1099,6 @@ function SessionRow({
     session.displayRef,
     label,
     needs ? `Needs you${waited ? ` · ${waited}` : ''}` : null,
-    facts.error,
-    facts.lastRecordedRequest ? 'Last recorded request' : null,
     retired ? `Retired · ${stamp}` : null,
   ]
     .filter(Boolean)
@@ -1253,7 +1216,7 @@ function SessionRow({
             pointed && !active && 'bg-muted text-foreground',
             // Settled agents dim one tier rather than leaving. Removing them is
             // the view bar's job, not the row's.
-            (retired || finishedTurn) && 'opacity-60',
+            (retired || phase === 'done') && 'opacity-60',
           )}
           // One click previews, two promote (see `useClickIntent`). Enter is the
           // keyboard's double click and must not go through the click path, so
@@ -1327,9 +1290,7 @@ function SessionRow({
               STATE_COL,
             )}
           >
-            {errored ? (
-              <span className="shell-type-micro font-semibold text-destructive">{facts.error}{facts.parked ? ' · Parked' : ''}{running ? ' · Running' : ''}{needs ? ' · Needs you' : ''}</span>
-            ) : needs ? (
+            {needs ? (
               <>
                 <span
                   aria-hidden
@@ -1337,7 +1298,7 @@ function SessionRow({
                 >
                   !
                 </span>
-                <span className="shell-type-micro font-semibold text-attention">Needs you{running ? ' · Running' : ''}{session.status === 'hibernated' ? ' · Parked' : ''}</span>
+                <span className="shell-type-micro font-semibold text-attention">Needs you</span>
                 {Number.isFinite(since) && (
                   <PhaseTimer
                     phase="waiting"
@@ -1354,16 +1315,23 @@ function SessionRow({
                     changing composition, not by silently dropping the stamp. */}
                 <span className="deck-agent-elapsed"> · {stamp}</span>
               </span>
-            ) : session.status === 'hibernated' ? (
-              <span className="shell-type-micro font-mono text-text-dim">Parked</span>
-            ) : session.status === 'reconnecting' ? (
-              <span className="shell-type-micro font-mono text-text-dim">Reconnecting</span>
-            ) : session.status === 'starting' ? (
+            ) : starting ? (
               <span className="shell-type-micro font-mono text-text-dim">Starting</span>
-            ) : running && Number.isFinite(since) ? (
+            ) : phase === 'working' && Number.isFinite(since) ? (
               <PhaseTimer phase="working" sinceMs={since} baseMs={total ?? 0} />
             ) : (
-              <span className="shell-type-micro text-text-dim">{finishedTurn ? 'Turn finished' : session.agentState ? 'Idle' : 'Activity unavailable'}</span>
+              <>
+                {phase === 'done' ? (
+                  <Check size={11} aria-hidden className="flex-none text-success" />
+                ) : (
+                  <Hourglass size={10} aria-hidden className="flex-none text-text-faint" />
+                )}
+                {phase === 'done' && total !== undefined && Number.isFinite(since) ? (
+                  <PhaseTimer phase="done" sinceMs={since} totalMs={total} />
+                ) : (
+                  <span className="shell-type-micro font-mono text-text-dim">{stamp}</span>
+                )}
+              </>
             )}
           </span>
         </button>
@@ -1392,10 +1360,7 @@ function SessionRow({
           </Button>
         </div>
       )}
-      {facts.lastRecordedRequest && <span className="shell-type-micro ml-5 block text-text-dim">Last recorded request · {session.offer?.message?.trim() || session.agentState?.need?.summary?.trim() || 'Response was requested'}</span>}
-      {spawnParent && (spawnParent.onOpen ? <button data-pressable type="button" className="shell-type-micro ml-5 min-h-6 text-left text-text-dim underline" onClick={spawnParent.onOpen}>Spawned by {spawnParent.label}</button> : <span className="shell-type-micro ml-5 block text-text-dim">Spawned by {spawnParent.label}</span>)}
-      {nativeSubagentRows(session).length > 0 && onToggleNative && <button data-pressable type="button" className="shell-type-micro ml-5 min-h-6 text-left text-text-dim underline" aria-expanded={nativeOpen} onClick={onToggleNative}>{nativeOpen ? 'Hide native workers' : `Show ${nativeSubagentRows(session).reduce((count, row) => count + row.count, 0)} native workers`}</button>}
-      {nativeOpen && <NativeRows session={session} onOpen={onOpenNative} />}
+      <NativeRows session={session} onOpen={onOpenNative} />
       {menuAnchor && (
         <SessionContextMenu
           session={session}
@@ -1455,34 +1420,26 @@ interface HungContext {
   tail: boolean
   onSelectSession: (session: SessionMeta, permanent: boolean) => void
   onSelectNative: (session: SessionMeta) => void
-  folds?: FoldMap
-  onToggleNative?: (session: SessionMeta) => void
-  onOpenParent?: (sessionId: SessionId) => void
 }
 
 function HungRows(ctx: HungContext): JSX.Element | null {
   const reduce = useReducedMotion()
   const { sessions } = ctx
   if (sessions.length === 0) return null
-  const tree = deckSessionTree(ctx.issue, sessions)
   let placed = 0
   const isLast = (): boolean => {
     placed += 1
-    return !ctx.tail && placed === tree.length
+    return !ctx.tail && placed === sessions.length
   }
   return (
     <div className="relative" style={{ marginLeft: ctx.inset }}>
-      {tree.map(({ session, depth }) => {
-        const parentId = spawnedByParentSessionId(session.spawnedBy)
-        const sameTaskParent = parentId && sessions.some((candidate) => candidate.sessionId === parentId && candidate.issueId === session.issueId)
-        const parentName = parentId ? ctx.nameOf(parentId) : undefined
+      {sessions.map((session) => {
         const role = sessionRole(ctx.issue, session, {
           rootId: ctx.rootId,
           siblings: sessions,
           inMission: ctx.inMission,
         })
         const row = (
-          <div style={{ marginLeft: depth * DEPTH_STEP }}>
           <SessionRow
             key={session.sessionId}
             session={session}
@@ -1494,11 +1451,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
             rail={ctx.rail}
             onOpen={(permanent) => ctx.onSelectSession(session, permanent)}
             onOpenNative={() => ctx.onSelectNative(session)}
-            nativeOpen={ctx.folds?.get(deckFoldKey('native', ctx.issue.id, session.sessionId)) !== 'closed'}
-            onToggleNative={ctx.onToggleNative ? () => ctx.onToggleNative?.(session) : undefined}
-            spawnParent={parentId && !sameTaskParent ? { label: parentName ?? parentId, ...(parentName && ctx.onOpenParent ? { onOpen: () => ctx.onOpenParent?.(parentId) } : {}) } : undefined}
           />
-          </div>
         )
         // A SESSION JOINING A TASK MAKES SPACE, then arrives (round 3 §7c). Only
         // a session that appeared AFTER the deck settled animates — `useArrivals`
@@ -1540,11 +1493,9 @@ function HungRows(ctx: HungContext): JSX.Element | null {
 const TaskRow = memo(
   function TaskRow({
     row,
-    unfilteredRows,
     displayTitle,
     renameSeed,
     byId,
-    missionMembers,
     carries,
     mode,
     rootId,
@@ -1555,26 +1506,19 @@ const TaskRow = memo(
     arrivals,
     settle,
     collapsed,
-    branchClosed,
-    folds,
     rails,
     agentRail,
     childFollows,
-    onToggleBranch,
-    onToggleRoster,
+    onToggle,
     onSelectIssue,
     onSelectSession,
     onSelectNative,
-    onToggleNative,
-    onOpenParent,
-    onOpenDependency,
     onMenu,
     onRenameIssue,
     onStatusPick,
     onRenameDone,
   }: {
     row: FlightDeckRow
-    unfilteredRows: readonly FlightDeckRow[]
     /** The shared human-facing issue name. A draft's stored title is only a
      *  placeholder until somebody names it. */
     displayTitle: string
@@ -1582,7 +1526,6 @@ const TaskRow = memo(
      *  read mode; a string keeps the editor and its no-op comparison in sync. */
     renameSeed: string | null
     byId: ReadonlyMap<string, IssueNavigationModel>
-    missionMembers: ReadonlySet<string>
     /** Which ancestor guide rails cross this row — see `treeGuides`. */
     carries: readonly boolean[]
     /** The tone of the rail at each of those levels — see `railTones`. */
@@ -1602,18 +1545,13 @@ const TaskRow = memo(
     arrivals: ReadonlySet<string>
     settle: (key: string) => void
     collapsed: boolean
-    branchClosed: boolean
     folds: FoldMap
-    onToggleBranch: () => void
-    onToggleRoster: () => void
+    onToggle: () => void
     /** Single click previews the task's lead session (and toggles the fold);
      *  double click / Enter opens it permanently. */
     onSelectIssue: (permanent: boolean) => void
     onSelectSession: (session: SessionMeta, permanent: boolean) => void
     onSelectNative: (session: SessionMeta) => void
-    onToggleNative: (session: SessionMeta) => void
-    onOpenParent: (sessionId: SessionId) => void
-    onOpenDependency: (issue: IssueNavigationModel) => void
     /** Open the shared task menu at the cursor — right-click, or the ⋯ reveal. */
     onMenu: (event: ReactMouseEvent) => void
     /** The strip's status glyph is a picker (POD-1271) — the deck applies it. */
@@ -1626,15 +1564,11 @@ const TaskRow = memo(
     onRenameDone: () => void
   }): JSX.Element {
     const intent = useClickIntent()
-    const bandLeft = SPINE_PAD + Math.min(row.depth, 3) * DEPTH_STEP
+    const payload = hasPayload(row)
+    const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
     const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
+    const state = deckIssueState(row.issue, row.sessions, byId)
     const sessions = deckSessions(row, mode)
-    const facts = deckTaskFacts(row.issue, row.sessions)
-    const state: DeckIssueState = {
-      state: issueClosed(row.issue) ? issueAbandoned(row.issue) ? 'cancelled' : 'done' : 'next',
-      label: issueClosed(row.issue) ? row.issue.closedReason && row.issue.closedReason !== 'done' ? row.issue.closedReason : 'Done' : STAGE_LABELS[row.issue.stage] ?? row.issue.stage,
-      attention: facts.requests.length > 0 || facts.taskRequest,
-    }
     /**
      * A ROW THAT IS ONLY THE PATH TO A MATCH (POD-1245).
      *
@@ -1660,25 +1594,22 @@ const TaskRow = memo(
     // so it holds no seat for an agent and takes the shorter band. Only one with
     // sub-tasks reaches this component — the childless ones leave the tree
     // entirely for the Proposed tail below it.
-    const proposed = row.issue.stage === 'proposed' && !issueClosed(row.issue)
+    const proposed = row.issue.stage === 'proposed'
     const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
     const mid = proposed ? PROPOSED_MID : BAND_MID
-    const rawNote = issueNote(row.issue, byId, row.sessions)
-    const note = rawNote?.kind === 'blocked' || rawNote?.kind === 'waiting' ? null : rawNote
-    const dependencies = deckDependencies(row.issue, byId, missionMembers)
-    const openDependencies = dependencies.filter((dep) => dep.state === 'open')
-    const unavailableDependencies = dependencies.filter((dep) => dep.state === 'unavailable')
-    const proposedParent = row.issue.parentId ? byId.get(row.issue.parentId) : undefined
+    const note = issueNote(row.issue, byId, row.sessions)
     // The seat is held for work that could be picked up — never under a proposal,
     // and never to restate a dependency the strip has already named above it.
     const seat = proposed ? null : seatFor(presenceNote(row.issue, row.sessions, byId))
     // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload
     // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
     // two inches to the left of it.
-    const fullRow = unfilteredRows.find((candidate) => candidate.issue.id === row.issue.id) ?? row
-    const folded = branchClosed && fullRow.descendantIds.length > 0
-    const hidden = deckFoldHiddenFacts(fullRow, unfilteredRows, { branchClosed, rosterClosed: collapsed }).total
-    const unread = deckTaskUnread(fullRow, collapsed || branchClosed, byId)
+    const folded = collapsed && payload
+    const unread = deckTaskUnread(row, collapsed, byId)
+    const liveWord =
+      folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
+        ? `${row.workingAgentCount} running`
+        : undefined
     return (
       <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
         <BranchGuides carries={carries} rails={rails} mid={mid} />
@@ -1742,7 +1673,7 @@ const TaskRow = memo(
           className={cn(
             'deck-strip group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
             context ? 'bg-transparent' : 'bg-tabstrip',
-            openDependencies.length > 0 && !issueClosed(row.issue) && !context && 'deck-hatch',
+            state.state === 'blocked' && !context && 'deck-hatch',
             // Selection still outlines a context row: the operator can click one
             // to go and look at it, and a click with no answer is worse than a
             // quiet row.
@@ -1752,7 +1683,7 @@ const TaskRow = memo(
                 ? 'border-transparent hover:border-hairline-soft'
                 : 'border-hairline-soft hover:border-hairline-bar',
           )}
-          style={{ '--deck-indent': `${bandLeft}px`, '--deck-narrow-indent': `${SPINE_PAD + Math.min(row.depth, 3) * 12}px`, minHeight: bandHeight } as CSSProperties}
+          style={{ marginLeft: bandLeft, minHeight: bandHeight }}
           // A TASK ANSWERS THE SAME GESTURE ITS AGENTS DO (POD-771). Right-click
           // on an agent row has opened session lifecycle since POD-710; the task
           // it hangs under offered nothing, so stage, placement, colour and close
@@ -1761,25 +1692,24 @@ const TaskRow = memo(
           // imported, never forked.
           onContextMenu={onMenu}
         >
-          {fullRow.descendantIds.length > 0 ? (
+          {payload ? (
             <button
               data-pressable
               type="button"
               className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
-              aria-label={branchClosed ? `Expand tasks under ${displayTitle}` : `Collapse tasks under ${displayTitle}`}
-              aria-expanded={!branchClosed}
+              aria-label={collapsed ? `Expand ${displayTitle}` : `Collapse ${displayTitle}`}
+              aria-expanded={!collapsed}
               // The chevron is the ONE control that folds without navigating, and
               // it acts immediately — the row's own click is deferred by the
               // double-click window, so an operator folding a long spine has an
               // affordance that never waits.
-              onClick={onToggleBranch}
+              onClick={onToggle}
             >
-              {branchClosed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+              {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
             </button>
           ) : (
             <span className="size-5 flex-none" />
           )}
-          {row.sessions.length > 0 && <button data-pressable type="button" className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong" aria-label={collapsed ? `Show agents on ${displayTitle}` : `Hide agents on ${displayTitle}`} aria-expanded={!collapsed} onClick={onToggleRoster}>{collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}</button>}
           {/* RENAMING IN PLACE (POD-1077). The deck could not rename a task at
             all — it mounted the shared menu without `onRename`, which gates the
             entry — so the column the operator works in was the one column that
@@ -1856,11 +1786,11 @@ const TaskRow = memo(
                 <span className="deck-task-meta flex flex-none items-center gap-1.5">
                   {note && <IssueNoteChip note={note} />}
                   {seat && <SeatChip note={seat} />}
-                  {folded && <CollapsedPayload summary={fullRow.collapsedSummary} />}
-                  {(folded || collapsed) && fullRow.collapsedSummary.crew.length > 0 && (
-                    <CrewCensus crew={fullRow.collapsedSummary.crew} issue={row.issue} byId={byId} />
+                  {folded && <CollapsedPayload summary={row.collapsedSummary} />}
+                  {folded && row.collapsedSummary.crew.length > 0 && (
+                    <CrewCensus crew={row.collapsedSummary.crew} />
                   )}
-                  <StateLabel value={state} />
+                  <StateLabel value={state} label={liveWord} />
                 </span>
               )}
             </button>
@@ -1888,25 +1818,6 @@ const TaskRow = memo(
             </Button>
           </div>
         </div>
-        {(!context || hidden.running > 0 || hidden.errors > 0 || hidden.requests > 0) && (
-          <div className="shell-type-micro flex flex-wrap gap-x-2 gap-y-0.5 break-words pb-1 text-text-dim" style={{ paddingLeft: Math.min(row.depth, 3) * DEPTH_STEP + GUTTER }}>
-            {!context && <span>{deckLifecycle(row.issue) === 'done' ? 'Done' : STAGE_LABELS[deckLifecycle(row.issue) as keyof typeof STAGE_LABELS] ?? deckLifecycle(row.issue)}</span>}
-            {!context && facts.running > 0 && <span className="text-text-strong">{issueClosed(row.issue) ? 'Agent still running' : `${facts.running} running`}</span>}
-            {!context && facts.errors.length > 0 && <span className="text-destructive">{facts.errors.length} agent error{facts.errors.length === 1 ? '' : 's'}{facts.parked > 0 ? ' · parked agent' : ''}</span>}
-            {!context && (facts.requests.length > 0 || facts.taskRequest) && <span className="text-attention">Needs you</span>}
-            {!context && row.issue.blocked && !issueClosed(row.issue) && openDependencies.length === 0 && <span>Dependency status unavailable</span>}
-            {!context && facts.assigned === 0 && <span>{row.sessions.length > 0 ? 'No active agent' : 'No agent assigned'}</span>}
-            {!context && facts.assigned === 0 && row.sessions.length === 0 && (row.issue.stage === 'backlog' || row.issue.stage === 'planning') && <span>Not started</span>}
-            {!context && facts.assigned === 0 && row.issue.ready && !issueClosed(row.issue) && openDependencies.length === 0 && unavailableDependencies.length === 0 && <span>Ready to start</span>}
-            {hidden.running > 0 && <span className="text-text-strong">{hidden.running} hidden running</span>}
-            {hidden.errors > 0 && <span className="text-destructive">{hidden.errors} hidden agent errors</span>}
-            {hidden.requests > 0 && <span className="text-attention">{hidden.requests} hidden requests</span>}
-            {!context && proposedParent?.stage === 'proposed' && !issueClosed(proposedParent) && <span>Parent {issueDisplayRef(proposedParent)} · proposed · see Proposals</span>}
-            {!context && row.issue.startedBySession && !row.issue.parentId && <span>Started by {nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}</span>}
-            {!context && row.depth > 3 && row.issue.parentId && <span>Parent {proposedParent ? issueDisplayRef(proposedParent) : row.issue.parentId}</span>}
-          </div>
-        )}
-        <FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={onOpenDependency} className="pb-1" />
         {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
           needs no measurement and no mount, so nothing choreographs on first
           paint: a transition only runs when a value actually changes. */}
@@ -1929,9 +1840,6 @@ const TaskRow = memo(
               tail={childFollows}
               onSelectSession={onSelectSession}
               onSelectNative={onSelectNative}
-              folds={folds}
-              onToggleNative={onToggleNative}
-              onOpenParent={onOpenParent}
             />
           </div>
         </div>
@@ -1940,11 +1848,9 @@ const TaskRow = memo(
   },
   (previous, next) =>
     previous.row === next.row &&
-    previous.unfilteredRows === next.unfilteredRows &&
     previous.displayTitle === next.displayTitle &&
     previous.renameSeed === next.renameSeed &&
     previous.byId === next.byId &&
-    previous.missionMembers === next.missionMembers &&
     previous.carries === next.carries &&
     previous.rails === next.rails &&
     previous.agentRail === next.agentRail &&
@@ -1958,7 +1864,6 @@ const TaskRow = memo(
     previous.arrivals === next.arrivals &&
     previous.settle === next.settle &&
     previous.collapsed === next.collapsed &&
-    previous.branchClosed === next.branchClosed &&
     previous.folds === next.folds,
 )
 
@@ -1979,35 +1884,71 @@ const TaskRow = memo(
  * the space of a row that has.
  */
 function ProposalRow({
-  issue, author, origins, withinEpic, parent, sessions, selected, byId, members, onOpenDependency, onSelect, onMenu, onStatusPick,
+  issue,
+  author,
+  selected,
+  onSelect,
+  onMenu,
+  onStatusPick,
 }: {
   issue: IssueNavigationModel
+  /** The display ref of the session that filed it, when the deck can resolve it. */
   author: string | null
-  origins: readonly string[]
-  withinEpic: boolean
-  parent: IssueNavigationModel | null
-  sessions: readonly SessionMeta[]
   selected: boolean
-  byId: ReadonlyMap<string, IssueNavigationModel>
-  members: ReadonlySet<string>
-  onOpenDependency: (issue: IssueNavigationModel) => void
-  onSelect: () => void
+  onSelect: (permanent: boolean) => void
+  /** A proposal is still a task: same right-click menu as a strip. */
   onMenu: (event: ReactMouseEvent) => void
+  /** Match every other issue row in the deck: its status mark opens the picker. */
   onStatusPick: (value: string) => void
 }): JSX.Element {
-  const facts = deckTaskFacts(issue, sessions)
+  const intent = useClickIntent()
   return (
-    <div data-flight-issue={issue.id} className={cn('deck-strip flex min-w-0 flex-col items-stretch gap-1 rounded-row border px-2 py-1', selected ? 'border-fuchsia-500/40 bg-fuchsia-500/8' : 'border-fuchsia-500/15 bg-fuchsia-500/5')} onContextMenu={onMenu}>
-      <div className="flex min-w-0 items-start gap-2">
-      <IssueStatusPicker issue={issue} onPick={onStatusPick} />
-      <button data-pressable type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
-        <span className="shell-type-secondary block break-words text-text-strong"><span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">{issueDisplayRef(issue)}</span>{issue.title}</span>
-        <span className="shell-type-micro block whitespace-normal text-text-dim">Proposed · {withinEpic ? 'Within this epic' : 'Independent follow-up'}{author ? ` · Started by ${author}` : ''}{parent ? ` · Parent ${issueDisplayRef(parent)}` : ''}</span>
-        {origins.length > 0 && <span className="shell-type-micro block whitespace-normal text-text-dim">Discovered from {origins.join(', ')}</span>}
-        {(facts.running > 0 || facts.errors.length > 0 || facts.requests.length > 0 || facts.taskRequest) && <span className="shell-type-micro flex flex-wrap gap-x-2 whitespace-normal">{facts.running > 0 && <span className="text-text-strong">{facts.running} running</span>}{facts.errors.length > 0 && <span className="text-destructive">{facts.errors.length} agent error{facts.errors.length === 1 ? '' : 's'}</span>}{facts.requests.length > 0 && <span className="text-attention">{facts.requests.length} agent request{facts.requests.length === 1 ? '' : 's'}</span>}{facts.taskRequest && <span className="text-attention">Task request</span>}</span>}
+    <div data-flight-issue={issue.id}>
+      <button
+        data-pressable
+        type="button"
+        onContextMenu={onMenu}
+        className={cn(
+          'deck-strip flex w-full items-center gap-2 rounded-row border px-2 text-left',
+          selected
+            ? 'border-fuchsia-500/40 bg-fuchsia-500/8'
+            : 'border-fuchsia-500/15 bg-fuchsia-500/5 hover:border-fuchsia-500/30',
+        )}
+        style={{ minHeight: PROPOSED_BAND }}
+        onClick={() =>
+          intent.press(
+            () => onSelect(false),
+            () => onSelect(true),
+          )
+        }
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          intent.commit(() => onSelect(true))
+        }}
+      >
+        <IssueStatusPicker issue={issue} onPick={onStatusPick} />
+        <span className="shell-type-secondary min-w-0 flex-1 truncate text-muted-foreground">
+          <span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">
+            {issueDisplayRef(issue)}
+          </span>
+          {issue.title}
+        </span>
+        {/* Never dropped: the author IS the proposal's secondary content, and a
+            row with only a title tells the operator nothing to act on. It parks
+            in the spine's state column with the "by" gone — three refs reading
+            down one edge, not three ragged phrases — because the column already
+            says what this cell is by being where it is. */}
+        <span
+          className={cn(
+            'shell-type-micro flex-none truncate text-right font-mono text-fuchsia-500',
+            STATE_COL,
+          )}
+          title={author ? `Proposed by ${author}` : undefined}
+        >
+          {author}
+        </span>
       </button>
-      </div>
-      <FlightDeckDependencyDetails issue={issue} byId={byId} members={members} onOpen={onOpenDependency} />
     </div>
   )
 }
@@ -2038,7 +1979,7 @@ function DeckSection({
 }: {
   label: string
   /** Printed beside the label when the region's size is the useful fact. */
-  count?: number | string
+  count?: number
   /** Class for the label, when the region has a hue of its own (proposals). */
   tone?: string
   /** Optional spacing override for a section that needs a stronger break. */
@@ -2959,11 +2900,10 @@ export function FlightDeck({
     repos,
     selectedIssueId,
     paneA,
-    workspaces,
-    workspaceKey,
-    updateWorkspaceDeck,
+    paneB,
+    split,
     setSelectedWorktree,
-    enterMission,
+    setSelectedIssueId,
     openSessionTab,
     openSessionAtTranscript,
     issueVisitBaseline,
@@ -2983,11 +2923,12 @@ export function FlightDeck({
       repos: store.repos,
       selectedIssueId: store.selectedIssueId,
       paneA: store.paneA,
-      workspaces: store.workspaces,
-      workspaceKey: store.workspaceKey,
-      updateWorkspaceDeck: store.updateWorkspaceDeck,
+      paneB: store.paneB,
+      split: store.split,
       setSelectedWorktree: store.setSelectedWorktree,
-      enterMission: store.enterMission,
+      // POD-679's departure ticks RE-ROOT the deck: a departed spin-off is not a
+      // member of this mission any more, so focusing it would resolve to nothing.
+      setSelectedIssueId: store.setSelectedIssueId,
       // The deck OPENS TABS now (POD-710 §2) rather than assigning pane A: a
       // preview open and a permanent open are different things, and only the
       // workspace layout can tell them apart. `paneA`/`paneB` below stay as the
@@ -3016,7 +2957,7 @@ export function FlightDeck({
     () => reposToViews(repos).flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)),
     [repos],
   )
-  const { focusedIssueId, focusLoading, setFocusedIssueId } = useOperatorFocus()
+  const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
   // WHAT THE TASK DOCK IS ACTUALLY SHOWING, so a row can answer for it. The
   // explorer's own stack top — not this column's focus — because the operator
   // may have walked the explorer somewhere else since, and a row that claims to
@@ -3036,16 +2977,11 @@ export function FlightDeck({
   // which view you left the deck in and which branches you folded survive a
   // remount. Neither ever touches issue stage or agent state.
   const developmentEnabled = useFeature('podium-development')
-  const [legacyPreferredView] = usePersistedUiState<FlightDeckView>(
+  const [preferredView, setPreferredView] = usePersistedUiState<FlightDeckView>(
     FLIGHT_DECK_MODE_KEY,
     readMode,
     writeMode,
   )
-  const savedView = workspaces[workspaceKey()]?.deck?.view
-  const preferredView: FlightDeckView = savedView === 'overview' ? 'full' : savedView ?? legacyPreferredView
-  const setPreferredView = useCallback((next: FlightDeckView): void => {
-    updateWorkspaceDeck({ view: next === 'full' ? 'overview' : next })
-  }, [updateWorkspaceDeck])
   // Keep an experimental choice dormant while its gate is off. Re-enabling the
   // gate restores the operator's last view without making unfinished UI leak
   // into an ordinary install.
@@ -3053,7 +2989,7 @@ export function FlightDeck({
     !developmentEnabled && (preferredView === 'waterfall' || preferredView === 'handoff')
       ? 'full'
       : preferredView
-  const mode: FlightDeckMode = view === 'waterfall' || view === 'handoff' || view === 'dependencies' ? 'full' : view
+  const mode: FlightDeckMode = view === 'waterfall' || view === 'handoff' ? 'full' : view
   const modes = developmentEnabled ? [...MODES, WATERFALL_MODE, TIMELINE_MODE] : MODES
   useLayoutEffect(() => {
     if (view !== 'waterfall' && display === 'expanded') onDisplayChange('compact')
@@ -3065,6 +3001,7 @@ export function FlightDeck({
   )
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const headerIntent = useClickIntent()
   const deckScrollerRef = useRef<HTMLElement | null>(null)
   type DeckScrollKey = 'spine' | 'waterfall' | 'handoff'
   const scrollKey: DeckScrollKey =
@@ -3101,18 +3038,6 @@ export function FlightDeck({
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
     [issues, sessions, root, mode, allWorktreePaths],
   )
-  const allRows = useMemo(
-    () => (root ? buildFlightDeckRows(issues, sessions, root.id, 'full', allWorktreePaths) : []),
-    [issues, sessions, root, allWorktreePaths],
-  )
-  const allRowsById = useMemo(() => new Map(allRows.map((row) => [row.issue.id, row])), [allRows])
-  // A seen descendant proves branch topology even during partial hydration.
-  // An empty child list is not proof of a leaf, so legacy leaf entries stay
-  // readable until a full-topology signal is available.
-  const resolvedFoldIds = useMemo(
-    () => new Set(allRows.filter((row) => row.descendantIds.length > 0).map((row) => row.issue.id)),
-    [allRows],
-  )
   const stableRowsRef = useRef<FlightDeckRow[]>([])
   const rows = useMemo(() => {
     const stable = reuseFlightDeckRows(stableRowsRef.current, computedRows)
@@ -3126,7 +3051,7 @@ export function FlightDeck({
       ),
     [allWorktreePaths, rows, sessions],
   )
-  const byId = useMemo(() => new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue])), [issues])
+  const byId = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
   /**
    * The session the operator is ACTUALLY in.
    *
@@ -3138,10 +3063,8 @@ export function FlightDeck({
   const focusedSession = useMemo(() => {
     const find = (id: string | null): SessionMeta | undefined =>
       id ? sessions.find((session) => session.sessionId === id) : undefined
-    const layout = workspaces[workspaceKey()]
-    const focusedId = layout?.panes[layout.focusedPaneId]?.activeTabId ?? null
-    return find(focusedId ?? (!layout ? paneA : null))
-  }, [paneA, workspaces, workspaceKey, sessions])
+    return find(paneA) ?? (split ? find(paneB) : undefined)
+  }, [paneA, paneB, split, sessions])
   const activeSessionId = focusedSession?.sessionId ?? null
   // Resolved against the UNFILTERED mission membership, exactly as RightDock
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
@@ -3150,7 +3073,7 @@ export function FlightDeck({
     () => (root ? missionIssueIds(issues, root.id, sessions) : new Set<string>()),
     [issues, root, sessions],
   )
-  const focused = resolveFocus(focusedIssueId, missionMembers, root?.id, focusLoading)
+  const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
   const progress = missionProgress(issues, sessions, root?.id)
   // What this mission discovered and no longer owns. Derived beside the rows
   // from the same membership set, so a departure can never also be a strip.
@@ -3158,6 +3081,8 @@ export function FlightDeck({
     () => missionDepartures(issues, sessions, root?.id, allWorktreePaths),
     [issues, sessions, root, allWorktreePaths],
   )
+  const liveCount = rows[0]?.liveAgentCount ?? 0
+  const workingCount = rows[0]?.workingAgentCount ?? 0
   // NO COUNT ON "Needs you" (POD-1072). A mission is almost always ONE issue with
   // one agent, so the roll-up had nothing to roll up: it was a boolean printed as
   // a number, and the "1" it printed was the same fact the row's own amber mark
@@ -3167,9 +3092,11 @@ export function FlightDeck({
   // than rendered as a raw id.
   const missionSessionNames = useMemo(() => {
     const names = new Map<string, string>()
-    for (const session of sessions) names.set(session.sessionId, session.displayRef || sessionDisplayName(session))
+    for (const row of rows) {
+      for (const session of row.sessions) names.set(session.sessionId, sessionDisplayName(session))
+    }
     return names
-  }, [sessions])
+  }, [rows])
   const nameOf = useCallback(
     (sessionId: SessionId): string | undefined => missionSessionNames.get(sessionId),
     [missionSessionNames],
@@ -3208,13 +3135,12 @@ export function FlightDeck({
    */
   const continuationTargetId = rootContinuation?.target?.id
   const departures = useMemo(
-    () => allDepartures.filter((departure) => departure.issue.id !== continuationTargetId && (departure.issue.stage !== 'proposed' || issueClosed(departure.issue))),
+    () => allDepartures.filter((departure) => departure.issue.id !== continuationTargetId),
     [allDepartures, continuationTargetId],
   )
   const continuationState =
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
-  const rawRootNote = root ? issueNote(root, byId, sessions) : null
-  const rootNote = rawRootNote?.kind === 'blocked' || rawRootNote?.kind === 'waiting' ? null : rawRootNote
+  const rootNote = root ? issueNote(root, byId, sessions) : null
   /**
    * The mission header's roster — content, and therefore the view bar's (POD-1356).
    *
@@ -3229,44 +3155,7 @@ export function FlightDeck({
    * empty line below now says WHICH view emptied the spine, instead of claiming
    * a fully staffed mission has nobody on it.
    */
-  const recordedCoordinator = root?.coordinatorSessionId ? sessions.find((session) => session.sessionId === root.coordinatorSessionId) : undefined
-  const rootCoordinator = recordedCoordinator && recordedCoordinator.issueId === root?.id && !recordedCoordinator.archived && recordedCoordinator.status !== 'exited' && recordedCoordinator.agentKind !== 'shell' && recordedCoordinator.headless !== true ? recordedCoordinator : null
-  const coordinatorCandidates = [...new Map(rows.flatMap((row) => row.sessions).filter((session) => session.agentKind !== 'shell' && session.headless !== true).map((session) => [session.sessionId, session])).values()]
-  const [coordinatorTimedOut, setCoordinatorTimedOut] = useState(false)
-  useEffect(() => {
-    setCoordinatorTimedOut(false)
-    if (!root?.coordinatorSessionId || recordedCoordinator) return
-    const timer = window.setTimeout(() => setCoordinatorTimedOut(true), 20_000)
-    return () => window.clearTimeout(timer)
-  }, [root?.id, root?.coordinatorSessionId, recordedCoordinator])
-  const coordinatorHelpers = useMemo(() => {
-    if (!rootCoordinator || !rootRow) return []
-    const descendants = new Set<string>([rootCoordinator.sessionId])
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const session of rootRow.sessions) {
-        const parent = spawnedByParentSessionId(session.spawnedBy)
-        if (parent && descendants.has(parent) && !descendants.has(session.sessionId)) {
-          descendants.add(session.sessionId)
-          changed = true
-        }
-      }
-    }
-    return rootRow.sessions.filter((session) => session.sessionId !== rootCoordinator.sessionId && descendants.has(session.sessionId))
-  }, [rootCoordinator, rootRow])
-  const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode).filter((session) => session.sessionId !== root?.coordinatorSessionId && !coordinatorHelpers.some((helper) => helper.sessionId === session.sessionId)) : []), [rootRow, mode, root?.coordinatorSessionId, coordinatorHelpers])
-  const rootFacts = root ? deckTaskFacts(root, rootRow?.sessions ?? []) : null
-  const coordinatorFacts = root && rootCoordinator ? deckSessionFacts(root, rootCoordinator) : null
-  const [coordinatorCrewOpen, setCoordinatorCrewOpen] = useState(false)
-  const deckSignals = useMemo(
-    () => root ? missionDeckCensus(issues, sessions, root.id, allWorktreePaths) : {
-      issues: [], proposals: [], crew: [], running: [], errors: [], requests: [], taskRequests: [],
-    },
-    [issues, sessions, root, allWorktreePaths],
-  )
-  const proposals = deckSignals.proposals
-  const proposalIds = useMemo(() => new Set(proposals.map((proposal) => proposal.issue.id)), [proposals])
+  const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
   // a spin-off its agent hopped to (see `staffedSpinOff`).
   const rootSeat = rootRow
@@ -3278,23 +3167,45 @@ export function FlightDeck({
    * filtered the column down to working agents is the POD-1233 bug in a new
    * costume; a parked agent still holds the task and this must keep saying so.
    */
-  const recordedRootEmptyNote = root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null
-  const rootEmptyNote: PresenceNote | null = root && issueClosed(root) &&
-    (recordedRootEmptyNote?.kind === 'blocked' || recordedRootEmptyNote?.kind === 'waiting')
-    ? { kind: 'done', text: issueAbandoned(root) ? 'Cancelled · session retired' : 'Completed · session retired', attention: false }
-    : recordedRootEmptyNote
+  const rootEmptyNote = root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null
   /** `done` is the note's word for "closed, and nobody is on it" — the one
    *  empty-spine state that still has a decision left in it. */
   const rootRetired = rootEmptyNote?.kind === 'done'
+  /**
+   * PROPOSALS LEAVE THE TREE (POD-710 §4.4).
+   *
+   * A proposal is not part of the mission's shape — it is a thing being offered
+   * to the operator — so it is partitioned out here and rendered in its own
+   * section, with no rail, no elbow and no indent. Partitioned in this file on
+   * purpose: `mission.ts` still owns the mission's shape, and this is a display
+   * decision about it.
+   *
+   * A proposal that has somehow acquired sub-tasks stays IN the tree: pulling it
+   * out would leave its children hanging off a parent that is no longer there,
+   * which is worse than a proposal in the spine.
+   */
+  const proposalIds = useMemo(() => {
+    // The waterfall's vertical unit is the formal issue. Proposed children stay
+    // in depth-first position as duration-free future labels. The list keeps its
+    // old proposal tail, where unaccepted work cannot be mistaken for execution.
+    if (view === 'waterfall') return new Set<string>()
+    return new Set(
+      rows
+        .filter(
+          (row) =>
+            row.depth > 0 && row.issue.stage === 'proposed' && row.descendantIds.length === 0,
+        )
+        .map((row) => row.issue.id),
+    )
+  }, [rows, view])
   // Search keeps a match's ANCESTORS as context, the same rule the mode filters
   // follow — an exception that loses its path is an exception you cannot place.
   const visibleRows = useMemo(() => {
     const tree = rows.filter((row) => !proposalIds.has(row.issue.id))
     const hiddenByAncestor = new Set<string>()
     for (const row of tree) {
-      const fullRow = allRowsById.get(row.issue.id) ?? row
-      if (row.depth === 0 || !flightDeckBranchFolded(fullRow, folds)) continue
-      for (const id of fullRow.descendantIds) hiddenByAncestor.add(id)
+      if (row.depth === 0 || !isFolded(row, folds)) continue
+      for (const id of row.descendantIds) hiddenByAncestor.add(id)
     }
     const unfolded = tree.filter((row) => row.depth > 0 && !hiddenByAncestor.has(row.issue.id))
     const needle = view === 'handoff' ? '' : query.trim().toLowerCase()
@@ -3308,34 +3219,18 @@ export function FlightDeck({
         for (const ancestor of trail) if (ancestor) keep.add(ancestor.issue.id)
     }
     return unfolded.filter((row) => keep.has(row.issue.id))
-  }, [rows, proposalIds, folds, query, view, allRowsById])
+  }, [rows, proposalIds, folds, query, view])
   /** The proposals themselves. The tree's folds do not govern them — they are
    *  not in the tree — so only the search narrows them. */
   const proposedRows = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return needle ? proposals.filter(({ issue }) =>
-      `${issueDisplayRef(issue)} ${issue.title}`.toLowerCase().includes(needle),
-    ) : proposals
-  }, [proposals, query])
+    const proposals = rows.filter((row) => proposalIds.has(row.issue.id))
+    const needle = view === 'handoff' ? '' : query.trim().toLowerCase()
+    return needle ? proposals.filter((row) => matchesQuery(row, needle)) : proposals
+  }, [rows, proposalIds, query, view])
   // Computed over the rows that ACTUALLY render: a fold or a filter changes which
   // strip is the last child of its branch, and a rail that outlives its last
   // child is the tell that the tree was drawn from data rather than from layout.
   const guides = useMemo(() => treeGuides(visibleRows), [visibleRows])
-  const sectionStarts = useMemo(() => {
-    const starts = new Map<string, string>()
-    let last: string | null = null
-    for (const row of visibleRows) {
-      if (row.depth !== 1) continue
-      const finished = issueClosed(row.issue) && row.descendantIds.every((id) => {
-        const child = byId.get(id)
-        return !child || issueClosed(child)
-      })
-      const group = finished ? 'Finished work' : 'Current work'
-      if (group !== last) starts.set(row.issue.id, group)
-      last = group
-    }
-    return starts
-  }, [visibleRows, byId])
   /** The tasks with a live designated lead, which is what earns a coloured rail. */
   const ledIssueIds = useMemo(() => {
     const led = new Set<string>()
@@ -3443,11 +3338,11 @@ export function FlightDeck({
   // The root is never in the fold set — see `rootRow`. Neither are proposals:
   // they left the tree, and "fold every branch" is about the tree.
   const foldable = useMemo(
-    () => rows.filter((row) => row.depth > 0 && !proposalIds.has(row.issue.id) && hasPayload(allRowsById.get(row.issue.id) ?? row)),
-    [rows, proposalIds, allRowsById],
+    () => rows.filter((row) => row.depth > 0 && !proposalIds.has(row.issue.id) && hasPayload(row)),
+    [rows, proposalIds],
   )
   const anyFoldable = foldable.length > 0
-  const allFolded = anyFoldable && foldable.every((row) => isFolded(allRowsById.get(row.issue.id) ?? row, folds))
+  const allFolded = anyFoldable && foldable.every((row) => isFolded(row, folds))
   /** Session arrivals animate once across the whole mission, never per row. */
   const sessionKeys = useMemo(
     () => rows.flatMap((row) => row.sessions.map((session) => session.sessionId)),
@@ -3459,26 +3354,17 @@ export function FlightDeck({
    *  it went — that is what stops the default rule from re-closing a branch the
    *  operator just opened. */
   const setFold = useCallback(
-    (kind: 'branch' | 'roster', id: string, closed: boolean): void => {
-      const next = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
-      next.set(deckFoldKey(kind, id), closed ? 'closed' : 'open')
+    (id: string, closed: boolean): void => {
+      const next = new Map(folds)
+      next.set(id, closed ? 'closed' : 'open')
       setFolds(next)
     },
-    [folds, allRows, resolvedFoldIds, setFolds],
+    [folds, setFolds],
   )
   const toggleFold = useCallback(
-    (row: FoldableRow): void => {
-      const fullRow = allRowsById.get(row.issue.id) ?? row
-      setFold(fullRow.descendantIds.length > 0 ? 'branch' : 'roster', row.issue.id, !isFolded(fullRow, folds))
-    },
-    [folds, setFold, allRowsById],
+    (row: FoldableRow): void => setFold(row.issue.id, !isFolded(row, folds)),
+    [folds, setFold],
   )
-  const toggleNative = useCallback((issueId: string, session: SessionMeta): void => {
-    const next = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
-    const key = deckFoldKey('native', issueId, session.sessionId)
-    next.set(key, next.get(key) === 'closed' ? 'open' : 'closed')
-    setFolds(next)
-  }, [folds, allRows, resolvedFoldIds, setFolds])
 
   /**
    * REVEAL A SESSION'S ROW (POD-1077) — what the tab menu asks for when the
@@ -3501,19 +3387,15 @@ export function FlightDeck({
       if (!target) return
       if (target.issueId) {
         const owner = issues.find((issue) => issue.id === target.issueId)
-        if (owner && !missionMembers.has(owner.id)) {
-          enterMission(owner.id, { inspectIssueId: owner.id })
-          return
-        }
+        if (owner) setSelectedIssueId(missionRootFor(issues, owner.id)?.id ?? owner.id)
         setFocusedIssueId(target.issueId)
         // Every row whose subtree contains the owner is an ancestor of it, plus
         // the owner itself — one pass over the rows rather than walking parents,
         // because `descendantIds` is already the closure the deck computed.
-        const open = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
+        const open = new Map(folds)
         for (const row of rows) {
           if (row.issue.id === target.issueId || row.descendantIds.includes(target.issueId)) {
-            open.set(deckFoldKey('branch', row.issue.id), 'open')
-            open.set(deckFoldKey('roster', row.issue.id), 'open')
+            open.set(row.issue.id, 'open')
           }
         }
         setFolds(open)
@@ -3529,7 +3411,7 @@ export function FlightDeck({
     }
     window.addEventListener(REVEAL_IN_DECK_EVENT, onReveal)
     return () => window.removeEventListener(REVEAL_IN_DECK_EVENT, onReveal)
-  }, [sessions, issues, rows, allRows, resolvedFoldIds, folds, setFolds, enterMission, missionMembers, setFocusedIssueId])
+  }, [sessions, issues, rows, folds, setFolds, setSelectedIssueId, setFocusedIssueId])
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
     // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
@@ -3573,35 +3455,32 @@ export function FlightDeck({
     }
     setView('workspace')
   }
-  /** A departure enters its own mission and restores that mission's saved tabs. */
+  /**
+   * A departure tick is a way BACK to the work, so it re-roots the deck onto it
+   * rather than focusing something this mission no longer contains. Selecting
+   * an issue outside `missionMembers` would leave the focus resolver with
+   * nothing to resolve and the column showing the same spine.
+   *
+   * Its tab opens PERMANENT, not as a preview (POD-710): re-rooting the whole
+   * deck onto another mission is a deliberate departure from this one, not the
+   * glance a preview tab exists to serve.
+   */
   const openDeparture = (issue: IssueNavigationModel): void => {
-    enterMission(issue.id)
+    setSelectedIssueId(issue.id)
+    setFocusedIssueId(issue.id)
     void markIssueRead(issue.id)
-    setView('workspace')
-  }
-  const openProposal = (issue: IssueNavigationModel): void => {
-    if (missionMembers.has(issue.id)) setFocusedIssueId(issue.id)
-    else enterMission(issue.id)
-    void markIssueRead(issue.id)
-    setView('workspace')
-  }
-  const openDependency = (issue: IssueNavigationModel): void => {
-    if (missionMembers.has(issue.id)) setFocusedIssueId(issue.id)
-    else enterMission(issue.id, { inspectIssueId: issue.id })
-    void markIssueRead(issue.id)
-    setView('workspace')
-  }
-  const revealAttention = (issueId: string): void => {
-    setPreferredView('full')
-    setQuery('')
-    const next = migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds)
-    for (const row of allRows) if (row.issue.id === issueId || row.descendantIds.includes(issueId)) {
-      next.set(deckFoldKey('branch', row.issue.id), 'open')
-      next.set(deckFoldKey('roster', row.issue.id), 'open')
+    if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
+    const live = sessions
+      .filter(
+        (session) =>
+          session.issueId === issue.id && !session.archived && session.status !== 'exited',
+      )
+      .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
+    if (live) {
+      openSessionTab(live.sessionId, { permanent: true })
+      void markSessionRead(live.sessionId)
     }
-    setFolds(next)
-    if (missionMembers.has(issueId)) setFocusedIssueId(issueId)
-    requestAnimationFrame(() => document.querySelector(`[data-flight-issue="${issueId}"]`)?.scrollIntoView({ block: 'center' }))
+    setView('workspace')
   }
   /**
    * THE TASK MENU, HOSTED ONCE (POD-771).
@@ -3726,13 +3605,9 @@ export function FlightDeck({
       )
       if (nextDisplay !== display) onDisplayChange(nextDisplay)
     }
-    if (issueId && !missionMembers.has(issueId)) {
-      enterMission(issueId, { inspectIssueId: issueId, sessionId: session.sessionId, permanent: opts.permanent })
-    } else {
-      if (issueId) setFocusedIssueId(issueId)
-      if (session.cwd) setSelectedWorktree(session.cwd)
-      openSessionTab(session.sessionId, { permanent: opts.permanent })
-    }
+    if (issueId) setFocusedIssueId(issueId)
+    if (session.cwd) setSelectedWorktree(session.cwd)
+    openSessionTab(session.sessionId, { permanent: opts.permanent })
     // WHERE THE ROW WOULD LIKE THE PANEL TO OPEN, not what the operator chose
     // (POD-1702). The native worker rows below a session are navigation — their
     // job is "take me to the agent running this worker, on the terminal it is
@@ -3744,11 +3619,6 @@ export function FlightDeck({
     if (issueId) void markIssueRead(issueId)
     void markSessionRead(session.sessionId)
     setView('workspace')
-  }
-  const openSpawnParent = (sessionId: SessionId): void => {
-    const parent = sessions.find((session) => session.sessionId === sessionId)
-    if (!parent) return
-    selectSession(parent.issueId ?? null, parent, { permanent: true })
   }
 
   /** Handoff task-only rows retarget the Task dock without replacing the chat. */
@@ -3884,7 +3754,7 @@ export function FlightDeck({
                 )}
                 <span className="flex-none leading-[24px]">{issueDisplayRef(root)}</span>
                 <span className="flex-none leading-[24px]">
-                  {deckLifecycle(root) === 'done' ? 'done' : (STAGE_LABELS[deckLifecycle(root) as keyof typeof STAGE_LABELS] ?? deckLifecycle(root)).toLowerCase()}
+                  {STAGE_LABELS[root.stage].toLowerCase()}
                 </span>
                 <span aria-hidden className="min-w-[8px] flex-1" />
                 {/* The mission's own dependency or provenance, and the seat it is
@@ -3907,13 +3777,19 @@ export function FlightDeck({
                   data-pressable
                   type="button"
                   className="block w-full min-w-0 text-left"
-                  // Explicit mission entry restores this epic's workspace.
-                  onClick={() => { enterMission(root.id); void markIssueRead(root.id) }}
+                  // The header IS the root's strip (round 3 §4), so it takes the
+                  // strips' gesture: preview once, promote twice.
+                  onClick={() =>
+                    rootRow &&
+                    headerIntent.press(
+                      () => selectIssue(rootRow, false),
+                      () => selectIssue(rootRow, true),
+                    )
+                  }
                   onKeyDown={(event) => {
-                    if (event.key !== 'Enter') return
+                    if (event.key !== 'Enter' || !rootRow) return
                     event.preventDefault()
-                    enterMission(root.id)
-                    void markIssueRead(root.id)
+                    headerIntent.commit(() => selectIssue(rootRow, true))
                   }}
                   title={`Focus ${issueDisplayRef(root)}`}
                 >
@@ -3937,7 +3813,6 @@ export function FlightDeck({
                     real brief is visibly a mission somebody described. */}
                   <MissionBrief html={briefHtml} standing={!authoredBrief} />
                 </div>
-                <FlightDeckDependencyDetails issue={root} byId={byId} members={missionMembers} onOpen={openDependency} className="mt-2" />
                 {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). The gauge, the
                   crew chip and the mission's one action were three heights on
                   two alignments; they are one row of 26px radius-8 objects now.
@@ -3948,7 +3823,7 @@ export function FlightDeck({
                   operator guess. */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <div className="min-w-[9rem] flex-[1_1_9rem]">
-                    <MissionGauge progress={progress} live={deckSignals.crew.length} working={deckSignals.running.length} noAcceptedTasks={root.stage === 'proposed' && !issueClosed(root) && progress.total === 0} />
+                    <MissionGauge progress={progress} live={liveCount} working={workingCount} />
                   </div>
                   {/* THE DECK'S ONE PRICE (POD-1862). One more object in this
                     row, so it inherits the wrap above rather than adding a drop
@@ -3958,14 +3833,14 @@ export function FlightDeck({
                     and a double click on the header are the same request. */}
                   {rootIssue && rootRow && (
                     <MissionCostChip
-                      key={`cost:${rootIssue.id}`}
+                      key={rootIssue.id}
                       issueId={rootIssue.id}
                       onOpenInExplorer={() => selectIssue(rootRow, true)}
                     />
                   )}
                   {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
                     <MissionAgentMenu
-                      key={`agent-menu:${rootIssue.id}`}
+                      key={rootIssue.id}
                       defaultAgent={rootIssue.defaultAgent}
                       repoPath={rootIssue.repoPath}
                       machineId={rootIssue.machineId}
@@ -3973,36 +3848,16 @@ export function FlightDeck({
                     />
                   )}
                 </div>
-                <div className="shell-type-micro mt-2 flex flex-wrap gap-x-3 gap-y-1 text-text-dim" aria-label="Mission activity">
-                  <span aria-label={`${progress.done} of ${progress.total} eligible accepted formal tasks done`}>{root.stage === 'proposed' && !issueClosed(root) && progress.total === 0 ? 'No accepted tasks' : `Tasks done ${progress.done} of ${progress.total}`}</span>
-                  <span>{deckSignals.running.length} running agents</span>
-                  {deckSignals.errors.length > 0 && <button data-pressable type="button" className="min-h-6 text-destructive underline" onClick={() => revealAttention(deckSignals.errors[0]?.issue.id ?? root.id)}>{deckSignals.errors.length} agent errors</button>}
-                  {deckSignals.requests.length + deckSignals.taskRequests.length > 0 && <button data-pressable type="button" className="min-h-6 text-attention underline" onClick={() => revealAttention(deckSignals.requests[0]?.issue.id ?? deckSignals.taskRequests[0] ?? root.id)}>{deckSignals.requests.length + deckSignals.taskRequests.length} requests</button>}
-                </div>
-                <section className="mt-2 rounded-row border border-hairline-soft bg-card px-3 py-2" aria-label="Main coordinator" data-testid="flight-coordinator">
-                  <div className="shell-type-micro font-medium uppercase tracking-wide text-text-faint">Main coordinator</div>
-                  {rootCoordinator ? <>
-                    <div className="shell-type-secondary mt-1 flex flex-wrap items-center gap-2 text-text-strong"><span className="font-mono">{rootCoordinator.displayRef || rootCoordinator.sessionId}</span><span>{sessionDisplayName(rootCoordinator)}</span></div>
-                    <div className="shell-type-micro mt-1 flex flex-wrap gap-x-2 text-text-dim"><span>{rootCoordinator.status === 'hibernated' ? 'Parked' : coordinatorFacts?.running ? 'Running' : rootCoordinator.status === 'starting' ? 'Starting' : rootCoordinator.status === 'reconnecting' ? 'Reconnecting' : !rootCoordinator.agentState ? 'Activity unavailable' : sessionTurnFinished(rootCoordinator) ? 'Turn finished' : 'Idle'}</span>{coordinatorFacts?.error && <span className="text-destructive">{coordinatorFacts.error}</span>}{coordinatorFacts?.request && <span className="text-attention">Needs you</span>}{coordinatorFacts?.lastRecordedRequest && <span>Last recorded request</span>}</div>
-                    {coordinatorFacts?.request && <div className="shell-type-secondary mt-1 break-words text-attention">{rootCoordinator.offer?.message?.trim() || rootCoordinator.agentState?.need?.summary?.trim() || 'Response requested'}</div>}
-                    {rootCoordinator.offer?.actions?.length ? <div className="shell-type-micro mt-1 break-words text-text-dim">Suggested actions · {rootCoordinator.offer.actions.map((action) => action.label).join(' · ')}</div> : null}
-                    <button data-pressable type="button" className="shell-type-secondary mt-1 min-h-6 text-left text-text-strong underline" onClick={() => selectSession(root.id, rootCoordinator, { permanent: true })}>Open coordinator</button>
-                    <NativeRows session={rootCoordinator} onOpen={() => selectSession(root.id, rootCoordinator, { permanent: false, native: true })} />
-                    {coordinatorHelpers.length > 0 && <><button data-pressable type="button" className="shell-type-micro ml-3 min-h-6 text-text-dim underline" aria-expanded={coordinatorCrewOpen} onClick={() => setCoordinatorCrewOpen((open) => !open)}>{coordinatorHelpers.length} helpers</button>{coordinatorCrewOpen && <div className="mt-1"><HungRows issue={root} sessions={coordinatorHelpers} rootId={root.id} inMission={missionSessionIds} nameOf={nameOf} activeSessionId={activeSessionId} arrivals={arrivals} settle={settle} inset={0} rail={HAIRLINE_RAIL} tail={false} folds={folds} onToggleNative={(session) => toggleNative(root.id, session)} onOpenParent={openSpawnParent} onSelectSession={(session, permanent) => selectSession(root.id, session, { permanent })} onSelectNative={(session) => selectSession(root.id, session, { permanent: false, native: true })} /></div>}</>}
-                  </> : root.coordinatorSessionId ? <div className="shell-type-secondary mt-1 text-text-dim">{recordedCoordinator ? <>{recordedCoordinator.displayRef || recordedCoordinator.sessionId} · {sessionDisplayName(recordedCoordinator)} · {recordedCoordinator.issueId && recordedCoordinator.issueId !== root.id ? `Coordinator unavailable · now on ${byId.has(recordedCoordinator.issueId) ? issueDisplayRef(byId.get(recordedCoordinator.issueId) as IssueNavigationModel) : recordedCoordinator.issueId}` : recordedCoordinator.archived || recordedCoordinator.status === 'exited' ? 'Coordinator retired' : 'Coordinator unavailable'}<button data-pressable type="button" className="ml-2 min-h-6 underline" onClick={() => selectSession(recordedCoordinator.issueId ?? null, recordedCoordinator, { permanent: true })}>Open recorded session</button></> : coordinatorTimedOut ? 'Coordinator unavailable' : 'Coordinator loading'}</div> : <div className="shell-type-secondary mt-1 text-text-dim">No coordinator assigned</div>}
-                  {!rootCoordinator && <DropdownMenu><DropdownMenuTrigger data-pressable className="shell-type-secondary mt-1 min-h-6 text-left text-text-strong underline">Choose session</DropdownMenuTrigger><DropdownMenuContent align="start">{coordinatorCandidates.length > 0 ? coordinatorCandidates.map((session) => <DropdownMenuItem key={session.sessionId} onSelect={() => selectSession(session.issueId ?? root.id, session, { permanent: true })}>{session.displayRef || session.sessionId} · {sessionDisplayName(session)}</DropdownMenuItem>) : <DropdownMenuItem disabled>No sessions available</DropdownMenuItem>}</DropdownMenuContent></DropdownMenu>}
-                  {rootFacts?.taskRequest && <div className="shell-type-secondary mt-1 text-attention">Task request · {root.humanQuestion?.trim() || 'Response requested'}</div>}
-                </section>
               </div>
             </div>
             {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
               through the column, and its top rule is the seam the header no
               longer draws for itself. */}
             <div
-              className="relative flex min-h-8 flex-none flex-wrap items-center gap-1 border-y border-hairline-soft pr-2"
+              className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
               style={{ paddingLeft: GUTTER }}
             >
-              <div className="flex min-w-0 flex-1 flex-wrap gap-1 self-stretch">
+              <div className="flex min-w-0 flex-1 gap-1 self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {modes.map((option) => (
                   <button
                     data-pressable
@@ -4075,10 +3930,12 @@ export function FlightDeck({
                       // is not what the control says.
                       onClick={() =>
                         setFolds(
-                          new Map([
-                            ...migrateResolvedDeckFolds(folds, allRows, resolvedFoldIds),
-                            ...foldable.map((row): [string, FoldState] => [deckFoldKey((allRowsById.get(row.issue.id) ?? row).descendantIds.length > 0 ? 'branch' : 'roster', row.issue.id), allFolded ? 'open' : 'closed']),
-                          ]),
+                          new Map(
+                            foldable.map((row): [string, FoldState] => [
+                              row.issue.id,
+                              allFolded ? 'open' : 'closed',
+                            ]),
+                          ),
                         )
                       }
                     >
@@ -4140,20 +3997,14 @@ export function FlightDeck({
                 <FlightDeckWaterfall
                   rootRow={rootRow}
                   rows={visibleRows}
-                  allRows={allRows}
                   displayTitles={rowDisplayTitles}
                   mode={mode}
                   display={display}
                   focusedIssueId={focused ?? null}
                   activeSessionId={activeSessionId}
                   renameTarget={renameTarget}
-                  byId={byId}
-                  missionMembers={missionMembers}
-                  onOpenDependency={openDependency}
-                  isBranchFolded={(row) => flightDeckBranchFolded(row, folds)}
-                  isRosterFolded={(row) => flightDeckRosterFolded(row, folds)}
-                  onToggleBranch={(row) => setFold('branch', row.issue.id, !flightDeckBranchFolded(row, folds))}
-                  onToggleRoster={(row) => setFold('roster', row.issue.id, !flightDeckRosterFolded(row, folds))}
+                  isFolded={(row) => isFolded(row, folds)}
+                  onToggle={toggleFold}
                   onSelectIssue={(row, permanent) => {
                     if (!permanent && row.depth > 0 && hasPayload(row)) toggleFold(row)
                     selectIssue(row, permanent)
@@ -4172,30 +4023,37 @@ export function FlightDeck({
                 rootIssue={root}
                 issues={issues}
                 sessions={sessions}
-                allWorktreePaths={allWorktreePaths}
                 visitReadAt={
                   issueVisitBaseline?.issueId === root.id ? issueVisitBaseline.readAt : null
                 }
                 onOpenTranscript={openHandoffTranscript}
                 onOpenSession={openHandoffSession}
                 onOpenIssue={focusHandoffIssue}
+                proposed={
+                  proposedRows.length > 0 ? (
+                    <DeckSection
+                      label="Proposed"
+                      count={proposedRows.length}
+                      tone="text-fuchsia-500"
+                      testId="flight-proposed"
+                    >
+                      <div className="flex flex-col gap-1">
+                        {proposedRows.map((row) => (
+                          <ProposalRow
+                            key={row.issue.id}
+                            issue={row.issue}
+                            author={authorOf(row.issue)}
+                            selected={focused === row.issue.id}
+                            onSelect={(permanent) => selectIssue(row, permanent)}
+                            onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                            onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
+                          />
+                        ))}
+                      </div>
+                    </DeckSection>
+                  ) : null
+                }
               />
-            ) : view === 'dependencies' ? (
-              <div className="flex flex-col gap-3 py-3" data-testid="flight-dependencies">
-                {rows.filter((row) => (row.issue.stage !== 'proposed' || issueClosed(row.issue)) && deckDependencies(row.issue, byId, missionMembers).length > 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
-                  <section key={row.issue.id} className="rounded-row border border-hairline-soft px-3 py-2" data-flight-issue={row.issue.id}>
-                    <div className="shell-type-micro mb-1 text-text-faint">Prerequisites → dependent · {deckLifecycle(row.issue)}{row.issue.startedBySession ? ` · Started by ${nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}` : ''}</div>
-                    {dependencyCycleRecorded(row.issue.id, byId) && <div className="shell-type-micro text-text-dim">Dependency cycle recorded</div>}
-                    <FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={openDependency} className="mt-1" />
-                    <button data-pressable type="button" className="shell-type-secondary mt-2 min-h-6 break-words text-left font-medium text-text-strong" onClick={() => openDependency(row.issue)}>→ {issueDisplayRef(row.issue)} · {row.issue.title}</button>
-                  </section>
-                ))}
-                <DeckSection label="No recorded prerequisites" testId="flight-no-prerequisites">
-                  {rows.filter((row) => (row.issue.stage !== 'proposed' || issueClosed(row.issue)) && deckDependencies(row.issue, byId, missionMembers).length === 0 && (!query || `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(query.toLowerCase()))).map((row) => (
-                    <div key={row.issue.id} data-flight-issue={row.issue.id}><button data-pressable type="button" className="shell-type-secondary block min-h-6 w-full break-words text-left text-text-dim" onClick={() => openDependency(row.issue)}>{issueDisplayRef(row.issue)} · {row.issue.title} · {deckLifecycle(row.issue)}{row.issue.startedBySession ? ` · Started by ${nameOf(asSessionId(row.issue.startedBySession)) ?? row.issue.startedBySession}` : ''}</button><FlightDeckDependencyDetails issue={row.issue} byId={byId} members={missionMembers} onOpen={openDependency} /></div>
-                  ))}
-                </DeckSection>
-              </div>
             ) : (
               <>
                 <div className="relative h-1.5">{spineSegment('inset-y-0')}</div>
@@ -4222,9 +4080,6 @@ export function FlightDeck({
                           native: true,
                         })
                       }
-                      folds={folds}
-                      onToggleNative={(session) => toggleNative(root.id, session)}
-                      onOpenParent={openSpawnParent}
                     />
                     {rootSessions.length > 0 && visibleRows.length > 0 && (
                       <div className="relative h-2" aria-hidden>
@@ -4234,15 +4089,12 @@ export function FlightDeck({
                   </>
                 )}
                 {visibleRows.map((row, index) => (
-                  <div key={row.issue.id}>
-                  {sectionStarts.has(row.issue.id) && <h3 className="shell-type-micro px-4 py-2 font-medium uppercase tracking-wide text-text-faint">{sectionStarts.get(row.issue.id)}</h3>}
                   <TaskRow
+                    key={row.issue.id}
                     row={row}
-                    unfilteredRows={allRows}
                     displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
                     renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
                     byId={byId}
-                    missionMembers={missionMembers}
                     carries={guides[index] ?? []}
                     rails={rails[index] ?? []}
                     agentRail={railFor(leadTone(row.issue.id))}
@@ -4255,21 +4107,19 @@ export function FlightDeck({
                     activeSessionId={activeSessionId}
                     arrivals={arrivals}
                     settle={settle}
-                    collapsed={flightDeckRosterFolded(allRowsById.get(row.issue.id) ?? row, folds)}
-                    branchClosed={flightDeckBranchFolded(allRowsById.get(row.issue.id) ?? row, folds)}
+                    collapsed={isFolded(row, folds)}
                     folds={folds}
-                    onToggleBranch={() => setFold('branch', row.issue.id, !flightDeckBranchFolded(allRowsById.get(row.issue.id) ?? row, folds))}
-                    onToggleRoster={() => setFold('roster', row.issue.id, !flightDeckRosterFolded(allRowsById.get(row.issue.id) ?? row, folds))}
-                    onSelectIssue={(permanent) => selectIssue(row, permanent)}
+                    onToggle={() => toggleFold(row)}
+                    onSelectIssue={(permanent) => {
+                      if (!permanent && hasPayload(row)) toggleFold(row)
+                      selectIssue(row, permanent)
+                    }}
                     onSelectSession={(session, permanent) =>
                       selectSession(row.issue.id, session, { permanent })
                     }
                     onSelectNative={(session) =>
                       selectSession(row.issue.id, session, { permanent: false, native: true })
                     }
-                    onToggleNative={(session) => toggleNative(row.issue.id, session)}
-                    onOpenParent={openSpawnParent}
-                    onOpenDependency={openDependency}
                     onMenu={(event) => openIssueMenu(row.issue.id, event)}
                     onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
                     onRenameIssue={(title) =>
@@ -4283,7 +4133,6 @@ export function FlightDeck({
                     }
                     onRenameDone={() => setRenameTarget(null)}
                   />
-                  </div>
                 ))}
               </>
             )}
@@ -4321,6 +4170,36 @@ export function FlightDeck({
                       'No sessions or sub-tasks are attached.'}
                   </p>
                 ))}
+              {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the
+                next one (POD-679's departure ticks) sits here beside these two
+                rather than being threaded through the spine. */}
+              {/* PROPOSALS SINK. They leave the sibling order and collect in a
+                tail at the bottom of the spine, under a divider carrying their
+                count — work being offered to the operator is not part of the
+                mission's shape, and interleaving it with the shape is what made
+                a proposal read as a task somebody had started. */}
+              {proposedRows.length > 0 && (
+                <DeckSection
+                  label="Proposed"
+                  count={proposedRows.length}
+                  tone="text-fuchsia-500"
+                  testId="flight-proposed"
+                >
+                  <div className="flex flex-col gap-1">
+                    {proposedRows.map((row) => (
+                      <ProposalRow
+                        key={row.issue.id}
+                        issue={row.issue}
+                        author={authorOf(row.issue)}
+                        selected={focused === row.issue.id}
+                        onSelect={(permanent) => selectIssue(row, permanent)}
+                        onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                        onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
+                      />
+                    ))}
+                  </div>
+                </DeckSection>
+              )}
               {/* No count on this divider: the disclosure under it already carries
                 one, and a region that states its size twice reads as two
                 different numbers that happen to agree.
@@ -4383,7 +4262,7 @@ export function FlightDeck({
                 The continuation card lives HERE now rather than in the tree's
                 empty branch above — one region, one heading, one sentence. */}
               <WhereTheWorkWent
-                continuation={rootContinuation?.target && rootContinuation.target.stage === 'proposed' && !issueClosed(rootContinuation.target) ? null : rootContinuation}
+                continuation={rootContinuation}
                 continuationState={continuationState}
                 continuationFinished={rootFinished}
                 // `rootRow.sessions`, NOT `rootSessions`: the latter is
@@ -4397,34 +4276,6 @@ export function FlightDeck({
               />
             </div>
           </div>
-          {proposals.length > 0 && (
-            <DeckSection label="Proposals" count={proposedRows.length === proposals.length ? proposals.length : `${proposedRows.length} of ${proposals.length}`} tone="text-fuchsia-500" testId="flight-proposed" className="mb-4">
-              {proposedRows.length === 0 ? (
-                <p className="shell-type-secondary py-2 text-text-dim">No matching proposals</p>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {proposedRows.map((proposal) => (
-                    <ProposalRow
-                      key={proposal.issue.id}
-                      issue={proposal.issue}
-                      author={authorOf(proposal.issue)}
-                      origins={proposal.originIds.map((id) => byId.get(id) ? issueDisplayRef(byId.get(id) as IssueNavigationModel) : id)}
-                      withinEpic={proposal.withinEpic}
-                      parent={proposal.issue.parentId ? byId.get(proposal.issue.parentId) ?? null : null}
-                      sessions={deckSignals.crew.filter(({ issue }) => issue.id === proposal.issue.id).map(({ session }) => session)}
-                      selected={focused === proposal.issue.id}
-                      byId={byId}
-                      members={missionMembers}
-                      onOpenDependency={openDependency}
-                      onSelect={() => openProposal(proposal.issue)}
-                      onMenu={(event) => openIssueMenu(proposal.issue.id, event)}
-                      onStatusPick={(value) => pickRowStatus(proposal.issue.id, value)}
-                    />
-                  ))}
-                </div>
-              )}
-            </DeckSection>
-          )}
         </>
       ) : focusedSession?.agentKind === 'shell' ? (
         // A shell will never become a task, so it never gets agent words.
@@ -4447,7 +4298,7 @@ export function FlightDeck({
           // this is not) and Archive (which hides a row this column cannot get
           // back). The deck is its own surface because it has its own answers.
           surface="deck"
-          primaryStart={menuIssue.stage === 'proposed' && !issueClosed(menuIssue)}
+          primaryStart={menuIssue.stage === 'proposed'}
           anchor={issueMenu.anchor}
           onClose={() => setIssueMenu(null)}
           onRename={(id) => {

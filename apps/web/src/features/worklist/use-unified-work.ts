@@ -13,11 +13,13 @@
  */
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { SUPERAGENT_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   type IssueNavigationModel,
+  missionIssueIds,
+  missionRootFor,
   pickPaneSession,
   type RepoNavView,
+  sessionsForIssueNav,
   sessionsForWorktree,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
@@ -74,8 +76,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setOpenIssueId,
     paneA,
     setPane,
-    enterMission,
-    uiState,
     fileTabs,
     setView,
     markIssueRead,
@@ -97,8 +97,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       setOpenIssueId: s.setOpenIssueId,
       paneA: s.paneA,
       setPane: s.setPane,
-      enterMission: s.enterMission,
-      uiState: s.uiState,
       fileTabs: s.fileTabs,
       setView: s.setView,
       markIssueRead: s.markIssueRead,
@@ -186,13 +184,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     }
   }
   const selectIssue = (issue: IssueNavigationModel, paneSession?: SessionId) => {
-    if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
-    enterMission(issue.id, {
-      ...(issue.parentId || paneSession ? { inspectIssueId: issue.id } : {}),
-      ...(paneSession ? { sessionId: paneSession, permanent: true } : {}),
-    })
-    uiState.set(SUPERAGENT_MODE_KEY, 'open')
-    if (issue.parentId || paneSession) setFocusedIssueId(issue.id, { transientIfAbsent: true })
+    const root = missionRootFor(issues, issue.id)
+    setSelectedIssueId(root?.id ?? issue.id)
+    setFocusedIssueId(issue.id)
     // Opening an issue marks IT read (email-style, #126): clear the row's unread
     // emphasis optimistically. Its member sessions keep their own unread until
     // each is opened. No-op when already read.
@@ -207,9 +201,35 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     // opened the row rather than a round trip later, and the swallowed rejection
     // goes with it — the queue keeps the clear and replays it.
     if (issueReturnedFromDefer(issue, now)) void deferIssue(issue.id, null)
-    if (paneSession) {
-      traceSwitchTo(paneSession, issue.id)
-    }
+    if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
+    // Open a pane too (#108): keep the current one if it already belongs to this
+    // issue (session or file tab), else the issue's most recently active session.
+    // The pane candidates span the whole MISSION, not just the clicked task, so
+    // selecting a sessionless child still lands you on the mission's live agent
+    // instead of nothing. Same projection the Flight Deck and the tab strip use.
+    const missionIds = missionIssueIds(issues, root?.id ?? issue.id, sessions)
+    const members = [
+      ...new Map(
+        issues
+          .filter((candidate) => missionIds.has(candidate.id))
+          .flatMap((candidate) =>
+            sessionsForIssueNav(candidate, sessions, allWorktreePaths, { includeShells: true }),
+          )
+          .map((session) => [session.sessionId, session] as const),
+      ).values(),
+    ]
+    const rowFileIds = issue.worktreePath
+      ? fileTabs.filter((f) => f.worktreePath === issue.worktreePath).map((f) => f.id)
+      : []
+    // `paneSession` (a row's specific member, from selectPanelForIssue) wins over
+    // the keep-or-most-recent pick, so the trace targets the session that really
+    // opens and the pane is only set once.
+    const target = paneSession ?? pickPaneSession(members, paneA, rowFileIds)
+    traceSwitchTo(target, issue.id)
+    // Sessionless task focus follows the inspector while the current chat stays
+    // put. Selecting work must never manufacture or require a session.
+    if (target) setPane('A', target)
+    setView('workspace')
   }
   const selectPanelForIssue = (issue: IssueNavigationModel, sessionId: SessionId) => {
     selectIssue(issue, sessionId)

@@ -22,7 +22,7 @@
  *      nothing. Empty projects keep their band, with one quiet door under it.
  */
 
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY, SUPERAGENT_MODE_KEY } from '@podium/client-core/ui-state'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
@@ -49,7 +49,6 @@ const ui = vi.hoisted(() => {
 
 const spawnDraftAgent = vi.hoisted(() => vi.fn())
 const setSelectedIssueId = vi.hoisted(() => vi.fn())
-const enterMission = vi.hoisted(() => vi.fn())
 const setSelectedWorktree = vi.hoisted(() => vi.fn())
 const setView = vi.hoisted(() => vi.fn())
 
@@ -130,7 +129,6 @@ vi.mock('@/app/store', () => {
     setSelectedWorktree,
     selectedIssueId: null,
     setSelectedIssueId,
-    enterMission,
     setOpenIssueId: vi.fn(),
     paneA: null,
     setPane: vi.fn(),
@@ -161,7 +159,6 @@ afterEach(() => {
   ui.reset()
   spawnDraftAgent.mockClear()
   setSelectedIssueId.mockClear()
-  enterMission.mockClear()
   setSelectedWorktree.mockClear()
   setView.mockClear()
 })
@@ -187,7 +184,6 @@ describe('the head is one button that makes no choices', () => {
     expect(setSelectedIssueId).toHaveBeenCalledWith(null)
     expect(setSelectedWorktree).toHaveBeenCalledWith(null)
     expect(setView).toHaveBeenCalledWith('workspace')
-    expect(ui.get(SUPERAGENT_MODE_KEY)).toBe('folded')
     expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
@@ -218,24 +214,12 @@ describe('the head is one button that makes no choices', () => {
   })
 })
 
-describe('existing task entry', () => {
-  it('routes a plain issue row through the shared mission decision', () => {
-    render(<SidebarUnified />)
-    const row = screen.getByText('Alpha').closest('[data-testid="unified-issue-row"]')
-    expect(row).not.toBeNull()
-    fireEvent.click(screen.getByText('Alpha'))
-    expect(enterMission).toHaveBeenCalledWith('a', {})
-    expect(setSelectedIssueId).not.toHaveBeenCalledWith('a')
-    expect(ui.get(SUPERAGENT_MODE_KEY)).toBe('open')
-  })
-})
-
 describe('the utilities came up out of the footer', () => {
   it('puts Add repository on the filter line and leaves no strip at the foot', () => {
     const view = render(<SidebarUnified />)
     const add = screen.getByTestId('add-repository')
     // Same row as the field it rides beside.
-    expect(add.parentElement?.parentElement?.querySelector('[data-testid="work-search"]')).toBeTruthy()
+    expect(add.parentElement?.querySelector('[data-testid="work-search"]')).toBeTruthy()
     // The words, and the glyph that survives a narrow column.
     expect(add.textContent).toContain('Add repository')
     expect(add.querySelector('svg')).toBeTruthy()

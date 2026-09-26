@@ -58,7 +58,7 @@ import type {
   ReadPositionWire,
   SessionId,
 } from '@podium/model'
-import { asIssueId, asUserId } from '@podium/model'
+import { asUserId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
@@ -79,16 +79,12 @@ import {
   type RouterWindow,
   type RouteState,
   routeDefaults,
-  PANE_A_KEY,
 } from '../ui-state'
 import {
   allTabIds,
   openTab,
-  emptyWorkspace,
-  type PaneId,
   type RecentFileEntry,
   reposToViews,
-  resolvedMissionRootFor,
   type WorkspaceKey,
 } from '../viewmodels'
 import { createEngineActions, type EngineActions } from './actions'
@@ -106,11 +102,9 @@ import {
   type EngineState,
   type EngineStatics,
   initialEngineState,
-  focusedPaneSession,
   userFocus,
   type WorkspacePatch,
   workspaceFor,
-  restoredMissionWorkspace,
   workspaceKeyForState,
   workspaceMirrorPatch,
   workspaceUiSnapshot,
@@ -211,8 +205,6 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   spawnConfirmGraceMs?: number
   /** Test seam: overrides WORKSPACE_PRUNE_GRACE_MS (POD-710). */
   workspacePruneGraceMs?: number
-  /** Test seam: overrides the bounded mission/route and rehome identity waits. */
-  workspaceNavigationGraceMs?: number
   /** Test seam: overrides DRAFT_SEND_DEBOUNCE_MS (POD-2045). */
   draftSendDebounceMs?: number
   /** Test seam: overrides DRAFT_PERSIST_DEBOUNCE_MS (POD-2045). */
@@ -295,25 +287,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private baseIssues: EngineState['issues'] = []
   private baseIssueProjections: EngineState['issueProjections'] = []
   private prevRoute: RouteState
-  /** Internal history push for a tab already opened in its workspace. */
-  private localRouteNavigation = false
   /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
    *  the pane mirrors are re-derived from the workspace being switched to. */
   private workspaceKey: WorkspaceKey
-  private navigationGeneration = 0
-  private readonly navigationGraceMs: number
-  private pendingNavigation: {
-    kind: 'entry' | 'route' | 'mirror'
-    generation: number
-    deadline: number
-    issueId?: IssueId
-    inspectIssueId?: IssueId
-    targetId?: string
-    legacyReloadSelectedId?: IssueId
-    permanent?: boolean
-    paneId?: PaneId
-  } | null = null
-  private navigationTimer: ReturnType<typeof setTimeout> | null = null
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
   private lastMachinesMaterial: string | undefined
@@ -350,7 +326,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.draftSendDebounceMs = init.draftSendDebounceMs ?? DRAFT_SEND_DEBOUNCE_MS
     this.draftPersistDebounceMs = init.draftPersistDebounceMs ?? DRAFT_PERSIST_DEBOUNCE_MS
     this.networkEnabled = init.networkEnabled ?? true
-    this.navigationGraceMs = init.workspaceNavigationGraceMs ?? 20_000
     // The runtime type is only half the guard — an untyped caller omitting the
     // factory must fail LOUDLY here rather than quietly adopt ambient storage.
     if (typeof init.createReplicaFn !== 'function') {
@@ -463,14 +438,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       hub: this.hub,
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
-      navigationGeneration: () => this.navigationGeneration,
       markSessionRead: (sessionId) => void this.statics.markSessionRead(sessionId),
       markIssueRead: (issueId) => void this.statics.markIssueRead(issueId),
       ...(init.workspacePruneGraceMs !== undefined
         ? { pruneGraceMs: init.workspacePruneGraceMs }
-        : {}),
-      ...(init.workspaceNavigationGraceMs !== undefined
-        ? { issueFollowGraceMs: init.workspaceNavigationGraceMs }
         : {}),
     })
     this.reactions.seedCwds(this.baseSessions)
@@ -523,76 +494,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         },
       },
     })
-    const candidateMarker = this.router.workspaceMirrorMarker?.()
-    const initialMarker = candidateMarker?.tab === route.pane && candidateMarker.worktree === route.worktree
-      ? candidateMarker : null
-    const hydratedSelectionRoot = this.state.selectedIssueId
-      ? resolvedMissionRootFor(this.state.issues, this.state.selectedIssueId)
-      : undefined
-    if (initialMarker?.key.startsWith('mission:')) {
-      this.state.selectedIssueId = asIssueId(initialMarker.key.slice(8))
-    }
-    const initialTarget = !initialMarker && route.pane ? this.state.sessions.find((session) => session.sessionId === route.pane) : undefined
-    const initialFile = !initialMarker && route.pane ? this.state.fileTabs.find((tab) => tab.id === route.pane) : undefined
-    const initialOwner = initialTarget?.issueId ?? initialFile?.issueId
-    const initialRoot = initialOwner ? resolvedMissionRootFor(this.state.issues, initialOwner) : undefined
-    if (initialRoot) this.state.selectedIssueId = initialRoot.id
-    else if (initialFile && !initialFile.issueId) {
-      this.state.selectedIssueId = null
-      this.state.selectedWorktree = initialFile.worktreePath
-    }
     this.workspaceKey = workspaceKeyForState(this.state)
-    if (this.workspaceKey.startsWith('mission:') && !this.state.workspaces[this.workspaceKey]) {
-      const requestedId = initialOwner ?? this.state.selectedIssueId
-      const legacy = requestedId ? restoredMissionWorkspace(this.state, this.workspaceKey, requestedId) : undefined
-      if (legacy) this.state.workspaces = { ...this.state.workspaces, [this.workspaceKey]: legacy }
-    }
-    const savedLayout = this.state.workspaces[this.workspaceKey]
-    const marker = initialMarker
-    // The marker is bound to this history entry's URL. A cold entity seed may
-    // not yet resolve the mission key, but that does not turn a mirror into a link.
-    const marked = marker?.tab === route.pane && marker.worktree === this.state.selectedWorktree &&
-      (marker.key === this.workspaceKey || (this.workspaceKey === 'none' && marker.key.startsWith('mission:')))
-    if (marked && this.workspaceKey === 'none' && marker?.key.startsWith('mission:')) {
-      this.beginNavigation({ kind: 'mirror', issueId: asIssueId(marker.key.slice(8)) })
-    }
-    const legacyReload = !marked && this.router.isReload?.() && this.workspaceKey.startsWith('mission:') &&
-      route.pane !== null && route.pane === this.ui.get(PANE_A_KEY) &&
-      hydratedSelectionRoot?.id === this.workspaceKey.slice(8) &&
-      (!initialRoot || initialRoot.id === hydratedSelectionRoot.id)
-    let initialUrlOpenedWorkspace = false
-    if (savedLayout) {
-      if (route.pane && !marked && !legacyReload && (initialRoot || initialFile && !initialFile.issueId ||
-        this.workspaceKey.startsWith('wt:') && initialTarget && !initialTarget.issueId)) {
-        const opened = openTab(savedLayout, route.pane, { permanent: true })
-        this.state.workspaces = { ...this.state.workspaces, [this.workspaceKey]: initialOwner ? { ...opened, deck: { ...opened.deck, focusedIssueId: initialOwner } } : opened }
-        Object.assign(this.state, workspaceMirrorPatch(opened))
-        initialUrlOpenedWorkspace = true
-      } else Object.assign(this.state, workspaceMirrorPatch(savedLayout))
-    } else if (route.pane && !marked && (initialRoot || initialFile && !initialFile.issueId ||
-      this.workspaceKey.startsWith('wt:') && initialTarget && !initialTarget.issueId)) {
-      const opened = openTab(workspaceFor(this.state, this.workspaceKey), route.pane, { permanent: true })
-      this.state.workspaces = { ...this.state.workspaces, [this.workspaceKey]: initialOwner ? { ...opened, deck: { ...opened.deck, focusedIssueId: initialOwner } } : opened }
-      Object.assign(this.state, workspaceMirrorPatch(opened))
-      initialUrlOpenedWorkspace = true
-    }
-    // Constructor-time URL opens precede the subscription store and therefore
-    // bypass apply()/react(). Persist the adopted layout now: otherwise the
-    // target renders for this document but a second reload restores the old
-    // preview and loses the explicit link.
-    if (initialUrlOpenedWorkspace) {
-      this.routerUi.flush(workspaceUiSnapshot(this.state), new Set([
-        'selectedWorktree', 'selectedIssueId', 'paneA', 'paneB', 'split', 'workspaces',
-      ]))
-    }
-    if (route.pane && !marked && !legacyReload && !initialRoot &&
-      (!initialFile || !!initialFile.issueId) && !(this.workspaceKey.startsWith('wt:') && initialTarget && !initialTarget.issueId)) {
-      this.beginNavigation({
-        kind: 'route', targetId: route.pane,
-        ...(this.router.isReload?.() && route.pane === this.ui.get(PANE_A_KEY) && this.state.selectedIssueId
-          ? { legacyReloadSelectedId: this.state.selectedIssueId } : {}),
-      })
-    }
     // Drafts are hydrate-first for the same reason the entity slices are, and
     // with more at stake: this is the person's own unsent writing, and a first
     // paint without it is an empty composer where a half-written message was.
@@ -889,7 +791,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
 
     // Normalize the URL through the same owner that hydrates and flushes state.
-    if (!this.pendingNavigation) this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
+    this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
   }
 
   /** Tear down everything start() armed. Idempotent; the runtime can re-start
@@ -942,7 +844,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * leaves one cached principal-derived value behind.
    */
   destroy(): void {
-    this.cancelWorkspaceIntent()
     if (this.destroyed) {
       this.dispose()
       return
@@ -1033,8 +934,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // Session-follows-view policy: diffs consecutive session snapshots.
     if (changed.has('sessions')) {
       this.reactions.worktreeFollow()
+      this.reactions.sessionIssueFollow()
     }
-    if (any('sessions', 'issues')) this.reactions.sessionIssueFollow()
     // Worktree fallback selection.
     if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree'))
       this.reactions.worktreeFallback()
@@ -1042,15 +943,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the truth; the pane scalars follow whichever workspace is now on screen.
     // `issues` is in the trigger set because the key resolves through the
     // mission root, which an issue update can move.
-    if (any('selectedIssueId', 'selectedWorktree', 'issues', 'sessions')) this.syncWorkspaceSelection()
+    if (any('selectedIssueId', 'selectedWorktree', 'issues')) this.syncWorkspaceSelection()
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
     // it comes back on every reload until this drops it.
-    if (any('sessions', 'issues', 'fileTabs', 'workspaces', 'pendingSpawnIds'))
+    if (any('sessions', 'fileTabs', 'workspaces', 'pendingSpawnIds'))
       this.reactions.pruneWorkspaces()
     // State→URL mirror — the single URL writer.
-    if (this.pendingNavigation?.kind !== 'route' && this.pendingNavigation?.kind !== 'mirror' &&
-      any('selectedWorktree', 'selectedIssueId', 'paneA', 'workspaces', 'focusedPane'))
+    if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
     // View-state report to the server. `workspaces` is a trigger in its own
     // right: a third pane's active tab changes what is on screen without moving
@@ -1071,128 +971,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.reactions.updateIssueMarkReadTimer()
   }
 
-  /** A single principal-local clock invalidates delayed entry and route work. */
-  cancelWorkspaceIntent(): void {
-    this.navigationGeneration++
-    this.pendingNavigation = null
-    if (this.navigationTimer !== null) clearTimeout(this.navigationTimer)
-    this.navigationTimer = null
-    if (this.state.pendingRouteTargetId !== null) {
-      if (this.subStore) this.apply({ pendingRouteTargetId: null })
-      else this.state.pendingRouteTargetId = null
-    }
-  }
-
-  private beginNavigation(intent: Omit<NonNullable<ClientRuntime<TApi>['pendingNavigation']>, 'generation' | 'deadline'>): void {
-    this.cancelWorkspaceIntent()
-    const generation = this.navigationGeneration
-    const deadline = Date.now() + this.navigationGraceMs
-    this.pendingNavigation = { ...intent, generation, deadline }
-    if (intent.kind === 'route' && intent.targetId) {
-      if (this.subStore) this.apply({ pendingRouteTargetId: intent.targetId })
-      else this.state.pendingRouteTargetId = intent.targetId
-    }
-    this.navigationTimer = setTimeout(() => {
-      if (this.destroyed || this.pendingNavigation?.generation !== generation) return
-      this.cancelWorkspaceIntent()
-      this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
-    }, this.navigationGraceMs)
-  }
-
-  enterMission(issueId: IssueId, options?: Parameters<Store['enterMission']>[1]): void {
-    this.beginNavigation({ kind: 'entry', issueId, ...(options ?? {}), targetId: options?.sessionId })
-    const root = resolvedMissionRootFor(this.state.issues, issueId)
-    this.apply({ selectedIssueId: root?.id ?? issueId, view: 'workspace' })
-    this.syncWorkspaceSelection()
-  }
-
-  private adoptMission(key: WorkspaceKey, requestedId: IssueId): boolean {
-    if (this.state.workspaces[key]) return true
-    const legacy = restoredMissionWorkspace(this.state, key, requestedId)
-    if (!legacy) return false
-    this.apply(workspaceWritePatch(this.state, key, legacy, true))
-    return true
-  }
-
-  /** Re-derive pane mirrors only when the workspace on screen changes. */
+  /** Re-derive the pane mirrors when the workspace on screen changes. A write
+   *  INSIDE one workspace already carries its own mirror (workspaceWritePatch),
+   *  so this fires only on the switch. */
   private syncWorkspaceSelection(): void {
-    const pending = this.pendingNavigation
-    if (pending && pending.generation === this.navigationGeneration && Date.now() < pending.deadline) {
-      if (pending.kind === 'mirror' && pending.issueId &&
-        resolvedMissionRootFor(this.state.issues, pending.issueId)) {
-        this.cancelWorkspaceIntent()
-      } else if (pending.kind === 'route' && pending.targetId) {
-        const target = this.state.sessions.find((session) => session.sessionId === pending.targetId)
-        const file = this.state.fileTabs.find((tab) => tab.id === pending.targetId)
-        const owner = target?.issueId ?? file?.issueId
-        const root = owner ? resolvedMissionRootFor(this.state.issues, owner) : undefined
-        if (root && pending.legacyReloadSelectedId) {
-          const selectedRoot = resolvedMissionRootFor(this.state.issues, pending.legacyReloadSelectedId)
-          if (!selectedRoot) return
-          if (selectedRoot.id === root.id) {
-            this.cancelWorkspaceIntent()
-            this.workspaceKey = `mission:${root.id}`
-            this.adoptMission(this.workspaceKey, pending.legacyReloadSelectedId)
-            this.apply({ selectedIssueId: root.id, ...workspaceMirrorPatch(workspaceFor(this.state, this.workspaceKey)) })
-            return
-          }
-        }
-        const worktree = file && !file.issueId ? file.worktreePath :
-          target && !target.issueId ? this.state.selectedWorktree : null
-        if (root || worktree) {
-          const key = root ? `mission:${root.id}` : `wt:${worktree}`
-          if (root && owner) this.adoptMission(key, owner)
-          const base = workspaceFor(this.state, key)
-          const opened = openTab(base, pending.targetId, { permanent: true })
-          this.cancelWorkspaceIntent()
-          this.workspaceKey = key
-          this.apply({
-            selectedIssueId: root?.id ?? null,
-            ...(worktree ? { selectedWorktree: worktree } : {}),
-            ...workspaceWritePatch(this.state, key,
-              owner ? { ...opened, deck: { ...opened.deck, focusedIssueId: owner } } : opened),
-          })
-          return
-        }
-      } else if (pending.kind === 'entry' && pending.issueId) {
-        const root = resolvedMissionRootFor(this.state.issues, pending.issueId)
-        if (root) {
-          const key = `mission:${root.id}`
-          this.adoptMission(key, pending.issueId)
-          const saved = this.state.workspaces[key]
-          const target = pending.targetId
-          if (saved || target) {
-            const base = saved ?? emptyWorkspace(key)
-            const next = target ? openTab(base, target, { permanent: pending.permanent !== false, ...(pending.paneId ? { paneId: pending.paneId } : {}) }) : base
-            const inspected = pending.inspectIssueId ?? (target ? this.state.sessions.find((session) => session.sessionId === target)?.issueId : undefined)
-            const layout = inspected ? { ...next, deck: { ...next.deck, focusedIssueId: inspected } } : next
-            this.cancelWorkspaceIntent()
-            this.workspaceKey = key
-            this.apply({ selectedIssueId: root.id, ...workspaceWritePatch(this.state, key, layout, !!inspected && !!saved) })
-            return
-          }
-          const coordinator = root.coordinatorSessionId
-            ? this.state.sessions.find((session) => session.sessionId === root.coordinatorSessionId)
-            : undefined
-          if (coordinator && coordinator.issueId === root.id && !coordinator.archived && coordinator.status !== 'exited' && coordinator.agentKind !== 'shell' && coordinator.headless !== true) {
-            const opened = openTab(emptyWorkspace(key), coordinator.sessionId, { permanent: true })
-            const layout = pending.inspectIssueId ? { ...opened, deck: { focusedIssueId: pending.inspectIssueId } } : opened
-            this.cancelWorkspaceIntent()
-            this.workspaceKey = key
-            this.apply({ selectedIssueId: root.id, ...workspaceWritePatch(this.state, key, layout) })
-            return
-          }
-          if (this.state.selectedIssueId !== root.id) this.apply({ selectedIssueId: root.id })
-        }
-      }
-    }
     const key = workspaceKeyForState(this.state)
     if (key === this.workspaceKey) return
     this.workspaceKey = key
-    if (key.startsWith('mission:') && this.state.selectedIssueId && this.adoptMission(key, this.state.selectedIssueId)) {
-      this.apply(workspaceMirrorPatch(workspaceFor(this.state, key)))
-      return
-    }
     // Mirror only: switching to a task that has never been opened must not
     // persist an empty layout for it.
     this.apply(workspaceMirrorPatch(workspaceFor(this.state, key)))
@@ -1274,7 +1059,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * provider, and a `?user=` in the address bar is inert by construction.
    */
   private onRouteChanged(route: RouteState): void {
-    this.cancelWorkspaceIntent()
     const prev = this.prevRoute
     this.prevRoute = route
     const st = this.state
@@ -1295,36 +1079,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         st.sessions.some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
       if (canShow) patch.selectedWorktree = route.worktree
     }
-    const marker = this.router.workspaceMirrorMarker?.()
-    const mirrored = marker?.tab === route.pane && marker.worktree === route.worktree
-    if (mirrored && marker) {
-      if (marker.key.startsWith('mission:')) patch.selectedIssueId = asIssueId(marker.key.slice(8))
-      else if (marker.key.startsWith('wt:') || marker.key === 'none') patch.selectedIssueId = null
-      patch.selectedWorktree = marker.worktree
-      if (marker.key.startsWith('mission:') &&
-        !resolvedMissionRootFor(st.issues, asIssueId(marker.key.slice(8)))) {
-        this.beginNavigation({ kind: 'mirror', issueId: asIssueId(marker.key.slice(8)) })
-      }
+    if (route.pane && route.pane !== prev?.pane && route.pane !== st.paneA) {
+      // A deep-linked pane is an OPEN, so the workspace it lands in gains the
+      // tab; the mirror would otherwise erase it on the next layout write.
+      Object.assign(
+        patch,
+        this.openWorkspaceTab(route.pane, {
+          ...(patch.selectedWorktree ? { selectedWorktree: patch.selectedWorktree } : {}),
+        }),
+      )
     }
-    // An unmarked route is an explicit open even when its pane ID equals the
-    // active permanent tab. The inspector may be independently on a child.
-    const explicitTarget = route.pane && !mirrored && !this.localRouteNavigation
-    const knownWorktreeTarget = route.pane && (
-      st.fileTabs.some((tab) => tab.id === route.pane && !tab.issueId) ||
-      st.sessions.some((session) => session.sessionId === route.pane && !session.issueId)
-    )
-    const worktreeTarget = explicitTarget && knownWorktreeTarget && !st.selectedIssueId &&
-      Boolean(patch.selectedWorktree ?? st.selectedWorktree)
-    if (worktreeTarget && route.pane) {
-      Object.assign(patch, this.openWorkspaceTab(route.pane, {
-        selectedIssueId: null,
-        selectedWorktree: patch.selectedWorktree ?? st.selectedWorktree,
-      }))
-    } else if (explicitTarget) this.beginNavigation({ kind: 'route', targetId: route.pane ?? undefined })
     this.apply(patch)
-    if (explicitTarget && !worktreeTarget) this.syncWorkspaceSelection()
-    if (!this.pendingNavigation || this.pendingNavigation.kind === 'entry')
-      this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
+    this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
   }
 
   // ----------------------------------------------------------- replica ↔ state
@@ -1509,7 +1275,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     issueId?: IssueId
     permanent?: boolean
   }): void {
-    this.cancelWorkspaceIntent()
     const selection = {
       ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
@@ -1527,16 +1292,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // file listed as open with nothing rendering it — so the retirement path
     // owes the same sweep.
     this.dropOrphanFileTabs()
-    this.localRouteNavigation = true
-    try {
-      this.router.navigate({
-        ...routeDefaults('workspace'),
-        ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
-        pane: args.tabId,
-      })
-    } finally {
-      this.localRouteNavigation = false
-    }
+    this.router.navigate({
+      ...routeDefaults('workspace'),
+      ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
+      pane: args.tabId,
+    })
   }
 
   /** Forget `fileTabs` records no workspace layout still holds a tab for. */
@@ -1570,8 +1330,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       onLayoutBaseInstalled: (snapshot) => this.persistLayoutBase(snapshot),
       state: () => this.state,
       apply: (patch) => this.apply(patch),
-      enterMission: (issueId, options) => this.enterMission(issueId, options),
-      cancelWorkspaceIntent: () => this.cancelWorkspaceIntent(),
       subscribe: (listener) => this.subscribe(listener),
       enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.optimism.enqueueOverlayed(kind, input),

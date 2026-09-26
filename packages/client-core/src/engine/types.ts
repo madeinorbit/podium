@@ -49,7 +49,6 @@ import type {
   SplitAxis,
   TabId,
   WorkspaceKey,
-  WorkspaceLayout,
   WorkspaceMap,
 } from '../viewmodels'
 import type { SuperThreadView } from '../viewmodels/slices/superagent'
@@ -242,20 +241,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: IssueId | null
   setSelectedIssueId: (id: IssueId | null) => void
-  /** Enter an existing mission. Restores an existing layout before considering its coordinator. */
-  enterMission: (issueId: IssueId, options?: {
-    inspectIssueId?: IssueId
-    sessionId?: SessionId
-    permanent?: boolean
-    paneId?: PaneId
-  }) => void
-  /** Explicit operator display edit in the selected mission. */
-  updateWorkspaceDeck: (deck: NonNullable<WorkspaceLayout['deck']>, options?: { transientIfAbsent?: boolean; passive?: boolean }) => void
   /** Captured before eager mark-read advances the issue's per-user cursor. */
   issueVisitBaseline: IssueVisitBaseline | null
   /** Consumed by the matching chat surface, then cleared by nonce. */
   transcriptReveal: TranscriptRevealRequest | null
-  pendingRouteTargetId: string | null
   /**
    * EDITOR-STYLE TAB WORKSPACES (POD-710): what each task in the left sidebar
    * has open — its tabs, its active tab, its ONE preview tab and its split

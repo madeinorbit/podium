@@ -1,5 +1,4 @@
-import { deckSessionFacts, deckSessionRequestsHuman, deckSessionRunning, sessionErrorLabel, sessionSettled, type IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { idleVerdictFinishedTurn } from '@podium/model'
+import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 
 /**
@@ -33,7 +32,7 @@ const FIT_LEAD = 0.02
 /** Default bar width that leaves room for an agent name and its leading glyph. */
 const FOLLOW_BAR_TARGET_PX = 112
 
-export type WaterfallSessionState = 'finished' | 'live' | 'working' | 'attention' | 'error'
+export type WaterfallSessionState = 'finished' | 'live' | 'working' | 'attention'
 
 export interface WaterfallViewport {
   start: number
@@ -74,22 +73,18 @@ function time(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-export function waterfallSessionState(session: SessionMeta, issue?: IssueNavigationModel): WaterfallSessionState {
-  const facts = issue ? deckSessionFacts(issue, session) : null
-  if (facts?.running || (!facts && deckSessionRunning(session))) return 'working'
-  if (facts?.error || (!facts && sessionErrorLabel(session))) return 'error'
-  if (facts?.request || (!facts && deckSessionRequestsHuman(session))) return 'attention'
-  if (sessionSettled(session) || session.agentState?.phase === 'ended' ||
-    (session.agentState?.phase === 'idle' && idleVerdictFinishedTurn(session.agentState.idle?.kind))) return 'finished'
-  return 'live'
+export function waterfallSessionState(session: SessionMeta): WaterfallSessionState {
+  if (sessionSettled(session)) return 'finished'
+  if (sessionNeedsHuman(session)) return 'attention'
+  return motionPhase(session) === 'working' ? 'working' : 'live'
 }
 
 export function waterfallSessionStart(session: SessionMeta, fallback: number): number {
   return time(session.createdAt) ?? time(session.lastActiveAt) ?? fallback
 }
 
-export function waterfallSessionEnd(session: SessionMeta, now: number, issue?: IssueNavigationModel): number {
-  if (session.status !== 'hibernated' && waterfallSessionState(session, issue) !== 'finished') return now
+export function waterfallSessionEnd(session: SessionMeta, now: number): number {
+  if (!sessionSettled(session)) return now
   return time(session.stoppedAt) ?? time(session.lastActiveAt) ?? time(session.createdAt) ?? now
 }
 

@@ -1,9 +1,6 @@
 import {
   deriveHandoffNext,
   deriveHandoffNow,
-  handoffCurrentFacts,
-  issueClosed,
-  missionDeckCensus,
   missionSessions,
   reviewReturnCount,
   summarizeHandoffSessions,
@@ -174,19 +171,15 @@ function HandoffEntry({
   tone,
   future = false,
   text,
-  signals,
-  signalLabel,
   onOpen,
 }: {
   issue: IssueNavigationModel
   session?: SessionMeta
   state: string
   attention?: boolean
-  tone?: 'working' | 'review' | 'attention' | 'done' | 'error'
+  tone?: 'working' | 'review' | 'attention' | 'done'
   future?: boolean
   text: string
-  signals?: ReactNode
-  signalLabel?: string
   onOpen: () => void
 }): JSX.Element {
   const reference = issueDisplayRef(issue)
@@ -196,7 +189,7 @@ function HandoffEntry({
       data-pressable
       onClick={onOpen}
       className="handoff-entry"
-      aria-label={`${reference} ${issue.title}${session ? `, session ${sessionRef(session)}` : ''}, ${state}. ${text}${signalLabel ? ` ${signalLabel}` : ''}`}
+      aria-label={`${reference} ${issue.title}${session ? `, session ${sessionRef(session)}` : ''}, ${state}. ${text}`}
     >
       <span className="handoff-entry-time">{state}</span>
       <span
@@ -212,7 +205,6 @@ function HandoffEntry({
           <span>{reference}</span> {issue.title}
         </span>
         <span className="handoff-entry-body">{text}</span>
-        {signals && <span className="handoff-entry-signals shell-type-micro flex flex-wrap gap-x-2 gap-y-0.5">{signals}</span>}
         {session && <span className="handoff-entry-meta">{sessionRef(session)} · open session</span>}
       </span>
       <span
@@ -246,8 +238,8 @@ export function FlightDeckHandoff({
   rootIssue,
   issues,
   sessions,
-  allWorktreePaths,
   visitReadAt,
+  proposed,
   onOpenTranscript,
   onOpenSession,
   onOpenIssue,
@@ -255,8 +247,8 @@ export function FlightDeckHandoff({
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
   sessions: readonly SessionMeta[]
-  allWorktreePaths: readonly string[]
   visitReadAt: string | null
+  proposed: ReactNode
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
   onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
   onOpenIssue: (issueId: IssueId) => void
@@ -267,19 +259,11 @@ export function FlightDeckHandoff({
   )
   const transcript = useHandoffTranscript(true, crew)
   const current = useMemo(
-    () => deriveHandoffNow(issues, sessions, rootIssue.id).filter((entry) => {
-      const issue = issues.find((candidate) => candidate.id === entry.issueId)
-      return issue !== undefined && (issue.stage !== 'proposed' || issueClosed(issue))
-    }),
+    () => deriveHandoffNow(issues, sessions, rootIssue.id),
     [issues, sessions, rootIssue.id],
   )
-  const census = useMemo(() => missionDeckCensus(issues, sessions, rootIssue.id, allWorktreePaths), [issues, sessions, rootIssue.id, allWorktreePaths])
-  const memberIds = useMemo(() => new Set(census.issues.map((issue) => issue.id)), [census])
   const next = useMemo(
-    () => deriveHandoffNext(issues, sessions, rootIssue.id).filter((entry) => {
-      const issue = issues.find((candidate) => candidate.id === entry.issueId)
-      return issue !== undefined && (issue.stage !== 'proposed' || issueClosed(issue))
-    }),
+    () => deriveHandoffNext(issues, sessions, rootIssue.id),
     [issues, sessions, rootIssue.id],
   )
   const summary = useMemo(() => summarizeHandoffSessions(crew), [crew])
@@ -414,29 +398,20 @@ export function FlightDeckHandoff({
                   ? sessionById.get(entry.sessionId)
                   : undefined
               const returnCount = returns.get(entry.issueId) ?? 0
-              const facts = handoffCurrentFacts(issue, census.crew.filter((member) => member.issue.id === issue.id).map((member) => member.session), issueById, memberIds)
               const text =
                 returnCount > 1
                   ? `${entry.text} Returned from review ${returnCount} times.`
                   : entry.text
-              const concurrent = [
-                facts.running.length > 0 ? `${facts.running.length} running` : null,
-                facts.errors.length > 0 ? `${facts.errors.length} agent error${facts.errors.length === 1 ? '' : 's'}` : null,
-                facts.requests.length > 0 ? `${facts.requests.length} agent request${facts.requests.length === 1 ? '' : 's'}` : null,
-                facts.taskRequest ? 'Task request' : null,
-              ].filter(Boolean).join(' · ')
               const state =
                 entry.kind === 'working'
                   ? 'Computing'
-                  : entry.kind === 'error'
-                    ? 'Agent error'
-                    : entry.kind === 'needs-you'
-                      ? 'Needs you'
-                      : entry.kind === 'stalled'
-                        ? 'Stalled'
-                        : entry.kind === 'review'
-                          ? 'Review'
-                          : 'Blocked'
+                  : entry.kind === 'needs-you'
+                    ? 'Needs you'
+                    : entry.kind === 'stalled'
+                      ? 'Stalled'
+                      : entry.kind === 'review'
+                        ? 'Review'
+                        : 'Blocked'
               return (
                 <HandoffEntry
                   key={entry.issueId}
@@ -447,22 +422,13 @@ export function FlightDeckHandoff({
                   tone={
                     entry.kind === 'working'
                       ? 'working'
-                      : entry.kind === 'error'
-                        ? 'error'
-                        : entry.kind === 'review'
-                          ? 'review'
-                          : entry.kind === 'needs-you'
-                            ? 'attention'
-                            : undefined
+                      : entry.kind === 'review'
+                        ? 'review'
+                        : entry.kind === 'needs-you'
+                          ? 'attention'
+                          : undefined
                   }
                   text={text}
-                  signalLabel={concurrent}
-                  signals={concurrent ? <>
-                    {facts.running.length > 0 && <span className="text-text-strong">{facts.running.length} running</span>}
-                    {facts.errors.length > 0 && <span className="text-destructive">{facts.errors.length} agent error{facts.errors.length === 1 ? '' : 's'}</span>}
-                    {facts.requests.length > 0 && <span className="text-attention">{facts.requests.length} agent request{facts.requests.length === 1 ? '' : 's'}</span>}
-                    {facts.taskRequest && <span className="text-attention">Task request</span>}
-                  </> : undefined}
                   onOpen={() =>
                     session
                       ? onOpenSession(entry.issueId, session.sessionId)
@@ -512,6 +478,7 @@ export function FlightDeckHandoff({
         )}
       </HandoffSection>
 
+      {proposed && <div className="handoff-proposals">{proposed}</div>}
     </div>
   )
 }

@@ -26,7 +26,6 @@ import {
   planWorktreeMoves,
   pruneWorkspace,
   reposToViews,
-  resolvedMissionRootFor,
   type TabId,
 } from '../viewmodels'
 import {
@@ -37,7 +36,6 @@ import {
   knownTabIds,
   knownTabIdsForWorkspace,
   referencedTabIds,
-  restoredMissionWorkspace,
   visibleTabIds,
   workspaceKeyForState,
   workspaceWritePatch,
@@ -66,7 +64,6 @@ export const MARK_READ_ON_VIEW_MS = 1200
  * way, it just stops being persisted afterwards.
  */
 export const WORKSPACE_PRUNE_GRACE_MS = 20_000
-export const ISSUE_FOLLOW_GRACE_MS = 20_000
 
 export interface ReactionPorts {
   readonly state: () => EngineState
@@ -84,25 +81,14 @@ export interface ReactionPorts {
    * own push) and marked rows read on a screen nobody was looking at.
    */
   readonly isVisible: () => boolean
-  readonly navigationGeneration: () => number
   /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
   readonly pruneGraceMs?: number
-  /** Test seam: overrides {@link ISSUE_FOLLOW_GRACE_MS}. */
-  readonly issueFollowGraceMs?: number
 }
 
 export class Reactions {
   private readonly ports: ReactionPorts
   private prevCwds: Record<string, string> = {}
   private prevIssueIds: Record<string, string> = {}
-  private pendingIssueFollow: {
-    sessionId: SessionId
-    before: string
-    after: string
-    generation: number
-    deadline: number
-  } | null = null
-  private issueFollowTimer: ReturnType<typeof setTimeout> | null = null
   private markReadKey: string | null = null
   private markReadTimer: ReturnType<typeof setTimeout> | null = null
   /** When the focused session's eager mark-read last actually fired (POD-272) —
@@ -117,12 +103,10 @@ export class Reactions {
   private pruneTimer: ReturnType<typeof setTimeout> | null = null
   /** Test seam for {@link WORKSPACE_PRUNE_GRACE_MS}. */
   private readonly pruneGraceMs: number
-  private readonly issueFollowGraceMs: number
 
   constructor(ports: ReactionPorts) {
     this.ports = ports
     this.pruneGraceMs = ports.pruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
-    this.issueFollowGraceMs = ports.issueFollowGraceMs ?? ISSUE_FOLLOW_GRACE_MS
   }
 
   private isVisible(): boolean {
@@ -158,13 +142,6 @@ export class Reactions {
     this.markReadKey = null
     this.issueMarkReadKey = null
     this.unknownSince.clear()
-    this.clearPendingIssueFollow()
-  }
-
-  private clearPendingIssueFollow(): void {
-    this.pendingIssueFollow = null
-    if (this.issueFollowTimer !== null) clearTimeout(this.issueFollowTimer)
-    this.issueFollowTimer = null
   }
 
   /**
@@ -228,13 +205,6 @@ export class Reactions {
             keep.add(id)
             continue
           }
-          const session = st.sessions.find((candidate) => candidate.sessionId === id)
-          if (session?.issueId && !resolvedMissionRootFor(st.issues, session.issueId)) {
-            // Membership is unresolved, not disproven. An ancestor may arrive
-            // after the session row; preserve its tab through that interval.
-            keep.add(id)
-            continue
-          }
           // Exists in the replica but not in this workspace — a rehome. Drop now.
           if (globallyKnown.has(id)) continue
           keep.add(id)
@@ -255,44 +225,25 @@ export class Reactions {
     this.prevIssueIds = Object.fromEntries(
       st.sessions.map((session) => [session.sessionId, session.issueId ?? '']),
     )
+    if (Object.keys(prev).length === 0) return
     const focused = focusedPaneSession(st)
-    const session = focused ? st.sessions.find((candidate) => candidate.sessionId === focused) : undefined
+    if (!focused) return
+    const session = st.sessions.find((candidate) => candidate.sessionId === focused)
     const after = session?.issueId
-    const before = focused ? prev[focused] : undefined
-    if (focused && after && before && before !== after &&
-      (st.selectedIssueId === before || st.selectedIssueId === null)) {
-      this.clearPendingIssueFollow()
-      const pending = {
-        sessionId: focused,
-        before,
-        after,
-        generation: this.ports.navigationGeneration(),
-        deadline: Date.now() + this.issueFollowGraceMs,
-      }
-      this.pendingIssueFollow = pending
-      this.issueFollowTimer = setTimeout(() => {
-        if (this.pendingIssueFollow === pending) this.clearPendingIssueFollow()
-      }, this.issueFollowGraceMs)
-    }
-    const pending = this.pendingIssueFollow
-    if (!pending) return
-    if (Date.now() >= pending.deadline ||
-      pending.generation !== this.ports.navigationGeneration() || focused !== pending.sessionId ||
-      (st.selectedIssueId !== pending.before && st.selectedIssueId !== null) ||
-      session?.issueId !== pending.after) {
-      this.clearPendingIssueFollow()
+    const before = prev[focused]
+    if (!after || before === undefined || before === after || before === '') return
+    if (st.selectedIssueId !== before && st.selectedIssueId !== null) {
+      // Looking at a different task — do not yank the operator to the new home.
+      // The origin workspace still drops the tab in pruneWorkspaces.
       return
     }
-    if (!resolvedMissionRootFor(st.issues, pending.after as IssueId)) return
-    this.clearPendingIssueFollow()
-    const nextState = { ...st, selectedIssueId: pending.after as IssueId }
+    const nextState = { ...st, selectedIssueId: after }
     const key = workspaceKeyForState(nextState)
-    const base = restoredMissionWorkspace(st, key, pending.after as IssueId) ?? emptyWorkspace(key)
-    const nextLayout = openTab(base, pending.sessionId, {
+    const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), focused, {
       permanent: true,
     })
     this.ports.publish({
-      selectedIssueId: pending.after as IssueId,
+      selectedIssueId: after,
       ...workspaceWritePatch(st, key, nextLayout),
     })
   }

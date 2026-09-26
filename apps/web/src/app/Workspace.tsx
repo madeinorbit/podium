@@ -241,8 +241,6 @@ export function Workspace({
     markSessionRead,
     repos,
     selectedIssueId,
-    setSelectedIssueId,
-    pendingRouteTargetId,
     dockShells,
     workspaces,
     workspaceKey,
@@ -265,8 +263,6 @@ export function Workspace({
       markSessionRead: s.markSessionRead,
       repos: s.repos,
       selectedIssueId: s.selectedIssueId,
-      setSelectedIssueId: s.setSelectedIssueId,
-      pendingRouteTargetId: s.pendingRouteTargetId,
       dockShells: s.dockShells,
       workspaces: s.workspaces,
       // The engine's own resolver, not a second spelling of it (POD-710).
@@ -781,20 +777,6 @@ export function Workspace({
   const missionIssue = selectedIssueId
     ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
-  const [unresolvedMission, setUnresolvedMission] = useState<{ id: string; at: number } | null>(null)
-  useEffect(() => {
-    if (!selectedIssueId || missionIssue || issues.some((candidate) => candidate.id === selectedIssueId)) {
-      setUnresolvedMission(null)
-      return
-    }
-    setUnresolvedMission((current) => current?.id === selectedIssueId ? current : { id: selectedIssueId, at: Date.now() })
-  }, [selectedIssueId, missionIssue, issues])
-  useEffect(() => {
-    if (!unresolvedMission || Date.now() - unresolvedMission.at >= 20_000) return
-    const timer = window.setTimeout(() => setUnresolvedMission((current) => current ? { ...current } : null),
-      20_000 - (Date.now() - unresolvedMission.at))
-    return () => window.clearTimeout(timer)
-  }, [unresolvedMission])
   const missionRoot = missionIssue ? missionRootFor(issues, missionIssue.id) : undefined
   const missionIds = missionRoot
     ? missionIssueIds(issues, missionRoot.id, sessions)
@@ -949,16 +931,6 @@ export function Workspace({
     activationDraft.pendingIssueId !== '' &&
     activationDraft.pendingIssueId === selectedIssueId &&
     !sessions.some((candidate) => candidate.issueId === activationDraft.pendingIssueId)
-  if (pendingRouteTargetId && deckTabs.length === 0) {
-    return (
-      <section className="native-agents-pane relative" data-testid="workspace-pending-link">
-        <div className="workspace-sheet flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
-          <span>Loading {pendingRouteTargetId}</span>
-          <button type="button" className="underline" onClick={() => setSelectedIssueId(selectedIssueId)}>Close target</button>
-        </div>
-      </section>
-    )
-  }
   if (partialLaunchNeedsRecovery) {
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
@@ -972,16 +944,6 @@ export function Workspace({
   }
 
   const missionOnScreen = selectedMissionRoot(issues, sessions, selectedIssueId)
-  if (selectedIssueId && !issues.some((candidate) => candidate.id === selectedIssueId) && deckTabs.length === 0) {
-    const waiting = !unresolvedMission || Date.now() - unresolvedMission.at < 20_000
-    return (
-      <section className="native-agents-pane relative" data-testid="workspace-unresolved-mission">
-        <div className="workspace-sheet flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-          {waiting ? 'Loading task data…' : 'Task data unavailable'}
-        </div>
-      </section>
-    )
-  }
   if (!missionOnScreen && deckTabs.length === 0) {
     const hasAnyTask = issues.some((candidate) => !candidate.deletedAt)
     return (
@@ -1092,7 +1054,6 @@ export function Workspace({
             key={rect.paneId}
             rect={rect}
             pane={paneOf}
-            tabIds={paneOf.tabs}
             tabs={resolveAll(paneOf.tabs)}
             otherTabs={deckTabs.filter((t) => !paneOf.tabs.includes(t.id))}
             focused={paneOf.id === activePane?.id}
@@ -1108,7 +1069,6 @@ export function Workspace({
             issueId={issue?.id}
             onFocus={() => focusPane(paneOf.id)}
             onSelectTab={selectTab}
-            onSelectUnknown={activateWorkspaceTab}
             onCloseTab={closeTab}
             onKeepOpen={promoteWorkspaceTab}
             onSplit={(axis, tabId) => splitWorkspacePane(paneOf.id, axis, { tabId })}
@@ -1138,12 +1098,6 @@ export function Workspace({
     // and its seams are unchanged — the sheet only clips and lifts them.
     <section ref={workspaceRef} className="native-agents-pane relative">
       <div className="workspace-sheet relative">
-        {pendingRouteTargetId && (
-          <div className="absolute left-1/2 top-11 z-30 flex -translate-x-1/2 items-center gap-3 rounded border border-hairline-soft bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm" data-testid="workspace-pending-link">
-            <span>Loading {pendingRouteTargetId}</span>
-            <button type="button" className="underline" onClick={() => setSelectedIssueId(selectedIssueId)}>Close</button>
-          </div>
-        )}
         {/* THE DECK BOX. Panes are rectangles inside it rather than nested
           containers, so the panel list underneath stays FLAT (see panel-deck.ts):
           splitting, resizing and dragging a tab across panes are pure layout
@@ -1204,7 +1158,6 @@ export function Workspace({
 function PaneChrome({
   rect,
   pane,
-  tabIds,
   tabs,
   otherTabs,
   focused,
@@ -1219,7 +1172,6 @@ function PaneChrome({
   issueId,
   onFocus,
   onSelectTab,
-  onSelectUnknown,
   onCloseTab,
   onKeepOpen,
   onSplit,
@@ -1229,7 +1181,6 @@ function PaneChrome({
 }: {
   rect: PaneRect
   pane: Pane
-  tabIds: readonly string[]
   tabs: WTab[]
   /** Tabs living in OTHER panes — what an empty pane can adopt. */
   otherTabs: WTab[]
@@ -1247,7 +1198,6 @@ function PaneChrome({
   issueId?: IssueId
   onFocus: () => void
   onSelectTab: (tab: WTab) => void
-  onSelectUnknown: (id: string) => void
   onCloseTab: (tabId: string) => void
   onKeepOpen: (tabId: string) => void
   onSplit: (axis: SplitAxis, tabId?: string) => void
@@ -1257,15 +1207,8 @@ function PaneChrome({
 }): JSX.Element {
   const activeTabId = pane.activeTabId
   const hasPanel = activeTabId !== null && tabs.some((t) => t.id === activeTabId)
-  const tabItems = tabIds.map((id) => {
-    const t = tabs.find((candidate) => candidate.id === id)
-    if (!t) return (
-      <div key={id} className="flex min-w-0 items-center gap-1 rounded px-2 text-xs text-muted-foreground" data-testid="unresolved-workspace-tab">
-        <button type="button" onClick={() => onSelectUnknown(id)} aria-label={`Select loading tab ${id}`} className="min-w-0 truncate">Loading {id}</button>
-        <button type="button" onClick={() => onCloseTab(id)} aria-label={`Close loading tab ${id}`} className="rounded p-1"><X size={12} /></button>
-      </div>
-    )
-    return drag ? (
+  const tabItems = tabs.map((t) =>
+    drag ? (
       <drag.Item key={t.id} id={t.id}>
         {(bindings) => (
           <SortableTab
@@ -1305,8 +1248,8 @@ function PaneChrome({
         onKeepOpen={() => onKeepOpen(t.id)}
         onSplit={(axis: SplitAxis) => onSplit(axis, t.id)}
       />
-    )
-  })
+    ),
+  )
   const strip = (setNodeRef?: (node: HTMLElement | null) => void, isOver = false): JSX.Element => (
     <div className="pointer-events-none absolute flex flex-col" style={paneBoxStyle(rect)}>
       {/* Tab strip (POD-725): 38px, the tabstrip surface, a soft bottom hairline,
@@ -1352,15 +1295,15 @@ function PaneChrome({
         )}
       >
         {drag ? (
-          <drag.List items={[...tabIds]}>
+          <drag.List items={tabs.map((t) => t.id)}>
             <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {tabIds.length === 0 && <GhostTabs />}
+              {tabs.length === 0 && <GhostTabs />}
               {tabItems}
             </div>
           </drag.List>
         ) : (
           <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {tabIds.length === 0 && <GhostTabs />}
+            {tabs.length === 0 && <GhostTabs />}
             {tabItems}
           </div>
         )}
@@ -1415,18 +1358,16 @@ function PaneChrome({
       </div>
       {!hasPanel && (
         <div className="pointer-events-auto flex min-h-0 flex-1">
-          {/* Unknown IDs keep their pane and close control through the grace period. */}
-          {activeTabId && !tabs.some((tab) => tab.id === activeTabId) ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-xs text-muted-foreground" data-testid="workspace-loading-target">
-              <span>Loading {activeTabId}</span>
-              <button type="button" className="underline" onClick={() => onCloseTab(activeTabId)}>Close tab</button>
-            </div>
-          ) : (
-          otherTabs.length === 0 ? (
+          {/* WHAT THERE IS TO ADOPT decides this, not whether the pane is alone
+              (POD-1058). When another pane holds tabs, the picker is strictly
+              the better state — it offers the actual views. `alone` got the
+              same answer right in the common case and wrong in one: the empty
+              half of a split whose sibling had nothing in it drew an empty
+              picker, a heading over no choices. */}
+          {otherTabs.length === 0 ? (
             <Empty worktree={panelTarget} issueId={issueId} onOpened={onOpened} />
           ) : (
             <PanePicker tabs={otherTabs} onPick={onAdopt} />
-          )
           )}
         </div>
       )}

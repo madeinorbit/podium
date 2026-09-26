@@ -151,7 +151,7 @@ export const MissionDeck = memo(function MissionDeck({
   // UNSPREAD ON PURPOSE: the engine memoizes per (issues, sessions) ARRAY
   // IDENTITY — copying here would mint fresh identities and defeat that cache.
   const rows = useMemo(
-    () => buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths, { includeProposed: true }),
+    () => buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths),
     [issues, sessions, root.id, mode, allWorktreePaths],
   )
   const shown = useMemo(() => applyFolds(rows, folds), [rows, folds])

@@ -22,11 +22,6 @@ describe('resolveFocus', () => {
     expect(resolveFocus(asIssueId('stranger'), mission, 'root')).toBe('root')
   })
 
-  it('retains an unresolved saved focus only while its grace is active', () => {
-    expect(resolveFocus(asIssueId('late-child'), mission, 'root', true)).toBe('late-child')
-    expect(resolveFocus(asIssueId('late-child'), mission, 'root', false)).toBe('root')
-  })
-
   it('falls back to the root when nothing is focused', () => {
     expect(resolveFocus(null, mission, 'root')).toBe('root')
   })

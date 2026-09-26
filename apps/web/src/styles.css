@@ -5905,9 +5905,6 @@ html[data-density="compact"] .brief-shelf {
 .handoff-entry-node--working {
   background: var(--motion-working);
 }
-.handoff-entry-node--error {
-  background: var(--destructive);
-}
 .handoff-entry-node--review {
   background: var(--info);
 }
@@ -5968,10 +5965,6 @@ html[data-density="compact"] .brief-shelf {
 .handoff-entry-badge--working {
   border-color: color-mix(in srgb, var(--motion-working) 38%, var(--border));
   color: color-mix(in srgb, var(--motion-working) 58%, var(--foreground));
-}
-.handoff-entry-badge--error {
-  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
-  color: var(--destructive);
 }
 .handoff-entry-badge--review {
   border-color: color-mix(in srgb, var(--info) 45%, var(--border));
@@ -9982,7 +9975,6 @@ a.ref-link--session::before {
 .deck-strip {
   container-type: inline-size;
   container-name: deck-strip;
-  margin-left: var(--deck-indent, 0px);
 }
 
 /* Let a task spend a second line before its title becomes an unusable sliver.
@@ -10000,15 +9992,10 @@ a.ref-link--session::before {
   margin-left: auto;
 }
 
-@container deck-rows (max-width: 370px) {
-  .deck-strip { margin-left: var(--deck-narrow-indent, var(--deck-indent, 0px)); }
-  .deck-task-identity,
-  .deck-task-meta {
-    flex-basis: 100%;
-    margin-left: 0;
-    flex-wrap: wrap;
+@container deck-strip (max-width: 370px) {
+  .deck-drop-relation {
+    display: none;
   }
-  .deck-task-identity .truncate { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 }
 
 @container deck-strip (max-width: 350px) {
@@ -10416,26 +10403,23 @@ button.waterfall-fold:hover {
 }
 .waterfall-issue-meta {
   width: 100%;
+  overflow: hidden;
   color: var(--text-faint);
   font-size: 8.5px;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .waterfall-issue-title {
   width: 100%;
+  overflow: hidden;
   color: var(--text-dim);
   font-size: 11.5px;
   font-weight: 550;
   line-height: 1.15;
-  overflow-wrap: anywhere;
-}
-.waterfall-issue-context {
-  width: 100%;
-  color: var(--text-faint);
-  font-size: 8.5px;
-  line-height: 1.15;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .waterfall-issue-open[aria-current="true"] .waterfall-issue-title {
   color: var(--text-strong);
@@ -10451,17 +10435,6 @@ button.waterfall-fold:hover {
   padding-block: var(--waterfall-row-padding);
   overflow: hidden;
   touch-action: pan-y;
-}
-.waterfall-roster-toggle {
-  align-self: flex-start;
-  min-height: 24px;
-  padding-inline: 6px;
-  color: var(--text-dim);
-  text-decoration: underline;
-}
-.waterfall-visible-state {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 .waterfall-session-lane {
   position: relative;
@@ -10543,31 +10516,6 @@ button.waterfall-fold:hover {
   background: color-mix(in srgb, var(--attention) 24%, var(--bar));
   color: color-mix(in srgb, var(--attention) 76%, var(--text-strong));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 78%, transparent);
-}
-.waterfall-session-bar[data-state="error"]:not([data-segmented]) {
-  background: color-mix(in srgb, var(--destructive) 19%, var(--bar));
-  color: var(--text-strong);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--destructive) 70%, transparent);
-}
-.waterfall-error-mark,
-.waterfall-request-mark {
-  position: absolute;
-  z-index: 3;
-  top: 2px;
-  bottom: 2px;
-  width: 3px;
-  border-radius: 999px;
-  pointer-events: none;
-}
-.waterfall-error-mark { left: 2px; background: var(--destructive); }
-.waterfall-request-mark { right: 2px; background: var(--attention); }
-.waterfall-dependency-row {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 2px 8px 6px;
-  color: var(--text-dim);
 }
 .waterfall-session-bar[data-state="finished"]:not([data-segmented]) {
   background: color-mix(in srgb, var(--text-faint) 9%, var(--bar));
@@ -10841,7 +10789,7 @@ button.waterfall-fold:hover {
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 24px;
+  min-height: 18px;
   align-items: center;
   gap: 6px;
   padding-inline: 4px;
@@ -10850,18 +10798,6 @@ button.waterfall-fold:hover {
   font-size: 8px;
   line-height: 1.2;
   text-align: left;
-}
-.waterfall-native-full-id {
-  display: block;
-  width: 100%;
-  min-height: 24px;
-  padding-inline: 4px;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  overflow-wrap: anywhere;
-  text-align: left;
-  text-decoration: underline;
 }
 .waterfall-native-worker:hover {
   background: var(--muted);
@@ -11089,30 +11025,6 @@ button.waterfall-fold:hover {
     text-overflow: clip;
     white-space: normal;
     line-height: 1.25;
-  }
-}
-
-/* Several independent state facts need a bounded line at 320px. */
-@container deck-rows (max-width: 360px) {
-  .deck-agent {
-    grid-template-areas:
-      "name name"
-      "ref role"
-      "state state";
-    grid-template-columns: 94px minmax(0, 1fr);
-  }
-  .deck-agent-state.deck-state-col {
-    min-width: 0;
-    max-width: 100%;
-    justify-self: stretch;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    overflow-wrap: anywhere;
-    text-align: left;
-  }
-  .deck-agent-state > span {
-    min-width: 0;
-    overflow-wrap: anywhere;
   }
 }
 

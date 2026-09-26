@@ -5,7 +5,6 @@ import { ChevronRight, ListTree } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useReplicaIssues } from '@/app/store'
-import { useOperatorFocus } from '@/app/operator-focus'
 import { cn } from '@/lib/utils'
 import { IssuePanelView } from '../IssuePanelView'
 import { useIssueExplorer } from './explorer-context'
@@ -51,8 +50,6 @@ export function IssueExplorer({
   machineId?: MachineId
 }): JSX.Element {
   const { current, seq, motion, push } = useIssueExplorer()
-  const { focusedIssueId, focusLoading } = useOperatorFocus()
-  const issues = useReplicaIssues()
   const [frames, setFrames] = useState<Frame[]>([
     { key: seq, id: current === null ? null : asIssueId(current), move: null },
   ])
@@ -95,9 +92,7 @@ export function IssueExplorer({
           inert={frame.leaving || undefined}
         >
           {frame.id ? (
-            focusLoading && frame.id === focusedIssueId && !issues.some((issue) => issue.id === frame.id)
-              ? <div role="status" className="p-3 text-xs text-muted-foreground">Loading task…</div>
-              : <IssuePanelView cwd={cwd} machineId={machineId} issueId={frame.id} onNavigate={push} />
+            <IssuePanelView cwd={cwd} machineId={machineId} issueId={frame.id} onNavigate={push} />
           ) : (
             <IssueExplorerList />
           )}

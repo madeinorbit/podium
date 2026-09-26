@@ -32,8 +32,8 @@ import { asClientPrincipal } from '../principal'
 import { issueViewModelsFromReplica } from '../replica/issue-view-models'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
-import { type RouterWindow, ISSUE_SEL_KEY, PANE_A_KEY, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY, WORKSPACES_KEY, WT_KEY } from '../ui-state'
-import { allTabIds, deserializeWorkspaces, emptyWorkspace, openTab, serializeWorkspaces } from '../viewmodels'
+import { type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
+import { allTabIds } from '../viewmodels'
 import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -184,7 +184,7 @@ function makeApi(): any {
 }
 
 /** RouterWindow over an in-memory URL, with working popstate + a write log. */
-function makeRouterWindow(initialUrl: string, options: { historyState?: unknown; navigationType?: 'reload' } = {}): {
+function makeRouterWindow(initialUrl: string): {
   win: RouterWindow
   writes: string[]
   url(): string
@@ -197,13 +197,9 @@ function makeRouterWindow(initialUrl: string, options: { historyState?: unknown;
       : { pathname: url.slice(0, q), search: url.slice(q) }
   }
   let cur = split(initialUrl)
-  let historyState: Record<string, unknown> | null =
-    options.historyState && typeof options.historyState === 'object' && !Array.isArray(options.historyState)
-      ? options.historyState as Record<string, unknown> : null
   const listeners = new Set<() => void>()
   const writes: string[] = []
   const win: RouterWindow = {
-    ...(options.navigationType ? { navigationType: options.navigationType } : {}),
     location: {
       get pathname() {
         return cur.pathname
@@ -213,18 +209,13 @@ function makeRouterWindow(initialUrl: string, options: { historyState?: unknown;
       },
     },
     history: {
-      get state() { return historyState },
-      pushState: (data, _u, url) => {
-        historyState = data && typeof data === 'object' && !Array.isArray(data)
-          ? data as Record<string, unknown> : null
+      pushState: (_d, _u, url) => {
         if (typeof url === 'string') {
           cur = split(url)
           writes.push(`push:${url}`)
         }
       },
-      replaceState: (data, _u, url) => {
-        historyState = data && typeof data === 'object' && !Array.isArray(data)
-          ? data as Record<string, unknown> : null
+      replaceState: (_d, _u, url) => {
         if (typeof url === 'string') {
           cur = split(url)
           writes.push(`replace:${url}`)
@@ -253,16 +244,13 @@ function makeEngine(
     storage?: StorageApi
     spawnConfirmGraceMs?: number
     workspacePruneGraceMs?: number
-    workspaceNavigationGraceMs?: number
-    historyState?: unknown
-    navigationType?: 'reload'
     draftSendDebounceMs?: number
     draftPersistDebounceMs?: number
     principal?: string
   } = {},
 ) {
   const hub = opts.hub ?? new FakeHub()
-  const rw = makeRouterWindow(opts.url ?? '/', { historyState: opts.historyState, navigationType: opts.navigationType })
+  const rw = makeRouterWindow(opts.url ?? '/')
   const fatals: string[] = []
   const errors: string[] = []
   const engine = createClientRuntime({
@@ -279,9 +267,6 @@ function makeEngine(
       : {}),
     ...(opts.workspacePruneGraceMs !== undefined
       ? { workspacePruneGraceMs: opts.workspacePruneGraceMs }
-      : {}),
-    ...(opts.workspaceNavigationGraceMs !== undefined
-      ? { workspaceNavigationGraceMs: opts.workspaceNavigationGraceMs }
       : {}),
     ...(opts.draftSendDebounceMs !== undefined
       ? { draftSendDebounceMs: opts.draftSendDebounceMs }
@@ -643,7 +628,6 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
   it('an unknown ?wt deep link settles on the known fallback without ping-pong', async () => {
     const { engine, rw, fatals } = makeEngine({
       url: '/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=00000000-0000-0000-0000-000000000000',
-      workspaceNavigationGraceMs: 120,
     })
     let notifications = 0
     engine.subscribe(() => {
@@ -657,10 +641,7 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
     // The unknown worktree cannot be shown; the selection settles on the one
     // known worktree (a deterministic fallback, not a loop) …
     expect(snap.selectedWorktree).toBe('/tmp/known-repo')
-    // The unknown target retains its URL until the bounded identity wait ends.
-    expect(snap.pendingRouteTargetId).toBe('00000000-0000-0000-0000-000000000000')
-    await settle(160)
-    // The settled worktree is then mirrored back into the URL.
+    // … and the settled state is mirrored back into the URL.
     expect(rw.url()).toContain('wt=%2Ftmp%2Fknown-repo')
     // Fully settled: no further URL writes after quiescence.
     const writesAfterSettle = rw.writes.length
@@ -670,8 +651,8 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
     engine.dispose()
   })
 
-  it('back/forward keeps an unknown pane pending, then converges after its deadline', async () => {
-    const { engine, rw, fatals } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', workspaceNavigationGraceMs: 150 })
+  it('back/forward (popstate) to an unknown wt converges with exactly one mirror write', async () => {
+    const { engine, rw, fatals } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo' })
     engine.start()
     await settle(40)
     expect(engine.getSnapshot().selectedWorktree).toBe('/tmp/known-repo')
@@ -681,10 +662,10 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
     rw.popTo('/workspace?wt=%2Ftmp%2Fother&pane=s1')
     await settle(40)
     const snap = engine.getSnapshot()
-    expect(snap.pendingRouteTargetId).toBe('s1')
-    expect(snap.paneA).toBeNull()
-    await settle(180)
-    // The unresolved target expires; the known worktree is mirrored once.
+    // The pane is adopted (Workspace holds/clears unknown panes safely) …
+    expect(snap.paneA).toBe('s1')
+    // … while the unknown worktree settles on the known fallback, mirrored into
+    // the URL exactly once.
     expect(snap.selectedWorktree).toBe('/tmp/known-repo')
     expect(rw.url()).toContain('wt=%2Ftmp%2Fknown-repo')
     expect(rw.writes.length - before).toBe(1)
@@ -724,24 +705,24 @@ describe('stale workspace tabs (POD-710)', () => {
       Object.values(ws.panes).flatMap((pane) => pane.tabs),
     )
 
-  it('retires a pending URL target that never resolves, once its grace period is up', async () => {
+  it('retires a tab that never resolves, once its grace period is up', async () => {
     const { engine, rw } = makeEngine({
       url: '/workspace?wt=%2Ftmp%2Fknown-repo',
       workspacePruneGraceMs: 150,
-      workspaceNavigationGraceMs: 150,
     })
     engine.start()
     await settle(40)
 
     rw.popTo('/workspace?wt=%2Ftmp%2Fknown-repo&pane=ghost')
     await settle(30)
-    expect(openTabIds(engine)).not.toContain('ghost')
-    expect(engine.getSnapshot().pendingRouteTargetId).toBe('ghost')
+    // ADOPTED FIRST. An id that has not arrived yet is early, not gone — an
+    // eager prune here is what would break optimistic spawns and deep links.
+    expect(openTabIds(engine)).toContain('ghost')
+    expect(engine.getSnapshot().paneA).toBe('ghost')
 
     await settle(200)
     expect(openTabIds(engine)).not.toContain('ghost')
     expect(engine.getSnapshot().paneA).toBeNull()
-    expect(engine.getSnapshot().pendingRouteTargetId).toBeNull()
     engine.dispose()
   })
 
@@ -751,10 +732,6 @@ describe('stale workspace tabs (POD-710)', () => {
     await settle(40)
     const oldId = asIssueId('iss_old')
     const newId = asIssueId('iss_new')
-    engine.replica.applySnapshot('issues', [
-      { id: oldId, parentId: null } as unknown as IssueWire,
-      { id: newId, parentId: null } as unknown as IssueWire,
-    ])
     engine.replica.applySnapshot('sessions', [
       { ...session('s1', '/tmp/known-repo'), issueId: oldId },
     ])
@@ -763,7 +740,7 @@ describe('stale workspace tabs (POD-710)', () => {
     engine.getSnapshot().openSessionTab(asSessionId('s1'), { permanent: true })
     await settle(20)
     const oldKey = engine.getSnapshot().workspaceKey()
-    expect(oldKey).toBe(`mission:${oldId}`)
+    expect(oldKey).toBe(`issue:${oldId}`)
     expect(openTabIds(engine)).toContain('s1')
 
     engine.replica.applyChanges(
@@ -795,533 +772,6 @@ describe('stale workspace tabs (POD-710)', () => {
     expect(openTabIds(engine)).toContain('late')
     expect(engine.getSnapshot().paneA).toBe('late')
     engine.dispose()
-  })
-})
-
-describe('mission entry and delayed identity', () => {
-  const root = (id: string, coordinatorSessionId?: string): IssueWire => ({
-    id: asIssueId(id), parentId: null,
-    ...(coordinatorSessionId ? { coordinatorSessionId: asSessionId(coordinatorSessionId) } : {}),
-  }) as unknown as IssueWire
-  const child = (id: string, parentId: string): IssueWire => ({
-    id: asIssueId(id), parentId: asIssueId(parentId),
-  }) as IssueWire
-  const owned = (id: string, issueId: string): SessionMeta => ({
-    ...session(id, '/tmp/known-repo'), issueId: asIssueId(issueId),
-  })
-  const nestedSaved = (key: string, first: string, third: string) => ({
-    key,
-    panes: {
-      p1: { id: 'p1', tabs: [first], activeTabId: first },
-      p2: { id: 'p2', tabs: [], activeTabId: null },
-      p3: { id: 'p3', tabs: [third], activeTabId: third },
-    },
-    root: { kind: 'split' as const, axis: 'row' as const, sizes: [0.4, 0.6], children: [
-      { kind: 'leaf' as const, paneId: 'p1' },
-      { kind: 'split' as const, axis: 'column' as const, sizes: [0.3, 0.7], children: [
-        { kind: 'leaf' as const, paneId: 'p2' }, { kind: 'leaf' as const, paneId: 'p3' },
-      ] },
-    ] },
-    focusedPaneId: 'p1', previewTabId: null,
-  })
-
-  it('seeds the root coordinator through a child entry, then restores its preview and independent inspector', async () => {
-    const { engine } = makeEngine()
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('root', 'coord'), child('child', 'root')])
-    engine.replica.applySnapshot('sessions', [owned('coord', 'root'), owned('worker', 'child')])
-    await settle(30)
-
-    engine.getSnapshot().enterMission(asIssueId('child'), { inspectIssueId: asIssueId('child') })
-    const seeded = engine.getSnapshot().workspaces['mission:root']!
-    expect(allTabIds(seeded)).toEqual(['coord'])
-    expect(seeded.previewTabId).toBeNull()
-    expect(seeded.deck?.focusedIssueId).toBe('child')
-
-    engine.getSnapshot().openSessionTab(asSessionId('worker'), { permanent: false })
-    const saved = engine.getSnapshot().workspaces['mission:root']!
-    engine.getSnapshot().enterMission(asIssueId('root'))
-    expect(engine.getSnapshot().workspaces['mission:root']).toEqual(saved)
-    expect(engine.getSnapshot().workspaces['mission:root']?.previewTabId).toBe('worker')
-    expect(engine.getSnapshot().workspaces['mission:root']?.deck?.focusedIssueId).toBe('child')
-    engine.destroy()
-  })
-
-  it('adopts a legacy preview before any coordinator default and keeps an intentional empty layout empty', async () => {
-    const storage = memoryStorage()
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({
-      'issue:root': openTab(emptyWorkspace('issue:root'), 'preview', { permanent: false }),
-    }))
-    prior.engine.replica.applySnapshot('issues', [root('root', 'coord')])
-    prior.engine.replica.applySnapshot('sessions', [owned('coord', 'root'), owned('preview', 'root')])
-    await settle(30)
-    prior.engine.destroy()
-    const { engine } = makeEngine({ storage })
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('root', 'coord')])
-    engine.replica.applySnapshot('sessions', [owned('coord', 'root'), owned('preview', 'root')])
-    await settle(30)
-    engine.getSnapshot().enterMission(asIssueId('root'))
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:root']!)).toEqual(['preview'])
-    expect(engine.getSnapshot().workspaces['mission:root']?.previewTabId).toBe('preview')
-    engine.getSnapshot().closeWorkspaceTab('preview')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:root']!)).toEqual([])
-    engine.getSnapshot().enterMission(asIssueId('root'))
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:root']!)).toEqual([])
-    engine.destroy()
-  })
-
-  it.each(['child only', 'root precedence'] as const)('adopts a %s legacy layout before a cold child-session link opens', async (mode) => {
-    const storage = memoryStorage()
-    const childSaved = nestedSaved('issue:child', 'child-one', 'child-target')
-    const rootSaved = nestedSaved('issue:root', 'root-one', 'root-three')
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({
-      'issue:child': childSaved,
-      ...(mode === 'root precedence' ? { 'issue:root': rootSaved } : {}),
-    }))
-    prior.engine.replica.applySnapshot('issues', [root('root'), child('child', 'root')])
-    prior.engine.replica.applySnapshot('sessions', [owned('child-target', 'child')])
-    await settle(30)
-    prior.engine.destroy()
-
-    const { engine } = makeEngine({ storage, url: '/workspace?pane=child-target' })
-    const base = mode === 'root precedence' ? rootSaved : childSaved
-    const expected = openTab({ ...base, key: 'mission:root' }, 'child-target', { permanent: true })
-    expect(engine.getSnapshot().workspaces['mission:root']).toEqual({
-      ...expected, deck: { focusedIssueId: 'child' },
-    })
-    expect(engine.getSnapshot().workspaces['mission:root']?.root).toEqual(base.root)
-    engine.destroy()
-  })
-
-  it('cancels delayed coordinator seeding after an explicit empty edit or same-root re-entry', async () => {
-    const { engine } = makeEngine({ workspaceNavigationGraceMs: 35 })
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('root')])
-    await settle(30)
-    engine.getSnapshot().enterMission(asIssueId('root'))
-    engine.getSnapshot().updateWorkspaceDeck({ view: 'working' })
-    expect(engine.getSnapshot().workspaces['mission:root']).toBeDefined()
-    engine.replica.applySnapshot('issues', [root('root', 'coord')])
-    engine.replica.applySnapshot('sessions', [owned('coord', 'root')])
-    await settle(30)
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:root']!)).toEqual([])
-
-    engine.getSnapshot().enterMission(asIssueId('root'))
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:root']!)).toEqual([])
-    engine.getSnapshot().enterMission(asIssueId('missing'))
-    await settle(60)
-    engine.replica.applyChanges('issues', [root('missing', 'late')], [])
-    engine.replica.applyChanges('sessions', [owned('late', 'missing')], [])
-    await settle(30)
-    expect(engine.getSnapshot().workspaces['mission:missing']).toBeUndefined()
-    engine.destroy()
-  })
-
-  it('keeps the latest in-memory layout when local storage refuses a write', async () => {
-    const backing = memoryStorage()
-    let refuse = false
-    const storage: StorageApi = {
-      getItem: (key) => backing.getItem(key),
-      setItem: (key, value) => { if (refuse) throw new Error('quota'); backing.setItem(key, value) },
-      removeItem: (key) => backing.removeItem(key),
-    }
-    const { engine } = makeEngine({ storage })
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('root', 'coord')])
-    engine.replica.applySnapshot('sessions', [owned('coord', 'root'), owned('other', 'root')])
-    await settle(30)
-    refuse = true
-    engine.getSnapshot().enterMission(asIssueId('root'))
-    engine.getSnapshot().openSessionTab(asSessionId('other'), { permanent: false })
-    const before = engine.getSnapshot().workspaces['mission:root']!
-    engine.getSnapshot().setSelectedIssueId(null)
-    engine.getSnapshot().enterMission(asIssueId('root'))
-    expect(engine.getSnapshot().workspaces['mission:root']).toEqual(before)
-    expect(engine.getSnapshot().workspaces['mission:root']?.previewTabId).toBe('other')
-    engine.destroy()
-  })
-
-  it('holds an unknown incoming session outside the prior mission until its owner resolves', async () => {
-    const storage = memoryStorage()
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'a')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({
-      'mission:a': openTab(emptyWorkspace('mission:a'), 'a-session', { permanent: true }),
-    }))
-    prior.engine.replica.applySnapshot('issues', [root('a')])
-    prior.engine.replica.applySnapshot('sessions', [owned('a-session', 'a')])
-    await settle(30)
-    prior.engine.destroy()
-
-    const { engine } = makeEngine({ storage, url: '/workspace?pane=incoming' })
-    engine.start()
-    await settle(40)
-    expect(engine.getSnapshot().pendingRouteTargetId).toBe('incoming')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:a']!)).toEqual(['a-session'])
-    engine.replica.applyChanges('sessions', [owned('incoming', 'b-child')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('a')
-    engine.replica.applyChanges('issues', [child('b-child', 'b'), root('b')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('b')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:b']!)).toEqual(['incoming'])
-    expect(engine.getSnapshot().workspaces['mission:b']?.deck?.focusedIssueId).toBe('b-child')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:a']!)).toEqual(['a-session'])
-    engine.destroy()
-  })
-
-  it('does not assign an unknown incoming tab to a selected worktree', async () => {
-    const storage = memoryStorage()
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, '')
-    prior.engine.ui.set(WT_KEY, '/work')
-    prior.engine.destroy()
-    const { engine } = makeEngine({ storage, url: '/workspace?pane=foreign&worktree=%2Fwork' })
-    engine.start()
-    await settle(40)
-    expect(engine.getSnapshot().pendingRouteTargetId).toBe('foreign')
-    expect(engine.getSnapshot().workspaces['wt:/work']).toBeUndefined()
-    engine.replica.applyChanges('sessions', [owned('foreign', 'other')], [])
-    engine.replica.applyChanges('issues', [root('other')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('other')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:other']!)).toEqual(['foreign'])
-    engine.destroy()
-  })
-
-  it('does not replay a pending URL after a newer same-root entry, tab edit, or deadline', async () => {
-    const storage = memoryStorage()
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'a')
-    prior.engine.replica.applySnapshot('issues', [root('a')])
-    prior.engine.destroy()
-
-    const first = makeEngine({ storage, url: '/workspace?pane=old-link', workspaceNavigationGraceMs: 250 })
-    first.engine.start()
-    await settle(40)
-    expect(first.engine.getSnapshot().pendingRouteTargetId).toBe('old-link')
-    first.engine.getSnapshot().enterMission(asIssueId('a'))
-    expect(first.engine.getSnapshot().pendingRouteTargetId).toBeNull()
-    first.engine.getSnapshot().openSessionTab(asSessionId('choice'), { permanent: true })
-    first.engine.replica.applyChanges('issues', [root('b')], [])
-    first.engine.replica.applyChanges('sessions', [owned('old-link', 'b'), owned('choice', 'a')], [])
-    await settle(30)
-    expect(first.engine.getSnapshot().selectedIssueId).toBe('a')
-    expect(allTabIds(first.engine.getSnapshot().workspaces['mission:a']!)).toEqual(['choice'])
-    first.engine.destroy()
-
-    const tabOnly = makeEngine({ storage, url: '/workspace?pane=old-tab-link', workspaceNavigationGraceMs: 250 })
-    tabOnly.engine.start()
-    await settle(40)
-    expect(tabOnly.engine.getSnapshot().pendingRouteTargetId).toBe('old-tab-link')
-    tabOnly.engine.getSnapshot().openSessionTab(asSessionId('new-choice'), { permanent: true })
-    expect(tabOnly.engine.getSnapshot().pendingRouteTargetId).toBeNull()
-    tabOnly.engine.replica.applyChanges('sessions', [owned('old-tab-link', 'b'), owned('new-choice', 'a')], [])
-    await settle(30)
-    expect(tabOnly.engine.getSnapshot().selectedIssueId).toBe('a')
-    expect(allTabIds(tabOnly.engine.getSnapshot().workspaces['mission:a']!)).toContain('new-choice')
-    expect(tabOnly.engine.getSnapshot().workspaces['mission:b']).toBeUndefined()
-    tabOnly.engine.destroy()
-
-    const second = makeEngine({ storage, url: '/workspace?pane=expired-link', workspaceNavigationGraceMs: 35 })
-    second.engine.start()
-    expect(second.engine.getSnapshot().pendingRouteTargetId).toBe('expired-link')
-    await settle(60)
-    expect(second.engine.getSnapshot().pendingRouteTargetId).toBeNull()
-    second.engine.replica.applyChanges('sessions', [owned('expired-link', 'b')], [])
-    await settle(30)
-    expect(second.engine.getSnapshot().selectedIssueId).toBe('a')
-    expect(second.engine.getSnapshot().workspaces['mission:b']).toBeUndefined()
-    second.engine.destroy()
-  })
-
-  it('restores a marked third-pane preview after cold identity resolution without replaying open', async () => {
-    const storage = memoryStorage()
-    const saved = {
-      key: 'mission:root',
-      panes: {
-        p1: { id: 'p1', tabs: ['one'], activeTabId: 'one' },
-        p2: { id: 'p2', tabs: [], activeTabId: null },
-        p3: { id: 'p3', tabs: ['preview'], activeTabId: 'preview' },
-      },
-      root: { kind: 'split' as const, axis: 'row' as const, sizes: [0.4, 0.6], children: [
-        { kind: 'leaf' as const, paneId: 'p1' },
-        { kind: 'split' as const, axis: 'column' as const, sizes: [0.3, 0.7], children: [
-          { kind: 'leaf' as const, paneId: 'p2' }, { kind: 'leaf' as const, paneId: 'p3' },
-        ] },
-      ] },
-      focusedPaneId: 'p3', previewTabId: 'preview', deck: { focusedIssueId: 'child' },
-    }
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'root')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'mission:root': saved }))
-    prior.engine.destroy()
-    const marker = { podiumWorkspaceMirror: { key: 'mission:root', worktree: null,
-      tab: 'preview', path: '/workspace?pane=preview' } }
-    const { engine } = makeEngine({ storage, url: '/workspace?pane=preview', historyState: marker })
-    engine.start()
-    await settle(40)
-    expect(engine.getSnapshot().pendingRouteTargetId).toBeNull()
-    engine.replica.applySnapshot('issues', [root('root'), child('child', 'root')])
-    engine.replica.applySnapshot('sessions', [owned('one', 'root'), owned('preview', 'child')])
-    await settle(30)
-    expect(engine.getSnapshot().workspaces['mission:root']).toEqual(saved)
-    expect(engine.getSnapshot().workspaceKey()).toBe('mission:root')
-    engine.destroy()
-  })
-
-  it('promotes an active preview when an unmarked same-pane link arrives', async () => {
-    const { engine, rw } = makeEngine()
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('root')])
-    engine.replica.applySnapshot('sessions', [owned('preview', 'root')])
-    await settle(30)
-    engine.getSnapshot().enterMission(asIssueId('root'), { sessionId: asSessionId('preview'), permanent: false })
-    expect(engine.getSnapshot().workspaces['mission:root']?.previewTabId).toBe('preview')
-    const url = rw.url()
-    rw.popTo(url)
-    rw.win.history.replaceState(null, '', url)
-    rw.popTo(url)
-    expect(engine.getSnapshot().workspaces['mission:root']?.previewTabId).toBeNull()
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:root']!)).toEqual(['preview'])
-    engine.destroy()
-  })
-
-  it('applies an unmarked link to the active permanent session and its owner inspector', async () => {
-    const storage = memoryStorage()
-    const saved = {
-      ...nestedSaved('mission:root', 'coord', 'preview'),
-      previewTabId: 'preview',
-      deck: { focusedIssueId: 'child' },
-    }
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'root')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'mission:root': saved }))
-    prior.engine.destroy()
-    const { engine, rw } = makeEngine({ storage, url: '/workspace' })
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('root'), child('child', 'root')])
-    engine.replica.applySnapshot('sessions', [owned('coord', 'root'), owned('preview', 'child')])
-    await settle(30)
-    expect(engine.getSnapshot().workspaces['mission:root']?.deck?.focusedIssueId).toBe('child')
-    const url = rw.url()
-    rw.popTo(url)
-    rw.win.history.replaceState(null, '', url)
-    rw.popTo(url)
-    expect(engine.getSnapshot().workspaces['mission:root']).toEqual({
-      ...openTab(saved, 'coord', { permanent: true }),
-      deck: { focusedIssueId: 'root' },
-    })
-    engine.destroy()
-  })
-
-  it('limits the legacy pane-A reload exception to reload of the saved mission', () => {
-    const storage = memoryStorage()
-    const saved = {
-      key: 'mission:root',
-      panes: {
-        p1: { id: 'p1', tabs: ['one'], activeTabId: 'one' },
-        p2: { id: 'p2', tabs: [], activeTabId: null },
-        p3: { id: 'p3', tabs: ['preview'], activeTabId: 'preview' },
-      },
-      root: { kind: 'split' as const, axis: 'row' as const, sizes: [0.4, 0.6], children: [
-        { kind: 'leaf' as const, paneId: 'p1' },
-        { kind: 'split' as const, axis: 'column' as const, sizes: [0.3, 0.7], children: [
-          { kind: 'leaf' as const, paneId: 'p2' }, { kind: 'leaf' as const, paneId: 'p3' },
-        ] },
-      ] },
-      focusedPaneId: 'p3', previewTabId: 'preview', deck: { focusedIssueId: 'child' },
-    }
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'root')
-    prior.engine.ui.set(PANE_A_KEY, 'one')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'mission:root': saved }))
-    prior.engine.replica.applySnapshot('issues', [root('root'), child('child', 'root')])
-    prior.engine.replica.applySnapshot('sessions', [owned('one', 'root'), owned('preview', 'child')])
-    prior.engine.destroy()
-
-    const reload = makeEngine({ storage, url: '/workspace?pane=one', navigationType: 'reload' })
-    expect(reload.engine.getSnapshot().workspaces['mission:root']).toEqual(saved)
-    reload.engine.destroy()
-    const link = makeEngine({ storage, url: '/workspace?pane=one' })
-    expect(link.engine.getSnapshot().workspaces['mission:root']?.focusedPaneId).toBe('p1')
-    expect(link.engine.getSnapshot().workspaces['mission:root']?.previewTabId).toBeNull()
-    link.engine.destroy()
-  })
-
-  it('persists an explicit incoming session URL before the next reload', () => {
-    const storage = memoryStorage()
-    const base = nestedSaved('mission:root', 'lead', 'preview')
-    const saved = {
-      ...base,
-      panes: {
-        ...base.panes,
-        p2: { id: 'p2', tabs: ['second', 'file:readme'], activeTabId: 'file:readme' },
-      },
-      previewTabId: 'preview',
-      deck: { focusedIssueId: 'inspect' },
-    }
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'root')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'mission:root': saved }))
-    prior.engine.replica.applySnapshot('issues', [root('root'), child('inspect', 'root'), child('incoming', 'root')])
-    prior.engine.replica.applySnapshot('sessions', [
-      owned('lead', 'root'), owned('second', 'root'),
-      owned('preview', 'inspect'), owned('target', 'incoming'),
-    ])
-    prior.engine.destroy()
-
-    const link = makeEngine({ storage, url: '/workspace?pane=target' })
-    const expected = {
-      ...openTab(saved, 'target', { permanent: true }),
-      deck: { focusedIssueId: 'incoming' },
-    }
-    expect(link.engine.getSnapshot().workspaces['mission:root']).toEqual(expected)
-    expect(deserializeWorkspaces(link.engine.ui.get(WORKSPACES_KEY))['mission:root']).toEqual(expected)
-    link.engine.destroy()
-
-    const next = makeEngine({ storage, url: '/workspace' })
-    expect(next.engine.getSnapshot().workspaces['mission:root']).toEqual(expected)
-    next.engine.destroy()
-  })
-
-  it('preserves a cold legacy reload layout after session and ancestor rows arrive', async () => {
-    const storage = memoryStorage()
-    const saved = openTab(openTab(emptyWorkspace('mission:root'), 'one', { permanent: true }), 'preview', { permanent: false })
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'root')
-    prior.engine.ui.set(PANE_A_KEY, 'one')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'mission:root': saved }))
-    prior.engine.destroy()
-    const { engine } = makeEngine({ storage, url: '/workspace?pane=one', navigationType: 'reload' })
-    engine.start()
-    await settle(40)
-    expect(engine.getSnapshot().pendingRouteTargetId).toBe('one')
-    engine.replica.applyChanges('sessions', [owned('one', 'root')], [])
-    engine.replica.applyChanges('issues', [root('root')], [])
-    await settle(30)
-    expect(engine.getSnapshot().workspaces['mission:root']).toEqual(saved)
-    expect(engine.getSnapshot().pendingRouteTargetId).toBeNull()
-    engine.destroy()
-  })
-
-  it('follows only the focused third-pane conversation after its new ancestors arrive', async () => {
-    const storage = memoryStorage()
-    const saved = {
-      key: 'mission:old',
-      panes: {
-        p1: { id: 'p1', tabs: ['background'], activeTabId: 'background' },
-        p2: { id: 'p2', tabs: [], activeTabId: null },
-        p3: { id: 'p3', tabs: ['focused'], activeTabId: 'focused' },
-      },
-      root: { kind: 'split' as const, axis: 'row' as const, sizes: [0.35, 0.65], children: [
-        { kind: 'leaf' as const, paneId: 'p1' },
-        { kind: 'split' as const, axis: 'column' as const, sizes: [0.45, 0.55], children: [
-          { kind: 'leaf' as const, paneId: 'p2' }, { kind: 'leaf' as const, paneId: 'p3' },
-        ] },
-      ] },
-      focusedPaneId: 'p3', previewTabId: null,
-    }
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'old')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'mission:old': saved }))
-    prior.engine.replica.applySnapshot('issues', [root('old')])
-    prior.engine.replica.applySnapshot('sessions', [owned('background', 'old'), owned('focused', 'old')])
-    await settle(30)
-    prior.engine.destroy()
-    const { engine } = makeEngine({ storage })
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('old')])
-    engine.replica.applySnapshot('sessions', [owned('background', 'old'), owned('focused', 'old')])
-    await settle(30)
-    engine.replica.applyChanges('sessions', [owned('focused', 'new-child')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('old')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:old']!)).toContain('focused')
-    engine.replica.applyChanges('issues', [child('new-child', 'new-root')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('old')
-    engine.replica.applyChanges('issues', [root('new-root')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('new-child')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:new-root']!)).toEqual(['focused'])
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:old']!)).toEqual(['background'])
-    engine.destroy()
-  })
-
-  it('adopts the destination child legacy layout when a focused conversation rehomes', async () => {
-    const storage = memoryStorage()
-    const legacy = nestedSaved('issue:new-child', 'saved-one', 'saved-three')
-    const prior = makeEngine({ storage })
-    prior.engine.ui.set(ISSUE_SEL_KEY, 'old')
-    prior.engine.ui.set(WORKSPACES_KEY, serializeWorkspaces({ 'issue:new-child': legacy }))
-    prior.engine.destroy()
-    const { engine } = makeEngine({ storage })
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('old'), root('new-root'), child('new-child', 'new-root')])
-    engine.replica.applySnapshot('sessions', [owned('focused', 'old')])
-    await settle(30)
-    engine.getSnapshot().enterMission(asIssueId('old'), { sessionId: asSessionId('focused') })
-    engine.replica.applyChanges('sessions', [owned('focused', 'new-child')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('new-child')
-    expect(engine.getSnapshot().workspaces['mission:new-root']).toEqual(
-      openTab({ ...legacy, key: 'mission:new-root' }, 'focused', { permanent: true }),
-    )
-    engine.destroy()
-  })
-
-  it('expires a focused rehome before late ancestry arrives without pruning its readable tab early', async () => {
-    const { engine } = makeEngine({ workspaceNavigationGraceMs: 35 })
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('old')])
-    engine.replica.applySnapshot('sessions', [owned('focused', 'old')])
-    await settle(30)
-    engine.getSnapshot().enterMission(asIssueId('old'), { sessionId: asSessionId('focused') })
-
-    engine.replica.applyChanges('sessions', [owned('focused', 'new-child')], [])
-    await settle(30)
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:old']!)).toContain('focused')
-    await settle(60)
-    engine.replica.applyChanges('issues', [child('new-child', 'new-root'), root('new-root')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('old')
-    expect(engine.getSnapshot().workspaces['mission:new-root']).toBeUndefined()
-    engine.destroy()
-  })
-
-  it('reconciles a background rehome on issue-only arrival without navigating', async () => {
-    const { engine } = makeEngine()
-    engine.start()
-    await settle(40)
-    engine.replica.applySnapshot('issues', [root('old')])
-    engine.replica.applySnapshot('sessions', [owned('focused', 'old'), owned('background', 'old')])
-    await settle(30)
-    engine.getSnapshot().enterMission(asIssueId('old'), { sessionId: asSessionId('focused') })
-    engine.getSnapshot().openSessionTab(asSessionId('background'), { permanent: true })
-    engine.getSnapshot().activateWorkspaceTab('focused')
-    engine.replica.applyChanges('sessions', [owned('background', 'new-child')], [])
-    await settle(30)
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:old']!)).toContain('background')
-    engine.replica.applyChanges('issues', [child('new-child', 'new-root')], [])
-    engine.replica.applyChanges('issues', [root('new-root')], [])
-    await settle(30)
-    expect(engine.getSnapshot().selectedIssueId).toBe('old')
-    expect(allTabIds(engine.getSnapshot().workspaces['mission:old']!)).toEqual(['focused'])
-    expect(engine.getSnapshot().workspaces['mission:new-root']).toBeUndefined()
-    engine.destroy()
   })
 })
 

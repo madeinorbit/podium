@@ -2,14 +2,15 @@ import type { IssueId, SessionId, SessionMeta, TranscriptItem } from '@podium/mo
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
 import {
-  deckDependencies,
-  deckSessionFacts,
+  blockedNote,
   issueClosed,
   missionIssueIds,
   missionSessions,
+  presenceNote,
+  sessionAsksOnIssue,
   sessionAtWork,
 } from './mission'
-import { defaultChatCapable } from './session-status'
+import { defaultChatCapable, motionPhase } from './session-status'
 import type { OperatorPromptOptions } from './slices/chat'
 import { isOperatorPrompt } from './slices/chat'
 import type { IssueNavigationModel } from './slices/issues'
@@ -31,36 +32,6 @@ export type HandoffNowEntry =
   | { kind: 'blocked'; issueId: IssueId; sessionId?: SessionId; text: string }
   | { kind: 'stalled'; issueId: IssueId; text: string }
   | { kind: 'needs-you'; issueId: IssueId; sessionId?: SessionId; text: string }
-  | { kind: 'error'; issueId: IssueId; sessionId: SessionId; text: string }
-
-export interface HandoffCurrentFacts {
-  running: SessionId[]
-  errors: SessionId[]
-  requests: SessionId[]
-  taskRequest: boolean
-  openDependencies: string[]
-  unavailableDependencies: string[]
-}
-
-/** Current Timeline facts, independent of historical event timing. */
-export function handoffCurrentFacts(
-  issue: IssueNavigationModel,
-  crew: readonly SessionMeta[],
-  byId: ReadonlyMap<string, IssueNavigationModel>,
-  members: ReadonlySet<string>,
-): HandoffCurrentFacts {
-  const facts = crew.map((session) => ({ session, facts: deckSessionFacts(issue, session) }))
-  const deps = deckDependencies(issue, byId, members)
-  const closed = issueClosed(issue)
-  return {
-    running: facts.filter(({ facts }) => facts.running).map(({ session }) => session.sessionId),
-    errors: facts.filter(({ facts }) => facts.error !== null).map(({ session }) => session.sessionId),
-    requests: facts.filter(({ facts }) => facts.request).map(({ session }) => session.sessionId),
-    taskRequest: !closed && issue.needsHuman === true && !facts.some(({ facts }) => facts.request),
-    openDependencies: closed ? [] : deps.filter((dep) => dep.state === 'open').map((dep) => dep.id),
-    unavailableDependencies: closed ? [] : deps.filter((dep) => dep.state === 'unavailable').map((dep) => dep.id),
-  }
-}
 
 export interface HandoffNextEntry {
   issueId: IssueId
@@ -178,7 +149,6 @@ const NOW_RANK: Record<HandoffNowEntry['kind'], number> = {
   blocked: 2,
   stalled: 2,
   'needs-you': 3,
-  error: 1,
 }
 
 /** Current mission exceptions, one truthful row per issue. */
@@ -193,41 +163,43 @@ export function deriveHandoffNow(
   const entries: Array<{ entry: HandoffNowEntry; seq: number }> = []
 
   for (const issue of issues) {
-    if (!memberIds.has(issue.id) || (issue.stage === 'proposed' && !issueClosed(issue)) || issue.archived || issue.deletedAt)
+    if (!memberIds.has(issue.id) || issue.stage === 'proposed' || issue.archived || issue.deletedAt)
       continue
     const crew = sessionsOnIssue(issue, missionCrew)
     const present = crew.filter(sessionPresentOnTask)
-    const current = handoffCurrentFacts(issue, crew, byId, memberIds)
-    const asking = crew.find((session) => current.requests.includes(session.sessionId))
-    const explicitNeed = current.taskRequest || asking !== undefined
-    const working = present.find((session) => current.running.includes(session.sessionId))
+    const asking = present.find(
+      (session) => sessionAsksOnIssue(issue, session) || motionPhase(session) === 'waiting',
+    )
+    const askedBy = issue.humanQuestionAskedBy
+      ? crew.find((session) => session.sessionId === issue.humanQuestionAskedBy)
+      : undefined
+    const explicitNeed = issue.needsHuman === true || asking !== undefined
     let entry: HandoffNowEntry | null = null
 
-    if (working) {
-      entry = {
-        kind: 'working',
-        issueId: issue.id,
-        sessionId: working.sessionId,
-        text: 'Agent computing now.',
-      }
-    } else if (explicitNeed && !issueClosed(issue)) {
+    if (explicitNeed && !issueClosed(issue)) {
+      const session = asking ?? askedBy
       entry = {
         kind: 'needs-you',
         issueId: issue.id,
-        ...(asking ? { sessionId: asking.sessionId } : {}),
+        ...(session ? { sessionId: session.sessionId } : {}),
         text:
-          asking?.agentState?.need?.summary?.trim() ||
+          session?.agentState?.need?.summary?.trim() ||
           issue.humanQuestion?.trim() ||
           'Waiting on you.',
       }
     } else {
-      if (current.errors.length > 0) {
-        const session = crew.find((candidate) => candidate.sessionId === current.errors[0]) as SessionMeta
+      const working = present.find(sessionAtWork)
+      if (working) {
         entry = {
-          kind: 'error', issueId: issue.id, sessionId: session.sessionId,
-          text: deckSessionFacts(issue, session).error ?? 'Agent error',
+          kind: 'working',
+          issueId: issue.id,
+          sessionId: working.sessionId,
+          text:
+            blockedNote(issue, byId) ??
+            presenceNote(issue, crew, byId, missionCrew)?.text ??
+            'Agent computing now.',
         }
-      } else if (!issueClosed(issue) && issue.stage === 'review' && current.openDependencies.length === 0 && current.unavailableDependencies.length === 0) {
+      } else if (issue.stage === 'review' && !issue.blocked) {
         const session = newestSession(crew)
         entry = {
           kind: 'review',
@@ -235,23 +207,27 @@ export function deriveHandoffNow(
           ...(session ? { sessionId: session.sessionId } : {}),
           text: 'Ready for review.',
         }
-      } else if (current.openDependencies.length > 0 || current.unavailableDependencies.length > 0) {
+      } else if (issue.blocked) {
         const session = newestSession(present)
-        const unresolved = deckDependencies(issue, byId, memberIds).filter((dep) => dep.state !== 'closed')
         entry = {
           kind: 'blocked',
           issueId: issue.id,
           ...(session ? { sessionId: session.sessionId } : {}),
-          text: `${current.openDependencies.length > 0 ? 'Waiting on' : 'Dependency unavailable:'} ${unresolved.map((dep) => dep.target ? issueDisplayRef(dep.target) : dep.id).join(', ')}.`,
+          text:
+            blockedNote(issue, byId) ??
+            presenceNote(issue, crew, byId, missionCrew)?.text ??
+            'Waiting on dependency.',
         }
       } else if (
-        !issueClosed(issue) && (issue.stage === 'planning' || issue.stage === 'in_progress') &&
+        (issue.stage === 'planning' || issue.stage === 'in_progress') &&
         present.length === 0
       ) {
         entry = {
           kind: 'stalled',
           issueId: issue.id,
-          text: 'Started with no present session.',
+          text:
+            presenceNote(issue, crew, byId, missionCrew)?.text ??
+            'Started with no present session.',
         }
       }
     }

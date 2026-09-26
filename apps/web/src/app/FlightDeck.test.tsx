@@ -1,15 +1,11 @@
 // @vitest-environment happy-dom
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
-import { emptyWorkspace, type WorkspaceLayout } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -59,22 +55,11 @@ const harness = vi.hoisted(() => ({
   setPanelMode: vi.fn(),
   preferPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
-  enterMission: vi.fn(),
   setIssueTucked: vi.fn(async () => undefined),
   updateIssue: vi.fn(async (_id: string, _patch: unknown) => undefined),
   closeIssue: vi.fn(async (_id: string, _reason?: string) => undefined),
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
-  storeListeners: new Set<() => void>(),
-  storeVersion: 0,
-  workspaces: {} as Record<string, WorkspaceLayout>,
-  updateWorkspaceDeck: vi.fn((deck: NonNullable<WorkspaceLayout['deck']>) => {
-    const key = 'mission:root'
-    const current = harness.workspaces[key] ?? emptyWorkspace(key)
-    harness.workspaces = { ...harness.workspaces, [key]: { ...current, deck: { ...current.deck, ...deck } } }
-    harness.storeVersion += 1
-    for (const listener of harness.storeListeners) listener()
-  }),
   setPlacement: vi.fn(async (_input: unknown) => undefined),
   startIssue: vi.fn(async (_input: unknown) => undefined),
   addSession: vi.fn(async (_input: unknown) => undefined),
@@ -127,12 +112,8 @@ const uiState = {
 }
 
 vi.mock('./store', () => ({
-  useStoreSelector: (select: (store: Record<string, unknown>) => unknown) => {
-    useSyncExternalStore((listener) => {
-      harness.storeListeners.add(listener)
-      return () => void harness.storeListeners.delete(listener)
-    }, () => harness.storeVersion)
-    return select({
+  useStoreSelector: (select: (store: Record<string, unknown>) => unknown) =>
+    select({
       sessions: harness.sessions,
       repos: harness.repos,
       selectedIssueId: harness.selectedIssueId,
@@ -142,12 +123,8 @@ vi.mock('./store', () => ({
       drafts: {},
       coarseNow: harness.coarseNow,
       uiState,
-      workspaces: harness.workspaces,
-      workspaceKey: () => 'mission:root',
-      updateWorkspaceDeck: harness.updateWorkspaceDeck,
       setSelectedWorktree: vi.fn(),
       setSelectedIssueId: harness.setSelectedIssueId,
-      enterMission: harness.enterMission,
       openSessionTab: harness.openSessionTab,
       openSessionAtTranscript: harness.openSessionAtTranscript,
       issueVisitBaseline: harness.issueVisitBaseline,
@@ -174,8 +151,7 @@ vi.mock('./store', () => ({
       machines: harness.machines,
       replica: harness.replica,
       trpc: harness.trpc,
-    })
-  },
+    }),
   useReplicaIssues: () => harness.issues,
   useSessionDraft: () => '',
 }))
@@ -267,10 +243,6 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   harness.ui.clear()
   harness.listeners.clear()
-  harness.storeListeners.clear()
-  harness.storeVersion = 0
-  harness.workspaces = {}
-  harness.updateWorkspaceDeck.mockClear()
   harness.repos = []
   harness.machines = []
   harness.selectedIssueId = 'root'
@@ -285,7 +257,6 @@ beforeEach(() => {
   harness.setPanelMode.mockClear()
   harness.preferPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
-  harness.enterMission.mockClear()
   harness.setIssueTucked.mockClear()
   harness.updateIssue.mockClear()
   harness.closeIssue.mockClear()
@@ -357,8 +328,7 @@ afterEach(() => {
 })
 
 const chevron = (title: string): HTMLElement =>
-  screen.queryByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) }) ??
-  screen.getByRole('button', { name: title === 'Task t3' ? new RegExp(`^(Expand|Collapse) tasks under ${title}$`) : new RegExp(`^(Show|Hide) agents on ${title}$`) })
+  screen.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) })
 
 function briefRect(top: number, height: number, width = 320): DOMRect {
   return {
@@ -567,7 +537,7 @@ describe('the cold deck (POD-1112)', () => {
     expect(screen.getByTestId('flight-empty')).toBeTruthy()
     // Not the mission chrome the vessel used to get: no header, no view bar.
     expect(screen.queryByText('Draft')).toBeNull()
-    expect(screen.queryByText('Overview')).toBeNull()
+    expect(screen.queryByText('Full spine')).toBeNull()
   })
 
   it('still shows the mission once the vessel has its session', () => {
@@ -576,7 +546,7 @@ describe('the cold deck (POD-1112)', () => {
     harness.selectedIssueId = 'v1'
     deck()
     expect(screen.queryByTestId('flight-empty')).toBeNull()
-    expect(screen.getByText('Overview')).toBeTruthy()
+    expect(screen.getByText('Full spine')).toBeTruthy()
   })
 
   it('names an unnamed mission from the shared draft fallback, not the harness title', () => {
@@ -623,7 +593,7 @@ describe('the developer Flight Deck views', () => {
     expect(harness.transcriptRead).not.toHaveBeenCalled()
     expect(harness.issueEvents).not.toHaveBeenCalled()
     expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
-    expect(screen.getByRole('button', { name: 'Overview' }).getAttribute('aria-pressed')).toBe(
+    expect(screen.getByRole('button', { name: 'Full spine' }).getAttribute('aria-pressed')).toBe(
       'true',
     )
   })
@@ -632,20 +602,19 @@ describe('the developer Flight Deck views', () => {
     developerFeature.enabled = true
     deck()
 
-    const views = ['Overview', 'Working', 'Needs you', 'Dependencies', 'Waterfall', 'Timeline'].map((name) =>
+    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall', 'Timeline'].map((name) =>
       screen.getByRole('button', { name }),
     )
     expect(views.map((view) => view.textContent)).toEqual([
-      'Overview',
+      'Full spine',
       'Working',
       'Needs you',
-      'Dependencies',
       'Waterfall',
       'Timeline',
     ])
-    fireEvent.click(views[5] as HTMLElement)
+    fireEvent.click(views[4] as HTMLElement)
 
-    expect(harness.workspaces['mission:root']?.deck?.view).toBe('handoff')
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
     expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe(
       'true',
@@ -724,6 +693,7 @@ describe('the developer Flight Deck views', () => {
       'Last answer',
       'What is happening',
       'What happens next',
+      'Proposed',
     ])
     expect(screen.getByTestId('flight-deck-handoff').textContent).toContain(
       'Ready for the operator.',
@@ -979,15 +949,6 @@ describe('flight deck fold state (POD-710 §4.2)', () => {
     expect(writeFolds(new Map())).toBeNull()
   })
 
-  it('keeps branch, roster and native disclosure choices independent', () => {
-    const choices = new Map<string, 'open' | 'closed'>([
-      ['branch:t3', 'closed'],
-      ['roster:t3', 'open'],
-      ['native:t3:s4', 'closed'],
-    ])
-    expect(readFolds(writeFolds(choices))).toEqual(choices)
-  })
-
   it('defaults a lone-session task closed and everything else with a payload open', () => {
     const lone = { descendantIds: [], sessions: [{}] as SessionMeta[] }
     const pair = { descendantIds: [], sessions: [{}, {}] as SessionMeta[] }
@@ -1018,7 +979,7 @@ describe('flight deck fold state (POD-710 §4.2)', () => {
       fireEvent.click(chevron('Task t1'))
     })
     expect(chevron('Task t1').getAttribute('aria-expanded')).toBe('true')
-    expect(readFolds(harness.ui.get('podium.flightDeck.folds') ?? null).get('roster:t1')).toBe('open')
+    expect(readFolds(harness.ui.get('podium.flightDeck.folds') ?? null).get('t1')).toBe('open')
   })
 })
 
@@ -1188,102 +1149,6 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.preferPanelMode).toHaveBeenCalledWith('s2', 'native')
     expect(harness.setPanelMode).not.toHaveBeenCalled()
     expect(harness.onDisplayChange).not.toHaveBeenCalled()
-  })
-
-  it('hides own bars with roster folds and reports branch exceptions separately', () => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('parent', { parentId: 'root', memberSessionIds: ['own'] }),
-      issue('child', { parentId: 'parent', memberSessionIds: ['run'] }),
-      issue('leaf', { parentId: 'root', memberSessionIds: ['leaf'] }),
-    ]
-    harness.sessions = [
-      session('own', { issueId: 'parent', agentState: WORKING }),
-      session('run', { issueId: 'child', agentState: WORKING }),
-      session('leaf', { issueId: 'leaf', agentState: WORKING }),
-    ]
-    deck()
-    const parent = () => document.querySelector('[data-flight-issue="parent"]') as HTMLElement
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Task parent' }))
-    expect(document.querySelector('[data-flight-issue="child"]')).toBeNull()
-    expect(parent().querySelector('[data-testid="waterfall-hidden-facts"]')?.textContent).toContain('1 hidden running')
-    expect(parent().querySelector('[data-flight-session="own"]')).not.toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Task parent' }))
-    fireEvent.click(parent().querySelector('.waterfall-roster-toggle') as HTMLElement)
-    expect(parent().querySelector('[data-flight-session="own"]')).toBeNull()
-    expect(parent().querySelector('[data-testid="waterfall-hidden-facts"]')?.textContent).toContain('1 hidden running')
-    expect(document.querySelector('[data-flight-session="run"]')).not.toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Task leaf' }))
-    expect(document.querySelector('[data-flight-session="leaf"]')).toBeNull()
-  })
-
-  it('keeps a sessionless task request legible in the narrow Waterfall', () => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('ask', { parentId: 'root', title: 'Approval', needsHuman: true, humanQuestion: 'Approve the release plan?' }),
-    ]
-    harness.sessions = []
-    waterfallDeck()
-    const row = document.querySelector('[data-flight-issue="ask"]') as HTMLElement
-    expect(row.querySelector('.waterfall-future-label strong')?.textContent).toBe('Task request')
-    expect(row.querySelector('.waterfall-dependency-row')?.textContent).toContain('Task request · Approve the release plan?')
-  })
-
-  it('caps deep Waterfall indentation and names the displayed parent', () => {
-    harness.issues = [issue('root', { title: 'Mission' })]
-    for (let depth = 1; depth <= 10; depth++) {
-      harness.issues.push(issue(`depth${depth}`, { parentId: depth === 1 ? 'root' : `depth${depth - 1}`, title: `Nested task ${depth}` }))
-    }
-    harness.sessions = []
-    waterfallDeck()
-    const row = document.querySelector('[data-flight-issue="depth10"]') as HTMLElement
-    expect(row.getAttribute('data-depth')).toBe('10')
-    expect(row.style.getPropertyValue('--waterfall-depth')).toBe('2')
-    expect(row.querySelector('.waterfall-issue-context')?.textContent).toContain('Nested task 9')
-    expect(row.querySelector('.waterfall-issue-title')?.textContent).toBe('Nested task 10')
-    const css = readFileSync(resolve(import.meta.dirname, '../styles.css'), 'utf8')
-    expect(css).toMatch(/\.waterfall-issue-context\s*\{[^}]*overflow-wrap:\s*anywhere/s)
-    expect(css).toMatch(/\.waterfall-issue-title\s*\{[^}]*overflow-wrap:\s*anywhere/s)
-  })
-
-  it('counts reported native workers honestly and discloses a full ID', () => {
-    harness.sessions = [
-      session('s1', { issueId: 't1' }),
-      session('s2', { issueId: 't2', agentState: { phase: 'idle', nativeSubagentCount: 10, nativeSubagents: [{ id: 'worker-full-identity', type: 'Explore' }, { id: 'another-worker', type: 'Plan' }] } }),
-      session('s3', { issueId: 't2' }),
-      session('s4', { issueId: 't3' }),
-    ]
-    const view = deck()
-    const toggle = screen.getByRole('button', { name: 'Show 10 native workers for s2' })
-    fireEvent.click(toggle)
-    const list = screen.getByTestId('flight-native-agents')
-    expect(list.textContent).toContain('8 identities unavailable')
-    fireEvent.click(screen.getByRole('button', { name: 'Show full native worker ID worker-full-identity' }))
-    expect(list.textContent).toContain('worker-full-identity')
-    expect(sessionRow('s2').getAttribute('aria-label')).toContain('10 reported native workers')
-    expect(list.textContent).toContain('Individual activity unavailable')
-    harness.sessions = harness.sessions.map((candidate) => {
-      const raw = candidate as SessionMeta
-      return raw.sessionId === 's2' ? { ...raw, status: 'hibernated' } : raw
-    })
-    view.rerender(<DeckHarness />)
-    expect(sessionRow('s2').getAttribute('aria-label')).toContain('10 last reported native workers')
-  })
-
-  it('shows unknown activity, parked errors and requests without a hover', () => {
-    harness.issues = [issue('root', { title: 'Mission' }), issue('mixed', { parentId: 'root', memberSessionIds: ['unknown', 'parked', 'ask'] })]
-    harness.sessions = [
-      session('unknown', { issueId: 'mixed' }),
-      session('parked', { issueId: 'mixed', status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error' } } }),
-      session('ask', { issueId: 'mixed', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
-    ]
-    deck()
-    const row = document.querySelector('[data-flight-issue="mixed"]') as HTMLElement
-    expect(row.querySelector('[data-flight-session-state="unknown"]')?.textContent).toContain('Activity unavailable')
-    expect(row.querySelector('[data-flight-session-state="parked"]')?.textContent).toContain('Parked')
-    expect(row.querySelector('[data-flight-session-state="parked"] .text-destructive')?.textContent).toContain('Network error')
-    expect(row.querySelector('[data-flight-session-state="ask"] .text-attention')?.textContent).toContain('Needs you')
-    expect(row.textContent).not.toContain('standing by')
   })
 
   it('opens the shared session lifecycle menu from a waterfall bar', () => {
@@ -1526,7 +1391,7 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(screen.queryByText('Nothing here in this view.')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Open POD-815' }))
-    expect(harness.enterMission).toHaveBeenCalledWith('next')
+    expect(harness.setSelectedIssueId).toHaveBeenCalledWith('next')
 
     fireEvent.click(screen.getByRole('button', { name: /Tuck away/ }))
     expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true)
@@ -1649,7 +1514,7 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(screen.getByTestId('flight-departures').contains(card)).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open POD-963' }))
-    expect(harness.enterMission).toHaveBeenCalledWith('tip')
+    expect(harness.setSelectedIssueId).toHaveBeenCalledWith('tip')
   })
 
   /**
@@ -1825,23 +1690,11 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     // Out of the tree means out of the tree: no depth, and no rail or elbow
     // drawn into the section.
     expect(row?.getAttribute('data-depth')).toBeNull()
-    expect(screen.getByTestId('flight-deck-rows').querySelector('[data-flight-issue="p1"]')).toBeNull()
+    expect(screen.getByTestId('flight-deck-rows').querySelector('[data-flight-issue="p1"]')).toBe(
+      row,
+    )
     const tree = document.querySelector('[data-flight-issue="t1"]')
     expect(tree?.getAttribute('data-depth')).toBe('1')
-  })
-
-  it('keeps exactly one final Proposals section across every view', () => {
-    developerFeature.enabled = true
-    deck()
-    for (const name of ['Overview', 'Working', 'Needs you', 'Dependencies', 'Waterfall', 'Timeline']) {
-      fireEvent.click(screen.getByRole('button', { name }))
-      const regions = screen.getAllByTestId('flight-proposed')
-      expect(regions).toHaveLength(1)
-      expect(regions[0]?.querySelectorAll('[data-flight-issue="p1"]')).toHaveLength(1)
-      const content = screen.queryByTestId('flight-deck-rows') ?? screen.queryByTestId('flight-dependencies') ?? screen.queryByTestId('flight-deck-waterfall') ?? screen.queryByTestId('flight-deck-handoff')
-      if (!content || !regions[0]) throw new Error(`missing ${name} content or proposal region`)
-      expect(content.compareDocumentPosition(regions[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    }
   })
 
   it('keeps one fixed scrollport around sticky mission chrome and growing rows', () => {
@@ -2123,7 +1976,9 @@ describe('flight deck spine (POD-758)', () => {
     }
   })
 
-  it('gives the designated mission lead a stable coordinator panel and opening action', () => {
+  // The mission's lead owns the spine's rail and is the one agent row with a
+  // fill; the `coord` badge it used to wear is retired.
+  it('names the mission lead with the rail and the word, not a badge', () => {
     harness.issues = harness.issues.map((raw) => {
       const candidate = raw as Issue
       return candidate.id === 'root'
@@ -2132,10 +1987,11 @@ describe('flight deck spine (POD-758)', () => {
     })
     harness.sessions = [...harness.sessions, session('lead', { issueId: 'root', name: 'Lead' })]
     deck()
-    const panel = screen.getByTestId('flight-coordinator')
-    expect(panel.textContent).toContain('Lead')
-    fireEvent.click(screen.getByRole('button', { name: 'Open coordinator' }))
-    expect(harness.openSessionTab).toHaveBeenCalledWith('lead', { permanent: true })
+    const row = document.querySelector('[data-flight-session="lead"]')
+    expect(row?.className).toContain('deck-lead-fill')
+    expect(row?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe('coordinator')
+    // The rail its branch descends on carries the mission tone.
+    expect(document.querySelector('.deck-rail-mission')).not.toBeNull()
   })
 })
 
@@ -2289,7 +2145,7 @@ describe('flight deck spine geometry (POD-1226)', () => {
     }
   })
 
-  it('keeps a requesting coordinator readable in the persistent panel', () => {
+  it('keeps the full agent reading on the row tooltip', () => {
     harness.issues = harness.issues.map((raw) => {
       const candidate = raw as Issue
       return candidate.id === 'root'
@@ -2306,9 +2162,17 @@ describe('flight deck spine geometry (POD-1226)', () => {
       }),
     ]
     deck()
-    const panel = screen.getByTestId('flight-coordinator')
-    expect(panel.textContent).toContain('POD-1-A')
-    expect(panel.textContent).toContain('Needs you')
+    const button = document
+      .querySelector('[data-flight-session="lead"]')
+      ?.querySelector('.deck-agent')
+    // The tooltip mirrors the complete visible reading and remains useful when
+    // a genuinely exceptional value has to wrap in the narrow composition.
+    expect(button?.getAttribute('title')).toContain('POD-1-A')
+    expect(button?.getAttribute('title')).toContain('Needs you')
+    expect(button?.getAttribute('title')).toMatch(/ago|just now/)
+    expect(button?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe(
+      'coordinator',
+    )
   })
 })
 
@@ -2475,31 +2339,6 @@ describe('flight deck without a mission', () => {
     expect(screen.queryByText('POD-DRAFT-2')).toBeNull()
   })
 
-  it('keeps retired and current loose sessions out of the removed fallback', () => {
-    harness.sessions = [
-      session('current', { issueId: null }),
-      session('stale-parked', {
-        issueId: null,
-        status: 'hibernated',
-        stoppedAt: '2025-12-28T00:00:00.000Z',
-        readAt: '2025-12-28T01:00:00.000Z',
-        unread: false,
-      }),
-      session('unread-exited', {
-        issueId: null,
-        status: 'exited',
-        stoppedAt: '2026-01-01T00:05:00.000Z',
-        readAt: null,
-        unread: true,
-      }),
-    ]
-    deck()
-    expect(document.querySelector('[data-flight-session="current"]')).toBeNull()
-    expect(document.querySelector('[data-flight-session="stale-parked"]')).toBeNull()
-    expect(document.querySelector('[data-flight-session="unread-exited"]')).toBeNull()
-    expect(screen.getByTestId('flight-empty')).toBeTruthy()
-  })
-
   // The composer's spawn paints the vessel and the session together, so the
   // session knows its task before the selection does. That gap is a load.
   it('ghosts, wordlessly, while a spawned session waits for its selection', () => {
@@ -2564,7 +2403,7 @@ describe('flight deck view filters (POD-1245)', () => {
         stage: 'done',
         memberSessionIds: ['busy', 'busy2'],
       }),
-      issue('leaf', { parentId: 'mid', title: 'Wants a decision', stage: 'review', needsHuman: true }),
+      issue('leaf', { parentId: 'mid', title: 'Wants a decision', stage: 'review' }),
     ]
     harness.sessions = [session('busy', { issueId: 'mid' }), session('busy2', { issueId: 'mid' })]
   })
@@ -2732,303 +2571,5 @@ describe('flight deck view filters (POD-1245)', () => {
       // The old line claimed an unstaffed mission, about one with a live agent.
       expect(screen.queryByText('No sessions or sub-tasks are attached.')).toBeNull()
     })
-  })
-})
-
-describe('flight deck factory facts', () => {
-  it('enters the root through workspace restoration when its title is opened', () => {
-    deck()
-    const titleButton = screen.getByRole('heading', { name: 'Mission' }).closest('button')
-    if (!titleButton) throw new Error('mission title is not an entry control')
-    fireEvent.click(titleButton)
-    expect(harness.enterMission).toHaveBeenCalledWith('root')
-  })
-
-  it('keeps the same crew totals and one proposal tail across all six views and a search', () => {
-    developerFeature.enabled = true
-    harness.issues = [
-      issue('root', { title: 'Mission', memberSessionIds: ['lead'], dependents: [{ id: 'departed', type: 'discovered-from' }] }),
-      issue('running', { parentId: 'root', memberSessionIds: ['run'] }),
-      issue('broken', { parentId: 'root', memberSessionIds: ['err'] }),
-      issue('asking', { parentId: 'root', memberSessionIds: ['ask'] }),
-      issue('proposed-parent', { parentId: 'root', stage: 'proposed', title: 'Proposed parent' }),
-      issue('accepted', { parentId: 'proposed-parent', stage: 'in_progress', title: 'Accepted child' }),
-      issue('proposed-child', { parentId: 'proposed-parent', stage: 'proposed', title: 'Proposed child', deps: [{ id: 'accepted', type: 'blocks' }] }),
-      issue('outside', { stage: 'proposed', title: 'Independent proposal', deps: [{ id: 'root', type: 'discovered-from' }, { id: 'accepted', type: 'discovered-from' }] }),
-      issue('departed', { stage: 'in_progress', title: 'Started departure', deps: [{ id: 'root', type: 'discovered-from' }] }),
-    ]
-    harness.sessions = [
-      session('lead', { issueId: 'root', agentState: { phase: 'idle', idle: { kind: 'done' } } }),
-      session('run', { issueId: 'running', agentState: WORKING }),
-      session('err', { issueId: 'broken', status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error' } } }),
-      session('ask', { issueId: 'asking', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
-    ]
-    deck()
-    const activity = () => screen.getByLabelText('Mission activity').textContent
-    const baseline = activity()
-    expect(baseline).toContain('1 running agents')
-    expect(baseline).toContain('1 agent errors')
-    expect(baseline).toContain('1 requests')
-    expect(screen.getByTestId('flight-departures').querySelector('[data-departure-issue="departed"]')).not.toBeNull()
-    for (const name of ['Overview', 'Working', 'Needs you', 'Dependencies', 'Waterfall', 'Timeline']) {
-      fireEvent.click(screen.getByRole('button', { name }))
-      expect(activity()).toBe(baseline)
-      const proposals = screen.getAllByTestId('flight-proposed')
-      expect(proposals).toHaveLength(1)
-      for (const id of ['proposed-parent', 'proposed-child', 'outside'])
-        expect(proposals[0]?.querySelectorAll(`[data-flight-issue="${id}"]`)).toHaveLength(1)
-      expect(proposals[0]?.querySelector('[data-flight-issue="accepted"]')).toBeNull()
-      expect(proposals[0]?.querySelector('[data-flight-issue="proposed-child"]')?.textContent).toContain('Accepted child')
-    }
-    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
-    fireEvent.click(screen.getByTitle('Search this mission'))
-    fireEvent.change(screen.getByPlaceholderText('Task, session, agent or ref'), { target: { value: 'not a task' } })
-    expect(activity()).toBe(baseline)
-    expect(screen.getAllByTestId('flight-proposed')).toHaveLength(1)
-  })
-
-  it('names current, historical, and unknown agent activity independently', () => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('agents', { parentId: 'root', memberSessionIds: ['finished', 'unknown', 'parked', 'reconnecting'] }),
-    ]
-    harness.sessions = [
-      session('finished', { issueId: 'agents', agentState: { phase: 'idle', idle: { kind: 'done' } } }),
-      session('unknown', { issueId: 'agents' }),
-      session('parked', { issueId: 'agents', status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error' } } }),
-      session('reconnecting', { issueId: 'agents', status: 'reconnecting', agentState: { phase: 'idle' } }),
-    ]
-    deck()
-    const row = (id: string) => document.querySelector(`[data-flight-session="${id}"]`)?.textContent ?? ''
-    expect(row('finished')).toContain('Turn finished')
-    expect(row('unknown')).toContain('Activity unavailable')
-    expect(row('parked')).toContain('Parked')
-    expect(row('parked')).toContain('Network error')
-    expect(row('reconnecting')).toContain('Reconnecting')
-  })
-
-  it('keeps coordinator workers and distinguishes a task request from an agent offer', () => {
-    harness.issues = [issue('root', { title: 'Mission', coordinatorSessionId: 'lead', memberSessionIds: ['lead'], needsHuman: true, humanQuestion: 'Choose a scope' })]
-    harness.sessions = [session('lead', { issueId: 'root', name: 'Lead', agentState: { phase: 'idle', nativeSubagents: [{ id: 'worker-full-identity', type: 'general-purpose' }] } })]
-    deck()
-    const panel = screen.getByTestId('flight-coordinator')
-    expect(panel.textContent).toContain('Task request · Choose a scope')
-    expect(panel.textContent).not.toContain('Needs you')
-    const native = panel.querySelector('[data-testid="flight-native-agents"]')
-    expect(native).not.toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Show full native worker ID worker-full-identity' }))
-    expect(native?.textContent).toContain('worker-full-identity')
-    const nativeOwner = screen.getByRole('button', { name: /Open owning agent Lead/ })
-    expect(nativeOwner.className).toContain('min-h-6')
-    fireEvent.click(nativeOwner)
-    expect(harness.openSessionTab).toHaveBeenCalledWith('lead', { permanent: false })
-    expect(harness.preferPanelMode).toHaveBeenCalledWith('lead', 'native')
-    cleanup()
-    harness.issues = [issue('root', { title: 'Mission', coordinatorSessionId: 'lead', memberSessionIds: ['lead'] })]
-    harness.sessions = [session('lead', { issueId: 'root', name: 'Lead', offer: { message: 'Review the drafted plan', actions: [{ label: 'Approve', prompt: 'Proceed' }] }, agentState: WORKING })]
-    deck()
-    expect(screen.getByTestId('flight-coordinator').textContent).toContain('Running')
-    expect(screen.getByTestId('flight-coordinator').querySelector('.text-attention')?.textContent).toBe('Needs you')
-    expect(screen.getByTestId('flight-coordinator').textContent).toContain('Review the drafted plan')
-    expect(screen.getByTestId('flight-coordinator').textContent).toContain('Suggested actions · Approve')
-  })
-
-  it('names every recorded root dependency and keeps a closed task neutral', () => {
-    developerFeature.enabled = true
-    harness.issues = [
-      issue('root', { title: 'Mission', deps: [{ id: 'a', type: 'blocks' }, { id: 'b', type: 'blocks' }, { id: 'c', type: 'blocks' }] }),
-      issue('closed', { parentId: 'root', stage: 'in_progress', closedReason: 'done', blocked: true, needsHuman: true, deps: [{ id: 'a', type: 'blocks' }], dependencyNote: 'Ask owner before release' }),
-      issue('a', { parentId: 'root', title: 'Alpha' }),
-      issue('b', { parentId: 'root', title: 'Beta', stage: 'done', closedReason: 'cancelled' }),
-      issue('c', { parentId: 'root', title: 'Gamma' }),
-    ]
-    deck()
-    for (const name of ['Alpha', 'Beta', 'Gamma']) expect(screen.getByTestId('flight-deck-scroller').textContent).toContain(name)
-    const rootDependencies = screen.getByLabelText('Dependencies for ROOT') as HTMLElement
-    rootDependencies.style.width = '320px'
-    expect(rootDependencies.querySelectorAll('button')).toHaveLength(3)
-    expect(rootDependencies.className).toContain('flex-wrap')
-    for (const button of rootDependencies.querySelectorAll('button')) expect(button.className).toContain('break-words')
-    expect(rootDependencies.textContent).not.toMatch(/and \d+ more/i)
-    const closed = document.querySelector('[data-flight-issue="closed"]')
-    expect(closed?.textContent).toContain('Done')
-    expect(closed?.textContent).toContain('Recorded dependency still open')
-    expect(closed?.textContent).toContain('Dependency note · Ask owner before release')
-    expect(closed?.textContent).not.toContain('Needs you')
-    fireEvent.click(screen.getByRole('button', { name: 'Waterfall' }))
-    expect(screen.getByTestId('flight-deck-waterfall').textContent).toContain('Recorded dependency still open')
-    fireEvent.click(screen.getByRole('button', { name: 'Dependencies' }))
-    expect(screen.getByTestId('flight-dependencies').textContent).toContain('cancelled')
-  })
-
-  it('counts only the work actually hidden by each fold', () => {
-    harness.issues = [
-      issue('root', { title: 'Mission' }),
-      issue('parent', { parentId: 'root', memberSessionIds: ['own'] }),
-      issue('child-run', { parentId: 'parent', memberSessionIds: ['run'] }),
-      issue('child-error', { parentId: 'parent', memberSessionIds: ['err'] }),
-      issue('child-ask', { parentId: 'parent', memberSessionIds: ['ask'] }),
-    ]
-    harness.sessions = [
-      session('own', { issueId: 'parent', agentState: WORKING }),
-      session('run', { issueId: 'child-run', agentState: WORKING }),
-      session('err', { issueId: 'child-error', status: 'hibernated', agentState: { phase: 'errored' } }),
-      session('ask', { issueId: 'child-ask', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
-    ]
-    deck()
-    const parent = () => document.querySelector('[data-flight-issue="parent"]') as HTMLElement
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse tasks under Task parent' }))
-    expect(parent().textContent).toContain('1 hidden running')
-    expect(parent().textContent).toContain('1 hidden agent errors')
-    expect(parent().textContent).toContain('1 hidden requests')
-    expect(document.querySelector('[data-flight-issue="child-run"]')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand tasks under Task parent' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Hide agents on Task parent' }))
-    expect(parent().textContent).toContain('1 hidden running')
-    expect(parent().textContent).not.toContain('hidden agent errors')
-    expect(parent().textContent).not.toContain('hidden requests')
-    expect(document.querySelector('[data-flight-issue="child-run"]')).not.toBeNull()
-  })
-
-  it('opens a closed task roster for a parked agent error by default', () => {
-    harness.issues = [issue('root', { title: 'Mission' }), issue('closed', { parentId: 'root', closedReason: 'done', stage: 'in_progress', memberSessionIds: ['err'] })]
-    harness.sessions = [session('err', { issueId: 'closed', status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error' } } })]
-    deck()
-    expect(document.querySelector('[data-flight-session="err"]')?.textContent).toContain('Network error')
-    expect(screen.getByRole('button', { name: 'Hide agents on Task closed' }).getAttribute('aria-expanded')).toBe('true')
-  })
-
-  it('keeps an error-only sibling out of Needs you when another agent requests input', () => {
-    harness.issues = [issue('root', { title: 'Mission' }), issue('mixed', { parentId: 'root', memberSessionIds: ['err', 'ask'] })]
-    harness.sessions = [
-      session('err', { issueId: 'mixed', agentState: { phase: 'errored' } }),
-      session('ask', { issueId: 'mixed', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
-    ]
-    harness.ui.set('podium.flightDeck.mode', 'needs-you')
-    deck()
-    expect(document.querySelector('[data-flight-session="ask"]')).not.toBeNull()
-    expect(document.querySelector('[data-flight-session="err"]')).toBeNull()
-  })
-
-  it('keeps Timeline current facts separate on a task with mixed agent states', () => {
-    developerFeature.enabled = true
-    harness.issues = [issue('root', { title: 'Mission' }), issue('mixed', { parentId: 'root', memberSessionIds: ['run', 'err', 'ask'] })]
-    harness.sessions = [
-      session('run', { issueId: 'mixed', agentState: WORKING }),
-      session('err', { issueId: 'mixed', status: 'hibernated', agentState: { phase: 'errored' } }),
-      session('ask', { issueId: 'mixed', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
-    ]
-    deck()
-    fireEvent.click(screen.getByRole('button', { name: 'Timeline' }))
-    const timeline = screen.getByTestId('flight-deck-handoff')
-    expect(timeline.textContent).toContain('1 running')
-    expect(timeline.textContent).toContain('1 agent error')
-    expect(timeline.textContent).toContain('1 agent request')
-    expect([...timeline.querySelectorAll('.text-destructive')].some((node) => node.textContent?.includes('1 agent error'))).toBe(true)
-    expect([...timeline.querySelectorAll('.text-attention')].some((node) => node.textContent?.includes('1 agent request'))).toBe(true)
-  })
-
-  it('keeps closed proposed work in Dependencies, Waterfall and Timeline', () => {
-    developerFeature.enabled = true
-    harness.issues = [
-      issue('root', { title: 'Mission', stage: 'proposed', closedReason: 'done' }),
-      issue('child', { parentId: 'root', stage: 'proposed', closedReason: 'done', memberSessionIds: ['run', 'err'], deps: [{ id: 'outside', type: 'blocks' }] }),
-      issue('outside', { title: 'Outside', stage: 'backlog' }),
-    ]
-    harness.sessions = [
-      session('run', { issueId: 'child', agentState: WORKING }),
-      session('err', { issueId: 'child', status: 'hibernated', agentState: { phase: 'errored', error: { class: 'network_error' } } }),
-    ]
-    deck()
-    expect(screen.queryByTestId('flight-proposed')?.querySelector('[data-flight-issue="child"]') ?? null).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Dependencies' }))
-    expect(screen.getByTestId('flight-dependencies').querySelector('[data-flight-issue="child"]')?.textContent).toContain('done')
-    fireEvent.click(screen.getByRole('button', { name: 'Waterfall' }))
-    expect(screen.getByTestId('flight-deck-waterfall').querySelector('[data-flight-issue="root"]')).not.toBeNull()
-    expect(screen.getByTestId('flight-deck-waterfall').querySelector('[data-flight-issue="child"]')?.textContent).toContain('done')
-    fireEvent.click(screen.getByRole('button', { name: 'Timeline' }))
-    const current = screen.getByTestId('flight-deck-handoff')
-    expect(current.textContent).toContain('Task child')
-    expect(current.textContent).toContain('1 running')
-    expect(current.textContent).toContain('1 agent error')
-  })
-
-  it('keeps a closed proposed continuation visible after departure', () => {
-    harness.issues = [
-      issue('root', { title: 'Old mission', stage: 'done', closedReason: 'superseded', supersededBy: 'next' }),
-      issue('next', { title: 'Accepted continuation', stage: 'proposed', closedReason: 'done' }),
-    ]
-    harness.sessions = []
-    deck()
-    expect(screen.getByTestId('flight-continuation').textContent).toContain('Accepted continuation')
-  })
-
-  it('shows exact hidden exceptions on a folded context ancestor', () => {
-    harness.issues = [issue('root', { title: 'Mission' }), issue('parent', { parentId: 'root' }), issue('child', { parentId: 'parent', memberSessionIds: ['run'] })]
-    harness.sessions = [session('run', { issueId: 'child', agentState: WORKING })]
-    harness.ui.set('podium.flightDeck.mode', 'working')
-    deck()
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse tasks under Task parent' }))
-    const parent = document.querySelector('[data-flight-issue="parent"]')
-    expect(parent?.textContent).toContain('1 hidden running')
-    expect(document.querySelector('[data-flight-issue="child"]')).toBeNull()
-  })
-
-  it('keeps hidden requests on a folded Needs you context ancestor', () => {
-    harness.issues = [issue('root', { title: 'Mission' }), issue('parent', { parentId: 'root' }), issue('child', { parentId: 'parent', memberSessionIds: ['ask'] })]
-    harness.sessions = [session('ask', { issueId: 'child', agentState: { phase: 'idle', idle: { kind: 'question' } } })]
-    harness.ui.set('podium.flightDeck.mode', 'needs-you')
-    deck()
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse tasks under Task parent' }))
-    expect(document.querySelector('[data-flight-issue="parent"]')?.textContent).toContain('1 hidden requests')
-    expect(document.querySelector('[data-flight-issue="child"]')).toBeNull()
-  })
-
-  it('keeps a neutral unavailable dependency label without inventing an edge', () => {
-    harness.issues = [issue('root', { title: 'Mission' }), issue('blocked', { parentId: 'root', blocked: true, memberSessionIds: ['idle'] })]
-    harness.sessions = [session('idle', { issueId: 'blocked', agentState: { phase: 'idle' } })]
-    deck()
-    const detail = document.querySelector('[data-flight-issue="blocked"] [data-testid="flight-dependency-details"]')
-    expect(detail?.textContent).toContain('Dependency status unavailable')
-    expect(detail?.querySelectorAll('button')).toHaveLength(0)
-    expect(detail?.textContent).not.toContain('Ready to start')
-  })
-
-  it('keeps a graft origin in the no-prerequisite dependency group', () => {
-    harness.issues = [issue('root', { title: 'Mission', memberSessionIds: ['lead'] }), issue('graft', { title: 'Grafted work', startedBySession: 'lead' })]
-    harness.sessions = [session('lead', { issueId: 'root', name: 'Lead' })]
-    deck()
-    fireEvent.click(screen.getByRole('button', { name: 'Dependencies' }))
-    const group = screen.getByTestId('flight-no-prerequisites')
-    expect(group.querySelector('[data-flight-issue="graft"]')?.textContent).toContain('Started by Lead')
-  })
-
-  it('keeps error and request colors separate on coordinator and proposal facts', () => {
-    harness.issues = [
-      issue('root', { title: 'Mission', coordinatorSessionId: 'lead', memberSessionIds: ['lead'] }),
-      issue('proposal', { parentId: 'root', stage: 'proposed', memberSessionIds: ['run', 'err', 'ask'] }),
-    ]
-    harness.sessions = [
-      session('lead', { issueId: 'root', agentState: { phase: 'errored', error: { class: 'network_error' } }, offer: { message: 'Choose the route' } }),
-      session('run', { issueId: 'proposal', agentState: WORKING }),
-      session('err', { issueId: 'proposal', agentState: { phase: 'errored' } }),
-      session('ask', { issueId: 'proposal', agentState: { phase: 'idle', idle: { kind: 'question' } } }),
-    ]
-    deck()
-    const coordinator = screen.getByTestId('flight-coordinator')
-    expect(coordinator.querySelector('.text-destructive')?.textContent).toContain('Network error')
-    expect(coordinator.querySelector('.text-attention')?.textContent).toContain('Needs you')
-    const proposal = screen.getByTestId('flight-proposed').querySelector('[data-flight-issue="proposal"]')
-    expect(proposal?.querySelector('.text-destructive')?.textContent).toContain('agent error')
-    expect(proposal?.querySelector('.text-attention')?.textContent).toContain('agent request')
-  })
-
-  it('puts combined agent state on a bounded wrapping line at 320px', () => {
-    const css = readFileSync(resolve(import.meta.dirname, '../styles.css'), 'utf8')
-    const narrow = css.slice(css.indexOf('@container deck-rows (max-width: 360px)'))
-    expect(narrow).toContain('"state state"')
-    expect(narrow).toContain('grid-template-columns: 94px minmax(0, 1fr)')
-    expect(narrow).toContain('overflow-wrap: anywhere')
-    expect(narrow).toContain('min-width: 0')
   })
 })
