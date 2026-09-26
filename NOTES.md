@@ -77,3 +77,8 @@ fixed (brief: report red files you did not touch, do not fix).
   spin-off only for bigger-than-fix redesign, them looped in.
 - Timing sequence: 4694 (9 runs, ~40min) -> Mc3 3-min heap -> my lifecycle.
   I queue after their heads-up.
+
+## Bench handoff (2026-09-26)
+
+- 4702 released bench:flatblock; now held by a 4694 session, 4286 queued.
+  Agreed sequence holds (4694 -> Mc3 heap -> Hc3); I queue on 4694's heads-up.
