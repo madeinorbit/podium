@@ -848,8 +848,9 @@ describe('expectedTypecheckTasks', () => {
     ]) {
       expect(tasks).toContain(task)
     }
+    // tests/e2e declares the script since POD-4664 (harness core + loadable-imports scan).
+    expect(tasks).toContain('@podium/e2e#typecheck')
     // Workspaces with no typecheck script are not tasks and must not be named as missing.
-    expect(tasks).not.toContain('@podium/e2e#typecheck')
     expect(tasks).not.toContain('@podium/acceptance#typecheck')
   })
 })
