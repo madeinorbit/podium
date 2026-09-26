@@ -1,3 +1,61 @@
+# Hc2 hand truth gate (POD-4587) · 2026-09-26
+
+Gate: `gate-truth.test.ts` — writable hand pool on the `truth` feed through
+the shared `ArmEditAdapter`, compared every step with its optimism-aware
+rebuild and every 10th with the shared write oracle, unchanged
+(coordinator F4). Deterministic: run-clock stamps, signal-based `settleStep`
+mirroring Mc2 `b6f57cab0`; no `Date.now` (lint clean on own files).
+
+## Decisions
+
+- **Bootstrap materialises cold rows with re-applied pending (W11/W1.2
+  parity).** Seed-1 step-201 refresh divergence: the edit had materialised
+  i4115 pre-reload, but post-reload bootstrap re-applied the log entry
+  without residence, so live hid a row the rebuild and the shared oracle
+  show (oracle agreed with the rebuild). `bootstrap` now calls
+  `ensureResident` per applied entry (skip on throw, like unknown rows).
+  Found by the gate, not the unit tests: only a reload with a pending
+  cold-row edit exercises it.
+- **Per-seed oracle counters count the main run only.** `checkArm` re-runs
+  sequences (dense, shrink, replay) through fresh `GenRun`s sharing the
+  adapter/oracle; the gate's `onStep` now ignores non-first runs, or shrink
+  artifacts pollute the row (185 checks, repeating failed steps).
+- **Plants live inside the test, not the arm.** Each fixed-sequence plant
+  wraps the handle and asserts the planted side diverges; a green test is
+  the red-proof (no arm file is touched, nothing to restore). The (c)
+  random plant fails every seed of its own run.
+
+## Evidence
+
+- 20 × 300 truth gate GREEN, foreground, 4 chunks of 5 seeds (load 18–26,
+  ~20 min/chunk): 20/20 seeds, 30 oracle checks each, 0 failed, 0 healed;
+  kernelDiffers per seed 1–20:
+  0,0,2,1,0, 0,4,0,0,0, 0,2,0,7,1, 0,11,0,1,0 (legacy-flicker finding).
+  Per-seed rows (steps, ok, failStep, change, diff, kernel finding,
+  consumed stream events per touched row) in the run's
+  `hand-write-truth-gate-1x-5x300.json` result files (gitignored; chunk
+  copies in the session).
+- Byte-identity: seeds 1–3 × 300 twice each, per-seed rows byte-identical
+  including `oracleEvents` (txids stripped, run-clock stamps).
+- Full file 7/7 at 3 × 200 on the same tree: gate + plants
+  (a)/(c)-fixed/(c)-random/(i)/(ii)/(iii), each planted side diverging as
+  asserted.
+- Pre-existing reds NOT touched: typecheck `shared/src/gen/changes.ts`
+  `DEFAULT_WEIGHTS` missing POD-4681's four new row kinds (owned by
+  POD-4681); lint `arms/mobx/pool/worklist/groups.ts`
+  `mobx/exhaustive-make-observable` (MobX lane).
+
+## Open
+
+- TTL expiry has the `expire()` API but no TTL-drop exercise (no timer
+  drives it; the kernel's awaiting-truth expiry runs on the wall clock,
+  which the gate does not drive); reference-log level is covered by L1c.
+- Cold-row edit materialisation is implemented (`ensureResident` requests and
+  hydrates) but exercised only for residency, not for commit counts: a cold
+  visible row would commit twice (load, then paint).
+
+---
+
 # Hc2 hand receipts and remote updates (POD-4587) · 2026-09-25
 
 Code: `edit.ts` (+`handleSuperseded`/`expire`/`bootstrap`/`pendingDisplay`),
