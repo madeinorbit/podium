@@ -1405,3 +1405,26 @@ solo counts both sides with parity green. Full tables + JSON in the m3 note.
    typechecked at all. This arm adds its own folder (`arms/mobx`) to
    `include` and proves coverage (a type error there fails the gate).
    Worth a coordinator-owned fix for the other arms?
+
+## Mc3 (POD-4575) MobX lifecycle walls · 2026-09-26
+
+Lane: arms/mobx lifecycle + bootstrap (coordinator: Mc3 owns these; POD-4702
+owns pool/worklist/groups.ts + harness/lint — mail before touching those).
+
+Starting point (Mb4 POD-4572-b, flatblock, 1x, n=20/cell): coldBootstrap
+mobx 775.7 vs control 214.5 ms p50 (3.6x, budget 1.1x OVER); principalSwitch
+639.8 vs 254.0 (2.5x, budget 2x OVER); retained heap 81.07 vs 22.57 MB (3.6x,
+budget 1.1x OVER); rescope growth 1.127 vs control 1.180 (within). Since Mb4
+the pool gained lazy residency (cold rows stay out of tables), maintained
+grouping (POD-4686) and the read-state lane — STEP 1 re-measures at the
+current tip before attributing anything.
+
+Setup: timing checkout ~/podium-timing-4575 on flatblock at 6eda2826e
+(integration tip), .toolchain bun 1.4.2 reused from podium-timing-4572,
+harness/web/dist built there. Matrix: --arms noop,control,mobx --scales 1
+--rounds 4 --samples 5 --scenarios coldBootstrap,principalSwitch,rescope
+--host flatblock --remote-dir podium-timing-4575 (tag mc3-life), same shape
+as Mb4's mb4-life for direct comparison. entries.test.ts green at SHA.
+
+Open: bench:flatblock held by coordinator session with POD-4694 queued;
+mailed POD-4286 for MobX-first ordering per the addendum.
