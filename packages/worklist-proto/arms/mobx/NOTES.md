@@ -1478,3 +1478,32 @@ widened.
   global `pendingReactions` zero check after pool tests). Re-run after any
   STEP 2 code touch.
 - First-paint outside-counts green 2/2 (in the measurement doc).
+
+### Handoff to POD-4705 (MobX lazy visibility nodes)
+
+Mc3's mechanism (this issue): at every `replace`, `MobxPool.syncWorklist`
+calls `VisibleCollection.sync(knownIssueIds)` (`pool/pool.ts:735`,
+`pool/worklist/visible.ts:1287`), which builds one `IssueNode` (32 computed
+annotations) plus four `fireImmediately` reactions (visible, nested, formal,
+layout) per KNOWN issue — 4,867 nodes + ~19.5k reactions at 1x for 732
+visible rows, cold rows included. Measured: 155,744 IssueNode spy-adds of
+212,855 bootstrap observables; 4,867 visibility reactions walked from MobX's
+own graph; bootstrap buildMs 640.6 vs control 109.0; retained heap 87.49 vs
+22.54 MB.
+
+Why lazy nodes need a non-walking visibility detector: the four per-node
+reactions ARE the maintained visible set (`ids`), the nest/formal filings
+(`nestedBy`, `childrenBy`) and the layout filings — there is no other path
+by which an invisible row becoming visible is detected. Building nodes for
+visible rows only removes the detectors for the invisible ones; replacing
+them with one collection-level reaction (or a replace-time evaluation) must
+read every row's visibility inputs, i.e. reintroduce the whole-table walk
+the lint fence (`fence.json`, `no-table-walk`) and the reads fence refuse.
+Sessions show the lazy shape works where something else already detects the
+need (`session(id)` builds on first access; the visibility read that reaches
+a cold session queues its load). The experiment: find what detects an
+invisible issue's visibility transition without per-row reactions and
+without a corpus walk, or prove no such detector exists in the MobX idiom.
+Relevant: `visible.ts:1227 order` (reads every visible id's cached rank),
+`visible.ts:1235 issue(id)`, `pool.ts:765 snapshot()`, `enumerate.ts`
+`knownIssueIds` (the one sanctioned whole-membership walk).
