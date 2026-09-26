@@ -2050,14 +2050,22 @@ export function createTerminalRuntime(
         // the outer durable `withDeliveryQueue` via `deliveryReady` as its
         // `ready`), not to the direct path: typing immediately is what the
         // verification ladder proves, and `queued` is reserved for explicit
-        // `queue`/`steer`/lease requests. Durable `deliveryAttempt` retries keep
-        // the narrow `busy` refusal so the outer queue waits instead of nesting
-        // queues; normal sends fall through to `deliver` exactly as before
-        // POD-4291. Custody (delivery_owner, recovery, durable/initialPrompt
-        // windows) is untouched.
+        // `queue`/`steer`/lease requests. Custody (delivery_owner, recovery,
+        // durable/initialPrompt windows) is untouched.
+        //
+        // BUSY IS NOT IDLE (POD-4700). The paragraph above is about a session
+        // with nothing running; a session with a turn running is the opposite
+        // case and takes the opposite answer. Typing a `when-ready` into a
+        // running TUI cuts the turn off — OpenCode answers the second prompt
+        // and the first row is later reported lost as "target gone" (POD-4604
+        // run 13) — so EVERY `when-ready` that finds the agent computing is
+        // refused `busy`, direct sends and durable `deliveryAttempt` retries
+        // alike. The server requeues on `busy`, so nothing is lost and order is
+        // preserved; the outer durable queue waits the same way on the same
+        // refusal. `interrupt` stays exempt (cutting in is its job) and
+        // `needs_user` is still refused inside `deliver`.
         if (
           requested === 'when-ready' &&
-          options.deliveryAttempt &&
           ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '')
         ) {
           return { outcome: 'refused', refusal: refuse('busy') }

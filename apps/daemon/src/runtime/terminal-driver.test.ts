@@ -74,6 +74,7 @@ function shippedProfile(harness: 'claude-code' | 'grok' | 'opencode'): TerminalH
 
 const CLAUDE = shippedProfile('claude-code')
 const GROK = shippedProfile('grok')
+const OPENCODE = shippedProfile('opencode')
 
 /**
  * A Terminal for `bridge()` stubs (POD-4434): the port returns the Terminal
@@ -1974,6 +1975,164 @@ describe('the queue drain', () => {
     const delivered = world.written.filter((text) => text !== '\r')
     expect(delivered).toContain('one')
     expect(delivered).toContain('two')
+  })
+})
+
+describe('busy OpenCode delivery (POD-4700)', () => {
+  it('waits for the running turn before typing a second send, then delivers both in order', async () => {
+    // THE RUN-13 SHAPE (POD-4604): a headed OpenCode session accepts a first
+    // turn; while it runs, a second message arrives. Typing into the running
+    // turn cuts it off — OpenCode answers the second prompt and the first row
+    // is later reported lost as "target gone". The daemon must hold every
+    // when-ready send until the turn ends (POD-4661: the server never holds on
+    // agent state; the daemon owns delivery): durable rows wait in the delivery
+    // queue, and a direct send made while busy is refused `busy` (which the
+    // server requeues) rather than typed.
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('opencode', OPENCODE)
+    const session = await driver.create({ ...SPEC, harness: 'opencode' })
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+
+    // ECHO-ON-WRITE. OpenCode proves a send by recording the turn in its own
+    // transcript, which the driver reads on a poll no test can time: echoing
+    // after a wall-clock sleep always loses to the verification window (its
+    // virtual timers drain inside the sleep), and echoing after microtasks
+    // alone never lets the outer queue's real 200 ms poll elapse. Crediting
+    // the echo synchronously inside the write — the moment the bytes land,
+    // before any yield — is deterministic either way.
+    const pendingEchoes = new Set(['first turn', 'second turn', 'cut in line'])
+    const realBridge = world.host.bridge.bind(world.host)
+    world.host.bridge = (id) => {
+      const bridge = realBridge(id)
+      if (!bridge || id !== sessionId) return bridge
+      return new Proxy(bridge, {
+        get(target, prop, receiver) {
+          if (prop === 'writeBase64') {
+            return (dataBase64: string) => {
+              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+              const pasted = pastedText(text)
+              if (pasted !== undefined && pendingEchoes.has(pasted)) {
+                pendingEchoes.delete(pasted)
+                world.echo(id, pasted)
+              }
+              return target.writeBase64(dataBase64)
+            }
+          }
+          return Reflect.get(target, prop, target)
+        },
+      })
+    }
+
+    const deliveryOutcomes = (): Array<{ rowId: string; outcome: string }> =>
+      world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
+          ? [{ rowId: frame.event.rowId, outcome: frame.event.outcome }]
+          : [],
+      )
+    const pastes = (): string[] =>
+      world.written
+        .map(pastedText)
+        .filter((text): text is string => text !== undefined)
+    const pump = async (rounds = 100): Promise<void> => {
+      for (let i = 0; i < rounds; i++) await Promise.resolve()
+    }
+    const waitForPaste = async (text: string): Promise<void> => {
+      for (let i = 0; i < 40 && !pastes().includes(text); i++) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(pastes()).toContain(text)
+    }
+    const waitForDelivery = async (rowId: string, outcome: string): Promise<void> => {
+      for (
+        let i = 0;
+        i < 40 &&
+        !deliveryOutcomes().some((event) => event.rowId === rowId && event.outcome === outcome);
+        i++
+      ) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(deliveryOutcomes()).toContainEqual({ rowId, outcome })
+    }
+
+    // First turn: a durable row, accepted on its transcript echo (credited by
+    // the echo-on-write hook above the moment the paste lands).
+    expect(
+      (
+        await session.send(
+          { text: 'first turn', rowId: 'row-first' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await waitForPaste('first turn')
+    await waitForDelivery('row-first', 'delivered')
+
+    // The turn is now running. Both phase signals agree.
+    world.setPhase(sessionId, 'working')
+    world.observe(sessionId, {})
+    expect((await session.state()).phase).toBe('working')
+
+    // Second turn arrives as a durable row: queued, held while the turn runs.
+    expect(
+      (
+        await session.send(
+          { text: 'second turn', rowId: 'row-second' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+
+    // A direct send made while busy must NOT cut into the turn either: refused
+    // `busy` (the server requeues it) rather than typed.
+    const direct = session.send(
+      { text: 'cut in line' },
+      { origin: 'controller', delivery: 'when-ready' },
+    )
+    await pump()
+    expect(pastes()).not.toContain('cut in line')
+    await expect(direct).resolves.toMatchObject({
+      outcome: 'refused',
+      refusal: { reason: 'busy' },
+    })
+
+    // Let the outer drain poll while the turn runs: still nothing typed, and
+    // the first row stays delivered (no duplicate turn, no loss).
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    expect(pastes()).toEqual(['first turn'])
+    expect(deliveryOutcomes()).toEqual([{ rowId: 'row-first', outcome: 'delivered' }])
+
+    // The turn ends. The queued row drains, and both rows end delivered.
+    world.setPhase(sessionId, 'idle')
+    world.observe(sessionId, {
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      state: {
+        phase: 'idle',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    await waitForPaste('second turn')
+    await waitForDelivery('row-second', 'delivered')
+
+    // The refused direct send, retried after the turn (the server requeue),
+    // lands on the idle session.
+    const retry = session.send(
+      { text: 'cut in line' },
+      { origin: 'controller', delivery: 'when-ready' },
+    )
+    await pump()
+    await expect(retry).resolves.toMatchObject({ outcome: 'accepted' })
+
+    expect(pastes()).toEqual(['first turn', 'second turn', 'cut in line'])
+    expect(deliveryOutcomes()).toEqual([
+      { rowId: 'row-first', outcome: 'delivered' },
+      { rowId: 'row-second', outcome: 'delivered' },
+    ])
+    world.runtime.dispose()
   })
 })
 
