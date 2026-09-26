@@ -45,6 +45,28 @@ Scratchpad for this issue only. Deleted before landing; the record of note is
 - CaughtException watch (4705 addendum): check hand heap for the same
   exception-as-control-flow signal.
 
+## Outside construction count (2026-09-26, committed d0f479dfd)
+
+`arms/hand/pool/construction.test.ts`: patches `CellGraph.prototype.cell`,
+tabulates by name prefix during `handPoolArm.create` (1x). Outside 59,313 ==
+pool counter exactly. Zero `view:*` before first read (teeth).
+Plant (temp copy of pool.ts, `for known ids view(id)` in fullSync, restored
+with cp): 2,736 eager views -> red; restored green.
+
+Per-known-issue state at bootstrap (cold rows incl.): fileNest+fileFormal
+4,867x2, nestParent/flat/present 4,867 each. Per resident: visible+member
+2,736. Per visible (732): own/rank/rankOf/placement 732 each. 12.19 cells
+per known issue, 81.0 per visible row. Rollup compositions at bootstrap: 122
+aggregates (+61 verdicts etc.) — fold placements reading waiting.
+
+## Typecheck (2026-09-26)
+
+`typecheck --filter @podium/worklist-proto` RED on a file I do not own and
+must not touch: shared/src/gen/changes.ts(172,14) TS2739 (DEFAULT_WEIGHTS
+missing newDraftIssue, newOrphanSession, setStartedBy, setWorktree) — owned
+by POD-4702 (their addendum item 2). No error in my test file. Reported, not
+fixed (brief: report red files you did not touch, do not fix).
+
 ## Timing runs
 
 - (pending lock) matrix hc3-life on flatblock; summarize; heap snapshots.
