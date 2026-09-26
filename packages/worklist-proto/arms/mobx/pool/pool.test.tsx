@@ -200,6 +200,7 @@ describe('ingest', () => {
       expect(r.reads.isBorrowed(stored)).toBe(true)
       const before = all.views.get(id)
       pool.stats.reset()
+      const nodesBefore = pool.stats.counters.issueNodes
       // The feed re-sends the very object it holds (a heartbeat-shaped no-op).
       r.push({
         type: 'update',
@@ -213,8 +214,17 @@ describe('ingest', () => {
       })
       expect(pool.stats.counters.tableWrites).toBe(0)
       expect(pool.stats.notifications).toBe(0)
-      expect(pool.stats.rowsDerived).toBe(0)
-      expect(all.views.get(id)).toBe(before)
+      // POD-4705: the named row is touched, so a hidden row without a node
+      // gets one (first touch) and its observing view evaluates once. The
+      // touch converges the row to its eager value: only the rollup-backed
+      // progress appears (it read undefined with no node). Nothing else
+      // moves: no write, no notification, no membership flip.
+      expect(pool.stats.counters.issueNodes).toBe(nodesBefore + 1)
+      expect(pool.stats.counters.membershipFlips).toBe(0)
+      expect(pool.stats.rowsDerived).toBe(1)
+      const after = all.views.get(id)
+      expect(after).not.toBe(before)
+      expect({ ...after, progressDone: 0, progressTotal: 0 }).toEqual(before)
     } finally {
       all.stop()
       r.dispose()
