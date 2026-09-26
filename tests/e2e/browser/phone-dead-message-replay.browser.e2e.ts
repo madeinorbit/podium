@@ -23,10 +23,7 @@ import { RELAY } from './_harness'
  * drain POST is refused (the kernel parks the entry as unreachable), while
  * plain HTTP keeps working so the desktop-side delete can land mid-outage.
  */
-test.skip(
-  ({ isMobile, browserName }) => !isMobile || browserName !== 'chromium',
-  'Pixel Chromium phone proof',
-)
+test.skip(({ isMobile }) => !isMobile, 'phone proof (chromium-pixel and webkit-iphone)')
 test.setTimeout(240_000)
 
 const HTTP = RELAY.replace(/^ws/, 'http')
@@ -79,6 +76,8 @@ async function openPhone(page: Page): Promise<void> {
 
 test('a send to a deleted session posts once, toasts once, and leaves no queued banner on Work', async ({
   page,
+  context,
+  request,
 }) => {
   // Completed drain POSTs only: refused attempts leave no response behind.
   let resumeAndSendPosts = 0
@@ -94,16 +93,16 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
   // and a chat-capable (keyecho-backed) session on it.
   const stamp = Date.now()
   const messageText = `dead message ${stamp}`
-  const repos = await rpcGet<string[]>(page.request, 'repos.list')
+  const repos = await rpcGet<string[]>(request, 'repos.list')
   const cwd = repos[0]
   if (!cwd) throw new Error('harness registered no repository')
-  const issue = await rpc<{ id: string }>(page.request, 'issues.create', {
+  const issue = await rpc<{ id: string }>(request, 'issues.create', {
     repoPath: cwd,
     title: `Dead-message replay ${stamp}`,
     startNow: false,
   })
-  await rpc(page.request, 'issues.update', { id: issue.id, patch: { stage: 'in_progress' } })
-  const { sessionId } = await rpc<{ sessionId: string }>(page.request, 'sessions.create', {
+  await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'in_progress' } })
+  const { sessionId } = await rpc<{ sessionId: string }>(request, 'sessions.create', {
     agentKind: 'claude-code',
     cwd,
     issueId: issue.id,
@@ -112,7 +111,7 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
   await expect
     .poll(
       async () =>
-        rpcGet<Array<{ sessionId: string; status: string }>>(page.request, 'sessions.list').then(
+        rpcGet<Array<{ sessionId: string; status: string }>>(request, 'sessions.list').then(
           (sessions) => sessions.find((session) => session.sessionId === sessionId)?.status,
         ),
       { timeout: 90_000 },
@@ -143,7 +142,10 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
   await expect(composer).toBeVisible({ timeout: 60_000 })
 
   // The hub's reconnect loop is the outage signal: with health below ok the
-  // composer takes the durable outbox route.
+  // composer takes the durable outbox route. Full offline too (like the live
+  // run): navigator.onLine false, so the queued entry is never attempted —
+  // no backoff armed — until the reconnect edge drains it.
+  await context.setOffline(true)
   try {
     await expect(page.getByText('Reconnecting').first()).toBeVisible({ timeout: 30_000 })
   } catch {
@@ -159,10 +161,11 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
   expect(resumeAndSendPosts, 'no completed POST while cut off').toBe(0)
 
   // The desktop deletes the session mid-outage.
-  await rpc(page.request, 'sessions.kill', { sessionId })
+  await rpc(request, 'sessions.kill', { sessionId })
 
   // Heal both halves: the hub redials, its health edge drains the queue, the
   // server dead-letters the send, the phone says it was not sent — one POST.
+  await context.setOffline(false)
   cutSocket = false
   refuseDrain = false
   await expect(page.getByText(/Message not sent — the session no longer exists/)).toBeVisible({
@@ -182,10 +185,14 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
   await notice.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {})
   console.log('[phone-boot work notice]', JSON.stringify(await notice.allInnerTexts()))
   console.log('[phone-boot work posts]', resumeAndSendPosts)
-  await page.waitForTimeout(7_000)
-  console.log('[phone-boot work posts after settle]', resumeAndSendPosts)
+  // A long watch: the live replays land on the retry/backoff cadence, not
+  // necessarily inside the first seconds after navigation.
+  for (let round = 0; round < 6; round++) {
+    await page.waitForTimeout(10_000)
+    console.log(`[phone-boot work +${(round + 1) * 10}s posts]`, resumeAndSendPosts)
+  }
   console.log('[phone-boot work notice after settle]', JSON.stringify(await notice.allInnerTexts()))
-  await expect(page.getByTestId('workspace-continuity-notice')).toHaveCount(0, { timeout: 30_000 })
+  await expect(page.getByTestId('workspace-continuity-notice')).toHaveCount(0, { timeout: 5_000 })
   await page.waitForTimeout(7_000)
   expect(resumeAndSendPosts, 'no replay after navigating to Work').toBe(1)
   await expect(page.getByText(/queued and will send when connected/)).toHaveCount(0)
