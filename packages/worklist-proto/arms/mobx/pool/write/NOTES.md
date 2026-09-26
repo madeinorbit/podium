@@ -148,8 +148,11 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
   fence-lint.test.ts 28/28. REMAINING RED, other lanes', reported not
   fixed: models.ts WorktreeModel shadowing (4674/4679, pre-existing at the
   verification tip) and groups.ts make-observable annotation (4686).
-- DETERMINISM PROVEN: seeds 1–3 × 200 steps run twice → result files
-  byte-identical (diff empty). No Date.now() remains in the gate path.
+- DETERMINISM PROVEN (2026-09-26, post-rebase 23e285b1e onto
+  integrate/4545-round-three): seeds 1–3 × 200 steps run twice →
+  result files byte-identical (diff empty, both runs 3/3 ok, 20 oracle
+  checks each, 0 failed, 0 healed; kernelDiffers 0/0/1). No Date.now()
+  remains in the gate path.
 - 20 × 300 GATE GREEN (2026-09-26, ludovico foreground, ~107 min): 20/20
   seeds, 30 oracle checks each, 0 failed, 0 healed; plants
   (a)/(c)-fixed/(c)-random/(i)/(ii)/(iii) all pass in the same file.
