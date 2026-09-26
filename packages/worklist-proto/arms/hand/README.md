@@ -179,9 +179,10 @@ tables go on holding BORROWED server rows, never a copy and never edited.
   `reject` rewinds from the log and surfaces the error; `handleSuperseded`
   drops a collapsed mark-read without repainting; `expire` drops receipted
   edits past the TTL (unreceipted edits never expire); a duplicate receipt
-  is a no-op. `bootstrap` re-applies the outbox's pending entries on creation
-  under their own mutation ids without re-sending, so pending edits survive
-  a principal-preserving rebuild.
+   is a no-op. `bootstrap` re-applies the outbox's pending entries on creation
+   under their own mutation ids without re-sending (materialising cold rows
+   first, W1.2 parity, or live would hide a row the rebuild shows), so
+   pending edits survive a principal-preserving rebuild.
 - **The rebuild is optimism-aware.** `rebuildFromScratch` overlays the pending
   display onto the feed's server rows before deriving, so a gate with pending
   edits outstanding compares pending with pending — never with server truth.
