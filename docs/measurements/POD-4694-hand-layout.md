@@ -30,6 +30,16 @@ order-walk counts, header/list notices, both plants).
 - Group keys sort cached head ranks (O(groups)); the settle never calls
   `host.order()` in steady state (bootstrap files it once). The scaling test
   counts elements iterated out of `host.order()` through a proxy, bound 0.
+- Bulk commits rebuild deterministically: on a bulk commit (the order
+  re-sorted whole, e.g. a replace) the touched lanes are re-sorted from
+  their filed members with final values instead of trusting insert order.
+  Across hundreds of filings in one commit, transient derivation values can
+  misplace an insert with no later report to correct it — found by the
+  rescope life run (order exact, lanes stranded), reproduced without
+  Chromium as replace-with-grown-rows vs fresh bootstrap
+  (`scaling.test.ts` "bulk replace matches a fresh bootstrap at 2x", red
+  before, green after). Single-id commits keep incremental inserts, so the
+  F1 upkeep bound is untouched.
 - Evicted rows unfile in the settle (counted, notified), not in
   `forgetIssue`: unfiling there bypassed the count and left stale lanes
   (`groups.test.tsx` #6c caught it).
@@ -129,7 +139,8 @@ change cannot move asking/phase and stays out of worklist/react.
 
 ## 7. Lease queue
 
-`bench:flatblock` was held by Mc2 verification, then by issue #4414
-(dev-mw workspace, renewed TTL ~2.5h at last check). The rerun matrix is
-parked backgrounded with `--resume` (safe across kills: completed pairs are
-kept) and takes the lease per invocation when the machine frees.
+`bench:flatblock` order per coordinator: Mc2 verification, then issue #4414,
+then Mc3 (POD-4575, MobX lifecycle — MobX lanes go first), then this rerun.
+The rerun matrix is parked with `--resume` under the fresh tag `hand-4694b`
+(old-SHA outputs stay under `hand-4694`) and takes the lease per invocation
+when queued position grants it.
