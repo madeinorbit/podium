@@ -70,3 +70,10 @@ fixed (brief: report red files you did not touch, do not fix).
 ## Timing runs
 
 - (pending lock) matrix hc3-life on flatblock; summarize; heap snapshots.
+
+## POD-4694 reply (2026-09-26)
+
+- Mechanism in worklist/* goes to 4694 first (their fix, issue still open);
+  spin-off only for bigger-than-fix redesign, them looped in.
+- Timing sequence: 4694 (9 runs, ~40min) -> Mc3 3-min heap -> my lifecycle.
+  I queue after their heads-up.
