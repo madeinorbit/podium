@@ -1471,3 +1471,10 @@ lane other lanes own. If §1 misses, Mc3 reports construction as the mechanism
 included: 155,744 spy-adds, 73% of bootstrap observables) with the
 outside-counts as evidence, and it counts as a G6 gate result. No budget
 widened.
+
+### Mc3 STEP 2 baselines (local counts, load-independent)
+
+- `pool.test.tsx` + `counts.test.tsx`: 14/14 green at a3e1b5328 (incl. the
+  global `pendingReactions` zero check after pool tests). Re-run after any
+  STEP 2 code touch.
+- First-paint outside-counts green 2/2 (in the measurement doc).
