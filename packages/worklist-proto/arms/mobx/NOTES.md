@@ -1451,3 +1451,23 @@ alive and waiting. Audit §6/§7 re-read: G6 is this issue's gate; the audit
 already names the mechanism ("every issue is instantiated at bootstrap,
 including ~2,600 closed ones") with Linear's fix direction (observability on
 first access).
+
+### Mc3 STEP 2 decision framework (written before §1 lands)
+
+Expected STEP 1 (Mb4 + unchanged construction path): bootstrap/switch/heap
+still OVER, rescope growth within, no survivors (the run fails on survivors
+by itself). Fixes in scope are LEAKS (listeners surviving dispose, models
+retained by closures, registry not cleared on replace): dispose already stops
+every node reaction before clearing (`visible.clear`), the arm unsubscribes
+both channels, entrylib drops the old boot — review finds no retained path,
+so STEP 2 most likely changes no code.
+
+NOT in Mc3 scope: lazy issue nodes. The per-node visible/nested/formal/layout
+reactions ARE the maintained visible set (no whole-table walk exists to
+replace them); building nodes for visible rows only requires a detector that
+evaluates visibility without nodes — a redesign touching every fence/count
+lane other lanes own. If §1 misses, Mc3 reports construction as the mechanism
+(one IssueNode + 4 firing reactions per known issue at every `replace`, cold
+included: 155,744 spy-adds, 73% of bootstrap observables) with the
+outside-counts as evidence, and it counts as a G6 gate result. No budget
+widened.
