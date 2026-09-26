@@ -136,6 +136,20 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
 
 ## Open
 
+- SEND-BACK rework (coordinator verification 2026-09-26: lint red, wall
+  clock in the gate). Fixed: (1) all mark-read stamps come from the engine's
+  coarse clock at the step (run.ts armPatch, feedStep oracle patch, plant
+  probing/phantom) — arm and oracle press IDENTICAL values per step, kernel
+  echoes confirm by stamp-coverage inequality either way; (2) settleStep
+  waits on real signals only (one macrotask yield, feed flush drains,
+  arm settleLoads/pendingLoads, InstrumentError on stuck loads — no wall
+  cap, no quiet heuristic, no round count); (3) txids stripped from recorded
+  oracle events (minted per run). Fence lint clean for our files;
+  fence-lint.test.ts 28/28. REMAINING RED, other lanes', reported not
+  fixed: models.ts WorktreeModel shadowing (4674/4679, pre-existing at the
+  verification tip) and groups.ts make-observable annotation (4686).
+- DETERMINISM PROVEN: seeds 1–3 × 200 steps run twice → result files
+  byte-identical (diff empty). No Date.now() remains in the gate path.
 - 20 × 300 GATE GREEN (2026-09-26, ludovico foreground, ~107 min): 20/20
   seeds, 30 oracle checks each, 0 failed, 0 healed; plants
   (a)/(c)-fixed/(c)-random/(i)/(ii)/(iii) all pass in the same file.
