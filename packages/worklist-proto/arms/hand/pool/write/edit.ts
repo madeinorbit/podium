@@ -67,6 +67,7 @@
  */
 
 import { asMutationId } from '@podium/model'
+import type { RowSource } from '../../../../shared/src/arm'
 import {
   commandFor,
   editForPendingWrite,
@@ -142,10 +143,12 @@ export interface HandWriteApi {
    * then awaiting-truth, in queue order, painted under their own mutation ids
    * without re-sending; receipted ones settled at once; then each affected
    * row's current server values passed through `log.remote` so a pre-reload
-   * echo settles there. Unknown rows and non-slice entries are skipped.
-   * Idempotent: re-running it settles nothing new.
+   * echo settles there. Server rows come from the FEED source, not the pool
+   * tables, so reload priors and ackBases agree exactly with what the
+   * optimism-aware rebuild derives from. Unknown rows and non-slice entries
+   * are skipped. Idempotent: re-running it settles nothing new.
    */
-  bootstrap(): { applied: number; skipped: number }
+  bootstrap(source: RowSource): { applied: number; skipped: number }
   /**
    * The pending display for (kind, id): the newest pending value per editable
    * field, or undefined when nothing is pending. The optimism-aware rebuild
@@ -308,8 +311,12 @@ export function createHandWriteApi(
       }
     },
 
-    bootstrap() {
+    bootstrap(source: RowSource) {
       const entries = transport.pending()
+      const feedRows = new Map<string, SliceIssue>()
+      for (const record of source.snapshot('issue')) {
+        if (record.value !== undefined) feedRows.set(record.id, record.value as SliceIssue)
+      }
       let applied = 0
       let skipped = 0
       const touched: { kind: WritableKind; id: string }[] = []
@@ -319,7 +326,7 @@ export function createHandWriteApi(
           skipped += 1
           continue
         }
-        const server = originalIssue(mapped.id) ?? originalIssueRow(mapped.id)
+        const server = feedRows.get(mapped.id)
         if (server === undefined) {
           skipped += 1
           continue
@@ -362,7 +369,7 @@ export function createHandWriteApi(
         if (seen.has(key)) continue
         seen.add(key)
         if (log.pendingFor(kind, id).length === 0) continue
-        const server = originalIssue(id) ?? originalIssueRow(id)
+        const server = feedRows.get(id)
         if (server === undefined) continue
         log.remote(kind, id, {
           title: (server as SliceIssue).title,

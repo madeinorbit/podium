@@ -61,8 +61,9 @@ export function writableHandPoolArm(
       const handle = handPoolArm.create(source, locals, reads, loader) as HandPoolHandle
       const write = createHandWriteApi(handle.pool, transport)
       // W11: pending edits survive a principal-preserving rebuild — the
-      // outbox entries are re-applied from the queue before anything reads.
-      write.bootstrap()
+      // outbox entries are re-applied from the queue before anything reads,
+      // from the feed source so priors agree with the rebuild exactly.
+      write.bootstrap(source)
       const offRemote = source.subscribe((event) => {
         for (const row of event.rows) {
           if (row.kind !== 'issue' || row.value === undefined) continue
