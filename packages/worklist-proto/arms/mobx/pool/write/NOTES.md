@@ -136,48 +136,19 @@ exported). Tests: `settle.test.tsx` (5), `gate-truth.test.ts` (clean gate +
 
 ## Open
 
-- 20 × 300 gate NOT green: the shared oracle's remote pipe lags the arm's
-  across the accept boundary (W8 overtake resolves opposite). Shakedown
-  3 × 200 (new whole-snapshot oracle): all plants pass, main test fails all
-  3 seeds — seed 1 @119 (accept e7: live "Title t6" vs expected "Theirs r8"),
-  seed 2 @139 (newIssue bystander: live "Theirs r28" vs expected "Title t10"),
-  seed 3 @9 (reAdd bystander: live "Title t2" vs expected "Theirs r5"),
-  kernelDiffers=0 throughout (kernel agrees with expected). Complete-or-fail
-  works: every seed ran, per-seed rows (steps, ok, failStep, change, diff,
-  kernel finding) are in the result file, one error at the end.
-- Mechanism (proven, not speculation): seed-3/step-9 has IDENTICAL changes
-  in two runs (`gen` is prefix-consistent) with OPPOSITE oracle states — a
-  lifecycle probe holds/holds at step 9, the gate run held/dropped. The
-  reference log's `ackBase` (value seen at receipt) is timing-dependent: the
-  arm observes remotes via the feed subscription during `apply`, the oracle
-  via `syncPending` in `onStep`. If the oracle hasn't synced the remote by
-  the accept, `ackBase` is stale and the later remote OVERTAKES (W8,
-  write-contract.ts `remote`) and drops the entry; whichever side saw the
-  remote holds it. Contract-correct per F4 is holding Mine until the echo
-  (the arm held in all three seeds). No arm bug, no oracle-rule bug: the
-  test double observes through a later pipe. Any fix (shared harness
-  serialization, or contract W8 change) is outside the write path — asked
-  the coordinator (mail, QUESTION) before touching shared code. NOT
-  re-running 20 × 300 until ruled: a lucky-green run would prove nothing.
-- Plants (i)+(ii) proven red (in-test plants; (i) also by cp-revert of
-  80e65b1ca with byte-identical restore): (i) lane-only visibility fails the
-  fixed mark-read sequence (live hides, rebuild shows); (ii) an arm-log-only
-  phantom mark-read fails the shared oracle (both arm derivations show,
-  kernel and oracle hide). Lesson: derivations re-run only on observable
-  change — a plant must move the overlay map, property patching alone goes
-  stale; a cold target needs the same hydration a real edit does.
-- 20 × 300 gate 16/20: seeds 7/9/11/19 fail single-row membership at tail
-  steps (extra i2110/i3232, missing i656/i1771), each with a superseded
-  mark-read in its past. Root cause (probe: arm holds TWO wall-clock
-  mark-reads ms apart, oracle holds ZERO, no edit steps involved): a
-  supersede step presses one arm mark-read per handle, but feedStep never
-  fed them to the oracle (cut with the outcome mapping). Fix in the shared
-  feeding (authorized construction): append every claimed kernel id of a
-  supersede step like an edit intent. The collapse outcomes already arrive
-  through the stream on both sides.
-- The superseded seed-4 i1397 note (pending-mark-read membership vs the old
-  title-patching oracle) is closed by the option-(b) whole-snapshot oracle:
-  membership now follows the spec rules over the overlaid rows.
+- 20 × 300 GATE GREEN (2026-09-26, ludovico foreground, ~107 min): 20/20
+  seeds, 30 oracle checks each, 0 failed, 0 healed; plants
+  (a)/(c)-fixed/(c)-random/(i)/(ii)/(iii) all pass in the same file.
+  kernelDiffers tallied per seed (0–8, first example per seed in the result
+  file): accept-after-remote holds, chained holds, reject shapes — the
+  legacy flicker the prototype removes, for the decision document
+  (POD-4596). Per-seed rows (steps, ok, failStep, change, diff, kernel
+  finding, consumed stream events per touched row) in
+  `harness/browser/results/mobx-write-truth-gate-1x-20x300.json`.
+  An earlier 20 × 300 reached 16/20 before four tail-step membership
+  failures (seeds 7/9/11/19: supersede-step mark-reads the arm appended but
+  the oracle never learned); fixed by feeding supersede-step edits as
+  intents, proven by targeted 300-step re-runs of seeds 7–11 and 19.
 - TTL expiry has the `expire()` API but no gate exercise (the kernel's
   awaiting-truth expiry runs on the wall clock, which the gate does not
   drive); reference-log level is covered by L1c.
