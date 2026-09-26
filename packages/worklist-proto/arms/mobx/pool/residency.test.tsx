@@ -208,10 +208,14 @@ describe('bootstrap', () => {
     // Mb1 (POD-4569): the visible collection answers every cold row's
     // visibility by reading it once by id through the feed; none is loaded
     // (no slot, no model, no request above), and no hot row is read that way.
+    // POD-4705: lazy nodes read only the cold rows in the closure (ancestors
+    // the nest walk passes through, formal descendants the progress counts),
+    // never every cold row — still none loaded, still none hot.
     expect(r.loads.filter((key) => !isColdKey(pool, key))).toEqual([])
-    expect(new Set(r.loads.filter((key) => key.startsWith('issue:'))).size).toBe(
-      corpus.sliceIssues.length - hotIssues.length,
-    )
+    const coldIssueLoads = new Set(r.loads.filter((key) => key.startsWith('issue:')))
+    expect(coldIssueLoads.size).toBeGreaterThan(0)
+    expect(coldIssueLoads.size).toBeLessThan(corpus.sliceIssues.length - hotIssues.length)
+    for (const key of coldIssueLoads) expect(isColdKey(pool, key)).toBe(true)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
 
     // The same bootstrap with every row resident (the Ma2 pool), for the record.
