@@ -107,9 +107,9 @@ async function settleStep(
 ): Promise<void> {
   await macrotask()
   run.feed().flush()
-  await handle.settleLoads()
+  await handle.settleLoads?.()
   run.feed().flush()
-  const pending = handle.pendingLoads()
+  const pending = handle.pendingLoads?.() ?? 0
   if (pending > 0) {
     throw new InstrumentError(
       `arm loads never settled (pendingLoads=${pending}): refusing to compare on stale state`,
