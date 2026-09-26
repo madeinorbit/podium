@@ -145,8 +145,10 @@ export interface HandWriteApi {
    * row's current server values passed through `log.remote` so a pre-reload
    * echo settles there. Server rows come from the FEED source, not the pool
    * tables, so reload priors and ackBases agree exactly with what the
-   * optimism-aware rebuild derives from. Unknown rows and non-slice entries
-   * are skipped. Idempotent: re-running it settles nothing new.
+   * optimism-aware rebuild derives from. Cold rows are materialised first
+   * (W1.2 parity: the pre-reload edit made them resident, so the pre-reload
+   * live showed them). Unknown rows and non-slice entries are skipped.
+   * Idempotent: re-running it settles nothing new.
    */
   bootstrap(source: RowSource): { applied: number; skipped: number }
   /**
@@ -334,6 +336,17 @@ export function createHandWriteApi(
         }
         const server = feedRows.get(mapped.id)
         if (server === undefined) {
+          skipped += 1
+          continue
+        }
+        // W11 parity with W1.2: the pre-reload edit materialised this row, so
+        // the pre-reload live showed it. Re-materialise cold rows here, or the
+        // live pool hides a row the optimism-aware rebuild (feed rows plus the
+        // re-applied pending display) shows — a live-vs-rebuild divergence on
+        // the first step after every reload with a pending cold-row edit.
+        try {
+          ensureResident(mapped.kind, mapped.id)
+        } catch {
           skipped += 1
           continue
         }

@@ -448,12 +448,20 @@ async function runGateSeed(
   let oracleFailed = 0
   let healed = 0
   const failedSteps: number[] = []
+  // checkArm re-runs the sequence (dense re-run, shrink candidates, replay)
+  // through fresh GenRuns that share this adapter and oracle. Only the first
+  // run is the gate's own: counting or feeding any later one would mix
+  // shrink artifacts into this seed's row (steps, checks, consumed events).
+  // The verdict never depends on this hook — checkArm compares internally.
+  let mainRun: unknown = null
   const result = await checkArm(gapped(arm, gap, oracle), sequence, {
     mode: 'truth',
     oracleEvery: 0,
     maxShrinkRuns: SHRINK_RUNS,
     editViaArm: adapter.editHook,
     onStep: async (step, run, handle) => {
+      if (mainRun === null) mainRun = run
+      if (run !== mainRun) return
       adapter.pairFromStep(step.detail ?? {})
       feedStep(oracle, step, run)
       const last = step.index === sequence.length - 1
