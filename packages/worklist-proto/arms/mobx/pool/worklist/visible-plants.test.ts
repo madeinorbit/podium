@@ -10,14 +10,16 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { createEngineLocals } from '../../../../harness/src/engine-locals'
 import { parityLocals } from '../../../../harness/src/fence-scenarios'
 import {
   legacyDerivationFromStore,
   visibleIssueRows,
 } from '../../../../harness/src/oracle/index'
 import type { CheckableArm } from '../../../../shared/src/arm'
-import { gen } from '../../../../shared/src/gen/changes'
+import { type Change, gen } from '../../../../shared/src/gen/changes'
 import { checkArm } from '../../../../shared/src/gen/check'
+import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
@@ -147,7 +149,69 @@ async function expectPlant(
   }
 }
 
-function patchGetter(name: 'keeps' | 'laneMemberIds' | 'nestParent', get: (this: IssueNode) => unknown): () => void {
+/**
+ * Drive `sequence` on a fresh engine with the live pool held to the legacy
+ * oracle after every step, collecting every divergence. Unlike `checkArm`
+ * this never compares with the pool's rebuild: the prototype patch plants
+ * the live nodes only, so a live-vs-rebuild check would fire on rollup
+ * fields wherever an R3 session overlaps an explicit one, masking the
+ * oracle comparison this test is about. A `refresh` re-creates the arm over
+ * the new feed, as `checkArm` does.
+ */
+async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> {
+  const log: string[] = []
+  let compared = 0
+  const run = await startGenRun({ feedMode: 'overlaid' })
+  try {
+    let feed = run.feed()
+    let locals = createEngineLocals(run.ctx.engine)
+    const observed = (handle: { snapshot(): unknown }): void => {
+      locals.flush()
+      const settled = handle.snapshot() as {
+        rowsById: Record<string, unknown>
+      }
+      const coarseNow = parityLocals(run.ctx).coarseNow
+      const derivation = legacyDerivationFromStore(run.ctx.engine.getSnapshot(), coarseNow)
+      const expected: string[] = visibleIssueRows(derivation, parityLocals(run.ctx)).map(
+        (row) => row.issue.id,
+      )
+      const have = new Set(Object.keys(settled.rowsById))
+      const want = new Set(expected)
+      compared += 1
+      const missing = expected.filter((id) => !have.has(id))
+      const extra = [...have].filter((id) => !want.has(id))
+      if (missing.length > 0 || extra.length > 0) {
+        log.push(
+          `snapshot ${compared}: missing [${missing.slice(0, 8).join(', ')}], ` +
+            `extra [${extra.slice(0, 8).join(', ')}]`,
+        )
+      }
+    }
+    let handle = mobxPoolArm.create(feed.source, locals.source)
+    try {
+      observed(handle)
+      for (const change of sequence) {
+        await run.apply(change)
+        if (run.feed() !== feed) {
+          handle.dispose()
+          locals.dispose()
+          feed = run.feed()
+          locals = createEngineLocals(run.ctx.engine)
+          handle = mobxPoolArm.create(feed.source, locals.source)
+        }
+        observed(handle)
+      }
+    } finally {
+      handle.dispose()
+      locals.dispose()
+    }
+  } finally {
+    run.dispose()
+  }
+  return log
+}
+
+function patchGetter(name: 'keeps' | 'memberIds' | 'nestParent', get: (this: IssueNode) => unknown): () => void {
   const descriptor = Object.getOwnPropertyDescriptor(IssueNode.prototype, name)
   if (descriptor?.get === undefined) throw new Error(`[plants] no getter ${name} on IssueNode`)
   Object.defineProperty(IssueNode.prototype, name, { get: get as never, configurable: true })
@@ -170,14 +234,25 @@ describe('visibility plants against the oracle (POD-4681)', () => {
   }, GATE_TIMEOUT_MS)
 
   it('plant no R3 members fails every seed', async () => {
-    const restore = patchGetter('laneMemberIds', function (this: IssueNode) {
-      return []
+    // Planted at the `memberIds` composition point (R2 only, the lane's R3
+    // part dropped), mirroring the hand arm's plant line for line. Driven
+    // without the rebuild comparison (see `collectOracleLog`): the shape's
+    // row must be missing from snapshot 11 on every seed.
+    const restore = patchGetter('memberIds', function (this: IssueNode) {
+      return this.seatIds
     })
-    await expectPlant(
-      () => {},
-      restore,
-      { snapshot: 11, missing: 'i-g4', extra: '' },
-    )
+    try {
+      for (const seed of SEEDS) {
+        const log = (await collectOracleLog(gen(seed, STEPS))).join('\n')
+        expect(log, `seed ${seed}: plant not caught`).not.toBe('')
+        if (seed === FIRST_SEED) {
+          expect(log).toContain('snapshot 11')
+          expect(log).toContain('i-g4')
+        }
+      }
+    } finally {
+      restore()
+    }
   }, GATE_TIMEOUT_MS)
 
   it('plant draft vessel ignored fails every seed', async () => {
