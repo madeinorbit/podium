@@ -81,8 +81,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes || 20 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       - uses: oven-sh/setup-bun@v2
@@ -124,7 +124,7 @@ jobs:
           mkdir -p "$EXPERIMENT_OUT"
           bun "$dir/run.ts" 2>&1 | tee "$EXPERIMENT_OUT/run.log"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: experiment-${{ inputs.experiment }}-${{ matrix.label }}
