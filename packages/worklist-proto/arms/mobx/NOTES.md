@@ -1428,3 +1428,17 @@ as Mb4's mb4-life for direct comparison. entries.test.ts green at SHA.
 
 Open: bench:flatblock held by coordinator session with POD-4694 queued;
 mailed POD-4286 for MobX-first ordering per the addendum.
+
+### Mc3 matrix launch
+
+- Coordinator reply: MobX goes first; its verification suite holds
+  bench:flatblock (~2 h from 13:20 UTC). Matrix launched in background with
+  per-invocation `--wait` acquires (tag mc3-life, same shape as Mb4 mb4-life);
+  queue position #1 held by this session. 4694 re-queues behind.
+- Process hygiene: a background matrix launched in a tool call that then
+  blocks (sleep/tail/status) dies with the call's process group. Launch with
+  `setsid nohup ... &` in a fast-returning call. First-paint outside-counts
+  running locally in background the same way.
+- Attribution in hand: bootstrap spy counts at 6eda2826e (lazy 212,855
+  observables at 1x, 73.2% IssueNode = one node + 4 firing reactions per
+  KNOWN issue at every `replace`, cold ones included).
