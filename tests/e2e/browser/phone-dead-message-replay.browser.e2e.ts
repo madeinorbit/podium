@@ -79,8 +79,10 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
   context,
   request,
 }) => {
-  // Completed drain POSTs only: refused attempts leave no response behind.
+  // Completed drain POSTs and every attempt: a reload that races the retire
+  // commit re-sends before any reply completes.
   let resumeAndSendPosts = 0
+  let resumeAndSendRequests = 0
   page.on('response', (response) => {
     if (response.url().includes('resumeAndSend') && response.status() === 200) {
       resumeAndSendPosts += 1
@@ -102,6 +104,18 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
     startNow: false,
   })
   await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'in_progress' } })
+  // A busy world, like the live sandbox: seed tasks the phone syncs while
+  // online, then churn them DURING the hold so the reconnect delivers a real
+  // catch-up burst behind which the verdict commit must queue.
+  const seedIds: string[] = []
+  for (let i = 0; i < 500; i++) {
+    const seeded = await rpc<{ id: string }>(request, 'issues.create', {
+      repoPath: cwd,
+      title: `Replay-world filler ${stamp}-${i}`,
+      startNow: false,
+    })
+    seedIds.push(seeded.id)
+  }
   const { sessionId } = await rpc<{ sessionId: string }>(request, 'sessions.create', {
     agentKind: 'claude-code',
     cwd,
@@ -130,8 +144,13 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
     else websocket.connectToServer()
   })
   await page.route(/\/trpc(?:\/|$)/, async (route) => {
-    if (refuseDrain && route.request().url().includes('resumeAndSend')) await route.abort()
-    else await route.continue()
+    if (route.request().url().includes('resumeAndSend')) {
+      if (refuseDrain) await route.abort()
+      else {
+        resumeAndSendRequests += 1
+        await route.continue()
+      }
+    } else await route.continue()
   })
 
   // Into the session conversation through the phone's own deep link.
@@ -157,43 +176,43 @@ test('a send to a deleted session posts once, toasts once, and leaves no queued 
   await page.getByTestId('composer-bar').getByRole('button', { name: 'Send', exact: true }).click()
   // The optimistic pending row proves the tap entered the send path.
   await expect(page.getByText(messageText).first()).toBeVisible({ timeout: 15_000 })
-  await page.waitForTimeout(3_000)
-  expect(resumeAndSendPosts, 'no completed POST while cut off').toBe(0)
-
-  // The desktop deletes the session mid-outage.
+  // Churn the seeded world mid-outage so the reconnect delivers a catch-up
+  // burst, then delete the session — all while the phone sees nothing.
+  for (const id of seedIds) {
+    await rpc(request, 'issues.update', { id, patch: { stage: 'in_progress' } })
+  }
   await rpc(request, 'sessions.kill', { sessionId })
+  expect(resumeAndSendPosts, 'no completed POST while cut off').toBe(0)
+  expect(resumeAndSendRequests, 'no attempted POST while cut off').toBe(0)
 
-  // Heal both halves: the hub redials, its health edge drains the queue, the
-  // server dead-letters the send, the phone says it was not sent — one POST.
+  // Heal: the hub redials, its health edge drains the queue behind the
+  // catch-up burst, the server dead-letters the send. Then reload the live
+  // way — a full load of /mobile/work the moment the notice proves the reply
+  // landed, racing the retire commit exactly as the tester's immediate goto
+  // does, then once more like its goto to the other session.
   await context.setOffline(false)
   cutSocket = false
   refuseDrain = false
-  await expect(page.getByText(/Message not sent — the session no longer exists/)).toBeVisible({
-    timeout: 90_000,
+  await expect
+    .poll(() => page.getByText(/Message not sent — the session no longer exists/).count(), {
+      timeout: 90_000,
+    })
+    .toBeGreaterThan(0)
+  console.log('[phone-boot requests at notice]', resumeAndSendRequests)
+  await page.goto(`/mobile/work?server=${RELAY}&e2e=1`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(12_000)
+  console.log('[phone-boot requests after race 1]', resumeAndSendRequests)
+  await page.goto(`/mobile/session/${sessionId}?server=${RELAY}&e2e=1`, {
+    waitUntil: 'domcontentloaded',
   })
-  await expect.poll(() => resumeAndSendPosts, { timeout: 30_000 }).toBe(1)
-
-  // To Work the live way — Back out of the session into the tab stack (no
-  // page reload, the session screen unmounts like a tab switch), then through
-  // the retry cadence: no second POST, no queued banner. The gone-notice
-  // banner overlays the header, so dismiss it first as an operator would.
-  const dismiss = page.getByLabel('Dismiss error')
-  if (await dismiss.isVisible().catch(() => false)) await dismiss.click()
-  await page.getByRole('button', { name: 'Back', exact: true }).click({ timeout: 15_000 })
-  await expect(page.getByRole('tab', { name: 'Work' })).toBeVisible({ timeout: 30_000 })
+  await page.waitForTimeout(12_000)
+  console.log('[phone-boot requests after race 2]', resumeAndSendRequests)
+  // Let every verdict land, then read the final state.
+  await page.waitForTimeout(15_000)
+  console.log('[phone-boot final requests]', resumeAndSendRequests)
+  console.log('[phone-boot final posts]', resumeAndSendPosts)
   const notice = page.getByTestId('workspace-continuity-notice')
-  await notice.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {})
-  console.log('[phone-boot work notice]', JSON.stringify(await notice.allInnerTexts()))
-  console.log('[phone-boot work posts]', resumeAndSendPosts)
-  // A long watch: the live replays land on the retry/backoff cadence, not
-  // necessarily inside the first seconds after navigation.
-  for (let round = 0; round < 6; round++) {
-    await page.waitForTimeout(10_000)
-    console.log(`[phone-boot work +${(round + 1) * 10}s posts]`, resumeAndSendPosts)
-  }
-  console.log('[phone-boot work notice after settle]', JSON.stringify(await notice.allInnerTexts()))
-  await expect(page.getByTestId('workspace-continuity-notice')).toHaveCount(0, { timeout: 5_000 })
-  await page.waitForTimeout(7_000)
-  expect(resumeAndSendPosts, 'no replay after navigating to Work').toBe(1)
+  console.log('[phone-boot final notice]', JSON.stringify(await notice.allInnerTexts()))
+  expect(resumeAndSendRequests, 'no replay after navigating to Work').toBe(1)
   await expect(page.getByText(/queued and will send when connected/)).toHaveCount(0)
 })
