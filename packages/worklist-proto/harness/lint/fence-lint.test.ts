@@ -5,9 +5,11 @@
  *
  * Every rule fires on a planted file and stays quiet on its clean twin, at the
  * same path in the fixture arm (`fixtures/arms/planted/`, which lints clean as
- * a whole). The real config over the real `arms/` lints clean, and plants into
+ * a whole). The real configs over the real `arms/` lint clean, and plants into
  * a real folder fire through the real config — so the rules the package's
- * `lint` script runs are the ones proven here.
+ * `lint` script runs are the ones proven here. That script runs two configs:
+ * `eslint.config.mjs` over `arms/` and `arms/mobx/eslint.config.mjs` over
+ * `arms/mobx`; the suite runs both, each over its real folder.
  */
 import { join } from 'node:path'
 import { ESLint } from 'eslint'
@@ -28,6 +30,10 @@ const fixtureLint = new ESLint({
 const realLint = new ESLint({
   cwd: PACKAGE_DIR,
   overrideConfigFile: join(PACKAGE_DIR, 'eslint.config.mjs'),
+})
+const realMobxLint = new ESLint({
+  cwd: PACKAGE_DIR,
+  overrideConfigFile: join(PACKAGE_DIR, 'arms/mobx/eslint.config.mjs'),
 })
 
 async function problems(code: string, filePath: string, eslint = fixtureLint): Promise<string[]> {
@@ -76,6 +82,16 @@ describe('clean', () => {
 
   it('the real arms lint clean through the package config', async () => {
     const results = await realLint.lintFiles(['arms/**/*.{ts,tsx}'])
+    expect(results.length).toBeGreaterThan(20)
+    expect(
+      results.flatMap((result) =>
+        result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`),
+      ),
+    ).toEqual([])
+  })
+
+  it('the MobX arm lints clean through the MobX config', async () => {
+    const results = await realMobxLint.lintFiles(['arms/mobx/**/*.{ts,tsx}'])
     expect(results.length).toBeGreaterThan(20)
     expect(
       results.flatMap((result) =>

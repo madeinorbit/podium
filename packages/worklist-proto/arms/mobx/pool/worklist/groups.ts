@@ -388,7 +388,7 @@ export class WorklistGroups {
       deep: false,
       name: 'pool.groups.pinned',
     })
-    makeObservable<WorklistGroups, 'nodes' | 'filed' | 'buckets' | 'pinnedSet' | 'host'>(this, {
+    makeObservable<WorklistGroups, 'nodes' | 'filed' | 'buckets' | 'pinnedSet' | 'host' | 'unfile' | 'enfile' | 'count'>(this, {
       nodes: false,
       filed: false,
       buckets: false,
@@ -405,6 +405,11 @@ export class WorklistGroups {
       file: false,
       group: false,
       clear: false,
+      // Plain imperative helpers inside file()'s action context: they mutate
+      // the filed buckets/sets and counters but are never observed directly.
+      unfile: false,
+      enfile: false,
+      count: false,
     })
   }
 
