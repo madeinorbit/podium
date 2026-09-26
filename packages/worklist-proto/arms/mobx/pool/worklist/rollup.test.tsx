@@ -573,8 +573,10 @@ describe('row roll-ups (Mb3)', () => {
         const row = snapshot.rowsById[rootId]
         if (row === undefined) continue
         checked += 1
+        // POD-4705: a hidden child outside the closure holds no node; no
+        // node reads as hidden (never present), the same precondition.
         expect(
-          tracked(() => handle.pool.worklist.issue(childId)?.present),
+          tracked(() => handle.pool.worklist.issue(childId)?.present ?? false),
           childId,
         ).toBe(false)
         expect(row.asking, `${rootId}: asking`).toBe((oracle[rootId] as RowView).asking)
