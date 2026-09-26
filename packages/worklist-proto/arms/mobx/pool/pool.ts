@@ -80,7 +80,12 @@ import type { RepoRow, ViewInputs } from './views'
 import { sliceOrderOf, WorklistGroups } from './worklist/groups'
 import { LOADING, type Loaded } from './worklist/rollup'
 import {
+  directNested,
+  directSessionVisibility,
+  directVisibility,
+  type IssueVisibility,
   readAtOf,
+  type SessionVisibility,
   VisibleCollection,
   type VisibleCounters,
   type VisibleInputs,
@@ -660,9 +665,189 @@ export class MobxPool {
   }
 
   /**
+   * POD-4705 — the visibility parts over plain reads (call only inside an
+   * action, where reads subscribe to nothing): the same part functions the
+   * live nodes memoize (`directVisibility`), evaluated without building a
+   * node, a reaction or a fence count. Hot rows come from the raw tables,
+   * cold ones by id through the feed (as the live `coldRow` does, but
+   * unfenced); relations come from the raw engine; the read-state lane and
+   * the clock read as plain values. Sessions memoize as plain parts (the
+   * live pool builds their nodes on first access instead).
+   *
+   * `nested` is real when the caller passes the known ids (a `replace`'s one
+   * sanctioned walk) and a loud stub otherwise: the closure reads only
+   * standing/visible/present/keeps/nestParent/childIds, none of which reaches
+   * the nest index, so a read there means the read set grew and the scope
+   * must grow with it. `formalChildren` answers from the engine's own
+   * children (what the live filing mirrors); `seats` is unused since
+   * POD-4678 item 2 (`seatIdsPartOf` reads the maintained list).
+   */
+  private plainScope(knownIds: readonly string[] | null): {
+    readonly partsOf: (id: string) => IssueVisibility
+  } {
+    const memo = new Map<string, IssueVisibility>()
+    const sessionMemo = new Map<string, SessionVisibility>()
+    const partsOf = (id: string): IssueVisibility => directVisibility(plain, id, memo)
+    let nested: ReadonlyMap<string, readonly string[]> | null = null
+    const rawRelations: RelationReader = {
+      one: (from, id, relation) => this.rawOne(from, id, relation),
+      many: (from, id, relation) => this.rawMany(from, id, relation),
+      size: (from, id, relation) => this.rawMany(from, id, relation).length,
+    }
+    const plain: VisibleInputs = {
+      relations: rawRelations,
+      issueRow: (id) =>
+        (this.tables.issue.get(id) ?? this.residency?.read('issue', id)) as
+          | SliceIssue
+          | undefined,
+      sessionRow: (id) =>
+        (this.tables.session.get(id) ?? this.residency?.read('session', id)) as
+          | SliceSession
+          | undefined,
+      issue: (id) => (this.knows(id) ? partsOf(id) : undefined),
+      session: (id) => {
+        let parts = sessionMemo.get(id)
+        if (parts === undefined) {
+          parts = directSessionVisibility(plain, id)
+          sessionMemo.set(id, parts)
+        }
+        return parts
+      },
+      issueRead: (id) => this.readStates.get(id),
+      passed: (t) => this.clock.passed(t),
+      reached: (t) => this.clock.reached(t),
+      loadedIssue: (id) => {
+        const row = this.tables.issue.get(id)
+        if (row !== undefined) return row as SliceIssue
+        return this.residency?.isCold('issue', id) === true ? LOADING : undefined
+      },
+      loadedSession: (id) => {
+        const row = this.tables.session.get(id)
+        if (row !== undefined) return row as SliceSession
+        return this.residency?.isCold('session', id) === true ? LOADING : undefined
+      },
+      progressFacts: (id) => plain.issueRow(id),
+      nested: (id) => {
+        if (knownIds === null) {
+          throw new Error('[pool] plain pass read the nest index on a per-change scope')
+        }
+        nested ??= directNested(knownIds, partsOf)
+        return nested.get(id) ?? []
+      },
+      formalChildren: (id) => partsOf(id).childIds,
+      seats: () => [],
+      seatList: (id) => this.inputs.seatList(id),
+      counted: () => {},
+    }
+    return { partsOf }
+  }
+
+  /**
+   * POD-4705 — expand `roots` to the lazy node closure (call in-action):
+   * each root's ancestor chain with its started-by owners, then every formal
+   * subtree under the union. Ancestors are noded even when cold: the nest
+   * walk passes THROUGH a hidden parent to the grandparent, so a missing
+   * node would stop it early. Formal descendants are noded even when hidden:
+   * the parent's progress composes over their cached units. Hot rows are
+   * read plain through `partsOf` (raw tables, free); cold rows cost a feed
+   * read per row, so the walk reads no cold row at all — cold members are
+   * hidden by rule (no nest parent, no standing needed) and their children
+   * come from the engine alone. No table walk, no observable built.
+   */
+  private expandClosure(
+    roots: Iterable<string>,
+    partsOf: (id: string) => IssueVisibility,
+  ): Set<string> {
+    const closure = new Set<string>()
+    const queue: string[] = []
+    const visit = (id: string): void => {
+      if (closure.has(id) || !this.knows(id)) return
+      closure.add(id)
+      queue.push(id)
+    }
+    const isColdIssue = (id: string): boolean => this.residency?.isCold('issue', id) === true
+    for (const id of roots) visit(id)
+    for (let head = 0; head < queue.length; head += 1) {
+      const id = queue[head] as string
+      // Getters are lazy: touching `standing` reads exactly one row (raw
+      // when hot, one feed read when cold), never the whole parts object.
+      const parent = partsOf(id).standing?.parentId
+      if (parent != null) visit(parent)
+      // Cold members are hidden by rule, so they nest under nothing: only
+      // hot members contribute a started-by owner to the closure.
+      if (!isColdIssue(id)) {
+        const nest = partsOf(id).nestParent
+        if (nest !== null) visit(nest)
+      }
+    }
+    const below: string[] = [...closure]
+    for (let head = 0; head < below.length; head += 1) {
+      const id = below[head] as string
+      for (const child of this.rawMany('issue', id, 'children')) {
+        if (!closure.has(child) && this.knows(child)) {
+          closure.add(child)
+          below.push(child)
+        }
+      }
+    }
+    return closure
+  }
+
+  /**
+   * POD-4705 — the engine without the fence (call only inside an action):
+   * what `one`/`many` answer before their presence probes, residency
+   * observations and fence counts. Maintenance (the closure expansion and
+   * the linked-issue lookup) resolves through it and filters by the pool's
+   * own knowledge; derivations keep reading the fenced relations. `members`
+   * is the engine's own maintenance reader (raw buckets plus the twins,
+   * post-flush exactly the maintained sets).
+   */
+  private rawOne(from: EntityName, id: string, relation: string): string | null {
+    const target = this.graph.forwardTarget(from, id, relation)
+    if (target === null) return null
+    const to = this.graph.schema[from].relations[relation]?.to
+    if (to === undefined) return null
+    const resident = !this.residencyCapable(to) || this.tables[to].has(target)
+    return resident ? target : null
+  }
+
+  /** Whether rows of `entity` can be cold (fence-free; `residency.capable`). */
+  private residencyCapable(entity: EntityName): boolean {
+    return this.residency?.capable(entity) === true
+  }
+
+  /** The engine's buckets without the fence (maintenance only, post-flush). */
+  private rawMany(from: EntityName, id: string, relation: string): readonly string[] {
+    return this.graph.members(from, id, relation)
+  }
+
+  /**
+   * The issues a changed session can show (call in-action, post-flush): its
+   * explicit owner and every issue checked out at its lane. Answered through
+   * the raw engine without walking anything or counting a read.
+   */
+  private sessionLinkedIssues(sessionId: string): string[] {
+    const linked = new Set<string>()
+    const explicit = this.rawOne('session', sessionId, 'issue')
+    if (explicit !== null && this.knows(explicit)) linked.add(explicit)
+    const lane = this.rawOne('session', sessionId, 'worktree')
+    if (lane !== null) {
+      for (const issueId of this.rawMany('worktree', lane, 'issues')) {
+        if (this.knows(issueId)) linked.add(issueId)
+      }
+    }
+    return [...linked]
+  }
+
+  /**
    * Close the load window now: install every queued cold row, read by id
    * through the feed, in ONE action. The window's timer calls this; so does
    * `snapshot()` while settling.
+   *
+   * POD-4705: warming installs the feed's current value, which is what the
+   * cold reads already answered, so no visibility flips here and no node
+   * work follows. A row a change shows is warmed synchronously inside that
+   * change's action (`apply`), where the closure covers it.
    */
   hydrate(): void {
     const residency = this.residency
@@ -725,27 +910,87 @@ export class MobxPool {
   }
 
   /**
-   * The visible collection's nodes follow the issues the event named (all of
-   * them at a `replace`: the one whole walk, `knownIssueIds`); a removed
-   * session drops its node. Inside the event's action.
+   * The visible collection's nodes follow the event (inside its action).
+   * - a `replace` re-seeds them to the lazy closure: the plain pass
+   *   evaluates every known issue (the one whole walk, `knownIssueIds`) and
+   *   nodes the visible, present and keeping rows with their ancestors and
+   *   formal subtrees — the only rows a derivation can read.
+   * - an update ensures the closure over what it named: the issues, the
+   *   issues a touched session can show (explicit owner, lane), and the lane
+   *   of a touched worktree. Cold seeds stay out (a cold row is hidden by
+   *   rule; warming makes it resident first, which re-includes it);
+   *   removals only hide. A removed session drops its node; a removed issue
+   *   leaves through `ensure`'s known check.
    */
   private syncWorklist(event: RowSourceEvent): void {
     const knows = (id: string) => this.knows(id)
     if (event.type === 'replace') {
-      this.worklist.sync([...this.worklist.heldIds(), ...knownIssueIds(this)], knows)
+      const knownIds = knownIssueIds(this)
+      const { partsOf } = this.plainScope(knownIds)
+      const roots = new Set<string>()
+      for (const id of knownIds) {
+        const parts = partsOf(id)
+        if (parts.visible || parts.present || parts.keeps) roots.add(id)
+      }
+      this.worklist.syncReplace(this.expandClosure(roots, partsOf), knows)
       this.worklist.forgetSessions(
         (id) => this.tables.session.has(id) || this.residency?.isCold('session', id) === true,
       )
       return
     }
-    const issues: string[] = []
+    const isColdIssue = (id: string): boolean => this.residency?.isCold('issue', id) === true
+    // Unheld candidates: held rows keep their nodes (the live reactions
+    // follow the change by themselves, and the closure around them stays
+    // complete by induction); cold linked rows stay hidden by rule.
+    const candidates = new Set<string>()
+    const gone: string[] = []
+    const consider = (id: string): void => {
+      if (!this.worklist.has(id) && !isColdIssue(id)) candidates.add(id)
+    }
     for (const record of event.rows) {
-      if (record.kind === 'issue') issues.push(record.id)
-      else if (record.kind === 'session' && record.value === undefined) {
-        this.worklist.forgetSession(record.id)
+      if (record.kind === 'issue') {
+        if (record.value === undefined) gone.push(record.id)
+        else if (!this.worklist.has(record.id)) candidates.add(record.id)
+      } else if (record.kind === 'session') {
+        if (record.value === undefined) {
+          this.worklist.forgetSession(record.id)
+        } else {
+          for (const issueId of this.sessionLinkedIssues(record.id)) consider(issueId)
+        }
+      } else if (record.kind === 'worktree' && record.value !== undefined) {
+        for (const issueId of this.rawMany('worktree', record.id, 'issues')) {
+          consider(issueId)
+        }
       }
     }
-    if (issues.length > 0) this.worklist.sync(issues, knows)
+    if (candidates.size === 0) {
+      if (gone.length > 0) this.worklist.ensure(gone, knows)
+      return
+    }
+    const { partsOf } = this.plainScope(null)
+    // An unheld candidate earns a node when the plain pass shows it
+    // (visible, present or keeping) or when its FORMAL parent holds one: a
+    // hidden child reparented under — or re-added below — a held parent must
+    // file its keeps and carry the nest walk past itself. The check is the
+    // where-filtered formal parent (what the filing files), not the raw one:
+    // an archived row names a raw parent it never files under. Anything else
+    // has no held reader, so building it would only commit filings.
+    const roots = new Set<string>()
+    for (const id of candidates) {
+      const parts = partsOf(id)
+      const parent = parts.formalParent
+      if (
+        parts.visible ||
+        parts.present ||
+        parts.keeps ||
+        (parent !== null && this.worklist.has(parent))
+      ) {
+        roots.add(id)
+      }
+    }
+    if (roots.size === 0) return
+    this.worklist.ensure(this.expandClosure(roots, partsOf), knows)
+    if (gone.length > 0) this.worklist.ensure(gone, knows)
   }
 
   /** One locals notification, one action: only the keys it names. */

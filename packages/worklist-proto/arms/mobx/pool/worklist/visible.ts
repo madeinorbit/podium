@@ -55,13 +55,22 @@
  * - `visible` = `present && placed`.
  * - `rank`: L1b `rankOf` over the own row (read by the order only).
  *
- * THE COLLECTION IS MAINTAINED, NOT RE-ENUMERATED. Every KNOWN issue (hot or
- * cold) has a node and one reaction on its `visible`, which adds or deletes
- * its id in one observable set. Nodes are created and disposed per changed
- * issue record (`sync`); the only whole-table walk is `enumerate.ts`
- * `knownIssueIds`, at a `replace`. So a membership change costs its own
- * node's parts, never the table (a computed re-enumerating the table would
- * count every id on every flip: POD-4621's `keys()` reads).
+ * THE COLLECTION IS MAINTAINED, NOT RE-ENUMERATED. Every issue with a node
+ * (POD-4705: the lazy closure — visible, present and keeping rows, their
+ * ancestors, and their formal subtrees — not every known issue) holds one
+ * reaction on its `visible`, which adds or deletes its id in one observable
+ * set. A row without a node reads as hidden and keeping nothing, which the
+ * closure guarantees by construction (the plain pass evaluates every known
+ * issue, so anything present or keeping is in the closure). Nodes are created
+ * and disposed per changed issue record (`ensure`); the only whole-table walk
+ * is `enumerate.ts` `knownIssueIds`, at a `replace`. So a membership change
+ * costs its own node's parts, never the table (a computed re-enumerating the
+ * table would count every id on every flip: POD-4621's `keys()` reads).
+ *
+ * CROSS-NODE READS STAY TRACKED. A part that looks up another issue's node
+ * reads the nodes map's slot for that id, so creating the node later
+ * re-runs the reader: a parent whose child had no node re-reads the child's
+ * `keeps` once the child is ensured, and likewise up the nest chain.
  *
  * THE ORDER is a computed over the set: the visible ids sorted by each node's
  * cached `rank` (`compareRank`). It re-runs when membership changes or a
@@ -892,7 +901,7 @@ export interface VisibleHost {
 
 /** The collection's own counters (`MobxPool.stats.counters` carries them). */
 export interface VisibleCounters {
-  /** Issue nodes built (one per known issue, hot or cold). */
+  /** Issue nodes built (POD-4705: the lazy closure, not one per known issue). */
   issueNodes: number
   /** Session nodes built (first access). */
   sessionNodes: number
@@ -1279,65 +1288,90 @@ export class VisibleCollection {
     return node
   }
 
+  /** Build one issue's node and its four reactions (call inside an action). */
+  private add(id: string): void {
+    const node = new IssueNode(id, this.host)
+    const counters = this.host.counters
+    const stop = reaction(
+      () => node.visible,
+      (visible) => {
+        if (visible === this.ids.has(id)) return
+        if (visible) this.ids.add(id)
+        else this.ids.delete(id)
+        counters.membershipFlips += 1
+      },
+      { fireImmediately: true, name: `pool.visible.${id}` },
+    )
+    const stopNest = reaction(
+      () => node.nestParent,
+      (parent) => this.file('nested', id, parent),
+      { fireImmediately: true, name: `pool.nested.${id}` },
+    )
+    const stopFormal = reaction(
+      () => node.formalParent,
+      (parent) => this.file('formal', id, parent),
+      { fireImmediately: true, name: `pool.children.${id}` },
+    )
+    // POD-4686: the layout filing. Visible rows file their placement; an
+    // invisible row files nothing, so the groups hold exactly the visible
+    // set without ever enumerating it. `placement` is structural, so a
+    // mark-read (read-state lane only) never fires this.
+    const stopLayout = reaction(
+      () => (node.visible ? node.placement : undefined),
+      (placement) => this.host.filePlacement(id, placement),
+      { fireImmediately: true, name: `pool.layout.${id}` },
+    )
+    this.nodes.set(id, node)
+    this.stops.set(id, () => {
+      stop()
+      stopNest()
+      stopFormal()
+      stopLayout()
+    })
+    counters.issueNodes += 1
+  }
+
+  /** Drop one issue's node and reactions and leave every filing (call inside an action). */
+  private drop(id: string): void {
+    const held = this.stops.get(id)
+    if (held === undefined) return
+    held()
+    this.stops.delete(id)
+    this.nodes.delete(id)
+    this.file('nested', id, null)
+    this.file('formal', id, null)
+    this.host.filePlacement(id, undefined)
+    if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
+  }
+
   /**
-   * Bring the nodes in line with whether each named issue is known (call
+   * Bring the named issues' nodes in line with whether each is known (call
    * inside the action that changed it): a newly known issue gets its node and
-   * reaction, a gone one loses both and leaves the set.
+   * reactions, a gone one loses both and leaves the set. Held nodes NOT named
+   * are left alone: an update keeps what it has.
    */
-  sync(ids: Iterable<string>, known: (id: string) => boolean): void {
+  ensure(ids: Iterable<string>, known: (id: string) => boolean): void {
     for (const id of ids) {
-      const held = this.stops.get(id)
       if (known(id)) {
-        if (held !== undefined) continue
-        const node = new IssueNode(id, this.host)
-        const counters = this.host.counters
-        const stop = reaction(
-          () => node.visible,
-          (visible) => {
-            if (visible === this.ids.has(id)) return
-            if (visible) this.ids.add(id)
-            else this.ids.delete(id)
-            counters.membershipFlips += 1
-          },
-          { fireImmediately: true, name: `pool.visible.${id}` },
-        )
-        const stopNest = reaction(
-          () => node.nestParent,
-          (parent) => this.file('nested', id, parent),
-          { fireImmediately: true, name: `pool.nested.${id}` },
-        )
-        const stopFormal = reaction(
-          () => node.formalParent,
-          (parent) => this.file('formal', id, parent),
-          { fireImmediately: true, name: `pool.children.${id}` },
-        )
-        // POD-4686: the layout filing. Visible rows file their placement; an
-        // invisible row files nothing, so the groups hold exactly the visible
-        // set without ever enumerating it. `placement` is structural, so a
-        // mark-read (read-state lane only) never fires this.
-        const stopLayout = reaction(
-          () => (node.visible ? node.placement : undefined),
-          (placement) => this.host.filePlacement(id, placement),
-          { fireImmediately: true, name: `pool.layout.${id}` },
-        )
-        this.nodes.set(id, node)
-        this.stops.set(id, () => {
-          stop()
-          stopNest()
-          stopFormal()
-          stopLayout()
-        })
-        counters.issueNodes += 1
+        if (this.stops.has(id)) continue
+        this.add(id)
         continue
       }
-      if (held === undefined) continue
-      held()
-      this.stops.delete(id)
-      this.nodes.delete(id)
-      this.file('nested', id, null)
-      this.file('formal', id, null)
-      this.host.filePlacement(id, undefined)
-      if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
+      this.drop(id)
+    }
+  }
+
+  /**
+   * POD-4705 — a `replace` re-seeds the nodes to exactly `ids` (call inside
+   * the action): the lazy closure the plain pass found, nothing else. Held
+   * nodes outside it are hidden by construction, so they leave the set (and
+   * their filings) rather than sit unobserved.
+   */
+  syncReplace(ids: Iterable<string>, known: (id: string) => boolean): void {
+    const want = new Set(ids)
+    this.ensure(want, known)
+    for (const id of [...this.stops.keys()]) {
+      if (!want.has(id)) this.drop(id)
     }
   }
 
@@ -1354,6 +1388,11 @@ export class VisibleCollection {
   /** The issue ids holding a node (a `replace` re-syncs them with the known ids). */
   heldIds(): string[] {
     return [...this.stops.keys()]
+  }
+
+  /** Whether `id` holds a node (POD-4705: the pool skips held seeds). */
+  has(id: string): boolean {
+    return this.stops.has(id)
   }
 
   /** Nodes held, per kind (tests: lifecycle). */
