@@ -47,7 +47,13 @@ export function withDeliveryQueue(
    */
   onHeldAbandoned?: (input: {
     turns: readonly HeldAbandonedTurn[]
-    reason: QueueDrainAbandonedReason
+    // The terminal family's arms only, mirroring its invariant
+    // (families/terminal/injection.ts): a queue that never got the session
+    // typeable cannot honestly report `delivery-failed` — these rows were
+    // never attempted, only waited on and then given up. Typed as an
+    // Extract so widening the wire enum can never silently widen this
+    // report; a new arm here is a conscious decision, not an accident.
+    reason: Extract<QueueDrainAbandonedReason, 'never-live' | 'teardown'>
   }) => void,
 ): AgentSessionHandle {
   type Row = {
@@ -81,7 +87,10 @@ export function withDeliveryQueue(
    * (see the terminal driver's adapter). Durable rows are the caller's to
    * filter: every call site below passes only held rows.
    */
-  function abandonHeld(held: readonly Row[], reason: QueueDrainAbandonedReason): void {
+  function abandonHeld(
+    held: readonly Row[],
+    reason: Extract<QueueDrainAbandonedReason, 'never-live' | 'teardown'>,
+  ): void {
     const turns = held.flatMap((row) =>
       row.input.id === undefined
         ? []
