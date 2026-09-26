@@ -87,16 +87,38 @@ same shape MobX closed with (1 filing + its lanes).
 Matrix: `matrix.ts --arms noop,control,hand --scales 1,2,4 --rounds 4
 --samples 5 --tag hand-4694 --host flatblock --remote-dir podium-timing-4694`
 (36 runs; remote checkout at the landed SHA with its own `.toolchain`,
-`harness/web/dist` built there). PENDING — flatblock is with Mc2
-verification; this slot queued (`bench:flatblock`, position 1).
+`harness/web/dist` built there). BLOCKED — see §6.
 
 | scenario | noop p50 1x/2x/4x | control p50 1x/2x/4x | hand p50 1x/2x/4x | excess slope | heap hand per scale |
 |---|---|---|---|---|---|
-| heartbeat | | | | | |
-| visibleHeartbeat | | | | | |
-| rename | | | | | |
-| stagemove | | | | | |
-| clock | | | | | |
-| click | | | | | |
+| heartbeat | — | — | — | — | — |
+| visibleHeartbeat | — | — | — | — | — |
+| rename | — | — | — | — | — |
+| stagemove | — | — | — | — | — |
+| clock | — | — | — | — | — |
+| click | — | — | — | — | — |
 
-Parity per run: PENDING (the matrix checks it per invocation).
+## 6. Browser parity finding (pre-existing, not this issue)
+
+The matrix refuses to time on a parity mismatch, and the hand arm mismatches
+from bootstrap on every scenario and sample: `i1026: phase arm="queued"
+oracle="waiting"; asking arm=false oracle=true` (arm snapshot `1aa2491f` vs
+oracle `9da2200d`, identical on all 36 records). The MobX arm at the same
+landed SHA passes the same probe (`parity=ok`).
+
+Control experiment at the BASE SHA (`4c45b6dd7`, pre-change, separate
+flatblock worktree + fresh install + fresh dist): the hand arm fails
+IDENTICALLY — same arm hash `1aa2491f`, same first-difference row `i1026`
+with the same field values. Nothing in this issue touches the roll-up, the
+views, residency, or loading (`git diff` base→landed is groups filing +
+order-delta plumbing + tests + this doc); the identical snapshot hashes
+confirm zero behavioral difference in the browser run.
+
+Reading: `i1026` reads `queued`/not-asking while the oracle reads
+`waiting`/asking — a cold descendant never loaded in the real browser entry
+(real 50ms load windows; the happy-dom gates settle loads manually and the
+windowed list draws ~108 of 732 rows, so an undrawn row's cold subtree never
+queues). Owning lanes: the browser entry / load-settling interaction, not
+pool layout. Filed for the coordinator to route; the re-time waits for its
+ruling (options: a) fix-forward in the owning lane, then re-run this matrix;
+b) rule the matrix with this gap named, as Mb4's allowances).
