@@ -19,7 +19,10 @@
  */
 
 import type { FixtureCorpus } from '../../../../harness/src/fixture/index'
+import type { RosterAllowances } from '../../../../harness/src/roster'
+import type { ArmHandle } from '../../../../shared/src/arm'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
+import type { HandPoolHandle } from '../arm'
 import type { HandPool } from '../pool'
 
 /** The fields the orphan's seat feeds on its issue's row. */
@@ -85,4 +88,24 @@ function same(a: unknown, b: unknown): boolean {
  */
 export function burstFamilyReads(pool: HandPool, burstIssueIds: readonly string[]): number {
   return burstIssueIds.reduce((sum, id) => sum + (pool.worklist.issue(id)?.seatIds.length ?? 0), 0)
+}
+
+/** The pool behind a roster handle (the fences create it through `handPoolArm`). */
+function poolOf(handle: ArmHandle): HandPool {
+  const pool = (handle as Partial<HandPoolHandle>).pool
+  if (pool === undefined) throw new Error('[known-gaps] not a hand pool handle')
+  return pool
+}
+
+/**
+ * POD-4694 — the page's allowances, mirroring `MOBX_POOL_ALLOWANCES`: the
+ * browser hand page (`harness/web/entries/hand.ts`) carries the pool's one
+ * named parity allowance, POD-4671's row, as the fence roster does.
+ */
+export const HAND_POOL_ALLOWANCES: RosterAllowances = {
+  parity: {
+    issue: 'POD-4671',
+    accept: (corpus, handle, expected, actual) =>
+      acceptUnscannedGap(corpus, poolOf(handle), expected, actual),
+  },
 }
