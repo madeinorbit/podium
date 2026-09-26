@@ -164,13 +164,13 @@
     "drizzle-orm": "1.0.0-rc.4",
     "happy-dom": "^20.10.2",
     "jsdom": "28.1.0",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "turbo": "^2.10.5",
     "typescript": "^7.0.2",
-    "vitest": "5.0.0-beta.6"
+    "vitest": "5.0.1"
   },
   "patchedDependencies": {
     "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch",
