@@ -711,8 +711,20 @@ export class MobxPool {
       issueRead: (id) => live.issueRead(id),
       passed: (t) => live.passed(t),
       reached: (t) => live.reached(t),
-      loadedIssue: (id) => live.loadedIssue(id),
-      loadedSession: (id) => live.loadedSession(id),
+      // Maintenance reads, never derivation access: a cold row answers its
+      // pending marker WITHOUT queuing its load (the live `loaded` queues,
+      // which would arm the window from inside the pass). Roll-up paths are
+      // unread here anyway; the rule never reaches these.
+      loadedIssue: (id) => {
+        const row = this.tables.issue.get(id)
+        if (row !== undefined) return row as SliceIssue
+        return this.residency?.isCold('issue', id) === true ? LOADING : undefined
+      },
+      loadedSession: (id) => {
+        const row = this.tables.session.get(id)
+        if (row !== undefined) return row as SliceSession
+        return this.residency?.isCold('session', id) === true ? LOADING : undefined
+      },
       progressFacts: (id) => live.progressFacts(id),
       nested: (id) => {
         if (knownIds === null) {
