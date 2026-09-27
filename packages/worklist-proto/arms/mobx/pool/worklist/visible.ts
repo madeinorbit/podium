@@ -1204,7 +1204,17 @@ export class VisibleCollection {
     })
     makeObservable<
       VisibleCollection,
-      'nodes' | 'nestedBy' | 'childrenBy' | 'stops' | 'filedUnder' | 'sessions' | 'host' | 'file'
+      | 'nodes'
+      | 'nestedBy'
+      | 'childrenBy'
+      | 'stops'
+      | 'filedUnder'
+      | 'sessions'
+      | 'host'
+      | 'file'
+      | 'ensure'
+      | 'syncReplace'
+      | 'has'
     >(this, {
       ids: false,
       nodes: false,
@@ -1220,10 +1230,12 @@ export class VisibleCollection {
       formalChildren: false,
       file: false,
       session: false,
-      sync: false,
+      ensure: false,
+      syncReplace: false,
       forgetSession: false,
       forgetSessions: false,
       heldIds: false,
+      has: false,
       size: false,
       clear: false,
     })

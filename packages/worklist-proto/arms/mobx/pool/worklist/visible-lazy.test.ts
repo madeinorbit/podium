@@ -78,7 +78,7 @@ describe('lazy visibility nodes (POD-4705)', () => {
         .snapshot('session')
         .find((record) => coldSessions.includes(record.id) && record.value !== undefined)
       expect(target, 'a cold session with a value').toBeDefined()
-      const value = target!.value as Record<string, unknown>
+      const value = target!.value as unknown as Record<string, unknown>
       const agentState = (value['agentState'] ?? {}) as Record<string, unknown>
       const phase = agentState['phase']
       // working <-> compacting: the same attention verdict either way, so no
@@ -90,7 +90,7 @@ describe('lazy visibility nodes (POD-4705)', () => {
           {
             kind: 'session',
             id: target!.id,
-            value: { ...value, agentState: { ...agentState, phase: next } },
+            value: { ...value, agentState: { ...agentState, phase: next } } as never,
           },
         ],
       })
