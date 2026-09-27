@@ -17,11 +17,17 @@
   Mechanism: pool.snapshot() walks ALL visible rows and settles the loader
   itself; native mount draws a 24-row window, so snapshot() hydrates the rest
   after settledAt. Plant passed because it draws everything (fully resident).
-- Fix (4e18e82a1): one uncounted handle.snapshot() in act before step #1 +
-  pendingLoads==0 on the real signal; step resets wipe its counters. No check
-  widened/skipped. Renderer otherwise-branch note added (test header + README).
-- Typecheck green, biome clean. Re-run requested via podium mail
-  (msg_f50aafa9, --expect-response). Awaiting coordinator output.
+## 2026-09-27 — re-run at 375757dba: same 317 (pre-settle changed nothing)
+- Coordinator reading: the 317 are CAUSED BY #1, not leftover. Suspect: native
+  list re-renders on heartbeat (fresh `data` identity per change) and RNW
+  re-batches cells reaching rows that queue loads post-settle. Ordered: count
+  list renders / cell mounts / data-identity from outside around #1 only;
+  revert quiet-round loop (Mc2); fix mount if re-render proven, with count->0
+  and a data-churn plant.
+- Fix (76d346cf3): reverted to single real-signal pre-step snapshot; added
+  temporary diag-1 test (own engine, phased write/settle/snapshot with full
+  attribution: cells, phased loads, commits, remounts, changed, order
+  stability, stats, reads, parity). Re-run requested (msg_792468a1).
 
 ## 2026-09-27 — re-run at 4e18e82a1: 725 -> 317 late (same G2 check)
 - Pre-step snapshot helped but timed cell batches (RNW VirtualizedList) keep
