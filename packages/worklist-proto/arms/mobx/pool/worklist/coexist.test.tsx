@@ -131,14 +131,15 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
     }
     const coRun = async (scenario: 'heartbeat' | 'click'): Promise<void> => {
       const ctx = await startScenarioEngine(1)
-          const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-      const locals: SliceLocals = {
-        selectedIssueId: null,
-        coarseNow: ctx.engine.getSnapshot().coarseNow,
-      }
-      const fixed = fixedLocals(locals)
-      const armMounted = mountArmForCounts(mobxPoolArm, source.source, fixed)
-      const controlMounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixed)
+      // Engine-backed locals (POD-4608): the click's selection reaches both
+      // arms through the same channel the solo runs use.
+      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const armMounted = mountArmForCounts(mobxPoolArm, feeds.rows.source, feeds.locals)
+      const controlMounted = mountArmForCounts(
+        legacyControlArmFor(ctx.engine),
+        feeds.rows.source,
+        feeds.locals,
+      )
       try {
         // Settle the mount's lazy loads BEFORE the step (what runFenceStep
         // does): landing them inside the step would commit rows the change
@@ -155,7 +156,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         await act(async () => {
           if (scenario === 'heartbeat') await writeHeartbeat(ctx)
           else await writeSelectionClick(ctx)
-          source.flush()
+          feeds.flush()
           await new Promise<void>((resolve) => setTimeout(resolve, 0))
         })
         // The pool settles its lazy loads inside the step; none may land late.
@@ -163,7 +164,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           pool.settleLoads?.()
         })
         expect(pool.pendingLoads?.() ?? 0, `${scenario}: no pending loads`).toBe(0)
-        const oracle = snapshotFromStore(ctx.engine.getSnapshot(), locals)
+        const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
         const armActual = armMounted.handle.snapshot()
         const patched = MOBX_POOL_ALLOWANCES.parity!.accept(
           ctx.corpus,
@@ -171,7 +172,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           oracle,
           armActual,
         )
-          expect(
+        expect(
           diffSnapshots(armActual, patched.snapshot),
           `${scenario}: arm parity beside the control`,
         ).toBeNull()
@@ -220,8 +221,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       } finally {
         armMounted.unmount()
         controlMounted.unmount()
-        fixed.dispose()
-        source.dispose()
+        feeds.dispose()
         ctx.engine.destroy()
       }
     }
