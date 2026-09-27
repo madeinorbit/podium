@@ -564,11 +564,29 @@ export class HandPool {
    * The row view of issue `id`, derived on first read; undefined when absent.
    * Cells exist only for a present row (`release` drops them with it), so
    * only a first read asks the table.
+   *
+   * POD-4707 — a resident row outside the bootstrap closure files its formal
+   * subtree here, on first view: its progress composes over filed children,
+   * and an unfiled hidden parent would otherwise read solo (the H3 full-view
+   * probe, seed 1 snapshot 1: i1093/i1182/i1691/i2141). Idempotent (held rows
+   * skip free); settles inline so the view below reads current filings, and
+   * clears the worklist report so a later commit never re-sorts for it.
    */
   readonly view = (id: string): RowView | undefined => {
+    // POD-4707 read-path (above): file first, even when the row's cells
+    // already exist — they may have been created unfiled (a part read before
+    // any view), and their cached view would otherwise stay solo.
+    if (!this.rollup.isFiled(id) && this.knowsIssue(id) && this.fenced.issue.has(id)) {
+      this.ensureIssues([id])
+      this.rollup.settleFilings()
+      this.graph.flush()
+      this.worklist.settle()
+      this.graph.flush()
+    }
     const cells = this.issues.get(id)
     if (cells !== undefined) return cells.view
-    return this.fenced.issue.has(id) ? this.cellsOf(id).view : undefined
+    if (!this.fenced.issue.has(id)) return undefined
+    return this.cellsOf(id).view
   }
 
   /** Listen to one row view; returns the unsubscribe. */
