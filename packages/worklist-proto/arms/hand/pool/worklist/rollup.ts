@@ -1097,13 +1097,13 @@ export class RollupCollection {
   }
 
   /**
-    * Bring the filings in line with every known issue (a `replace`
-    * re-partitions residency: enumerate once, raw doors, no fence).
-    *
-    * POD-4707: superseded by {@link syncReplace} (filings follow the lazy
-    * closure, not the corpus). Kept for the all-resident probes that still
-    * file everything.
-    */
+   * Bring the filings in line with every known issue (a `replace`
+   * re-partitions residency: enumerate once, raw doors, no fence).
+   *
+   * POD-4707: superseded by {@link syncReplace} (filings follow the lazy
+   * closure, not the corpus). Kept for the all-resident probes that still
+   * file everything.
+   */
   syncAll(knownIds: Iterable<string>): void {
     const known = new Set(knownIds)
     for (const id of known) {
@@ -1119,13 +1119,13 @@ export class RollupCollection {
   }
 
   /**
-    * POD-4707 — bring the filings in line with the lazy closure at a
-    * `replace`: file every closure member, unfile every held row outside it
-    * (held outsiders leave, as the MobX arm's `syncReplace`, POD-4705) and
-    * every row the slice no longer names. Raw doors only, no fence; Sets on
-    * both sides, so membership is O(1), never a scan per member. The pool
-    * computes the closure in one plain pass before calling this.
-    */
+   * POD-4707 — bring the filings in line with the lazy closure at a
+   * `replace`: file every closure member, unfile every held row outside it
+   * (held outsiders leave, as the MobX arm's `syncReplace`, POD-4705) and
+   * every row the slice no longer names. Raw doors only, no fence; Sets on
+   * both sides, so membership is O(1), never a scan per member. The pool
+   * computes the closure in one plain pass before calling this.
+   */
   syncReplace(closure: ReadonlySet<string>, knownIds: Iterable<string>): void {
     const known = new Set(knownIds)
     for (const id of closure) {

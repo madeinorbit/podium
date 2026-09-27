@@ -994,10 +994,10 @@ export class VisibleCollection {
   }
 
   /**
-    * POD-4707 — the ids holding a `visible` cell (maintenance: the pool drops
-    * the members a `replace` leaves outside the lazy closure). A plain array
-    * over the members map, never a table walk.
-    */
+   * POD-4707 — the ids holding a `visible` cell (maintenance: the pool drops
+   * the members a `replace` leaves outside the lazy closure). A plain array
+   * over the members map, never a table walk.
+   */
   heldMemberIds(): string[] {
     return [...this.members.keys()]
   }

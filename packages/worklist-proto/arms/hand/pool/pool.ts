@@ -124,6 +124,8 @@ import {
   sessionActivityOf,
   type ViewInputs,
 } from './views'
+import { type GroupLanes, type GroupsView, sliceOrderOf, WorklistGroups } from './worklist/groups'
+import { RollupCollection } from './worklist/rollup'
 import {
   directSessionParts,
   directVisibleParts,
@@ -135,13 +137,6 @@ import {
   type VisibleInputs,
   type VisibleParts,
 } from './worklist/visible'
-import { RollupCollection } from './worklist/rollup'
-import {
-  sliceOrderOf,
-  type GroupsView,
-  type GroupLanes,
-  WorklistGroups,
-} from './worklist/groups'
 
 /**
  * Everything that can change under the pool, as one closed union. Every
@@ -506,7 +501,8 @@ export class HandPool {
       sessionRow: (id) => this.visibleInputs.sessionRow(id),
       resident: (entity, id) => this.visibleInputs.resident(entity, id),
       loading: (entity, id) => this.inputs.loading(entity, id),
-      knownIssue: (id) => this.tables.issue.has(id) || (this.residency?.isCold('issue', id) ?? false),
+      knownIssue: (id) =>
+        this.tables.issue.has(id) || (this.residency?.isCold('issue', id) ?? false),
       visibleIssue: (id) => this.visibleInputs.issue(id),
       sessionParts: (id) => this.visibleInputs.session(id),
       rosterOf: (id) => {
@@ -622,8 +618,7 @@ export class HandPool {
   private plainOne(from: EntityName, id: string, relation: string): string | null {
     const target = this.engine.forward(from, id, relation)
     if (target === null) return null
-    const to = (this.engine.schema[from].relations[relation] as { readonly to?: EntityName })
-      ?.to
+    const to = (this.engine.schema[from].relations[relation] as { readonly to?: EntityName })?.to
     if (to === undefined) return null
     return this.tables[to].has(target) || (this.residency?.isCold(to, target) ?? false)
       ? target
@@ -653,7 +648,6 @@ export class HandPool {
     readonly partsOf: (id: string) => VisibleParts
     readonly rowOf: (id: string) => SliceIssue | undefined
   } {
-    const pool = this
     const memo = new Map<string, VisibleParts>()
     const sessMemo = new Map<string, SessionVisibleParts>()
     // One row read per id per pass: the ancestor walk re-reaches shared
@@ -664,7 +658,7 @@ export class HandPool {
       if (!rowMemo.has(id)) {
         rowMemo.set(
           id,
-          (pool.tables.issue.get(id) ?? pool.residency?.peek('issue', id)) as
+          (this.tables.issue.get(id) ?? this.residency?.peek('issue', id)) as
             | SliceIssue
             | undefined,
         )
@@ -672,21 +666,21 @@ export class HandPool {
       return rowMemo.get(id)
     }
     const raw: RelationReader = {
-      one: (from, id, relation) => pool.plainOne(from, id, relation),
-      many: (from, id, relation) => pool.engine.members(from, id, relation),
-      size: (from, id, relation) => pool.engine.members(from, id, relation).size,
+      one: (from, id, relation) => this.plainOne(from, id, relation),
+      many: (from, id, relation) => this.engine.members(from, id, relation),
+      size: (from, id, relation) => this.engine.members(from, id, relation).size,
     }
     const plain: VisibleInputs = {
       relations: raw,
-      resident: (entity, id) => pool.tables[entity].has(id),
+      resident: (entity, id) => this.tables[entity].has(id),
       issueRow: (id) => rowOf(id),
       sessionRow: (id) =>
-        (pool.tables.session.get(id) ?? pool.residency?.peek('session', id)) as
+        (this.tables.session.get(id) ?? this.residency?.peek('session', id)) as
           | SliceSession
           | undefined,
-      issue: (id) => (pool.knowsIssue(id) ? directVisibleParts(plain, id, memo) : undefined),
+      issue: (id) => (this.knowsIssue(id) ? directVisibleParts(plain, id, memo) : undefined),
       session: (id) => {
-        if (!pool.tables.session.has(id) && !(pool.residency?.isCold('session', id) ?? false))
+        if (!this.tables.session.has(id) && !(this.residency?.isCold('session', id) ?? false))
           return undefined
         let parts = sessMemo.get(id)
         if (parts === undefined) {
@@ -696,11 +690,11 @@ export class HandPool {
         return parts
       },
       sessionActivity: (id) =>
-        sessionActivityOf(pool.tables.session.get(id) as SliceSession | undefined),
+        sessionActivityOf(this.tables.session.get(id) as SliceSession | undefined),
       own: () => {
         throw new Error('[pool] plain pass read the row view: rank is outside the closure read set')
       },
-      passed: (t) => pool.clock.passed(t),
+      passed: (t) => this.clock.passed(t),
     }
     return {
       partsOf: (id) => directVisibleParts(plain, id, memo),
