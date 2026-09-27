@@ -1,5 +1,20 @@
 # arms/mobx — notes
 
+## Round three: member parts per edge, O(family) accepted (POD-4683) · 2026-09-27
+
+ACCEPT view-time O(family), as Linear sorts and filters at view time over a
+collection (coordinator addendum 2026-09-27, same rule and test shape in both
+arms). Explicit seats per issue do not grow with the corpus (1x: 2,133
+families, avg 1.71, max 8, p50 1, p90 3, p99 5; 4x: 8,550 families, avg 1.71,
+max/p50/p90/p99 equal), so O(family) is O(1) with respect to scale. A single
+join, leave and move (family 2) iterate 6 / 4 / 8 session ids at 1x and the
+same at 4x (the maintained `seatList` mirror, POD-4678, keeps rows O(1); the
+readers still walk the family, no family rows read). Bound 100 at both scales.
+Pinned by `pool/worklist/member-parts.test.ts` (same shape as the hand twin):
+family distribution, the three edges at 1x/4x flat within noise, and a
+corpus-walking plant (4,304 / 17,216 ids) failing the same bound. No production
+change.
+
 ## Mc4 MobX growth and coexistence (POD-4576) · 2026-09-27
 
 Baseline: the LAZY arm (POD-4705 landed: bootstrap 669.9 ms / 3.52x, heap

@@ -36,6 +36,7 @@ import { settableLocals } from '../../../../shared/src/locals-source'
 import type { RowSource } from '../../../../shared/src/arm'
 import type { RowRecord } from '../../../../shared/src/stats'
 import { mobxPoolArm } from '../arm'
+import { tracked } from '../pool'
 
 type Fn = (...args: never[]) => unknown
 
@@ -174,8 +175,8 @@ async function edgeIds(
     const pool = handle.pool as unknown as {
       worklist: { issue(id: string): { seatIds: readonly string[] } | undefined }
     }
-    void (pool.worklist.issue(target)?.seatIds.length ?? 0)
-    void (pool.worklist.issue(from)?.seatIds.length ?? 0)
+    void tracked(() => pool.worklist.issue(target)?.seatIds.length ?? 0)
+    void tracked(() => pool.worklist.issue(from)?.seatIds.length ?? 0)
     const joinRow: RowRecord = {
       kind: 'session',
       id: newId,

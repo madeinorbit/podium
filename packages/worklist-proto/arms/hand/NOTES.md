@@ -1,5 +1,21 @@
 # arms/hand — notes
 
+## Round three: member parts per edge, O(family) accepted (POD-4683) · 2026-09-27
+
+ACCEPT view-time O(family), as Linear sorts and filters at view time over a
+collection (coordinator addendum 2026-09-27, same rule and test shape in both
+arms). Explicit seats per issue do not grow with the corpus (1x: 2,133
+families, avg 1.71, max 8, p50 1, p90 3, p99 5; 4x: 8,550 families, avg 1.71,
+max/p50/p90/p99 equal), so O(family) is O(1) with respect to scale. A single
+join, leave and move (family 2) iterate 12 / 8 / 15 session ids at 1x and the
+same at 4x (MobX: 6 / 4 / 8 — the extra hand passes are the bucket copy+sort);
+bound 100 at both scales. Pinned by `pool/worklist/member-parts.test.ts`
+(same shape as the MobX twin): family distribution, the three edges at 1x/4x
+flat within noise, and a corpus-walking plant (4,304 / 17,216 ids) failing the
+same bound. No production change; the #10 `burstFamilyReads` rows allowance
+(`rollup.test.tsx`, `known-gaps.ts`) stands — this decision covers id work,
+not rows.
+
 ## Round three: groups and windowed list, b2 (POD-4583) · 2026-09-24
 
 Built after the MobX build: read Mb2's shape (`arms/mobx/pool/worklist/groups.ts`,
