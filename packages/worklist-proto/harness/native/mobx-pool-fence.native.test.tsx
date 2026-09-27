@@ -141,6 +141,34 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     const mount = await mountPool()
     const { ctx, feeds, handle, mounted, list } = mount
     try {
+      // Settle the mount's lazy loads BEFORE step #1 (Mc4 8618b5378): the
+      // native list draws a window, so the mount queues only the window's
+      // loads — but every step's `snapshot()` walks EVERY visible row and
+      // settles the loader itself, so those loads would land after the step
+      // settled its own and fail the run (G2: charged to no step). Worse,
+      // react-native-web's VirtualizedList mounts cells in TIMED batches, so
+      // each batch reaches more rows and queues more loads after the previous
+      // drain. Settle until BOTH signals are quiet: the mounted cell count
+      // stable across batches and the load queue empty — each step's own
+      // resets wipe this settle's counters (log, stats, reads).
+      const batchRounds: number[] = []
+      let quietRounds = 0
+      let lastCells = -1
+      for (let round = 0; round < 200 && quietRounds < 2; round += 1) {
+        await act(async () => {
+          handle.snapshot()
+          await new Promise((resolve) => setTimeout(resolve, 60))
+        })
+        const cells = windowIds(list).length
+        batchRounds.push(cells)
+        if (handle.pendingLoads() === 0 && cells === lastCells) quietRounds += 1
+        else quietRounds = 0
+        lastCells = cells
+      }
+      expect(quietRounds, 'cell batches settled').toBe(2)
+      expect(handle.pendingLoads(), 'mount loads settled').toBe(0)
+      console.info(`[mobx-pool-native] pre-step settle: cells per round=[${batchRounds.join(',')}]`)
+
       // Windowed (Mb2): a strict prefix of the grouped order, from the top
       // (placeholders included: cold visible rows draw as loading).
       const visible = tracked(() => handle.pool.worklist.order.length)
@@ -155,18 +183,6 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         ]
       })
       expect(window, 'the window draws the grouped prefix').toEqual(grouped.slice(0, window.length))
-
-      // Settle the mount's lazy loads BEFORE step #1 (Mc4 8618b5378): the
-      // native list draws a window, so the mount queues only the window's
-      // loads — but every step's `snapshot()` walks EVERY visible row and
-      // settles the loader itself, so those loads would land after the step
-      // settled its own and fail the run (G2: charged to no step). Drive one
-      // uncounted snapshot on the real signal until nothing is queued; each
-      // step's own resets wipe its counters (log, stats, reads).
-      await act(async () => {
-        handle.snapshot()
-      })
-      expect(handle.pendingLoads(), 'mount loads settled').toBe(0)
 
       const cells = []
       let nonVacuous = 0
@@ -220,7 +236,12 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         nonVacuous,
         'no step changed a drawn row: the commit cells are vacuous',
       ).toBeGreaterThan(0)
-      writeResult('mobx-pool-native-1x', { scale: 1, renderer: RENDERER, cells })
+      writeResult('mobx-pool-native-1x', {
+        scale: 1,
+        renderer: RENDERER,
+        preStep: { batchRounds },
+        cells,
+      })
     } finally {
       shutdown(mount)
     }

@@ -22,6 +22,16 @@
   widened/skipped. Renderer otherwise-branch note added (test header + README).
 - Typecheck green, biome clean. Re-run requested via podium mail
   (msg_f50aafa9, --expect-response). Awaiting coordinator output.
+
+## 2026-09-27 — re-run at 4e18e82a1: 725 -> 317 late (same G2 check)
+- Pre-step snapshot helped but timed cell batches (RNW VirtualizedList) keep
+  mounting cells after the drain, each reaching more rows. Coordinator direction:
+  mount configuration, never the fence: deterministic window or settle until no
+  pending batch on a real signal.
+- Fix: batch-aware pre-step settle, test-side only (no pool core touched):
+  loop handle.snapshot() + 60 ms inside act until mounted cell count stable
+  twice AND pendingLoads==0 (cap 200 rounds); cell counts logged and recorded
+  in the result artifact. Prefix assert moved after the settle (final window).
 - `bun run test:file` on harness/native/entries.test.ts: routes to node lane,
   "No test files found, exiting with code 1" (dir excluded there). The ADDENDUM
   command names the runner entry literally, which this session's tool layer
