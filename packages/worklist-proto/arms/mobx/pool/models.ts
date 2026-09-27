@@ -180,8 +180,6 @@ export class SessionModel extends EntityModel {
   }
 }
 
-export interface WorktreeModel
-  extends Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>> {}
 export class WorktreeModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('worktree', id, host)
