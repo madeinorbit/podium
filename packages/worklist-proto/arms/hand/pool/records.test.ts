@@ -9,9 +9,9 @@ import { describe, expect, it } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
 import { fixedLocals } from '../../../shared/src/locals-source'
+import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import { handPoolArm } from './arm'
-import { FEED_SPELLING } from './records'
 import { ENTITIES } from './tables'
 
 describe('schema fields on records', () => {

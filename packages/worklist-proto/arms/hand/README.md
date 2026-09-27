@@ -53,7 +53,8 @@ through the arm's own windowed lists; the roll-ups (Hb3) come next.
 - **Records from the schema** (`pool/records.ts`): `HandPool.record(entity,
   id)` is a typed record per row, built on first access, with one getter per
   declared field installed from the schema (`installFields`); it reads the
-  row through the tracked table on every access. `FEED_SPELLING` names the
+   row through the tracked table on every access. `FEED_SPELLING` (in
+   `shared/src/repo-from-lane.ts`, POD-4695) names the
   one field the feed spells differently (a repo's `path` is its lane's
   `repoPath`).
 - **Per-key listeners**: `HandPool.subscribe(id, listener)` per row view,
@@ -372,8 +373,9 @@ single walk on such a cycle; no fixture or generator has one.
 
 1. Declare it in `shared/src/schema.ts` (coordinator: the schema is
    shared). The record gets its getter from the schema;
-   `pool/records.test.ts` reads it off a record with no edit. If the feed
-   spells it differently, add it to `FEED_SPELLING`.
+    `pool/records.test.ts` reads it off a record with no edit. If the feed
+   spells it differently, add it to `FEED_SPELLING` in
+   `shared/src/repo-from-lane.ts`.
 2. If a row view shows it: `shared/src/row-view.ts` (coordinator), then
    compute it in the part whose inputs it reads (`pool/views.ts`
    `PART_RULES`: own-row fields in `own`; a new relation hop as a part that

@@ -115,8 +115,8 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
  * Every row a lazy pool KNOWS, in plain tables (POD-4567), read from the FEED
  * alone: its issues and sessions (cold ones included, which the engine links
  * by id though the pool's tables never hold them) and its worktree records,
- * which give the lanes and the repos exactly as the pool's own ingest does
- * (`tables.ts` `ingestWorktree`). Until POD-4572 (Mb4) the never-cold
+ *   which give the lanes and the repos exactly as the pool's own ingest does
+ *   (the shared `repo-from-lane.ts` composition). Until POD-4572 (Mb4) the never-cold
  * entities came from the pool's own tables, as Ma2's check read them; the
  * reason Ma2 gave (the feed never announced discovery-only lanes) closed with
  * POD-4606 (ca53a62d5), so the relation check no longer leans on the state it

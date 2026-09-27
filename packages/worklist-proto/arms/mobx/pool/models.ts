@@ -12,7 +12,8 @@
  * (`SCHEMA[entity].fields`) is a getter on the model's prototype, installed
  * by `installFields` below from the schema itself: no field list is typed
  * here. The key field answers the model's id; every other field reads the
- * row's property of the same name, or its feed spelling (`FEED_SPELLING`).
+ * row's property of the same name, or its feed spelling (`FEED_SPELLING` in
+ * `shared/src/repo-from-lane.ts`, POD-4695).
  * `models.test.ts` iterates the schema and reads every field off a model.
  *
  * DERIVED VALUES are computed getters. The issue model's `view` (the L1b row
@@ -22,6 +23,7 @@
  */
 
 import { computed, computedStruct, makeObservable } from 'mobx'
+import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
@@ -46,16 +48,6 @@ import {
   sessionIdsPartOf,
   type ViewInputs,
 } from './views'
-
-/**
- * Where a feed row spells a schema field differently. Only the repo: its row
- * is a root lane (`tables.ts`), which carries the repo's path as `repoPath`.
- */
-export const FEED_SPELLING: Readonly<
-  Partial<Record<EntityName, Readonly<Record<string, string>>>>
-> = {
-  repo: { path: 'repoPath' },
-}
 
 /** What a model reads from its pool. */
 export interface ModelHost {

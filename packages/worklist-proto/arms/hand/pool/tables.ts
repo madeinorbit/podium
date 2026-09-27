@@ -27,14 +27,12 @@
  *   `resolve`), so the issue table holds one row per id.
  * - `session` records: one component, one row.
  * - `worktree` records are the feed's lanes (`SliceWorktree`): the scan row
- *   joined with the replicated repo row, keyed by `path`. A lane with a
- *   `repoId` also carries its repo's joined facts (the schema's `repo`
- *   component, RepoProjection: id and prefix; its `repoScan` component,
- *   GitRepositoryWire: the path, as `repoPath`), so the latest such lane is
- *   the `repo` entity's row, keyed by `repoId`. When that lane leaves or
- *   moves to another repo, another lane of the repo takes over (a member of
- *   the maintained `repo.worktrees` collection, which the lane has already
- *   left by then); the repo leaves with its last lane.
+ *   joined with the replicated repo row, keyed by `path`. Routing a lane
+ *   onto the `repo` table (latest lane wins, takeover through the maintained
+ *   `repo.worktrees` collection, raw-row hold) is the shared feed-layer
+ *   composition (`shared/src/repo-from-lane.ts` `ingestWorktreeRecord`,
+ *   POD-4695): `ingestRecord` below only adapts this pool's slot writes to
+ *   that composer's ops, with the throwing no-relations policy.
  * - A `worktree` record whose value has no `path` is the replicated repo row
  *   itself, which the feed sends for a repo the scan has not reported
  *   (`row-source.ts` `resolveReposFanout`); it is held as the repo's row until
@@ -51,6 +49,7 @@
  * every row.
  */
 
+import { ingestWorktreeRecord } from '../../../shared/src/repo-from-lane'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 
@@ -156,69 +155,28 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
   out.deltas.push({ entity, id, membership: true })
 }
 
-type LaneLike = { readonly path?: unknown; readonly repoId?: unknown }
-
-export function isLane(row: StoredRow): boolean {
-  return typeof (row as LaneLike).path === 'string'
-}
-
-/** The repo whose facts a lane carries, or null. */
-export function laneRepoId(row: StoredRow): string | null {
-  const repoId = (row as LaneLike).repoId
-  return typeof repoId === 'string' && repoId.length > 0 ? repoId : null
-}
-
-/** `lane` stops holding its repo (it moved or left): another lane takes over, or the repo leaves. */
-function releaseRepo(target: IngestTarget, lane: StoredRow, out: IngestOut): void {
-  const repoId = laneRepoId(lane)
-  if (repoId === null || target.read.repo.get(repoId) !== lane) return
-  if (target.relations === undefined) {
-    throw new Error(`[pool] repo ${repoId} changes lanes on a target that keeps no relations`)
-  }
-  let other: StoredRow | undefined
-  for (const path of target.relations.members('repo', repoId, 'worktrees')) {
-    other = target.read.worktree.get(path) as StoredRow | undefined
-    if (other !== undefined && other !== lane) break
-    other = undefined
-  }
-  if (other !== undefined) put(target, 'repo', repoId, other, out)
-  else drop(target, 'repo', repoId, out)
-}
-
-function ingestWorktree(
-  target: IngestTarget,
-  id: string,
-  value: StoredRow | undefined,
-  out: IngestOut,
-): void {
-  const previous = target.read.worktree.get(id) as StoredRow | undefined
-  if (value === undefined) {
-    if (previous !== undefined) {
-      drop(target, 'worktree', id, out)
-      releaseRepo(target, previous, out)
-      return
-    }
-    // The raw repo row went away (the feed keys it by repoId).
-    const held = target.read.repo.get(id) as StoredRow | undefined
-    if (held !== undefined && !isLane(held)) drop(target, 'repo', id, out)
-    return
-  }
-  if (!isLane(value)) {
-    const held = target.read.repo.get(id) as StoredRow | undefined
-    if (held === undefined || !isLane(held)) put(target, 'repo', id, value, out)
-    return
-  }
-  put(target, 'worktree', id, value, out)
-  const repoId = laneRepoId(value)
-  if (repoId !== null) put(target, 'repo', repoId, value, out)
-  if (previous !== undefined && previous !== value) releaseRepo(target, previous, out)
-}
-
 /** Apply one feed record. */
 export function ingestRecord(target: IngestTarget, record: RowRecord, out: IngestOut): void {
   const value = record.value as StoredRow | undefined
   if (record.kind === 'worktree') {
-    ingestWorktree(target, record.id, value, out)
+    // Repo-from-lane is the shared feed-layer composition (POD-4695): the
+    // pool only adapts its slot writes. The staging targets of a `replace`
+    // keep no relations and never hand a repo over, so reaching the takeover
+    // without relations throws (the shared composer's `requireRelations`).
+    ingestWorktreeRecord(
+      {
+        getWorktree: (id) => target.read.worktree.get(id) as StoredRow | undefined,
+        getRepo: (id) => target.read.repo.get(id) as StoredRow | undefined,
+        putWorktree: (id, row) => put(target, 'worktree', id, row, out),
+        putRepo: (id, row) => put(target, 'repo', id, row, out),
+        dropWorktree: (id) => drop(target, 'worktree', id, out),
+        dropRepo: (id) => drop(target, 'repo', id, out),
+        repoWorktreeMembers: (repoId) => target.relations?.members('repo', repoId, 'worktrees'),
+        requireRelations: true,
+      },
+      record.id,
+      value,
+    )
     return
   }
   if (target.residency?.capable(record.kind) === true) {

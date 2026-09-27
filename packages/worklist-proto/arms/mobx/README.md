@@ -28,7 +28,8 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   "observable on first access"), cached per id, dropped when the row leaves.
   A model holds no row: it reads its slot on every access, so it cannot go
   stale. Every declared field is a getter installed from the schema
-  (`installFields`); `FEED_SPELLING` names the one field the feed spells
+   (`installFields`); `FEED_SPELLING` (in `shared/src/repo-from-lane.ts`,
+   POD-4695) names the one field the feed spells
   differently (a repo's `path` is its lanes' `repoPath`).
 - **Every derived value a computed, split by input** (`pool/views.ts`
   `IssueParts`, computed on `IssueModel`): `own` (row-only fields and the
@@ -293,7 +294,7 @@ idle).
 1. Declare it in `shared/src/schema.ts` (coordinator: the schema is shared).
    The model gets its getter from the schema; `pool/models.test.ts` reads it
    off a model with no edit. If the feed spells it differently, add it to
-   `FEED_SPELLING`.
+   `FEED_SPELLING` in `shared/src/repo-from-lane.ts`.
 2. If a row view shows it: `shared/src/row-view.ts` (coordinator), then
    compute it in the part whose inputs it reads (`pool/views.ts`: own-row
    fields in `ownPartOf`; a new relation hop as a target part that reads

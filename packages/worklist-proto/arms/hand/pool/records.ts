@@ -7,24 +7,18 @@
  * getter installed on the record's prototype by `installFields`, from the
  * schema itself: no field list is typed here. The key field answers the
  * record's id; every other field reads the row's property of the same name,
- * or its feed spelling (`FEED_SPELLING`), through the pool's tracked tables
+ * or its feed spelling (`FEED_SPELLING` in `shared/src/repo-from-lane.ts`,
+ * POD-4695), through the pool's tracked tables
  * on every access, so a record cannot go stale and a cell that reads one is
  * recorded under its row. `records.test.ts` iterates the schema and reads
  * every field off a record.
  */
 
+import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 import type { ReadableTable, TableSet } from './tables'
 import type { RepoRow } from './views'
-
-/**
- * Where a feed row spells a schema field differently. Only the repo: its row
- * is a lane (`tables.ts`), which carries the repo's path as `repoPath`.
- */
-export const FEED_SPELLING: Readonly<
-  Partial<Record<EntityName, Readonly<Record<string, string>>>>
-> = { repo: { path: 'repoPath' } }
 
 /** A record's own instance fields: a schema field of the same name would be shadowed. */
 const RECORD_FIELDS: readonly string[] = ['entity', 'id', 'tables']
