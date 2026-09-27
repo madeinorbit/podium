@@ -668,10 +668,11 @@ export class MobxPool {
    * POD-4705 — the visibility parts over plain reads (call only inside an
    * action, where reads subscribe to nothing): the same part functions the
    * live nodes memoize (`directVisibility`), evaluated without building a
-   * node, a reaction or a fence count. Hot rows come from the raw tables,
-   * cold ones are never evaluated (a cold row is hidden by rule, and the
-   * rebuild this mirrors stops at them the same way); relations come from
-   * the raw engine; the read-state lane and the clock read as plain values.
+   * node or a reaction. Row reads go through the live inputs (fenced, and
+   * projecting pending edits under the write arm), so the pass answers what
+   * the nodes would; cold rows are never evaluated (a cold row reads as
+   * hidden, exactly as a missing node does, and the rebuild this mirrors
+   * stops at them the same way); relations come from the raw engine.
    * Sessions recompute per read (pure functions of their row, no memo).
    *
    * `nested` is real when the caller passes the known ids (a `replace`'s one
@@ -693,34 +694,26 @@ export class MobxPool {
       many: (from, id, relation) => this.rawMany(from, id, relation),
       size: (from, id, relation) => this.graph.size(from, id, relation),
     }
+    // Row reads go through the live inputs (fenced, tracked, and — under
+    // the write arm — projecting pending edits through the row-reader
+    // overlays): the plain pass answers what the nodes would, including
+    // optimism. Bootstrap counts nothing, and per-change evaluation runs
+    // only where a node may genuinely be built.
+    const live = this.visibleInputs
     const plain: VisibleInputs = {
       relations: rawRelations,
-      issueRow: (id) =>
-        (this.tables.issue.get(id) ?? this.residency?.read('issue', id)) as
-          | SliceIssue
-          | undefined,
-      sessionRow: (id) =>
-        (this.tables.session.get(id) ?? this.residency?.read('session', id)) as
-          | SliceSession
-          | undefined,
+      issueRow: (id) => live.issueRow(id),
+      sessionRow: (id) => live.sessionRow(id),
       // Hot rows only, exactly like the rebuild: a cold row reads as unknown
       // (hidden, keeping nothing), which is what a missing node answers live.
       issue: (id) => (this.tables.issue.has(id) ? partsOf(id) : undefined),
       session: (id) => directSessionVisibility(plain, id),
-      issueRead: (id) => this.readStates.get(id),
-      passed: (t) => this.clock.passed(t),
-      reached: (t) => this.clock.reached(t),
-      loadedIssue: (id) => {
-        const row = this.tables.issue.get(id)
-        if (row !== undefined) return row as SliceIssue
-        return this.residency?.isCold('issue', id) === true ? LOADING : undefined
-      },
-      loadedSession: (id) => {
-        const row = this.tables.session.get(id)
-        if (row !== undefined) return row as SliceSession
-        return this.residency?.isCold('session', id) === true ? LOADING : undefined
-      },
-      progressFacts: (id) => plain.issueRow(id),
+      issueRead: (id) => live.issueRead(id),
+      passed: (t) => live.passed(t),
+      reached: (t) => live.reached(t),
+      loadedIssue: (id) => live.loadedIssue(id),
+      loadedSession: (id) => live.loadedSession(id),
+      progressFacts: (id) => live.progressFacts(id),
       nested: (id) => {
         if (knownIds === null) {
           throw new Error('[pool] plain pass read the nest index on a per-change scope')
@@ -852,19 +845,28 @@ export class MobxPool {
   /**
    * The issues a changed session can show (call in-action, post-flush): its
    * explicit owner and every issue checked out at its lane. Answered through
-   * the raw engine without walking anything or counting a read.
+   * the raw engine without walking anything or counting a read. Split so the
+   * caller can treat them differently: an explicit member warms its cold
+   * owner through residency (no evaluation needed), while a lane-only
+   * session (no foreign key, never warmed) is the only way a cold lane
+   * owner flips visible (R3) and must be evaluated.
    */
-  private sessionLinkedIssues(sessionId: string): string[] {
-    const linked = new Set<string>()
+  private sessionLinkedIssues(sessionId: string): {
+    readonly explicit: string | null
+    readonly lane: readonly string[]
+  } {
     const explicit = this.rawOne('session', sessionId, 'issue')
-    if (explicit !== null && this.knows(explicit)) linked.add(explicit)
-    const lane = this.rawOne('session', sessionId, 'worktree')
-    if (lane !== null) {
-      for (const issueId of this.rawMany('worktree', lane, 'issues')) {
-        if (this.knows(issueId)) linked.add(issueId)
+    const lanePath = this.rawOne('session', sessionId, 'worktree')
+    const lane: string[] = []
+    if (lanePath !== null) {
+      for (const issueId of this.rawMany('worktree', lanePath, 'issues')) {
+        if (this.knows(issueId)) lane.push(issueId)
       }
     }
-    return [...linked]
+    return {
+      explicit: explicit !== null && this.knows(explicit) ? explicit : null,
+      lane,
+    }
   }
 
   /**
@@ -962,11 +964,20 @@ export class MobxPool {
       const { partsOf } = this.plainScope(knownIds)
       const roots: string[] = []
       for (const id of knownIds) {
-        // Hot rows only: cold rows are hidden by rule, and evaluating them
-        // would traverse (and count) rows no derivation will read.
-        if (!this.tables.issue.has(id)) continue
+        // Every known issue, hot or cold: a cold row kept visible by its
+        // lane (R3, never warmed for lack of a foreign key) must still node,
+        // and bootstrap counts nothing. Cross-reads answer hot-only (a cold
+        // row reads as hidden, exactly as a missing node does), so the pass
+        // terminates like the rebuild's.
         const parts = partsOf(id)
-        if (parts.present || parts.keeps) roots.push(id)
+        const parent = parts.formalParent
+        if (
+          parts.present ||
+          parts.keeps ||
+          (parent !== null && this.worklist.has(parent))
+        ) {
+          roots.push(id)
+        }
       }
       this.worklist.syncReplace(this.expandRoots(roots, partsOf), knows)
       this.worklist.forgetSessions(
@@ -983,6 +994,14 @@ export class MobxPool {
         candidates.push(id)
       }
     }
+    // A lane-linked cold row is evaluated, never skipped: a lane-only
+    // session (no foreign key, never warmed) is the only way one flips
+    // visible (R3). An explicit member warms its cold owner through
+    // residency instead, so explicit cold rows stay out (and the heartbeat
+    // fence stays quiet).
+    const considerLane = (id: string): void => {
+      if (!this.worklist.has(id) && !candidates.includes(id)) candidates.push(id)
+    }
     for (const record of event.rows) {
       if (record.kind === 'issue') {
         if (record.value === undefined) gone.push(record.id)
@@ -991,11 +1010,13 @@ export class MobxPool {
         if (record.value === undefined) {
           this.worklist.forgetSession(record.id)
         } else {
-          for (const issueId of this.sessionLinkedIssues(record.id)) consider(issueId)
+          const linked = this.sessionLinkedIssues(record.id)
+          if (linked.explicit !== null) consider(linked.explicit)
+          for (const issueId of linked.lane) considerLane(issueId)
         }
       } else if (record.kind === 'worktree' && record.value !== undefined) {
         for (const issueId of this.rawMany('worktree', record.id, 'issues')) {
-          consider(issueId)
+          considerLane(issueId)
         }
       }
     }
@@ -1024,7 +1045,24 @@ export class MobxPool {
       }
     }
     if (roots.length === 0) return
-    this.worklist.ensure([...this.expandRoots(roots, partsOf), ...gone], knows)
+    const closure = this.expandRoots(roots, partsOf)
+    this.worklist.ensure([...closure, ...gone], knows)
+    if (gone.length > 0) this.worklist.ensure(gone, knows)
+  }
+
+  /**
+   * POD-4705 — ensure nodes for rows the write layer's pending display
+   * touches (call inside an action): a queued (or settled) edit projects
+   * through the row-reader overlays, which only derivations read — a row
+   * without a node would never follow its pending verdict. The row is
+   * touched, so like any named row it earns its closure; held rows skip
+   * free. Called from the overlay refresh, after the entry is mirrored.
+   */
+  ensureIssues(ids: Iterable<string>): void {
+    const roots = [...ids]
+    if (roots.length === 0) return
+    const { partsOf } = this.plainScope(null)
+    this.worklist.ensure(this.expandRoots(roots, partsOf), (id) => this.knows(id))
   }
 
   /** One locals notification, one action: only the keys it names. */
