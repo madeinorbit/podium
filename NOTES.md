@@ -17,7 +17,12 @@
   Mechanism: pool.snapshot() walks ALL visible rows and settles the loader
   itself; native mount draws a 24-row window, so snapshot() hydrates the rest
   after settledAt. Plant passed because it draws everything (fully resident).
-## 2026-09-27 — ruling: mount-shape difference, full-list count mount
+## 2026-09-27 — GREEN (5 of 5 at edd76b666), closing
+- Typecheck green. Root lint exits 1: 3154 pre-existing errors elsewhere, 0 in
+  my files (verified per-file). Asked coordinator: land red or wait?
+- Mc5 note needs bootstrap numbers from the coordinator's run output;
+  requested (msg_ee8da5fa). Then: note -> artifact -> delete NOTES.md ->
+  merge-lock -> rebase -> push ff -> mail SHA. Do NOT close the issue.
 - Diag proved: cells 21/21/21, no remounts, no changes, order stable; loads
   write+0/settle+5/snapshot+725. Mount clean; snapshot hydrates off-window rows.
 - Fix: count mount draws the FULL visible list (test-local FullNativeList,
