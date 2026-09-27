@@ -1119,6 +1119,32 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
       r.dispose()
     }
   }, 120_000)
+
+  it('unconditional extra-root dispatch fails F1 at 16 (POD-4671 plant)', () => {
+    // POD-4671 plant: the extra-root dispatch must run only when a
+    // root-bearing field moves. Forcing it on every write (the pre-fix
+    // unconditional loop) costs the extra plain-structure op, so an issue
+    // insert that names no root exceeds the plain bound. Never weaken this:
+    // gate the dispatch instead (relations.ts `extraMoved`).
+    const r = rig(big)
+    try {
+      const graph = r.pool.graph as unknown as Record<string, unknown>
+      graph['extraMoved'] = () => true
+      try {
+        const outside = countedOutside(() => r.push(issue('NP1')))
+        expect(outsideTotal(outside), `plant: ${JSON.stringify(outside)}`).toBe(PER_EDGE)
+        expect(
+          plainTotal(outside.plain),
+          `plant plain ${JSON.stringify(outside.plain)}`,
+        ).toBeGreaterThan(plainBound(null))
+      } finally {
+        delete graph['extraMoved']
+      }
+      r.check()
+    } finally {
+      r.dispose()
+    }
+  }, 120_000)
 })
 
 describe('an issue gaining or losing a worktreePath re-files only its path (POD-4671)', () => {

@@ -586,10 +586,38 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         }
       }
     }
-    // POD-4671: the extra roots themselves (issue worktreePaths).
+    // POD-4671: the extra roots themselves (issue worktreePaths) — only when
+    // a root-bearing field moved (old root != new root). The rows are already
+    // in hand, so the check costs no plain-structure op; an unconditional
+    // dispatch on every write breaks F1 (plant below). Never widen this.
     for (const link of this.extraSources.get(entity) ?? []) {
+      if (!this.extraMoved(link, entity, before, after)) continue
       this.extraChanged(link, entity, id, before, after)
     }
+  }
+
+  /**
+   * POD-4671 — whether `extraChanged` for `link` could move anything for this
+   * write: any listed source field's normalized root differs old vs new
+   * (insert/delete compare against null = no root). Reads only the two rows
+   * already in hand — no table, relation or plain-structure read — so a write
+   * that changes no root-bearing field skips the dispatch at zero cost (F1).
+   */
+  private extraMoved(
+    link: Link,
+    entity: EntityName,
+    before: Row | undefined,
+    after: Row | undefined,
+  ): boolean {
+    const spec = link.spec
+    if (spec.kind !== 'prefix' || spec.alsoRoots === undefined) return false
+    for (const source of spec.alsoRoots) {
+      if (source.entity !== entity) continue
+      const oldRoot = before === undefined ? null : extraRootOf(source, before)
+      const newRoot = after === undefined ? null : extraRootOf(source, after)
+      if (oldRoot !== newRoot) return true
+    }
+    return false
   }
 
   /**
