@@ -28,21 +28,45 @@ about 1,200 rows the cold rule would keep cold stay resident with all
 their cells, because `Residency.place` kept "a row resident before stays"
 and the back replace re-ran the filing over everything.
 
-### The rule changed (one place, replace path only)
+### What changed (replace path only, four pieces)
 
-`pool/residency.ts` `place` (called from `enumerate.ts` `reseed` for every
-row the new slice names): every named row now follows `coldByRule` over
-the new slice, resident before or not. A resident row the rule calls cold
-is evicted — dropped from the tables, then registered cold like any cold
-row — except a row carrying a pending edit, which stays resident while the
-write layer pins it (`pool.writePins`, maintained in
-`pool/write/edit.ts` at every log mutation: edit pins, reject / remote /
-receipt / supersede / expiry / bootstrap re-pin, dispose clears).
-
-The drop-then-register order is load-bearing: the drop's membership delta
-is what disposes the row's cells and records (`pool.ts` `release`), and
-the register's `changed` delta is what re-runs its coldness readers. A
-single `changed(prev, value)` would keep the slot and leak the cells.
+1. `pool/residency.ts` `place` (called from `enumerate.ts` `reseed` for
+   every row the new slice names): every named row now follows `coldByRule`
+   over the new slice, resident before or not. A resident row the rule
+   calls cold is evicted — dropped from the tables, then registered cold
+   like any cold row — except a row carrying a pending edit, which stays
+   resident while the write layer pins it (`pool.writePins`, maintained in
+   `pool/write/edit.ts` at every log mutation: edit pins, reject / remote
+   / receipt / supersede / expiry / bootstrap re-pin, dispose clears).
+   The drop-then-register order is load-bearing: the drop's membership
+   delta is what disposes the row's cells and records (`pool.ts`
+   `release`), and the register's `changed` delta is what re-runs its
+   coldness readers. A single `changed(prev, value)` would keep the slot
+   and leak the cells.
+2. `pool.ts` `replaceClosure`/`expandRoots`: the closure no longer reads
+   the live worklist. At a fresh bootstrap the worklist is empty, so the
+   held-parent rule never fires and no walk stops early; a back-replace
+   must compute the same closure over the same slice, but the live
+   worklist still shows the grown visible set — rooting hidden rows under
+   leaving parents and pruning walks at leaving chains, which kept ~360
+   filings and member cells a fresh bootstrap never builds. The replace
+   path passes a never-held predicate; the update path keeps the live
+   worklist, where the held chains are current and the induction holds.
+3. `pool.ts` `admitClosure`: the whole closure goes to `admit`, not just
+   the resident members, so a member cell for a row that is no longer
+   resident is dropped (an unplaced member never moves the order, but it
+   and the rank reads it pulls keep heap a fresh bootstrap never builds).
+4. `pool.ts` `clearCachesForReplace` (called in `apply` after `reseed`,
+   before the commit): drops every per-row derived cache — views/parts,
+   session activity, records, the visible collection, roll-up
+   filings/nodes/verdicts, group placements/layout, and the queued loads
+   (stale asks from the old state's cells; the new state's derivations
+   queue again on read). The commit then rebuilds deterministically from
+   the new slice: exactly as a fresh bootstrap over the same slice builds,
+   whose caches start empty. Pins survive. On-demand doors re-create
+   everything (views, placements, ranks, verdicts, filings); disposing a
+   cell unlinks it from every index and dirties its readers, so nothing
+   reads stale entries.
 
 Unchanged on purpose: the live `ingest` path (an issue closed while
 resident stays resident — it was just looked at), first-access loading and
@@ -50,6 +74,7 @@ its 50 ms window, reopen warming, member-kept warming, and cold-update
 relinking. That is the whole of Ha3's "a row a derivation read stays
 resident while read" semantic: it governs live updates, and a replace
 re-partitions. `pool.ts` `apply` threads the pin; `dispose` clears it.
+No change to the relation engines (`relations.ts` untouched).
 
 ### Why every correctness gate still holds
 
@@ -59,26 +84,31 @@ re-partitions. `pool.ts` `apply` threads the pin; `dispose` clears it.
   (`peek`), roll-up progress reads cold facts by id, attention reads only
   a pending marker, lazy relations queue a load. Eviction moves rows onto
   paths the gates already cover.
-- Filings need no change: the replace commit already computes the lazy
-  closure in one plain pass and files exactly it (`syncReplace`, dropping
-  held outsiders), and already forgets held worklist/groups members outside
-  it. Fresh bootstrap over the same slice computes the same closure, so
-  filings converge.
+- Filings converge: the replace closure is now pure over the new slice
+  (same slice, same closure as a fresh bootstrap), `syncReplace` files
+  exactly it, and the commit forgets held outsiders.
 - The relation engine ends where a placement by rule puts it: the drop
   unlinks the old value and the cold register re-links the new one, both
   through the same `changed` the gate's from-scratch scan checks.
 - The partition check (`diffResidency`) allows resident-but-cold rows, so
   the pin is invisible to it; the pinned row stays hot with its cells, as
   before this change.
+- Hysteresis note: residency is hysteretic by design (a resident row is
+  read through resident doors, a cold one through peek — each stable).
+  The back commit used to queue hundreds of loads from grown-phase cells
+  re-running; with identical starting caches both arms read, queue and
+  hydrate identically, so post-read states converge exactly too.
 
 ### Counts and cover
 
 - `pool/construction.test.ts` "2x-and-back holds what a fresh 1x bootstrap
-  holds": resident/cold issues and sessions, every held cell kind, live
-  cells walked from held structures (explicit dispose drops a cell without
-  touching `cellsCollected`, so created-minus-collected is not a live
-  count after a replace), order and snapshot. Fails on resident-stays
-  (the plant: ~1,200 extra residents with cells); green after.
+  holds": resident/cold issues and sessions as sets, every held cell kind,
+  live cells walked from held structures (explicit dispose drops a cell
+  without touching `cellsCollected`, so created-minus-collected is not a
+  live count after a replace), order and snapshot — at the replace boundary
+  with no reads on either arm, and again after settle+snapshot on both.
+  Fails on resident-stays (the plant: boundary partition plus cells);
+  green after.
 - `pool/residency.test.tsx`: the replace test is restated (looked-at cold
   row evicted, view cells gone, reopened row hot), plus a pin test (pinned
   row stays through a replace, evicted by the next one once unpinned).
