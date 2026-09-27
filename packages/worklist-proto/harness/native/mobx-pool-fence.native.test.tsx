@@ -115,6 +115,13 @@ function drawnIds(list: Element): string[] {
   )
 }
 
+/** The window as drawn: resident rows plus loading placeholders for cold ones (Ma1). */
+function windowIds(list: Element): string[] {
+  return [...list.querySelectorAll('[data-testid^="row-"], [data-testid^="loading-"]')].map((el) =>
+    (el.getAttribute('data-testid') ?? '').replace(/^(row|loading)-/, ''),
+  )
+}
+
 function shutdown(mount: Pick<MountedPool, 'ctx' | 'feeds' | 'mounted'>): void {
   mount.mounted.unmount()
   mount.feeds.dispose()
@@ -126,11 +133,12 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     const mount = await mountPool()
     const { ctx, feeds, handle, mounted, list } = mount
     try {
-      // Windowed (Mb2): a strict prefix of the grouped order, from the top.
+      // Windowed (Mb2): a strict prefix of the grouped order, from the top
+      // (placeholders included: cold visible rows draw as loading).
       const visible = tracked(() => handle.pool.worklist.order.length)
-      const drawn = drawnIds(list)
-      expect(drawn.length, 'the window draws rows').toBeGreaterThan(0)
-      expect(drawn.length, 'the window draws a prefix, not the set').toBeLessThan(visible)
+      const window = windowIds(list)
+      expect(window.length, 'the window draws rows').toBeGreaterThan(0)
+      expect(window.length, 'the window draws a prefix, not the set').toBeLessThan(visible)
       const grouped = tracked(() => {
         const order = sliceOrderOf(handle.pool.groups.layout)
         return [
@@ -138,7 +146,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
           ...order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
         ]
       })
-      expect(drawn, 'the window draws the grouped prefix').toEqual(grouped.slice(0, drawn.length))
+      expect(window, 'the window draws the grouped prefix').toEqual(grouped.slice(0, window.length))
 
       const cells = []
       let nonVacuous = 0
@@ -151,9 +159,10 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         // Window-aware commits: the redrawn rows must EQUAL the oracle-changed
-        // rows intersected with the drawn window. A changed row outside the
-        // window cannot commit (it was never mounted); a drawn row that
-        // commits with an unchanged view is the whole-list work this lane
+        // rows intersected with the RESIDENT drawn rows (`drawnIds`: loading
+        // placeholders mount no RowShell and cannot commit). A changed row
+        // outside the window cannot commit (it was never mounted); a drawn row
+        // that commits with an unchanged view is the whole-list work this lane
         // exists to catch (the plant below fails exactly here).
         expect(result.oracleChangedRows, `${at}: no commit cell`).not.toBeNull()
         expect(result.drawnRows, `${at}: no commit cell`).not.toBeNull()
@@ -233,7 +242,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
           `${result.visibleRows} changed=[${(result.oracleChangedRows ?? []).join(',')}]`,
       )
       expect(result.rowsCommitted, 'the plant redraws the list, not the row').toBeGreaterThan(1)
-      expect(() => assertCommits(result)).toThrow(/over=/)
+      expect(() => assertCommits(result)).toThrow(/over=\[[^\]]/)
     } finally {
       mounted.unmount()
       feeds.dispose()
