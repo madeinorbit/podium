@@ -215,6 +215,7 @@ describe('member parts per edge are O(family) (POD-4683)', () => {
     // `tables.session.keys()`), expressed without editing pool code: a table
     // walk beside a membership push counts the corpus through the Map
     // iterator, failing the same bound at both scales.
+    const walkedByScale: Record<string, number> = {}
     for (const scale of [1, 4] as const) {
       const corpus = buildCorpus(scale)
       const sessionIds = new Set(corpus.sliceSessions.map((s) => s.sessionId as string))
@@ -244,17 +245,17 @@ describe('member parts per edge are O(family) (POD-4683)', () => {
         const walked = countSessionIds(sessionIds, () => {
           for (const __s of tables.session.keys()) void __s
         })
-        // At least the corpus: creating the key iterator itself may visit
-        // session ids through the same patched iteration (counted too).
-        expect(walked, `${scale}x table plant walks the corpus`).toBeGreaterThanOrEqual(
-          sessionIds.size,
-        )
+        // Far beyond any family (max 8): the table holds thousands of
+        // resident sessions at either scale (lazy pools keep cold rows out of
+        // the tables, so this is a subset of the corpus — still corpus-scale).
+        expect(walked, `${scale}x table plant walks the table`).toBeGreaterThan(1000)
         expect(walked, `${scale}x table plant exceeds ${BOUND}`).toBeGreaterThan(BOUND)
+        walkedByScale[`${scale}x`] = walked
       } finally {
         handle.dispose()
         locals.dispose()
       }
     }
-    writeResult('mobx-member-parts-4683-table-plant', { bound: BOUND })
+    writeResult('mobx-member-parts-4683-table-plant', { bound: BOUND, walkedByScale })
   }, 600_000)
 })

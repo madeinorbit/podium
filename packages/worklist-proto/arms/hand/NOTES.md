@@ -8,10 +8,14 @@ arms). Explicit seats per issue do not grow with the corpus (1x: 2,133
 families, avg 1.71, max 8, p50 1, p90 3, p99 5; 4x: 8,550 families, avg 1.71,
 max/p50/p90/p99 equal), so O(family) is O(1) with respect to scale. A single
 join, leave and move (family 2) iterate 12 / 8 / 15 session ids at 1x and the
-same at 4x (MobX: 6 / 4 / 8 — the extra hand passes are the bucket copy+sort);
+same at 4x (MobX: 7 / 5 / 10 — the extra hand passes are the bucket copy+sort);
 bound 100 at both scales. Pinned by `pool/worklist/member-parts.test.ts`
-(same shape as the MobX twin): family distribution, the three edges at 1x/4x
-flat within noise, and a corpus-walking plant (4,304 / 17,216 ids) failing the
+(same shape as the MobX twin, over the shared
+`harness/src/count-session-ids.ts` instrument, which also counts Map iteration):
+family distribution, the three edges at 1x/4x
+flat within noise, and a corpus-walking plant (4,304 / 17,216 ids) plus the
+coordinator's table-walk plant (`tables.session.keys()`, thousands of resident
+ids) failing the
 same bound. No production change; the #10 `burstFamilyReads` rows allowance
 (`rollup.test.tsx`, `known-gaps.ts`) stands — this decision covers id work,
 not rows.
