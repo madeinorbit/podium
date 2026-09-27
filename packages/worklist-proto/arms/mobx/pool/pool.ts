@@ -718,6 +718,9 @@ export class MobxPool {
       one: (from, id, relation) => this.rawOne(from, id, relation),
       many: (from, id, relation) => this.rawMany(from, id, relation),
       size: (from, id, relation) => this.graph.size(from, id, relation),
+      // POD-4671: the maintained issueless set, engine-direct like size
+      // (the plain pass counts nothing; both arms resolved in favour of both).
+      issueless: (from, id, relation) => this.graph.issueless(from, id, relation),
     }
     // Row reads go through the live inputs (fenced, tracked, and — under
     // the write arm — projecting pending edits through the row-reader
