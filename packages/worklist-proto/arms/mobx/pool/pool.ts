@@ -757,9 +757,10 @@ export class MobxPool {
    * are noded even when cold: the nest walk passes THROUGH a hidden parent
    * to the grandparent, so a missing node would stop it early. Formal
    * descendants are noded even when hidden: the parent's progress composes
-   * over their cached units. The walk stops at held nodes (their closure is
-   * complete by induction) and at unknown ids; it reads rows, never tables,
-   * and builds no observable.
+   * over their cached units. Every root verifies its first hop (so a
+   * reparented held row picks up its new parent); the walk stops at a
+   * pre-existing held chain (complete by induction) and at unknown ids; it
+   * reads rows, never tables, and builds no observable.
    */
   private expandRoots(
     roots: readonly string[],
@@ -771,25 +772,36 @@ export class MobxPool {
       closure.push(id)
       return true
     }
-    const queue: string[] = []
-    for (const id of roots) if (visit(id)) queue.push(id)
-    for (let head = 0; head < queue.length; head += 1) {
-      const id = queue[head] as string
-      // A held node's chain is complete by induction (it was walked when the
-      // node was built): only unheld members extend the walk, so a rename of
-      // a held row walks nothing at all.
-      if (this.worklist.has(id)) continue
-      const row = this.issueRowOf(id)
-      if (row === undefined) continue
-      const standing = standingOf(row)
-      if (standing.parentId !== null) {
-        if (visit(standing.parentId)) queue.push(standing.parentId)
-      } else if (standing.startedBy !== null) {
-        // Parentless with a starter: the present owner carries the nest.
-        // Evaluated (hot rows only) for a root that needs it; anything else
-        // holds its owner already, since a present row is always noded.
-        const owner = this.tables.issue.has(id) ? partsOf(id).nestParent : null
-        if (owner !== null && visit(owner)) queue.push(owner)
+    for (const root of roots) {
+      // Every root verifies its first hop (one row read, free when the row
+      // arrived on this action's event), so a reparented held row still
+      // picks up its new parent; the walk stops at a pre-existing held
+      // chain (complete by induction) and at unknown ids. Membership in the
+      // closure strictly grows per step, so adversarial parent cycles end.
+      let current: string | null = root
+      let first = true
+      while (current !== null) {
+        const id = current
+        if (!this.knows(id)) break
+        const held = this.worklist.has(id)
+        if (held && !first) break
+        if (!held && !visit(id)) break
+        const row = this.issueRowOf(id)
+        if (row === undefined) break
+        const standing = standingOf(row)
+        if (standing.parentId !== null) {
+          current = standing.parentId
+        } else if (standing.startedBy !== null && this.tables.issue.has(id)) {
+          // Parentless with a starter: the present owner carries the nest.
+          // Evaluated (hot rows only) for a member that needs it; anything
+          // else holds its owner already, since a present row is always
+          // noded. A cold member nests under nothing (hidden by rule).
+          const owner = partsOf(id).nestParent
+          current = owner
+        } else {
+          break
+        }
+        first = false
       }
     }
     // Formal subtrees under unheld members only: a held member's subtree is
