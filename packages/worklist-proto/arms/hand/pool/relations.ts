@@ -229,7 +229,7 @@ export class PoolRelations implements RelationReader {
         const prefix = spec.kind === 'prefix'
         const extra = prefix && spec.alsoRoots !== undefined && spec.alsoRoots.length > 0
         const issueless =
-          prefix && (schema[from].fields as Record<string, unknown>)['issueId'] !== undefined
+          prefix && (schema[from].fields as Record<string, unknown>).issueId !== undefined
         const link: Link = {
           from,
           name,
@@ -391,8 +391,8 @@ export class PoolRelations implements RelationReader {
     // joins the issueless set of its current root. No table read: before and
     // after are already in hand; the forward is peeked, not read.
     if (entity === 'session' && before !== undefined && after !== undefined) {
-      const was = (before as Row)['issueId'] === undefined
-      const now = (after as Row)['issueId'] === undefined
+      const was = (before as Row).issueId === undefined
+      const now = (after as Row).issueId === undefined
       if (was !== now) {
         for (const link of this.outgoing.get(entity) ?? []) {
           if (link.issueless === null || link.spec.kind !== 'prefix') continue
@@ -665,7 +665,7 @@ export class PoolRelations implements RelationReader {
     // before `point()`.
     if (link.issueless !== null) {
       if (old !== null && old !== target) this.dropIssueless(link, old, id)
-      if (row !== undefined && target !== null && (row as Row)['issueId'] === undefined) {
+      if (row !== undefined && target !== null && (row as Row).issueId === undefined) {
         this.addIssueless(link, target, id)
       }
     }
@@ -785,7 +785,7 @@ export class PoolRelations implements RelationReader {
       if (link.issueless !== null) {
         if (was) this.dropIssueless(link, current as string, id)
         const row = this.options.rows[link.from].get(id) as Row | undefined
-        if (row !== undefined && (row as Row)['issueId'] === undefined) {
+        if (row !== undefined && (row as Row).issueId === undefined) {
           this.addIssueless(link, root, id)
         }
       }
@@ -813,7 +813,7 @@ export class PoolRelations implements RelationReader {
         if (was) this.dropIssueless(link, root, id)
         if (next !== null) {
           const row = this.options.rows[link.from].get(id) as Row | undefined
-          if (row !== undefined && (row as Row)['issueId'] === undefined) {
+          if (row !== undefined && (row as Row).issueId === undefined) {
             this.addIssueless(link, next, id)
           }
         }

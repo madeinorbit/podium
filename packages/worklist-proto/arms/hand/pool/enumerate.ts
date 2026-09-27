@@ -223,14 +223,14 @@ export function scanRelations(
     for (const [name, spec] of Object.entries(schema[from].relations)) {
       if (!isLinkSpec(spec)) continue
       if (spec.kind !== 'prefix') continue
-      if ((schema[from].fields as Record<string, unknown>)['issueId'] === undefined) continue
+      if ((schema[from].fields as Record<string, unknown>).issueId === undefined) continue
       const buckets = inverse.get(`${spec.to}.${spec.inverse}`)
       if (buckets === undefined) continue
       const filtered = new Map<string, string[]>()
       for (const [target, members] of buckets) {
         const kept = members.filter((id) => {
           const row = tables[from].get(id) as Readonly<Record<string, unknown>> | undefined
-          return row !== undefined && row['issueId'] === undefined
+          return row !== undefined && row.issueId === undefined
         })
         if (kept.length > 0) filtered.set(target, kept)
       }
@@ -255,7 +255,7 @@ export function scanRelations(
       const to = schema[from].relations[relation]?.to as EntityName
       if (tables[to].has(target)) return target
       const byTarget = unionByTarget.get(to)
-      return byTarget !== undefined && byTarget.has(target) ? target : null
+      return byTarget?.has(target) === true ? target : null
     },
     many: bucketOf,
     size: (from, id, relation) => bucketOf(from, id, relation).length,
@@ -305,7 +305,7 @@ export function diffRelations(
   for (const from of Object.keys(schema) as EntityName[]) {
     for (const [name, spec] of Object.entries(schema[from].relations)) {
       if (!isLinkSpec(spec) || spec.kind !== 'prefix') continue
-      if ((schema[from].fields as Record<string, unknown>)['issueId'] === undefined) continue
+      if ((schema[from].fields as Record<string, unknown>).issueId === undefined) continue
       const ids = new Set([...tables[spec.to].keys(), ...(extra[spec.to] ?? [])])
       for (const id of ids) {
         const got = [...live.issueless(spec.to, id, spec.inverse)].sort()
