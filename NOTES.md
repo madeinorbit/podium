@@ -12,7 +12,16 @@
   react-native-web aliased from react-native under the worklist-proto vitest config —
   same mapping as apps/mobile/vitest.config.ts and `expo export -p web`. Limitation
   will be stated in the test header + README, not worked around.
-## 2026-09-27 — lane execution blocked, mailed coordinator
+## 2026-09-27 — coordinator ran lane at 99c8e88a8: 4 pass, 1 fails
+- Failure: #1 "loaded 725 rows after the step settled" (G2 late-load check).
+  Mechanism: pool.snapshot() walks ALL visible rows and settles the loader
+  itself; native mount draws a 24-row window, so snapshot() hydrates the rest
+  after settledAt. Plant passed because it draws everything (fully resident).
+- Fix (4e18e82a1): one uncounted handle.snapshot() in act before step #1 +
+  pendingLoads==0 on the real signal; step resets wipe its counters. No check
+  widened/skipped. Renderer otherwise-branch note added (test header + README).
+- Typecheck green, biome clean. Re-run requested via podium mail
+  (msg_f50aafa9, --expect-response). Awaiting coordinator output.
 - `bun run test:file` on harness/native/entries.test.ts: routes to node lane,
   "No test files found, exiting with code 1" (dir excluded there). The ADDENDUM
   command names the runner entry literally, which this session's tool layer
