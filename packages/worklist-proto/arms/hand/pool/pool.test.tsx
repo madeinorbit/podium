@@ -185,15 +185,20 @@ describe('ingest', () => {
       expect(pool.tables.issue.size).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
       // POD-4582: the worklist decides visibility at bootstrap (a `visible`
-      // cell per resident issue) and ranks the visible rows, which reads
-      // each one's `own` part and nothing else of its view. POD-4583: the
-      // groups place every visible row (a `placement` cell each) in the same
+      // cell per closure issue, POD-4707: the closure's resident members,
+      // never the corpus) and ranks the visible rows, which reads each
+      // one's `own` part and nothing else of its view. POD-4583: the groups
+      // place every visible row (a `placement` cell each) in the same
       // settle.
       const visible = pool.order()
       expect(visible.length).toBeGreaterThan(0)
       expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
       for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
-      expect(pool.worklist.held('member')).toBe(residentIssues.length)
+      // Every visible row is an admitted resident closure member; hidden
+      // residents outside the closure hold no member cell (eager
+      // construction held one per resident issue).
+      expect(pool.worklist.held('member')).toBeGreaterThanOrEqual(visible.length)
+      expect(pool.worklist.held('member')).toBeLessThan(residentIssues.length)
       expect(pool.groups.held()).toBe(visible.length)
       const rollupCells = pool.rollup.heldCells()
       expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(

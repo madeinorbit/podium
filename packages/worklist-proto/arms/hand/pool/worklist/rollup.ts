@@ -1076,6 +1076,11 @@ export class RollupCollection {
    * issues a commit's deltas named, after invalidation): a newly known issue
    * gets its filing cells, read once and filed; a gone one loses them and is
    * unfiled. Raw doors only (maintenance reads nothing tracked).
+   *
+   * POD-4707: a gone row is unfiled whether or not it was filed — its
+   * roll-up node may have materialised on first read without ever joining
+   * the closure, and nothing else drops it (eager construction filed every
+   * known issue, so every node was a filed one).
    */
   sync(ids: Iterable<string>): void {
     for (const id of ids) {
@@ -1085,7 +1090,7 @@ export class RollupCollection {
           this.reportedNest.add(id)
           this.reportedFormal.add(id)
         }
-      } else if (this.fileNestCells.has(id)) {
+      } else {
         this.unfile(id)
       }
     }
@@ -1131,6 +1136,12 @@ export class RollupCollection {
     }
     for (const id of [...this.fileNestCells.keys()]) {
       if (!known.has(id) || !closure.has(id)) this.unfile(id)
+    }
+    // Nodes that materialised on first read without ever being filed: drop
+    // the ones the closure leaves behind (their readers re-create them on
+    // demand, as they did the first time).
+    for (const id of [...this.issues.keys()]) {
+      if (!closure.has(id)) this.unfile(id)
     }
   }
 
