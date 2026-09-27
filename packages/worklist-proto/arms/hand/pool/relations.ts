@@ -149,6 +149,8 @@ interface Link {
   readonly extraCounts: Map<string, number> | null
   /** POD-4671 — `prefix` with `alsoRoots` only: `${entity}:${id}` → raw root or null. */
   readonly extraByRow: Map<string, string | null> | null
+  /** POD-4671 ruling Sep27 — prefix from issueId holder only: target → issueless members. */
+  readonly issueless: Map<string, Set<string>> | null
 }
 
 /** One entity's collapse state. */
