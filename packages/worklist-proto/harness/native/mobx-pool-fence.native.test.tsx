@@ -37,6 +37,7 @@
  *     harness/native/mobx-pool-fence.native.test.tsx
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import { spy } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { act, type ReactElement } from 'react'
@@ -49,7 +50,11 @@ import { type MobxPool, tracked } from '../../arms/mobx/pool/pool'
 import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
 import { createReadFence, DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { RowShell } from '../../shared/src/row-shell'
-import { type ScenarioEngine, startScenarioEngine } from '../../shared/src/scenarios'
+import {
+  type ScenarioEngine,
+  startScenarioEngine,
+  writeHeartbeat,
+} from '../../shared/src/scenarios'
 import {
   assertCommits,
   assertReads,
@@ -57,11 +62,14 @@ import {
   mountNativeForCounts,
 } from '../src/count-harness'
 import {
+  engineLocals,
   FENCE_SCENARIOS,
   type FenceFeeds,
   openFenceFeeds,
+  parityLocals,
   runFenceStep,
 } from '../src/fence-scenarios'
+import { rowViewsFromStore, snapshotFromStore } from '../src/oracle/index'
 import { writeResult } from '../src/results'
 
 // The pool's enforcement only warns, so every pool test installs the trap;
@@ -145,29 +153,15 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
       // native list draws a window, so the mount queues only the window's
       // loads — but every step's `snapshot()` walks EVERY visible row and
       // settles the loader itself, so those loads would land after the step
-      // settled its own and fail the run (G2: charged to no step). Worse,
-      // react-native-web's VirtualizedList mounts cells in TIMED batches, so
-      // each batch reaches more rows and queues more loads after the previous
-      // drain. Settle until BOTH signals are quiet: the mounted cell count
-      // stable across batches and the load queue empty — each step's own
-      // resets wipe this settle's counters (log, stats, reads).
-      const batchRounds: number[] = []
-      let quietRounds = 0
-      let lastCells = -1
-      for (let round = 0; round < 200 && quietRounds < 2; round += 1) {
-        await act(async () => {
-          handle.snapshot()
-          await new Promise((resolve) => setTimeout(resolve, 60))
-        })
-        const cells = windowIds(list).length
-        batchRounds.push(cells)
-        if (handle.pendingLoads() === 0 && cells === lastCells) quietRounds += 1
-        else quietRounds = 0
-        lastCells = cells
-      }
-      expect(quietRounds, 'cell batches settled').toBe(2)
+      // settled its own and fail the run (G2: charged to no step). Drive one
+      // uncounted snapshot on the real signal until nothing is queued; each
+      // step's own resets wipe its counters (log, stats, reads). No
+      // timer-and-stability loop: the quiet-round heuristic is ruled out
+      // (Mc2); the pending-loads signal below is the real one.
+      await act(async () => {
+        handle.snapshot()
+      })
       expect(handle.pendingLoads(), 'mount loads settled').toBe(0)
-      console.info(`[mobx-pool-native] pre-step settle: cells per round=[${batchRounds.join(',')}]`)
 
       // Windowed (Mb2): a strict prefix of the grouped order, from the top
       // (placeholders included: cold visible rows draw as loading).
@@ -236,12 +230,84 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         nonVacuous,
         'no step changed a drawn row: the commit cells are vacuous',
       ).toBeGreaterThan(0)
-      writeResult('mobx-pool-native-1x', {
+      writeResult('mobx-pool-native-1x', { scale: 1, renderer: RENDERER, cells })
+    } finally {
+      shutdown(mount)
+    }
+  }, 300_000)
+
+  it('diagnoses what step #1 itself loads (temporary scaffolding)', async () => {
+    // SCAFFOLDING for the #1 late-load failure, removed once the mount fix
+    // lands: runs #1 manually in phases — write, settle, snapshot — on its OWN
+    // engine (the graded test's order is undisturbed) and logs which phase
+    // lands loads plus what committed and remounted. If the native list
+    // re-renders on the unrelated heartbeat, the window's rows commit (and
+    // remount when keys churn) with an empty oracle-changed set; if the write
+    // itself cascades, the write/settle phases land the loads.
+    const mount = await mountPool()
+    const { ctx, feeds, handle, mounted, list } = mount
+    try {
+      const cellsBefore = windowIds(list).length
+      const orderBefore = tracked(() => [...handle.pool.worklist.order])
+      const viewsBefore = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      mounted.log.reset()
+      handle.stats.reset()
+      mounted.reads.reset()
+      const rr0 = feeds.rowReads()
+      await act(async () => {
+        await writeHeartbeat(ctx)
+        feeds.flush()
+      })
+      const rr1 = feeds.rowReads()
+      await act(async () => {
+        await handle.settleLoads()
+      })
+      const rr2 = feeds.rowReads()
+      const stepStats = {
+        rowsDerived: handle.stats.rowsDerived,
+        rollupsDerived: handle.stats.rollupsDerived,
+        indexUpdates: handle.stats.indexUpdates,
+        notifications: handle.stats.notifications,
+      }
+      const stepReads = mounted.reads.stats()
+      const cellsMid = windowIds(list).length
+      const snap = handle.snapshot()
+      const rr3 = feeds.rowReads()
+      const cellsAfter = windowIds(list).length
+      const orderAfter = tracked(() => [...handle.pool.worklist.order])
+      const viewsAfter = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+      const changed = Object.keys(viewsBefore).filter(
+        (id) => id in viewsAfter && !isDeepStrictEqual(viewsBefore[id], viewsAfter[id]),
+      )
+      const drawn = [...mounted.log.counts.keys()].sort()
+      const remounted = [...mounted.log.mounts.keys()].sort()
+      const expected = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+      const parity = isDeepStrictEqual(snap, expected)
+      console.info(
+        `[mobx-pool-native] diag #1: cells=${cellsBefore}>${cellsMid}>${cellsAfter} ` +
+          `loads=write+${rr1 - rr0}/settle+${rr2 - rr1}/snapshot+${rr3 - rr2} ` +
+          `commits=${drawn.length} mounts=${remounted.length} changed=${changed.length} ` +
+          `reads=${stepReads.rows} parity=${parity ? 'pass' : 'FAIL'}`,
+      )
+      console.info(
+        `[mobx-pool-native] diag #1: drawn=[${drawn.join(',')}] changed=[${changed.join(',')}] ` +
+          `remounted=[${remounted.join(',')}] orderStable=${isDeepStrictEqual(orderBefore, orderAfter)} ` +
+          `stats=${JSON.stringify(stepStats)} readsByEntity=${JSON.stringify(stepReads.byEntity)}`,
+      )
+      writeResult('mobx-pool-native-diag-1', {
         scale: 1,
         renderer: RENDERER,
-        preStep: { batchRounds },
-        cells,
+        cells: { cellsBefore, cellsMid, cellsAfter },
+        loads: { write: rr1 - rr0, settle: rr2 - rr1, snapshot: rr3 - rr2 },
+        commits: drawn,
+        remounted,
+        changed,
+        orderStable: isDeepStrictEqual(orderBefore, orderAfter),
+        stats: stepStats,
+        reads: stepReads,
+        parity,
       })
+      expect(parity, 'diag #1 parity').toBe(true)
     } finally {
       shutdown(mount)
     }
