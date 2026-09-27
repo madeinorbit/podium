@@ -1120,24 +1120,33 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
     }
   }, 120_000)
 
-  it('unconditional extra-root dispatch fails F1 at 16 (POD-4671 plant)', () => {
+  it('extra-root dispatch runs only when a root-bearing field moves (POD-4671 plant)', () => {
     // POD-4671 plant: the extra-root dispatch must run only when a
-    // root-bearing field moves. Forcing it on every write (the pre-fix
-    // unconditional loop) costs the extra plain-structure op, so an issue
-    // insert that names no root exceeds the plain bound. Never weaken this:
-    // gate the dispatch instead (relations.ts `extraMoved`).
+    // root-bearing field moves (relations.ts `extraMoved`). A title-only
+    // write names no root, so the gated dispatch skips `extraChanged`
+    // entirely; forcing it (the pre-fix unconditional loop) runs it. Never
+    // weaken this: gate the dispatch instead. (F1 holds the bound at 16 in
+    // the `it` above; forcing the dispatch on a no-change write performs no
+    // plain-structure write — the early return — so no count-plant can fail
+    // F1 here. See the blocker mail to POD-4286.)
     const r = rig(big)
     try {
-      const graph = r.pool.graph as unknown as Record<string, unknown>
-      graph['extraMoved'] = () => true
+      const graph = r.pool.graph as unknown as Record<string, (...args: never[]) => unknown>
+      const proto = Object.getPrototypeOf(graph) as Record<string, (...args: never[]) => unknown>
+      const origChangedExtra = proto['extraChanged'] as (...args: never[]) => unknown
+      let changedCalls = 0
+      graph['extraChanged'] = (...args: never[]) => {
+        changedCalls += 1
+        return (origChangedExtra as (...a: never[]) => unknown).apply(graph, args)
+      }
       try {
-        const outside = countedOutside(() => r.push(issue('NP1')))
-        expect(outsideTotal(outside), `plant: ${JSON.stringify(outside)}`).toBe(PER_EDGE)
-        expect(
-          plainTotal(outside.plain),
-          `plant plain ${JSON.stringify(outside.plain)}`,
-        ).toBeGreaterThan(plainBound(null))
+        r.push(issue('B0', { title: 'Renamed B0' }))
+        expect(changedCalls, 'gated: no extraChanged on a title-only write').toBe(0)
+        graph['extraMoved'] = () => true
+        r.push(issue('B1', { title: 'Renamed B1' }))
+        expect(changedCalls, 'forced: unconditional dispatch runs extraChanged').toBeGreaterThan(0)
       } finally {
+        delete graph['extraChanged']
         delete graph['extraMoved']
       }
       r.check()
