@@ -7,8 +7,7 @@
  * `replace` on reload), and versus the legacy ORACLE at `checkArm`'s default
  * cadence (every 10 steps and after the last; POD-4572, Mb4: until the
  * worklist phase this gate ran `oracleEvery: 0`, because the oracle compares
- * order and roll-ups). POD-4671's rows (`worklist/known-gaps.ts`) are taken
- * from the oracle in both snapshots, as the roll-up gate does, and counted.
+ * order and roll-ups). POD-4671 fixed: no rows taken from the oracle.
  * The gate's NO on this arm: the same pool planted deaf to removals (the
  * feed's `value: undefined` records dropped) must fail it, on the same
  * sequences. The plants keep `oracleEvery: 0`: each is held to the catcher
@@ -123,7 +122,6 @@ import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
 import { rebuildSnapshot, rebuildViews } from './rebuild'
-import { acceptUnscannedGap } from './worklist/known-gaps'
 
 installMobxWarnTrap()
 
@@ -446,31 +444,12 @@ function checked(
 const relationChecked = checked(mobxPoolArm)
 
 /**
- * POD-4572: `arm` with POD-4671's one-row gap patched in its snapshot and
- * its rebuild (the oracle's row taken for each row `acceptUnscannedGap`
- * names), counted in `tally.applied`, so the oracle comparison at its default
- * cadence holds every other row. The exception throws once the gap is fixed.
+ * POD-4572: `arm` observed directly (POD-4671 fixed: no gap patch, the tally
+ * stays 0).
  */
 function gapped(arm: CheckableArm, tally: { applied: number }): CheckedArm {
-  return (ctx: ScenarioEngine) => ({
-    create(source, locals, reads) {
-      const handle = arm.create(source, locals, reads) as MobxPoolHandle
-      const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
-        const oracle = oracleSnapshot(ctx.engine.getSnapshot())
-        const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
-        if (rows.length === 0) return snapshot
-        tally.applied += rows.length
-        const rowsById = { ...snapshot.rowsById }
-        for (const id of rows) rowsById[id] = oracle.rowsById[id]!
-        return { ...snapshot, rowsById }
-      }
-      return {
-        ...handle,
-        snapshot: () => patch(handle.snapshot()),
-        rebuildFromScratch: () => patch(handle.rebuildFromScratch()),
-      }
-    },
-  })
+  void tally
+  return arm
 }
 
 /** Which check caught a plant, from the error it threw. */
@@ -669,20 +648,9 @@ describe('row fields against the oracle', () => {
         'activityAt',
       ]
       let closedByOracle = 0
-      // POD-4671 (`worklist/known-gaps.ts`): the unscanned-worktree orphan has
-      // no seat in the schema's R3 relation; its issue's seat-fed fields
-      // (`activityAt` too: the orphan's stamp is the one it misses) are left
-      // out here, and the exception itself throws once the seat exists.
+      // POD-4671 fixed: no gap, every row's seat-fed fields compare.
       const snapshot = handle.pool.snapshot()
-      const gap = acceptUnscannedGap(
-        ctx.corpus,
-        handle.pool,
-        snapshotFromStore(ctx.engine.getSnapshot(), {
-          selectedIssueId: null,
-          coarseNow: engineLocals(ctx).coarseNow,
-        }),
-        snapshot,
-      ).applied
+      const gap: string | null = null
       for (const id of ids) {
         const want = expected[id]!
         const got = actual[id]

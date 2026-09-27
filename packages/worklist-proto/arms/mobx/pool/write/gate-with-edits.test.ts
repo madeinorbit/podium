@@ -27,7 +27,7 @@ import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { acceptUnscannedGap } from '../worklist/known-gaps'
+
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 
 installMobxWarnTrap()
@@ -70,33 +70,14 @@ function deafToRemovals(source: RowSource): RowSource {
 }
 
 /**
- * POD-4671's one-row gap patched in the snapshot and the rebuild (the same
- * wrapper as `gate.test.ts`'s `gapped`): the oracle's row taken for each row
- * `acceptUnscannedGap` names, counted in `tally.applied`.
+ * POD-4671 fixed: no gap patch (the same wrapper as `gate.test.ts`'s `gapped`).
  */
 function gapped(
   arm: CheckableArm,
   tally: { applied: number },
 ): CheckedArm {
-  return (ctx: ScenarioEngine) => ({
-    create(source, locals, reads) {
-      const handle = arm.create(source, locals, reads) as WritableMobxPoolHandle
-      const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
-        const oracle = oracleSnapshot(ctx.engine.getSnapshot())
-        const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
-        if (rows.length === 0) return snapshot
-        tally.applied += rows.length
-        const rowsById = { ...snapshot.rowsById }
-        for (const id of rows) rowsById[id] = oracle.rowsById[id]!
-        return { ...snapshot, rowsById }
-      }
-      return {
-        ...handle,
-        snapshot: () => patch(handle.snapshot()),
-        rebuildFromScratch: () => patch(handle.rebuildFromScratch()),
-      }
-    },
-  })
+  void tally
+  return arm
 }
 
 describe('L4b with optimistic edits enabled (write layer attached, idle)', () => {

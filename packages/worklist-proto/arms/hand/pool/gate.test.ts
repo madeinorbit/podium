@@ -579,7 +579,7 @@ const noRaiseArm: CheckableArm = {
   },
 }
 
-/** Every visible 1x row's `activityAt` against the oracle's, the orphan excepted. */
+/** Every visible 1x row's `activityAt` against the oracle's (POD-4671 fixed: no orphan). */
 async function activityDiffs(arm: CheckableArm): Promise<{ rows: number; diffs: string[] }> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -587,12 +587,10 @@ async function activityDiffs(arm: CheckableArm): Promise<{ rows: number; diffs: 
   try {
     const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
     const ids = Object.keys(expected)
-    const orphan = ctx.corpus.unscannedWorktree.issueId
     for (const id of ids) handle.pool.resident('issue', id)
     handle.pool.snapshot()
     const diffs: string[] = []
     for (const id of ids) {
-      if (id === orphan) continue
       const got = handle.pool.view(id)?.activityAt
       if (got !== expected[id]!.activityAt) {
         diffs.push(`${id}: live ${got}, oracle ${expected[id]!.activityAt}`)
@@ -632,7 +630,6 @@ describe('own-row and one-hop fields against the oracle', () => {
         'foldAt',
       ]
       let closedByOracle = 0
-      const orphan = ctx.corpus.unscannedWorktree.issueId
       for (const id of ids) {
         const want = expected[id]!
         const got = handle.pool.view(id)
@@ -643,9 +640,8 @@ describe('own-row and one-hop fields against the oracle', () => {
           closedByOracle += 1
           expect(got!.closed, `${id}.closed`).toBe(true)
         }
-        // Hb3 wires the waiting conjunct, so `closed` is exact — except the
-        // POD-4671 orphan, whose ask the pool never seats (`known-gaps.ts`).
-        if (id !== orphan) expect(got!.closed, `${id}.closed`).toBe(want.closed)
+        // Hb3 wires the waiting conjunct, so `closed` is exact (POD-4671 fixed).
+        expect(got!.closed, `${id}.closed`).toBe(want.closed)
         if (want.originTick === null) expect(got!.originTick, `${id}.originTick`).toBeNull()
         else expect(got!.originTick?.ref, `${id}.originTick`).toBe(want.originTick.ref)
       }

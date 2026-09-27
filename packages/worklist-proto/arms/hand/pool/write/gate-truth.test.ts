@@ -81,7 +81,6 @@ import { startGenRun } from '../../../../shared/src/gen/run'
 import { feedStep, WriteOracle } from '../../../../shared/src/gen/write-oracle'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
-import { acceptUnscannedGap } from '../worklist/known-gaps'
 import { writableHandPoolArm, type WritableHandPoolHandle } from './arm'
 
 const SEEDS = Array.from(
@@ -345,11 +344,7 @@ function dropPendingOnRemote(handle: WritableHandPoolHandle): void {
 }
 
 /**
- * POD-4671's one-row gap patched into a snapshot (the same rule as
- * `gate.test.ts`'s `gapped`): the oracle's row taken for each row
- * `acceptUnscannedGap` names, counted in `tally.applied`. A gap row carrying
- * a pending title keeps the live title: the gap is about the seat, and the
- * write oracle judges the pending display.
+ * POD-4671 fixed: no gap patch.
  */
 function applyGap(
   handle: WritableHandPoolHandle,
@@ -358,23 +353,11 @@ function applyGap(
   snapshot: SliceSnapshot,
   tally: { applied: number },
 ): SliceSnapshot {
-  const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
-  if (rows.length === 0) return snapshot
-  tally.applied += rows.length
-  const rowsById = { ...snapshot.rowsById }
-  for (const id of rows) {
-    const patched = { ...oracle.rowsById[id]! }
-    const liveTitle = snapshot.rowsById[id]?.title
-    const pendingTitles = handle.write.log
-      .pendingFor('issue', id)
-      .map((e) => (e.patch as { title?: string }).title)
-      .filter((t) => t !== undefined)
-    if (pendingTitles.length > 0 && liveTitle === pendingTitles[pendingTitles.length - 1]) {
-      patched.title = liveTitle as string
-    }
-    rowsById[id] = patched
-  }
-  return { ...snapshot, rowsById }
+  void handle
+  void ctx
+  void oracle
+  void tally
+  return snapshot
 }
 
 function gapped(
