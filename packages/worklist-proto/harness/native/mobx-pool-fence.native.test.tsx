@@ -53,6 +53,7 @@ import {
 import {
   FENCE_SCENARIOS,
   openFenceFeeds,
+  runFenceStep,
   type FenceFeeds,
 } from '../src/fence-scenarios'
 import { writeResult } from '../src/results'
