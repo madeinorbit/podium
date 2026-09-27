@@ -14,11 +14,10 @@
  * new member, not the family — the seat set is maintained from the
  * relation's own bucket delta, never re-listed through the fenced `many()`.
  *
- * ONE NAMED EXCEPTION (POD-4671, `known-gaps.ts`): the corpus's unscanned-
- * worktree orphan has no seat in the shared schema's R3 relation, so its
- * issue's row may differ from the oracle's in the fields that seat feeds,
- * and nowhere else; the exception throws once the seat exists. Each check
- * records whether it applied.
+ * NO NAMED EXCEPTION (POD-4671 fixed): the corpus's unscanned-worktree
+ * orphan seats through the schema's R3 union roots (scanned lanes PLUS every
+ * issue's own worktreePath), so parity holds with no allowance. Each check
+ * records a null gap.
  *
  * THE L1d SHAPE (`corpus.edgedAskers`): an asking session on a hidden
  * (archived or proposed) child of a visible root. The pool's root reads not
@@ -73,7 +72,6 @@ import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
 import { issueAbandoned } from '../views'
-import { acceptUnscannedGap } from './known-gaps'
 
 installMobxWarnTrap()
 
@@ -125,19 +123,13 @@ function settle(pool: MobxPool): number {
   return rounds
 }
 
-/** The settled snapshot against the oracle and the rebuild. */
+/** The settled snapshot against the oracle and the rebuild (no exception). */
 function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): string | null {
   const snapshot = handle.snapshot()
   const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-  const { snapshot: expected, applied } = acceptUnscannedGap(
-    ctx.corpus,
-    handle.pool,
-    oracle,
-    snapshot,
-  )
-  expect(diffSnapshots(snapshot, expected), `${at}: oracle`).toBeNull()
+  expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
-  return applied
+  return null
 }
 
 async function withMounted<T>(
@@ -436,7 +428,7 @@ describe('row roll-ups (Mb3)', () => {
   it('parity with the oracle and the rebuild on every fence scenario; commits and reads follow the change', async () => {
     const cells = await withMounted(arm, async (ctx, mounted, handle, flush) => {
       const gapAtBoot = checkParity(ctx, handle, 'bootstrap')
-      expect(gapAtBoot, 'the POD-4671 row, named').toBe(ctx.corpus.unscannedWorktree.issueId)
+      expect(gapAtBoot, 'POD-4671 fixed: no gap').toBeNull()
       const out = []
       for (const entry of FENCE_SCENARIOS) {
         mounted.log.reset()

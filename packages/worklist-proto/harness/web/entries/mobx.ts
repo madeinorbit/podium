@@ -17,7 +17,6 @@
 
 import { observable, reaction, runInAction } from 'mobx'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
-import { MOBX_POOL_ALLOWANCES } from '../../../arms/mobx/pool/worklist/known-gaps'
 import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { buildCorpus } from '../../src/fixture/index'
 import { mountPage, readScale } from '../entrylib'
@@ -64,8 +63,7 @@ void startEngineOnCorpus(corpus).then((boot) => {
     runtimeSha: sha,
     el: document.getElementById('root')!,
     scriptAt,
-    // POD-4671's one row, the roster's own named allowance (`known-gaps.ts`).
-    parityAllowance: MOBX_POOL_ALLOWANCES.parity,
+    // POD-4671 fixed: no parity allowance.
   })
   plantConsole(params.get('consoleplant'))
 })

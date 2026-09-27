@@ -6,14 +6,12 @@
  * the frozen round-two store with its known correctness bugs
  * while the matrix timed it as the round-three pool: every
  * record mismatched the oracle from bootstrap (i1026 queued/false vs
- * waiting/true), identically at the base SHA. Parity carries the pool's one
- * named allowance, POD-4671's row, as the fence roster does
- * (`worklist/known-gaps.ts`); each record names it when applied. Mirrors
- * `entries/mobx.ts` (POD-4572), minus its MobX-only console trap.
+ * waiting/true), identically at the base SHA. POD-4671 fixed: no parity
+ * allowance. Mirrors `entries/mobx.ts` (POD-4572), minus its MobX-only
+ * console trap.
  */
 
 import { handPoolArm } from '../../../arms/hand/pool/arm'
-import { HAND_POOL_ALLOWANCES } from '../../../arms/hand/pool/worklist/known-gaps'
 import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { buildCorpus } from '../../src/fixture/index'
 import { mountPage, readScale } from '../entrylib'
@@ -43,7 +41,6 @@ void startEngineOnCorpus(corpus).then((boot) => {
     runtimeSha: sha,
     el: document.getElementById('root')!,
     scriptAt,
-    // POD-4671's one row, the roster's own named allowance (`known-gaps.ts`).
-    parityAllowance: HAND_POOL_ALLOWANCES.parity,
+    // POD-4671 fixed: no parity allowance.
   })
 })

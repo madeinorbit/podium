@@ -18,19 +18,19 @@ function entry(name: string): string {
 }
 
 describe('browser entries mount the round-three pools', () => {
-  it('hand mounts handPoolArm with the pool parity allowance', () => {
+  it('hand mounts handPoolArm with no parity allowance (POD-4671 fixed)', () => {
     const code = entry('hand')
     expect(code, 'the round-three pool arm').toContain('arms/hand/pool/arm')
     expect(code, 'the pool arm value').toContain('handPoolArm')
-    expect(code, 'the pool parity allowance').toContain('HAND_POOL_ALLOWANCES')
+    expect(code, 'no parity allowance').not.toContain('HAND_POOL_ALLOWANCES')
     expect(code, 'not the round-two arm').not.toContain('arms/hand/arm')
     expect(code, 'not the round-two store').not.toContain('HandStore')
   })
 
-  it('mobx mounts mobxPoolArm with the pool parity allowance', () => {
+  it('mobx mounts mobxPoolArm with no parity allowance (POD-4671 fixed)', () => {
     const code = entry('mobx')
     expect(code, 'the round-three pool arm').toContain('arms/mobx/pool/arm')
     expect(code, 'the pool arm value').toContain('mobxPoolArm')
-    expect(code, 'the pool parity allowance').toContain('MOBX_POOL_ALLOWANCES')
+    expect(code, 'no parity allowance').not.toContain('MOBX_POOL_ALLOWANCES')
   })
 })

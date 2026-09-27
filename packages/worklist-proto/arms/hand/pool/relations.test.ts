@@ -360,6 +360,29 @@ describe('session.worktree / worktree.sessions (prefix, R3)', () => {
       r.dispose()
     }
   })
+
+  it('seats sessions under an issue\u2019s own worktreePath with no lane (POD-4671)', () => {
+    const r = rig([
+      lane(REPO),
+      issue('I1', { worktreePath: '/w/unscanned-i1' }),
+      session('S1', { cwd: '/w/unscanned-i1/sub' }),
+      session('S2', { cwd: `${REPO}/x` }),
+    ])
+    try {
+      expect(r.one('session', 'S1', 'worktree')).toBe('/w/unscanned-i1')
+      expect(r.many('worktree', '/w/unscanned-i1', 'sessions')).toEqual(['S1'])
+      expect(r.one('session', 'S2', 'worktree')).toBe(REPO)
+      r.push(issue('I1', { worktreePath: null }))
+      expect(r.one('session', 'S1', 'worktree')).toBeNull()
+      expect(r.many('worktree', '/w/unscanned-i1', 'sessions')).toEqual([])
+      r.push(issue('I1', { worktreePath: '/w/unscanned-i1' }))
+      expect(r.one('session', 'S1', 'worktree')).toBe('/w/unscanned-i1')
+      expect(r.many('worktree', '/w/unscanned-i1', 'sessions')).toEqual(['S1'])
+      r.check()
+    } finally {
+      r.dispose()
+    }
+  })
 })
 
 describe('issue.discoveredFrom / issue.spinOffs (edge, R4)', () => {
@@ -613,11 +636,14 @@ describe('docs/plans/pod-4545-round-three-schema.md §4.5, verbatim', () => {
       expect(r.one('issue', 'I2', 'repo')).toBe('R')
       expect(r.writes()).toEqual(['issue.children:I1', 'issue.parent:I2'])
 
-      // 3. Wi2 is removed: I2 keeps its reference id, S2 moves to W.
+      // 3. Wi2 is removed: I2 stays checked out at its own path and S2
+      // stays there with it (POD-4671: the root set is lanes PLUS issue
+      // paths, and issue.worktree resolves in the same union).
       r.push(gone('worktree', Wi2))
-      expect(r.one('issue', 'I2', 'worktree')).toBeNull()
-      expect(r.one('session', 'S2', 'worktree')).toBe(W)
-      expect(r.many('worktree', W, 'sessions')).toEqual(['S1', 'S2'])
+      expect(r.one('issue', 'I2', 'worktree')).toBe(Wi2)
+      expect(r.one('session', 'S2', 'worktree')).toBe(Wi2)
+      expect(r.many('worktree', W, 'sessions')).toEqual(['S1'])
+      expect(r.many('worktree', Wi2, 'sessions')).toEqual(['S2'])
       r.push(lane(Wi2))
       expect(r.one('issue', 'I2', 'worktree')).toBe(Wi2)
       expect(r.one('session', 'S2', 'worktree')).toBe(Wi2)

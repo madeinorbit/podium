@@ -23,7 +23,6 @@
  */
 
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
-import { MOBX_POOL_ALLOWANCES } from '../../arms/mobx/pool/worklist/known-gaps'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
@@ -93,10 +92,10 @@ export interface RosterArm {
 export const ROUND_THREE_ARMS: readonly RosterArm[] = [
   {
     // POD-4572 (Mb4): the round-three MobX pool with its worklist (Mb1-Mb3).
+    // POD-4671 fixed: no parity allowance.
     name: 'MobX pool',
     folder: 'mobx',
     mode: 'overlaid',
     armFor: () => mobxPoolArm,
-    allowances: MOBX_POOL_ALLOWANCES,
   },
 ]

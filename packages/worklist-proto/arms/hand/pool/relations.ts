@@ -277,7 +277,13 @@ export class PoolRelations implements RelationReader {
     if (target === undefined) return null
     // POD-4671: a prefix with `alsoRoots` is present in the union.
     if (link.extraCounts?.has(target) === true) return target
-    return this.options.present(link.spec.to, target) ? target : null
+    if (this.options.present(link.spec.to, target)) return target
+    // POD-4671: an issue's own checkout resolves in the same union.
+    for (const other of this.links.values()) {
+      if (other.spec.to !== link.spec.to || other.extraCounts === null) continue
+      if (other.extraCounts.has(target)) return target
+    }
+    return null
   }
 
   many(from: EntityName, id: string, relation: string): Iterable<string> {

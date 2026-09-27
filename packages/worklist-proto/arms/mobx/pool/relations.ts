@@ -404,7 +404,16 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     // POD-4671: a prefix with `alsoRoots` is present in the union, not only
     // in the target table — an unscanned issue path seats without a lane.
     if (link.extraCounts !== null && link.extraCounts.has(target)) return target
-    return this.tables[link.spec.to].has(target) ? target : null
+    if (this.tables[link.spec.to].has(target)) return target
+    // POD-4671: an issue's own checkout resolves in the same union even
+    // though `issue.worktree` is a belongsTo — its forward is the path, and
+    // the path is a root via R3's extra set. Read through the relation, so a
+    // rename never re-lists the lane.
+    for (const other of this.links.values()) {
+      if (other.spec.to !== link.spec.to || other.extraCounts === null) continue
+      if (other.extraCounts.has(target)) return target
+    }
+    return null
   }
 
   many(from: EntityName, id: string, relation: string): Iterable<string> {

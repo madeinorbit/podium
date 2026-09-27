@@ -7,18 +7,16 @@
  * On the MobX pool, 1x to 2x and back, staged exactly as the page does it:
  * - at the grown state the only issue worktree no scanned lane reports is the
  *   2x corpus's own unscanned-worktree orphan (`i4944`), and the pool's
- *   snapshot equals the oracle's with POD-4671's ONE row patched (the corpus
- *   passed is the grown one);
+ *   snapshot equals the oracle's with NO patch (POD-4671 fixed: the union
+ *   roots seat it; the corpus passed is the grown one);
  * - back at 1x, the same with the 1x orphan (`i3485`).
  * THE NO: the staging before this issue (rows only, discovery left at the
- * page's corpus) leaves more worktrees unscanned and fails parity under the
- * same one-row allowance.
+ * page's corpus) leaves more worktrees unscanned and fails parity.
  */
 
 import { describe, expect, it } from 'vitest'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
-import { acceptUnscannedGap } from '../../arms/mobx/pool/worklist/known-gaps'
 import { diffSnapshots } from '../../shared/src/gen/check'
 import { type ScenarioEngine, startScenarioEngine } from '../../shared/src/scenarios'
 import { normalizeRootPath } from '../../shared/src/schema'
@@ -39,7 +37,7 @@ installMobxWarnTrap()
 interface ScopeCheck {
   /** Issues of the installed corpus whose own worktree no scanned lane reports. */
   unscanned: string[]
-  /** The snapshot against the oracle with POD-4671's one row patched; null when equal. */
+  /** The snapshot against the oracle (POD-4671 fixed: no patch); null when equal. */
   diff: string | null
   applied: string | null
 }
@@ -58,9 +56,9 @@ async function rescopeRun(scans: boolean): Promise<{ grown: ScopeCheck; back: Sc
     feeds.flush()
     handle.settleLoads()
   }
-  const check = (corpus: FixtureCorpus): ScopeCheck => {
+  const check = (_corpus: FixtureCorpus): ScopeCheck => {
     const lanes = new Set(feeds.rows.source.snapshot('worktree').map((row) => row.id))
-    const unscanned = corpus.issues
+    const unscanned = _corpus.issues
       .filter((issue) => {
         const path = (issue as { worktreePath?: string | null }).worktreePath
         return typeof path === 'string' && path !== '' && !lanes.has(normalizeRootPath(path))
@@ -68,13 +66,8 @@ async function rescopeRun(scans: boolean): Promise<{ grown: ScopeCheck; back: Sc
       .map((issue) => issue.id)
       .sort()
     const actual = handle.snapshot()
-    const gap = acceptUnscannedGap(
-      corpus,
-      handle.pool,
-      oracleSnapshot(ctx.engine.getSnapshot()),
-      actual,
-    )
-    return { unscanned, diff: diffSnapshots(actual, gap.snapshot), applied: gap.applied }
+    const oracle = oracleSnapshot(ctx.engine.getSnapshot())
+    return { unscanned, diff: diffSnapshots(actual, oracle), applied: null }
   }
   try {
     const base = currentScope(ctx as ScenarioEngine, ctx.corpus)

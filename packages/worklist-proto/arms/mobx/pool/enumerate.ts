@@ -181,7 +181,10 @@ export function scanRelations(
   const inverse = new Map<string, Map<string, string[]>>()
   // POD-4671: presence for a prefix with `alsoRoots` is the union, so the
   // scan holds it beside the forward slots (one() reads it, as the engine does).
+  // A belongsTo onto the same target (issue.worktree) resolves in the same
+  // union — an issue is checked out at its own path with no lane.
   const unionPresence = new Map<string, Set<string>>()
+  const unionByTarget = new Map<EntityName, Set<string>>()
   for (const from of entities) {
     for (const [name, spec] of Object.entries(schema[from].relations)) {
       if (!isLinkSpec(spec)) continue
@@ -208,7 +211,11 @@ export function scanRelations(
               roots.push(root)
             }
           }
-          unionPresence.set(`${from}.${name}`, new Set(roots))
+          const union = new Set(roots)
+          unionPresence.set(`${from}.${name}`, union)
+          const prev = unionByTarget.get(spec.to)
+          if (prev === undefined) unionByTarget.set(spec.to, new Set(union))
+          else for (const root of union) prev.add(root)
         }
       }
       const owners = new Map<string, string | null>()
@@ -251,7 +258,9 @@ export function scanRelations(
       const union = unionPresence.get(`${from}.${relation}`)
       if (union !== undefined) return union.has(target) ? target : null
       const to = schema[from].relations[relation]?.to as EntityName
-      return tables[to].has(target) ? target : null
+      if (tables[to].has(target)) return target
+      const byTarget = unionByTarget.get(to)
+      return byTarget !== undefined && byTarget.has(target) ? target : null
     },
     many: bucketOf,
     size: (from, id, relation) => bucketOf(from, id, relation).length,

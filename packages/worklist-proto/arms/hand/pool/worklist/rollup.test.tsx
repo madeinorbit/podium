@@ -15,11 +15,9 @@
  * also reads the burst issues' other explicit sessions, counted before the
  * step.
  *
- * ONE NAMED EXCEPTION (POD-4671, `known-gaps.ts`): the corpus's unscanned-
- * worktree orphan has no seat in the shared schema's R3 relation, so its
- * issue's row may differ from the oracle's in the fields that seat feeds,
- * and nowhere else; the exception throws once the seat exists. Each check
- * records whether it applied.
+ * NO NAMED EXCEPTION (POD-4671 fixed): the corpus's unscanned-worktree
+ * orphan seats through the schema's R3 union roots, so parity holds with no
+ * allowance. Each check records a null gap.
  *
  * THE L1d SHAPE (`corpus.edgedAskers`): an asking session on a hidden
  * (archived or proposed) child of a visible root. The pool's root reads not
@@ -74,7 +72,7 @@ import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../sh
 import { type HandPoolHandle, handPoolArm } from '../arm'
 import type { HandPool } from '../pool'
 import { issueAbandoned } from '../views'
-import { acceptUnscannedGap, burstFamilyReads } from './known-gaps'
+import { burstFamilyReads } from './known-gaps'
 
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
@@ -132,19 +130,13 @@ function settle(pool: HandPool): number {
   return rounds
 }
 
-/** The settled snapshot against the oracle and the rebuild. */
+/** The settled snapshot against the oracle and the rebuild (no exception). */
 function checkParity(ctx: ScenarioEngine, handle: HandPoolHandle, at: string): string | null {
   const snapshot = handle.snapshot()
   const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-  const { snapshot: expected, applied } = acceptUnscannedGap(
-    ctx.corpus,
-    handle.pool,
-    oracle,
-    snapshot,
-  )
-  expect(diffSnapshots(snapshot, expected), `${at}: oracle`).toBeNull()
+  expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
-  return applied
+  return null
 }
 
 async function withMounted<T>(
@@ -445,15 +437,11 @@ describe('row roll-ups (Hb3)', () => {
   it('parity with the oracle and the rebuild on every fence scenario; commits and reads follow the change', async () => {
     const cells = await withMounted(arm, async (ctx, mounted, handle, flush) => {
       const gapAtBoot = checkParity(ctx, handle, 'bootstrap')
-      expect(gapAtBoot, 'the POD-4671 row, named').toBe(ctx.corpus.unscannedWorktree.issueId)
+      expect(gapAtBoot, 'POD-4671 fixed: no gap').toBeNull()
       expect(
         diffViews(
           (id) => handle.pool.view(id),
-          new Map(
-            Object.entries(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))).filter(
-              ([id]) => id !== ctx.corpus.unscannedWorktree.issueId,
-            ),
-          ),
+          new Map(Object.entries(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)))),
         ),
         'bootstrap: whole views vs oracle',
       ).toEqual([])
@@ -478,10 +466,9 @@ describe('row roll-ups (Hb3)', () => {
         const gap = checkParity(ctx, handle, entry.methodology)
         // Per-step oracle check on whole views: `activityAt` lives outside
         // the slice, so only a view-to-view comparison holds it to the
-        // oracle after every change (the POD-4671 orphan excepted).
+        // oracle after every change.
         const views = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
         const want = new Map(Object.entries(views))
-        want.delete(ctx.corpus.unscannedWorktree.issueId)
         expect(
           diffViews((id) => handle.pool.view(id), want),
           `${entry.methodology}: whole views vs oracle`,

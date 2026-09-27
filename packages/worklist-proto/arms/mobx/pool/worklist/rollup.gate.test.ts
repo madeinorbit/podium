@@ -6,11 +6,8 @@
  * their roll-ups, the grouped order) is held to the legacy derivation after
  * every generated change, and to the pool's own rebuild.
  *
- * ONE NAMED EXCEPTION (POD-4671, `known-gaps.ts`): the unscanned-worktree
- * orphan has no seat in the shared schema's R3 relation. The gated arm takes
- * that one row's seat-fed fields from the oracle only when the pool has not
- * seated the orphan and the row differs in those fields alone, and counts
- * each time it did; the exception throws once the seat exists.
+ * NO NAMED EXCEPTION (POD-4671 fixed): the union roots seat the orphan, so
+ * the gate holds the pool directly to the oracle.
  *
  * OBSERVED: each gated arm is kept alive by one reaction over every visible
  * row's view and the layout, as the mounted list keeps it; otherwise every
@@ -25,16 +22,13 @@
 
 import { reaction, untracked } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
 import { countKinds, gen } from '../../../../shared/src/gen/changes'
 import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceSnapshot } from '../../../../shared/src/slice-types'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { acceptUnscannedGap } from './known-gaps'
 
 installMobxWarnTrap()
 
@@ -58,11 +52,12 @@ const untrackedNest: CheckableArm = {
 
 /**
  * `base` OBSERVED as a mounted list observes it (every visible row's view and
- * the grouped layout kept alive by one reaction), with POD-4671's one row
- * taken from the oracle, counted. Without the observer every computed would
- * re-run on each snapshot read, and no caching mistake could ever show.
+ * the grouped layout kept alive by one reaction). Without the observer every
+ * computed would re-run on each snapshot read, and no caching mistake could
+ * ever show. POD-4671 fixed: no patch, the tally stays 0.
  */
 function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
+  void tally
   return (ctx: ScenarioEngine) => ({
     create(source, locals, reads) {
       const handle = base.create(source, locals, reads) as MobxPoolHandle
@@ -72,19 +67,9 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
         () => {},
         { name: 'gate.observer' },
       )
-      const patch = (snapshot: SliceSnapshot): SliceSnapshot => {
-        const oracle = oracleSnapshot(ctx.engine.getSnapshot())
-        const { rows } = acceptUnscannedGap(ctx.corpus, handle.pool, oracle, snapshot)
-        if (rows.length === 0) return snapshot
-        tally.applied += rows.length
-        const rowsById = { ...snapshot.rowsById }
-        for (const id of rows) rowsById[id] = oracle.rowsById[id]!
-        return { ...snapshot, rowsById }
-      }
+      void ctx
       return {
         ...handle,
-        snapshot: () => patch(handle.snapshot()),
-        rebuildFromScratch: () => patch(handle.rebuildFromScratch()),
         dispose() {
           stop()
           handle.dispose()
