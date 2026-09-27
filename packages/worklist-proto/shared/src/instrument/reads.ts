@@ -585,6 +585,18 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           relationTarget(from, relation)
           return reader.size(from, id, relation)
         },
+        issueless(from, id, relation) {
+          const to = relationTarget(from, relation)
+          const ids = reader.issueless(from, id, relation)
+          return {
+            *[Symbol.iterator]() {
+              for (const target of ids) {
+                touch(to, target, 'relation')
+                yield target
+              }
+            },
+          }
+        },
       }
     },
     touch(entity, id, via) {

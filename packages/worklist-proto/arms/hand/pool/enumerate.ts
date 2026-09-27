@@ -216,6 +216,33 @@ export function scanRelations(
     if (buckets === undefined) throw new Error(`[scan] ${from}.${relation} is not a collection`)
     return buckets.get(id) ?? NO_IDS
   }
+  // POD-4671 ruling Sep27: the scan's issueless sets, from scratch — the same
+  // filter the engines maintain at the delta (members with no `issueId`).
+  const issuelessByCollection = new Map<string, Map<string, string[]>>()
+  for (const from of entities) {
+    for (const [name, spec] of Object.entries(schema[from].relations)) {
+      if (!isLinkSpec(spec)) continue
+      if (spec.kind !== 'prefix') continue
+      if ((schema[from].fields as Record<string, unknown>)['issueId'] === undefined) continue
+      const buckets = inverse.get(`${spec.to}.${spec.inverse}`)
+      if (buckets === undefined) continue
+      const filtered = new Map<string, string[]>()
+      for (const [target, members] of buckets) {
+        const kept = members.filter((id) => {
+          const row = tables[from].get(id) as Readonly<Record<string, unknown>> | undefined
+          return row !== undefined && row['issueId'] === undefined
+        })
+        if (kept.length > 0) filtered.set(target, kept)
+      }
+      issuelessByCollection.set(`${spec.to}.${spec.inverse}`, filtered)
+      void name
+    }
+  }
+  const issuelessOf = (from: EntityName, id: string, relation: string): readonly string[] => {
+    const buckets = issuelessByCollection.get(`${from}.${relation}`)
+    if (buckets === undefined) throw new Error(`[scan] ${from}.${relation} has no issueless index`)
+    return buckets.get(id) ?? NO_IDS
+  }
   return {
     collapsed,
     one(from, id, relation) {
@@ -232,6 +259,7 @@ export function scanRelations(
     },
     many: bucketOf,
     size: (from, id, relation) => bucketOf(from, id, relation).length,
+    issueless: issuelessOf,
   }
 }
 
@@ -271,6 +299,25 @@ export function diffRelations(
           )
         }
       }
+    }
+  }
+  // POD-4671 ruling Sep27: hold the maintained issueless sets to the scan too.
+  for (const from of Object.keys(schema) as EntityName[]) {
+    for (const [name, spec] of Object.entries(schema[from].relations)) {
+      if (!isLinkSpec(spec) || spec.kind !== 'prefix') continue
+      if ((schema[from].fields as Record<string, unknown>)['issueId'] === undefined) continue
+      const ids = new Set([...tables[spec.to].keys(), ...(extra[spec.to] ?? [])])
+      for (const id of ids) {
+        const got = [...live.issueless(spec.to, id, spec.inverse)].sort()
+        const want = [...scan.issueless(spec.to, id, spec.inverse)]
+        if (JSON.stringify(got) === JSON.stringify(want)) continue
+        if (out.length < 12) {
+          out.push(
+            `${spec.to}:${id}.${spec.inverse}.issueless: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`,
+          )
+        }
+      }
+      void name
     }
   }
   return out

@@ -242,6 +242,7 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
           if (from === 'issue' && relation === 'sessions') return sessionsOf.get(id)?.size ?? 0
           return 0
         },
+        issueless: () => [],
       }
       const tables = reads.wrapTables(raw)
       const rel = reads.wrapRelations(reader)

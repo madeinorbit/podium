@@ -262,6 +262,7 @@ describe('relation door', () => {
     one: (_from, _id, relation) => (relation === 'parent' ? 'i0' : null),
     many: () => ['s1', 's2', 's3'],
     size: () => 3,
+    issueless: () => [],
   }
 
   it('counts the target of a single relation, and every member of a collection', () => {
@@ -305,7 +306,7 @@ describe('disabled (timing runs)', () => {
   it('is the identity on every door, and stats() THROWS rather than report zero', () => {
     const raw = new Map<string, unknown>([['s0', { sessionId: 's0' }]])
     const source = staticSource([sessionRow('s0')])
-    const reader: RelationReader = { one: () => null, many: () => [], size: () => 0 }
+    const reader: RelationReader = { one: () => null, many: () => [], size: () => 0, issueless: () => [] }
     expect(DISABLED_READ_FENCE.wrapTables({ session: raw }).session).toBe(raw)
     expect(DISABLED_READ_FENCE.wrapSource(source)).toBe(source)
     expect(DISABLED_READ_FENCE.wrapRelations(reader)).toBe(reader)
