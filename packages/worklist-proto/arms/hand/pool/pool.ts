@@ -52,9 +52,10 @@
  * The pool's own counters are in `stats.counters`.
  *
  * THE WORKLIST (POD-4582, Hb1; `worklist/visible.ts`). The visible
- * collection's parts are cells like every other; each resident issue has a
- * `visible` cell, created when its row enters the table (`admit`, only the
- * ids the commit moved). A commit runs two more steps after the drain:
+ * collection's parts are cells like every other; each closure issue has a
+ * `visible` cell (POD-4707), created when the closure admits its row
+ * (`admit`: the closure's resident members, never the corpus). A commit
+ * runs two more steps after the drain:
  * `admit`, then the order handler (`settle`), which places exactly the ids
  * whose `visible` or `rank` cell moved. The list and `snapshot()` read the
  * order; order listeners are called in `publish` when it moved.
@@ -70,13 +71,16 @@
  * THE ROLL-UPS (POD-4584, Hb3; `worklist/rollup.ts`). Each row's `phase`,
  * progress, `working`, `asking` and `workingSince` is a composition over
  * declared relations: the row's own seats plus its children's cached results,
- * never a subtree walk. Every known issue holds filing cells (its nest and
- * formal parents), maintained into two filings the compositions read; every
- * other part is a cell that recorded what it read, so a change re-runs its
- * own row's part and then each ancestor's composition once. The commit syncs
- * the filings for the issues its deltas named (or every known issue after a
- * `replace`), then settles the reported moves before the groups run, so the
- * fold placement reads a current `waiting`.
+ *   never a subtree walk. Every closure issue holds filing cells (its nest and
+ *   formal parents: POD-4707 — the visible rows, their visibility
+ *   dependencies and anything touched since, computed in one plain pass at a
+ *   `replace` and materialised on first access after that), maintained into
+ *   two filings the compositions read; every other part is a cell that
+ *   recorded what it read, so a change re-runs its own row's part and then
+ *   each ancestor's composition once. The commit syncs the filings for the
+ *   closure of what it touched (or the whole closure, recomputed, after a
+ *   `replace`), then settles the reported moves before the groups run, so
+ *   the fold placement reads a current `waiting`.
  */
 
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
@@ -121,10 +125,15 @@ import {
   type ViewInputs,
 } from './views'
 import {
+  directSessionParts,
+  directVisibleParts,
   retainedSeatIdsOf,
+  type SessionVisibleParts,
+  standingOf,
   VisibleCollection,
   type VisibleCounters,
   type VisibleInputs,
+  type VisibleParts,
 } from './worklist/visible'
 import { RollupCollection } from './worklist/rollup'
 import {
@@ -592,6 +601,300 @@ export class HandPool {
     return cells
   }
 
+  // --------------------------------------------- the lazy closure (POD-4707)
+
+  /**
+   * POD-4707 — whether the pool knows the issue, hot or cold (raw doors:
+   * the table plus the cold registry, no fence, no tracking).
+   */
+  private knowsIssue(id: string): boolean {
+    return this.tables.issue.has(id) || (this.residency?.isCold('issue', id) ?? false)
+  }
+
+  /**
+   * POD-4707 — a single-valued relation through raw doors (the filing's
+   * shape): the engine's forward key with the target's presence re-checked
+   * against the raw tables and the cold registry. Identical values to the
+   * fenced `one()` derivations read; counted nowhere (the fence counts the
+   * wrapped reader only, and `forward` itself touches no row). Callers pass
+   * links only, as the derivations do.
+   */
+  private plainOne(from: EntityName, id: string, relation: string): string | null {
+    const target = this.engine.forward(from, id, relation)
+    if (target === null) return null
+    const to = (this.engine.schema[from].relations[relation] as { readonly to?: EntityName })
+      ?.to
+    if (to === undefined) return null
+    return this.tables[to].has(target) || (this.residency?.isCold(to, target) ?? false)
+      ? target
+      : null
+  }
+
+  /**
+   * POD-4707 — the visibility parts over plain reads: the same rule table
+   * the live cells run (`VISIBLE_RULES` through `directVisibleParts`),
+   * evaluated without building a cell or a filing. Relations come from the
+   * raw engine (`forward` + `members`: no fence, no tracking — identical
+   * ids to the fenced doors derivations read); rows from the raw tables
+   * with cold rows peeked by id exactly as the live doors peek them
+   * (counted feed reads, never a load); the clock from the live clock
+   * (tracking no-ops outside a cell). The row view (`own`) is a loud stub:
+   * rank is outside the closure read set, so a read there means the scope
+   * grew and must grow with it.
+   *
+   * Values equal the live derivations' at a quiescent point, with one
+   * stated exception: pending write overlays project through the live row
+   * doors only. That is safe here: the closure inputs the pass reads for
+   * an unheld row (its parentId, startedBy link and the standing fields
+   * the nest walk uses) are not overlay fields, and a row carrying an
+   * overlay is always held — the write layer ensures it before it paints.
+   */
+  private plainScope(): { readonly partsOf: (id: string) => VisibleParts } {
+    const pool = this
+    const memo = new Map<string, VisibleParts>()
+    const sessMemo = new Map<string, SessionVisibleParts>()
+    const raw: RelationReader = {
+      one: (from, id, relation) => pool.plainOne(from, id, relation),
+      many: (from, id, relation) => pool.engine.members(from, id, relation),
+      size: (from, id, relation) => pool.engine.members(from, id, relation).size,
+    }
+    const plain: VisibleInputs = {
+      relations: raw,
+      resident: (entity, id) => pool.tables[entity].has(id),
+      issueRow: (id) =>
+        (pool.tables.issue.get(id) ?? pool.residency?.peek('issue', id)) as
+          | SliceIssue
+          | undefined,
+      sessionRow: (id) =>
+        (pool.tables.session.get(id) ?? pool.residency?.peek('session', id)) as
+          | SliceSession
+          | undefined,
+      issue: (id) => (pool.knowsIssue(id) ? directVisibleParts(plain, id, memo) : undefined),
+      session: (id) => {
+        if (!pool.tables.session.has(id) && !(pool.residency?.isCold('session', id) ?? false))
+          return undefined
+        let parts = sessMemo.get(id)
+        if (parts === undefined) {
+          parts = directSessionParts(plain, id)
+          sessMemo.set(id, parts)
+        }
+        return parts
+      },
+      sessionActivity: (id) =>
+        sessionActivityOf(pool.tables.session.get(id) as SliceSession | undefined),
+      own: () => {
+        throw new Error('[pool] plain pass read the row view: rank is outside the closure read set')
+      },
+      passed: (t) => pool.clock.passed(t),
+    }
+    return { partsOf: (id) => directVisibleParts(plain, id, memo) }
+  }
+
+  /**
+   * POD-4707 — expand `roots` to the lazy closure: each root's ancestor
+   * chain by the raw `parentId` (the same field the nest walk follows,
+   * through any issue), the started-by owner of a parentless started-by
+   * root evaluated through the plain pass (hot rows only: a cold member
+   * nests under nothing), then every formal subtree under the union.
+   * Ancestors join even when cold (the nest walk passes through a hidden
+   * parent) and even when held (a reparented held row picks up its new
+   * parent: every root verifies its first hop); the walk stops at a
+   * pre-existing held chain (complete by induction) and at unknown ids.
+   * Formal descendants join even when hidden (the parent's progress
+   * composes over their cached units), walked under unheld members only
+   * (a held member's subtree is complete by the same induction). Reads
+   * rows, never tables; builds no cell. Membership is a `Set`, so the
+   * expansion is linear in the closure, never a scan per member.
+   */
+  private expandRoots(
+    roots: readonly string[],
+    partsOf: (id: string) => VisibleParts,
+  ): Set<string> {
+    const closure = new Set<string>()
+    const visit = (id: string): boolean => {
+      if (closure.has(id) || !this.knowsIssue(id)) return false
+      closure.add(id)
+      return true
+    }
+    for (const root of roots) {
+      if (!this.knowsIssue(root)) continue
+      visit(root)
+      let current = root
+      for (;;) {
+        const row = (this.tables.issue.get(current) ?? this.residency?.peek('issue', current)) as
+          | SliceIssue
+          | undefined
+        if (row === undefined) break
+        const standing = standingOf(row)
+        let next: string | null = null
+        if (standing.parentId !== null) {
+          next = standing.parentId
+        } else if (standing.startedBy !== null && this.tables.issue.has(current)) {
+          next = partsOf(current).nestParent
+        } else {
+          break
+        }
+        if (next === null || !this.knowsIssue(next)) break
+        if (!visit(next)) break
+        if (this.worklist.has(next)) break
+        current = next
+      }
+    }
+    const below = [...closure].filter((id) => !this.worklist.has(id))
+    for (let head = 0; head < below.length; head += 1) {
+      const id = below[head] as string
+      for (const child of this.engine.members('issue', id, 'children')) {
+        if (visit(child)) below.push(child)
+      }
+    }
+    return closure
+  }
+
+  /**
+   * POD-4707 — the issues a changed session can show: its explicit owner
+   * and every issue checked out at its lane (the MobX arm's split,
+   * POD-4705). Answered through raw doors without walking anything or
+   * counting a read; filtered by the pool's own knowledge.
+   */
+  private sessionLinkedIssues(sessionId: string): {
+    readonly explicit: string | null
+    readonly lane: readonly string[]
+  } {
+    const explicit = this.plainOne('session', sessionId, 'issue')
+    const lanePath = this.plainOne('session', sessionId, 'worktree')
+    const lane: string[] = []
+    if (lanePath !== null) {
+      for (const issueId of this.engine.members('worktree', lanePath, 'issues')) {
+        if (this.knowsIssue(issueId)) lane.push(issueId)
+      }
+    }
+    return {
+      explicit: explicit !== null && this.knowsIssue(explicit) ? explicit : null,
+      lane,
+    }
+  }
+
+  /**
+   * POD-4707 — the lazy closure at a `replace`: the plain pass evaluates
+   * every known issue (the one sanctioned walk, over `knownIssueIds`) and
+   * roots the present and keeping rows (visible implies present, so no
+   * placement chain runs) with their ancestors and formal subtrees — the
+   * only rows a derivation can read. Cold rows answer their live values
+   * (peeked, never loaded): a cold row kept visible by its lane still
+   * roots, exactly as its live parts would answer. Held rows re-verify by
+   * the same rule (held outsiders leave); a hidden row is also rooted when
+   * its where-filtered formal parent is held (what the filing files, so a
+   * hidden formal child of a held parent still files and its progress
+   * counts).
+   */
+  private replaceClosure(): Set<string> {
+    const { partsOf } = this.plainScope()
+    const roots: string[] = []
+    for (const id of knownIssueIds(this)) {
+      const parts = partsOf(id)
+      if (parts.present || parts.keeps) {
+        roots.push(id)
+        continue
+      }
+      const parent = this.engine.forward('issue', id, 'parent')
+      if (parent !== null && this.worklist.has(parent)) roots.push(id)
+    }
+    return this.expandRoots(roots, partsOf)
+  }
+
+  /**
+   * POD-4707 — the lazy closure over one commit's deltas, with the rows
+   * that left. Every touched resident issue joins unconditionally, plus
+   * the issues a touched session or worktree can show (explicit owner,
+   * lane) gated by the plain pass — present, keeping, or filed under a
+   * held parent. Anything else has no held reader, so building it would
+   * only commit filings. An explicit member warms its cold owner through
+   * residency instead, so explicit cold rows stay out (resident owners are
+   * still considered); a lane-only session never warms, so cold lane rows
+   * are evaluated. A cold row that stays cold is a candidate, never a
+   * root: its peeked readers re-run through the `coldRows` delta either
+   * way. Removals only hide. The candidate set is a `Set`: no scan per
+   * member.
+   */
+  private updateClosure(deltas: readonly Delta[]): { closure: Set<string>; gone: string[] } {
+    const named = new Set<string>()
+    const candidates = new Set<string>()
+    const gone: string[] = []
+    const consider = (id: string): void => {
+      if (!this.worklist.has(id) && this.tables.issue.has(id)) candidates.add(id)
+    }
+    const considerLane = (id: string): void => {
+      if (!this.worklist.has(id)) candidates.add(id)
+    }
+    const considerLinkedSession = (sessionId: string): void => {
+      const linked = this.sessionLinkedIssues(sessionId)
+      if (linked.explicit !== null) consider(linked.explicit)
+      for (const issueId of linked.lane) considerLane(issueId)
+    }
+    for (const delta of deltas) {
+      if (delta.kind === 'row' && delta.entity === 'issue') {
+        if (this.knowsIssue(delta.id)) named.add(delta.id)
+        else gone.push(delta.id)
+      } else if (delta.kind === 'row' && delta.entity === 'session') {
+        if (this.tables.session.has(delta.id)) considerLinkedSession(delta.id)
+      } else if (delta.kind === 'row' && delta.entity === 'worktree') {
+        if (this.tables.worktree.has(delta.id)) {
+          for (const issueId of this.engine.members('worktree', delta.id, 'issues'))
+            considerLane(issueId)
+        }
+      } else if (delta.kind === 'residency' && delta.entity === 'issue') {
+        if (this.knowsIssue(delta.id)) candidates.add(delta.id)
+        else gone.push(delta.id)
+      } else if (delta.kind === 'coldRow' && delta.entity === 'issue') {
+        candidates.add(delta.id)
+      } else if (delta.kind === 'coldRow' && delta.entity === 'session') {
+        considerLinkedSession(delta.id)
+      }
+    }
+    if (named.size === 0 && candidates.size === 0) return { closure: new Set(), gone }
+    const { partsOf } = this.plainScope()
+    const roots = [...named]
+    for (const id of candidates) {
+      const parts = partsOf(id)
+      if (parts.present || parts.keeps) {
+        roots.push(id)
+        continue
+      }
+      const parent = this.engine.forward('issue', id, 'parent')
+      if (parent !== null && this.worklist.has(parent)) roots.push(id)
+    }
+    if (roots.length === 0) return { closure: new Set(), gone }
+    return { closure: this.expandRoots(roots, partsOf), gone }
+  }
+
+  /**
+   * POD-4707 — admit every resident closure member (held ones skip free;
+   * raw doors, no fence). The order handler then places exactly the ids
+   * whose `visible` or `rank` cell moved.
+   */
+  private admitClosure(closure: ReadonlySet<string>): void {
+    const entered: string[] = []
+    for (const id of closure) if (this.tables.issue.has(id)) entered.push(id)
+    this.worklist.admit(entered, (id) => this.tables.issue.has(id))
+  }
+
+  /**
+   * POD-4707 — file and admit the closure of touched rows (the write
+   * layer's pending display touches rows only derivations read: a row
+   * without filing or member cells would never follow its pending
+   * verdict — the MobX arm's overlay gap, POD-4705). Idempotent: held
+   * rows skip free. No flush: the caller drains.
+   */
+  ensureIssues(ids: Iterable<string>): void {
+    const roots: string[] = []
+    for (const id of ids) if (this.knowsIssue(id)) roots.push(id)
+    if (roots.length === 0) return
+    const { partsOf } = this.plainScope()
+    const closure = this.expandRoots(roots, partsOf)
+    this.rollup.sync(closure)
+    this.admitClosure(closure)
+  }
+
   /**
    * TRACKED: session `id`'s contribution to `activityAt`, from its cell. The
    * cell reads the session's row (a cold or absent one reads as null, and its
@@ -871,30 +1174,33 @@ export class HandPool {
     if (deltas.length === 0 && !fullSync) return
     for (const delta of deltas) this.invalidate(delta)
     for (const delta of deltas) this.release(delta)
-    // Handler 2b: the roll-ups. The issues this commit named gain or lose
-    // their filing cells (a `replace` re-files every known issue: raw doors,
-    // no fence); the drain then runs the new and moved filings.
+    // Handler 2b: the roll-ups. POD-4707: filings follow the lazy closure,
+    // never the corpus. A `replace` computes the closure in one plain pass
+    // over every known issue and files exactly it (held outsiders leave);
+    // an update files the closure of what it touched and unfiles what
+    // left. The drain then runs the new and moved filings.
     if (fullSync) {
-      this.rollup.syncAll(knownIssueIds(this))
-    } else {
-      const named: string[] = []
-      for (const delta of deltas) {
-        if (delta.kind === 'row' && delta.entity === 'issue') named.push(delta.id)
-        else if (delta.kind === 'residency' && delta.entity === 'issue') named.push(delta.id)
+      const closure = this.replaceClosure()
+      this.rollup.syncReplace(closure, knownIssueIds(this))
+      this.admitClosure(closure)
+      for (const id of this.worklist.heldMemberIds()) {
+        if (!closure.has(id)) {
+          this.worklist.forgetIssue(id)
+          this.groups.forgetIssue(id)
+        }
       }
-      this.rollup.sync(named)
+    } else {
+      const { closure, gone } = this.updateClosure(deltas)
+      if (closure.size > 0 || gone.length > 0) {
+        this.rollup.sync([...closure, ...gone])
+        this.admitClosure(closure)
+      }
     }
     this.graph.flush()
-    // Handler 3: the worklist. The issues this commit moved into or out of
-    // the tables gain or lose their `visible` cell, then the order places
-    // exactly the ids whose `visible` or `rank` cell moved.
-    const entered: string[] = []
-    for (const delta of deltas) {
-      if (delta.kind === 'row' && delta.membership && delta.entity === 'issue') {
-        entered.push(delta.id)
-      }
-    }
-    this.worklist.admit(entered, (id) => this.fenced.issue.has(id))
+    // Handler 3: the worklist. The commit's resident closure members hold
+    // their `visible` cell (admitted above: a resident one gets its cell,
+    // read once, and a gone one loses it), then the order places exactly
+    // the ids whose `visible` or `rank` cell moved.
     this.graph.flush()
     // Handler 3a: the filings. Move exactly the reported ids and dirty their
     // old and new parents' slots, then run the compositions they woke.

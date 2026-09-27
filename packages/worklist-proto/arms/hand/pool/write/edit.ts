@@ -222,6 +222,10 @@ export function createHandWriteApi(
   visible.issueRow = (id: string) => withOverlay(id, originalIssueRow(id))
 
   const commitFor = (kind: WritableKind, id: string): void => {
+    // POD-4707: the pending display moves rows only derivations read. File
+    // and admit the touched row's closure first (idempotent): a row without
+    // filing or member cells would never follow its pending verdict.
+    if (kind === 'issue') pool.ensureIssues([id])
     pool.commitOverlay(() => {
       pool.graph.invalidateKey(pendingReaders, overlayKey(kind, id))
       // The row's table readers too: cells created before the layer wrapped

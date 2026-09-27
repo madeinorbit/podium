@@ -190,15 +190,15 @@ describe('bootstrap in the count harness', () => {
       // Relations hold every row's ids either way; only the tables shrink.
       expect(lazy.relations).toEqual(all.relations)
       // CELLS (POD-4582, Hb1; placements POD-4583, Hb2; filings Hb3,
-      // POD-4584): the worklist is built at bootstrap, as MobX builds one
-      // IssueNode per known issue (Mb1: 4,867 / 19,468). Every live cell is
-      // named: the id list, the `own` part of each visible row and nothing
-      // else of the views, a session activity cell per member asked about, a
-      // `visible` cell per RESIDENT issue, a rank and a placement per visible
-      // row, two filing cells (nest and formal parents) per known issue, and
-      // the visibility parts of the known issues and sessions the rule
-      // reached (at most one set per known row; a cold row's set only when a
-      // resident one's rule asked).
+      // POD-4584; lazy closure POD-4707): the worklist is built for the
+      // closure only, as MobX builds one IssueNode per closure member
+      // (POD-4705: 2,112 / 8,432). Every live cell is named: the id list,
+      // the `own` part of each visible row and nothing else of the views, a
+      // session activity cell per member asked about, a `visible` cell per
+      // resident CLOSURE member, a rank and a placement per visible row,
+      // two filing cells (nest and formal parents) per closure member, and
+      // the visibility parts of the closure issues and the sessions the
+      // rule reached (at most one set per row in reach).
       for (const [arm, c] of [
         ['lazy', lazy],
         ['allResident', all],
@@ -218,14 +218,15 @@ describe('bootstrap in the count harness', () => {
             l.sessionParts,
         )
         expect(l.filing, arm).toBe(2 * l.filedIssues)
-        // Every known issue is filed: resident rows plus the cold registry.
-        expect(l.filedIssues, arm).toBe(c.rows['issue']! + c.cold.issue)
-        expect(l.member, arm).toBe(c.rows['issue'])
+        // The closure, never the corpus: strictly fewer filed issues than
+        // known ones (eager construction files every known issue).
+        expect(l.filedIssues, arm).toBeLessThan(c.rows['issue']! + c.cold.issue)
+        expect(l.member, arm).toBeLessThan(c.rows['issue'])
         expect(l.rank, arm).toBe(l.visible)
         expect(l.placement, arm).toBe(l.visible)
         expect(l.visibleOwnOnly && l.visibleSetIsViewSet, arm).toBe(true)
         expect(l.rowViewParts, arm).toBe(l.visible)
-        expect(l.issuePartSets, arm).toBeLessThanOrEqual(all.rows['issue']!)
+        expect(l.issuePartSets, arm).toBe(l.filedIssues)
         expect(l.sessionPartSets, arm).toBeLessThanOrEqual(all.rows['session']!)
         expect(l.sessionActivity, arm).toBeLessThanOrEqual(all.rows['session']!)
         // No part is built twice for one row.
@@ -236,14 +237,12 @@ describe('bootstrap in the count harness', () => {
       }
       // The same rule over the same rows builds the same collection either way.
       expect(lazy.liveCells.visible).toBe(all.liveCells.visible)
-      // Every row resident, the rule reaches every known issue once: one part
-      // set per issue, MobX's IssueNode count (Mb1: 4,867 / 19,468). Hb3
-      // files every known issue (nest and formal parents), so the lazy pool
-      // holds every known issue's part set too, as MobX holds one node per
-      // known issue, hot or cold; sessions stay lazy (a set only when a
-      // resident row's rule asked).
-      expect(all.liveCells.issuePartSets).toBe(all.rows['issue'])
-      expect(lazy.liveCells.issuePartSets).toBe(all.rows['issue'])
+      // The closure is a pure function of the rows, relations and clock,
+      // which are the same either way: residency only moves rows between
+      // tables and the registry, so both arms file the same closure, and
+      // the lazy pool holds no more part sets than that.
+      expect(lazy.liveCells.filedIssues).toBe(all.liveCells.filedIssues)
+      expect(lazy.liveCells.issuePartSets).toBe(all.liveCells.issuePartSets)
       perKnown.push(lazy.liveCells.live / all.rows['issue']!)
       expect(lazy.records).toBe(0)
       expect(lazy.tableSlots).toBeLessThan(all.tableSlots)

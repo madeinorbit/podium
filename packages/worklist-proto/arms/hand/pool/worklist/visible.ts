@@ -993,6 +993,15 @@ export class VisibleCollection {
     return this.members.size
   }
 
+  /**
+    * POD-4707 — the ids holding a `visible` cell (maintenance: the pool drops
+    * the members a `replace` leaves outside the lazy closure). A plain array
+    * over the members map, never a table walk.
+    */
+  heldMemberIds(): string[] {
+    return [...this.members.keys()]
+  }
+
   /** Cells held: every part cell, `visible` cell and rank cell (tests: lifecycle, counts). */
   cellCount(): number {
     let cells = this.members.size + this.ranks.size
