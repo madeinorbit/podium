@@ -234,14 +234,17 @@ describe('bootstrap', () => {
     const slots = ENTITIES.reduce((sum, entity) => sum + pool.tables[entity].size, 0)
     expect(pool.stats.counters.tableWrites).toBe(slots)
     // Nothing loaded, no record built. Derived (POD-4582): the worklist's
-    // visibility cells, one `visible` cell per resident issue, and of the row
-    // views only the `own` part of each VISIBLE row (its rank reads it);
-    // POD-4583: one `placement` cell per visible row (the groups' settle).
+    // visibility cells, one `visible` cell per resident CLOSURE member
+    // (POD-4707: the closure's resident members, never the resident table),
+    // and of the row views only the `own` part of each VISIBLE row (its
+    // rank reads it); POD-4583: one `placement` cell per visible row (the
+    // groups' settle).
     const visible = pool.order()
     expect(visible.length).toBeGreaterThan(0)
     expect([...pool.issues.keys()].sort()).toEqual([...visible].sort())
     for (const cells of pool.issues.values()) expect([...cells.cells.keys()]).toEqual(['own'])
-    expect(pool.worklist.held('member')).toBe(hotIssues.length)
+    expect(pool.worklist.held('member')).toBeGreaterThanOrEqual(visible.length)
+    expect(pool.worklist.held('member')).toBeLessThan(hotIssues.length)
     expect(pool.groups.held()).toBe(visible.length)
     expect(pool.stats.counters.cellsCreated - pool.stats.counters.cellsCollected).toBe(
       1 +
@@ -256,9 +259,16 @@ describe('bootstrap', () => {
     expect(pool.stats.counters.recordsCreated).toBe(0)
     expect(pool.residency?.counters.requests).toBe(0)
     expect(r.loads).toEqual([])
-    // The cold rows it read by id: each once, none installed.
+    // The cold rows it read by id, none installed. POD-4707: the plain
+    // closure pass reads each once (its per-pass row cache), and the live
+    // derivations whose filings the pass created read it once more when
+    // they run — so a row is peeked at most twice, never once per member
+    // that reaches it (a walk re-reading shared ancestors per root would
+    // show a multiplicity in the hundreds here).
     expect(r.bootstrapPeeks.length).toBe(pool.residency?.counters.peeks)
-    expect(new Set(r.bootstrapPeeks).size).toBe(r.bootstrapPeeks.length)
+    const peekCount = new Map<string, number>()
+    for (const key of r.bootstrapPeeks) peekCount.set(key, (peekCount.get(key) ?? 0) + 1)
+    for (const [key, count] of peekCount) expect(count, key).toBeLessThanOrEqual(2)
     for (const key of r.bootstrapPeeks) {
       const [entity, id] = key.split(':') as ['issue' | 'session', string]
       expect(pool.residency?.isCold(entity, id), key).toBe(true)
@@ -425,7 +435,7 @@ describe('the loader', () => {
     expect(r.handle.drainLoads()).toBe(0)
   })
 
-  it('counts a hydration as one read of that row in the reads fence', () => {
+  it('counts a hydration as its row plus its visibility dependencies in the reads fence', () => {
     const r = rig()
     const { pool } = r
     const closed = corpus.sliceIssues.find(isCold)!
@@ -433,9 +443,17 @@ describe('the loader', () => {
     r.reads.reset()
     r.fire()
     const stats = r.reads.stats()
-    expect(stats.rows).toBe(1)
-    expect(stats.byEntity).toEqual({ issue: 1 })
-    expect(stats.sample).toEqual([`issue:${closed.id}`])
+    // POD-4707: a hydration lands the row (one read) and decides its
+    // visibility on first touch: its member sessions (retained reads each
+    // once, by id without loading them) and its nest ancestors. Eager
+    // construction prepaid this cascade for every cold row at bootstrap;
+    // lazy construction pays it where the row is first touched, bounded by
+    // the row's own neighbourhood — never the corpus or the visible set.
+    // At 1x that is the row, its parent and its four member sessions.
+    expect(stats.rows).toBe(6)
+    expect(stats.byEntity).toEqual({ issue: 2, session: 4 })
+    expect(stats.sample[0]).toBe(`issue:${closed.id}`)
+    expect(stats.rows).toBeLessThan(pool.order().length)
   })
 
   it('closes the window on its own with the real timer', async () => {

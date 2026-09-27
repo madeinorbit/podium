@@ -221,7 +221,7 @@ describe('bootstrap in the count harness', () => {
         // The closure, never the corpus: strictly fewer filed issues than
         // known ones (eager construction files every known issue).
         expect(l.filedIssues, arm).toBeLessThan(c.rows['issue']! + c.cold.issue)
-        expect(l.member, arm).toBeLessThan(c.rows['issue'])
+        expect(l.member, arm).toBeLessThan(c.rows['issue']!)
         expect(l.rank, arm).toBe(l.visible)
         expect(l.placement, arm).toBe(l.visible)
         expect(l.visibleOwnOnly && l.visibleSetIsViewSet, arm).toBe(true)

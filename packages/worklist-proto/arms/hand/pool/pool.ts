@@ -649,10 +649,28 @@ export class HandPool {
    * the nest walk uses) are not overlay fields, and a row carrying an
    * overlay is always held — the write layer ensures it before it paints.
    */
-  private plainScope(): { readonly partsOf: (id: string) => VisibleParts } {
+  private plainScope(): {
+    readonly partsOf: (id: string) => VisibleParts
+    readonly rowOf: (id: string) => SliceIssue | undefined
+  } {
     const pool = this
     const memo = new Map<string, VisibleParts>()
     const sessMemo = new Map<string, SessionVisibleParts>()
+    // One row read per id per pass: the ancestor walk re-reaches shared
+    // ancestors, and each must peek a cold row at most once here (the live
+    // derivations peek it again when they run — see the residency count).
+    const rowMemo = new Map<string, SliceIssue | undefined>()
+    const rowOf = (id: string): SliceIssue | undefined => {
+      if (!rowMemo.has(id)) {
+        rowMemo.set(
+          id,
+          (pool.tables.issue.get(id) ?? pool.residency?.peek('issue', id)) as
+            | SliceIssue
+            | undefined,
+        )
+      }
+      return rowMemo.get(id)
+    }
     const raw: RelationReader = {
       one: (from, id, relation) => pool.plainOne(from, id, relation),
       many: (from, id, relation) => pool.engine.members(from, id, relation),
@@ -661,10 +679,7 @@ export class HandPool {
     const plain: VisibleInputs = {
       relations: raw,
       resident: (entity, id) => pool.tables[entity].has(id),
-      issueRow: (id) =>
-        (pool.tables.issue.get(id) ?? pool.residency?.peek('issue', id)) as
-          | SliceIssue
-          | undefined,
+      issueRow: (id) => rowOf(id),
       sessionRow: (id) =>
         (pool.tables.session.get(id) ?? pool.residency?.peek('session', id)) as
           | SliceSession
@@ -687,7 +702,10 @@ export class HandPool {
       },
       passed: (t) => pool.clock.passed(t),
     }
-    return { partsOf: (id) => directVisibleParts(plain, id, memo) }
+    return {
+      partsOf: (id) => directVisibleParts(plain, id, memo),
+      rowOf,
+    }
   }
 
   /**
@@ -709,6 +727,7 @@ export class HandPool {
   private expandRoots(
     roots: readonly string[],
     partsOf: (id: string) => VisibleParts,
+    rowOf: (id: string) => SliceIssue | undefined,
   ): Set<string> {
     const closure = new Set<string>()
     const visit = (id: string): boolean => {
@@ -721,9 +740,7 @@ export class HandPool {
       visit(root)
       let current = root
       for (;;) {
-        const row = (this.tables.issue.get(current) ?? this.residency?.peek('issue', current)) as
-          | SliceIssue
-          | undefined
+        const row = rowOf(current)
         if (row === undefined) break
         const standing = standingOf(row)
         let next: string | null = null
@@ -788,7 +805,7 @@ export class HandPool {
    * counts).
    */
   private replaceClosure(): Set<string> {
-    const { partsOf } = this.plainScope()
+    const { partsOf, rowOf } = this.plainScope()
     const roots: string[] = []
     for (const id of knownIssueIds(this)) {
       const parts = partsOf(id)
@@ -799,7 +816,7 @@ export class HandPool {
       const parent = this.engine.forward('issue', id, 'parent')
       if (parent !== null && this.worklist.has(parent)) roots.push(id)
     }
-    return this.expandRoots(roots, partsOf)
+    return this.expandRoots(roots, partsOf, rowOf)
   }
 
   /**
@@ -852,7 +869,7 @@ export class HandPool {
       }
     }
     if (named.size === 0 && candidates.size === 0) return { closure: new Set(), gone }
-    const { partsOf } = this.plainScope()
+    const { partsOf, rowOf } = this.plainScope()
     const roots = [...named]
     for (const id of candidates) {
       const parts = partsOf(id)
@@ -864,7 +881,7 @@ export class HandPool {
       if (parent !== null && this.worklist.has(parent)) roots.push(id)
     }
     if (roots.length === 0) return { closure: new Set(), gone }
-    return { closure: this.expandRoots(roots, partsOf), gone }
+    return { closure: this.expandRoots(roots, partsOf, rowOf), gone }
   }
 
   /**
@@ -889,8 +906,8 @@ export class HandPool {
     const roots: string[] = []
     for (const id of ids) if (this.knowsIssue(id)) roots.push(id)
     if (roots.length === 0) return
-    const { partsOf } = this.plainScope()
-    const closure = this.expandRoots(roots, partsOf)
+    const { partsOf, rowOf } = this.plainScope()
+    const closure = this.expandRoots(roots, partsOf, rowOf)
     this.rollup.sync(closure)
     this.admitClosure(closure)
   }
