@@ -36,6 +36,21 @@ click). Timing machine queue: POD-4707 holds `bench:flatblock`; queue with
   `timing/4576-mc4` to `~/src/podium`, cloned from `~/podium-timing`,
   `.toolchain` copied from -4705, install + vite web build, entries gate
   2/2 green there). Browser code identical to the lazy tip bebb6e3b9.
+- 2026-09-27: mc4-hot matrix complete (36/36 ok, 2 load-retries listed,
+  load ≤ 6.84): slopes click/clock within, heartbeat 1.74, rename 5.08
+  (near-noise 1x excess), stagemove 2.88, visibleHeartbeat 3.00 OVER.
+  Heap retained 60/111/211 MB vs eager 85/161/311. Profiles: stage-move
+  timed window is MobX tracking ~34% + replica project/reconcile ~14%
+  + lane sort ~7%; PoolList 0.5%, getMeasurements 1.3%, GC ~0% — no
+  fix, mechanism reported. Shared projection grows 27→620 hits 1x→4x
+  (O(kind) merge in frozen replica path; filed to coordinator).
+- 2026-09-27: coordinator took bench:flatblock for a 3h correctness
+  suite, offered to yield for Mc4 timing; declined by mail (no re-run:
+  matrix complete, rebase delta gated off). Reb/completed after
+  POD-4671 landed: allowance deleted from both count tests (exact
+  parity), entry comment fixed, doc
+  `docs/measurements/POD-4576-c4.md` written. Lean gate green; repo
+  `bun run lint` red only on untouched files (none mine).
 
 ## Round three: incremental grouping and the read-state lane (POD-4686) · 2026-09-25
 
