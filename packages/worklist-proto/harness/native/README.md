@@ -23,3 +23,30 @@ bun run --filter @podium/worklist-proto test
 H arms add their native lists here the same way: `handle.mountNative()`
 through `mountNativeForCounts`, scenario writes from `shared/src/scenarios` (the one library, POD-4550),
 parity against `snapshotFromStore`.
+
+## Mc5: the round-three MobX pool on the native renderer (POD-4577)
+
+`mobx-pool-fence.native.test.tsx` runs fence scenarios #1–#3 through the
+shared `runFenceStep` on the pool's native `SectionList`, with counts from
+outside (rows committed per `RowShell`, reads per change) plus parity, the
+copy sweep, and window-aware commits: the redrawn rows must equal the
+oracle-changed rows intersected with the resident drawn rows. `SectionList`
+windowing under the test renderer draws the initial window from the top and
+never grows it (no layout, no scroll), so commits — not rows rendered — are
+the counted dimension. A planted whole-list list (every slot reads every
+visible title) fails the count on #4, and the bootstrap cell reports the
+observables the native mount builds on the lazy baseline (POD-4567, POD-4705).
+`entries.test.ts` pins the native entry to `mobxPoolArm` with no renderer.
+
+Renderer: `react-native` resolves to `react-native-web` under the
+worklist-proto package config (the same mapping `expo export -p web` builds
+against and `apps/mobile/vitest.config.ts` uses). The real React Native test
+renderer is not a dependency of any repo lane, so no lane can mount through
+it; that limitation is stated in the test header, not worked around.
+
+Run through the package config (never `test:file`, which routes these files
+to the node lane where they are excluded):
+
+```
+bun ../../scripts/validation-admission.ts focused -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts harness/native/mobx-pool-fence.native.test.tsx
+```

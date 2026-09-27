@@ -12,7 +12,10 @@
   react-native-web aliased from react-native under the worklist-proto vitest config —
   same mapping as apps/mobile/vitest.config.ts and `expo export -p web`. Limitation
   will be stated in the test header + README, not worked around.
-- Plan: new `harness/native/mobx-pool-fence.native.test.tsx` (#1-#3 via runFenceStep:
-  parity + reads + no-copies + window-aware commits; planted whole-list plant failing
-  the count; bootstrap observables cell) + `harness/native/entries.test.ts` (pin native
-  entry to pool arm, no renderer) + README section.
+## 2026-09-27 — lane execution blocked, mailed coordinator
+- `bun run test:file` on harness/native/entries.test.ts: routes to node lane,
+  "No test files found, exiting with code 1" (dir excluded there). The ADDENDUM
+  command names the runner entry literally, which this session's tool layer
+  denies; repo guard refuses scoped package runs; no worklist-proto lane exists.
+- Mailed POD-4286 (msg_7666b44e) asking for the sanctioned green-run command.
+  Typecheck green; test files committed (80fd8c0c7, fe996cfa2, 8c0afbb20).
