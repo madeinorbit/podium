@@ -82,3 +82,13 @@ fixed (brief: report red files you did not touch, do not fix).
 
 - 4702 released bench:flatblock; now held by a 4694 session, 4286 queued.
   Agreed sequence holds (4694 -> Mc3 heap -> Hc3); I queue on 4694's heads-up.
+
+## Results (2026-09-27, flatblock, f58c87a95, 12/12 ok, loads<=7.47)
+
+- coldBootstrap: hand 491.8 vs control 199.2 (2.47x, OVER); heap 77.23 vs 22.54 (3.43x, OVER).
+- principalSwitch: hand 446.3 vs 239.1 (1.87x, within, thin); growth 0.951 within. 0 survivors/20.
+- rescope: hand 2159.2 vs 871.1 (no budget); growth 1.274 vs 1.230 OVER by 0.044.
+- Mechanism: per-known construction (59k cells, heap Cell+closures ~56MB);
+  rescope-back keeps ~1.2k grown residents ("resident stays") + refiles all.
+- 4705 overlap kept with evidence (ratios stable, clean-only identical).
+- Heap: hand +56.35MB/1.53M objs, control +1.95MB; CaughtException 0 both.
