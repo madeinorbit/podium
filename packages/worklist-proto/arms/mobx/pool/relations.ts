@@ -440,6 +440,22 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return this.bucket(from, id, relation).size
   }
 
+  issueless(from: EntityName, id: string, relation: string): Iterable<string> {
+    const link = this.collections.get(`${from}.${relation}`)
+    if (link === undefined) {
+      specOf(this.schema, from, relation)
+      throw new Error(`[pool] ${from}.${relation} is single-valued; read it with issueless()`)
+    }
+    // POD-4671 ruling Sep27: maintained issueless set, never session rows.
+    if (link.issueless === null) {
+      throw new Error(`[pool] ${from}.${relation} has no issueless index`)
+    }
+    const set = link.issueless.get(id)
+    if (set !== undefined) return set
+    // Cold targets never happen for worktree (never cold), but keep the shape.
+    return NONE
+  }
+
   private bucket(from: EntityName, id: string, relation: string): ReadonlySet<string> {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) {
@@ -539,6 +555,23 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     for (const other of flipped) {
       const row = this.tables[entity].get(other) as Row | undefined
       for (const link of this.outgoing.get(entity) ?? []) this.relink(link, other, row)
+    }
+    // POD-4671 ruling Sep27: a session flipping its issueId without moving
+    // lanes (relink skipped: issueId is not a link input) still leaves or
+    // joins the issueless set of its current root. No table read: before and
+    // after are already in hand; the forward is peeked, not read.
+    if (entity === 'session' && before !== undefined && after !== undefined) {
+      const was = (before as Row)['issueId'] === undefined
+      const now = (after as Row)['issueId'] === undefined
+      if (was !== now) {
+        for (const link of this.outgoing.get(entity) ?? []) {
+          if (link.issueless === null || link.spec.kind !== 'prefix') continue
+          const target = peekForward(link, id)
+          if (target === undefined) continue
+          if (now) this.addIssueless(link, target, id)
+          else this.dropIssueless(link, target, id)
+        }
+      }
     }
     // POD-4671: an issue's own worktreePath is a root. A lane add/remove
     // that leaves the same raw root via the other source changes no union.
@@ -709,6 +742,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       link.placed?.clear()
       link.extraCounts?.clear()
       link.extraByRow?.clear()
+      link.issueless?.clear()
     }
     for (const collapse of this.collapses.values()) {
       collapse.groups.clear()
@@ -793,7 +827,50 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       if (link.placed !== null) this.place(link, id, null)
       if (member) target = relationRef(link.from, link.name, row, this.schema)
     }
+    const old = peekForward(link, id) ?? null
     this.point(link, id, target)
+    // POD-4671 ruling Sep27: maintain the issueless set at the delta (no row
+    // reads to filter later). `row` is already in hand; `old` is the forward
+    // before `point()`.
+    if (link.issueless !== null) {
+      const was = row !== undefined && old !== null ? this.wasIssueless(link, id, old) : false
+      // `was` reads the maintained set, not the row (no extra reads). For a
+      // delete (`row` undefined) it drops the old membership, if any.
+      if (old !== null && old !== target) this.dropIssueless(link, old, id)
+      if (row !== undefined && target !== null && (row as Row)['issueId'] === undefined) {
+        this.addIssueless(link, target, id)
+      } else if (row === undefined && old !== null) {
+        // Delete: `dropIssueless` above already tried; nothing more (no row).
+        void was
+      }
+    }
+  }
+
+  /** Whether `id` is currently in `link`'s issueless set for `target` (no row read). */
+  private wasIssueless(link: Link, id: string, target: string): boolean {
+    return link.issueless?.get(target)?.has(id) === true
+  }
+
+  private addIssueless(link: Link, target: string, id: string): void {
+    const sets = link.issueless
+    if (sets === null) return
+    let set = sets.get(target)
+    if (set === undefined) {
+      set = newBucket(link) as unknown as ObservableSet<string>
+      sets.set(target, set)
+    }
+    if (!set.has(id)) {
+      set.add(id)
+      this.touched(1)
+    }
+  }
+
+  private dropIssueless(link: Link, target: string, id: string): void {
+    const set = link.issueless?.get(target)
+    if (set === undefined || !set.has(id)) return
+    set.delete(id)
+    this.touched(1)
+    if (set.size === 0) link.issueless?.delete(target)
   }
 
   /** Point source `id` at `target` (null: nothing): detach, then attach. */
@@ -863,7 +940,18 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     for (const id of [...candidates]) {
       const current = peekForward(link, id)
       if (current !== undefined && normalizeRootPath(current).length >= normalized.length) continue
+      const was = current !== undefined ? this.wasIssueless(link, id, current) : false
       this.point(link, id, root)
+      // POD-4671 ruling Sep27: keep the issueless set at the delta. Reads the
+      // moving row once (O(sessions under the path), never the corpus; never
+      // on a rename, which moves no root).
+      if (link.issueless !== null) {
+        if (was) this.dropIssueless(link, current as string, id)
+        const row = this.tables[link.from].get(id) as Row | undefined
+        if (row !== undefined && (row as Row)['issueId'] === undefined) {
+          this.addIssueless(link, root, id)
+        }
+      }
     }
   }
 
@@ -874,9 +962,27 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
    */
   private rootRemoved(link: Link, root: string): void {
     const members = this.members(link.spec.to, root, link.spec.inverse)
-    if (members.length === 0) return
+    if (members.length === 0) {
+      // Even with no bucket members, the issueless set for a removed root is
+      // dropped with the root (its sets are keyed by the raw root).
+      link.issueless?.delete(root)
+      return
+    }
     const next = this.probeRoot(link, normalizeRootPath(root))
-    for (const id of members) this.point(link, id, next)
+    for (const id of members) {
+      const was = this.wasIssueless(link, id, root)
+      this.point(link, id, next)
+      if (link.issueless !== null) {
+        if (was) this.dropIssueless(link, root, id)
+        if (next !== null) {
+          const row = this.tables[link.from].get(id) as Row | undefined
+          if (row !== undefined && (row as Row)['issueId'] === undefined) {
+            this.addIssueless(link, next, id)
+          }
+        }
+      }
+    }
+    if ((link.issueless?.get(root)?.size ?? 0) === 0) link.issueless?.delete(root)
   }
 
   /**
