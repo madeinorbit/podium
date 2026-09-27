@@ -821,17 +821,18 @@ export class HandPool {
 
   /**
    * POD-4707 — the lazy closure over one commit's deltas, with the rows
-   * that left. Every touched resident issue joins unconditionally, plus
-   * the issues a touched session or worktree can show (explicit owner,
-   * lane) gated by the plain pass — present, keeping, or filed under a
-   * held parent. Anything else has no held reader, so building it would
-   * only commit filings. An explicit member warms its cold owner through
-   * residency instead, so explicit cold rows stay out (resident owners are
-   * still considered); a lane-only session never warms, so cold lane rows
-   * are evaluated. A cold row that stays cold is a candidate, never a
-   * root: its peeked readers re-run through the `coldRows` delta either
-   * way. Removals only hide. The candidate set is a `Set`: no scan per
-   * member.
+   * that left. Every touched KNOWN issue joins unconditionally — resident
+   * or cold: a cold row's filings self-heal edge moves through their own
+   * cells, while gating it instead would leave a re-added cold row
+   * unfiled (or a reparented one filed stale) with no held reader to
+   * notice. Plus the issues a touched session or worktree can show
+   * (explicit owner, lane) gated by the plain pass — present, keeping, or
+   * filed under a held parent. Anything else has no held reader, so
+   * building it would only commit filings. An explicit member warms its
+   * cold owner through residency instead, so explicit cold rows stay out
+   * (resident owners are still considered); a lane-only session never
+   * warms, so cold lane rows are evaluated. Removals only hide. The
+   * candidate set is a `Set`: no scan per member.
    */
   private updateClosure(deltas: readonly Delta[]): { closure: Set<string>; gone: string[] } {
     const named = new Set<string>()
@@ -849,7 +850,10 @@ export class HandPool {
       for (const issueId of linked.lane) considerLane(issueId)
     }
     for (const delta of deltas) {
-      if (delta.kind === 'row' && delta.entity === 'issue') {
+      if (
+        (delta.kind === 'row' || delta.kind === 'residency' || delta.kind === 'coldRow') &&
+        delta.entity === 'issue'
+      ) {
         if (this.knowsIssue(delta.id)) named.add(delta.id)
         else gone.push(delta.id)
       } else if (delta.kind === 'row' && delta.entity === 'session') {
@@ -859,11 +863,6 @@ export class HandPool {
           for (const issueId of this.engine.members('worktree', delta.id, 'issues'))
             considerLane(issueId)
         }
-      } else if (delta.kind === 'residency' && delta.entity === 'issue') {
-        if (this.knowsIssue(delta.id)) candidates.add(delta.id)
-        else gone.push(delta.id)
-      } else if (delta.kind === 'coldRow' && delta.entity === 'issue') {
-        candidates.add(delta.id)
       } else if (delta.kind === 'coldRow' && delta.entity === 'session') {
         considerLinkedSession(delta.id)
       }
