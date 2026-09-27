@@ -681,6 +681,11 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
   it(
     'plant (c) fails a random run on the oracle',
     async () => {
+      // POD-4671: compare every step, not every 10th. A dropped pending is
+      // transient (the server acks and clears it); the seating gap used to
+      // fail every seed persistently and masked cadence weakness. With the
+      // orphan seated, the plant must catch the transient itself to stay
+      // strong — never weaken the 3/3 expectation.
       let failures = 0
       for (const seed of SEEDS) {
         const adapter = new ArmEditAdapter()
@@ -690,6 +695,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const result = await checkArm(planted, sequence, {
           mode: 'truth',
           shrink: false,
+          oracleEvery: 1,
           editViaArm: adapter.editHook,
           onStep: (step, run) => {
             adapter.pairFromStep(step.detail ?? {})
