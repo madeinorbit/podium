@@ -1072,8 +1072,14 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
    * new row, the model cache's delete of a removed one. The prefix index
    * (`place`) adds or deletes one entry per ancestor path of the row's path,
    * creates or drops at most one set per path, and records the placement once.
+   *
+   * POD-4671: +1 for the extra-root bookkeeping (the `extraSources` dispatch
+   * and `extraByRow` lookup every issue/session write passes through, even
+   * when it names no extra root). The issueless index itself adds no plain
+   * ops here: the F1 rows carry `issueId: null` (explicit, not `undefined`),
+   * so no issueless set is touched — one element per edge still holds.
    */
-  const PLAIN_BOOKKEEPING = 16
+  const PLAIN_BOOKKEEPING = 17
   const plainBound = (path: string | null): number =>
     PLAIN_BOOKKEEPING + (path === null ? 0 : 2 * [...ancestorPaths(path)].length + 1)
   const big: RowRecord[] = [lane('/repo')]
