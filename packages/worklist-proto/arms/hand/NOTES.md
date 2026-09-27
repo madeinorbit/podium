@@ -20,6 +20,69 @@ same bound. No production change; the #10 `burstFamilyReads` rows allowance
 (`rollup.test.tsx`, `known-gaps.ts`) stands — this decision covers id work,
 not rows.
 
+## Round three: rescope eviction on replace-back (POD-4706) · 2026-09-27
+
+Hc3 (POD-4588 §3) and its lazy follow-up (POD-4707 §1) miss the rescope
+growth fence (1.274 then 1.321 vs ≤ 1.230): after a 2x replace and back,
+about 1,200 rows the cold rule would keep cold stay resident with all
+their cells, because `Residency.place` kept "a row resident before stays"
+and the back replace re-ran the filing over everything.
+
+### The rule changed (one place, replace path only)
+
+`pool/residency.ts` `place` (called from `enumerate.ts` `reseed` for every
+row the new slice names): every named row now follows `coldByRule` over
+the new slice, resident before or not. A resident row the rule calls cold
+is evicted — dropped from the tables, then registered cold like any cold
+row — except a row carrying a pending edit, which stays resident while the
+write layer pins it (`pool.writePins`, maintained in
+`pool/write/edit.ts` at every log mutation: edit pins, reject / remote /
+receipt / supersede / expiry / bootstrap re-pin, dispose clears).
+
+The drop-then-register order is load-bearing: the drop's membership delta
+is what disposes the row's cells and records (`pool.ts` `release`), and
+the register's `changed` delta is what re-runs its coldness readers. A
+single `changed(prev, value)` would keep the slot and leak the cells.
+
+Unchanged on purpose: the live `ingest` path (an issue closed while
+resident stays resident — it was just looked at), first-access loading and
+its 50 ms window, reopen warming, member-kept warming, and cold-update
+relinking. That is the whole of Ha3's "a row a derivation read stays
+resident while read" semantic: it governs live updates, and a replace
+re-partitions. `pool.ts` `apply` threads the pin; `dispose` clears it.
+
+### Why every correctness gate still holds
+
+- An evicted row is cold by rule, and the cold rule upper-bounds the flat
+  pass — so it is never visible. Nothing visible loses its row.
+- Every reader already has a cold door: visibility reads cold rows by id
+  (`peek`), roll-up progress reads cold facts by id, attention reads only
+  a pending marker, lazy relations queue a load. Eviction moves rows onto
+  paths the gates already cover.
+- Filings need no change: the replace commit already computes the lazy
+  closure in one plain pass and files exactly it (`syncReplace`, dropping
+  held outsiders), and already forgets held worklist/groups members outside
+  it. Fresh bootstrap over the same slice computes the same closure, so
+  filings converge.
+- The relation engine ends where a placement by rule puts it: the drop
+  unlinks the old value and the cold register re-links the new one, both
+  through the same `changed` the gate's from-scratch scan checks.
+- The partition check (`diffResidency`) allows resident-but-cold rows, so
+  the pin is invisible to it; the pinned row stays hot with its cells, as
+  before this change.
+
+### Counts and cover
+
+- `pool/construction.test.ts` "2x-and-back holds what a fresh 1x bootstrap
+  holds": resident/cold issues and sessions, every held cell kind, live
+  cells walked from held structures (explicit dispose drops a cell without
+  touching `cellsCollected`, so created-minus-collected is not a live
+  count after a replace), order and snapshot. Fails on resident-stays
+  (the plant: ~1,200 extra residents with cells); green after.
+- `pool/residency.test.tsx`: the replace test is restated (looked-at cold
+  row evicted, view cells gone, reopened row hot), plus a pin test (pinned
+  row stays through a replace, evicted by the next one once unpinned).
+
 ## Round three: groups and windowed list, b2 (POD-4583) · 2026-09-24
 
 Built after the MobX build: read Mb2's shape (`arms/mobx/pool/worklist/groups.ts`,

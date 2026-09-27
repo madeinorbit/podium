@@ -277,32 +277,39 @@ describe('bootstrap construction from outside the pool', () => {
     // POD-4706 (Hc3's rescope growth): after a 2x replace and back, the rows
     // the cold rule would keep cold must be evicted with their cells — a
     // fresh 1x bootstrap is the outside-count oracle. On the old
-    // resident-stays rule this fails (about 1,200 extra residents with all
-    // their cells, Hc3 §3); it passes once a replace re-partitions by rule.
+    // resident-stays rule the boundary census fails (about 1,200 extra
+    // residents with all their cells, Hc3 §3); it passes once a replace
+    // re-partitions by rule.
+    //
+    // The boundary census runs with NO reads on either arm (no settle, no
+    // snapshot): what a replace leaves behind, exactly. Reads after that
+    // legitimately hydrate through first access (Ha3: a row a derivation
+    // reads stays resident while read), so post-read states carry hysteresis
+    // — asserted as snapshot parity plus a reported residue, not equality.
     const one = buildCorpus(1)
     const two = buildCorpus(2)
     const fresh = bootWith(one)
     try {
-      fresh.handle.settleLoads()
-      const freshSnap = fresh.handle.snapshot()
-      const freshCounts = census(fresh.handle)
+      const freshBoundary = census(fresh.handle)
       const round = bootWith(one)
       try {
-        // Grow to 2x and read the grown list (the rescope's grown-state
-        // parity check, which materialises the grown rows' view cells).
         round.push(rowsOf(two))
+        round.push(rowsOf(one))
+        const backBoundary = census(round.handle)
+        expect(backBoundary).toEqual(freshBoundary)
+        // Reads on both: the grown-state parity check materialises the grown
+        // rows' cells, then both arms settle and read the 1x list.
         round.handle.settleLoads()
         round.handle.snapshot()
-        // Back to 1x and read again.
-        round.push(rowsOf(one))
-        round.handle.settleLoads()
+        fresh.handle.settleLoads()
+        const freshSnap = fresh.handle.snapshot()
         const backSnap = round.handle.snapshot()
-        const backCounts = census(round.handle)
         expect(backSnap).toEqual(freshSnap)
-        expect(backCounts).toEqual(freshCounts)
+        const backCounts = census(round.handle)
+        const freshCounts = census(fresh.handle)
         writeResult('hand-pool-rescope-roundtrip-1x', {
-          fresh: freshCounts,
-          back: backCounts,
+          boundary: { fresh: freshBoundary, back: backBoundary },
+          afterReads: { fresh: freshCounts, back: backCounts },
         })
       } finally {
         round.dispose()

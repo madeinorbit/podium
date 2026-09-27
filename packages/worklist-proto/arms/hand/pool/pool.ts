@@ -727,11 +727,20 @@ export class HandPool {
    * (a held member's subtree is complete by the same induction). Reads
    * rows, never tables; builds no cell. Membership is a `Set`, so the
    * expansion is linear in the closure, never a scan per member.
+   *
+   * POD-4706: a `replace` passes a never-held predicate, so the closure is
+   * computed purely over the new slice — exactly as a fresh bootstrap over
+   * the same slice computes it (its worklist is empty). Reading the live
+   * worklist here would root hidden rows under parents that were visible
+   * before the replace and prune walks at chains that no longer hold,
+   * and the back-replace would keep filings and member cells a fresh
+   * bootstrap never builds.
    */
   private expandRoots(
     roots: readonly string[],
     partsOf: (id: string) => VisibleParts,
     rowOf: (id: string) => SliceIssue | undefined,
+    held: (id: string) => boolean = (id) => this.worklist.has(id),
   ): Set<string> {
     const closure = new Set<string>()
     const visit = (id: string): boolean => {
@@ -757,11 +766,11 @@ export class HandPool {
         }
         if (next === null || !this.knowsIssue(next)) break
         if (!visit(next)) break
-        if (this.worklist.has(next)) break
+        if (held(next)) break
         current = next
       }
     }
-    const below = [...closure].filter((id) => !this.worklist.has(id))
+    const below = [...closure].filter((id) => !held(id))
     for (let head = 0; head < below.length; head += 1) {
       const id = below[head] as string
       for (const child of this.engine.members('issue', id, 'children')) {
@@ -807,9 +816,19 @@ export class HandPool {
    * its where-filtered formal parent is held (what the filing files, so a
    * hidden formal child of a held parent still files and its progress
    * counts).
+   *
+   * POD-4706: nothing here reads the live worklist. At a fresh bootstrap
+   * the worklist is empty, so the held-parent rule never fires and no walk
+   * stops early; a back-replace must compute the same closure over the same
+   * slice, but the live worklist still shows the grown visible set — rooting
+   * hidden rows under leaving parents and pruning walks at leaving chains,
+   * which keeps filings and member cells a fresh bootstrap never builds.
+   * The update path (`updateClosure`, `ensureIssues`) keeps the live
+   * worklist: there the held chains are current, and the induction holds.
    */
   private replaceClosure(): Set<string> {
     const { partsOf, rowOf } = this.plainScope()
+    const held = (): boolean => false
     const roots: string[] = []
     for (const id of knownIssueIds(this)) {
       const parts = partsOf(id)
@@ -818,9 +837,9 @@ export class HandPool {
         continue
       }
       const parent = this.engine.forward('issue', id, 'parent')
-      if (parent !== null && this.worklist.has(parent)) roots.push(id)
+      if (parent !== null && held(parent)) roots.push(id)
     }
-    return this.expandRoots(roots, partsOf, rowOf)
+    return this.expandRoots(roots, partsOf, rowOf, held)
   }
 
   /**
@@ -891,11 +910,16 @@ export class HandPool {
    * POD-4707 — admit every resident closure member (held ones skip free;
    * raw doors, no fence). The order handler then places exactly the ids
    * whose `visible` or `rank` cell moved.
+   *
+   * POD-4706: the whole closure goes in, not just the resident members, so
+   * a member cell for a row that is no longer resident is dropped. A
+   * `replace` evicts resident-but-cold rows; without this their grown-phase
+   * member cells would linger (the order ignores them — an unplaced member
+   * never moves — but they and the rank reads they pull keep heap a fresh
+   * bootstrap never builds).
    */
   private admitClosure(closure: ReadonlySet<string>): void {
-    const entered: string[] = []
-    for (const id of closure) if (this.tables.issue.has(id)) entered.push(id)
-    this.worklist.admit(entered, (id) => this.tables.issue.has(id))
+    this.worklist.admit(closure, (id) => this.tables.issue.has(id))
   }
 
   /**
@@ -1103,12 +1127,38 @@ export class HandPool {
         event.rows,
         out,
         this.residency ?? undefined,
-        pins.size === 0
-          ? undefined
-          : (entity, id) => entity === 'issue' && pins.has(id),
+        pins.size === 0 ? undefined : (entity, id) => entity === 'issue' && pins.has(id),
       )
+      this.clearCachesForReplace()
     } else for (const record of event.rows) ingestRecord(this.target, record, out)
     this.commitIngest(out, event.type === 'replace')
+  }
+
+  /**
+   * POD-4706 — drop every per-row derived cache before a `replace` commits,
+   * so the commit rebuilds deterministically from the new slice: exactly as
+   * a fresh bootstrap over the same slice builds, whose caches start empty.
+   * Tables, residency, the engine and locals are already the new slice's
+   * (reseed ran first); only derived caches go — row views and their parts,
+   * session activity cells, records, the visible collection (members, ranks,
+   * parts, order), the roll-up filings/nodes/verdicts, the group
+   * placements/layout, and the queued loads. Placement by rule already
+   * evicted what the rule calls cold and the residency deltas already
+   * reported it; what stays resident re-derives below. Pins survive: a
+   * pending edit still holds its row. Disposing a cell unlinks it from every
+   * index it read and dirties its readers, so nothing below reads stale
+   * entries; every door re-creates on next read.
+   */
+  private clearCachesForReplace(): void {
+    for (const cells of this.issues.values()) cells.dispose()
+    this.issues.clear()
+    for (const cell of this.sessionCells.values()) this.graph.dispose(cell)
+    this.sessionCells.clear()
+    for (const entity of ENTITIES) this.records[entity].clear()
+    this.worklist.clear()
+    this.rollup.clear()
+    this.groups.clear()
+    this.residency?.dropQueued()
   }
 
   /** One ingest's table, relation and registry writes as deltas, then one commit. */

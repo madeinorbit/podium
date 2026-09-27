@@ -327,6 +327,18 @@ export class Residency {
     return count
   }
 
+  /**
+   * Drop every queued row without loading it (POD-4706). A `replace` clears
+   * the pool's caches and rebuilds them from the new slice; loads queued by
+   * the old state's cells are stale asks — what the new state's derivations
+   * reach, they queue again on their next read.
+   */
+  dropQueued(): void {
+    this.cancel?.()
+    this.cancel = null
+    this.queue.clear()
+  }
+
   /** Close the window now: the queued rows, cleared. */
   take(): [LoadableEntity, string][] {
     this.cancel?.()
