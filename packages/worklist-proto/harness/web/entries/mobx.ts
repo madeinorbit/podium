@@ -3,8 +3,8 @@
  * (`arms/mobx/pool`: the pool, its worklist, `pool/react/list.tsx`), built by
  * the page through `createArm(boot)` like every arm (`entrylib.ts`: held
  * pages, the lifecycle steps and parity per sample are the page's). Parity
- * carries the pool's one named allowance, POD-4671's row, as the fence
- * roster does (`worklist/known-gaps.ts`); each record names it when applied.
+ * holds exactly (POD-4671 seated the unscanned orphan, so the roster's
+ * named exception is gone with it).
  *
  * THE CONSOLE TRAP (M3 note N3). The page is a production build, where
  * MobX's enforcement warnings are compiled out (`__MOBX_DEV__`); a throw
