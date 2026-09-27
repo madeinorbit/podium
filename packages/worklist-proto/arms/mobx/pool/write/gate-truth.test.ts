@@ -657,6 +657,9 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
   it(
     'plant (c) fails a random run on the oracle',
     async () => {
+      // POD-4671: compare every step, not every 10th (same as the hand arm).
+      // A dropped pending is transient; the seating gap used to fail every
+      // seed persistently and masked cadence weakness. Never weaken 3/3.
       let failures = 0
       for (const seed of SEEDS) {
         const adapter = new ArmEditAdapter()
@@ -666,6 +669,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const result = await checkArm(planted, sequence, {
           mode: 'truth',
           shrink: false,
+          oracleEvery: 1,
           editViaArm: adapter.editHook,
           onStep: (step, run) => {
             adapter.pairFromStep(step.detail ?? {})
