@@ -509,26 +509,25 @@ export function seatIdsPartOf(input: VisibleInputs, id: string): readonly string
 }
 
 /**
- * R3 alone: the sessions of the issue's worktree that carry no `issueId`
- * (`indexSessionOwnership`, `session-ownership.ts:152-165`), id order. Its own
- * part (POD-4571), so a change to the EXPLICIT members never re-lists the
- * lane's bucket (a burst of new sessions on fifty issues read every lane's
- * sessions through `memberIds`, #10).
+ * R3 alone: the lane's issueless sessions (`indexSessionOwnership`,
+ * `session-ownership.ts:152-165`), id order. Its own part (POD-4571), so a
+ * change to the EXPLICIT members never re-lists the lane's bucket (a burst
+ * of new sessions on fifty issues read every lane's sessions through
+ * `memberIds`, #10).
  *
- * POD-4671: read the issue's own `worktreePath`, not `issue.worktree` — the
- * containment root set is the scanned lanes PLUS every issue's path, so an
- * unscanned checkout seats without a lane and the bucket holds its sessions
- * all the same.
+ * POD-4671 ruling Sep27: read the maintained issueless set, never session
+ * rows to filter — the same pattern as POD-4678's seat list. The worktree
+ * comes through `issue.worktree` (the relation's forward, keyed by
+ * `worktreePath` alone and union-aware), so a title-only write never re-runs
+ * this: field-level dependency, not the whole issue row. The union roots
+ * seat an unscanned checkout without a lane, so `issue.worktree` names the
+ * issue's own path all the same. (Mailed to POD-4705; rebase onto its
+ * landing before landing.)
  */
 export function laneMemberIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
-  const worktree = input.issueRow(id)?.worktreePath ?? null
-  if (worktree === null || worktree === '') return []
-  const members: string[] = []
-  for (const sessionId of input.relations.many('worktree', worktree, 'sessions')) {
-    const retention = input.session(sessionId).retention
-    if (retention !== null && retention.issueId === undefined) members.push(sessionId)
-  }
-  return members.sort()
+  const worktree = input.relations.one('issue', id, 'worktree')
+  if (worktree === null) return []
+  return [...input.relations.issueless('worktree', worktree, 'sessions')].sort()
 }
 
 /**

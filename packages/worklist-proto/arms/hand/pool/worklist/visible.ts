@@ -459,26 +459,25 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
     return [...input.relations.many('issue', id, 'sessions')].sort()
   },
   /**
-   * R2 then R3: the explicit members, then the sessions of the issue's
-   * worktree that carry no `issueId` (`indexSessionOwnership`,
-   * `session-ownership.ts:152-165`). Unfiltered: each reader applies its seat
-   * rule. A cold session in the worktree names an issue (it is cold through
-   * it), so it is never R3 material and its row is not read.
+   * R2 then R3: the explicit members, then the lane's issueless sessions
+   * (`indexSessionOwnership`, `session-ownership.ts:152-165`). Unfiltered:
+   * each reader applies its seat rule.
    *
-   * POD-4671: the issue's own `worktreePath`, not `issue.worktree` — the
-   * root set is scanned lanes PLUS every issue path, so an unscanned
-   * checkout seats without a lane.
+   * POD-4671 ruling Sep27: the lane part reads the maintained issueless set
+   * and never reads session rows to filter — the same pattern as POD-4678's
+   * seat list. The worktree comes through `issue.worktree` (the relation's
+   * forward, keyed by `worktreePath` alone), so a title-only write never
+   * re-runs this: field-level dependency, not the whole issue row. The union
+   * roots seat an unscanned checkout without a lane, so `issue.worktree`
+   * names the issue's own path all the same.
    */
   memberIds(input, id, self) {
     const seatIds = self.seatIds
-    const worktree = input.issueRow(id)?.worktreePath ?? null
-    if (worktree === null || worktree === '') return seatIds
+    const worktree = input.relations.one('issue', id, 'worktree')
+    if (worktree === null) return seatIds
     const members = new Set(seatIds)
-    for (const sessionId of input.relations.many('worktree', worktree, 'sessions')) {
-      const session = input.session(sessionId)
-      if (session === undefined || !session.resident) continue
-      const retention = session.retention
-      if (retention !== null && retention.issueId === undefined) members.add(sessionId)
+    for (const sessionId of input.relations.issueless('worktree', worktree, 'sessions')) {
+      members.add(sessionId)
     }
     return members.size === seatIds.length ? seatIds : [...members].sort()
   },
