@@ -11,8 +11,11 @@
  * web` builds against and `apps/mobile/vitest.config.ts` uses — so this mounts
  * real RN primitives (`SectionList`/`View`/`Text`) counted by the same
  * `RowShell` profilers. The real React Native test renderer
- * (`react-test-renderer`) is NOT a dependency of any repo lane, so no lane can
- * mount through it; that is stated here, not worked around. `SectionList`
+ * (`react-test-renderer`) is NOT a dependency of any repo lane — apps/mobile's
+ * lane provides no real RN renderer either (no such dependency; its vitest
+ * config carries the same react-native-web alias) — so this lane is the
+ * brief's "otherwise" branch: the existing react-native-web lane, limitation
+ * stated, not worked around. `SectionList`
  * windowing under the test renderer draws the initial window (`INITIAL_ROWS`)
  * from the top and never grows it (no layout, no scroll), so the fence counts
  * COMMITS, not rows rendered (the Mc5 pitfall): a changed row outside the
@@ -152,6 +155,18 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         ]
       })
       expect(window, 'the window draws the grouped prefix').toEqual(grouped.slice(0, window.length))
+
+      // Settle the mount's lazy loads BEFORE step #1 (Mc4 8618b5378): the
+      // native list draws a window, so the mount queues only the window's
+      // loads — but every step's `snapshot()` walks EVERY visible row and
+      // settles the loader itself, so those loads would land after the step
+      // settled its own and fail the run (G2: charged to no step). Drive one
+      // uncounted snapshot on the real signal until nothing is queued; each
+      // step's own resets wipe its counters (log, stats, reads).
+      await act(async () => {
+        handle.snapshot()
+      })
+      expect(handle.pendingLoads(), 'mount loads settled').toBe(0)
 
       const cells = []
       let nonVacuous = 0

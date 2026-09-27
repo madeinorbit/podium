@@ -41,8 +41,10 @@ observables the native mount builds on the lazy baseline (POD-4567, POD-4705).
 Renderer: `react-native` resolves to `react-native-web` under the
 worklist-proto package config (the same mapping `expo export -p web` builds
 against and `apps/mobile/vitest.config.ts` uses). The real React Native test
-renderer is not a dependency of any repo lane, so no lane can mount through
-it; that limitation is stated in the test header, not worked around.
+renderer is not a dependency of any repo lane — apps/mobile's lane provides no
+real RN renderer either (no such dependency; its vitest config carries the
+same react-native-web alias) — so Mc5 is the brief's "otherwise" branch: the
+existing react-native-web lane, limitation stated.
 
 Run through the package config (never `test:file`, which routes these files
 to the node lane where they are excluded):
