@@ -54,10 +54,15 @@
  * closed issues) reads it by id through the feed (`peek`): counted by the
  * reads fence, recorded under the row's key (`peeked`), never installed.
  *
- * NOTHING MAKES A HOT ROW COLD except a `replace`, which re-partitions
- * (`enumerate.ts` `reseed`): a row resident before and still in the slice
- * stays; every other row follows the rule over the new slice. An issue closed
- * while resident stays resident: it was just looked at.
+  * NOTHING MAKES A HOT ROW COLD except a `replace`, which re-partitions
+  * (`enumerate.ts` `reseed`): every named row follows the rule over the new
+  * slice, resident before or not (POD-4706). A resident row the rule calls
+  * cold is evicted — dropped from the tables and registered cold — so its
+  * cells go with the membership delta and its filings follow the closure;
+  * the only pin is a row carrying a pending edit, which stays resident while
+  * the write layer holds it. A live update still keeps a resident row
+  * resident (`ingest` is unchanged): an issue closed while resident stays
+  * resident — it was just looked at.
  *
  * TRACKED, THE HAND WAY. "Is this row cold" is state a cell reads, so it goes
  * through a door (pitfall j): `loading` and `known` call `asked`, which the
@@ -369,9 +374,14 @@ export class Residency {
   }
 
   /**
-   * A `replace` placing one row of the new slice (`reseed`): a row resident
-   * before stays; any other follows the rule, with `staged` (the new slice)
-   * answering for the rows it inherits from.
+   * A `replace` placing one row of the new slice (`reseed`): every named row
+   * follows the rule, with `staged` (the new slice) answering for the rows
+   * it inherits from. A resident row the rule calls cold is evicted (POD-4706:
+   * dropped from the tables, then registered cold like any cold row), except
+   * a row carrying a pending edit (`pinned`), which stays resident while the
+   * write layer holds it. The drop-then-register is deliberate: the drop's
+   * membership delta is what disposes the row's cells and records (`release`),
+   * and the register's `changed` delta is what re-runs its coldness readers.
    */
   place(
     target: IngestTarget,
@@ -380,6 +390,7 @@ export class Residency {
     value: StoredRow,
     staged: (to: EntityName, id: string) => object | undefined,
     out: IngestOut,
+    pinned = false,
   ): void {
     const hot = target.read[entity].get(id) !== undefined
     const { schema } = this.options
@@ -391,7 +402,13 @@ export class Residency {
       },
       keeps: (owner, key) => this.keeps.get(`${owner}:${key}`)?.values() ?? [],
     }
-    if (!hot && coldByRule(schema, entity, value, ctx)) {
+    if (coldByRule(schema, entity, value, ctx)) {
+      if (pinned) {
+        this.unregister(entity, id)
+        put(target, entity, id, value, out)
+        return
+      }
+      if (hot) drop(target, entity, id, out)
       this.keepCold(target, entity, id, value)
       return
     }

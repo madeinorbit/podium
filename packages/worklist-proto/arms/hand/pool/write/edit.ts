@@ -199,6 +199,17 @@ export function createHandWriteApi(
     return overlays.get(overlayKey('issue', id))
   }
 
+  /**
+   * POD-4706 — keep the pool's replace pin in line with the pending log: a
+   * row with a pending edit stays resident across a `replace`, so its
+   * pending display never loses its server row.
+   */
+  const repin = (kind: WritableKind, id: string): void => {
+    if (kind !== 'issue') return
+    if (log.pendingFor(kind, id).length === 0) pool.writePins.delete(id)
+    else pool.writePins.add(id)
+  }
+
   /** The server row with the pending display overlaid (transient, never stored). */
   const withOverlay = (id: string, row: SliceIssue | undefined): SliceIssue | undefined => {
     if (row === undefined) return undefined
@@ -276,6 +287,7 @@ export function createHandWriteApi(
       }
       log.append({ txId, kind, id, patch, prior, priorIdentity: server } as never, undefined)
       refreshOverlay(kind, id)
+      repin(kind, id)
       commitFor(kind, id)
       // Fire-and-forget (W1.6): the paint does not wait for the queue.
       transport.send(txId, command)
@@ -286,6 +298,7 @@ export function createHandWriteApi(
       const outcome = log.reject(rejection) as { kind: WritableKind; id: string } | null
       if (outcome === null) return
       refreshOverlay(outcome.kind, outcome.id)
+      repin(outcome.kind, outcome.id)
       commitFor(outcome.kind, outcome.id)
       const enriched = { ...rejection, kind: outcome.kind, id: outcome.id }
       for (const listener of [...listeners]) listener(enriched)
@@ -293,6 +306,7 @@ export function createHandWriteApi(
 
     handleRemote(kind, id, values) {
       log.remote(kind, id, values)
+      repin(kind, id)
       // Pending fields keep the local value (no overlay change); a settle
       // or overtake would change the display — refresh anyway so this path
       // never double-paints the tables' own update.
@@ -302,6 +316,7 @@ export function createHandWriteApi(
     handleAccepted(txId) {
       const outcome = log.settle({ txId })
       if (outcome === null) return
+      repin(outcome.kind, outcome.id)
       // The receipt alone confirms nothing: the entry stays until its echo
       // (or an overtake) resolves every field, so this refresh is a no-op
       // unless the echo already arrived (echo-before-receipt). A second
@@ -312,6 +327,7 @@ export function createHandWriteApi(
     handleSuperseded(txId) {
       const outcome = log.supersede({ txId })
       if (outcome === null) return
+      repin(outcome.kind, outcome.id)
       // No repaint: the successor is newer and carries the value (W9). The
       // refresh only drops tracking that ended.
       if (refreshOverlay(outcome.kind, outcome.id)) commitFor(outcome.kind, outcome.id)
@@ -319,6 +335,7 @@ export function createHandWriteApi(
 
     expire() {
       for (const outcome of log.expire()) {
+        repin(outcome.kind, outcome.id)
         if (refreshOverlay(outcome.kind, outcome.id)) commitFor(outcome.kind, outcome.id)
       }
     },
@@ -403,6 +420,7 @@ export function createHandWriteApi(
       }
       // The arm never re-sends: the kernel replays its own queue under the
       // same mutation ids, and receipts arrive under the same txIds.
+      for (const { kind, id } of touched) repin(kind, id)
       return { applied, skipped }
     },
 
@@ -424,6 +442,7 @@ export function createHandWriteApi(
       listeners.clear()
       overlays.clear()
       pendingReaders.clear()
+      pool.writePins.clear()
     },
   }
   return api

@@ -349,6 +349,13 @@ export class HandPool {
   private selectedId: string | null
   /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch, POD-4583). */
   private foldLatch: boolean
+  /**
+   * POD-4706 — issue ids carrying a pending edit. The write layer adds an id
+   * when it paints an overlay and removes it when nothing is pending for the
+   * row; a `replace` keeps a pinned row resident even when the cold rule
+   * would evict it, so a pending display never loses its server row.
+   */
+  readonly writePins = new Set<string>()
   /** Keys whose value changed in this commit; published once at its end. */
   private readonly changedIds = new Set<string>()
   private idsChanged = false
@@ -1089,8 +1096,18 @@ export class HandPool {
   apply(event: RowSourceEvent): void {
     const out = ingestOut()
     this.engine.begin()
-    if (event.type === 'replace') reseed(this.target, event.rows, out, this.residency ?? undefined)
-    else for (const record of event.rows) ingestRecord(this.target, record, out)
+    if (event.type === 'replace') {
+      const pins = this.writePins
+      reseed(
+        this.target,
+        event.rows,
+        out,
+        this.residency ?? undefined,
+        pins.size === 0
+          ? undefined
+          : (entity, id) => entity === 'issue' && pins.has(id),
+      )
+    } else for (const record of event.rows) ingestRecord(this.target, record, out)
     this.commitIngest(out, event.type === 'replace')
   }
 
@@ -1163,6 +1180,7 @@ export class HandPool {
     }
     this.engine.clear()
     this.relationReaders.clear()
+    this.writePins.clear()
     this.residency?.clear()
     this.coldness.clear()
     this.coldRows.clear()

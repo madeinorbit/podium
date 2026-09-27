@@ -93,6 +93,7 @@ export function reseed(
   rows: readonly RowRecord[],
   out: IngestOut,
   residency?: Residency,
+  pinned?: (entity: EntityName, id: string) => boolean,
 ): void {
   const incoming = createTables()
   const staging: IngestTarget = { read: incoming, write: incoming }
@@ -113,10 +114,13 @@ export function reseed(
     for (const id of gone) drop(target, entity, id, out)
     if (residency?.capable(entity) === true) {
       // POD-4580: re-partition. Cold rows the slice no longer names are
-      // forgotten; every named row is placed by the rule (a resident row stays).
+      // forgotten; every named row is placed by the rule over the new slice
+      // (POD-4706: a resident row the rule calls cold is evicted, except a
+      // row the caller pins — a pending edit holds its row).
       for (const id of residency.ids(entity))
         if (!next.has(id)) residency.forget(target, entity, id)
-      for (const [id, row] of next) residency.place(target, entity, id, row, staged, out)
+      for (const [id, row] of next)
+        residency.place(target, entity, id, row, staged, out, pinned?.(entity, id) ?? false)
       continue
     }
     for (const [id, row] of next) put(target, entity, id, row, out)
