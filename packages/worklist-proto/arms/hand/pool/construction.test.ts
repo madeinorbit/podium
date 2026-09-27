@@ -32,9 +32,11 @@ import { buildCorpus } from '../../../harness/src/fixture/index'
 import { writeResult } from '../../../harness/src/results'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
+import type { RowRecord } from '../../../shared/src/stats'
 import type { Cell } from './cells'
 import { CellGraph } from './cells'
 import { handPoolArm } from './arm'
+import type { HandPool } from './pool'
 
 /** Cell constructions observed through the patched `cell`, by name prefix. */
 function observeConstruction(run: () => void): { names: string[]; byPrefix: Record<string, number> } {
@@ -87,6 +89,89 @@ function boot(): {
     schedule: () => () => {},
   })
   return { pool: handle, replay, knownIssues: corpus.sliceIssues.length }
+}
+
+type Corpus = ReturnType<typeof buildCorpus>
+
+function recordsOf(corpus: Corpus): {
+  issues: RowRecord[]
+  sessions: RowRecord[]
+  worktrees: RowRecord[]
+} {
+  return {
+    issues: corpus.sliceIssues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+    sessions: corpus.sliceSessions.map((value) => ({
+      kind: 'session' as const,
+      id: value.sessionId,
+      value,
+    })),
+    worktrees: corpus.sliceWorktrees.map((value) => ({
+      kind: 'worktree' as const,
+      id: value.path,
+      value,
+    })),
+  }
+}
+
+function bootWith(corpus: Corpus): {
+  handle: ReturnType<typeof handPoolArm.create>
+  push: (rows: RowRecord[]) => void
+  dispose: () => void
+} {
+  const replay = createReplaySource(recordsOf(corpus))
+  const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+  const handle = handPoolArm.create(replay.source, locals.source, DISABLED_READ_FENCE, {
+    schedule: () => () => {},
+  })
+  return {
+    handle,
+    push: (rows) => replay.push({ type: 'replace', rows }),
+    dispose: () => handle.dispose(),
+  }
+}
+
+function rowsOf(corpus: Corpus): RowRecord[] {
+  const { issues, sessions, worktrees } = recordsOf(corpus)
+  return [...sessions, ...issues, ...worktrees]
+}
+
+/**
+ * Every live cell, walked from the pool's held structures (never the pool's
+ * own counters: an explicit dispose drops a cell without touching
+ * `cellsCollected`, so created-minus-collected overcounts after a replace).
+ * The same census the residency bootstrap test names cell by cell.
+ */
+function liveCells(pool: HandPool): number {
+  let cells = 0
+  for (const issue of pool.issues.values()) cells += issue.cells.size
+  cells += pool.sessionCells.size
+  cells += 1 // the id list
+  cells += pool.worklist.cellCount()
+  cells += pool.groups.held()
+  const rollup = pool.rollup.heldCells()
+  cells += rollup.filings + rollup.verdicts + rollup.rollupParts
+  return cells
+}
+
+function census(handle: ReturnType<typeof handPoolArm.create>): Record<string, number> {
+  const pool = handle.pool
+  const rollup = pool.rollup.heldCells()
+  return {
+    residentIssues: pool.tables.issue.size,
+    coldIssues: pool.residency?.size('issue') ?? 0,
+    residentSessions: pool.tables.session.size,
+    coldSessions: pool.residency?.size('session') ?? 0,
+    issueCellSets: pool.issues.size,
+    sessionActivityCells: pool.sessionCells.size,
+    worklistCells: pool.worklist.cellCount(),
+    worklistMembers: pool.worklist.held('member'),
+    groupPlacements: pool.groups.held(),
+    filingCells: rollup.filings,
+    verdictCells: rollup.verdicts,
+    rollupParts: rollup.rollupParts,
+    liveCells: liveCells(pool),
+    visible: pool.order().length,
+  }
 }
 
 describe('bootstrap construction from outside the pool', () => {
@@ -185,6 +270,45 @@ describe('bootstrap construction from outside the pool', () => {
       expect([...pool.pool.order()]).toEqual(orderBefore)
     } finally {
       pool.dispose()
+    }
+  }, 300_000)
+
+  it('2x-and-back holds what a fresh 1x bootstrap holds: resident rows and live cells', () => {
+    // POD-4706 (Hc3's rescope growth): after a 2x replace and back, the rows
+    // the cold rule would keep cold must be evicted with their cells — a
+    // fresh 1x bootstrap is the outside-count oracle. On the old
+    // resident-stays rule this fails (about 1,200 extra residents with all
+    // their cells, Hc3 §3); it passes once a replace re-partitions by rule.
+    const one = buildCorpus(1)
+    const two = buildCorpus(2)
+    const fresh = bootWith(one)
+    try {
+      fresh.handle.settleLoads()
+      const freshSnap = fresh.handle.snapshot()
+      const freshCounts = census(fresh.handle)
+      const round = bootWith(one)
+      try {
+        // Grow to 2x and read the grown list (the rescope's grown-state
+        // parity check, which materialises the grown rows' view cells).
+        round.push(rowsOf(two))
+        round.handle.settleLoads()
+        round.handle.snapshot()
+        // Back to 1x and read again.
+        round.push(rowsOf(one))
+        round.handle.settleLoads()
+        const backSnap = round.handle.snapshot()
+        const backCounts = census(round.handle)
+        expect(backSnap).toEqual(freshSnap)
+        expect(backCounts).toEqual(freshCounts)
+        writeResult('hand-pool-rescope-roundtrip-1x', {
+          fresh: freshCounts,
+          back: backCounts,
+        })
+      } finally {
+        round.dispose()
+      }
+    } finally {
+      fresh.dispose()
     }
   }, 300_000)
 })
