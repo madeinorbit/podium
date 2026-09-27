@@ -9,19 +9,26 @@
  * RENDERER (stated limitation). `react-native` resolves to `react-native-web`
  * under the worklist-proto package config — the same mapping `expo export -p
  * web` builds against and `apps/mobile/vitest.config.ts` uses — so this mounts
- * real RN primitives (`SectionList`/`View`/`Text`) counted by the same
- * `RowShell` profilers. The real React Native test renderer
- * (`react-test-renderer`) is NOT a dependency of any repo lane — apps/mobile's
- * lane provides no real RN renderer either (no such dependency; its vitest
- * config carries the same react-native-web alias) — so this lane is the
- * brief's "otherwise" branch: the existing react-native-web lane, limitation
- * stated, not worked around. `SectionList`
- * windowing under the test renderer draws the initial window (`INITIAL_ROWS`)
- * from the top and never grows it (no layout, no scroll), so the fence counts
- * COMMITS, not rows rendered (the Mc5 pitfall): a changed row outside the
- * drawn window cannot commit, and the commit cell is the oracle-changed rows
- * intersected with the drawn window. The planted list below draws every
- * visible row and re-renders all of them per change, and fails that cell.
+ * real RN primitives (`View`/`Text`) counted by the same `RowShell`
+ * profilers. The real React Native test renderer (`react-test-renderer`) is
+ * NOT a dependency of any repo lane — apps/mobile's lane provides no real RN
+ * renderer either (no such dependency; its vitest config carries the same
+ * react-native-web alias) — so this lane is the brief's "otherwise" branch:
+ * the existing react-native-web lane, limitation stated, not worked around.
+ *
+ * THE COUNT MOUNT DRAWS THE FULL VISIBLE LIST. The parity snapshot derives
+ * every visible row, and the pool's real native list is windowed (Mb2): rows
+ * outside the window stay cold, and the step's `snapshot()` loads them after
+ * the step settled its own loads (G2: charged to no step) — the #1 late-load
+ * failure this lane found and the diagnostic round proved (cells stable,
+ * nothing remounted, nothing changed, yet the snapshot phase landed the
+ * loads). So the count mount renders every visible row through the same
+ * `RowShell`s without virtualization — the same resident set the web lane
+ * compares — and the commit fence is the exact one (`assertCommits`, no
+ * window intersection). The windowed real mount (`mountNative()`, the
+ * `SectionList`) is covered by Ma1 (`mobx-pool.native.test.tsx`: the grouped
+ * prefix, a cold heartbeat redrawing nothing, a rename redrawing the renamed
+ * row); the bootstrap test below also mounts it.
  *
  * Parity and the counted scenarios are the web lane's (`arms/mobx/pool/
  * counts.test.tsx` for #1-#4, `worklist/visible.test.tsx` for #1-#5): the same
@@ -30,14 +37,13 @@
  * mount queues loads, and the bootstrap cell reports the observables the
  * native mount builds.
  *
- * Run through the package config (never `test:file`, which silently skips the
- * native tests):
+ * Run through the package config (never `test:file`, which routes these files
+ * to the node lane where they are excluded):
  *   bun ../../scripts/validation-admission.ts focused -- bun --bun \
  *     ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts \
  *     harness/native/mobx-pool-fence.native.test.tsx
  */
 
-import { isDeepStrictEqual } from 'node:util'
 import { spy } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { act, type ReactElement } from 'react'
@@ -47,29 +53,11 @@ import { type MobxPoolHandle, mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
 import { PoolNativeRow } from '../../arms/mobx/pool/native/row'
 import { type MobxPool, tracked } from '../../arms/mobx/pool/pool'
-import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
 import { createReadFence, DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { RowShell } from '../../shared/src/row-shell'
-import {
-  type ScenarioEngine,
-  startScenarioEngine,
-  writeHeartbeat,
-} from '../../shared/src/scenarios'
-import {
-  assertCommits,
-  assertReads,
-  type MountedArm,
-  mountNativeForCounts,
-} from '../src/count-harness'
-import {
-  engineLocals,
-  FENCE_SCENARIOS,
-  type FenceFeeds,
-  openFenceFeeds,
-  parityLocals,
-  runFenceStep,
-} from '../src/fence-scenarios'
-import { rowViewsFromStore, snapshotFromStore } from '../src/oracle/index'
+import { startScenarioEngine } from '../../shared/src/scenarios'
+import { assertCommits, assertReads, mountNativeForCounts } from '../src/count-harness'
+import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../src/fence-scenarios'
 import { writeResult } from '../src/results'
 
 // The pool's enforcement only warns, so every pool test installs the trap;
@@ -82,101 +70,47 @@ const RENDERER =
   '(same mapping as apps/mobile/vitest.config.ts and expo export -p web); ' +
   'no react-test-renderer in any repo lane'
 
-interface MountedPool {
-  ctx: ScenarioEngine
-  feeds: FenceFeeds
-  handle: MobxPoolHandle
-  mounted: MountedArm
-  list: Element
-}
-
-/** The pool on the native list, with the lazy chunk resolved inside act (Ma1). */
-async function mountPool(): Promise<MountedPool> {
-  const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
-  const reads = createReadFence({ enabled: true })
-  const handle = mobxPoolArm.create(
-    reads.wrapSource(feeds.rows.source),
-    feeds.locals.source,
-    reads,
-    {
-      // No load window closes on its own mid-step: every load lands through the
-      // shared fence's settleLoads (G2), none by a timer in a later step.
-      schedule: () => () => {},
-    },
-  )
-  const mounted = await mountNativeForCounts(handle, reads)
-  // The native list is a lazy chunk (`React.lazy` in `pool/arm.ts`): it
-  // commits once the import resolves, after the mount's own act. The import
-  // must resolve INSIDE an act (Ma1).
-  await act(async () => {
-    await import('../../arms/mobx/pool/native/list')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-  const list = await vi.waitFor(
-    async () => {
-      await act(async () => {})
-      const found = document.querySelector('[data-testid="mobx-pool-list"]')
-      if (found === null) throw new Error('native list not mounted yet')
-      return found
-    },
-    { timeout: 20_000, interval: 50 },
-  )
-  return { ctx, feeds, handle, mounted, list }
-}
-
 function drawnIds(list: Element): string[] {
   return [...list.querySelectorAll('[data-testid^="row-"]')].map((row) =>
     (row.getAttribute('data-testid') ?? '').slice('row-'.length),
   )
 }
 
-/** The window as drawn: resident rows plus loading placeholders for cold ones (Ma1). */
-function windowIds(list: Element): string[] {
-  return [...list.querySelectorAll('[data-testid^="row-"], [data-testid^="loading-"]')].map((el) =>
-    (el.getAttribute('data-testid') ?? '').replace(/^(row|loading)-/, ''),
-  )
-}
-
-function shutdown(mount: Pick<MountedPool, 'ctx' | 'feeds' | 'mounted'>): void {
-  mount.mounted.unmount()
-  mount.feeds.dispose()
-  mount.ctx.engine.destroy()
-}
-
 describe('mobx pool on the native renderer, fence steps #1-#3', () => {
   it('meets the shared fences with counts from outside plus parity', async () => {
-    const mount = await mountPool()
-    const { ctx, feeds, handle, mounted, list } = mount
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const reads = createReadFence({ enabled: true })
+    const clean = mobxPoolArm.create(
+      reads.wrapSource(feeds.rows.source),
+      feeds.locals.source,
+      reads,
+      {
+        // No load window closes on its own mid-step: every load lands through
+        // the shared fence's settleLoads (G2), none by a timer in a later step.
+        schedule: () => () => {},
+      },
+    )
+    // The count mount draws the full visible list (see the header): one slot
+    // per visible id, each observing only its own view, stable keys, no data
+    // arrays passed as props — the same rows through the same RowShells as
+    // the windowed mount, without virtualization.
+    const full: MobxPoolHandle = {
+      ...clean,
+      mountNative: () => <FullNativeList pool={clean.pool} />,
+    }
+    const mounted = await mountNativeForCounts(full, reads)
     try {
-      // Settle the mount's lazy loads BEFORE step #1 (Mc4 8618b5378): the
-      // native list draws a window, so the mount queues only the window's
-      // loads — but every step's `snapshot()` walks EVERY visible row and
-      // settles the loader itself, so those loads would land after the step
-      // settled its own and fail the run (G2: charged to no step). Drive one
-      // uncounted snapshot on the real signal until nothing is queued; each
-      // step's own resets wipe its counters (log, stats, reads). No
-      // timer-and-stability loop: the quiet-round heuristic is ruled out
-      // (Mc2); the pending-loads signal below is the real one.
-      await act(async () => {
-        handle.snapshot()
-      })
-      expect(handle.pendingLoads(), 'mount loads settled').toBe(0)
-
-      // Windowed (Mb2): a strict prefix of the grouped order, from the top
-      // (placeholders included: cold visible rows draw as loading).
-      const visible = tracked(() => handle.pool.worklist.order.length)
-      const window = windowIds(list)
-      expect(window.length, 'the window draws rows').toBeGreaterThan(0)
-      expect(window.length, 'the window draws a prefix, not the set').toBeLessThan(visible)
-      const grouped = tracked(() => {
-        const order = sliceOrderOf(handle.pool.groups.layout)
-        return [
-          ...order.pinnedIds,
-          ...order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
-        ]
-      })
-      expect(window, 'the window draws the grouped prefix').toEqual(grouped.slice(0, window.length))
+      const list = await vi.waitFor(
+        async () => {
+          await act(async () => {})
+          const found = document.querySelector('[data-testid="mobx-pool-list"]')
+          if (found === null) throw new Error('full native list not mounted yet')
+          return found
+        },
+        { timeout: 20_000, interval: 50 },
+      )
+      expect(drawnIds(list).length, 'the count mount draws rows').toBeGreaterThan(0)
 
       const cells = []
       let nonVacuous = 0
@@ -186,30 +120,14 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
         const at = `${result.methodology} ${result.scenario}`
         expect(result.parity, `${at}: ${result.parityDiff ?? ''}`).toBe(true)
+        assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
-        // Window-aware commits: the redrawn rows must EQUAL the oracle-changed
-        // rows intersected with the RESIDENT drawn rows (`drawnIds`: loading
-        // placeholders mount no RowShell and cannot commit). A changed row
-        // outside the window cannot commit (it was never mounted); a drawn row
-        // that commits with an unchanged view is the whole-list work this lane
-        // exists to catch (the plant below fails exactly here).
-        expect(result.oracleChangedRows, `${at}: no commit cell`).not.toBeNull()
-        expect(result.drawnRows, `${at}: no commit cell`).not.toBeNull()
-        const now = new Set(drawnIds(list))
-        const expected = (result.oracleChangedRows ?? []).filter((id) => now.has(id)).sort()
-        const drawnRows = [...(result.drawnRows ?? [])].sort()
-        expect(drawnRows, `${at}: commits`).toEqual(expected)
-        const shown = new Set(tracked(() => [...handle.pool.worklist.ids]))
-        expect(
-          drawnRows.filter((id) => !shown.has(id)),
-          `${at}: commits outside the list`,
-        ).toEqual([])
-        if (expected.length > 0) nonVacuous += 1
+        if ((result.oracleChangedRows ?? []).length > 0) nonVacuous += 1
         console.info(
           `[mobx-pool-native] ${at}: committed=${result.rowsCommitted} ` +
             `changed=[${(result.oracleChangedRows ?? []).join(',')}] ` +
-            `drawn=[${drawnRows.join(',')}] reads=${result.readsPerChange}/${readsBudget} parity=pass`,
+            `drawn=[${(result.drawnRows ?? []).join(',')}] reads=${result.readsPerChange}/${readsBudget} parity=pass`,
         )
         cells.push({
           methodology: result.methodology,
@@ -225,91 +143,17 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
           parity: result.parity,
         })
       }
-      // Not 0 == 0 throughout: at least one of #2/#3 changed a drawn row.
+      // Not 0 == 0 throughout: at least one of #2/#3 changed a drawn row (#1
+      // is the 0-budget heartbeat by methodology).
       expect(
         nonVacuous,
         'no step changed a drawn row: the commit cells are vacuous',
       ).toBeGreaterThan(0)
       writeResult('mobx-pool-native-1x', { scale: 1, renderer: RENDERER, cells })
     } finally {
-      shutdown(mount)
-    }
-  }, 300_000)
-
-  it('diagnoses what step #1 itself loads (temporary scaffolding)', async () => {
-    // SCAFFOLDING for the #1 late-load failure, removed once the mount fix
-    // lands: runs #1 manually in phases — write, settle, snapshot — on its OWN
-    // engine (the graded test's order is undisturbed) and logs which phase
-    // lands loads plus what committed and remounted. If the native list
-    // re-renders on the unrelated heartbeat, the window's rows commit (and
-    // remount when keys churn) with an empty oracle-changed set; if the write
-    // itself cascades, the write/settle phases land the loads.
-    const mount = await mountPool()
-    const { ctx, feeds, handle, mounted, list } = mount
-    try {
-      const cellsBefore = windowIds(list).length
-      const orderBefore = tracked(() => [...handle.pool.worklist.order])
-      const viewsBefore = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
-      mounted.log.reset()
-      handle.stats.reset()
-      mounted.reads.reset()
-      const rr0 = feeds.rowReads()
-      await act(async () => {
-        await writeHeartbeat(ctx)
-        feeds.flush()
-      })
-      const rr1 = feeds.rowReads()
-      await act(async () => {
-        await handle.settleLoads()
-      })
-      const rr2 = feeds.rowReads()
-      const stepStats = {
-        rowsDerived: handle.stats.rowsDerived,
-        rollupsDerived: handle.stats.rollupsDerived,
-        indexUpdates: handle.stats.indexUpdates,
-        notifications: handle.stats.notifications,
-      }
-      const stepReads = mounted.reads.stats()
-      const cellsMid = windowIds(list).length
-      const snap = handle.snapshot()
-      const rr3 = feeds.rowReads()
-      const cellsAfter = windowIds(list).length
-      const orderAfter = tracked(() => [...handle.pool.worklist.order])
-      const viewsAfter = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
-      const changed = Object.keys(viewsBefore).filter(
-        (id) => id in viewsAfter && !isDeepStrictEqual(viewsBefore[id], viewsAfter[id]),
-      )
-      const drawn = [...mounted.log.counts.keys()].sort()
-      const remounted = [...mounted.log.mounts.keys()].sort()
-      const expected = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-      const parity = isDeepStrictEqual(snap, expected)
-      console.info(
-        `[mobx-pool-native] diag #1: cells=${cellsBefore}>${cellsMid}>${cellsAfter} ` +
-          `loads=write+${rr1 - rr0}/settle+${rr2 - rr1}/snapshot+${rr3 - rr2} ` +
-          `commits=${drawn.length} mounts=${remounted.length} changed=${changed.length} ` +
-          `reads=${stepReads.rows} parity=${parity ? 'pass' : 'FAIL'}`,
-      )
-      console.info(
-        `[mobx-pool-native] diag #1: drawn=[${drawn.join(',')}] changed=[${changed.join(',')}] ` +
-          `remounted=[${remounted.join(',')}] orderStable=${isDeepStrictEqual(orderBefore, orderAfter)} ` +
-          `stats=${JSON.stringify(stepStats)} readsByEntity=${JSON.stringify(stepReads.byEntity)}`,
-      )
-      writeResult('mobx-pool-native-diag-1', {
-        scale: 1,
-        renderer: RENDERER,
-        cells: { cellsBefore, cellsMid, cellsAfter },
-        loads: { write: rr1 - rr0, settle: rr2 - rr1, snapshot: rr3 - rr2 },
-        commits: drawn,
-        remounted,
-        changed,
-        orderStable: isDeepStrictEqual(orderBefore, orderAfter),
-        stats: stepStats,
-        reads: stepReads,
-        parity,
-      })
-      expect(parity, 'diag #1 parity').toBe(true)
-    } finally {
-      shutdown(mount)
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
     }
   }, 300_000)
 
@@ -327,8 +171,8 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     )
     // THE PLANT: every slot reads every visible title, so one rename
     // re-renders every slot and every drawn RowShell commits — the whole-list
-    // work the windowed list exists to avoid. Parity still holds (the mistake
-    // is performance, not correctness).
+    // work the per-row observers exist to avoid. Parity still holds (the
+    // mistake is performance, not correctness).
     const planted: MobxPoolHandle = {
       ...clean,
       mountNative: () => <PlantedNativeList pool={clean.pool} />,
@@ -345,8 +189,8 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         { timeout: 20_000, interval: 50 },
       )
       const visible = tracked(() => clean.pool.worklist.order.length)
-      // The plant draws the whole visible list, not the window: every drawn
-      // row is visible, and far more than the window draws.
+      // The plant draws the whole visible list: every drawn row is visible,
+      // and far more than the real mount's window draws.
       const plantedIds = drawnIds(list)
       expect(plantedIds.length, 'the plant draws every visible row').toBeGreaterThan(24)
       expect(plantedIds.length).toBeLessThanOrEqual(visible)
@@ -434,6 +278,35 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
       ctx.engine.destroy()
     }
   }, 300_000)
+})
+
+/** The count mount: one slot per visible id, each observing only its own view. */
+const FullNativeSlot = observer(function FullNativeSlot({
+  pool,
+  id,
+}: {
+  pool: MobxPool
+  id: string
+}): ReactElement | null {
+  const model = pool.issue(id)
+  if (model === undefined) return null
+  const view = model.view
+  if (view === undefined) return null
+  return <RowShell row={view} component={PoolNativeRow} />
+})
+
+const FullNativeList = observer(function FullNativeList({
+  pool,
+}: {
+  pool: MobxPool
+}): ReactElement {
+  return (
+    <View testID="mobx-pool-list">
+      {pool.worklist.order.map((id) => (
+        <FullNativeSlot key={id} pool={pool} id={id} />
+      ))}
+    </View>
+  )
 })
 
 /** THE PLANT: one slot per visible id, each reading every visible title. */

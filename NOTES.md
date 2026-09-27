@@ -17,7 +17,13 @@
   Mechanism: pool.snapshot() walks ALL visible rows and settles the loader
   itself; native mount draws a 24-row window, so snapshot() hydrates the rest
   after settledAt. Plant passed because it draws everything (fully resident).
-## 2026-09-27 — re-run at 375757dba: same 317 (pre-settle changed nothing)
+## 2026-09-27 — ruling: mount-shape difference, full-list count mount
+- Diag proved: cells 21/21/21, no remounts, no changes, order stable; loads
+  write+0/settle+5/snapshot+725. Mount clean; snapshot hydrates off-window rows.
+- Fix: count mount draws the FULL visible list (test-local FullNativeList,
+  same RowShells, no virtualization, no pool core touched); exact
+  assertCommits like the web lane; windowed real mount cited to Ma1; diag test
+  removed; README + header rewritten.
 - Coordinator reading: the 317 are CAUSED BY #1, not leftover. Suspect: native
   list re-renders on heartbeat (fresh `data` identity per change) and RNW
   re-batches cells reaching rows that queue loads post-settle. Ordered: count

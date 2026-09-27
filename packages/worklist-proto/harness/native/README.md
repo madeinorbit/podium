@@ -27,16 +27,20 @@ parity against `snapshotFromStore`.
 ## Mc5: the round-three MobX pool on the native renderer (POD-4577)
 
 `mobx-pool-fence.native.test.tsx` runs fence scenarios #1–#3 through the
-shared `runFenceStep` on the pool's native `SectionList`, with counts from
-outside (rows committed per `RowShell`, reads per change) plus parity, the
-copy sweep, and window-aware commits: the redrawn rows must equal the
-oracle-changed rows intersected with the resident drawn rows. `SectionList`
-windowing under the test renderer draws the initial window from the top and
-never grows it (no layout, no scroll), so commits — not rows rendered — are
-the counted dimension. A planted whole-list list (every slot reads every
-visible title) fails the count on #4, and the bootstrap cell reports the
-observables the native mount builds on the lazy baseline (POD-4567, POD-4705).
-`entries.test.ts` pins the native entry to `mobxPoolArm` with no renderer.
+shared `runFenceStep` with counts from outside (rows committed per `RowShell`,
+reads per change) plus parity, the copy sweep, and the exact-commit fence —
+the same cells as the web lane. The count mount draws the FULL visible list
+(a test-local list: one slot per visible id through the same `RowShell`s,
+without virtualization), because the parity snapshot derives every visible
+row while the pool's real native list is windowed: rows outside the window
+stay cold, and the step's `snapshot()` loads them after the step settled its
+own loads (G2). The windowed real mount (`mountNative()`, the `SectionList`)
+is covered by Ma1 (`mobx-pool.native.test.tsx`: the grouped prefix, a cold
+heartbeat redrawing nothing, a rename redrawing the renamed row). A planted
+whole-list list (every slot reads every visible title) fails the count on #4,
+and the bootstrap cell reports the observables the real native mount builds on
+the lazy baseline (POD-4567, POD-4705). `entries.test.ts` pins the native
+entry to `mobxPoolArm` with no renderer.
 
 Renderer: `react-native` resolves to `react-native-web` under the
 worklist-proto package config (the same mapping `expo export -p web` builds
