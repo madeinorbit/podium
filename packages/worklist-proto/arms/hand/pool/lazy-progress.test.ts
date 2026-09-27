@@ -22,7 +22,7 @@
 import { describe, expect, it } from 'vitest'
 import { createEngineLocals } from '../../../harness/src/engine-locals'
 import { startGenRun } from '../../../shared/src/gen/run'
-import { handPoolArm, type HandPoolHandle } from './arm'
+import { type HandPoolHandle, handPoolArm } from './arm'
 import { rebuildResidentViews } from './rebuild'
 
 const PARENTS = ['i1093', 'i1182', 'i1691', 'i2141', 'i4615'] as const
@@ -49,10 +49,11 @@ describe('lazy progress over hidden formal subtrees (H3 seed 1 snapshot 1)', () 
         const direct = want.get(id)
         expect(live, `${id} has no live view`).toBeDefined()
         expect(direct, `${id} has no direct view`).toBeDefined()
-        expect(
-          { done: live!.progressDone, total: live!.progressTotal },
-          `${id} progress`,
-        ).toEqual({ done: direct!.progressDone, total: direct!.progressTotal })
+        if (live === undefined || direct === undefined) throw new Error(`${id} missing view`)
+        expect({ done: live.progressDone, total: live.progressTotal }, `${id} progress`).toEqual({
+          done: direct.progressDone,
+          total: direct.progressTotal,
+        })
         // The filing itself: every engine bucket member is filed under it.
         const filed = [...pool.rollup.inputs.formalChildren(id)].sort()
         const bucket = [...pool.engine.members('issue', id, 'children')].sort()
