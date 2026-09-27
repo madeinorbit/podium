@@ -541,7 +541,23 @@ export class MobxPool {
       foldLatch: () => this.foldLatch.get(),
       counters: stats.counters,
     })
-    makeObservable<MobxPool, 'models' | 'target' | 'selectedId' | 'select' | 'syncWorklist' | 'clearSeats'>(this, {
+    makeObservable<
+      MobxPool,
+      | 'models'
+      | 'target'
+      | 'selectedId'
+      | 'select'
+      | 'syncWorklist'
+      | 'clearSeats'
+      | 'plainScope'
+      | 'issueRowOf'
+      | 'expandRoots'
+      | 'rawOne'
+      | 'residencyCapable'
+      | 'rawMany'
+      | 'sessionLinkedIssues'
+      | 'ensureIssues'
+    >(this, {
       tables: false,
       fenced: false,
       relations: false,
@@ -580,6 +596,15 @@ export class MobxPool {
       dispose: false,
       select: false,
       syncWorklist: false,
+      // POD-4705: maintenance called inside actions, never observed.
+      plainScope: false,
+      issueRowOf: false,
+      expandRoots: false,
+      rawOne: false,
+      residencyCapable: false,
+      rawMany: false,
+      sessionLinkedIssues: false,
+      ensureIssues: false,
     })
     runInAction(() => this.select(locals.selectedIssueId))
     residency?.onDue(() => this.hydrate())
@@ -759,27 +784,36 @@ export class MobxPool {
   }
 
   /**
-   * POD-4705 — expand `roots` to the lazy node closure (call in-action),
-   * returned as a plain array (arrays count nothing; sets and maps do):
+   * POD-4705 — expand `roots` to the lazy node closure (call in-action):
    * each root's ancestor chain by raw `parentId` (the same field the nest
    * walk follows, through any issue), the started-by owner of a parentless
-   * started-by root, then every formal subtree under the union. Ancestors
-   * are noded even when cold: the nest walk passes THROUGH a hidden parent
-   * to the grandparent, so a missing node would stop it early. Formal
-   * descendants are noded even when hidden: the parent's progress composes
-   * over their cached units. Every root verifies its first hop (so a
-   * reparented held row picks up its new parent); the walk stops at a
-   * pre-existing held chain (complete by induction) and at unknown ids; it
-   * reads rows, never tables, and builds no observable.
+   * started-by root, then every formal subtree under the union. Membership
+   * lives in a `Set` (counted like any other map/set work — a linear scan
+   * here would be O(closure²) work hidden from every counter); the walk
+   * queues below are plain arrays, iterated once each, never membership
+   * checked. Ancestors are noded even when cold: the nest walk passes
+   * THROUGH a hidden parent to the grandparent, so a missing node would stop
+   * it early. Formal descendants are noded even when hidden: the parent's
+   * progress composes over their cached units. Every root verifies its first
+   * hop (so a reparented held row picks up its new parent); the walk stops
+   * at a pre-existing held chain (complete by induction) and at unknown ids;
+   * it reads rows, never tables, and builds no observable.
    */
   private expandRoots(
-    roots: readonly string[],
+    roots: Iterable<string>,
     partsOf: (id: string) => IssueVisibility,
-  ): string[] {
-    const closure: string[] = []
+  ): Set<string> {
+    const closure = new Set<string>()
+    // Members whose formal subtree still needs walking queue here, seeded
+    // during the ancestor walk (no second pass over the closure): only ids
+    // with a children bucket walk at all.
+    const below: string[] = []
     const visit = (id: string): boolean => {
-      if (closure.includes(id) || !this.knows(id)) return false
-      closure.push(id)
+      if (closure.has(id) || !this.knows(id)) return false
+      closure.add(id)
+      if (!this.worklist.has(id) && this.graph.hasMembers('issue', id, 'children')) {
+        below.push(id)
+      }
       return true
     }
     for (const root of roots) {
@@ -816,13 +850,10 @@ export class MobxPool {
         current = next
       }
     }
-    // Formal subtrees under unheld members only: a held member's subtree is
-    // complete by the same induction. Unordered engine buckets, no copies.
-    const below: string[] = closure.filter((id) => !this.worklist.has(id))
     for (let head = 0; head < below.length; head += 1) {
       const id = below[head] as string
       for (const child of this.rawMany('issue', id, 'children')) {
-        if (this.knows(child) && visit(child)) below.push(child)
+        if (this.knows(child)) visit(child)
       }
     }
     return closure
@@ -1005,13 +1036,15 @@ export class MobxPool {
       return
     }
     const isColdIssue = (id: string): boolean => this.residency?.isCold('issue', id) === true
+    // Membership in counted Sets (POD-4705 addendum 2): a lane fan-out over
+    // a family must not scan an array per member. `named` and `gone` stay
+    // plain arrays: they are append-only event order, never membership
+    // checked (the closure Set dedupes).
     const named: string[] = []
-    const candidates: string[] = []
+    const candidates = new Set<string>()
     const gone: string[] = []
     const consider = (id: string): void => {
-      if (!this.worklist.has(id) && !isColdIssue(id) && !candidates.includes(id)) {
-        candidates.push(id)
-      }
+      if (!this.worklist.has(id) && !isColdIssue(id)) candidates.add(id)
     }
     // A lane-linked cold row is evaluated, never skipped: a lane-only
     // session (no foreign key, never warmed) is the only way one flips
@@ -1019,12 +1052,12 @@ export class MobxPool {
     // residency instead, so explicit cold rows stay out (and the heartbeat
     // fence stays quiet).
     const considerLane = (id: string): void => {
-      if (!this.worklist.has(id) && !candidates.includes(id)) candidates.push(id)
+      if (!this.worklist.has(id)) candidates.add(id)
     }
     for (const record of event.rows) {
       if (record.kind === 'issue') {
         if (record.value === undefined) gone.push(record.id)
-        else if (!named.includes(record.id)) named.push(record.id)
+        else named.push(record.id)
       } else if (record.kind === 'session') {
         if (record.value === undefined) {
           this.worklist.forgetSession(record.id)
@@ -1039,7 +1072,7 @@ export class MobxPool {
         }
       }
     }
-    if (named.length === 0 && candidates.length === 0) {
+    if (named.length === 0 && candidates.size === 0) {
       if (gone.length > 0) this.worklist.ensure(gone, knows)
       return
     }
@@ -1065,7 +1098,8 @@ export class MobxPool {
     }
     if (roots.length === 0) return
     const closure = this.expandRoots(roots, partsOf)
-    this.worklist.ensure([...closure, ...gone], knows)
+    for (const id of gone) closure.add(id)
+    this.worklist.ensure(closure, knows)
     if (gone.length > 0) this.worklist.ensure(gone, knows)
   }
 

@@ -422,6 +422,21 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return link.forward.get(id) ?? link.coldForward.get(id) ?? null
   }
 
+  /**
+   * POD-4705 — whether `from:id` holds any member on `relation`
+   * (maintenance only, call inside an action): the bucket's existence, both
+   * twins, without iterating it and without touching residency. The pool's
+   * closure expansion walks only members that have children.
+   */
+  hasMembers(from: EntityName, id: string, relation: string): boolean {
+    const link = this.collections.get(`${from}.${relation}`)
+    if (link === undefined) {
+      specOf(this.schema, from, relation)
+      throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
+    }
+    return link.buckets.has(id) || link.coldBuckets.has(id)
+  }
+
   /** Whether `id`'s row is collapsed away by its entity's rule (tests). */
   isCollapsed(entity: EntityName, id: string): boolean {
     return this.collapses.get(entity)?.collapsed.has(id) ?? false

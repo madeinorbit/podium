@@ -1212,6 +1212,8 @@ export class VisibleCollection {
       | 'sessions'
       | 'host'
       | 'file'
+      | 'add'
+      | 'drop'
       | 'ensure'
       | 'syncReplace'
       | 'has'
@@ -1230,6 +1232,9 @@ export class VisibleCollection {
       formalChildren: false,
       file: false,
       session: false,
+      // POD-4705: node maintenance called inside actions, never observed.
+      add: false,
+      drop: false,
       ensure: false,
       syncReplace: false,
       forgetSession: false,
