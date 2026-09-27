@@ -11,11 +11,10 @@
  * overlay held past a newer server value) count per check as `kernelDiffers`:
  * findings, not failures.
  *
- * Like `gate.test.ts`, the oracle comparison carries POD-4671's one-row gap
- * (`acceptUnscannedGap`), which throws once the seat exists. Seeds × steps
- * follow `gate.test.ts` (`POD_POOL_GATE_SEEDS`, default 3;
- * `POD_POOL_GATE_STEPS`, default 200). The gate of record is 20 × 300.
- * Timeout scales the same way (5 s per seed-step).
+ * Like `gate.test.ts`, the oracle comparison carries no gap (POD-4671 fixed:
+ * the union roots seat the orphan). Seeds × steps follow `gate.test.ts`
+ * (`POD_POOL_GATE_SEEDS`, default 3; `POD_POOL_GATE_STEPS`, default 200).
+ * The gate of record is 20 × 300. Timeout scales the same way (5 s per seed-step).
  *
  * COMPLETE-OR-FAIL. Every seed runs to the end and lands a per-seed row in
  * the result file (steps run, ok, first failing step, change, diff, kernel

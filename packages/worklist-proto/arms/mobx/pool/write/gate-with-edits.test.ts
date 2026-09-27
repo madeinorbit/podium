@@ -10,9 +10,8 @@
  * the generator's kernel-side edits arrive folded, as the oracle sees them.
  * Mc2 (c2) moves this run to `truth` with arm-side edits.
  *
- * Like `gate.test.ts`, the oracle comparison carries POD-4671's one-row gap
- * (`acceptUnscannedGap`), which throws once the seat exists. Seeds × steps
- * follow `gate.test.ts` (`POD_POOL_GATE_SEEDS`, default 3;
+ * Like `gate.test.ts`, the oracle comparison carries no gap (POD-4671 fixed).
+ * Seeds × steps follow `gate.test.ts` (`POD_POOL_GATE_SEEDS`, default 3;
  * `POD_POOL_GATE_STEPS`, default 200). Timeout scales the same way (5 s per
  * seed-step).
  */
