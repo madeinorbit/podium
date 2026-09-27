@@ -37,6 +37,7 @@ import {
   coldByRule,
   collapseLosers,
   type EntityName,
+  extraRootsOf,
   longestPrefixPath,
   type ModelSchema,
   SCHEMA,
@@ -130,7 +131,9 @@ const NO_IDS: readonly string[] = Object.freeze([])
 /**
  * Every declared relation of every row, resolved from scratch over `tables`,
  * as a `RelationReader` (collections sorted). `collapsed` names the rows the
- * entity's collapse rule removes, as `entity:id`.
+ * entity's collapse rule removes, as `entity:id`. A `prefix` with `alsoRoots`
+ * (POD-4671) resolves over the target keys PLUS every listed source's values,
+ * and `one()` holds to that same union.
  */
 export function scanRelations(
   tables: ScannableTables,
@@ -156,12 +159,33 @@ export function scanRelations(
   }
   const forward = new Map<string, Map<string, string>>()
   const inverse = new Map<string, Map<string, string[]>>()
+  const unionPresence = new Map<string, Set<string>>()
   for (const from of entities) {
     for (const [name, spec] of Object.entries(schema[from].relations)) {
       if (!isLinkSpec(spec)) continue
       const pointers = new Map<string, string>()
       const buckets = new Map<string, string[]>()
-      const roots = spec.kind === 'prefix' ? [...tables[spec.to].keys()] : []
+      let roots: string[] = []
+      if (spec.kind === 'prefix') {
+        roots = [...tables[spec.to].keys()]
+        const extra = extraRootsOf(spec, (entity) => {
+          const table = (tables as Record<string, ReadonlyMap<string, unknown> | undefined>)[entity]
+          if (table === undefined) return undefined
+          return (function* () {
+            for (const [, row] of table) yield row
+          })()
+        })
+        if (extra.length > 0) {
+          const seen = new Set(roots)
+          for (const root of extra) {
+            if (!seen.has(root)) {
+              seen.add(root)
+              roots.push(root)
+            }
+          }
+          unionPresence.set(`${from}.${name}`, new Set(roots))
+        }
+      }
       for (const [id, value] of tables[from]) {
         const row = value as Readonly<Record<string, unknown>>
         if (collapsed.has(`${from}:${id}`)) continue
@@ -193,8 +217,11 @@ export function scanRelations(
       const pointers = forward.get(`${from}.${relation}`)
       if (pointers === undefined) throw new Error(`[scan] ${from}.${relation} is not single-valued`)
       const target = pointers.get(id)
+      if (target === undefined) return null
+      const union = unionPresence.get(`${from}.${relation}`)
+      if (union !== undefined) return union.has(target) ? target : null
       const to = schema[from].relations[relation]?.to as EntityName
-      return target !== undefined && tables[to].has(target) ? target : null
+      return tables[to].has(target) ? target : null
     },
     many: bucketOf,
     size: (from, id, relation) => bucketOf(from, id, relation).length,

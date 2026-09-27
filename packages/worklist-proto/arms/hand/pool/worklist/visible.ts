@@ -464,11 +464,15 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
    * `session-ownership.ts:152-165`). Unfiltered: each reader applies its seat
    * rule. A cold session in the worktree names an issue (it is cold through
    * it), so it is never R3 material and its row is not read.
+   *
+   * POD-4671: the issue's own `worktreePath`, not `issue.worktree` — the
+   * root set is scanned lanes PLUS every issue path, so an unscanned
+   * checkout seats without a lane.
    */
   memberIds(input, id, self) {
     const seatIds = self.seatIds
-    const worktree = input.relations.one('issue', id, 'worktree')
-    if (worktree === null) return seatIds
+    const worktree = input.issueRow(id)?.worktreePath ?? null
+    if (worktree === null || worktree === '') return seatIds
     const members = new Set(seatIds)
     for (const sessionId of input.relations.many('worktree', worktree, 'sessions')) {
       const session = input.session(sessionId)

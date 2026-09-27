@@ -514,10 +514,15 @@ export function seatIdsPartOf(input: VisibleInputs, id: string): readonly string
  * part (POD-4571), so a change to the EXPLICIT members never re-lists the
  * lane's bucket (a burst of new sessions on fifty issues read every lane's
  * sessions through `memberIds`, #10).
+ *
+ * POD-4671: read the issue's own `worktreePath`, not `issue.worktree` — the
+ * containment root set is the scanned lanes PLUS every issue's path, so an
+ * unscanned checkout seats without a lane and the bucket holds its sessions
+ * all the same.
  */
 export function laneMemberIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
-  const worktree = input.relations.one('issue', id, 'worktree')
-  if (worktree === null) return []
+  const worktree = input.issueRow(id)?.worktreePath ?? null
+  if (worktree === null || worktree === '') return []
   const members: string[] = []
   for (const sessionId of input.relations.many('worktree', worktree, 'sessions')) {
     const retention = input.session(sessionId).retention

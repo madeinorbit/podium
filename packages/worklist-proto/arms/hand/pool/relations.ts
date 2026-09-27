@@ -66,6 +66,7 @@ import {
   type EdgeSpec,
   type EntityName,
   type ModelSchema,
+  extraRootOf,
   normalizeRootPath,
   type PrefixSpec,
   prefixAncestors,
@@ -144,6 +145,10 @@ interface Link {
   readonly under: Map<string, Set<string>> | null
   /** `prefix` only: member → its indexed normalized source path. */
   readonly placed: Map<string, string> | null
+  /** POD-4671 — `prefix` with `alsoRoots` only: raw extra root → rows naming it. */
+  readonly extraCounts: Map<string, number> | null
+  /** POD-4671 — `prefix` with `alsoRoots` only: `${entity}:${id}` → raw root or null. */
+  readonly extraByRow: Map<string, string | null> | null
 }
 
 /** One entity's collapse state. */
@@ -193,6 +198,8 @@ export class PoolRelations implements RelationReader {
   private readonly collections = new Map<string, Link>()
   private readonly outgoing = new Map<EntityName, Link[]>()
   private readonly prefixTargets = new Map<EntityName, Link[]>()
+  /** POD-4671: prefix links by the entities their `alsoRoots` name. */
+  private readonly extraSources = new Map<EntityName, Link[]>()
   private readonly collapses = new Map<EntityName, Collapse>()
   /** The answer for a key no bucket holds (per engine: the lint refuses module state). */
   private readonly none: ReadonlySet<string> = new Set()
@@ -218,6 +225,7 @@ export class PoolRelations implements RelationReader {
       for (const [name, spec] of Object.entries(schema[from].relations)) {
         if (!isLinkSpec(spec)) continue
         const prefix = spec.kind === 'prefix'
+        const extra = prefix && spec.alsoRoots !== undefined && spec.alsoRoots.length > 0
         const link: Link = {
           from,
           name,
@@ -229,12 +237,22 @@ export class PoolRelations implements RelationReader {
           buckets: new Map(),
           under: prefix ? new Map() : null,
           placed: prefix ? new Map() : null,
+          extraCounts: extra ? new Map() : null,
+          extraByRow: extra ? new Map() : null,
         }
         this.links.set(link.relation, link)
         this.collections.set(link.collection, link)
         this.outgoing.get(from)?.push(link)
         if (prefix)
           this.prefixTargets.set(spec.to, [...(this.prefixTargets.get(spec.to) ?? []), link])
+        if (prefix && spec.alsoRoots !== undefined) {
+          for (const source of spec.alsoRoots) {
+            this.extraSources.set(
+              source.entity,
+              [...(this.extraSources.get(source.entity) ?? []), link],
+            )
+          }
+        }
       }
     }
     for (const from of entities) {
@@ -257,6 +275,8 @@ export class PoolRelations implements RelationReader {
     this.options.read?.(link.relation, id)
     const target = link.forward.get(id)
     if (target === undefined) return null
+    // POD-4671: a prefix with `alsoRoots` is present in the union.
+    if (link.extraCounts?.has(target) === true) return target
     return this.options.present(link.spec.to, target) ? target : null
   }
 
@@ -343,9 +363,88 @@ export class PoolRelations implements RelationReader {
     }
     if ((before === undefined) !== (after === undefined)) {
       for (const link of this.prefixTargets.get(entity) ?? []) {
-        if (after !== undefined) this.rootAdded(link, id)
-        else this.rootRemoved(link, id)
+        if (after !== undefined) {
+          if (link.extraCounts?.has(id) === true) continue
+          this.rootAdded(link, id)
+        } else {
+          if (link.extraCounts?.has(id) === true) continue
+          this.rootRemoved(link, id)
+        }
       }
+    }
+    for (const link of this.extraSources.get(entity) ?? []) {
+      this.extraChanged(link, entity, id, before, after)
+    }
+  }
+
+  /**
+   * POD-4671 — maintain one prefix link's extra roots from an extra-source
+   * row's write. Only the sessions under the gained/lost path re-file.
+   */
+  private extraChanged(
+    link: Link,
+    entity: EntityName,
+    id: string,
+    before: Row | undefined,
+    after: Row | undefined,
+  ): void {
+    const counts = link.extraCounts
+    const byRow = link.extraByRow
+    if (counts === null || byRow === null) return
+    if (link.spec.kind !== 'prefix' || link.spec.alsoRoots === undefined) return
+    const key = `${entity}:${id}`
+    const oldRaw = byRow.get(key) ?? null
+    let newRaw: string | null = null
+    if (after !== undefined) {
+      for (const source of link.spec.alsoRoots) {
+        if (source.entity !== entity) continue
+        const root = extraRootOf(source, after)
+        if (root !== null) {
+          newRaw = root
+          break
+        }
+      }
+      void before
+    }
+    if (oldRaw === newRaw) return
+    if (oldRaw === null) {
+      if (newRaw !== null) {
+        byRow.set(key, newRaw)
+        const count = (counts.get(newRaw) ?? 0) + 1
+        counts.set(newRaw, count)
+        if (count === 1 && !this.options.roots[link.spec.to].has(newRaw)) {
+          this.rootAdded(link, newRaw)
+        }
+      }
+      return
+    }
+    if (newRaw === null) {
+      byRow.delete(key)
+      const count = (counts.get(oldRaw) ?? 0) - 1
+      if (count <= 0) {
+        counts.delete(oldRaw)
+        if (!this.options.roots[link.spec.to].has(oldRaw)) {
+          this.rootRemoved(link, oldRaw)
+        }
+      } else {
+        counts.set(oldRaw, count)
+      }
+      return
+    }
+    byRow.set(key, newRaw)
+    const added = (counts.get(newRaw) ?? 0) + 1
+    counts.set(newRaw, added)
+    if (added === 1 && !this.options.roots[link.spec.to].has(newRaw)) {
+      this.rootAdded(link, newRaw)
+    }
+    const left = (counts.get(oldRaw) ?? 0) - 1
+    if (left <= 0) {
+      counts.delete(oldRaw)
+      if (!this.options.roots[link.spec.to].has(oldRaw)) {
+        this.rootRemoved(link, oldRaw)
+      }
+    } else {
+      counts.set(oldRaw, left)
     }
   }
 
@@ -381,6 +480,8 @@ export class PoolRelations implements RelationReader {
       link.buckets.clear()
       link.under?.clear()
       link.placed?.clear()
+      link.extraCounts?.clear()
+      link.extraByRow?.clear()
     }
     for (const collapse of this.collapses.values()) {
       collapse.groups.clear()
@@ -549,9 +650,12 @@ export class PoolRelations implements RelationReader {
   private probeRoot(link: Link, normalized: string): string | null {
     const roots = this.options.roots[link.spec.to]
     for (const candidate of prefixCandidates(normalized)) {
-      if (!roots.has(candidate)) continue
-      this.options.touch?.(link.spec.to, candidate)
-      return candidate
+      if (roots.has(candidate)) {
+        this.options.touch?.(link.spec.to, candidate)
+        return candidate
+      }
+      // POD-4671: the union — an issue path needs no lane and no touch.
+      if (link.extraCounts?.has(candidate) === true) return candidate
     }
     return null
   }

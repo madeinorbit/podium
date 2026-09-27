@@ -191,6 +191,15 @@ export interface PrefixSpec extends RelationCommon {
   readonly targetKey: string
   /** The resolver. Declared because a prefix relation is not a key join. */
   readonly resolver: 'longestPrefixPath'
+  /**
+   * Additional root sources beyond the target table's keys (POD-4671): every
+   * distinct non-empty value of `entity[field]` is also a containment root.
+   * The root set is the UNION of the target keys and every listed source, so
+   * an issue's own `worktreePath` seats sessions even when no scan reported
+   * that checkout (`session-ownership.ts:128-141`). Both pools' engines and
+   * both from-scratch scans resolve the union from this declaration alone.
+   */
+  readonly alsoRoots?: readonly { readonly entity: EntityName; readonly field: string }[]
 }
 
 export interface EdgeSpec extends RelationCommon {
@@ -741,7 +750,8 @@ export const SCHEMA: ModelSchema = defineSchema({
         inverse: 'sessions',
         lazy: false,
         slice: 'R3',
-        why: 'Containment ownership: a session whose cwd sits under a checkout belongs to it and never renders orphaned (session-ownership.ts:161-164).',
+        why: 'Containment ownership: a session whose cwd sits under a checkout belongs to it and never renders orphaned (session-ownership.ts:161-164). The root set is the scanned lanes PLUS every issue\u2019s own worktreePath (session-ownership.ts:128-141), so an unscanned checkout still seats its sessions.',
+        alsoRoots: [{ entity: 'issue', field: 'worktreePath' }],
         where: {
           fields: ['headless'],
           test: (row) => row['headless'] !== true,
@@ -1146,6 +1156,45 @@ export function* prefixCandidates(normalized: string): Generator<string> {
   }
 }
 
+/**
+ * One additional root value of a `prefix` relation on `row` (POD-4671): the
+ * raw `field` value when it names a non-empty path, else null. The union root
+ * set is the target table's keys plus every such value over every row of
+ * every listed source entity.
+ */
+export function extraRootOf(
+  source: { readonly entity: EntityName; readonly field: string },
+  row: Readonly<Record<string, unknown>>,
+): string | null {
+  const value = row[source.field]
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+/**
+ * Every distinct additional root a `prefix` spec names over whole tables
+ * (POD-4671): each listed source entity's rows' raw field values, in table
+ * order, deduped. The from-scratch scans resolve the spec over the target
+ * keys plus this list; the live engines maintain the same union incrementally.
+ * `rowsOf` yields the ROWS of an entity (not ids); scans adapt their entry
+ * iterators to it.
+ */
+export function extraRootsOf(
+  spec: PrefixSpec,
+  rowsOf: (entity: EntityName) => Iterable<unknown> | undefined,
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const source of spec.alsoRoots ?? []) {
+    for (const row of rowsOf(source.entity) ?? []) {
+      const root = extraRootOf(source, row as Readonly<Record<string, unknown>>)
+      if (root === null || seen.has(root)) continue
+      seen.add(root)
+      out.push(root)
+    }
+  }
+  return out
+}
+
 /** One row of a collapse group: its entity key and its row. */
 export interface CollapseMember {
   readonly id: string
@@ -1308,6 +1357,16 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
         }
         if (!(relation.targetKey in target.fields)) {
           problems.push(`${here}: targetKey "${relation.targetKey}" is not a declared field of ${relation.to}`)
+        }
+        for (const root of relation.alsoRoots ?? []) {
+          const owner = schema[root.entity]
+          if (owner === undefined) {
+            problems.push(`${here}: alsoRoots names unknown entity "${root.entity}"`)
+          } else if (!(root.field in owner.fields)) {
+            problems.push(
+              `${here}: alsoRoots field "${root.field}" is not a declared field of ${root.entity}`,
+            )
+          }
         }
       }
       if (relation.kind === 'edge') {
