@@ -187,19 +187,17 @@ describe('repo-from-lane composition', () => {
     const mobxTables: FakeTables = { worktree: new Map(), repo: new Map() }
     const mobx = fakeOps(mobxTables)
     mobx.repoWorktreeMembers = () => undefined
-    const first = lane('/repo', 'r1')
-    ingestWorktreeRecord(mobx, '/repo', first)
-    expect(mobxTables.repo.get('r1')).toBe(first)
-    ingestWorktreeRecord(mobx, '/repo', lane('/repo', 'r1', { repoName: 'moved' }))
+    ingestWorktreeRecord(mobx, '/repo', lane('/repo', 'r1'))
+    expect(mobxTables.repo.has('r1')).toBe(true)
+    // The holding lane leaves with no relations to ask: the repo leaves.
+    ingestWorktreeRecord(mobx, '/repo', undefined)
     expect(mobxTables.repo.has('r1')).toBe(false)
 
     const handTables: FakeTables = { worktree: new Map(), repo: new Map() }
     const hand = fakeOps(handTables, true)
     hand.repoWorktreeMembers = () => undefined
     ingestWorktreeRecord(hand, '/repo', lane('/repo', 'r1'))
-    expect(() =>
-      ingestWorktreeRecord(hand, '/repo', lane('/repo', 'r1', { repoName: 'moved' })),
-    ).toThrow(/keeps no relations/)
+    expect(() => ingestWorktreeRecord(hand, '/repo', undefined)).toThrow(/keeps no relations/)
   })
 })
 
