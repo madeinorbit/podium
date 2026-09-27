@@ -18,6 +18,25 @@ first, interleaved with control+noop, heap per scale from the same run).
 click). Timing machine queue: POD-4707 holds `bench:flatblock`; queue with
 `--wait`, never touch flatblock's global bun.
 
+## Mc4 log
+
+- 2026-09-27: growth counts green (`worklist/growth.test.tsx`): #2/#3/#4
+  perfectly flat (reads 1, commits 1 at 1x/2x/4x); #1 reads 2/1/1
+  (1x target's session needs its worktree lane read, 2x/4x targets do
+  not — target state, O(1), budget 3 holds); #5 reads/commits 1 flat,
+  rollups 2/2/1 (shallower 4x target chain). Non-growth asserted
+  (2x/4x <= 1x on reads, commits, derivations) plus the same fence
+  budgets at every scale. Copy sweep at 1x only (fixed 1M-object cap).
+- 2026-09-27: coexistence green (`worklist/coexist.test.tsx`): heartbeat +
+  click solo vs co-mounted equal on both sides; solo control heartbeat
+  over-commits (detector armed). Two fixes en route: settle mount loads
+  before the step (87 stray commits), co-run on engine-backed locals
+  (click selection).
+- 2026-09-27: flatblock `~/podium-timing-4576` at 69d032cd (pushed as
+  `timing/4576-mc4` to `~/src/podium`, cloned from `~/podium-timing`,
+  `.toolchain` copied from -4705, install + vite web build, entries gate
+  2/2 green there). Browser code identical to the lazy tip bebb6e3b9.
+
 ## Round three: incremental grouping and the read-state lane (POD-4686) · 2026-09-25
 
 Code: `pool/worklist/groups.ts` (maintained buckets, per-group head rank,
