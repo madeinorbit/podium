@@ -219,6 +219,14 @@ interface Link {
    * drop its old root.
    */
   readonly extraByRow: Map<string, string | null> | null
+  /**
+   * POD-4671 ruling Sep27 — `prefix` from an entity with `issueId` only
+   * (R3): target → the issueless members under it (those with no `issueId`).
+   * Maintained at the delta (on enter/leave/issueId/cwd change and root
+   * gain/loss), so a reader never reads session rows to filter — the same
+   * pattern as POD-4678's seat list. Unordered like `buckets`.
+   */
+  readonly issueless: ObservableMap<string, ObservableSet<string>> | null
 }
 
 /**
@@ -340,6 +348,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         if (!isLinkSpec(spec)) continue
         const prefix = spec.kind === 'prefix'
         const extra = prefix && spec.alsoRoots !== undefined && spec.alsoRoots.length > 0
+        const issueless =
+          prefix && (this.schema[from].fields as Record<string, unknown>)['issueId'] !== undefined
         const link: Link = {
           from,
           name,
@@ -360,6 +370,12 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           coldBuckets: new Map(),
           extraCounts: extra ? new Map() : null,
           extraByRow: extra ? new Map() : null,
+          issueless: issueless
+            ? observable.map<string, ObservableSet<string>>(undefined, {
+                deep: false,
+                name: `pool.${spec.to}.${spec.inverse}.issueless`,
+              })
+            : null,
         }
         this.links.set(`${from}.${name}`, link)
         this.collections.set(link.collection, link)

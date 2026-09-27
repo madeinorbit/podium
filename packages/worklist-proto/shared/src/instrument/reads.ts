@@ -93,6 +93,15 @@ export interface RelationReader {
   many(from: EntityName, id: string, relation: string): Iterable<string>
   /** The collection's size. Uncounted, like `Map.size`. */
   size(from: EntityName, id: string, relation: string): number
+  /**
+   * POD-4671 (R3 membership): the issueless sessions under a worktree root
+   * (those with no `issueId`), unordered like `many()`. Maintained at the
+   * delta (on session enter/leave/issueId/cwd change and root gain/loss), so
+   * a reader never reads session rows to filter — the same pattern as
+   * POD-4678's seat list. `from`/`relation` name the `worktree.sessions`
+   * collection; `id` is the root.
+   */
+  issueless(from: EntityName, id: string, relation: string): Iterable<string>
 }
 
 /** A table the fence can wrap: keyed by id, or an array of rows. */
