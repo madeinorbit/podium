@@ -140,6 +140,14 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       const armMounted = mountArmForCounts(mobxPoolArm, source.source, fixed)
       const controlMounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixed)
       try {
+        // Settle the mount's lazy loads BEFORE the step (what runFenceStep
+        // does): landing them inside the step would commit rows the change
+        // never touched.
+        const pool = armMounted.handle as { settleLoads?: () => void; pendingLoads?: () => number }
+        await act(async () => {
+          pool.settleLoads?.()
+        })
+        expect(pool.pendingLoads?.() ?? 0, `${scenario}: mount loads settled`).toBe(0)
         armMounted.handle.stats.reset()
         armMounted.log.reset()
         controlMounted.handle.stats.reset()
@@ -151,7 +159,6 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           await new Promise<void>((resolve) => setTimeout(resolve, 0))
         })
         // The pool settles its lazy loads inside the step; none may land late.
-        const pool = armMounted.handle as { settleLoads?: () => void; pendingLoads?: () => number }
         await act(async () => {
           pool.settleLoads?.()
         })
