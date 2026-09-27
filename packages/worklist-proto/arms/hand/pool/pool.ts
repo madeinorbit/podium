@@ -828,7 +828,7 @@ export class HandPool {
    */
   private replaceClosure(): Set<string> {
     const { partsOf, rowOf } = this.plainScope()
-    const held = (): boolean => false
+    const held = (_id: string): boolean => false
     const roots: string[] = []
     for (const id of knownIssueIds(this)) {
       const parts = partsOf(id)

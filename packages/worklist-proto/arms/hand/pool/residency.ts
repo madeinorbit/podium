@@ -54,15 +54,15 @@
  * closed issues) reads it by id through the feed (`peek`): counted by the
  * reads fence, recorded under the row's key (`peeked`), never installed.
  *
-  * NOTHING MAKES A HOT ROW COLD except a `replace`, which re-partitions
-  * (`enumerate.ts` `reseed`): every named row follows the rule over the new
-  * slice, resident before or not (POD-4706). A resident row the rule calls
-  * cold is evicted — dropped from the tables and registered cold — so its
-  * cells go with the membership delta and its filings follow the closure;
-  * the only pin is a row carrying a pending edit, which stays resident while
-  * the write layer holds it. A live update still keeps a resident row
-  * resident (`ingest` is unchanged): an issue closed while resident stays
-  * resident — it was just looked at.
+ * NOTHING MAKES A HOT ROW COLD except a `replace`, which re-partitions
+ * (`enumerate.ts` `reseed`): every named row follows the rule over the new
+ * slice, resident before or not (POD-4706). A resident row the rule calls
+ * cold is evicted — dropped from the tables and registered cold — so its
+ * cells go with the membership delta and its filings follow the closure;
+ * the only pin is a row carrying a pending edit, which stays resident while
+ * the write layer holds it. A live update still keeps a resident row
+ * resident (`ingest` is unchanged): an issue closed while resident stays
+ * resident — it was just looked at.
  *
  * TRACKED, THE HAND WAY. "Is this row cold" is state a cell reads, so it goes
  * through a door (pitfall j): `loading` and `known` call `asked`, which the

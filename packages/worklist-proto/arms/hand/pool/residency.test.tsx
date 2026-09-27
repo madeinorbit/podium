@@ -782,30 +782,32 @@ describe('transitions', () => {
   it('a replace re-partitions by rule: a resident row the rule calls cold is evicted, a reopened one stays', () => {
     const r = rig()
     const { pool } = r
-    const [looked, untouched] = corpus.sliceIssues.filter(isCold)
+    const cold = corpus.sliceIssues.filter(isCold)
+    const looked = cold[0] as SliceIssue
+    const untouched = cold[1] as SliceIssue
     // A derivation read the first cold row: queued, loaded, resident — and
     // its view read, so it holds view cells.
-    expect(pool.resident('issue', looked!.id)).toBe('loading')
+    expect(pool.resident('issue', looked.id)).toBe('loading')
     r.fire()
-    expect(pool.resident('issue', looked!.id)).toBe('resident')
-    expect(pool.view(looked!.id)?.title).toBe(looked!.title)
-    expect(pool.issues.has(looked!.id)).toBe(true)
+    expect(pool.resident('issue', looked.id)).toBe('resident')
+    expect(pool.view(looked.id)?.title).toBe(looked.title)
+    expect(pool.issues.has(looked.id)).toBe(true)
     const { issues, sessions, worktrees } = records()
     const reopened = issues.map((record) =>
-      record.id === untouched!.id
-        ? issueRecord(untouched!.id, { closedAt: null, closedReason: null })
+      record.id === untouched.id
+        ? issueRecord(untouched.id, { closedAt: null, closedReason: null })
         : record,
     )
     r.push({ type: 'replace', rows: [...sessions, ...reopened, ...worktrees] })
     // POD-4706: the back-replace evicts what the rule calls cold, even
     // looked-at — back to the registry, queued again on first access, its
     // view cells gone with the membership delta.
-    expect(pool.residency?.isCold('issue', looked!.id)).toBe(true)
-    expect(pool.tables.issue.has(looked!.id)).toBe(false)
-    expect(pool.issues.has(looked!.id)).toBe(false)
-    expect(pool.resident('issue', looked!.id)).toBe('loading')
+    expect(pool.residency?.isCold('issue', looked.id)).toBe(true)
+    expect(pool.tables.issue.has(looked.id)).toBe(false)
+    expect(pool.issues.has(looked.id)).toBe(false)
+    expect(pool.resident('issue', looked.id)).toBe('loading')
     // ... while the reopened row is hot.
-    expect(pool.tables.issue.has(untouched!.id)).toBe(true)
+    expect(pool.tables.issue.has(untouched.id)).toBe(true)
     expect(pool.tables.issue.size).toBe(hotIssues.length + 1)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
     expect(diffRelations(pool.engine, knownTables(r.replay.source))).toEqual([])
@@ -814,25 +816,25 @@ describe('transitions', () => {
   it('a replace keeps a row carrying a pending edit resident even when the rule calls it cold', () => {
     const r = rig()
     const { pool } = r
-    const [pinned] = corpus.sliceIssues.filter(isCold)
+    const pinned = corpus.sliceIssues.filter(isCold)[0] as SliceIssue
     // The write layer materialises the row and pins it while an edit is pending.
-    expect(pool.resident('issue', pinned!.id)).toBe('loading')
+    expect(pool.resident('issue', pinned.id)).toBe('loading')
     r.fire()
-    pool.writePins.add(pinned!.id)
+    pool.writePins.add(pinned.id)
     try {
       const { issues, sessions, worktrees } = records()
       r.push({ type: 'replace', rows: [...sessions, ...issues, ...worktrees] })
-      expect(pool.tables.issue.has(pinned!.id)).toBe(true)
-      expect(pool.residency?.isCold('issue', pinned!.id)).toBe(false)
+      expect(pool.tables.issue.has(pinned.id)).toBe(true)
+      expect(pool.residency?.isCold('issue', pinned.id)).toBe(false)
       expect(diffResidency(pool, r.replay.source)).toEqual([])
       expect(diffRelations(pool.engine, knownTables(r.replay.source))).toEqual([])
     } finally {
-      pool.writePins.delete(pinned!.id)
+      pool.writePins.delete(pinned.id)
     }
     // The pin released: the next replace evicts it again.
     const { issues, sessions, worktrees } = records()
     r.push({ type: 'replace', rows: [...sessions, ...issues, ...worktrees] })
-    expect(pool.residency?.isCold('issue', pinned!.id)).toBe(true)
+    expect(pool.residency?.isCold('issue', pinned.id)).toBe(true)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 })
