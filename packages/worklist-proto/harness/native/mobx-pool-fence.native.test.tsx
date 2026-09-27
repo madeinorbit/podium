@@ -34,32 +34,32 @@
  *     harness/native/mobx-pool-fence.native.test.tsx
  */
 
-import { observer } from 'mobx-react-lite'
 import { spy } from 'mobx'
+import { observer } from 'mobx-react-lite'
 import { act, type ReactElement } from 'react'
 import { View } from 'react-native'
 import { describe, expect, it, vi } from 'vitest'
-import { mobxPoolArm, type MobxPoolHandle } from '../../arms/mobx/pool/arm'
+import { type MobxPoolHandle, mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
-import { type MobxPool, tracked } from '../../arms/mobx/pool/pool'
 import { PoolNativeRow } from '../../arms/mobx/pool/native/row'
+import { type MobxPool, tracked } from '../../arms/mobx/pool/pool'
 import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
+import { createReadFence, DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
+import { RowShell } from '../../shared/src/row-shell'
+import { type ScenarioEngine, startScenarioEngine } from '../../shared/src/scenarios'
 import {
   assertCommits,
   assertReads,
-  mountNativeForCounts,
   type MountedArm,
+  mountNativeForCounts,
 } from '../src/count-harness'
 import {
   FENCE_SCENARIOS,
+  type FenceFeeds,
   openFenceFeeds,
   runFenceStep,
-  type FenceFeeds,
 } from '../src/fence-scenarios'
 import { writeResult } from '../src/results'
-import { DISABLED_READ_FENCE, createReadFence } from '../../shared/src/instrument/reads'
-import { RowShell } from '../../shared/src/row-shell'
-import { startScenarioEngine, type ScenarioEngine } from '../../shared/src/scenarios'
 
 // The pool's enforcement only warns, so every pool test installs the trap;
 // the native lane's `{ errors: true }` proof stays in Ma1's file
@@ -84,11 +84,16 @@ async function mountPool(): Promise<MountedPool> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const reads = createReadFence({ enabled: true })
-  const handle = mobxPoolArm.create(reads.wrapSource(feeds.rows.source), feeds.locals.source, reads, {
-    // No load window closes on its own mid-step: every load lands through the
-    // shared fence's settleLoads (G2), none by a timer in a later step.
-    schedule: () => () => {},
-  })
+  const handle = mobxPoolArm.create(
+    reads.wrapSource(feeds.rows.source),
+    feeds.locals.source,
+    reads,
+    {
+      // No load window closes on its own mid-step: every load lands through the
+      // shared fence's settleLoads (G2), none by a timer in a later step.
+      schedule: () => () => {},
+    },
+  )
   const mounted = await mountNativeForCounts(handle, reads)
   // The native list is a lazy chunk (`React.lazy` in `pool/arm.ts`): it
   // commits once the import resolves, after the mount's own act. The import
@@ -152,8 +157,8 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
       let nonVacuous = 0
       for (const methodology of ['#1', '#2', '#3']) {
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
-        expect(entry, methodology).toBeDefined()
-        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
+        if (entry === undefined) throw new Error(`missing fence scenario ${methodology}`)
+        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
         const at = `${result.methodology} ${result.scenario}`
         expect(result.parity, `${at}: ${result.parityDiff ?? ''}`).toBe(true)
         assertReads(result, { readsPerChange: readsBudget })
@@ -171,9 +176,10 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         const drawnRows = [...(result.drawnRows ?? [])].sort()
         expect(drawnRows, `${at}: commits`).toEqual(expected)
         const shown = new Set(tracked(() => [...handle.pool.worklist.ids]))
-        expect(drawnRows.filter((id) => !shown.has(id)), `${at}: commits outside the list`).toEqual(
-          [],
-        )
+        expect(
+          drawnRows.filter((id) => !shown.has(id)),
+          `${at}: commits outside the list`,
+        ).toEqual([])
         if (expected.length > 0) nonVacuous += 1
         console.info(
           `[mobx-pool-native] ${at}: committed=${result.rowsCommitted} ` +
@@ -195,9 +201,10 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         })
       }
       // Not 0 == 0 throughout: at least one of #2/#3 changed a drawn row.
-      expect(nonVacuous, 'no step changed a drawn row: the commit cells are vacuous').toBeGreaterThan(
-        0,
-      )
+      expect(
+        nonVacuous,
+        'no step changed a drawn row: the commit cells are vacuous',
+      ).toBeGreaterThan(0)
       writeResult('mobx-pool-native-1x', { scale: 1, renderer: RENDERER, cells })
     } finally {
       shutdown(mount)
@@ -208,9 +215,14 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const reads = createReadFence({ enabled: true })
-    const clean = mobxPoolArm.create(reads.wrapSource(feeds.rows.source), feeds.locals.source, reads, {
-      schedule: () => () => {},
-    })
+    const clean = mobxPoolArm.create(
+      reads.wrapSource(feeds.rows.source),
+      feeds.locals.source,
+      reads,
+      {
+        schedule: () => () => {},
+      },
+    )
     // THE PLANT: every slot reads every visible title, so one rename
     // re-renders every slot and every drawn RowShell commits — the whole-list
     // work the windowed list exists to avoid. Parity still holds (the mistake
@@ -231,11 +243,14 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         { timeout: 20_000, interval: 50 },
       )
       const visible = tracked(() => clean.pool.worklist.order.length)
-      // The plant draws the whole visible list, not the window.
-      expect(drawnIds(list).length, 'the plant draws every visible row').toBeGreaterThan(24)
+      // The plant draws the whole visible list, not the window: every drawn
+      // row is visible, and far more than the window draws.
+      const plantedIds = drawnIds(list)
+      expect(plantedIds.length, 'the plant draws every visible row').toBeGreaterThan(24)
+      expect(plantedIds.length).toBeLessThanOrEqual(visible)
       const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === '#4')
-      expect(entry, '#4').toBeDefined()
-      const { result } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
+      if (entry === undefined) throw new Error('missing fence scenario #4')
+      const { result } = await runFenceStep(mounted, ctx, feeds.flush, entry)
       expect(result.parity, `#4 plant parity: ${result.parityDiff ?? ''}`).toBe(true)
       console.info(
         `[mobx-pool-native] plant #4 visibleTitleRename: committed=${result.rowsCommitted}/` +
