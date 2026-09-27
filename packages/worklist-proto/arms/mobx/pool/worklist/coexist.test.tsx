@@ -8,8 +8,8 @@
  * rows derived and roll-ups derived. The co-run mounts both on one engine's
  * feed, resets both, applies one shared write, and reads both afterwards:
  * neither may wake the other beyond what its solo run shows, so both sides'
- * counts equal their solo counts and both parities hold (the arm's through
- * its one named POD-4671 allowance, the control's exactly). The control's
+ * counts equal their solo counts and both parities hold exactly (POD-4671
+ * seated the unscanned orphan, so no allowance remains). The control's
  * solo heartbeat commits the whole list — the detector proving it can say NO
  * is armed by the run itself (`soloControlHeartbeat.rows > 0`).
  */
@@ -37,16 +37,13 @@ import {
   writeSelectionClick,
 } from '../../../../shared/src/scenarios'
 import { mobxPoolArm } from '../arm'
-import { MOBX_POOL_ALLOWANCES } from './known-gaps'
 
 interface SoloCounts {
   rows: number
   stats: CountStats
 }
 
-async function soloArm(
-  scenario: 'heartbeat' | 'click',
-): Promise<SoloCounts & { allowance: string | null }> {
+async function soloArm(scenario: 'heartbeat' | 'click'): Promise<SoloCounts> {
   const methodology = scenario === 'heartbeat' ? '#1' : '#3'
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -56,28 +53,10 @@ async function soloArm(
     if (entry === undefined) throw new Error(`no fence scenario ${methodology}`)
     const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
     assertReads(result, { readsPerChange: readsBudget })
-    let allowance: string | null = null
-    if (!result.parity) {
-      const actual = mounted.handle.snapshot()
-      const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-      const patched = MOBX_POOL_ALLOWANCES.parity!.accept(
-        ctx.corpus,
-        mounted.handle,
-        oracle,
-        actual,
-      )
-      expect(
-        diffSnapshots(actual, patched.snapshot),
-        `solo arm ${scenario}: beyond POD-4671's parity allowance`,
-      ).toBeNull()
-      allowance = patched.applied
-    } else {
-      expect(result.parity, `solo arm ${scenario}: parity`).toBe(true)
-    }
+    expect(result.parity, `solo arm ${scenario}: parity (${result.parityDiff ?? ''})`).toBe(true)
     return {
       rows: result.rowsCommitted,
       stats: result.stats,
-      allowance,
     }
   } finally {
     mounted.unmount()
@@ -165,15 +144,8 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         })
         expect(pool.pendingLoads?.() ?? 0, `${scenario}: no pending loads`).toBe(0)
         const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-        const armActual = armMounted.handle.snapshot()
-        const patched = MOBX_POOL_ALLOWANCES.parity!.accept(
-          ctx.corpus,
-          armMounted.handle,
-          oracle,
-          armActual,
-        )
         expect(
-          diffSnapshots(armActual, patched.snapshot),
+          diffSnapshots(armMounted.handle.snapshot(), oracle),
           `${scenario}: arm parity beside the control`,
         ).toBeNull()
         expect(

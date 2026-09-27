@@ -3,8 +3,9 @@
  * POD-4576 (Mc4) — the MobX pool's reads per change stay flat as the corpus
  * grows: fence scenarios #1–#5 (heartbeat, phase change, click, rename, stage
  * move) at 1x, 2x and 4x through the shared fence (`runFenceStep`), each step
- * holding parity (with the pool's one named POD-4671 allowance), the
- * exact-commit fence, its reads budget and the copy sweep.
+ * holding parity exactly (POD-4671 seated the unscanned orphan, so the
+ * roster's named exception is gone), the exact-commit fence, its reads
+ * budget and the copy sweep.
  *
  * Flatness: every step's `readsPerChange` and `rowsCommitted` are identical
  * at 1x, 2x and 4x (the budgets are scale-free constants, except #2's, which
@@ -18,22 +19,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { assertCommits, assertReads, mountArmForCounts } from '../../../../harness/src/count-harness'
-import {
-  FENCE_SCENARIOS,
-  openFenceFeeds,
-  parityLocals,
-  runFenceStep,
-} from '../../../../harness/src/fence-scenarios'
-import { snapshotFromStore } from '../../../../harness/src/oracle/index'
+import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../../../../harness/src/fence-scenarios'
 import { writeResult } from '../../../../harness/src/results'
 import {
   startScenarioEngine,
   type FixtureScale,
   type ScenarioEngine,
 } from '../../../../shared/src/scenarios'
-import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { mobxPoolArm } from '../arm'
-import { MOBX_POOL_ALLOWANCES } from './known-gaps'
 
 const SCALES = [1, 2, 4] as const satisfies readonly FixtureScale[]
 /** The Mc4 growth scenarios: heartbeat, phase change, click, rename, stage move. */
@@ -52,7 +45,6 @@ interface GrowthCell {
   rowsCommitted: number
   rowsDerived: number
   rollupsDerived: number
-  parityAllowance: string | null
 }
 
 /** The scenario's target, from the corpus picks (see `pickTargets`). */
@@ -87,22 +79,8 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
           const step = await runFenceStep(mounted, ctx, feeds.flush, entry)
           const { result, readsBudget } = step
           const at = `${methodology} ${result.scenario} at ${scale}x`
-          let allowance: string | null = null
-          if (!result.parity) {
-            const actual = mounted.handle.snapshot()
-            const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
-            const patched = MOBX_POOL_ALLOWANCES.parity!.accept(
-              ctx.corpus,
-              mounted.handle,
-              oracle,
-              actual,
-            )
-            expect(
-              diffSnapshots(actual, patched.snapshot),
-              `${at}: beyond POD-4671's parity allowance (${result.parityDiff ?? ''})`,
-            ).toBeNull()
-            allowance = patched.applied
-          }
+          // POD-4671 seated the unscanned orphan: parity holds with no exception.
+          expect(result.parity, `${at}: parity (${result.parityDiff ?? ''})`).toBe(true)
           assertCommits(result)
           assertReads(result, { readsPerChange: readsBudget })
           // The copy sweep walks every reachable object with a fixed cap:
@@ -122,7 +100,6 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
             rowsCommitted: result.rowsCommitted,
             rowsDerived: result.stats.rowsDerived,
             rollupsDerived: result.stats.rollupsDerived,
-            parityAllowance: allowance,
           }
           const list = byScenario.get(methodology) ?? []
           list.push(cell)
