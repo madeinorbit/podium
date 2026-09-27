@@ -139,7 +139,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     const byIssue = new Map<string, string[]>()
     for (const s of ctx.corpus.sessions) {
       if (s.issueId == null) continue
-      byIssue.set(s.issueId, [...(byIssue.get(s.issueId) ?? []), s.id])
+      byIssue.set(s.issueId, [...(byIssue.get(s.issueId) ?? []), s.sessionId])
     }
     let target: string | null = null
     for (const [issueId, sessions] of byIssue) {

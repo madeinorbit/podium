@@ -41,6 +41,7 @@ import {
   SCHEMA,
 } from '../../shared/src/schema'
 import type { RowRecord } from '../../shared/src/stats'
+import type { SliceWorktree } from '../../shared/src/slice-types'
 import { createReplaySource } from '../src/count-harness'
 import { readSnapshot } from '../src/fixture/export-snapshot'
 import { buildCorpus } from '../src/fixture/index'
@@ -73,14 +74,23 @@ function liveFeed(file: string): { source: RowSource; now: number; label: string
     repoId?: string | null
     worktrees?: { path: string }[]
   }[]) {
-    const stamp = { repoId: repo.repoId ?? null, repoPath: repo.path }
-    worktrees.push({ kind: 'worktree', id: repo.path, value: { path: repo.path, ...stamp } })
+    const repoName = repo.path.split('/').filter(Boolean).pop() ?? repo.path
+    const stamp = { repoId: repo.repoId ?? null, repoPath: repo.path, repoName }
+    worktrees.push({
+      kind: 'worktree',
+      id: repo.path,
+      value: { path: repo.path, ...stamp } as SliceWorktree,
+    })
     for (const wt of repo.worktrees ?? []) {
-      worktrees.push({ kind: 'worktree', id: wt.path, value: { path: wt.path, ...stamp } })
+      worktrees.push({
+        kind: 'worktree',
+        id: wt.path,
+        value: { path: wt.path, ...stamp } as SliceWorktree,
+      })
     }
   }
-  for (const row of snapshot.repoProjections as unknown as { id: string }[]) {
-    worktrees.push({ kind: 'worktree', id: row.id, value: row })
+  for (const row of snapshot.repoProjections) {
+    worktrees.push({ kind: 'worktree', id: row.id, value: row as unknown as SliceWorktree })
   }
   const replay = createReplaySource({
     issues: (snapshot.issues as unknown as { id: string }[]).map(
@@ -135,7 +145,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
       buckets[`${from}.${name}`] = largest(pool, known[from], from, name)
     }
     const issueRows = new Map(
-      source.snapshot('issue').map((r) => [r.id, r.value as Record<string, unknown>]),
+      source.snapshot('issue').map((r) => [r.id, r.value as unknown as Record<string, unknown>]),
     )
     const openRepo = largest(pool, known.repo, 'repo', 'issues')
     const template = [...issueRows.values()].find(
@@ -147,7 +157,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     const busyRoot = largest(pool, known.worktree, 'worktree', 'sessions')
     const sessionTemplate = source
       .snapshot('session')
-      .map((r) => r.value as Record<string, unknown> | undefined)
+      .map((r) => r.value as unknown as Record<string, unknown> | undefined)
       .find((v) => v !== undefined && v['headless'] !== true)
     if (sessionTemplate === undefined) throw new Error(`${label}: no session`)
 

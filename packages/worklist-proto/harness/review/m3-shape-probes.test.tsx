@@ -34,6 +34,7 @@ import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { settableLocals } from '../../shared/src/locals-source'
 import { allRelations, type EntityName } from '../../shared/src/schema'
 import type { RowRecord } from '../../shared/src/stats'
+import type { SliceWorktree } from '../../shared/src/slice-types'
 import { createReplaySource } from '../src/count-harness'
 import { readSnapshot } from '../src/fixture/export-snapshot'
 import { buildCorpus } from '../src/fixture/index'
@@ -254,7 +255,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
         {
           kind: 'issue',
           id: 'iss_m3_probe',
-          value: { ...openIssue, id: 'iss_m3_probe', seq: 999_999, parentId: null, deps: [] },
+          value: { ...openIssue, id: 'iss_m3_probe', seq: 999_999, parentId: null, deps: [] } as never,
         },
       ],
     }),
@@ -274,7 +275,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
         {
           kind: 'session',
           id: 'ses_m3_probe',
-          value: { ...session, sessionId: 'ses_m3_probe', issueId: null, resume: null },
+          value: { ...session, sessionId: 'ses_m3_probe', issueId: null, resume: null } as never,
         },
       ],
     }),
@@ -319,14 +320,23 @@ describe('M3 probe: bucket-sized work per membership change', () => {
         repoId?: string | null
         worktrees?: { path: string }[]
       }[]) {
-        const stamp = { repoId: repo.repoId ?? null, repoPath: repo.path }
-        worktrees.push({ kind: 'worktree', id: repo.path, value: { path: repo.path, ...stamp } })
+        const repoName = repo.path.split('/').filter(Boolean).pop() ?? repo.path
+        const stamp = { repoId: repo.repoId ?? null, repoPath: repo.path, repoName }
+        worktrees.push({
+          kind: 'worktree',
+          id: repo.path,
+          value: { path: repo.path, ...stamp } as SliceWorktree,
+        })
         for (const wt of repo.worktrees ?? []) {
-          worktrees.push({ kind: 'worktree', id: wt.path, value: { path: wt.path, ...stamp } })
+          worktrees.push({
+            kind: 'worktree',
+            id: wt.path,
+            value: { path: wt.path, ...stamp } as SliceWorktree,
+          })
         }
       }
-      for (const row of snapshot.repoProjections as unknown as { id: string }[]) {
-        worktrees.push({ kind: 'worktree', id: row.id, value: row })
+      for (const row of snapshot.repoProjections) {
+        worktrees.push({ kind: 'worktree', id: row.id, value: row as unknown as SliceWorktree })
       }
       const replay = createReplaySource({
         issues: (snapshot.issues as unknown as { id: string }[]).map(
