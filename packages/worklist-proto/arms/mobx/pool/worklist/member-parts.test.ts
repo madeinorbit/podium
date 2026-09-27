@@ -15,20 +15,23 @@
  *   stay within a small bound at 1x and 4x, flat across scales;
  * - the family-size distribution itself is reported per scale (explicit seats
  *   only; the issueless lump is per-worktree, not one family);
- * - the plant (a consumer that walks the whole corpus on a membership change)
- *   exceeds the same bound at both scales, proving the count is armed.
+ * - the plants (consumers that walk the whole corpus on a membership change:
+ *   the session-id set, and the session table's key iterator — the
+ *   coordinator's table-walk mutation class) exceed the same bound at both
+ *   scales, proving the count is armed.
  *
- * The bound counts session-id element visits through the test's global
- * instrument (Array/Set iterators and array methods, MobX observables
- * included, filtered to the corpus session ids so order sorts over issue ids
- * never count). Slice copies (MobX's computedStruct unwrap) count their
- * session ids; sorts count the session ids they order. Index-by-index compares
- * on plain copies are not separately counted (a constant factor the bound
- * absorbs); the flatness across scales is what the decision rests on.
+ * The bound counts session-id element visits through the shared instrument
+ * (`harness/src/count-session-ids.ts`: Array/Set/Map iterators and array
+ * methods, MobX observables included, filtered to the corpus session ids so
+ * order sorts over issue ids never count). Slice copies (MobX's computedStruct
+ * unwrap) count their session ids; sorts count the session ids they order.
+ * Index-by-index compares on plain copies are not separately counted (a
+ * constant factor the bound absorbs); the flatness across scales is what the
+ * decision rests on.
  */
 import { describe, expect, it } from 'vitest'
-import { ObservableSet } from 'mobx'
 import { createReplaySource } from '../../../../harness/src/count-harness'
+import { countSessionIds } from '../../../../harness/src/count-session-ids'
 import { buildCorpus } from '../../../../harness/src/fixture/index'
 import { writeResult } from '../../../../harness/src/results'
 import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
@@ -37,86 +40,6 @@ import type { RowSource } from '../../../../shared/src/arm'
 import type { RowRecord } from '../../../../shared/src/stats'
 import { mobxPoolArm } from '../arm'
 import { tracked } from '../pool'
-
-type Fn = (...args: never[]) => unknown
-
-/** Session ids iterated while `run` runs (outside the arm, same in both arms). */
-export function countSessionIds(sessionIds: ReadonlySet<string>, run: () => void): number {
-  let total = 0
-  const isSession = (v: unknown): boolean => typeof v === 'string' && sessionIds.has(v)
-
-  const arrIter = Array.prototype[Symbol.iterator] as unknown as Fn
-  const setIter = Set.prototype[Symbol.iterator] as unknown as Fn
-  const obsProto = ObservableSet.prototype as unknown as Record<symbol, unknown>
-  const obsIter = obsProto[Symbol.iterator] as unknown as Fn | undefined
-
-  const wrapIter =
-    (orig: Fn): Fn =>
-    function (this: unknown, ...args: never[]) {
-      const it = (orig as (this: unknown, ...a: never[]) => Iterator<unknown>).apply(this, args)
-      const origNext = it.next.bind(it) as (this: unknown, ...a: never[]) => IteratorResult<unknown>
-      ;((it as unknown) as Record<string, unknown>).next = function (...nargs: never[]) {
-        const step = (origNext as (this: unknown, ...a: never[]) => IteratorResult<unknown>).apply(it, nargs)
-        if (step.done !== true && isSession(step.value)) total += 1
-        return step
-      }
-      return it
-    }
-
-  const saved: [object, string | symbol, unknown][] = []
-  const patch = (obj: object, key: string | symbol, value: unknown): void => {
-    saved.push([obj, key, (obj as Record<string | symbol, unknown>)[key]])
-    ;(obj as Record<string | symbol, unknown>)[key] = value
-  }
-
-  patch(Array.prototype as unknown as object, Symbol.iterator, wrapIter(arrIter))
-  patch(Set.prototype as unknown as object, Symbol.iterator, wrapIter(setIter))
-  if (typeof obsIter === 'function') patch(obsProto as unknown as object, Symbol.iterator, wrapIter(obsIter))
-
-  const methods = ['filter', 'map', 'every', 'some', 'find', 'findIndex', 'forEach', 'reduce', 'reduceRight', 'flatMap'] as const
-  for (const name of methods) {
-    const orig = (Array.prototype as unknown as Record<string, unknown>)[name] as Fn | undefined
-    if (typeof orig !== 'function') continue
-    const origFn = orig
-    patch(Array.prototype as unknown as object, name, function (this: unknown, ...args: never[]) {
-      const cb = args[0] as unknown
-      if (typeof cb === 'function') {
-        const wrapped = (...cbArgs: never[]): unknown => {
-          if (isSession(cbArgs[0])) total += 1
-          return (cb as Fn).apply(undefined, cbArgs)
-        }
-        const newArgs: never[] = [wrapped as never]
-        for (let i = 1; i < args.length; i += 1) newArgs.push(args[i] as never)
-        return (origFn as (this: unknown, ...a: never[]) => unknown).apply(this, newArgs)
-      }
-      return (origFn as (this: unknown, ...a: never[]) => unknown).apply(this, args)
-    })
-  }
-
-  const origSlice = Array.prototype.slice as unknown as Fn
-  patch(Array.prototype as unknown as object, 'slice', function (this: unknown, ...args: never[]) {
-    const out = (origSlice as (this: unknown, ...a: never[]) => unknown[]).apply(this, args)
-    for (let i = 0; i < out.length; i += 1) if (isSession(out[i])) total += 1
-    return out
-  })
-
-  const origSort = Array.prototype.sort as unknown as Fn
-  patch(Array.prototype as unknown as object, 'sort', function (this: unknown, ...args: never[]) {
-    const arr = this as unknown[]
-    for (let i = 0; i < arr.length; i += 1) if (isSession(arr[i])) total += 1
-    return (origSort as (this: unknown, ...a: never[]) => unknown).apply(this, args)
-  })
-
-  try {
-    run()
-  } finally {
-    for (let i = saved.length - 1; i >= 0; i -= 1) {
-      const [obj, key, orig] = saved[i]!
-      ;(obj as Record<string | symbol, unknown>)[key] = orig
-    }
-  }
-  return total
-}
 
 /** A membership edge's ids, measured from outside at one scale. */
 async function edgeIds(
@@ -286,4 +209,48 @@ describe('member parts per edge are O(family) (POD-4683)', () => {
     }
     writeResult('mobx-member-parts-4683-plant', { bound: BOUND })
   })
+
+  it('a consumer that walks the session table fails the same bound', async () => {
+    // The coordinator's table-walk mutation class (a seat read that walks
+    // `tables.session.keys()`), expressed without editing pool code: a table
+    // walk beside a membership push counts the corpus through the Map
+    // iterator, failing the same bound at both scales.
+    for (const scale of [1, 4] as const) {
+      const corpus = buildCorpus(scale)
+      const sessionIds = new Set(corpus.sliceSessions.map((s) => s.sessionId as string))
+      const replay = createReplaySource({
+        issues: corpus.sliceIssues.map((value) => ({ kind: 'issue', id: value.id, value })),
+        sessions: corpus.sliceSessions.map((value) => ({
+          kind: 'session',
+          id: value.sessionId,
+          value,
+        })),
+        worktrees: corpus.sliceWorktrees.map((value) => ({ kind: 'worktree', id: value.path, value })),
+      })
+      const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+      const counted: RowSource = {
+        snapshot: (kind) => replay.source.snapshot(kind),
+        row: (kind, id) => replay.source.row?.(kind, id),
+        subscribe: (listener) => replay.source.subscribe(listener),
+      }
+      const handle = mobxPoolArm.create(counted, locals.source, DISABLED_READ_FENCE, {
+        schedule: () => () => {},
+      })
+      try {
+        await handle.settleLoads?.()
+        const tables = handle.pool.tables as unknown as {
+          session: { keys(): Iterable<string> }
+        }
+        const walked = countSessionIds(sessionIds, () => {
+          for (const __s of tables.session.keys()) void __s
+        })
+        expect(walked, `${scale}x table plant walks the corpus`).toBe(sessionIds.size)
+        expect(walked, `${scale}x table plant exceeds ${BOUND}`).toBeGreaterThan(BOUND)
+      } finally {
+        handle.dispose()
+        locals.dispose()
+      }
+    }
+    writeResult('mobx-member-parts-4683-table-plant', { bound: BOUND })
+  }, 600_000)
 })
