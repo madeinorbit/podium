@@ -55,7 +55,7 @@ export function countSessionIds(sessionIds: ReadonlySet<string>, run: () => void
     function (this: unknown, ...args: never[]) {
       const it = (orig as (this: unknown, ...a: never[]) => Iterator<unknown>).apply(this, args)
       const origNext = it.next.bind(it) as (this: unknown, ...a: never[]) => IteratorResult<unknown>
-      ;(it as Record<string, unknown>).next = function (...nargs: never[]) {
+      ;((it as unknown) as Record<string, unknown>).next = function (...nargs: never[]) {
         const step = (origNext as (this: unknown, ...a: never[]) => IteratorResult<unknown>).apply(it, nargs)
         if (step.done !== true && isSession(step.value)) total += 1
         return step
