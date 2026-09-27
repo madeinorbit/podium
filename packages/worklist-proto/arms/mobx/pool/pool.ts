@@ -704,9 +704,14 @@ export class MobxPool {
       relations: rawRelations,
       issueRow: (id) => live.issueRow(id),
       sessionRow: (id) => live.sessionRow(id),
-      // Hot rows only, exactly like the rebuild: a cold row reads as unknown
-      // (hidden, keeping nothing), which is what a missing node answers live.
-      issue: (id) => (this.tables.issue.has(id) ? partsOf(id) : undefined),
+      // Exactly what a live derivation reads: a held row's parts (hot or
+      // cold — a cold ancestor's node carries the nest walk past it), else
+      // unknown for hot rows without a node. Cold unheld rows read as
+      // hidden, which is what their missing node answers live. (The rebuild
+      // has no cold rows and evaluates all of them; the pass only needs
+      // live-equivalence.)
+      issue: (id) =>
+        this.tables.issue.has(id) || this.worklist.has(id) ? partsOf(id) : undefined,
       session: (id) => directSessionVisibility(plain, id),
       issueRead: (id) => live.issueRead(id),
       passed: (t) => live.passed(t),
@@ -778,35 +783,37 @@ export class MobxPool {
       return true
     }
     for (const root of roots) {
-      // Every root verifies its first hop (one row read, free when the row
-      // arrived on this action's event), so a reparented held row still
-      // picks up its new parent; the walk stops at a pre-existing held
-      // chain (complete by induction) and at unknown ids. Membership in the
-      // closure strictly grows per step, so adversarial parent cycles end.
-      let current: string | null = root
-      let first = true
-      while (current !== null) {
-        const id = current
-        if (!this.knows(id)) break
-        const held = this.worklist.has(id)
-        if (held && !first) break
-        if (!held && !visit(id)) break
-        const row = this.issueRowOf(id)
+      // Every root joins (held roots stay: the replace drops held rows
+      // outside the closure) and verifies its first hop (one row read, free
+      // when the row arrived on this action's event), so a reparented held
+      // row still picks up its new parent. The walk stops at a pre-existing
+      // held chain (complete by induction) and at unknown ids; membership
+      // strictly grows per step, so adversarial parent cycles end.
+      if (!this.knows(root)) continue
+      visit(root)
+      let current = root
+      for (;;) {
+        const row = this.issueRowOf(current)
         if (row === undefined) break
         const standing = standingOf(row)
+        let next: string | null = null
         if (standing.parentId !== null) {
-          current = standing.parentId
-        } else if (standing.startedBy !== null && this.tables.issue.has(id)) {
+          next = standing.parentId
+        } else if (standing.startedBy !== null && this.tables.issue.has(current)) {
           // Parentless with a starter: the present owner carries the nest.
           // Evaluated (hot rows only) for a member that needs it; anything
           // else holds its owner already, since a present row is always
           // noded. A cold member nests under nothing (hidden by rule).
-          const owner = partsOf(id).nestParent
-          current = owner
+          next = partsOf(current).nestParent
         } else {
           break
         }
-        first = false
+        if (next === null || !this.knows(next)) break
+        // Already a member (a parent cycle) ends the walk; a pre-existing
+        // held chain above is complete by induction.
+        if (!visit(next)) break
+        if (this.worklist.has(next)) break
+        current = next
       }
     }
     // Formal subtrees under unheld members only: a held member's subtree is
