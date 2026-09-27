@@ -95,20 +95,52 @@ same shape MobX closed with (1 filing + its lanes).
 ## 5. Timing (flatblock, Mb4 matrix: noop, control, hand at 1/2/4x)
 
 Matrix: `matrix.ts --arms noop,control,hand --scales 1,2,4 --rounds 4
---samples 5 --tag hand-4694 --host flatblock --remote-dir podium-timing-4694`
-(36 runs; remote checkout with its own `.toolchain`,
-`harness/web/dist` built there). STATUS: round-0 noop/control green (6/6);
-hand-1x failed on the round-two entry (see §6, since fixed); the rerun with
-the pool entry is queued behind the current bench holder (see §7).
+--samples 5 --tag hand-4694c --host flatblock --remote-dir podium-timing-4694`
+(36 runs; remote checkout at `dacdf9d98` detached, its own `.toolchain`,
+`harness/web/dist` rebuilt there). `entries.test.ts` 2/2 green at that SHA
+before timing. Result: 36 ok, 0 failed, host flatblock, runtimeSha
+`dacdf9d98`, every cell n=20, every record load <= 7.22, parity ok on every
+hand/control record (arm == oracle, firstDifference null), uptime per record.
+The `hand-4694b` records do NOT count: they ran without the lease while
+POD-4705 held it, with load failures (coordinator mail 2026-09-27).
 
-| scenario | noop p50 1x/2x/4x | control p50 1x/2x/4x | hand p50 1x/2x/4x | excess slope | heap hand per scale |
-|---|---|---|---|---|---|
-| heartbeat | — | — | — | — | — |
-| visibleHeartbeat | — | — | — | — | — |
-| rename | — | — | — | — | — |
-| stagemove | — | — | — | — | — |
-| clock | — | — | — | — | — |
-| click | — | — | — | — | — |
+1x walls (actionMs p95 vs the no-op floor + allowance):
+
+| scenario | hand p50 / p95 | floor p95 | budget p95 | verdict |
+|---|---|---|---|---|
+| click | 13.00 / 19.00 | 13.90 | 29.90 | within |
+| clock | 0.50 / 0.60 | 0.50 | 8.50 | within |
+| heartbeat | 15.90 / 25.80 | 18.00 | 20.00 | OVER by 5.8 |
+| rename | 7.30 / 9.30 | 6.40 | 14.40 | within |
+| stagemove | 9.70 / 12.80 | 5.50 | 13.50 | within |
+| visibleHeartbeat | 17.70 / 26.00 | 16.00 | 24.00 | OVER by 2.0 |
+
+Slopes (p50 1x / 2x / 4x; excess over floor 4x/1x, budget <= 1.2):
+
+| scenario | hand p50 1x / 2x / 4x | excess slope |
+|---|---|---|
+| click | 13.0 / 28.0 / 70.5 | 1.70 OVER |
+| clock | 0.5 / 0.6 / 0.6 | 0.20 within |
+| heartbeat | 15.9 / 29.3 / 67.2 | 11.00 OVER (ill-conditioned: 1x excess 0.8 ms, denominator clamped to 1.0) |
+| rename | 7.3 / 12.0 / 29.7 | -0.85 within (4x under the floor by 2.2 ms) |
+| stagemove | 9.7 / 15.7 / 30.3 | 0.40 within |
+| visibleHeartbeat | 17.7 / 28.1 / 69.2 | 2.59 OVER |
+
+Heap per scale (heapAfter p50 after forced GC, hot-path records, n=120 per
+cell): hand 78.6 / 149.0 / 289.5 MB against the no-op floor 22.7 / 39.0 /
+71.6 MB (control 25.9 / 45.1 / 83.5 MB).
+
+Against the MobX rows in the LESSONS comment: click was within for MobX
+(13.3/28.4/69.0) and is 1.70 OVER here on near-identical walls; heartbeat
+was within for MobX (19.1/31.7/64.8) and is 11.0 OVER here but
+ill-conditioned, with the real miss the 1x p95 OVER by 5.8 ms; rename was
+6.70 OVER ill-conditioned for MobX (6.9/15.3/35.8) and is within here
+(-0.85); stagemove was 5.36 OVER for MobX (11.4/24.9/57.9, excess 4.7 to
+25.2) and is 0.40 within here — the incremental filing closed the
+stage-move growth; visibleHeartbeat was 3.64 OVER for MobX (17.8/35.1/66.6)
+and is 2.59 OVER here. Clock within both. Heap asks the same question as
+MobX (85/161/311 vs floor 21/37/68): hand retains ~3.5-4x the floor, for
+Mc4. Commits stay exact (median 0-2 per scenario, 0 stray everywhere).
 
 ## 6. Browser parity finding (pre-existing, fixed forward here)
 
@@ -139,8 +171,9 @@ change cannot move asking/phase and stays out of worklist/react.
 
 ## 7. Lease queue
 
-`bench:flatblock` order per coordinator: Mc2 verification, then issue #4414,
-then Mc3 (POD-4575, MobX lifecycle — MobX lanes go first), then this rerun.
-The rerun matrix is parked with `--resume` under the fresh tag `hand-4694b`
-(old-SHA outputs stay under `hand-4694`) and takes the lease per invocation
-when queued position grants it.
+Done. `bench:flatblock` taken with `--wait` in the foreground after POD-4705
+(MobX first) and after the coordinator's verification suite left the box
+(waited on its exit, no sleep-loop, no pgrep); renewed between phases by
+re-running acquire; released when the matrix completed. The 36-run matrix
+itself takes the lease per invocation. The invalid `hand-4694b` tag stays on
+flatblock beside the valid `hand-4694c` set and is never summarised.
