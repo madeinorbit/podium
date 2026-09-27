@@ -1120,15 +1120,16 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
     }
   }, 120_000)
 
-  it('extra-root dispatch runs only when a root-bearing field moves (POD-4671 plant)', () => {
-    // POD-4671 plant: the extra-root dispatch must run only when a
-    // root-bearing field moves (relations.ts `extraMoved`). A title-only
-    // write names no root, so the gated dispatch skips `extraChanged`
-    // entirely; forcing it (the pre-fix unconditional loop) runs it. Never
-    // weaken this: gate the dispatch instead. (F1 holds the bound at 16 in
-    // the `it` above; forcing the dispatch on a no-change write performs no
-    // plain-structure write — the early return — so no count-plant can fail
-    // F1 here. See the blocker mail to POD-4286.)
+  it('extra-root dispatch skipped on title-only writes; forced dispatch runs it (POD-4671 behavioral plant)', () => {
+    // POD-4671 behavioral plant: the extra-root dispatch must run only when a
+    // root-bearing field moves (relations.ts `extraMoved`). F1 cannot fail
+    // here — the ungated early-return path performs no plain-structure write
+    // (Map gets only), so a count-plant stays under 16 either way — and the
+    // direct call count on `extraChanged` for a title-only write (0 gated,
+    // >= 1 forced) is the right guard. Proven red by forcing the dispatch:
+    // under force the gated 0-calls expectation is violated (calls >= 1);
+    // restored with delete (the prototype method shows through again). Never
+    // weaken this: gate the dispatch instead. Bound stays 16 (F1 `it` above).
     const r = rig(big)
     try {
       const graph = r.pool.graph as unknown as Record<string, (...args: never[]) => unknown>
