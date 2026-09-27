@@ -1121,6 +1121,69 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
   }, 120_000)
 })
 
+describe('an issue gaining or losing a worktreePath re-files only its path (POD-4671)', () => {
+  // One narrow root among a wide corpus: B sessions under /repo, one orphan
+  // under /w/unscanned. Gaining or losing the issue path moves that one
+  // session, never the B. Counted outside the pool (M3 G1/G3/G4): a
+  // whole-corpus re-scan touches B and must fail.
+  const B = 1000
+  function bigRig(): Rig {
+    const rows: RowRecord[] = [lane('/repo'), issue('I1'), session('S1', { cwd: '/w/unscanned/sub' })]
+    for (let i = 0; i < B; i += 1) rows.push(session(`BS${i}`, { cwd: `/repo/x${i}` }))
+    return rig(rows)
+  }
+
+  it('gaining then losing the path touches one session, not the corpus', () => {
+    const r = bigRig()
+    try {
+      expect(r.one('session', 'S1', 'worktree')).toBeNull()
+      const gainSets = held(r.pool)
+      const gainOutside = countedOutside(() => r.push(issue('I1', { worktreePath: '/w/unscanned' })))
+      // The narrow root, spelled as the issue names it.
+      expect(r.one('session', 'S1', 'worktree')).toBe('/w/unscanned')
+      expect(r.many('worktree', '/w/unscanned', 'sessions')).toEqual(['S1'])
+      expect(outsideTotal(gainOutside), `gain: ${JSON.stringify(gainOutside)}`).toBeLessThan(100)
+      expect(plainTotal(gainOutside.plain), `gain plain ${JSON.stringify(gainOutside.plain)}`).toBeLessThan(100)
+      expect(replaced(gainSets, held(r.pool)), 'gain: no set replaced').toEqual({
+        keys: 0,
+        elements: 0,
+      })
+      const loseSets = held(r.pool)
+      const loseOutside = countedOutside(() => r.push(issue('I1', { worktreePath: null })))
+      expect(r.one('session', 'S1', 'worktree')).toBeNull()
+      expect(outsideTotal(loseOutside), `lose: ${JSON.stringify(loseOutside)}`).toBeLessThan(100)
+      expect(replaced(loseSets, held(r.pool)), 'lose: no set replaced').toEqual({
+        keys: 0,
+        elements: 0,
+      })
+      r.check()
+    } finally {
+      r.dispose()
+    }
+  }, 120_000)
+
+  it('a whole-corpus re-scan plant fails the count', () => {
+    const r = bigRig()
+    try {
+      r.push(issue('I1', { worktreePath: '/w/unscanned' }))
+      // Plant: build a set of every session id to find those under the path,
+      // instead of the under index (the corpus walk POD-4671 forbids). Each
+      // add is plain work the outside counter sees.
+      const ids: string[] = []
+      for (let i = 0; i < B; i += 1) ids.push(`BS${i}`)
+      ids.push('S1')
+      const outside = countedOutside(() => {
+        void new Set(ids)
+      })
+      // The plant touches B: the count sees it, so a real re-scan would fail
+      // the <100 bound above.
+      expect(plainTotal(outside.plain)).toBeGreaterThan(B)
+    } finally {
+      r.dispose()
+    }
+  })
+})
+
 // ---------------------------------- the views resolve through the engine (M3 F2)
 
 describe('the row views resolve relations through the engine (M3 F2)', () => {

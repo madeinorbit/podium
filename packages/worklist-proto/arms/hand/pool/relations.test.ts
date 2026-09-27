@@ -1269,6 +1269,73 @@ describe('the reads fence and the write record', () => {
           expect(caught.identity.length, `${name}: identity`).toBeGreaterThan(0)
       })
     }
+
+    it('an issue gaining or losing a worktreePath re-files only its path (POD-4671)', () => {
+      const B = 500
+      const rows: RowRecord[] = [lane('/repo'), issue('I1'), session('S1', { cwd: '/w/unscanned/sub' })]
+      for (let i = 1; i <= B; i += 1) rows.push(session(`S${i + 1}`, { cwd: `/repo/x${i}` }))
+      const r = rig(rows, { fence: false })
+      try {
+        expect(r.one('session', 'S1', 'worktree')).toBeNull()
+        const before = r.pool.stats.indexUpdates
+        let ops = 0
+        const saved = patchOps(() => {
+          ops += 1
+        })
+        // Gain: the one orphan seats; the B do not move.
+        r.push(issue('I1', { worktreePath: '/w/unscanned' }))
+        expect(r.one('session', 'S1', 'worktree')).toBe('/w/unscanned')
+        expect(r.many('worktree', '/w/unscanned', 'sessions')).toEqual(['S1'])
+        const gained = r.pool.stats.indexUpdates - before
+        // O(sessions under the path): one session plus its prefix index, not B.
+        expect(gained).toBeLessThan(50)
+        expect(ops).toBeLessThan(50)
+        r.check()
+        saved()
+      } finally {
+        r.dispose()
+      }
+    })
+
+    it('a whole-corpus re-scan plant fails the count', () => {
+      const ids: string[] = []
+      for (let i = 0; i < 500; i += 1) ids.push(`S${i}`)
+      let ops = 0
+      const saved = patchOps(() => {
+        ops += 1
+      })
+      try {
+        void new Set(ids)
+        expect(ops).toBeGreaterThan(100)
+      } finally {
+        saved()
+      }
+    })
+
+    /** Patch Set/Map/sort to count touches outside the engine. */
+    function patchOps(tick: () => void): () => void {
+      type Method = (this: unknown, ...args: unknown[]) => unknown
+      const targets: [object, string][] = [
+        [Set.prototype, 'add'],
+        [Set.prototype, 'delete'],
+        [Map.prototype, 'set'],
+        [Map.prototype, 'delete'],
+        [Array.prototype, 'sort'],
+      ]
+      const saved = targets.map(([proto, name]) => {
+        const original = (proto as Record<string, Method>)[name] as Method
+        ;(proto as Record<string, Method>)[name] = function (this: unknown, ...args: unknown[]) {
+          tick()
+          return original.apply(this, args)
+        }
+        return () => {
+          ;(proto as Record<string, Method>)[name] = original
+        }
+      })
+      return () => {
+        for (const restore of saved) restore()
+      }
+    }
   })
 })
 
