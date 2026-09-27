@@ -435,7 +435,7 @@ describe('the loader', () => {
     expect(r.handle.drainLoads()).toBe(0)
   })
 
-  it('counts a hydration as its row plus its visibility dependencies in the reads fence', () => {
+  it('counts a hydration as one read of that row in the reads fence', () => {
     const r = rig()
     const { pool } = r
     const closed = corpus.sliceIssues.find(isCold)!
@@ -443,17 +443,11 @@ describe('the loader', () => {
     r.reads.reset()
     r.fire()
     const stats = r.reads.stats()
-    // POD-4707: a hydration lands the row (one read) and decides its
-    // visibility on first touch: its member sessions (retained reads each
-    // once, by id without loading them) and its nest ancestors. Eager
-    // construction prepaid this cascade for every cold row at bootstrap;
-    // lazy construction pays it where the row is first touched, bounded by
-    // the row's own neighbourhood — never the corpus or the visible set.
-    // At 1x that is the row, its parent and its four member sessions.
-    expect(stats.rows).toBe(6)
-    expect(stats.byEntity).toEqual({ issue: 2, session: 4 })
-    expect(stats.sample[0]).toBe(`issue:${closed.id}`)
-    expect(stats.rows).toBeLessThan(pool.order().length)
+    // POD-4707: the hydrated row joins the closure as named, so no
+    // candidate evaluation re-reads it or its neighbourhood: one read.
+    expect(stats.rows).toBe(1)
+    expect(stats.byEntity).toEqual({ issue: 1 })
+    expect(stats.sample).toEqual([`issue:${closed.id}`])
   })
 
   it('closes the window on its own with the real timer', async () => {
