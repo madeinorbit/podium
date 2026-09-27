@@ -1,5 +1,23 @@
 # arms/mobx — notes
 
+## Mc4 MobX growth and coexistence (POD-4576) · 2026-09-27
+
+Baseline: the LAZY arm (POD-4705 landed: bootstrap 669.9 ms / 3.52x, heap
+60.75 MB / 2.69x, switch 570.5 ms / 2.60x; per-change counts byte-identical
+to eager). Addenda 1–3 stand on the lazy arm: heap per scale + by-constructor
+at 4x vs eager 85/161/311 MB; stage-move attribution (list.tsx items rebuild
+vs virtualizer getMeasurements vs GC) with a 4x CPU profile, fix in the idiom
+if one dominates; ill-conditioned slope flag (1x excess < 1 ms) with the
+budget NOT re-read; coexistence via the count harness.
+
+Plan: (1) growth counts first (`worklist/growth.test.tsx`: #1–#5 at 1x/2x/4x
+through `runFenceStep`, flat reads/commits/derivations). (2) browser growth
+matrix on flatblock (`~/podium-timing-4576`, lease `bench:flatblock`, MobX
+first, interleaved with control+noop, heap per scale from the same run).
+(3) coexistence (`worklist/coexist.test.tsx`: solo vs co-mounted heartbeat +
+click). Timing machine queue: POD-4707 holds `bench:flatblock`; queue with
+`--wait`, never touch flatblock's global bun.
+
 ## Round three: incremental grouping and the read-state lane (POD-4686) · 2026-09-25
 
 Code: `pool/worklist/groups.ts` (maintained buckets, per-group head rank,
