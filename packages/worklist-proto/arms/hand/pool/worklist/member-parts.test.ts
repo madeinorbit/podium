@@ -241,7 +241,11 @@ describe('member parts per edge are O(family) (POD-4683)', () => {
         const walked = countSessionIds(sessionIds, () => {
           for (const __s of tables.session.keys()) void __s
         })
-        expect(walked, `${scale}x table plant walks the corpus`).toBe(sessionIds.size)
+        // At least the corpus: creating the key iterator itself may visit
+        // session ids through the same patched iteration (counted too).
+        expect(walked, `${scale}x table plant walks the corpus`).toBeGreaterThanOrEqual(
+          sessionIds.size,
+        )
         expect(walked, `${scale}x table plant exceeds ${BOUND}`).toBeGreaterThan(BOUND)
       } finally {
         handle.dispose()
