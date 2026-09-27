@@ -17,16 +17,17 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { assertCommits, assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
+import { assertCommits, assertReads, mountArmForCounts } from '../../../../harness/src/count-harness'
 import {
   FENCE_SCENARIOS,
   openFenceFeeds,
   parityLocals,
   runFenceStep,
-} from '../../../harness/src/fence-scenarios'
-import { snapshotFromStore } from '../../../harness/src/oracle/index'
-import { writeResult } from '../../../harness/src/results'
-import { startScenarioEngine, type FixtureScale } from '../../../shared/src/scenarios'
+} from '../../../../harness/src/fence-scenarios'
+import { snapshotFromStore } from '../../../../harness/src/oracle/index'
+import { writeResult } from '../../../../harness/src/results'
+import { startScenarioEngine, type FixtureScale } from '../../../../shared/src/scenarios'
+import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { mobxPoolArm } from '../arm'
 import { MOBX_POOL_ALLOWANCES } from './known-gaps'
 
@@ -70,7 +71,6 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
               oracle,
               actual,
             )
-            const { diffSnapshots } = await import('../../../shared/src/gen/check')
             expect(
               diffSnapshots(actual, patched.snapshot),
               `${at}: beyond POD-4671's parity allowance (${result.parityDiff ?? ''})`,

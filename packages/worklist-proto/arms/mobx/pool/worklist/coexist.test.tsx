@@ -17,22 +17,25 @@
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
+  assertReads,
   mountArmForCounts,
   runCountScenario,
   type CountStats,
-} from '../../../harness/src/count-harness'
-import { openFenceFeeds, parityLocals, runFenceStep } from '../../../harness/src/fence-scenarios'
-import { FENCE_SCENARIOS } from '../../../harness/src/fence-scenarios'
-import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
-import { snapshotFromStore } from '../../../harness/src/oracle/index'
-import { writeResult } from '../../../harness/src/results'
-import type { SliceLocals } from '../../../shared/src/slice-types'
-import { fixedLocals } from '../../../shared/src/locals-source'
+} from '../../../../harness/src/count-harness'
+import { openFenceFeeds, parityLocals, runFenceStep } from '../../../../harness/src/fence-scenarios'
+import { FENCE_SCENARIOS } from '../../../../harness/src/fence-scenarios'
+import { legacyControlArmFor } from '../../../../harness/src/legacy-control/arm'
+import { snapshotFromStore } from '../../../../harness/src/oracle/index'
+import { writeResult } from '../../../../harness/src/results'
+import { diffSnapshots } from '../../../../shared/src/gen/check'
+import { createRowSource } from '../../../../shared/src/row-source'
+import type { SliceLocals } from '../../../../shared/src/slice-types'
+import { fixedLocals } from '../../../../shared/src/locals-source'
 import {
   startScenarioEngine,
   writeHeartbeat,
   writeSelectionClick,
-} from '../../../shared/src/scenarios'
+} from '../../../../shared/src/scenarios'
 import { mobxPoolArm } from '../arm'
 import { MOBX_POOL_ALLOWANCES } from './known-gaps'
 
@@ -52,7 +55,6 @@ async function soloArm(
     const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
     if (entry === undefined) throw new Error(`no fence scenario ${methodology}`)
     const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
-    const { assertReads } = await import('../../../harness/src/count-harness')
     assertReads(result, { readsPerChange: readsBudget })
     let allowance: string | null = null
     if (!result.parity) {
@@ -64,7 +66,6 @@ async function soloArm(
         oracle,
         actual,
       )
-      const { diffSnapshots } = await import('../../../shared/src/gen/check')
       expect(
         diffSnapshots(actual, patched.snapshot),
         `solo arm ${scenario}: beyond POD-4671's parity allowance`,
@@ -87,7 +88,6 @@ async function soloArm(
 
 async function soloControl(scenario: 'heartbeat' | 'click'): Promise<SoloCounts> {
   const ctx = await startScenarioEngine(1)
-  const { createRowSource } = await import('../../../shared/src/row-source')
   const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals: SliceLocals = {
     selectedIssueId: null,
@@ -131,8 +131,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
     }
     const coRun = async (scenario: 'heartbeat' | 'click'): Promise<void> => {
       const ctx = await startScenarioEngine(1)
-      const { createRowSource } = await import('../../../shared/src/row-source')
-      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+          const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
       const locals: SliceLocals = {
         selectedIssueId: null,
         coarseNow: ctx.engine.getSnapshot().coarseNow,
@@ -165,8 +164,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           oracle,
           armActual,
         )
-        const { diffSnapshots } = await import('../../../shared/src/gen/check')
-        expect(
+          expect(
           diffSnapshots(armActual, patched.snapshot),
           `${scenario}: arm parity beside the control`,
         ).toBeNull()
