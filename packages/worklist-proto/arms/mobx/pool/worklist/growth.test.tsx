@@ -106,6 +106,10 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
         ctx.engine.destroy()
       }
     }
+    writeResult('mobx-growth-mc4', {
+      issue: 'POD-4576',
+      cells: [...byScenario.values()].flat(),
+    })
     // Flatness: the same change reads and commits the same rows at every
     // scale. #2's budget is chain-depth-relative, so its recorded budget is
     // the scale-free claim there (O(chain), never O(corpus)).
@@ -132,9 +136,5 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
         ).toBeLessThanOrEqual(cell.readsBudget)
       }
     }
-    writeResult('mobx-growth-mc4', {
-      issue: 'POD-4576',
-      cells: [...byScenario.values()].flat(),
-    })
   }, 600_000)
 })
