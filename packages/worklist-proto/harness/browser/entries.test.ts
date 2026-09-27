@@ -47,4 +47,16 @@ describe('browser entries mount the round-three pools', () => {
       'the round-two arm, however it is spelled',
     ).toEqual([])
   })
+
+  it('hand web entry resolves to the pool arm, never the round-two arm', () => {
+    // By module, not by spelling: this is the page that mounted `handArm`
+    // (the round-two `HandStore`) while the matrix timed it as the
+    // round-three pool (dacdf9d98). Same graph assertion as the MobX entry.
+    const graph = moduleGraphOf(join(PACKAGE_DIR, 'harness/web/entries/hand.ts'))
+    expect(graph, 'the pool arm').toContain(join(PACKAGE_DIR, 'arms/hand/pool/arm.ts'))
+    expect(
+      graph.filter((file) => file === join(PACKAGE_DIR, 'arms/hand/arm.ts')),
+      'the round-two arm, however it is spelled',
+    ).toEqual([])
+  })
 })
