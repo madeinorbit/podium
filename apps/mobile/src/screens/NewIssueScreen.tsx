@@ -21,14 +21,18 @@ import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
-import { AUTO, issueAgentKind } from '../lib/agent-models'
+import { AUTO, issueAgentKind, issueDefaultAgentKind } from '../lib/agent-models'
 import { newTaskInput } from '../lib/new-task'
 import { color, font, radius, sans, space } from '../theme/theme'
 
 const PRIORITIES = [0, 1, 2, 3, 4]
+/**
+ * New-task launch default (POD-4737): the named default harness, replaced by
+ * the coding-role harness from settings once it loads (see the effect below).
+ */
 const DEFAULT_LAUNCH: LaunchConfiguration = {
   inheritAgent: true,
-  agentKind: 'claude-code',
+  agentKind: issueDefaultAgentKind(undefined),
   modelPick: AUTO,
   effort: AUTO,
   machineId: '',

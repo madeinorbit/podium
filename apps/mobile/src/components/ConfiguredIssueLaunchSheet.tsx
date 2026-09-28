@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useStoreSelector } from '../client/hooks'
 import { startConfiguredIssue } from '../lib/configured-issue-launch'
+import { issueDefaultAgentKind } from '../lib/agent-models'
 import {
   type LaunchConfiguration,
   type LaunchPlan,
@@ -16,8 +17,13 @@ import { BottomSheet } from './BottomSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 import { PressableScale } from './PressableScale'
 
+/**
+ * Sheet default before the issue's own configuration loads (POD-4737): the
+ * named default harness (the registry's first row), never a literal scattered
+ * in the app. `launchConfigurationForIssue` replaces it per issue.
+ */
 const DEFAULT_CONFIGURATION: LaunchConfiguration = {
-  agentKind: 'claude-code',
+  agentKind: issueDefaultAgentKind(undefined),
   modelPick: 'auto',
   effort: 'auto',
   machineId: '',

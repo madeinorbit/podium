@@ -16,6 +16,7 @@ import {
   type UsageBucketWire,
 } from '@podium/model'
 import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
+import { ISSUE_AGENT_KINDS, issueDefaultAgentKind } from '../lib/agent-models'
 
 /**
  * Fixture metadata for demo mode (`?demo=1` on web): realistic sessions and
@@ -35,11 +36,21 @@ export function demoEnabled(): boolean {
 const T0 = Date.now()
 const min = (n: number) => new Date(T0 - n * 60_000).toISOString()
 
+/**
+ * Demo harness variety without literals (POD-4737). Defaults read the named
+ * default (the registry's first row); the pools and the hibernation demo need
+ * distinct harnesses, taken by registry position — today codex (5h pool,
+ * history, hibernation session) plus claude-code (Weekly pool). Still two
+ * distinct harnesses if the registry ever reorders, and never a second
+ * hand-written harness list.
+ */
+const DEMO_POOL_HARNESSES = [ISSUE_AGENT_KINDS[1]!, ISSUE_AGENT_KINDS[0]!] as const
+
 function session(
   partial: Partial<SessionMetaInput> & { sessionId: SessionId; title: string },
 ): SessionMeta {
   return {
-    agentKind: 'claude-code',
+    agentKind: issueDefaultAgentKind(undefined),
     cwd: '/home/dev/src/podium',
     status: 'live',
     controllerId: null,
@@ -98,7 +109,7 @@ const DEMO_MISSION_SESSIONS: SessionMeta[] = [
     sessionId: asSessionId('demo-mission-hibernate-agent'),
     title: 'Load-pressure hibernation path',
     name: 'Load-pressure hibernation path',
-    agentKind: 'grok',
+    agentKind: DEMO_POOL_HARNESSES[0],
     issueId: 'demo-mission-hibernate',
     lastActiveAt: min(64),
     agentState: { phase: 'idle', since: min(64), nativeSubagentCount: 0, idle: { kind: 'done' } },
@@ -203,7 +214,7 @@ function proposal(
     worktreePath: null,
     branch: null,
     parentBranch: 'main',
-    defaultAgent: 'claude-code',
+    defaultAgent: issueDefaultAgentKind(undefined),
     defaultModel: 'auto',
     defaultEffort: 'auto',
     blockedByNotes: [],
@@ -420,7 +431,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     worktreePath: null,
     branch: 'issue/87-oauth-refresh',
     parentBranch: 'main',
-    defaultAgent: 'claude-code',
+    defaultAgent: issueDefaultAgentKind(undefined),
     defaultModel: 'auto',
     defaultEffort: 'auto',
     blockedByNotes: [],
@@ -474,7 +485,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     worktreePath: null,
     branch: 'issue/121-session-header',
     parentBranch: 'main',
-    defaultAgent: 'claude-code',
+    defaultAgent: issueDefaultAgentKind(undefined),
     defaultModel: 'auto',
     defaultEffort: 'auto',
     blockedByNotes: [],
@@ -510,7 +521,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     worktreePath: null,
     branch: null,
     parentBranch: 'main',
-    defaultAgent: 'claude-code',
+    defaultAgent: issueDefaultAgentKind(undefined),
     defaultModel: 'auto',
     defaultEffort: 'auto',
     blockedByNotes: [],
@@ -741,14 +752,14 @@ export const DEMO_QUOTA: MachineQuotaWire[] = [
     hostname: 'studio',
     agents: [
       {
-        agent: 'codex',
+        agent: DEMO_POOL_HARNESSES[0],
         status: 'ok',
         account: { email: 'dev@example.com', plan: 'Pro' },
         windows: [quotaWindow('5h', '5-hour', 38, 199, 300)],
         fetchedAt: min(0),
       },
       {
-        agent: 'claude-code',
+        agent: DEMO_POOL_HARNESSES[1],
         status: 'ok',
         account: { email: 'dev@example.com', plan: 'Max' },
         windows: [quotaWindow('weekly', 'Weekly', 19, 3_100, 10_080)],
@@ -763,8 +774,8 @@ export const DEMO_QUOTA_HISTORY: QuotaWindowHistoryWire[] = Array.from(
   (_, index) => {
     const end = T0 - (5 - index) * 7 * 24 * 60 * 60_000
     return {
-      accountKey: 'codex::dev@example.com',
-      agent: 'codex',
+      accountKey: `${DEMO_POOL_HARNESSES[0]}::dev@example.com`,
+      agent: DEMO_POOL_HARNESSES[0],
       windowKey: 'weekly',
       label: 'Weekly',
       plan: 'Pro',
