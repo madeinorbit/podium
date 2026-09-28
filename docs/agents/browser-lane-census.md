@@ -63,6 +63,93 @@ The config (`tests/e2e/playwright.config.ts`) is used **almost unchanged** — i
 
 <!-- CENSUS RESULTS -->
 
+## First census + triage (2026-09-26 run, triaged 2026-09-28 under POD-4701)
+
+First full run since POD-4664 made the suites loadable: dev/mw c81dc5ea2 on
+flatblock, 131 suites / 718 tests listed → **39 passed, ~254 failed, 430
+skipped** (2.1 h; per-test marks by project: chromium-desktop 28 pass / 148
+fail, chromium-pixel 6 / 59, webkit 5 / 47). No baseline exists — before
+POD-4664 no suite could load.
+
+### Before table (flatblock 2026-09-26)
+
+| suite | pass | fail | skip |
+|---|---|---|---|
+| update-dialog-reload-fix.browser.e2e.ts | 0 | 15 | 0 |
+| issues.browser.e2e.ts | 1 | 10 | 22 |
+| settings-surfaces.browser.e2e.ts | 0 | 9 | 27 |
+| issue-reference.browser.e2e.ts | 0 | 7 | 2 |
+| attachment-driver-contract.browser.e2e.ts | 0 | 6 | 0 |
+| mobile-shell-redesign.browser.e2e.ts | 0 | 6 | 3 |
+| motion-primitives.browser.e2e.ts | 3 | 6 | 0 |
+| settings.browser.e2e.ts | 0 | 6 | 12 |
+| transcript-loading.browser.e2e.ts | 0 | 6 | 12 |
+| ux-batch.browser.e2e.ts | 0 | 6 | 12 |
+| expo-mobile-launch-continuity.browser.e2e.ts | 0 | 5 | 10 |
+| reveal-refit.browser.e2e.ts | 1 | 5 | 0 |
+| clickable-files.browser.e2e.ts | 1 | 4 | 10 |
+| interaction-feedback.browser.e2e.ts | 1 | 4 | 1 |
+| mobile-scroll.browser.e2e.ts | 0 | 4 | 2 |
+| ui-state-persistence.browser.e2e.ts | 0 | 4 | 8 |
+| ux-batch-mobile.browser.e2e.ts | 0 | 4 | 2 |
+| clipboard.browser.e2e.ts | 0 | 3 | 6 |
+| closed-issue-fold.browser.e2e.ts | 0 | 3 | 6 |
+| daemon-restart.browser.e2e.ts | 0 | 3 | 0 |
+| grok-transcript.browser.e2e.ts | 0 | 3 | 0 |
+| harness-scoped-session-defaults.browser.e2e.ts | 0 | 3 | 0 |
+| native-pane.browser.e2e.ts | 0 | 3 | 6 |
+| native-view-latency.browser.e2e.ts | 0 | 3 | 0 |
+| offer-layout.browser.e2e.ts | 0 | 3 | 0 |
+| quarter-size.browser.e2e.ts | 0 | 3 | 0 |
+| reattach.browser.e2e.ts | 0 | 3 | 0 |
+| reflow.browser.e2e.ts | 0 | 3 | 0 |
+| server-restart.browser.e2e.ts | 0 | 3 | 0 |
+| snooze.browser.e2e.ts | 0 | 3 | 0 |
+| transport-compression.browser.e2e.ts | 0 | 3 | 0 |
+| unified-sidebar.browser.e2e.ts | 0 | 3 | 6 |
+| warm-panel-residency.browser.e2e.ts | 0 | 3 | 0 |
+| (all remaining suites) | ≤2 | ≤2 | — |
+| TOTAL (131 suites, 718 listed) | 39 | ~254 | 430 |
+
+### Triage verdicts (largest suites; each reproduced locally on ludovico)
+
+- OUTDATED, deleted: `update-dialog-reload-fix` — `UpdateDialog`
+  (`data-testid update-dialog`) deleted by POD-2102 (daf066b4a); behaviour
+  unit-guarded by `UpdatePanel.test.tsx` / `operation-view.test.ts`.
+- OUTDATED, rewritten: `settings-surfaces` — root locator `region[Settings]`
+  died with POD-365 (2641b5c2e, AppSheet `role=dialog`); the three
+  visibility-class banner tests pinned banners dropped by POD-407 (57c4ad880).
+  Secrets-leak + telegram describes kept (live testids). Verified locally:
+  6 pass / 0 fail (chromium-desktop; 3 member-arm skips).
+- OUTDATED, rewritten: `settings` — `settings.set` blob write retired
+  (POD-420 derived surface + POD-1213); seeds now use
+  `updatePersonal`/`updateInstance`; `region` → `dialog`; Grok test scoped to
+  the first Model button (subagent picker added since); background-LLM labels
+  follow POD-4475 (`/^Codex/` + suffixes). Verified locally: 5 pass / 0 fail
+  (1 skip: needs native accounts).
+- OUTDATED, deleted 2 tests: `ux-batch` #8 (home command center deleted by
+  POD-991, 08dea3214) and #18 (session-header Archive removed by the
+  session-verbs rename, 9bd36349a). Remaining #13 / #16 / #17 still red —
+  see product note below.
+- TEST BUG, fixed: `issues` STAGES listed a `Verifying` column the board never
+  had (`ISSUE_BOARD_STAGES` has six); dropped the phantom seventh.
+- PRODUCT BUG, kept red: 8 `issues` tests — the New Task button
+  (`issues-new-task`) is covered by the `header-host-indicators` well
+  (pointer-events intercept, both hosts). Filed as POD-4718.
+- PRODUCT BUG, kept red: `transcript-loading` (a) — a running session with a
+  bound on-disk transcript renders zero `.chat-md` rows (both hosts). Filed
+  as POD-4719.
+- ENVIRONMENT: flatblock-only harness timeouts (e.g. all of `ux-batch` died in
+  `gotoWorkspace` on flatblock; locally the same run gets past setup and 2
+  tests pass) — the 2.1 h loaded-host run overstates the failure count.
+  Ludovico is currently too loaded for the lane's mobile-export build
+  (exit 137), so `ux-batch` / `issues` re-runs after the deletions are
+  pending a quieter host or the next flatblock lease.
+
+Also stale in the same way (not yet touched): `region[Settings]` locators in
+`login-password-ux`, `experimental-boundaries`, `settings-telegram`,
+`machine-transfer`.
+
 ## Quarantine
 
 Quarantine is for suites that **cannot** run — a real agent CLI, machine-specific
