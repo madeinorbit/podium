@@ -1939,6 +1939,30 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     }
   })
 
+  it('stays quiet in dev-harness and perf scaffolding, but still scans near-miss product paths (POD-4737 D4)', () => {
+    const literal = `export const h = 'codex'\n`
+    for (const file of [
+      'apps/web/harness/cost-entry.tsx',
+      'apps/mobile/harness/agent-mark-entry.tsx',
+      'apps/web/src/perf/large-state.frontend-perf.tsx',
+    ]) {
+      expect(checkHarnessVendorLiterals(file, literal, LITERALS), file).toEqual([])
+    }
+    // Same names in product locations: the rule is exact directory prefixes
+    // with the trailing slash, so these still scan.
+    for (const file of [
+      'apps/web/src/harness-labels.ts',
+      'apps/web/src/performance/tune.ts',
+      'apps/mobile/harnessful/x.ts',
+      'apps/web/harnessish/x.ts',
+    ]) {
+      expect(
+        checkHarnessVendorLiterals(file, literal, LITERALS).map((v) => v.rule),
+        file,
+      ).toEqual([HARNESS_VENDOR_RULE])
+    }
+  })
+
   it('counts every occurrence — a second literal in a listed file still fails', () => {
     const vs = checkHarnessVendorLiterals(
       'apps/server/src/x.ts',

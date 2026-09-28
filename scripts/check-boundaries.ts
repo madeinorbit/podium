@@ -571,7 +571,31 @@ function isHarnessVendorExcluded(file: string): boolean {
   if (file.includes('/migrations/')) return true
   if (file.includes('__fixtures__') || file.endsWith('.fixtures.ts')) return true
   if (file.includes('/e2e/') || file.includes('.e2e.')) return true
+  if (isHarnessFixturePath(file)) return true
   return false
+}
+
+/**
+ * Dev-harness entries and perf scaffolding (POD-4737 D4) — demonstrably
+ * fixtures, never shipped product: `apps/web/harness/` and
+ * `apps/mobile/harness/` hold only `*-entry` mounts, stores, stubs and shoot
+ * scripts for the screenshot/dev harnesses, and `apps/web/src/perf/` holds
+ * only `*.frontend-perf` / `*.probe` harnesses plus fixtures and tests.
+ *
+ * NARROW ON PURPOSE: exact directory prefixes with the trailing slash, so a
+ * product file with a similar name (`apps/web/src/harness-labels.ts`, a
+ * `perf/` file outside the perf dir, a sibling `harnessful/` dir) is still
+ * scanned — pinned by the test below. A product surface must never move into
+ * one of these dirs to escape the lint; that move is the violation, and
+ * review owns it. Test-support *directories* need no rule: no allow-listed
+ * file lives under one (checked when this landed).
+ */
+export function isHarnessFixturePath(file: string): boolean {
+  return (
+    file.startsWith('apps/web/harness/') ||
+    file.startsWith('apps/mobile/harness/') ||
+    file.startsWith('apps/web/src/perf/')
+  )
 }
 
 /**
