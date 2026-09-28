@@ -129,6 +129,75 @@ async function settle(page: import('@playwright/test').Page): Promise<void> {
   }
 }
 
+/**
+ * ONE RESIZE PER REVEAL (POD-4721).
+ *
+ * The first switch to the CLI measured the box, asked, and then asked AGAIN
+ * ~0.4-1.3 s later one or two rows smaller: the prompt chrome under the PTY
+ * (a 1 px rule, plus the Claude Code hint row) was mounted only once the
+ * terminal went `ready`, so it took its height out of the box AFTER the first
+ * measurement. Every applied change blanks the xterm and SIGWINCHes the agent,
+ * so the second one cost a second blank + redraw for nothing.
+ *
+ * 1400x898 puts the box on a row boundary, so even the rule alone (the 1 px
+ * this was first seen as) moves the row count.
+ *
+ * FIRST IN THE FILE ON PURPOSE: the fixture leaves the server at W = 132x43,
+ * which no box here measures to, so the reveal's single ask is a real change
+ * and "exactly one apply" is a count, not a vacuous zero. The precondition
+ * below refuses to run against a session some earlier test already moved.
+ */
+test('a cold reveal at a row boundary resizes exactly once', async ({ page, request }) => {
+  test.setTimeout(240_000)
+  test.fail(
+    process.env.PODIUM_E2E_TERMINAL_SIZING !== '1',
+    'needs PODIUM_E2E_TERMINAL_SIZING=1 on the harness server',
+  )
+  await page.setViewportSize({ width: 1400, height: 898 })
+  await page.addInitScript(() => localStorage.setItem('podium.panelModeDefault', 'chat'))
+  await page.goto(`/?server=${RELAY}&e2e=1`)
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 60_000,
+  })
+  const row = await serverRow(request, 'Sizing panel subject')
+  expect(row?.geometry, 'the server still holds the fixture grid').toEqual(W)
+  await page
+    .getByRole('button', { name: /Terminal sizing subject/ })
+    .first()
+    .click()
+  await expect(page.getByTestId('agent-panel-header')).toContainText('Sizing panel subject', {
+    timeout: 60_000,
+  })
+  const chat = page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true')
+  const cli = page.getByRole('tab', { name: 'CLI', exact: true }).locator('visible=true')
+  await expect(cli).toBeVisible({ timeout: 60_000 })
+  if ((await chat.getAttribute('aria-selected')) !== 'true') await chat.click()
+  await expect(chat).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.xterm-screen')).toHaveCount(0)
+
+  await page.evaluate(() => globalThis.__podiumTerminalDiagnostics?.clear())
+  await cli.click()
+  await expect(page.locator('.xterm-screen')).toHaveCount(1, { timeout: 60_000 })
+  // The late resize came after `ready`, so wait for it, and then hold an
+  // observation window as long as the slowest late resize seen (1.3 s on the
+  // Mac) with margin: an ABSENCE needs a window to be observed in.
+  await expect(page.getByTestId('terminal-startup-overlay')).toHaveCount(0, { timeout: 60_000 })
+  await page.waitForTimeout(3_000)
+  await settle(page)
+
+  const entries = await trace(page)
+  const asks = entries
+    .filter((e) => e.event === 'ask:sent')
+    .map((e) => `${e.data.reason as string} ${JSON.stringify(e.data.geometry)}`)
+  const applied = entries.filter((e) => e.event === 'geometry:applied')
+  const story = `asks: ${asks.join(' → ')}; applied: ${applied.length}`
+  expect(asks, `the reveal asks once, from a box that is already final (${story})`).toHaveLength(1)
+  expect(applied, `the buffer moves once (${story})`).toHaveLength(1)
+  expect(await currentGrid(page), 'and it lands where it asked').toEqual(
+    entries.find((e) => e.event === 'ask:sent')?.data.geometry,
+  )
+})
+
 test('a chat → CLI switch never paints the default grid, cold or warm', async ({
   page,
   request,
