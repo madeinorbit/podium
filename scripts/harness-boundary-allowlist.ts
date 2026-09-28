@@ -191,10 +191,17 @@ export interface HarnessBoundaryAllowlistEntry {
  *  harnessServerAlternatives, probing each resolved binary with its family
  *  probe. Deleted the emptied inventory (1) + session (1) entries: leak
  *  154 → 152, total 189 → 187.
+ *  POD-4737 D3 (harness-internal): discovery providers moved into
+ *  adapters/<h>/discovery.ts, opencode auth/cli/paths into
+ *  adapters/opencode/, model-probe argv+parsers into
+ *  adapters/<h>/model-probe.ts, scanner reads providers off the registry,
+ *  session title reads the adapter descriptor label. Deleted twelve
+ *  emptied entries (discovery 6×3, scanner 1, model-probe 5, opencode 9,
+ *  session-title 1): leak 152 → 118, total 187 → 153.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 152
+export const HARNESS_BASELINE_LEAK_COUNT = 118
 export const HARNESS_BASELINE_POLICY_COUNT = 35
-export const HARNESS_BASELINE_TOTAL = 187
+export const HARNESS_BASELINE_TOTAL = 153
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'homonym: read-command cursor arg (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
@@ -229,19 +236,7 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/harness/src/driver/headless-interrupt.ts', count: 2, category: 'policy', reason: 'driver FAMILY names (codex/opencode/claude-sdk), not harness names — stays', policy: 'packages/harness/src/driver/headless-interrupt.ts' },
   { file: 'packages/client-core/src/replica/replica.ts', count: 2, category: 'leak', reason: 'homonym: TanStack cursor key + family member (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
   { file: 'packages/harness/src/browser.ts', count: 2, category: 'policy', reason: 'browser-safe no-tools table + bundled composer rules stay in browser entry; tested against manifests', policy: 'packages/harness/src/browser.ts' },
-  { file: 'packages/harness/src/discovery/providers/claude-code.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/discovery/providers/codex.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/discovery/providers/cursor.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/discovery/providers/grok.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/discovery/providers/opencode.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/discovery/providers/pi.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/store/scanner.ts', count: 1, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/model-probe.ts', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/harness/src/opencode/auth.ts', count: 1, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
-  { file: 'packages/harness/src/opencode/cli.ts', count: 6, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
-  { file: 'packages/harness/src/opencode/db.ts', count: 2, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
   { file: 'packages/harness/src/registry.ts', count: 7, category: 'policy', reason: 'registry is the allowed closed-set home; lookups degrade for unknown harnesses', policy: 'packages/harness/src/registry.ts' },
-  { file: 'packages/harness/src/session-title.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/janitor/src/janitor.ts', count: 1, category: 'leak', reason: 'homonym: steward_state cursor key in SQL, not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
   { file: 'packages/runtime/src/harness-defaults.ts', count: 6, category: 'policy', reason: 'superagent harness order + shipwright eval harness choice are Podium policy, stay; must not move into an adapter (spec §5)', policy: 'packages/runtime/src/harness-defaults.ts' },
   { file: 'packages/runtime/src/settings.ts', count: 5, category: 'leak', reason: 'homonym: Codex ApiProvider id + provider-selected account (provider collision class), not harness branching; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },

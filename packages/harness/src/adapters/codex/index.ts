@@ -14,7 +14,7 @@ import {
   readIdentityFromAuthContents,
 } from './auth-identity.js'
 import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
-import { createCodexConversationProvider } from '../../discovery/providers/codex.js'
+import { createCodexConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,

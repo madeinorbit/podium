@@ -22,7 +22,7 @@ import {
 import {
   isOpencodeCliAvailable,
   resolveOpencodeBin,
-} from '../../../packages/harness/src/opencode/cli.js'
+} from '../../../packages/harness/src/adapters/opencode/cli.js'
 import { headlessTurnEnv } from './control/session-env.js'
 import { createSessionEngineScope } from './session/engines.js'
 import { testHarnessSnapshot } from './test-support/harness-snapshot.js'

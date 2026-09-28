@@ -1,14 +1,14 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { opencodePartToItems } from '../../adapters/opencode/transcript.js'
+import { opencodePartToItems } from './transcript.js'
+import { opencodeDataRoot } from './paths.js'
 import {
   listOpencodeSessions,
   loadOpencodeMessageParts,
-  opencodeDataRoot,
   openOpencodeDb,
   openOpencodeDbAt,
 } from '../../opencode/db.js'
-import { pathExists } from '../paths.js'
+import { pathExists } from '../../discovery/paths.js'
 import type {
   AgentConversation,
   AgentConversationDiagnostic,
@@ -20,8 +20,8 @@ import type {
   ProviderScanResult,
   ProviderSummaryContext,
   ProviderSummaryResult,
-} from '../types.js'
-import { AgentConversationLoadError } from '../types.js'
+} from '../../discovery/types.js'
+import { AgentConversationLoadError } from '../../discovery/types.js'
 
 const providerId = 'opencode-sessions'
 

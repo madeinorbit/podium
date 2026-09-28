@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
-import { opencodeDbPathForSession } from '../../opencode/db.js'
+import { opencodeDbPathForSession } from './paths.js'
 import {
   encodeCursor,
   type OpencodeMessagePartRow,

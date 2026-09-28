@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isOpencodeCliAvailable, resolveOpencodeBin, validateOpencodeCliHelp } from './cli.js'
+import { isOpencodeCliAvailable, resolveOpencodeBin, validateOpencodeCliHelp } from '../adapters/opencode/cli.js'
 
 // Real-binary detection tests: self-skip when opencode isn't installed (clean CI
 // runners), mirroring cursor/cli.test.ts. The skip condition is the code under

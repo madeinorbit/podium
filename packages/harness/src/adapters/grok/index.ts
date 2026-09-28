@@ -5,7 +5,7 @@ import { grokStateProvider, observeGrokState } from './state-provider.js'
 import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
 import { locateGrokChatHistory } from './state-locate.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { createGrokConversationProvider } from '../../discovery/providers/grok.js'
+import { createGrokConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanCodexTitle } from './codex.js'
+import { cleanCodexTitle } from './discovery.js'
 
 describe('cleanCodexTitle', () => {
   it('keeps a short prompt as-is and collapses whitespace', () => {

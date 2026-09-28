@@ -9,8 +9,8 @@ import {
   parseJsonLines,
   readJsonLinesHead,
   stringField,
-} from '../jsonl.js'
-import { canonicalPath, listFilesRecursive, pathExists } from '../paths.js'
+} from '../../discovery/jsonl.js'
+import { canonicalPath, listFilesRecursive, pathExists } from '../../discovery/paths.js'
 import type {
   AgentConversation,
   AgentConversationDiagnostic,
@@ -23,13 +23,13 @@ import type {
   ProviderScanResult,
   ProviderSummaryContext,
   ProviderSummaryResult,
-} from '../types.js'
-import { AgentConversationLoadError } from '../types.js'
+} from '../../discovery/types.js'
+import { AgentConversationLoadError } from '../../discovery/types.js'
 import {
   type CodexStateMetadataResult,
   type CodexThreadMetadata,
   createTimedCodexStateMetadataReader,
-} from './codex-state.js'
+} from '../../discovery/providers/codex-state.js'
 
 const log = createLogger('harness:discovery')
 const providerId = 'codex-jsonl'

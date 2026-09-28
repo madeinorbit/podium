@@ -28,7 +28,7 @@ import {
   cleanCodexTitle,
   codexPromptTitle,
   isInteractiveCodexSource,
-} from '../../discovery/providers/codex.js'
+} from './discovery.js'
 import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
 import { LineDecoder } from '../../jsonl-stream.js'
 import { fileMtimeIso } from '../../agent-state/boot-time.js'
