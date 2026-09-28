@@ -761,7 +761,7 @@ describe('ChatView composer', () => {
 
     const failed = container.querySelector('[data-testid="dead-lettered-chat-message"]')
     expect(failed?.textContent).toContain('please try this again')
-    expect(failed?.textContent).toContain('not delivered · session never became ready')
+    expect(failed?.textContent).toContain('not delivered · agent not accepting input')
     expect(container.textContent).not.toContain('do not show this here')
     expect(container.textContent).not.toContain('already delivered')
     expect(container.textContent).toContain('delivery later failed')

@@ -1213,6 +1213,27 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
     expect(notices[0]!.body).toContain('delivery failed')
     expect(notices[0]!.body).not.toContain('session no longer exists')
   })
+
+  it('[POD-4775] a daemon "agent not accepting input" failure reads as exactly that', async () => {
+    // The daemon's stuck-composer failure is stamped never-live by
+    // QueuedMessageApply. The sender must read that the agent was not
+    // accepting input — never "target was gone", never a delivery deadline.
+    const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
+    const targetSession = session({ sessionId: asSessionId('s1'), cwd: '/wt/a' })
+    const { svc, store } = await harness([senderSession, targetSession])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'never typed' },
+    )
+    await store.messages.markDeadLetter(r.message.id, '2026-09-13T18:00:00.000Z', 'never-live')
+    await svc.notifyQueuedInputRejected(r.message.id, 'agent not accepting input')
+    const notices = (await store.messages
+      .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('the agent was not accepting input')
+    expect(notices[0]!.body).not.toMatch(/target (was )?gone|deadline|typed but/)
+  })
 })
 
 describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {

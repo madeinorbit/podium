@@ -128,6 +128,8 @@ describe('durable row delivery', () => {
       rowId: 'one',
       outcome: 'failed',
       reason: 'delivery could not be confirmed; check the transcript before retrying',
+      // May have been typed: the server records it `unknown` (POD-4775).
+      cause: 'unconfirmed',
     })
   })
   it('never retypes an unconfirmed creation prompt', async () => {
@@ -139,7 +141,8 @@ describe('durable row delivery', () => {
     await vi.advanceTimersByTimeAsync(60_000)
     expect(f.send).toHaveBeenCalledTimes(1)
     expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed',
-      reason: 'the creation prompt was not confirmed; it will not be typed again automatically' }))
+      reason: 'the creation prompt was not confirmed; it will not be typed again automatically',
+      cause: 'unconfirmed' }))
   })
 
   it('imports attempted rows as recoverable ambiguity, without a second turn', async () => {
@@ -149,7 +152,9 @@ describe('durable row delivery', () => {
       { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(f.send).not.toHaveBeenCalled()
-    expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'old', outcome: 'failed' }))
+    expect(f.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ rowId: 'old', outcome: 'failed', cause: 'unconfirmed' }),
+    )
   })
 
   it('replays acceptance after a lost receipt without submitting again', async () => {
@@ -257,6 +262,8 @@ describe('durable row delivery', () => {
         rowId: phase,
         outcome: 'failed',
         reason: 'agent not accepting input',
+        // Never typed: the server fails it as not accepting input (POD-4775).
+        cause: 'not-accepting-input',
       }))
     })
   }
@@ -274,6 +281,7 @@ describe('durable row delivery', () => {
       rowId: 'starting',
       outcome: 'failed',
       reason: 'agent not accepting input',
+      cause: 'not-accepting-input',
     }))
   })
 
@@ -297,7 +305,9 @@ describe('durable row delivery', () => {
     const cancel = f.handle.cancelDelivery!('ambiguous')
     finish({ outcome: 'unverified' } as never)
     expect(await cancel).toMatchObject({ reason: 'busy' })
-    expect(f.emit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ outcome: 'failed' }))
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }),
+    )
   })
 
   // POD-4700: a daemon-held direct send answers `queued` AT ONCE — the reply

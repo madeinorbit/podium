@@ -71,7 +71,7 @@ describe('status + delivery line', () => {
         deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredReason: 'never-live',
       }),
-    ).toBe('not delivered · session never became ready')
+    ).toBe('not delivered · agent not accepting input')
     expect(
       deliveryLine({
         ...base,

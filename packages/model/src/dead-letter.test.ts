@@ -16,12 +16,22 @@ describe('shared dead-letter wording [POD-4704]', () => {
     expect(deadLetterSenderGloss(undefined)).toContain('target was gone')
   })
 
-  it('keeps the drain arms worded as before', () => {
-    expect(deadLetterDeliveryLine('never-live')).toBe(
-      'not delivered · session never became ready',
-    )
+  it('words never-live as the agent not accepting input, never a deadline [POD-4775]', () => {
+    expect(deadLetterDeliveryLine('never-live')).toBe('not delivered · agent not accepting input')
+    expect(deadLetterSenderGloss('never-live')).toContain('the agent was not accepting input')
+    expect(deadLetterSenderGloss('never-live')).not.toMatch(/deadline|target (was )?gone/)
+  })
+
+  it('never claims a failed row was typed [POD-4775]', () => {
+    // Typed-but-unproven is `unknown` now, never failed, so no failed gloss
+    // may say it was typed.
+    for (const cause of ['never-live', 'teardown', 'delivery-failed', null]) {
+      expect(deadLetterSenderGloss(cause)).not.toMatch(/typed but/)
+    }
+  })
+
+  it('keeps teardown worded as before', () => {
     expect(deadLetterDeliveryLine('teardown')).toBe('not delivered · session torn down')
-    expect(deadLetterSenderGloss('never-live')).toContain('never became ready')
     expect(deadLetterSenderGloss('teardown')).toContain('torn down')
   })
 })

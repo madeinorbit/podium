@@ -122,4 +122,34 @@ describe('reject stamps a cause for injected-but-unconfirmed rows [POD-4704]', (
     await apply.reject('m2', 'session no longer exists')
     expect(deadLetters).toEqual([{ id: 'm2', at: '2026-09-07T00:00:00Z', cause: undefined }])
   })
+
+  it('keeps the cause the daemon named: not accepting input is never-live [POD-4775]', async () => {
+    const { apply, deadLetters } = rejectHarness({
+      id: 'm3',
+      deliveryStatus: 'dispatched',
+      injectedAt: '2026-09-07T00:00:00Z',
+    })
+    await apply.reject('m3', 'agent not accepting input', 'never-live')
+    expect(deadLetters).toEqual([{ id: 'm3', at: '2026-09-07T00:00:00Z', cause: 'never-live' }])
+  })
+})
+
+describe('authorize lets an unknown row be forwarded again as a recovery [POD-4775]', () => {
+  const authorizing = (deliveryStatus: string) =>
+    new QueuedMessageApply({
+      ...({} as ConstructorParameters<typeof QueuedMessageApply>[0]),
+      messages: {
+        getMessage: async () => ({ id: 'm1', deliveryStatus }),
+      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['messages'],
+      authorize: () => ({ ok: true }),
+    })
+
+  it('admits an unknown row: its next forward is a recovery the daemon answers by id', async () => {
+    expect(await authorizing('unknown').authorize('m1')).toEqual({ ok: true })
+  })
+
+  it('still refuses a row that is already typed or ended', async () => {
+    expect(await authorizing('typed').authorize('m1')).toEqual({ ok: false, reason: 'message is typed' })
+    expect(await authorizing('failed').authorize('m1')).toEqual({ ok: false, reason: 'message is failed' })
+  })
 })
