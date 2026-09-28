@@ -44,7 +44,7 @@
  *   bun --conditions=@podium/source tests/e2e/daemon-process.ts <config.json>
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { addSink, createConsoleSink } from '@podium/logger'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import type { DaemonOptions } from '../../apps/daemon/src/daemon-options'
@@ -52,7 +52,14 @@ import type { DaemonOptions } from '../../apps/daemon/src/daemon-options'
 /** Everything `DaemonOptions` holds that crosses a process boundary as JSON. */
 export type SerializableDaemonOptions = Omit<
   DaemonOptions,
-  'localLink' | 'onBlocked' | 'launch' | 'workerClient' | 'reconnectTimers' | 'restartAfterUpdate' | 'restartAfterTransfer' | 'retireAfterTransfer'
+  | 'localLink'
+  | 'onBlocked'
+  | 'launch'
+  | 'workerClient'
+  | 'reconnectTimers'
+  | 'restartAfterUpdate'
+  | 'restartAfterTransfer'
+  | 'retireAfterTransfer'
 >
 
 export interface DaemonProcessConfig {
@@ -93,7 +100,10 @@ const config = JSON.parse(readFileSync(configPath, 'utf8')) as DaemonProcessConf
 addSink(createConsoleSink())
 
 const daemon = await startDaemon(config.options as DaemonOptions)
-writeFileSync(config.readyFile, String(process.pid), { mode: 0o600 })
+// Atomically: the parent polls for the marker's EXISTENCE and then reads it,
+// and a marker seen between create and write reads as an empty pid.
+writeFileSync(`${config.readyFile}.tmp`, String(process.pid), { mode: 0o600 })
+renameSync(`${config.readyFile}.tmp`, config.readyFile)
 
 const stop = (): void => {
   // `reapSessions` is omitted, not passed as false, so this path stays whatever

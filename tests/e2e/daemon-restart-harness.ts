@@ -27,7 +27,7 @@
  * makes that guarantee structural: {@link restart} re-reads the same file.
  */
 
-import { type ChildProcess, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -121,9 +121,40 @@ export async function startDaemonProcess(
   const readyFile = join(input.dir, 'daemon-process.ready')
   const config: DaemonProcessConfig = { options: input.options, readyFile }
   writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 })
+  return await startEntryProcess({
+    what: 'daemon',
+    entry: ENTRY,
+    configPath,
+    readyFile,
+    ...(input.env ? { env: input.env } : {}),
+    ...(input.readyTimeoutMs !== undefined ? { readyTimeoutMs: input.readyTimeoutMs } : {}),
+  })
+}
 
+export interface StartEntryProcessInput {
+  /** Names the role in every error, so a failed wait says WHICH process. */
+  what: string
+  /** A standalone entry that takes `<config.json>` on argv and writes its pid
+   *  to `readyFile` once it is up. */
+  entry: string
+  configPath: string
+  readyFile: string
+  env?: Readonly<Record<string, string>>
+  readyTimeoutMs?: number
+}
+
+/**
+ * The crash/stop/restart handle, for any role process built like
+ * `daemon-process.ts`: config file on argv, pid in a ready marker. The server
+ * side of the delivery-outage lane (`delivery/server-process.ts`) is the second
+ * user; the semantics — SIGKILL means SIGKILL, restart refuses a live pid —
+ * are the same for both, so they live here once.
+ */
+export async function startEntryProcess(
+  input: StartEntryProcessInput,
+): Promise<DaemonProcessHandle> {
+  const { configPath, readyFile, what } = input
   const readyTimeoutMs = input.readyTimeoutMs ?? 60_000
-  let child: ChildProcess | undefined
   let pid = 0
   let captured = ''
 
@@ -148,7 +179,7 @@ export async function startDaemonProcess(
       // The same conditions every other standalone e2e entry runs under: the
       // workspace packages resolve to THIS checkout's source rather than to a
       // built dist that may be stale or absent.
-      ['--conditions=@podium/source', ENTRY, configPath],
+      ['--conditions=@podium/source', input.entry, configPath],
       {
         env: { ...process.env, ...input.env },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -159,7 +190,6 @@ export async function startDaemonProcess(
         detached: false,
       },
     )
-    child = spawned
     const capture = (chunk: Buffer): void => {
       // Generous, because this is a whole process's log and the useful line is
       // often well before the newest one. Trimmed at the point of USE
@@ -178,13 +208,13 @@ export async function startDaemonProcess(
     while (!existsSync(readyFile)) {
       if (exited !== null) {
         throw new Error(
-          `daemon process exited with ${exited} before becoming ready${captured ? `: ${captured.trim()}` : ''}`,
+          `${what} process exited with ${exited} before becoming ready${captured ? `: ${captured.trim()}` : ''}`,
         )
       }
       if (Date.now() > deadline) {
         spawned.kill('SIGKILL')
         throw new Error(
-          `daemon process did not become ready within ${readyTimeoutMs}ms${captured ? `: ${captured.trim()}` : ''}`,
+          `${what} process did not become ready within ${readyTimeoutMs}ms${captured ? `: ${captured.trim()}` : ''}`,
         )
       }
       await sleep(READY_POLL_MS)
@@ -194,7 +224,7 @@ export async function startDaemonProcess(
     // wrapper ever re-execs in between.
     pid = Number.parseInt(readFileSync(readyFile, 'utf8').trim(), 10)
     if (!Number.isSafeInteger(pid) || pid <= 1) {
-      throw new Error(`daemon process wrote an unusable pid: ${readFileSync(readyFile, 'utf8')}`)
+      throw new Error(`${what} process wrote an unusable pid: ${readFileSync(readyFile, 'utf8')}`)
     }
   }
 
@@ -202,7 +232,7 @@ export async function startDaemonProcess(
     const deadline = Date.now() + timeoutMs
     while (processIsAlive(signalled)) {
       if (Date.now() > deadline) {
-        throw new Error(`daemon pid ${signalled} was still alive ${timeoutMs}ms after the signal`)
+        throw new Error(`${what} pid ${signalled} was still alive ${timeoutMs}ms after the signal`)
       }
       await sleep(EXIT_POLL_MS)
     }
@@ -239,7 +269,7 @@ export async function startDaemonProcess(
     async restart() {
       if (processIsAlive(pid)) {
         throw new Error(
-          `restart() would leave daemon pid ${pid} running — two daemons on one state dir race for the same sessions`,
+          `restart() would leave ${what} pid ${pid} running — two of them on one state dir race for the same state`,
         )
       }
       await launch()

@@ -16,6 +16,9 @@
     "global-teardown.ts",
     "browser-dist-preflight.ts",
     "serve-harness.ts",
-    "browser/_harness.ts"
+    "browser/_harness.ts",
+    // The delivery-outage lane (POD-4779): its oracle is what every scenario's
+    // verdict rests on, so it and the harness it drives are typechecked.
+    "delivery/*.ts"
   ]
 }
