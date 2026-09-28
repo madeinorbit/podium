@@ -161,6 +161,9 @@ function fakeCtx(
         }
       },
     },
+    // Required on every real context: the bind reads the session's terminal
+    // size from it (POD-4723). A server-family adopt has none, so it binds bare.
+    sessions: testSessions(),
     send: (msg: DaemonMessage) => void sent.push(msg),
   } as unknown as DaemonContext
   return { ctx, sent, journalCleared }

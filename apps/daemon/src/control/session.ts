@@ -1237,15 +1237,12 @@ async function adoptServerDriverSession(
         cmd: `${what} (${handle.binding.driver})`,
         cwd: workdir,
         agentKind: msg.agentKind,
-        // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279) —
-        // and since POD-3290 that is not a thing this site can get wrong. This is
-        // an ADOPT: the journalled server child was already running and
-        // `runtime.adoptJournalled` rebound it without putting anything at a
-        // size, so nothing wrote the record and `bindFrame` has nothing to state.
-        // What stood here was the reattach frame's own geometry with a hardcoded
-        // 120-column default behind it: a producer with no truth behind it either
-        // way, since the frame's field is only the server's last-known and the
-        // fallback was not even that.
+        // THE CONNECTION'S SIZE, WHICH HERE IS USUALLY NONE (POD-4723). This is
+        // an ADOPT: the journalled server child was rebound with no terminal of
+        // its own, so `sessionSize` finds no host connection to read and the
+        // bind is bare. What stood here once was the reattach frame's own
+        // geometry with a hardcoded 120-column default behind it: the server's
+        // last-known handed back, which is no report at all.
         // The same fact the launch path states, and for the same reason: the
         // server keys its senders on `driverId`'s presence, and a rebound
         // session that omitted it would be routed to a PTY it does not have.
