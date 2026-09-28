@@ -1,8 +1,9 @@
 import { compareProviderCursor } from '../../../metadata.js'
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
+import { DriverRefusalError } from '../../errors.js'
 import type { RuntimeEvent } from '../../events.js'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 // The assertion, not a copy of it: the refusal worlds below are judged by the
@@ -65,6 +66,207 @@ interface WorldOptions {
    * on the corpus that enforces it.
    */
   archiveReader?: 'ready' | 'not-yet' | 'absent'
+}
+
+/**
+ * Fold fake `session/update` frames into TranscriptItems with the driver's
+ * own buffer + tool-pairing rules, as a batch over the recorded store.
+ *
+ * Mirrors `runtime.ts` ingest for the shapes the conformance fake emits:
+ * user/assistant chunks accumulate and flush on turn boundaries, tool calls
+ * emit once with held results flushing on arrival, duplicate eventIds are
+ * absorbed, and terminal payloads prefer `rawOutput.output_for_prompt`
+ * (even empty) over display content. Anything without an explicit payload
+ * resolves nothing.
+ */
+function historyItemsFromFrames(frames: readonly Record<string, unknown>[]): TranscriptItem[] {
+  const items: TranscriptItem[] = []
+  const seen = new Set<string>()
+  const toolCallIds = new Set<string>()
+  const heldResults = new Map<string, TranscriptItem>()
+  const emittedResults = new Set<string>()
+  let userBuffer: { id: string; text: string; at: string } | undefined
+  let assistantBuffer: { id: string; text: string; at: string } | undefined
+
+  const recordOf = (value: unknown): Record<string, unknown> | undefined =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined
+  const contentTextOf = (value: unknown): string => {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) return value.map(contentTextOf).filter(Boolean).join('')
+    const object = recordOf(value)
+    if (!object) return ''
+    for (const key of ['text', 'content', 'delta', 'chunk']) {
+      const text = contentTextOf(object[key])
+      if (text) return text
+    }
+    return ''
+  }
+  const updateTextOf = (update: Record<string, unknown>): string => {
+    for (const key of ['content', 'text', 'delta', 'chunk']) {
+      const text = contentTextOf(update[key])
+      if (text) return text
+    }
+    return ''
+  }
+  const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
+    Object.prototype.hasOwnProperty.call(value, key)
+  const explicitOf = (value: unknown): string | undefined => {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) {
+      const pieces = value
+        .map(explicitOf)
+        .filter((piece): piece is string => piece !== undefined)
+      return pieces.length > 0 ? pieces.join('') : undefined
+    }
+    const object = recordOf(value)
+    if (!object) return undefined
+    for (const key of ['text', 'content', 'delta', 'chunk']) {
+      if (!hasOwn(object, key)) continue
+      const text = explicitOf(object[key])
+      if (text !== undefined) return text
+    }
+    return undefined
+  }
+  const resultTextOf = (update: Record<string, unknown>): string | undefined => {
+    const rawOutput = recordOf(update.rawOutput ?? update.raw_output)
+    const promptOutput = rawOutput?.output_for_prompt
+    if (typeof promptOutput === 'string') return promptOutput
+    for (const key of ['content', 'text', 'delta', 'chunk']) {
+      if (!hasOwn(update, key)) continue
+      const text = explicitOf(update[key])
+      if (text !== undefined) return text
+    }
+    return undefined
+  }
+  const flushUser = (): void => {
+    const buffer = userBuffer
+    userBuffer = undefined
+    if (!buffer) return
+    const text = buffer.text.trim()
+    if (!text) return
+    items.push({ id: buffer.id, role: 'user', text, ts: buffer.at })
+  }
+  const flushAssistant = (): void => {
+    const buffer = assistantBuffer
+    assistantBuffer = undefined
+    if (!buffer) return
+    const text = buffer.text.trim()
+    if (!text) return
+    items.push({ id: buffer.id, role: 'assistant', text, ts: buffer.at })
+  }
+  const flushToolResult = (toolUseId: string): void => {
+    const held = heldResults.get(toolUseId)
+    if (!held || emittedResults.has(toolUseId) || !toolCallIds.has(toolUseId)) return
+    emittedResults.add(toolUseId)
+    items.push(held)
+  }
+
+  for (const frame of frames) {
+    const params = recordOf(frame.params)
+    const update = params ? recordOf(params.update) : undefined
+    const meta = params ? recordOf(params._meta) : undefined
+    if (!update) continue
+    const eventId = typeof meta?.eventId === 'string' ? meta.eventId : undefined
+    if (eventId) {
+      if (seen.has(eventId)) continue
+      seen.add(eventId)
+    }
+    const at =
+      typeof meta?.agentTimestampMs === 'number'
+        ? new Date(meta.agentTimestampMs).toISOString()
+        : new Date(1_786_800_000_000).toISOString()
+    const kind = typeof update.sessionUpdate === 'string' ? update.sessionUpdate : ''
+    switch (kind) {
+      case 'user_message_chunk': {
+        // A new user turn ends the previous assistant when the provider
+        // fenced with a bare response (refusal/cancelled carry no
+        // `turn_completed` update). The live driver flushes that boundary
+        // in `finishPrompt`; the batch fold does it here.
+        flushAssistant()
+        const text = updateTextOf(update)
+        if (!text) break
+        if (userBuffer) userBuffer.text += text
+        else userBuffer = { id: `grok-user-${eventId ?? items.length}`, text, at }
+        break
+      }
+      case 'agent_message_chunk': {
+        flushUser()
+        const text = updateTextOf(update)
+        if (!text) break
+        if (assistantBuffer) assistantBuffer.text += text
+        else assistantBuffer = { id: `grok-assistant-${eventId ?? items.length}`, text, at }
+        break
+      }
+      case 'tool_call': {
+        flushUser()
+        flushAssistant()
+        const id =
+          (typeof update.toolCallId === 'string' && update.toolCallId) ||
+          (typeof update.tool_call_id === 'string' && update.tool_call_id) ||
+          `grok-tool-${eventId ?? items.length}`
+        const title = typeof update.title === 'string' ? update.title : undefined
+        const kindName =
+          (typeof update.kind === 'string' && update.kind) ||
+          (typeof update.name === 'string' && update.name) ||
+          'tool'
+        const rawInput = update.rawInput ?? update.raw_input ?? update.input
+        let toolInput: string | undefined
+        try {
+          toolInput = rawInput === undefined ? title : JSON.stringify(rawInput)
+        } catch {
+          toolInput = title
+        }
+        if (!toolCallIds.has(id)) {
+          toolCallIds.add(id)
+          items.push({
+            id,
+            role: 'tool',
+            text: '',
+            ts: at,
+            toolName: kindName,
+            ...(toolInput ? { toolInput } : {}),
+            ...(title ? { toolTitle: title } : {}),
+            toolUseId: id,
+          })
+        }
+        flushToolResult(id)
+        break
+      }
+      case 'tool_call_update': {
+        const status = typeof update.status === 'string' ? update.status.trim().toLowerCase() : ''
+        if (status !== 'completed' && status !== 'failed') break
+        const toolUseId =
+          (typeof update.toolCallId === 'string' && update.toolCallId) ||
+          (typeof update.tool_call_id === 'string' && update.tool_call_id)
+        if (!toolUseId || heldResults.has(toolUseId)) break
+        const resultText = resultTextOf(update)
+        if (resultText === undefined) break
+        heldResults.set(toolUseId, {
+          id: `${toolUseId}:result`,
+          role: 'tool',
+          text: '',
+          ts: at,
+          toolResult: resultText.length > 2000 ? `${resultText.slice(0, 2000)}...` : resultText,
+          toolUseId,
+        })
+        flushToolResult(toolUseId)
+        break
+      }
+      case 'response_completed':
+      case 'turn_completed':
+        flushUser()
+        flushAssistant()
+        break
+      default:
+        break
+    }
+  }
+  flushUser()
+  flushAssistant()
+  // Held results whose call never arrived resolve nothing — same as the driver.
+  return items
 }
 
 function makeWorld(options: WorldOptions = {}): {
@@ -232,6 +434,51 @@ function makeWorld(options: WorldOptions = {}): {
       if (hostsClientTerminals === false) return undefined
       if (hostsClientTerminals === 'spectators-only' && mode === 'takeover') return undefined
       return { streamId: `grok-client-${sessionId}`, warmTtlMs: 300_000 }
+    },
+    /**
+     * HISTORY FROM THE FAKE'S OWN STORE, never from the live driver's
+     * memory — the test-world analogue of the production Store port.
+     *
+     * The fake records every `session/update` frame into `archiveFrames`
+     * (live turns plus native-controller turns). This folds those frames
+     * with the same buffer + tool-pairing rules the driver folds live
+     * notifications with, so `transcript.history` agrees with what the
+     * events showed. Interrupt markers are Podium-synthesized and never
+     * reach the fake's store, so they appear in events but not here —
+     * exactly as the production disk read behaves.
+     */
+    async readHistory(session, range) {
+      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
+      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
+      }
+      const nativeId = session.resume?.value ?? ''
+      const frames = archiveFrames.get(nativeId) ?? []
+      const items = historyItemsFromFrames(frames)
+      const anchor = range.from?.pathHint ? Number.parseInt(range.from.pathHint, 10) : undefined
+      const direction = range.direction ?? 'before'
+      const limit = range.limit
+      let page: TranscriptItem[]
+      let start: number
+      let end: number
+      if (direction === 'after') {
+        start = anchor === undefined || Number.isNaN(anchor) ? 0 : anchor + 1
+        end = Math.min(items.length, start + limit)
+        page = items.slice(start, end)
+      } else {
+        end = anchor === undefined || Number.isNaN(anchor) ? items.length : anchor
+        start = Math.max(0, end - limit)
+        page = items.slice(start, end)
+      }
+      const cursor = (index: number) => ({ segmentId, pathHint: String(index), components: {} })
+      return {
+        items: page,
+        ...(page.length ? { head: cursor(start), tail: cursor(end - 1) } : {}),
+        hasMore: direction === 'after' ? end < items.length : start > 0,
+      }
     },
   }
   const serverFor = (id: SessionId): FakeGrokAcpServer => {
@@ -699,17 +946,40 @@ describe('grok-acp interrupt transcript marker', () => {
 
       world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
 
-      await expect
-        .poll(async () => await handle.transcript.history({ limit: 20 }).then((page) => page.items))
-        .toContainEqual({
-          id: 'grok-interrupt-1',
-          role: 'user',
-          text: '[Request interrupted by user]',
-          ts: expect.any(String),
-          event: 'interrupt',
-        })
+      // THE MARKER IS A LIVE DELTA, not disk history: Grok never writes
+      // Podium's synthesized `[Request interrupted by user]` to
+      // `chat_history.jsonl`, so `transcript.history` (the Store port) can
+      // never contain it. The durable item boundary is the event stream.
+      const pollInterrupt = async (): Promise<TranscriptItem[]> => {
+        const emitted: RuntimeEvent[] = []
+        for await (const event of handle.events('bootstrap')) {
+          emitted.push(event)
+          if (
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt'
+          ) {
+            break
+          }
+        }
+        return emitted.flatMap((event) =>
+          event.t === 'item' &&
+          event.item.kind === 'complete' &&
+          event.item.item.event === 'interrupt'
+            ? [event.item.item]
+            : [],
+        )
+      }
+      await expect.poll(pollInterrupt).toContainEqual({
+        id: 'grok-interrupt-1',
+        role: 'user',
+        text: '[Request interrupted by user]',
+        ts: expect.any(String),
+        event: 'interrupt',
+      })
+      // History from disk never carries the synthesized marker.
       const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
-      expect(history.filter((item) => item.event === 'interrupt')).toHaveLength(1)
+      expect(history.filter((item) => item.event === 'interrupt')).toHaveLength(0)
       const emitted: RuntimeEvent[] = []
       for await (const event of handle.events('bootstrap')) {
         emitted.push(event)
@@ -918,14 +1188,11 @@ describe('grok-acp interrupt transcript marker', () => {
       world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
       await handle.stop()
 
+      // Same as above: the marker survives teardown on the event stream
+      // (the durable item boundary crossed synchronously), never in disk
+      // history which Grok owns.
       const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
-      expect(history.filter((item) => item.event === 'interrupt')).toEqual([
-        expect.objectContaining({
-          id: 'grok-interrupt-1',
-          role: 'user',
-          text: '[Request interrupted by user]',
-        }),
-      ])
+      expect(history.filter((item) => item.event === 'interrupt')).toEqual([])
       const emitted: RuntimeEvent[] = []
       for await (const event of handle.events('bootstrap')) emitted.push(event)
       expect(

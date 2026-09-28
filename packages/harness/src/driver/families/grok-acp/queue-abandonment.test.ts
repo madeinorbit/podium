@@ -69,6 +69,7 @@ function world(): World {
       },
       now: () => Date.UTC(2026, 7, 20) + ++seq * 1000,
       mintSessionId: () => `gk-abandon-${++seq}` as SessionId,
+      readHistory: async () => ({ items: [], hasMore: false }),
       onQueueAbandoned: ({ turns, reason }) => {
         reports.push({ turnIds: turns.map((turn) => turn.input.id), reason })
       },

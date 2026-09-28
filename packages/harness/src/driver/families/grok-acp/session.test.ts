@@ -38,6 +38,7 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => 'grok-minted' as SessionId,
+    readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       launches += 1
       let handler: { line(line: string): void; closed(): void } | undefined

@@ -1,4 +1,3 @@
-import { pageHistory } from '../../history'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * Grok as a real server-family session over `grok agent stdio` (ACP).
@@ -19,7 +18,11 @@ import type {
   TranscriptItemRef,
 } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type {
+  QueueDrainAbandonedReason,
+  RuntimeHistoryPage,
+  RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ArchiveFile,
@@ -126,6 +129,32 @@ export interface GrokAcpRuntimeHost {
     mode: AttachRequest['mode']
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
   /**
+   * THE STORE READ OVER THE CHAT HISTORY FILE, and the ONLY history source.
+   *
+   * The same injected `readHistory` port the terminal, claude-sdk, headless
+   * and codex families answer `transcript.history` through: the host resolves
+   * the session's transcript source (the `chat_history.jsonl` under
+   * `~/.grok/sessions/<cwd>/<id>/`, via the grok adapter's transcript
+   * grammar) and slices it with Store cursors. The driver passes the
+   * workdir as `cwd` and the native session id as the resume value, which
+   * the Store already accepts — no pathHint is needed because the grok
+   * layout derives the exact file from those two facts (plus the instance
+   * home the host owns). A missing file (a session that has not run its
+   * first turn yet) reads as an empty page, never an error.
+   */
+  readHistory(
+    session: {
+      sessionId: SessionId
+      agentKind: 'grok'
+      cwd: string
+      resume?: ResumeRef
+      pathHint?: string
+    },
+    range: Omit<RuntimeHistoryRange, 'direction'> & {
+      direction?: RuntimeHistoryRange['direction']
+    },
+  ): Promise<RuntimeHistoryPage>
+  /**
    * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
    *
    * The server family's counterpart to `TerminalInjectionPorts.onDrainAbandoned`
@@ -220,9 +249,10 @@ interface DriverSession {
   wakers: Set<() => void>
   idleWaiters: Set<() => void>
   state: AgentRuntimeState
-  transcriptItems: TranscriptItem[]
-  transcriptIds: Set<string>
   seenProviderEventIds: Set<string>
+  /** Interrupt markers already emitted, by item id — history comes from disk
+   *  and can never dedupe them, so the live emit guards itself. */
+  interruptIds: Set<string>
   nativeArchiveOffset: number
   nativeArchivePrimed: boolean
   nativeArchiveSyncRunning: boolean
@@ -379,13 +409,10 @@ export function createGrokAcpRuntime(
     provenance: ObservationProvenance,
     native?: NativeObservation,
   ): void {
-    if (session.transcriptIds.has(item.id)) {
-      const index = session.transcriptItems.findIndex((candidate) => candidate.id === item.id)
-      if (index >= 0) session.transcriptItems[index] = item
-    } else {
-      session.transcriptIds.add(item.id)
-      session.transcriptItems.push(item)
-    }
+    // HISTORY COMES FROM DISK, never from this buffer: the Store over
+    // `chat_history.jsonl` is the conversation, and this emit is the live
+    // delta that carries the same item to watchers. No in-memory list is
+    // kept — a daemon restart empties this process, the file does not.
     emit(session, { t: 'item', item: { kind: 'complete', item } }, at, provenance, native)
   }
 
@@ -398,7 +425,8 @@ export function createGrokAcpRuntime(
 
   function addInterruptMarker(session: DriverSession, epoch: number, at: string): void {
     const id = `grok-interrupt-${epoch}`
-    if (session.transcriptIds.has(id)) return
+    if (session.interruptIds.has(id)) return
+    session.interruptIds.add(id)
     addItem(
       session,
       {
@@ -991,9 +1019,8 @@ export function createGrokAcpRuntime(
       wakers: new Set(),
       idleWaiters: new Set(),
       state,
-      transcriptItems: [],
-      transcriptIds: new Set(),
       seenProviderEventIds: new Set(),
+      interruptIds: new Set(),
       nativeArchiveOffset: 0,
       nativeArchivePrimed: false,
       nativeArchiveSyncRunning: false,
@@ -1834,8 +1861,35 @@ export function createGrokAcpRuntime(
       },
 
       transcript: {
-        async history(range) {
-          return pageHistory(session.transcriptItems, session.grokSessionId, range)
+        /**
+         * HISTORY FROM DISK, never from the live process.
+         *
+         * The `chat_history.jsonl` under `~/.grok/sessions/<cwd>/<id>/` is
+         * the conversation: Grok persists the full reply after the stream
+         * ends, and asking the live agent would return exactly what the file
+         * holds — a disk read with an RPC and a process in front of it. So
+         * this delegates to the injected Store port over that file, with the
+         * workdir as `cwd` and the native session id as the resume value,
+         * like the terminal, claude-sdk, headless and codex families do over
+         * their own stores.
+         *
+         * The file does not exist until the first turn: history before it is
+         * an empty page, not an error.
+         */
+        async history(
+          range: Omit<RuntimeHistoryRange, 'direction'> & {
+            direction?: RuntimeHistoryRange['direction']
+          },
+        ): Promise<RuntimeHistoryPage> {
+          return host.readHistory(
+            {
+              sessionId: session.sessionId,
+              agentKind: 'grok',
+              cwd: session.spec.workdir,
+              ...(session.binding.resume ? { resume: session.binding.resume } : {}),
+            },
+            range,
+          )
         },
       },
 
