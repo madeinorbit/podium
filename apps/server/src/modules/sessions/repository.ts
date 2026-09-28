@@ -1,5 +1,4 @@
 import { bootStage } from '../../boot-timing'
-import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 import type { MachineId, SessionId, SessionMeta } from '@podium/model'
 import { AgentKind } from '@podium/model'
 
@@ -63,9 +62,8 @@ function overlayChangedDurableFields(
   draft: SessionDurableState,
   live: SessionDurableState,
 ): SessionDurableState {
-  const merged: SessionDurableState = { ...live, terminal: draft.terminal }
+  const merged: SessionDurableState = { ...live }
   const assign = <K extends keyof SessionDurableState>(key: K): void => {
-    if (key === 'terminal') return
     if (!Object.is(draft[key], origin[key])) merged[key] = draft[key]
   }
   for (const key of Object.keys(draft) as (keyof SessionDurableState)[]) assign(key)
@@ -112,9 +110,6 @@ export interface SessionRepositoryPorts {
   autoContinue(): AutoContinueController
   toMachine(machineId: MachineId, message: ControlMessage): void
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
-  /** Does the daemon attached for this machine RIGHT NOW have `cap`? Live, per
-   *  socket — see `MachineService.daemonSupports` (POD-3239). */
-  machineSupports(machineId: MachineId, cap: string): boolean
   broadcastSessions(): void
   flushBroadcasts(): Promise<void>
   runScheduledBroadcast(): Promise<void>
@@ -312,7 +307,7 @@ export class SessionRepository {
 
   markVolatileSessionDirty(
     sessionId: SessionId,
-    preserve: SessionVolatileField[] = ['geometry', 'handoffTarget'],
+    preserve: SessionVolatileField[] = ['handoffTarget'],
     issueRelevant = true,
   ): void {
     const previous = this.pendingVolatileSessions.get(sessionId)
@@ -773,11 +768,6 @@ export class SessionRepository {
       geometry: { ...(r.geometry ?? { cols: 80, rows: 24 }) },
       machineId,
       toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
-      daemonReportsGeometry: () =>
-        this.ports.machineSupports(
-          this.sessions.get(r.id)?.machineId ?? machineId,
-          CAP_DAEMON_GEOMETRY_APPLIED,
-        ),
       sendInput: (input) =>
         this.ports.toPtyInput(this.sessions.get(r.id)?.machineId ?? machineId, input),
       onActivity: () => {

@@ -436,6 +436,13 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       cols: 100,
       rows: 40,
     })
+    // The forward moves nothing; the daemon's report of the new size does (POD-4771).
+    await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'geometryApplied',
+      sessionId,
+      geometry: { cols: 100, rows: 40 },
+      cause: 'request',
+    })
     await registry.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId })
     await registry.modules.sessions.flushBroadcasts()
 
@@ -600,7 +607,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(renames.kind === 'delta' ? renames.changes.length : 0).toBeGreaterThanOrEqual(2)
   })
 
-  it('coalesces a resize burst into one async capture and one projection event', async () => {
+  it('coalesces a burst of size reports into one async capture and one projection event', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(registry.clientGateway, () => {})
@@ -617,13 +624,17 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
     const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges')
     const frames: Promise<void>[] = []
+    // A window drag: the daemon reports each size the pty passes through
+    // (POD-4771 — the report, not the ask, moves the copy).
     for (let i = 0; i < 200; i++) {
-      frames.push(registry.clientGateway.routeClientFrame(clientId, {
-        type: 'resize',
-        sessionId,
-        cols: 100 + i,
-        rows: 40 + i,
-      }))
+      frames.push(
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          type: 'geometryApplied',
+          sessionId,
+          geometry: { cols: 100 + i, rows: 40 + i },
+          cause: 'request',
+        }),
+      )
     }
     await Promise.all(frames)
 
@@ -734,11 +745,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.modules.sessions.flushBroadcasts()
     await failAndHeal(
       () =>
-        registry.clientGateway.routeClientFrame(firstClient, {
-          type: 'resize',
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          type: 'geometryApplied',
           sessionId,
-          cols: 123,
-          rows: 47,
+          geometry: { cols: 123, rows: 47 },
+          cause: 'request',
         }),
       (value) => expect(value.geometry).toEqual({ cols: 123, rows: 47 }),
     )

@@ -265,9 +265,8 @@ export class SessionClientControl {
         break
       case 'viewportRequest':
         {
-          // THE ONE ASK (POD-3239 B4/B6). One frame, one server path: the
-          // watermark, the counted refusal, and forward-don't-write all live in
-          // `SessionTerminal.handleViewportRequest`.
+          // A VIEWPORT STATEMENT (POD-3239 B4/B6, POD-4771): recorded, then
+          // reconciled — `SessionTerminal.handleViewportRequest`.
           const controllerChanged = await this.ports.inbox.handleViewportRequest(
             principal,
             client,
@@ -279,7 +278,8 @@ export class SessionClientControl {
         }
         break
       case 'redrawRequest':
-        this.ports.sessions.get(message.sessionId)?.terminal.redraw()
+        // The user's redraw button: the one repaint that reaches the program.
+        this.ports.sessions.get(message.sessionId)?.terminal.redraw({ hard: true })
         break
       case 'tabRelease': {
         // THE TAB-CLOSE RELEASE (POD-4435): the reporting client closed its
@@ -329,7 +329,7 @@ export class SessionClientControl {
           controllerChanged =
             (await this.ports.inbox.reconcileActiveRenderer(sessionId)) || controllerChanged
           this.ports.mutate(sessionId, () => {
-            this.ports.inbox.reconcileGeometry(principal, client, sessionId)
+            this.ports.inbox.reconcileGeometry(sessionId)
           })
         }
         if (controllerChanged) this.ports.broadcastSessions()

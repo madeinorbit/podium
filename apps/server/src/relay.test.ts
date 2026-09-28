@@ -2073,6 +2073,14 @@ describe('SessionRegistry', () => {
       cols: 173,
       rows: 47,
     })
+    // The daemon answers with the size the pty now has; that report, not the
+    // forward, moves the copy (POD-4771).
+    await reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'geometryApplied',
+      sessionId,
+      geometry: { cols: 173, rows: 47 },
+      cause: 'request',
+    })
     await reg1.dispose() // flushes the coalesced geometry before the graceful restart
     await store1.close()
 

@@ -290,7 +290,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     autoContinue: () => bag.autoContinue,
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
-    machineSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
     broadcastSessions: () => bag.broadcastSessions(),
     flushBroadcasts: () => bag.broadcasts.flush(),
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
@@ -329,7 +328,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     onSpawnTargetLogin: (input) => bag.deps.onSpawnTargetLogin?.(input),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
-    machineSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: async (cwd) => (await bag.deps.issueAccess.soleOwnerForCwd(cwd)) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
@@ -971,6 +969,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     memory: bag.deps.memory,
     observationLeases: bag.observationLeases,
     persist: (session, additionalWrite) => bag.repository.persist(session, additionalWrite),
+    mutateSessionView: (sessionId, mutate) => bag.repository.mutateSessionView(sessionId, mutate),
     write: (session, mutate, additionalWrite) =>
       bag.repository.write(session, mutate, additionalWrite),
     draft: (session) => bag.repository.draft(session),

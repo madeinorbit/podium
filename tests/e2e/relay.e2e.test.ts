@@ -123,7 +123,9 @@ describe('e2e: daemon -> server -> client', () => {
         const getSess = () =>
           srv.registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
         await waitFor(() => (getSess()?.epoch ?? 0) >= 1)
-        expect(getSess()?.geometry).toEqual({ cols: 100, rows: 30 })
+        // The takeover forwards client2's box; the server's copy moves when the
+        // daemon reports the size the pty now has (POD-4771), not on the claim.
+        await waitFor(() => getSess()?.geometry.cols === 100 && getSess()?.geometry.rows === 30)
         await waitFor(() => c2.text.includes('cols=100 rows=30'))
       } finally {
         client2.close()

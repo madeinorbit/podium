@@ -50,7 +50,6 @@ function makeClient(id: string): Sent {
     principal: userClientPrincipal(id, OWNER, 'admin'),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
-    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 1,
@@ -179,7 +178,6 @@ describe('C4 (REWRITTEN for POD-3239 B6): a refused request still records its vi
     // The DROP is not total — the viewport IS recorded before the gate returns.
     expect(spectator.viewports.get(SESSION)).toEqual({ cols: 200, rows: 60 })
     expect(terminal.geometry).toEqual(GEO)
-    expect(terminal.geometryRevision).toBe(0)
     expect(resizesTo(toDaemon)).toEqual([])
     expect(geometryFrames(controller)).toEqual([])
     expect(geometryFrames(spectator)).toEqual([])
@@ -191,11 +189,12 @@ describe('C4 (REWRITTEN for POD-3239 B6): a refused request still records its vi
     expect(terminal.requestsGated).toBe(1)
 
     // ARMING CHECK — the controller's resize on the same fixture DOES reach the
-    // daemon and DOES broadcast to the spectator, and does NOT move the counter.
+    // daemon, and does NOT move the counter. It broadcasts nothing: a forward
+    // never writes the copy, the daemon's report does (POD-4771).
     controller.viewVisible.add(SESSION)
     terminal.handleResize(controller.id, 100, 32)
     expect(resizesTo(toDaemon)).toEqual([{ cols: 100, rows: 32 }])
-    expect(geometryFrames(spectator).length).toBe(1)
+    expect(geometryFrames(spectator)).toEqual([])
     expect(terminal.requestsGated).toBe(1)
   })
 
@@ -377,7 +376,7 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
 // C6 (REWRITTEN for POD-3239 B6)
 // ---------------------------------------------------------------------------
 
-describe('C6: the daemon report is the ONE writer of W — it always writes, and it always announces', () => {
+describe('C6: the daemon report is a writer of the copy — it writes and announces only a change (POD-4771 rule 3)', () => {
   /** Two attached clients and NO controller — `revokeController` is the only
    *  transition that reaches that state without emptying the client set, which
    *  matters: a fixture with nobody attached could not tell "broadcasts nothing"
@@ -408,23 +407,15 @@ describe('C6: the daemon report is the ONE writer of W — it always writes, and
    * kept rendering a grid the pty had already left, and a controlled session
    * ignored the daemon outright. Both halves are gone: a report is a report.
    */
-  it('uncontrolled: the report moves W, bumps the revision, and IS broadcast', () => {
+  it('uncontrolled: the report moves the copy and IS broadcast', () => {
     const { terminal, toDaemon, watchers } = uncontrolledWithWatchers()
-    const before = terminal.geometryRevision
 
     terminal.applyDaemonGeometry({ cols: 120, rows: 40 })
 
     expect(terminal.geometry).toEqual({ cols: 120, rows: 40 })
-    expect(terminal.geometryRevision).toBe(before + 1)
     for (const w of watchers) {
       expect(geometryFrames(w)).toEqual([
-        {
-          type: 'geometry',
-          sessionId: SESSION,
-          cols: 120,
-          rows: 40,
-          geometryRevision: before + 1,
-        },
+        { type: 'geometry', sessionId: SESSION, cols: 120, rows: 40 },
       ])
     }
     // A report is not a request: nothing goes back DOWN to the daemon.
@@ -435,32 +426,20 @@ describe('C6: the daemon report is the ONE writer of W — it always writes, and
     const { terminal } = makeTerminal()
     const owner = controllerOf(terminal, 'c-owner')
     owner.sent.length = 0
-    const before = terminal.geometryRevision
 
     terminal.applyDaemonGeometry({ cols: 200, rows: 60 })
 
     expect(terminal.geometry).toEqual({ cols: 200, rows: 60 })
-    expect(terminal.geometryRevision).toBe(before + 1)
     expect(geometryFrames(owner).length).toBe(1)
   })
 
-  it('an EQUAL report freezes the revision but still announces — a report is news at any size', () => {
-    // The `unknown` → `current` edge of MODEL rule 6 happens on a same-size
-    // report too: it is what tells a viewer its ask was answered, and what turns
-    // a rehydrated guess into a confirmed grid. Suppressing it because the
-    // numbers matched would leave that viewer waiting for a frame that never comes.
+  it('an EQUAL report writes nothing and announces nothing', () => {
     const { terminal, watchers } = uncontrolledWithWatchers()
-    const before = terminal.geometryRevision
 
-    terminal.applyDaemonGeometry({ ...GEO })
+    expect(terminal.applyDaemonGeometry({ ...GEO })).toBe(false)
 
     expect(terminal.geometry).toEqual(GEO)
-    expect(terminal.geometryRevision).toBe(before)
-    for (const w of watchers) {
-      expect(geometryFrames(w)).toEqual([
-        { type: 'geometry', sessionId: SESSION, cols: 80, rows: 24, geometryRevision: before },
-      ])
-    }
+    for (const w of watchers) expect(geometryFrames(w)).toEqual([])
   })
 })
 
@@ -468,14 +447,16 @@ describe('C6: the daemon report is the ONE writer of W — it always writes, and
 // C13
 // ---------------------------------------------------------------------------
 
-describe('C13 (REWRITTEN for POD-3239 B6): a request at the size W already is, is not a resize at all', () => {
-  it('same-size request: nothing pushed to the daemon, nothing broadcast, revision frozen', () => {
+describe('C13 (REWRITTEN for POD-4771): a statement at the size last asked for is not a resize at all', () => {
+  it('same-size statement after the bind: nothing pushed to the daemon, nothing broadcast', () => {
     // WHAT CHANGED. The old path pushed the winsize down and broadcast a frame
     // whatever the numbers said, so a claim at an unchanged size cost a SIGWINCH
     // and a TUI repaint for no change — half of 0a's observed double resize.
     // Rule 4 makes reveal ALWAYS send its claim, which would have made that cost
-    // routine, so the server applies geometry only when it differs.
+    // routine, so the server forwards only a box that differs from the size it
+    // last asked for — which the daemon's bind sets to the size the pty has.
     const { terminal, toDaemon } = makeTerminal()
+    terminal.bind({ ...GEO })
     const controller = controllerOf(terminal, 'c-same')
     const spectator = makeClient('c-same-spectator')
     terminal.attachClient(spectator)
@@ -483,10 +464,8 @@ describe('C13 (REWRITTEN for POD-3239 B6): a request at the size W already is, i
     controller.sent.length = 0
     spectator.sent.length = 0
 
-    const before = terminal.geometryRevision
     terminal.handleResize(controller.id, GEO.cols, GEO.rows) // exactly the current size
 
-    expect(terminal.geometryRevision).toBe(before)
     expect(resizesTo(toDaemon)).toEqual([])
     expect(geometryFrames(spectator)).toEqual([])
     // It was not REFUSED either — it was accepted and found to be a no-op.
@@ -497,13 +476,13 @@ describe('C13 (REWRITTEN for POD-3239 B6): a request at the size W already is, i
 
   it('ARMED: a DIFFERENT size does reach the daemon, so the silence above is the same-size rule', () => {
     const { terminal, toDaemon } = makeTerminal()
+    terminal.bind({ ...GEO })
     const controller = controllerOf(terminal, 'c-diff')
     toDaemon.length = 0
     terminal.handleResize(controller.id, 120, 40)
     expect(resizesTo(toDaemon)).toEqual([{ cols: 120, rows: 40 }])
-    // This fixture's daemon does NOT report applied geometry, so the one
-    // compatibility branch still writes W here — see T5.
-    expect(terminal.geometry).toEqual({ cols: 120, rows: 40 })
+    // Forwarded only: the copy waits for the daemon's report.
+    expect(terminal.geometry).toEqual(GEO)
   })
 })
 
@@ -560,12 +539,8 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(sessionId)
     expect(session).toBeDefined()
 
-    // Move the server's cached geometry the way a controller resize would.
-    const client = makeClient('c-wake')
-    client.viewVisible.add(sessionId)
-    client.viewModes = { [sessionId]: 'native' }
-    session?.terminal.attachClient(client)
-    session?.terminal.handleResize(client.id, 132, 43)
+    // Move the server's copy the way it really moves: the daemon reports it.
+    session?.terminal.applyDaemonGeometry({ cols: 132, rows: 43 })
     expect(session?.terminal.geometry).toEqual({ cols: 132, rows: 43 })
 
     await reg.modules.sessions.hibernateSession({ sessionId })
@@ -613,11 +588,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
       geometry: { cols: 80, rows: 24 },
     })
     const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(sessionId)
-    const client = makeClient('c-row')
-    client.viewVisible.add(sessionId)
-    client.viewModes = { [sessionId]: 'native' }
-    session?.terminal.attachClient(client)
-    session?.terminal.handleResize(client.id, 132, 43)
+    session?.terminal.applyDaemonGeometry({ cols: 132, rows: 43 })
 
     const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
@@ -641,7 +612,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
  * last-known still renders, because inside this system only a daemon can have
  * moved it. What changes is whether the row CLAIMS the number is confirmed.
  */
-describe('POD-3279: a bind without geometry keeps W, marks it unknown, and announces nothing', () => {
+describe('POD-3279: a bind without geometry keeps the copy and announces nothing', () => {
   /** A live session on the host daemon, bound once at 132x43 and watched. */
   async function boundSession(): Promise<{
     reg: SessionRegistry
@@ -683,15 +654,12 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     agentKind: 'claude-code',
   })
 
-  it('after markReconnecting, a bare bind leaves W unknown — same grid, frozen revision, no frame', async () => {
+  it('after markReconnecting, a bare bind keeps the copy — same grid, no frame', async () => {
     const { reg, sessionId, session, watcher } = await boundSession()
-    expect(session.geometryState()).toBe('current')
 
-    // The daemon holding the bridge went away. W goes back to last-known-only.
+    // The daemon holding the bridge went away.
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     expect(session.status).toBe('reconnecting')
-    expect(session.geometryState()).toBe('unknown')
-    const revision = session.terminal.geometryRevision
     watcher.sent.length = 0
 
     const send: ControlMessage[] = []
@@ -700,92 +668,36 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
 
     // The session comes back LIVE — the bind is still proof the agent is there.
     expect(session.status).toBe('live')
-    // But nothing confirmed the grid, so nothing about the grid changed or moved.
-    expect(session.geometryState()).toBe('unknown')
+    // Nothing reported a size, so the last-known copy stands and nothing moved.
     expect(session.terminal.geometry).toEqual({ cols: 132, rows: 43 })
-    expect(session.terminal.geometryRevision).toBe(revision)
     expect(geometryFrames(watcher)).toEqual([])
   })
 
   it('ARMED: the same bind WITH a geometry reports, so the silence above is the absence', async () => {
     const { reg, sessionId, session, watcher } = await boundSession()
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect(session.geometryState()).toBe('unknown')
-    const revision = session.terminal.geometryRevision
     watcher.sent.length = 0
 
     await attachHostDaemon(reg, () => {})
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bareBind(sessionId),
-      // A daemon that DID apply something at bind — a resize it was holding for
-      // this session — reports it, and that is a report like any other.
       geometry: { cols: 200, rows: 60 },
     })
 
-    expect(session.geometryState()).toBe('current')
     expect(session.terminal.geometry).toEqual({ cols: 200, rows: 60 })
-    expect(session.terminal.geometryRevision).toBe(revision + 1)
-    expect(geometryFrames(watcher)).toEqual([
-      {
-        type: 'geometry',
-        sessionId,
-        cols: 200,
-        rows: 60,
-        geometryRevision: revision + 1,
-      },
-    ])
+    expect(geometryFrames(watcher)).toEqual([{ type: 'geometry', sessionId, cols: 200, rows: 60 }])
   })
 
-  it('the published row says `unknown` after a bare bind — the claim the panel reads', async () => {
-    const { reg, sessionId, session } = await boundSession()
+  it('the published row carries the last-known copy after a bare bind', async () => {
+    const { reg, sessionId } = await boundSession()
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     await attachHostDaemon(reg, () => {})
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(SessionMeta.safeParse(row).success).toBe(true)
-    // The grid still RENDERS at last-known (rule 6) — the row carries it — but it
-    // is labelled for what it is.
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
-    expect(row?.geometryState).toBe('unknown')
-    expect(session.geometryState()).toBe('unknown')
-  })
-
-  it('a rehydrated session stays unknown through a bare bind, and the first ask ends it', async () => {
-    // SERVER RESTART, not daemon restart: the row was read back from the store,
-    // so `geometryKnown` starts false and a rollback-restore does not invent a
-    // confirmation. This is the whole round trip that ends the `unknown`.
-    const { reg, daemon } = await registryFor()
-    const { sessionId } = await reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/w',
-    })
-    const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(
-      sessionId,
-    ) as Session
-    session.restoreDurableState(session.captureDurableState(), new Set())
-    expect(session.geometryState()).toBe('unknown')
-
-    daemon.length = 0
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
-    expect(session.geometryState()).toBe('unknown')
-
-    // The first viewer to ask is what makes it current again.
-    const client = makeClient('c-ask')
-    client.viewVisible.add(sessionId)
-    client.viewModes = { [sessionId]: 'native' }
-    session.terminal.attachClient(client)
-    session.terminal.handleResize(client.id, 150, 50)
-    expect(resizesTo(daemon)).toEqual([{ cols: 150, rows: 50 }])
-    expect(session.geometryState()).toBe('unknown')
-
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'geometryApplied',
-      sessionId,
-      geometry: { cols: 150, rows: 50 },
-      cause: 'request',
-    })
-    expect(session.geometryState()).toBe('current')
-    expect(session.terminal.geometry).toEqual({ cols: 150, rows: 50 })
   })
 })

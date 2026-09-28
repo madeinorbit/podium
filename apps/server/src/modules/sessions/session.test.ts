@@ -47,7 +47,6 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     principal: testClientPrincipal(id),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
-    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 1,
@@ -115,10 +114,6 @@ describe('Session', () => {
       controllerId: 'a',
       controllerIdentity: { kind: 'user', user: a.principal.user },
       geometry: geo,
-      geometryRevision: 0,
-      // POD-3239: what that geometry is WORTH. A session that has not had a
-      // daemon report yet says so rather than implying confidence it lacks.
-      geometryState: 'unknown',
       epoch: 0,
       resumed: false,
       outputSeen: false,
@@ -184,7 +179,6 @@ describe('Session', () => {
       controllerId: null,
       controllerIdentity: null,
       geometry: geo,
-      geometryRevision: 0,
     })
   })
 
@@ -218,7 +212,7 @@ describe('Session', () => {
     expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBe(true)
   })
 
-  it('controller resize updates geometry + resizes agent; spectator resize is stored only', () => {
+  it('controller resize is forwarded to the agent; spectator resize is stored only', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
@@ -232,7 +226,7 @@ describe('Session', () => {
     // so this asserts on resize specifically rather than "never called").
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
     s.terminal.handleResize('a', 120, 40)
-    expect(s.terminal.geometry).toEqual({ cols: 120, rows: 40 })
+    expect(s.terminal.geometry).toEqual(geo) // the daemon's report moves the copy
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'resize',
       sessionId: asSessionId('s1'),
@@ -257,60 +251,10 @@ describe('Session', () => {
     })
   })
 
-  it('rolls back geometry as a new authoritative revision', () => {
-    const toDaemon = vi.fn()
-    const s = makeSession(toDaemon)
-    const snapshot = s.terminal.captureState()
-
-    // A daemon report moves the live geometry; a later durable rollback must
-    // still be a new wire revision.
-    s.terminal.applyDaemonGeometry({ cols: 203, rows: 51 })
-    const client = makeClient('a')
-    s.terminal.attachClient(client)
-    toDaemon.mockClear()
-
-    s.terminal.restoreState(snapshot, false)
-
-    expect(s.terminal.geometry).toEqual(geo)
-    expect(s.terminal.geometryRevision).toBe(2)
-    // REWRITTEN FOR POD-3239 B6: the rollback undoes what the SERVER believed.
-    // The pty never moved, so nothing is pushed down — telling the daemon to
-    // resize here would be this path inventing a resize nobody asked for. The
-    // clients are told, because their cached W did move.
-    expect(toDaemon).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'resize' }),
-    )
-    expect(client.sent).toContainEqual({
-      type: 'geometry',
-      sessionId: asSessionId('s1'),
-      cols: 80,
-      rows: 24,
-      geometryRevision: 2,
-    })
-  })
-
-  it('applies a resize from a controller that is rendering the session', () => {
-    const toDaemon = vi.fn()
-    const s = makeSession(toDaemon)
-    const a = makeClient('a')
-    s.terminal.attachClient(a) // controller
-    a.viewVisible = new Set([asSessionId('s1')]) // rendering s1 on screen
-    s.terminal.handleResize('a', 200, 50)
-    expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(s.terminal.activityDirty).toBe(true)
-    expect(toDaemon).toHaveBeenCalledWith({
-      type: 'resize',
-      sessionId: asSessionId('s1'),
-      cols: 200,
-      rows: 50,
-    })
-  })
-
-  it('broadcasts the applied geometry to all clients so the size is not lost (quarter-size fix)', () => {
-    // The client only learns the authoritative size from a geometry/controllerChanged/
-    // attached message — its own optimistic sendResize value gets clobbered by
-    // requestControl's geometry broadcast. So an applied resize MUST broadcast, or the
-    // xterm snaps back to 80x24 via onState even though the PTY was resized.
+  it('a report of the applied size is broadcast to all clients and marks the row dirty', () => {
+    // The client learns the pty's size only from a geometry/controllerChanged/
+    // attached message, so the report of a real change MUST broadcast — to the
+    // spectator too — or the xterm stays at the old grid under a resized pty.
     const s = makeSession()
     const a = makeClient('a')
     const b = makeClient('b')
@@ -320,36 +264,36 @@ describe('Session', () => {
     a.sent.length = 0
     b.sent.length = 0
     s.terminal.handleResize('a', 200, 50)
+    s.terminal.applyDaemonGeometry({ cols: 200, rows: 50 })
+    expect(s.terminal.activityDirty).toBe(true) // the lazy DB copy follows
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
         type: 'geometry',
         sessionId: asSessionId('s1'),
         cols: 200,
         rows: 50,
-        geometryRevision: 1,
       })
     }
   })
 
-  it('reconcileGeometry broadcasts the healed geometry to clients', () => {
-    const s = makeSession()
+  it('a viewState that reveals the controller reconciles the box it already stated', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
     const a = makeClient('a')
     s.terminal.attachClient(a)
     a.viewports.set('s1', { cols: 200, rows: 50 }) // resize arrived before viewState
     a.viewVisible = new Set([asSessionId('s1')]) // viewState now confirms it renders s1
-    a.sent.length = 0
-    s.terminal.reconcileGeometry('a')
-    expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(a.sent).toContainEqual({
-      type: 'geometry',
+    toDaemon.mockClear()
+    s.terminal.reconcile()
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
       sessionId: asSessionId('s1'),
       cols: 200,
       rows: 50,
-      geometryRevision: 1,
     })
   })
 
-  it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
+  it('takeover bumps epoch, forwards the new box without a redraw, broadcasts controllerChanged', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
@@ -360,14 +304,16 @@ describe('Session', () => {
     s.terminal.requestControl('b', { cols: 50, rows: 60 })
     expect(s.terminal.controllerId).toBe('b')
     expect(s.terminal.epoch).toBe(1)
-    expect(s.terminal.geometry).toEqual({ cols: 50, rows: 60 })
+    expect(s.terminal.geometry).toEqual(geo) // the report moves it, not the claim
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'resize',
       sessionId: asSessionId('s1'),
       cols: 50,
       rows: 60,
     })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
+    expect(toDaemon).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'redraw', hard: true }),
+    )
     expect(s.terminal.controllerIdentity).toEqual({ kind: 'user', user: b.principal.user })
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
@@ -375,15 +321,7 @@ describe('Session', () => {
         sessionId: asSessionId('s1'),
         controllerId: 'b',
         controllerIdentity: { kind: 'user', user: b.principal.user },
-        geometry: { cols: 50, rows: 60 },
-        geometryRevision: 1,
-      })
-      expect(c.sent).toContainEqual({
-        type: 'geometry',
-        sessionId: asSessionId('s1'),
-        cols: 50,
-        rows: 60,
-        geometryRevision: 1,
+        geometry: geo,
       })
     }
   })
@@ -405,7 +343,7 @@ describe('Session', () => {
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
   })
 
-  it('re-requesting control atomically repairs stale geometry without an epoch bump', () => {
+  it('re-requesting control with a new box forwards it without an epoch bump or a redraw', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
@@ -418,22 +356,14 @@ describe('Session', () => {
     s.terminal.requestControl('a', { cols: 62, rows: 36 })
 
     expect(s.terminal.epoch).toBe(epoch0)
-    expect(s.terminal.geometry).toEqual({ cols: 62, rows: 36 })
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'resize',
       sessionId: asSessionId('s1'),
       cols: 62,
       rows: 36,
     })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
     expect(a.sent).not.toContainEqual(expect.objectContaining({ type: 'controllerChanged' }))
-    expect(a.sent).toContainEqual({
-      type: 'geometry',
-      sessionId: asSessionId('s1'),
-      cols: 62,
-      rows: 36,
-      geometryRevision: 1,
-    })
   })
 
   it('counts active native renderers per connection, not per person or attached client', () => {
@@ -497,9 +427,8 @@ describe('Session', () => {
     toDaemon.mockClear()
     // viewState arrives: the client now declares it renders s1 on screen.
     a.viewVisible = new Set([asSessionId('s1')])
-    s.terminal.reconcileGeometry('a')
-    // The dropped fitted size is now applied — not lost.
-    expect(s.terminal.geometry).toEqual({ cols: 200, rows: 50 })
+    s.terminal.reconcile()
+    // The held fitted size is now forwarded — not lost.
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'resize',
       sessionId: asSessionId('s1'),
@@ -508,7 +437,7 @@ describe('Session', () => {
     })
   })
 
-  it('reconcileGeometry is a no-op when the client is not the controller or not rendering', () => {
+  it('reconcile is a no-op when the controller is not rendering, whatever a spectator holds', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
@@ -518,11 +447,11 @@ describe('Session', () => {
     b.viewports.set('s1', { cols: 200, rows: 50 })
     b.viewVisible = new Set([asSessionId('s1')])
     toDaemon.mockClear()
-    s.terminal.reconcileGeometry('b') // not the controller → nothing
+    s.terminal.reconcile() // not the controller → nothing
     expect(s.terminal.geometry).toEqual(geo)
     a.viewports.set('s1', { cols: 200, rows: 50 })
     a.viewVisible = new Set() // controller but not rendering → nothing
-    s.terminal.reconcileGeometry('a')
+    s.terminal.reconcile()
     expect(s.terminal.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
   })
@@ -859,7 +788,7 @@ describe('Session', () => {
     s.terminal.detachClient('desktop')
 
     expect(s.terminal.controllerId).toBe('phone')
-    expect(s.terminal.geometry).toEqual({ cols: 42, rows: 19 })
+    // Forwarded, with no redraw; the copy waits for the report.
     expect(toDaemon.mock.calls).toEqual([
       [
         {
@@ -869,19 +798,15 @@ describe('Session', () => {
           rows: 19,
         },
       ],
-      [{ type: 'redraw', sessionId: asSessionId('s1') }],
     ])
     expect(phone.sent).toContainEqual(
-      expect.objectContaining({
-        type: 'controllerChanged',
-        controllerId: 'phone',
-        geometry: { cols: 42, rows: 19 },
-      }),
+      expect.objectContaining({ type: 'controllerChanged', controllerId: 'phone', geometry: geo }),
     )
   })
 
   it('takeover uses the new controller viewport measured for this session', () => {
-    const s = makeSession()
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
     const a = makeClient('a')
     const b = makeClient('b')
     s.terminal.attachClient(a) // a is the initial controller
@@ -889,7 +814,12 @@ describe('Session', () => {
     b.viewVisible = new Set([asSessionId('s1')]) // b renders the session → snap to its viewport on takeover
     b.viewports.set('s1', { cols: 33, rows: 21 })
     s.terminal.requestControl('b') // genuine takeover (b was NOT the controller)
-    expect(s.terminal.geometry).toEqual({ cols: 33, rows: 21 })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 33,
+      rows: 21,
+    })
   })
 
   it('never reconciles another session viewport into this session', () => {
@@ -902,7 +832,7 @@ describe('Session', () => {
     // resize. The old single ClientConn.viewport applied this value to s1.
     a.viewports.set('other-session', { cols: 40, rows: 12 })
 
-    s.terminal.reconcileGeometry('a')
+    s.terminal.reconcile()
 
     expect(s.terminal.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
@@ -963,54 +893,30 @@ describe('Session', () => {
     expect(s.toMeta(NO_SESSION_USER_STATE).status).toBe('live')
   })
 
-  it('BIND IS A REPORT: markLive takes the daemon’s grid, announces it, and pushes nothing down', () => {
-    // REWRITTEN FOR POD-3239 B6 (was: "markLive re-asserts the controller's
-    // geometry onto a PTY that bound at another (POD-628)").
-    //
-    // Same scenario — the row is published the moment the server dispatches
-    // `spawn`, so the browser attaches, takes control and fits its pane to 38x35
-    // while the daemon is still forking. What CHANGED is the answer. The old
-    // code held two writers and had to reconcile them: the server's cache said
-    // 38x35, the pty said 80x24, and `resyncGeometry` pushed ours back down.
-    // Under rule 1 there is one writer, and it is the daemon: bind REPORTS the
-    // size the pty is actually running at, so the server takes that number,
-    // tells every viewer, and sends nothing downwards. The viewer that wants
-    // 38x35 asks again — and its ask comes back as another report.
-    //
-    // Note this is not a lost resize: 38x35 reached the daemon when the client
-    // sent it, and a daemon with no bridge yet HOLDS it (`pendingResizes`) and
-    // applies it at bind, so the geometry `bind` reports is normally already the
-    // client's. This fixture forces the disagreement to pin which side wins.
+  it('THE BIND IS A FULL STATEMENT: the copy is the daemon’s size, and a box it lost is re-driven', () => {
+    // POD-4771 (design rev 3, rule 2). The browser attached, took control and
+    // stated 38x35 while the daemon was still forking. A daemon with no
+    // terminal yet drops that ask (it holds no pending resize any more), so the
+    // bind reports the 80x24 the pty was born at. The copy takes the daemon's
+    // number — and because the bind resets what the server last asked for to
+    // that number, the reconcile forwards the controller's box again.
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     s.terminal.attachClient(a) // controller
     a.viewVisible = new Set([asSessionId('s1')])
     s.terminal.handleResize('a', 38, 35)
-    expect(toDaemon).toHaveBeenCalledWith({
-      type: 'resize',
-      sessionId: asSessionId('s1'),
-      cols: 38,
-      rows: 35,
-    })
     toDaemon.mockClear()
     a.sent.length = 0
 
     s.markLive('codex', geo) // the daemon binds at the 80x24 it spawned with
 
-    expect(s.terminal.geometry).toEqual(geo) // the daemon's number wins
-    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
-    // …and the viewers are TOLD, which the old adopt path never did — a
-    // spectator used to keep rendering a grid the pty had already left.
-    expect(a.sent).toContainEqual({
-      type: 'geometry',
-      sessionId: asSessionId('s1'),
-      cols: geo.cols,
-      rows: geo.rows,
-      geometryRevision: s.terminal.geometryRevision,
-    })
-    // A report is what makes W known (MODEL rule 6).
-    expect(s.geometryState()).toBe('current')
+    expect(s.terminal.geometry).toEqual(geo)
+    expect(toDaemon.mock.calls).toEqual([
+      [{ type: 'resize', sessionId: asSessionId('s1'), cols: 38, rows: 35 }],
+    ])
+    // The copy did not move, so nothing is announced.
+    expect(a.sent.filter((m) => m.type === 'geometry')).toEqual([])
   })
 
   it('markLive does not resize a PTY that already bound at our geometry', () => {

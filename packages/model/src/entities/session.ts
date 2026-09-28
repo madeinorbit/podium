@@ -394,35 +394,18 @@ export const SessionMetaEntity = z.object({
    *  not a person and not a session), which POD-1075 owns. */
   controllerId: z.string().nullable(),
   geometry: Geometry,
-  /** What `geometry` above is WORTH — see {@link GeometryState}. Absent from an
-   *  older server, which a reader reads as `unknown`. */
+  /** Never sent since POD-4771: whether the pty exists is `status` (`live`).
+   *  Optional so an older server's row still parses. */
   geometryState: GeometryState.optional(),
   /**
-   * HOW MANY VIEWPORT REQUESTS THIS SESSION REFUSED, and how many it rejected as
-   * duplicates (POD-3239 B6). Omitted when zero — a session that has refused
-   * nothing says nothing — which is also what keeps them additive for a reader
-   * that has never seen them.
-   *
-   * The whole point of the pair is that these refusals used to be invisible: the
-   * server returned without a broadcast, without a daemon frame and without
-   * telling the client anything, so a pane wrongly stuck at a stale grid looked
-   * exactly like one that had never asked.
+   * HOW MANY VIEWPORT STATEMENTS THIS SESSION DID NOT FORWARD because their
+   * sender was not the visible native controller (POD-3239 B6). Omitted when
+   * zero. A pane stuck at a stale grid is told apart from one that never asked.
    */
   requestsGated: z.number().int().nonnegative().optional(),
+  /** Never sent since POD-4771 (no seq watermark). Optional for older servers. */
   requestsDuplicate: z.number().int().nonnegative().optional(),
-  /**
-   * HOW MANY FORWARDED REQUESTS THE DAEMON NEVER ANSWERED (POD-3809).
-   *
-   * The third invisible failure, and the one the first two could not see: a
-   * request that passed every gate, went to the daemon, and got no
-   * `geometryApplied` back — so W never moved and the viewer kept rendering the
-   * old grid. `requestsGated` counts refusals the SERVER made; this counts
-   * silence from below, which is the only kind of sizing failure the server is
-   * positioned to notice at all.
-   *
-   * Omitted when zero, additive for an older reader, and paired with a `warn`
-   * line naming the session and the size that went unanswered.
-   */
+  /** Never sent since POD-4771 (no report watchdog). Optional for older servers. */
   requestsUnanswered: z.number().int().nonnegative().optional(),
   epoch: z.number().int().nonnegative(),
   clientCount: z.number().int().nonnegative(),

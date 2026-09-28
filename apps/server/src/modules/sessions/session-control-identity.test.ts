@@ -12,6 +12,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { userClientPrincipal } from '../../gateway/client-principal'
@@ -28,7 +29,7 @@ const SESSION = asSessionId('s-shared')
 const OWNER = asUserId(firstAdminMemberId())
 const ALICE = asUserId('user:alice')
 
-function makeSession(): Session {
+function makeSession(toDaemon: (m: ControlMessage) => void = vi.fn()): Session {
   return new SessionClass({
     sessionId: SESSION,
     durableLabel: 'podium-s-shared',
@@ -40,7 +41,7 @@ function makeSession(): Session {
     geometry: geo,
     machineId: MACHINE,
     ownerUserId: OWNER,
-    toDaemon: vi.fn(),
+    toDaemon,
   })
 }
 
@@ -55,7 +56,6 @@ function makeClient(
     principal: userClientPrincipal(id, user, role),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
-    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 1,
@@ -259,7 +259,8 @@ describe('POD-1081 attach + take-control policy', () => {
   })
 
   it('preempts control for a drive-authorized grantee and broadcasts identity', async () => {
-    const session = makeSession()
+    const toDaemon: ControlMessage[] = []
+    const session = makeSession((m) => toDaemon.push(m))
     const owner = makeClient('c-owner', OWNER, 'admin')
     session.terminal.attachClient(owner)
 
@@ -281,7 +282,8 @@ describe('POD-1081 attach + take-control policy', () => {
     })
     expect(session.terminal.controllerId).toBe('c-alice')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
-    expect(session.terminal.geometry).toEqual({ cols: 62, rows: 36 })
+    // The claim's box is forwarded; the copy waits for the daemon's report.
+    expect(toDaemon).toContainEqual({ type: 'resize', sessionId: SESSION, cols: 62, rows: 36 })
     expect(owner.sent).toContainEqual(
       expect.objectContaining({
         type: 'controllerChanged',

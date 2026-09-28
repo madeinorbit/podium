@@ -1571,8 +1571,8 @@ export class SessionInbox {
     if (currentSole !== sole || currentSecond || this.deps.getSession(sessionId) !== session) return false
     const previous = session.terminal.controllerId
     // Never auto-transfer on a stale/unknown grid. A newly active renderer
-    // reports its current viewport immediately; handleResize calls back into
-    // this method after storing that measurement.
+    // states its current viewport immediately; the statement path calls back
+    // into this method after storing that measurement.
     if (previous !== sole.id && !sole.viewports.has(sessionId)) return false
     session.terminal.requestControl(sole.id)
     return previous !== session.terminal.controllerId
@@ -1593,10 +1593,11 @@ export class SessionInbox {
   }
 
   /**
-   * THE ONE ASK (POD-3239 B6). The terminal decides; this seam adds the
-   * sole-renderer promotion that follows any recorded measurement, exactly as
-   * the legacy resize path does — a request that was refused still recorded its
-   * viewport, and that record is what `reconcileActiveRenderer` needs.
+   * A VIEWPORT STATEMENT (POD-3239 B6). The terminal records and reconciles;
+   * this seam adds the sole-renderer promotion that follows any recorded
+   * measurement, exactly as the legacy resize path does — a statement that was
+   * not forwarded still recorded its viewport, which `reconcileActiveRenderer`
+   * needs.
    */
   async handleViewportRequest(
     principal: ClientPrincipal,
@@ -1611,9 +1612,9 @@ export class SessionInbox {
     return (await this.reconcileActiveRenderer(sessionId)) || controllerChanged
   }
 
-  reconcileGeometry(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {
-    void principal
-    this.deps.getSession(sessionId)?.terminal.reconcileGeometry(client.id)
+  /** A `viewState` changed who renders what: reconcile (rule 2). */
+  reconcileGeometry(sessionId: SessionId): void {
+    this.deps.getSession(sessionId)?.terminal.reconcile()
   }
 
   /**

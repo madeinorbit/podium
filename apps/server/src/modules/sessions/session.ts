@@ -6,7 +6,6 @@ import {
   type Attribution,
   type ConversationId,
   type Geometry,
-  type GeometryState,
   type HarnessAgent,
   type IssueId,
   type MachineId,
@@ -24,7 +23,7 @@ import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podiu
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
 import type { ConversationBinding, SessionRow } from '../../store'
-import { SessionTerminal, type SessionTerminalState } from './terminal'
+import { SessionTerminal } from './terminal'
 import { turnPreviewEnabled } from './turn-preview-flag'
 
 const log = createLogger('server:sessions')
@@ -76,9 +75,6 @@ export interface SessionInit {
   geometry: Geometry
   toDaemon: Send<ControlMessage>
   sendInput?: Send<DaemonPtyInputBatch>
-  /** Does this session's daemon report the grid it applied? See
-   *  {@link SessionTerminalInit.daemonReportsGeometry}. */
-  daemonReportsGeometry?: () => boolean
   /** The machine (daemon) this session runs on. REQUIRED: the caller has resolved a
    *  real machine before a Session object exists (POD-318), so there is no default to
    *  supply and no placeholder to adopt away from later. */
@@ -157,7 +153,7 @@ export interface SessionInit {
 }
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
-export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handoffTarget'
+export type SessionVolatileField = 'status' | 'machineId' | 'handoffTarget'
 
 /**
  * THE DURABLE HALF AS A VALUE [POD-3330].
@@ -219,7 +215,6 @@ export interface SessionDurableState {
   draftUpdatedAt: string | undefined
   offer: SessionOffer | undefined
   transcriptAvailable: boolean
-  terminal: SessionTerminalState
 }
 
 export class Session {
@@ -511,10 +506,6 @@ export class Session {
       agentKind: init.agentKind,
       geometry: init.geometry,
       toDaemon: init.toDaemon,
-      // The terminal answers `attached` with the SESSION's geometry state, which
-      // needs the lifecycle status it does not itself hold (POD-3239 B6).
-      geometryState: () => this.geometryState(),
-      ...(init.daemonReportsGeometry ? { daemonReportsGeometry: init.daemonReportsGeometry } : {}),
       ...(init.sendInput ? { sendInput: init.sendInput } : {}),
       inputCount: init.inputCount,
       outputCount: init.outputCount,
@@ -832,27 +823,13 @@ export class Session {
       d.status = 'live'
       d.exitCode = undefined
     }
-    // BIND IS A REPORT, AND ONLY WHEN IT CARRIES ONE (POD-3239 B6 / MODEL rule 1,
-    // refined by POD-3279). With a geometry the daemon is telling us the size it
-    // actually applied — the spawn's requested grid, or a resize it was holding
-    // for a spawn still in flight — so we take it, we announce it, and W becomes
-    // `current`. There is nothing to adopt-if-uncontrolled and nothing to
-    // re-assert downwards: a viewer that wants a different size asks, and the
-    // ask comes back as another report. That replaces both
-    // `adoptGeometryIfUncontrolled` (which mutated W and told nobody, so a
-    // spectator kept rendering a grid the pty had left) and `resyncGeometry`
-    // (which pushed the server's belief down onto a pty that had just told us
-    // what it was).
-    //
-    // WITHOUT ONE the daemon applied nothing — the ordinary reattach, where the
-    // attach is size-neutral and the surviving agent has been running at a size
-    // of its own. W KEEPS its last-known value (it still renders; inside the
-    // system only a daemon can have changed it) but nothing stands behind it, so
-    // it goes back to `unknown` and NOTHING is announced. Broadcasting our own
-    // last-known here would be the echo this branch exists to remove, wearing a
-    // server-side coat.
-    if (geometry) this.terminal.applyDaemonGeometry(geometry)
-    else this.terminal.markGeometryUnknown()
+    // THE BIND IS A FULL STATEMENT from the daemon (POD-4771, design rev 3):
+    // its size, when it carries one, is the kernel's, read by the host. The
+    // terminal writes it (broadcasting only a change), resets what it last
+    // asked for to it, and reconciles — which re-drives an ask that a dropped
+    // link lost. A bind without a size (a backend that cannot read it back)
+    // keeps the last-known copy.
+    this.terminal.bind(geometry)
   }
 
   /**
@@ -864,29 +841,9 @@ export class Session {
   markReconnecting(d: SessionDurableFields = this): boolean {
     if (d.status === 'live' || d.status === 'starting') {
       d.status = 'reconnecting'
-      // The daemon that was confirming W is gone, so W goes back to last-known
-      // (MODEL rule 6). The grid still RENDERS — it can only have changed
-      // through a daemon — but nothing stands behind it until the reattach binds.
-      this.terminal.markGeometryUnknown()
       return true
     }
     return false
-  }
-
-  /**
-   * WHAT THIS SESSION'S `geometry` IS WORTH (MODEL rule 6).
-   *
-   * Two facts, folded here because neither half owns both: whether there is a
-   * pty at all (the lifecycle status) and whether a daemon report stands behind
-   * the number (the terminal's `geometryKnown`). Derived rather than stored, so
-   * there is no fourth hibernate path that forgets to say `absent`.
-   *
-   * `absent` is the panel's do-not-mount answer: a hibernated or exited session
-   * has no process, and its transcript is what the operator should see.
-   */
-  geometryState(d: SessionDurableFields = this): GeometryState {
-    if (d.status === 'hibernated' || d.status === 'exited') return 'absent'
-    return this.terminal.geometryKnown ? 'current' : 'unknown'
   }
 
   /** Snapshot of all non-connection state represented by a successful session
@@ -932,33 +889,26 @@ export class Session {
       draftUpdatedAt: this.draftUpdatedAt,
       offer: this.offer ? structuredClone(this.offer) : undefined,
       transcriptAvailable: this.transcriptAvailable,
-      terminal: this.terminal.captureState(),
     }
   }
 
   /**
-   * ADOPT A DURABLE STATE AS A ROLLBACK: the fields, and the grid the failed
-   * write's clients had cached. See {@link installDurableState} for the other
-   * direction.
+   * ADOPT A DURABLE STATE AS A ROLLBACK: the fields a failed write was about.
+   * The terminal's size is not one of them — only the daemon's report and bind
+   * write it (POD-4771) — so a rollback and an install now adopt the same thing;
+   * see {@link installDurableState} for the other direction.
    */
   restoreDurableState(
     state: SessionDurableState,
     preserve: ReadonlySet<SessionVolatileField> = new Set(),
   ): void {
     this.adoptDurableFields(state, preserve)
-    this.terminal.restoreState(state.terminal, preserve.has('geometry'))
   }
 
   /**
    * ADOPT A DURABLE STATE AS A COMMITTED WRITE [POD-3330] — the draft a persist
-   * has just made durable becomes what the live object says.
-   *
-   * The GRID IS NOT TOUCHED, and that is the difference from
-   * {@link restoreDurableState}. A rollback undoes what the server believed
-   * about geometry because clients cached that belief; an install is a durable
-   * metadata write landing, and the pty's size is not one of the things it
-   * wrote. Rewinding it here would re-announce a stale grid over a resize the
-   * daemon applied while the commit was in flight.
+   * has just made durable becomes what the live object says. The grid is not
+   * touched: the pty's size is not one of the things a metadata write wrote.
    */
   installDurableState(
     state: SessionDurableState,
@@ -1144,15 +1094,8 @@ export class Session {
       ...(d.agentState ? { agentState: d.agentState } : {}),
       controllerId: this.terminal.controllerId,
       geometry: { ...this.terminal.geometry },
-      geometryState: this.geometryState(d),
       // Only when there is something to report (POD-3239 B6).
       ...(this.terminal.requestsGated > 0 ? { requestsGated: this.terminal.requestsGated } : {}),
-      ...(this.terminal.requestsDuplicate > 0
-        ? { requestsDuplicate: this.terminal.requestsDuplicate }
-        : {}),
-      ...(this.terminal.requestsUnanswered > 0
-        ? { requestsUnanswered: this.terminal.requestsUnanswered }
-        : {}),
       epoch: this.terminal.epoch,
       clientCount: this.terminal.clientCount,
       createdAt: this.createdAt,

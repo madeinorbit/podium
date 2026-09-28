@@ -220,7 +220,6 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
       principal: testClientPrincipal(id),
       send: (m: ServerMessage) => sent.push(m),
       viewports: new Map(),
-      viewportSeq: new Map(),
       attached: new Set(),
       caps: new Set(),
       wireVersion: 1,

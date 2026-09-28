@@ -191,33 +191,32 @@ export const RequestControlMessage = z.object({
   geometry: Geometry.optional(),
 })
 /**
- * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE (MODEL rule 3).
+ * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE: a statement of its measured box.
  *
- * A viewer measures its box to decide whether to ASK, never to decide what to
- * render — so this frame carries the box it would like, the visibility and mode
- * the sender believes it is in, and whether the ask also claims control. The
- * server applies the geometry only if it differs from W; the daemon's report is
- * what actually moves W.
+ * A viewer measures its box to state it, never to decide what to render. The
+ * server records it and reconciles (POD-4771): the controller's box is
+ * forwarded when it differs from what was last asked, and the daemon's report
+ * is what actually moves the server's copy.
  *
- * `seq` is per (connection, session), starts at 1 and only increases. The
- * server holds the watermark on the `ClientConn`, so it dies with the socket and
- * a reconnected client starts again at 1. A request at or below the watermark is
- * a duplicate: counted, never re-applied.
+ * The server reads only `geometry` and `claimControl`. Visibility comes from
+ * the connection's `viewState` alone, so `visible`/`mode` are informational;
+ * `seq` is optional and unread — one ordered socket needs no watermark — and
+ * stays in the schema so an older client's frame still parses.
  */
 export const ViewportRequestMessage = z.object({
   type: z.literal('viewportRequest'),
   sessionId: SessionIdField,
   /** The box this viewer would like the pty to be. */
   geometry: Geometry,
-  /** Whether the sender is rendering this session right now. Read FROM THE
-   *  MESSAGE rather than from stored `viewState`, so a request that overtakes
-   *  its own `viewState` frame is still judged on the truth it carries. */
+  /** Whether the sender is rendering this session right now. Informational:
+   *  the server reads visibility from `viewState` only (POD-4771). */
   visible: z.boolean(),
   /** Which surface is rendering it — the native terminal, or chat. */
   mode: z.enum(['native', 'chat']),
   /** Whether this ask also claims control (desktop reveal/reconnect: true). */
   claimControl: z.boolean(),
-  seq: positiveInt,
+  /** Unread since POD-4771; optional so both older and newer clients parse. */
+  seq: positiveInt.optional(),
 })
 export type ViewportRequestMessage = z.infer<typeof ViewportRequestMessage>
 
@@ -299,11 +298,10 @@ export const AttachedMessage = z.object({
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
-  /** Monotonic per-session revision for authoritative geometry. Optional so
-   * older peers remain wire-compatible during the additive rollout. */
+  /** Never sent since POD-4771 (the streams are ordered; a reconnect's attach
+   *  is a full statement). Optional so an older server's frame still parses. */
   geometryRevision: z.number().int().nonnegative().optional(),
-  /** What `geometry` is worth (MODEL rule 6). Absent from an older server,
-   *  which a client reads as `unknown` — which is what it is. */
+  /** Never sent since POD-4771 (`live` answers it). Optional for older servers. */
   geometryState: GeometryState.optional(),
   epoch: z.number().int().nonnegative(),
   // True when the following frames are an incremental catch-up from the client's
@@ -341,15 +339,15 @@ export const ControllerChangedMessage = z.object({
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
-  /** Monotonic per-session revision for authoritative geometry. */
+  /** Never sent since POD-4771. Optional so an older server's frame parses. */
   geometryRevision: z.number().int().nonnegative().optional(),
 })
-// Server's authoritative PTY size, per session — lets spectators letterbox.
+// The server's copy of the pty's size, per session — sent only when it changed.
 export const GeometryMessage = z.object({
   type: z.literal('geometry'),
   sessionId: SessionIdField,
   ...Geometry.shape,
-  /** Monotonic per-session revision for authoritative geometry. */
+  /** Never sent since POD-4771. Optional so an older server's frame parses. */
   geometryRevision: z.number().int().nonnegative().optional(),
 })
 // Shared in both directions: daemon -> server AND server -> client (identical shape).

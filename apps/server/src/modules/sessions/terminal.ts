@@ -1,12 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type {
-  AgentKind,
-  Attribution,
-  Geometry,
-  GeometryState,
-  SessionId,
-  TranscriptItem,
-} from '@podium/model'
+import type { AgentKind, Attribution, Geometry, SessionId, TranscriptItem } from '@podium/model'
 import type {
   DaemonPtyInputBatch,
   ObservationInputOrigin,
@@ -33,14 +26,10 @@ const MAX_REPLAY_BYTES = 256 * 1024
 const MAX_REPLAY_FRAMES = 4096
 const MAX_TRANSCRIPT_ITEMS = 12_000
 const SHELL_BUSY_WINDOW_MS = 4000
-/**
- * HOW LONG A FORWARDED RESIZE MAY GO UNANSWERED before the server says so
- * (POD-3809). The daemon reports synchronously inside the handler that applies,
- * so the only thing between the two is one websocket hop; two seconds is far
- * past any honest round trip and comfortably short of the "couple of seconds"
- * a viewer spends staring at the wrong grid when the report never comes.
- */
-const GEOMETRY_REPORT_DEADLINE_MS = 2000
+
+function sameGeometry(a: Geometry, b: Geometry | undefined): boolean {
+  return b !== undefined && a.cols === b.cols && a.rows === b.rows
+}
 
 function submitsCommandLine(bytes: Uint8Array): boolean {
   return bytes.includes(0x0d) || bytes.includes(0x0a)
@@ -198,46 +187,25 @@ const ALT_SCREEN_SEQUENCE = /\x1b\[\?([0-9;]*)([hl])/g
 /** Tail rescanned with the next frame so a 1049 split across frames still matches. */
 const MODE_CARRY_BYTES = 64
 
-export interface SessionTerminalState {
-  grid: Geometry
-  times: readonly [outputAtMs: number, inputAtMs: number, resumedAtMs: number]
-  counts: readonly [inputCount: number, outputCount: number, activityCount: number]
-  dirty: boolean
-  shell: readonly [busy: boolean, commandRunning: boolean]
-}
-
 interface OutputFanout {
   binary?: Uint8Array
   legacy?: ServerMessage
 }
 
 /**
- * The ask, as the server reads it (POD-3239 B6). Shaped exactly like the
- * `viewportRequest` frame minus its `type`/`sessionId`, so the legacy frames can
- * be expressed in the same vocabulary instead of keeping a second code path.
+ * A viewer's box statement, as the server reads a `viewportRequest`: the box it
+ * measured, and whether it also claims control.
+ *
+ * The frame's `visible`/`mode` are NOT read (POD-4771). Visibility has one
+ * source, the connection's `viewState`; a statement that overtakes the
+ * `viewState` announcing the same reveal is recorded, and that `viewState` is a
+ * reconcile trigger of its own, so nothing is lost by waiting for it. Its `seq`
+ * is not read either: one ordered socket per connection needs no watermark.
  */
 export interface ViewportRequest {
   geometry: Geometry
-  visible: boolean
-  mode: 'native' | 'chat'
   claimControl: boolean
-  seq: number
 }
-
-/**
- * A legacy `resize`/`requestControl` in the request vocabulary.
- *
- * `seq: 0` on purpose: it is below every watermark, so a legacy frame never
- * advances one and can never be mistaken for a duplicate of a real request. The
- * legacy paths do their own watermark-free dispatch; this exists so a gated
- * legacy frame is COUNTED and logged in exactly the same shape as a gated
- * `viewportRequest`.
- */
-const legacyRequest = (
-  geometry: Geometry,
-  visible: boolean,
-  mode: 'native' | 'chat',
-): ViewportRequest => ({ geometry, visible, mode, claimControl: false, seq: 0 })
 
 export interface SessionTerminalInit {
   sessionId: SessionId
@@ -253,23 +221,6 @@ export interface SessionTerminalInit {
   lastResumedAt?: string | null
   onActivity?: (at: string, changed: boolean) => void
   onTranscriptAvailable?: () => void
-  /**
-   * Does the daemon holding this session report the grid it applied
-   * (`CAP_DAEMON_GEOMETRY_APPLIED`)? Asked at the moment a request arrives
-   * rather than snapshotted, because a session outlives its daemon connection
-   * and can be answered by an older or newer daemon after a reconnect.
-   *
-   * Absent/false means the ONE compatibility branch (POD-3239 B6): the server
-   * keeps today's set-the-geometry-on-request behaviour for that session,
-   * because nothing else would ever write W.
-   */
-  daemonReportsGeometry?: () => boolean
-  /**
-   * The session's three-valued {@link GeometryState}, which needs the lifecycle
-   * status this object does not have. Absent in a fixture ⇒ the two states the
-   * terminal CAN answer on its own.
-   */
-  geometryState?: () => GeometryState
   /**
    * Whether this session asks its daemon for a token-level watch while a viewer
    * has the chat open (POD-2293). The flag lives on the terminal because the
@@ -287,60 +238,32 @@ export interface SessionTerminalInit {
  * counters and asks the terminal to detach when a session is removed.
  */
 export class SessionTerminal {
+  /**
+   * THE SERVER'S COPY of the pty's size (POD-3190 design rev 3).
+   *
+   * Written only by the daemon's report and its bind ({@link applyDaemonGeometry},
+   * {@link bind}), both of which carry the kernel's size as the host read it.
+   * A forward never writes it, and neither does a durable-write rollback.
+   * Whether it is backed by a live pty is the session's `live`, not a flag here.
+   */
   geometry: Geometry
   epoch = 0
-  /** Monotonic revision for the authoritative geometry timeline. A client can
-   * reject a delayed logical state without guessing from the dimensions. */
-  geometryRevision = 0
   /**
-   * HAS A DAEMON REPORT CONFIRMED `geometry`? (MODEL rule 6, the
-   * `unknown`/`current` half.)
+   * The last size this server asked the daemon for (rule 2).
    *
-   * False at birth — including a rehydrated birth, which is exactly why a
-   * server restart yields `unknown` without anyone remembering to say so — and
-   * false again the moment the daemon holding this session goes away. True only
-   * while a report stands.
-   *
-   * The third state, `absent`, is NOT here: it is a fact about whether there is
-   * a pty at all, which is the session's status, and a copy of it on this object
-   * would be a second answer to a question that already has one. `Session.geometryState()`
-   * folds the two.
+   * Written by a forward, and by a bind (set to the size the bind carries, or
+   * cleared by a bind that carries none). It is what makes a repeat free: a
+   * reveal, a rebind or a controller change forwards only a box that differs
+   * from it. It exists for the backends that are not the host: vendored abduco
+   * signals the child on every resize packet, same size or not.
    */
-  geometryKnown = false
+  private lastForwarded: Geometry | undefined
   /**
-   * HOW MANY VIEWPORT REQUESTS THIS SESSION REFUSED (POD-3239 B6).
-   *
-   * The whole point of the counter is that the refusal used to be invisible:
-   * today's `handleResize` returns without a broadcast, without a daemon frame
-   * and without telling the client anything, so a pane wrongly stuck at a stale
-   * grid looked identical to one that had never asked. Every refusal now lands
-   * here and in the log with its reason.
+   * HOW MANY VIEWPORT STATEMENTS THIS SESSION DID NOT FORWARD because their
+   * sender was not the visible native controller (POD-3239 B6). Counted so a
+   * pane stuck at a stale grid can be told apart from one that never asked.
    */
   requestsGated = 0
-  /**
-   * How many requests this session rejected as duplicates — a `seq` at or below
-   * the watermark for that (connection, session). Separate from
-   * {@link requestsGated} on purpose: a duplicate is a retransmit, not a refusal,
-   * and folding the two would make the refusal signal unreadable.
-   */
-  requestsDuplicate = 0
-  /**
-   * HOW MANY FORWARDED REQUESTS WENT UNANSWERED (POD-3809).
-   *
-   * The server is the only place that knows BOTH halves — "I forwarded a
-   * resize" and "a report came back" — so it is the only place the liveness of
-   * the whole sizing path is observable. Stage 7 exists because a daemon path
-   * applied a grid and never reported it, and nothing anywhere said so: the
-   * viewer simply rendered the wrong size for a couple of seconds. This counter
-   * and the `warn` beside it are what make that a line in the journal rather
-   * than a bug report, in every mode including ones nobody has written yet.
-   */
-  requestsUnanswered = 0
-  /** The armed watchdog for the request now in flight, and what it was for. One
-   *  per session: a newer request supersedes an older one, exactly as W does. */
-  private geometryWatchdog:
-    | { timer: ReturnType<typeof setTimeout>; requested: Geometry; atMs: number }
-    | undefined
   /** Websocket connection id of the current controller (device, not person). */
   controllerId: string | null = null
   /**
@@ -489,19 +412,10 @@ export class SessionTerminal {
 
   attachClient(client: ClientConn, sinceSeq?: number): void {
     this.clients.set(client.id, client)
-    // A FRESH ATTACH IS A FRESH CONVERSATION ABOUT THIS SESSION, so the viewport
-    // watermark starts over (POD-3239 B6).
-    //
-    // The seq counter lives on the CLIENT's `SessionConnection`, and a detach
-    // destroys that object — so the next attach legitimately starts again at 1.
-    // One socket can attach, detach and re-attach a session (the panel remounts
-    // its terminal whenever its mount gate flips), and a watermark that survived
-    // that would reject every request the new attachment ever makes as a
-    // duplicate: silently, forever, with the pane stuck at whatever size it
-    // happened to have. Clearing it here is what keeps "dies with the
-    // connection" true of the attachment rather than only of the socket.
-    client.viewportSeq.delete(this.init.sessionId)
-    if (this.controllerId === null) this.setController(client.id, client)
+    if (this.controllerId === null) {
+      this.setController(client.id, client)
+      this.reconcile()
+    }
     const oldest = this.outputLog[0]?.seq
     const newest = this.outputLog.at(-1)?.seq
     let frames = this.outputLog
@@ -524,10 +438,6 @@ export class SessionTerminal {
       controllerId: this.controllerId,
       controllerIdentity: this.controllerIdentity,
       geometry: { ...this.geometry },
-      geometryRevision: this.geometryRevision,
-      // What that geometry is worth (MODEL rule 6). The client renders
-      // last-known while this is `unknown`; only `absent` means "no buffer".
-      geometryState: this.init.geometryState?.() ?? (this.geometryKnown ? 'current' : 'unknown'),
       epoch: this.epoch,
       resumed,
       // The client cannot tell a PTY that has printed nothing since spawn from
@@ -555,23 +465,20 @@ export class SessionTerminal {
       this.clientAttribution(client),
       replayBytes,
     )
-    // The replay log is a byte stream, not a screen — replaying it only rebuilds the
-    // terminal if the window still holds a whole-screen anchor. A full-screen TUI that
-    // repaints a small region forever without ever re-anchoring evicts one: grok's idle
-    // animation shimmers its logo at ~6.8 KB/s with no clear, turning the 256 KB window
-    // over every ~30s, so a client attaching later replayed nothing but partial logo
-    // frames and showed a BLANK terminal for a session running fine [POD-379]. So
-    // whenever the client is (re)building its screen from replay alone, nudge the PTY
-    // into repainting from its own model. Harness-agnostic — it fixes any TUI that does
-    // not re-anchor — and the repaint carries a real clear, which re-anchors the log for
-    // the next attach too. A clean resume keeps its screen and only needs the delta —
-    // including a caught-up one, whose empty delta is "nothing changed", NOT "nothing to
-    // rebuild from"; only an EMPTY LOG (a restarted server) means the latter.
-    // An alternate fresh attach skipped the replay above, so the viewer holds
-    // nothing: the redraw is required even with a non-empty log, and the flag
-    // tells the daemon it must produce the first frame (model or repaint).
+    // The replay log is a byte stream, not a screen: replaying it rebuilds the
+    // terminal only if the window still holds a whole-screen anchor, and a TUI that
+    // repaints a small region forever evicts one [POD-379]. So whenever the client is
+    // (re)building its screen from replay alone, ask the daemon to repaint THE VIEWER
+    // from what it holds — the headless snapshot on the alternate screen, the host
+    // ring on the normal one. This never signals the child (POD-4723, design rev 3):
+    // a same-size SIGWINCH repaints nothing in a Node TUI. A clean resume keeps its
+    // screen and only needs the delta — including a caught-up one, whose empty delta
+    // is "nothing changed", NOT "nothing to rebuild from"; only an EMPTY LOG (a
+    // restarted server) means the latter. An alternate fresh attach skipped the
+    // replay above, so the viewer holds nothing and the daemon must produce the
+    // first frame (`replayRequired`).
     if (!resumed || this.outputLog.length === 0)
-      this.redraw(this.outputLog.length === 0 || (!resumed && this.altScreen))
+      this.redraw({ replayRequired: this.outputLog.length === 0 || (!resumed && this.altScreen) })
   }
 
   reassignController(fromId: string, toId: string): void {
@@ -701,7 +608,6 @@ export class SessionTerminal {
   detachClient(clientId: string): void {
     const client = this.clients.get(clientId)
     client?.viewports.delete(this.init.sessionId)
-    client?.viewportSeq.delete(this.init.sessionId)
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     this.reconcileWatchLevel()
@@ -727,8 +633,8 @@ export class SessionTerminal {
         controllerId: this.controllerId,
         controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
-        geometryRevision: this.geometryRevision,
       })
+      this.reconcile()
     } else {
       this.clearController()
     }
@@ -802,7 +708,6 @@ export class SessionTerminal {
       controllerId: null,
       controllerIdentity: null,
       geometry: { ...this.geometry },
-      geometryRevision: this.geometryRevision,
     })
   }
 
@@ -822,296 +727,130 @@ export class SessionTerminal {
   }
 
   /**
-   * THE ONE ASK (POD-3239 B6 / MODEL rules 3 and 4).
+   * A VIEWPORT STATEMENT: a viewer measured its box (POD-3239 B6, POD-4771).
    *
-   * A viewer measured its box and would like the pty to be that size. This
-   * method decides whether to forward the ask; it does NOT decide what anyone
-   * renders, and — on a daemon that reports — it does not write W either. The
-   * daemon's `geometryApplied` does that.
-   *
-   * The order below is the contract:
-   *
-   *   1. WATERMARK first. A `seq` at or below what this (connection, session)
-   *      has already processed is a duplicate: counted, and nothing about it is
-   *      applied — including the viewport record, because an out-of-order old
-   *      request carries an out-of-date box.
-   *   2. RECORD the viewport, before any gate can return. `reconcileActiveRenderer`
-   *      promotes a sole native renderer only when it has one, so a refusal that
-   *      also forgot the measurement would silently disable that promotion (0b's
-   *      C4 narrowing).
-   *   3. GATE on `visible`/`mode` READ FROM THE MESSAGE, not from stored
-   *      `viewState`. A request can legitimately overtake the `viewState` frame
-   *      that announces the same reveal, and judging it on state that has not
-   *      arrived yet is how a correct request gets dropped for being early.
-   *   4. FORWARD, only when the geometry differs from W. A claim at an unchanged
-   *      size is a claim, not a resize — re-sending the same winsize raises a
-   *      SIGWINCH and flashes the TUI for nothing.
+   * Recorded first, whoever sent it and whatever it is showing — a spectator's
+   * box is exactly what a later controller change reconciles against, and what
+   * `reconcileActiveRenderer` needs to promote a sole renderer. A claim then
+   * takes control; anything else just reconciles.
    *
    * Returns whether the controller changed, which is what the caller broadcasts
    * session rows for.
    */
   handleViewportRequest(clientId: string, request: ViewportRequest): boolean {
-    const sessionId = this.init.sessionId
     const client = this.clients.get(clientId)
     if (!client) {
-      // NOT A REFUSAL, AND NOT A SILENT DROP EITHER. There is no viewer here to
-      // have been refused — this connection is not attached to this session, so
-      // it is not counted against {@link requestsGated}, which measures refusals
-      // of real renderers. It IS named, because a request arriving in the window
-      // between a detach and the re-attach that follows it is exactly the kind
-      // of thing that used to vanish without a word.
-      log.debug('request:unattached', { sessionId, clientId, geometry: request.geometry })
-      return false
-    }
-
-    const watermark = client.viewportSeq.get(sessionId) ?? 0
-    if (request.seq <= watermark) {
-      this.requestsDuplicate += 1
-      log.debug('request:duplicate', {
-        sessionId,
+      // Not a refusal: this connection is not attached to this session, so
+      // there is no viewer to have been refused. Named, because a statement in
+      // the window between a detach and its re-attach used to vanish unseen.
+      log.debug('request:unattached', {
+        sessionId: this.init.sessionId,
         clientId,
-        seq: request.seq,
-        watermark,
+        geometry: request.geometry,
       })
       return false
     }
-    // Advanced for a GATED request too: it was processed — we looked at it and
-    // decided — so a later request must carry a higher seq to be new.
-    client.viewportSeq.set(sessionId, request.seq)
-    client.viewports.set(sessionId, { ...request.geometry })
-
     if (request.claimControl) {
-      // The message's own `visible` travels with the claim, for the same reason
-      // the gate below reads it: a reveal sends its `viewState` and its claim in
-      // the same tick, and either can arrive first. `requestControl` otherwise
-      // reads the connection's STORED visibility, which would refuse the
-      // geometry on the claim that overtook it — transferring control and
-      // leaving the pty at the grid the previous viewer had.
-      this.requestControl(clientId, request.geometry, request.visible && request.mode === 'native')
+      this.requestControl(clientId, request.geometry)
       return true
     }
-    if (!request.visible || request.mode !== 'native') {
-      this.gateRequest(clientId, request, request.visible ? 'not-native' : 'not-visible')
-      return false
-    }
-    if (clientId !== this.controllerId) {
-      this.gateRequest(clientId, request, 'not-controller')
-      return false
-    }
-    this.driveGeometry(request.geometry)
+    this.state(client, request.geometry)
     return false
   }
 
-  /**
-   * A viewport request that will not be forwarded, counted and named.
-   *
-   * The measurement it carried is already recorded by the caller, which is the
-   * part `reconcileActiveRenderer` needs; what is refused is the drive.
-   */
-  private gateRequest(clientId: string, request: ViewportRequest, reason: string): void {
-    this.requestsGated += 1
-    // `request:gated` — the same token the client traces use, so a session's
-    // refusals can be read against its asks on one timeline (POD-3239).
-    log.debug('request:gated', {
-      sessionId: this.init.sessionId,
-      clientId,
-      reason,
-      geometry: request.geometry,
-      requestsGated: this.requestsGated,
-    })
+  /** The legacy `resize` frame: a statement that claims nothing. */
+  handleResize(clientId: string, cols: number, rows: number): void {
+    const client = this.clients.get(clientId)
+    if (client) this.state(client, { cols, rows })
+  }
+
+  /** Record a statement, count it if its sender cannot drive, and reconcile. */
+  private state(client: ClientConn, geometry: Geometry): void {
+    client.viewports.set(this.init.sessionId, { ...geometry })
+    if (client.id !== this.controllerId || !this.rendersNative(client)) {
+      this.requestsGated += 1
+      // `request:gated` — the same token the client traces use, so a session's
+      // statements can be read against its asks on one timeline (POD-3239).
+      log.debug('request:gated', {
+        sessionId: this.init.sessionId,
+        clientId: client.id,
+        reason: client.id !== this.controllerId ? 'not-controller' : 'not-visible-native',
+        geometry,
+        requestsGated: this.requestsGated,
+      })
+    }
+    this.reconcile()
   }
 
   /**
-   * Ask the daemon to make the pty this size — the ONLY thing an accepted
-   * request does to geometry when the daemon reports.
+   * RULE 2, THE ONE RECONCILE (POD-3190 design rev 3).
    *
-   * Nothing is written here and nothing is broadcast: `geometryApplied` comes
-   * back and {@link applyDaemonGeometry} does both. The one compatibility branch
-   * is for a daemon that never sends that frame, where the server has to keep
-   * writing W itself or W would never move again.
+   * If the controller is visible and native, and its viewport differs from
+   * {@link lastForwarded}: forward it, and remember it. Run on a viewport
+   * statement, a controller change (including a `viewState` that reveals or
+   * hides a pane) and a bind — never on a report, so it cannot loop.
    *
-   * A request equal to W is not forwarded at all. That is what stops a reveal's
-   * always-send claim (rule 4) from costing a SIGWINCH. While a request is in
-   * flight the comparison is against IT, not W (POD-4721): W does not move until
-   * the report lands, so a claim followed by the sole-renderer promotion used to
-   * send the same size twice — and a return to W before the report was dropped.
+   * Level-triggered, which is what repairs a lost ask without a timer or a
+   * retry: an ask lost on link A is restated by the browser's reconnect, and
+   * one lost on link B is re-driven by the daemon's next bind, which resets
+   * {@link lastForwarded} to the size the pty really has. A refused ask is not
+   * re-sent: nothing here reads the copy.
    */
-  private driveGeometry(geometry: Geometry): void {
-    const target = this.drivenGeometry()
-    if (geometry.cols === target.cols && geometry.rows === target.rows) return
+  reconcile(): void {
+    const controller = this.controllerId === null ? undefined : this.clients.get(this.controllerId)
+    if (!controller || !this.rendersNative(controller)) return
+    const viewport = controller.viewports.get(this.init.sessionId)
+    if (!viewport || sameGeometry(viewport, this.lastForwarded)) return
+    this.lastForwarded = { ...viewport }
     this.init.toDaemon({
       type: 'resize',
       sessionId: this.init.sessionId,
-      cols: geometry.cols,
-      rows: geometry.rows,
+      cols: viewport.cols,
+      rows: viewport.rows,
     })
-    if (this.init.daemonReportsGeometry?.() === true) {
-      // ONLY ON THE REPORTING DAEMON. The compatibility branch below writes W
-      // itself, so there is no report to wait for and a watchdog there would
-      // fire on every single resize.
-      this.armGeometryWatchdog(geometry)
-      return
-    }
-    this.setGeometry(geometry.cols, geometry.rows)
-    this.announceGeometry()
   }
 
-  /**
-   * THE WATCHDOG THAT WOULD HAVE CAUGHT POD-3809.
-   *
-   * A request has just gone to the daemon and W will not move until a report
-   * comes back. If none has by the time this fires, the path below is silent —
-   * which is not a slow resize, it is a resize that will never happen, and the
-   * viewer will sit at the old grid until something else moves it.
-   *
-   * CHEAP AND PER-SESSION: one unref'd timer, replaced rather than stacked when
-   * a newer request supersedes an older one, and cancelled by the report. A
-   * session nobody is resizing arms nothing.
-   */
-  private armGeometryWatchdog(requested: Geometry): void {
-    this.cancelGeometryWatchdog()
-    const atMs = Date.now()
-    const timer = setTimeout(() => {
-      this.geometryWatchdog = undefined
-      this.requestsUnanswered += 1
-      log.warn('request:unanswered', {
-        sessionId: this.init.sessionId,
-        requested,
-        geometry: { ...this.geometry },
-        geometryState: this.init.geometryState?.() ?? (this.geometryKnown ? 'current' : 'unknown'),
-        elapsedMs: Date.now() - atMs,
-        requestsUnanswered: this.requestsUnanswered,
-      })
-    }, GEOMETRY_REPORT_DEADLINE_MS)
-    timer.unref?.()
-    this.geometryWatchdog = { timer, requested, atMs }
-  }
-
-  /** The size the pty is heading to: the unanswered request if one is in
-   *  flight, else W. What a new request has to differ from to be news. */
-  private drivenGeometry(): Geometry {
-    return this.geometryWatchdog?.requested ?? this.geometry
-  }
-
-  /** A report arrived (or the request is moot): the ask was answered. */
-  private cancelGeometryWatchdog(): void {
-    if (!this.geometryWatchdog) return
-    clearTimeout(this.geometryWatchdog.timer)
-    this.geometryWatchdog = undefined
-  }
-
-  /**
-   * Today's `resize` frame, in the new vocabulary (POD-3239 B6).
-   *
-   * An installed client still sends it, so it keeps working — as a request that
-   * claims nothing, with `visible`/`mode` taken from the stored `viewState`
-   * because that frame has no fields of its own to carry them. Its `seq` is 0,
-   * which is below every watermark and therefore never advances one: a legacy
-   * client and a new client on the same connection cannot fight over the
-   * counter, and repeated legacy resizes are not mistaken for duplicates.
-   */
-  handleResize(clientId: string, cols: number, rows: number): void {
-    const client = this.clients.get(clientId)
-    if (!client) return
+  /** THE ONE SOURCE OF VISIBILITY: the connection's stored `viewState`. */
+  private rendersNative(client: ClientConn): boolean {
     const sessionId = this.init.sessionId
-    client.viewports.set(sessionId, { cols, rows })
-    const visible = client.viewVisible.has(sessionId)
-    const mode = client.viewModes[sessionId] ?? 'native'
-    if (!visible || mode !== 'native') {
-      this.gateRequest(
-        clientId,
-        legacyRequest({ cols, rows }, visible, mode),
-        visible ? 'not-native' : 'not-visible',
-      )
-      return
-    }
-    if (clientId !== this.controllerId) {
-      this.gateRequest(clientId, legacyRequest({ cols, rows }, visible, mode), 'not-controller')
-      return
-    }
-    this.driveGeometry({ cols, rows })
-  }
-
-  /**
-   * A client became a visible native renderer and already has a measurement on
-   * file — reconcile the pty to it.
-   *
-   * Same forward-don't-write rule as every other request path; the difference is
-   * only where the number came from.
-   */
-  reconcileGeometry(clientId: string): void {
-    const client = this.clients.get(clientId)
-    if (!client || clientId !== this.controllerId || !client.viewVisible.has(this.init.sessionId)) {
-      return
-    }
-    const viewport = client.viewports.get(this.init.sessionId)
-    if (!viewport) return
-    this.driveGeometry(viewport)
+    return (
+      client.viewVisible.has(sessionId) && (client.viewModes[sessionId] ?? 'native') === 'native'
+    )
   }
 
   /** Connections that currently render the native terminal. Presence rooms are
    * person-scoped; this list is deliberately device/connection-scoped so one
    * person's desktop and phone both participate in geometry policy. */
   activeNativeRenderers(): readonly ClientConn[] {
-    return [...this.clients.values()].filter(
-      (client) =>
-        client.viewVisible.has(this.init.sessionId) &&
-        (client.viewModes[this.init.sessionId] ?? 'native') === 'native',
-    )
+    return [...this.clients.values()].filter((client) => this.rendersNative(client))
   }
 
   /**
-   * Claim control, and (if the claimer asked for a size) forward that size.
+   * Claim control, optionally stating a box with the claim.
    *
-   * TWO THINGS THAT USED TO BE ONE. The transfer is a control-plane fact and is
-   * broadcast here, as it always was. The geometry is a REQUEST: it goes to the
-   * daemon and comes back as a report (POD-3239 B6). Nothing on this path writes
-   * W any more, so the `controllerChanged` frame carries the current cached W —
-   * it describes who is driving, never what size the pty is now.
-   *
-   * `visible` defaults to the connection's stored `viewState`, because a claim
-   * can arrive on the legacy `requestControl` frame, which carries no visibility
-   * of its own. A `viewportRequest` passes its OWN — see the caller.
+   * The transfer is a control-plane fact and is broadcast here; the size is not
+   * (the `controllerChanged` frame carries the current copy — who drives, never
+   * what size the pty is now). A controller change is a reconcile trigger, so
+   * the new controller's box is forwarded if it differs from what was last
+   * asked. No redraw: the size change, if any, repaints the child itself.
    */
-  requestControl(clientId: string, claimedGeometry?: Geometry, visible?: boolean): void {
+  requestControl(clientId: string, claimedGeometry?: Geometry): void {
     const client = this.clients.get(clientId)
     if (!client) return
     if (claimedGeometry) client.viewports.set(this.init.sessionId, { ...claimedGeometry })
-
-    const transferred = this.controllerId !== clientId
-    if (transferred) {
+    if (this.controllerId !== clientId) {
       // Preemptive transfer — current controller cannot refuse (policy §3).
       this.setController(clientId, client)
       this.epoch += 1
-    }
-
-    const viewport = claimedGeometry ?? client.viewports.get(this.init.sessionId)
-    // Against the size already asked for, as `driveGeometry` judges it: a
-    // repeat of an in-flight claim is not a size change, and must not redraw.
-    const driven = this.drivenGeometry()
-    const geometryDiffers =
-      viewport !== undefined && (driven.cols !== viewport.cols || driven.rows !== viewport.rows)
-    const rendering = visible ?? client.viewVisible.has(this.init.sessionId)
-    if (rendering && viewport) {
-      this.driveGeometry(viewport)
-      // Today's redraw rule, unchanged: a transfer repaints for the new owner,
-      // and a size change asks the agent to repaint at it. A claim at an
-      // unchanged size needs neither — the revealing client recovers its own
-      // canvas locally, which is what `reveal()`'s repaint is for.
-      if (transferred || geometryDiffers) {
-        this.init.toDaemon({ type: 'redraw', sessionId: this.init.sessionId })
-      }
-    }
-    if (transferred) {
       this.broadcast({
         type: 'controllerChanged',
         sessionId: this.init.sessionId,
         controllerId: clientId,
         controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
-        geometryRevision: this.geometryRevision,
       })
     }
+    this.reconcile()
   }
 
   /**
@@ -1125,11 +864,18 @@ export class SessionTerminal {
     if (attribution) this.lastInputAttribution = attribution
   }
 
-  redraw(replayRequired = false): void {
+  /**
+   * Ask the daemon to repaint the viewers. `replayRequired`: the server holds
+   * nothing for an attaching page, so the daemon must send its snapshot or ring.
+   * `hard`: the user pressed redraw — the one repaint that reaches the program,
+   * as a Ctrl-L. Every other redraw leaves the child alone.
+   */
+  redraw(opts: { replayRequired?: boolean; hard?: boolean } = {}): void {
     this.init.toDaemon({
       type: 'redraw',
       sessionId: this.init.sessionId,
-      ...(replayRequired ? { replayRequired: true } : {}),
+      ...(opts.replayRequired ? { replayRequired: true } : {}),
+      ...(opts.hard ? { hard: true } : {}),
     })
   }
 
@@ -1182,91 +928,46 @@ export class SessionTerminal {
   }
 
   /**
-   * THE DAEMON'S REPORT OF THE GRID IT APPLIED (MODEL rule 5).
+   * THE DAEMON'S REPORT: the kernel's size, as the host read it (rule 3).
    *
-   * The daemon dispatched a resize to the pty and is telling us what it
-   * dispatched. That report — and the bind report — are the only things that may
-   * move W, so this method is a WRITE, not a proposal: it takes the number as
-   * given and announces it.
+   * One of the two writers of {@link geometry}. It writes and broadcasts only
+   * when the size moved, and it never forwards anything: a report is an answer,
+   * so reconciling on it is what would make the rule able to loop.
    *
-   * The broadcast is unconditional, including when the grid did not move. A
-   * report is news even at the same size: it is what turns a viewer's `unknown`
-   * into `current`, and a viewer that asked for a size it already had learns
-   * here that the ask was answered.
+   * Returns whether the copy changed, so the caller republishes the row only
+   * then.
    */
-  applyDaemonGeometry(geometry: Geometry): void {
-    // THE ANSWER THE WATCHDOG WAS WAITING FOR. Any report answers it, not only
-    // one at the requested size: the daemon reports what it APPLIED, and a
-    // daemon that applied something else has still spoken. Silence is the fault.
-    this.cancelGeometryWatchdog()
-    this.setGeometry(geometry.cols, geometry.rows)
-    // A report is what makes W KNOWN — the `unknown` → `current` edge of rule 6.
-    this.geometryKnown = true
-    this.announceGeometry()
-  }
-
-  /**
-   * The daemon holding this session is gone, so nothing confirms W any more
-   * (MODEL rule 6). The geometry itself is KEPT and still renders — inside the
-   * system it can only change through a daemon, so last-known stays right until
-   * the first ask corrects it. What is lost is the confirmation.
-   */
-  markGeometryUnknown(): void {
-    this.geometryKnown = false
-  }
-
-  /** The `geometry` frame for the current cached W. The only place one is built. */
-  private announceGeometry(): void {
+  applyDaemonGeometry(geometry: Geometry): boolean {
+    if (sameGeometry(geometry, this.geometry)) return false
+    this.geometry = { cols: geometry.cols, rows: geometry.rows }
+    // The DB copy is lazy: the activity flush writes it with the row.
+    this.activityDirty_ = true
     this.broadcast({
       type: 'geometry',
       sessionId: this.init.sessionId,
       cols: this.geometry.cols,
       rows: this.geometry.rows,
-      geometryRevision: this.geometryRevision,
     })
+    return true
+  }
+
+  /**
+   * THE DAEMON BOUND THIS SESSION: a full statement after link B (re)connects.
+   *
+   * A bind with a size is a report (rule 3), and it resets {@link lastForwarded}
+   * to that size, because that is what the pty really is now: any ask this
+   * server sent into a dropped link was never applied. A bind without one (a
+   * backend that cannot read its size back) keeps the copy and clears
+   * {@link lastForwarded}. Then reconcile, which re-drives a lost ask.
+   */
+  bind(geometry: Geometry | undefined): void {
+    this.lastForwarded = geometry ? { cols: geometry.cols, rows: geometry.rows } : undefined
+    if (geometry) this.applyDaemonGeometry(geometry)
+    this.reconcile()
   }
 
   broadcast(message: ServerMessage): void {
     for (const client of this.clients.values()) client.send(message)
-  }
-
-  captureState(): SessionTerminalState {
-    return {
-      grid: { ...this.geometry },
-      times: [this.outputAtMs_, this.inputAtMs_, this.resumedAtMs_],
-      counts: [this.inputCount_, this.outputCount_, this.activityCount_],
-      dirty: this.activityDirty_,
-      shell: [this.shellBusy_, this.shellCommandRunning],
-    }
-  }
-
-  restoreState(state: SessionTerminalState, preserveGeometry: boolean): void {
-    // A durable-write rollback is still a live geometry transition. Keep the
-    // revision timeline monotonic and announce the restored grid instead of
-    // copying state.grid behind an already-emitted revision.
-    //
-    // CLIENTS ONLY — no `resize` to the daemon (POD-3239 B6). The rollback undoes
-    // what the SERVER believed; the pty never moved, so telling it to move now
-    // would be this path inventing a resize nobody asked for.
-    if (
-      !preserveGeometry &&
-      (this.geometry.cols !== state.grid.cols || this.geometry.rows !== state.grid.rows)
-    ) {
-      this.setGeometry(state.grid.cols, state.grid.rows)
-      this.announceGeometry()
-    }
-    // THE LIVE HALF IS NOT REWOUND [POD-3259, spec §3.6]. `times`, `counts`,
-    // `dirty` and `shell` are observations of a pty, not fields the failed
-    // metadata write was about, and they MAY change while persistence is
-    // awaiting — a process does not stop producing output because a row is
-    // being written. Putting them back would discard activity that really
-    // happened, and `dirty: false` in particular would tell `flushActivity`
-    // there is nothing to write, losing the counter advance until the next
-    // frame arrives. Today this changes nothing: capture and restore are one
-    // uninterruptible pair, so the values are identical either way. It is
-    // written now so the rollback is right once the commit between them can
-    // await. The grid above IS restored, because a rollback undoes what the
-    // SERVER believed about geometry and the clients cached that belief.
   }
 
   private setController(clientId: string, client: ClientConn | undefined): void {
@@ -1281,13 +982,6 @@ export class SessionTerminal {
   private clearController(): void {
     this.controllerId = null
     this.controllerIdentity = null
-  }
-
-  private setGeometry(cols: number, rows: number): void {
-    if (this.geometry.cols === cols && this.geometry.rows === rows) return
-    this.geometry = { cols, rows }
-    this.geometryRevision += 1
-    this.activityDirty_ = true
   }
 
   private markShellBusy(): void {

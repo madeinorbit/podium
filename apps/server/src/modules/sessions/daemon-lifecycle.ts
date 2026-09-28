@@ -56,6 +56,9 @@ export interface SessionDaemonLifecyclePorts {
     additionalWrite?: () => Promise<void>,
   ): Promise<void>
   broadcastSessions(): void
+  /** The volatile Session-view seam: mutate live, capture once in the
+   *  coalesced flush (no synchronous row write) [spec:SP-c29e]. */
+  mutateSessionView(sessionId: SessionId, mutate: (session: Session) => void): boolean
   onSessionActivity(sessionId: SessionId): void | Promise<void>
   onSessionAttention(sessionId: SessionId): void
   onSessionTurnEnd(sessionId: SessionId): void
@@ -399,21 +402,17 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'geometryApplied': {
-        // THE DAEMON REPORTED THE GRID IT APPLIED (POD-3239, MODEL rule 5).
-        // Straight to the terminal's writer: nothing above the daemon gets to
-        // second-guess the size the pty is actually running at.
-        const session = this.sessions.get(msg.sessionId)
-        if (session) {
-          session.terminal.applyDaemonGeometry(msg.geometry)
-          // AND REPUBLISH THE ROW. `SessionMeta.geometry` is what a terminal is
-          // now CONSTRUCTED at (B1), so a report that moved W without moving the
-          // row would leave the next mount building at a stale size — the exact
-          // failure this issue exists to remove, reintroduced one layer up. It is
-          // persisted for the same reason: a server restart rehydrates from the
-          // row, and `geometryState` is `unknown` precisely because the row is
-          // last-known rather than confirmed.
-          await this.persist(session)
-          this.broadcastSessions()
+        // THE DAEMON REPORTED THE KERNEL'S SIZE (rule 3, POD-4771). Only a
+        // change is news. The terminal writes it and broadcasts the `geometry`
+        // frame, and the ROW follows through the volatile seam, because
+        // `SessionMeta.geometry` is what the next mount constructs at. That
+        // seam is coalesced and captured in the flush, never written inline:
+        // the DB copy stays lazy.
+        const current = this.sessions.get(msg.sessionId)?.terminal.geometry
+        if (current && (current.cols !== msg.geometry.cols || current.rows !== msg.geometry.rows)) {
+          this.ports.mutateSessionView(msg.sessionId, (session) => {
+            session.terminal.applyDaemonGeometry(msg.geometry)
+          })
         }
         break
       }
