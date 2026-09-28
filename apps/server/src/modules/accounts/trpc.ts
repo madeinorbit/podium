@@ -6,7 +6,7 @@
 import { asUserId, type HarnessAgent, type MachineId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
-import { codexAuthorizerFor, codexLoginMachines, pickCodexMachine, serverVersionLabel } from '../../codex-machine'
+import { codexAuthorizerFor, codexLoginMachines, pickCodexMachine } from '../../codex-machine'
 import { ACCOUNT_QUERIES } from './queries'
 import { ACCOUNT_COMMANDS_TRPC } from './registry'
 
@@ -54,7 +54,6 @@ export const accountFamilyProcedures = (): AccountProcedures =>
             {
               defaultMachineId: await state.modules.machines.defaultMachine().catch(() => undefined),
               authorize,
-              serverVersion: serverVersionLabel(),
             },
           )
           return { harness, machineId: picked.machineId, machineName: picked.machineName }

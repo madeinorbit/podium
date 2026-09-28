@@ -7,8 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCodexTransport, type CodexLoginMachineSource } from './codex-machine'
 import { llmClient, LlmConfigError } from './llm'
 
-const VERSION = 'test-server-version'
-
 function inventoryFor(state: 'in' | 'out') {
   return Inventory.parse({
     os: 'linux',
@@ -53,7 +51,6 @@ function stubTransport(stub: Stub) {
     authorizerFor: async () => (id) =>
       stub.allow.includes(String(id)) ? undefined : 'you do not have access to use this machine',
     ownerUserId: async () => asUserId('owner-1'),
-    serverVersion: VERSION,
     codexComplete: async (machineId, input) => {
       calls.push({ machineId: String(machineId), model: input.model })
       return await stub.complete(input.model)
@@ -83,7 +80,10 @@ describe('codex transport (POD-4750)', () => {
 
   it('a codex turn succeeds via the picked machine with no server-side login file', async () => {
     const { transport, calls } = stubTransport({
-      records: [record('desk')],
+      // A skewed daemon version must not stop the call: version skew never
+      // gates the pick (the frame-guard arm and the no-reply deadline cover
+      // daemons that truly predate the frame).
+      records: [record('desk', { appVersion: 'v0.0.1-ancient' })],
       online: ['desk'],
       defaultId: 'desk',
       allow: ['desk'],
@@ -105,7 +105,6 @@ describe('codex transport (POD-4750)', () => {
       defaultMachineId: async () => asMachineId('desk'),
       authorizerFor: async () => () => undefined,
       ownerUserId: async () => asUserId('owner-1'),
-      serverVersion: VERSION,
       codexComplete: async (_m, input) => {
         seen.push({ model: input.model, effort: input.effort })
         return { ok: true, text: 'ok', toolCalls: [] }

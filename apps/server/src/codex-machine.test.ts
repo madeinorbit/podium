@@ -88,7 +88,6 @@ describe('pickCodexMachine', () => {
     const picked = pickCodexMachine([machine('a'), machine('b')], {
       defaultMachineId: asMachineId('b'),
       authorize: allowAll,
-      serverVersion: VERSION,
     })
     expect(picked).toEqual({ machineId: asMachineId('b'), machineName: 'b' })
   })
@@ -97,7 +96,6 @@ describe('pickCodexMachine', () => {
     const picked = pickCodexMachine([machine('b'), machine('a')], {
       defaultMachineId: asMachineId('zzz'),
       authorize: allowAll,
-      serverVersion: VERSION,
     })
     expect(picked.machineId).toBe(asMachineId('a'))
   })
@@ -111,7 +109,6 @@ describe('pickCodexMachine', () => {
       String(id) === asMachineId('zzz-mine') ? undefined : 'you do not have access to use this machine'
     const picked = pickCodexMachine([machine('aaa-b-box'), machine('zzz-mine')], {
       authorize,
-      serverVersion: VERSION,
     })
     expect(picked).toEqual({ machineId: asMachineId('zzz-mine'), machineName: 'zzz-mine' })
   })
@@ -119,7 +116,7 @@ describe('pickCodexMachine', () => {
   it('names nothing when the only connected logins belong to other users', () => {
     let message = ''
     try {
-      pickCodexMachine([machine('user-b-box')], { authorize: denyAll, serverVersion: VERSION })
+      pickCodexMachine([machine('user-b-box')], { authorize: denyAll })
     } catch (err) {
       expect(err).toBeInstanceOf(LlmConfigError)
       message = (err as Error).message
@@ -133,24 +130,28 @@ describe('pickCodexMachine', () => {
     expect(() =>
       pickCodexMachine([machine('desk', { online: false })], {
         authorize: allowAll,
-        serverVersion: VERSION,
       }),
     ).toThrowError(/Codex login on desk is offline/)
   })
 
-  it('refuses fast when the daemon predates the handler', () => {
-    expect(() =>
-      pickCodexMachine([machine('oldbox', { appVersion: '0.4.1' })], {
-        authorize: allowAll,
-        serverVersion: VERSION,
-      }),
-    ).toThrowError(/too old for Codex server AI/)
+  it('picks regardless of daemon version skew — newer and older daemons are still called', () => {
+    // Deliberately NO version gate: daemons routinely update before the
+    // server, and an older daemon may already have the handler. A daemon that
+    // truly predates the frame is covered by the frame-guard arm and the
+    // no-reply deadline, never by a pick-time refusal.
+    const newer = pickCodexMachine([machine('ahead', { appVersion: 'v999-future' })], {
+      authorize: allowAll,
+    })
+    expect(newer).toEqual({ machineId: asMachineId('ahead'), machineName: 'ahead' })
+    const older = pickCodexMachine([machine('behind', { appVersion: 'v0.0.1-ancient' })], {
+      authorize: allowAll,
+    })
+    expect(older).toEqual({ machineId: asMachineId('behind'), machineName: 'behind' })
   })
 
   it('proceeds when the daemon never reported a version (deadline message covers age)', () => {
     const picked = pickCodexMachine([machine('mystery', { appVersion: null })], {
       authorize: allowAll,
-      serverVersion: VERSION,
     })
     expect(picked).toEqual({ machineId: asMachineId('mystery'), machineName: 'mystery' })
   })

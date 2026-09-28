@@ -82,7 +82,6 @@ import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access
 import {
   codexAuthorizerFor,
   createCodexTransport,
-  serverVersionLabel,
 } from './codex-machine'
 import { type CodexTransport, llmClient } from './llm'
 import type { ModelProbe } from './model-catalog'
@@ -1783,7 +1782,6 @@ export class SessionRegistry {
       authorizerFor: async (owner) =>
         await codexAuthorizerFor({ users: this.store.users, machines }, owner),
       ownerUserId: () => firstAdminMemberId(this.store),
-      serverVersion: serverVersionLabel(),
       codexComplete: async (machineId, input) =>
         await rpc.codexComplete(machineId, input),
     })

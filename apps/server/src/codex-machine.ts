@@ -19,11 +19,6 @@ import type { UsersRepository } from './store/users'
  * hub's "Server AI uses …" row both read it, so they cannot disagree.
  */
 
-/** This server's own version label — the same label daemons report. */
-export function serverVersionLabel(): string {
-  return process.env.PODIUM_APP_VERSION ?? 'dev'
-}
-
 export interface CodexLoginMachine {
   id: MachineId
   name: string
@@ -78,7 +73,6 @@ export interface PickCodexMachineOpts {
    *  ({@link codexAuthorizerFor}): owned or granted, never another user's
    *  login spent silently. */
   authorize: (machineId: MachineId) => string | undefined
-  serverVersion: string
 }
 
 /**
@@ -89,11 +83,15 @@ export interface PickCodexMachineOpts {
  * - no usable login → generic "run `codex login`" (names nothing, since the
  *   logins that DO exist may belong to other users);
  * - the picked machine is offline → names it ("Codex login on <machine> is
- *   offline");
- * - its daemon predates the handler (a version label that is neither missing
- *   nor this server's own) → fast "too old" refusal instead of the full
- *   deadline wait. A missing label sends anyway; the deadline then reports
- *   "no reply … may be older", never "offline".
+ *   offline").
+ *
+ * Deliberately NO version gate: daemons routinely update before the server,
+ * and an older daemon may already have the handler — refusing every version
+ * skew would take Codex server AI down after each server-only update. A
+ * daemon that truly predates the frame is covered without a gate: a new
+ * enough daemon answers through the frame-guard's payload-rejection arm, and
+ * anything older stays silent until the server deadline reports "no reply …
+ * may be older", never "offline".
  */
 export function pickCodexMachine(
   machines: readonly CodexLoginMachine[],
@@ -118,11 +116,6 @@ export function pickCodexMachine(
   if (!picked.online) {
     throw new LlmConfigError(
       `Codex login on ${picked.name} is offline — bring its daemon online, then retry.`,
-    )
-  }
-  if (picked.appVersion !== null && picked.appVersion !== opts.serverVersion) {
-    throw new LlmConfigError(
-      `the daemon on ${picked.name} is too old for Codex server AI — update Podium there, then retry.`,
     )
   }
   return { machineId: picked.id, machineName: picked.name }
@@ -169,7 +162,6 @@ export interface CodexTransportDeps {
   /** The user whose settings name the backend — the digest reads the first
    *  admin's settings, so it spends a login that admin may use. */
   ownerUserId(): Promise<UserId>
-  serverVersion: string
   codexComplete(
     machineId: MachineId,
     input: {
@@ -197,7 +189,6 @@ export function createCodexTransport(deps: CodexTransportDeps): CodexTransport {
         {
           defaultMachineId: await deps.defaultMachineId(),
           authorize,
-          serverVersion: deps.serverVersion,
         },
       )
       const result = await deps.codexComplete(picked.machineId, { model, messages, tools, effort })
