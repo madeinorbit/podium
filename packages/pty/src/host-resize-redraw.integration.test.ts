@@ -9,7 +9,7 @@
  * Integration lane (a C compile, real processes, real ptys); never the unit lane.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readlinkSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,6 +47,16 @@ async function settlesAt(s: HostDurableAttachment, want: { cols: number; rows: n
   await wait(2500)
   expect(await s.connection.size()).toEqual(want)
   expect(s.appliedGeometry).toEqual(want)
+}
+
+/** What the CHILD's tty says: `stty size` on the pts its stdin is. */
+function childTty(pid: number): { cols: number; rows: number } {
+  const pts = readlinkSync(`/proc/${pid}/fd/0`)
+  const [rows, cols] = execFileSync('stty', ['-F', pts, 'size'], { encoding: 'utf8' })
+    .trim()
+    .split(/\s+/)
+    .map(Number)
+  return { cols: cols as number, rows: rows as number }
 }
 
 function label(tag: string): string {
@@ -117,6 +127,29 @@ describe.skipIf(!hasCompiler)('podium-host adapter: resize then redraw (POD-4723
     s.resize(122, 38)
     s.redraw()
     await settlesAt(s, { cols: 122, rows: 38 })
+  }, 30_000)
+
+  it('a resize that lands while a nudge waits to restore is not undone by the restore', async () => {
+    const s = await spawn('supersede', [WINSIZE_FIXTURE])
+    s.resize(122, 39)
+    s.redraw()
+    // Let the nudge's shrink go out (it waits for WELCOME in a microtask), then
+    // ask again before the child's answering frame can trigger the restore.
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    s.resize(100, 30)
+    await settlesAt(s, { cols: 100, rows: 30 })
+  }, 30_000)
+
+  it('detaching while a nudge waits to restore puts the row back first', async () => {
+    const s = await spawn('detach', SILENT_ARGS, 100, 30)
+    const pid = s.pid
+    await wait(300)
+    s.redraw()
+    await expect.poll(() => childTty(pid), { timeout: 15_000 }).toEqual({ cols: 100, rows: 29 })
+    // The daemon parks its surface (a restart, a steal) before the child answers.
+    s.dispose()
+    await wait(1500)
+    expect(childTty(pid)).toEqual({ cols: 100, rows: 30 })
   }, 30_000)
 
   it('a redraw nudge on a child that emits no frame does not strand the pty one row short', async () => {

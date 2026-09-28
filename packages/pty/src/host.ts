@@ -775,6 +775,8 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
   let asked: Geometry | undefined
   /** Cancels an in-flight redraw nudge's restore; set only while one is pending. */
   let cancelNudge: (() => void) | undefined
+  /** Restores an in-flight nudge NOW; set only while one is pending. */
+  let restoreNudge: (() => void) | undefined
 
   const hostResize = (cols: number, rows: number): Promise<Geometry | undefined> =>
     conn.resize(cols, rows).then(
@@ -901,17 +903,24 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
         const cancel = (): void => {
           offData()
           clearTimeout(timer)
-          if (cancelNudge === cancel) cancelNudge = undefined
+          if (cancelNudge === cancel) {
+            cancelNudge = undefined
+            restoreNudge = undefined
+          }
         }
         cancelNudge = cancel
+        restoreNudge = restore
       }).catch(() => {
         // Redraw is fire-and-forget; connection failure remains exposed by ready.
       })
     },
     dispose() {
       if (disposed) return
+      // Detaching mid-nudge must not leave the program one row short for
+      // whoever attaches next: put the row back first. The host handles frames
+      // in order, so the RESIZE lands before the DETACH below.
+      restoreNudge?.()
       disposed = true
-      cancelNudge?.()
       session.dispose() // calls proc.kill → DETACH
     },
   }
