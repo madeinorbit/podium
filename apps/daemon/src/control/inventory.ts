@@ -166,9 +166,10 @@ export async function reportInventory(
       // alternative states its own probe binary, resolved here and probed
       // with its family's probe — today the only declared alternative is
       // opencode2's, whose beta-pin semantics live in its family probe.
-      // Probe dispatch shared with the spawn path
-      // (defaultServerDriverAdmissionProbe) is the follow-up that unifies
-      // the two call sites; it is deliberately not folded in here.
+      // Version evaluation belongs to families (floors and pins differ per
+      // CLI), so each alternative is probed with its own family's probe —
+      // the same dispatch the spawn path shares through
+      // defaultServerDriverAdmissionProbe.
       const drivableAlternatives: string[] = []
       for (const alternative of harnessServerAlternatives()) {
         const executable = snapshot.commandEnvironment.resolve(alternative.executable)
