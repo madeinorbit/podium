@@ -1,0 +1,225 @@
+diff --git a/packages/worklist-proto/arms/hand/pool/views.ts b/packages/worklist-proto/arms/hand/pool/views.ts
+index 4d8053a14..8392414b5 100644
+--- a/packages/worklist-proto/arms/hand/pool/views.ts
++++ b/packages/worklist-proto/arms/hand/pool/views.ts
+@@ -432,6 +432,9 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
+     dismissed: own.dismissed && !waiting,
+     selected: input.selected(id),
+     originTick: self.originTick,
++    // N1a change D (throwaway STUB): as change B — the other arm's contract
++    // field; a real landing implements the hand arm's own inverse count.
++    blocksCount: 0,
+     // The own-row stamp, raised by the latest seat below (`rows.ts:336-339`).
+     activityAt:
+       seatActivity !== null && seatActivity > self.activityAt ? seatActivity : self.activityAt,
+diff --git a/packages/worklist-proto/arms/mobx/pool/models.ts b/packages/worklist-proto/arms/mobx/pool/models.ts
+index f32a15db2..ce325eba7 100644
+--- a/packages/worklist-proto/arms/mobx/pool/models.ts
++++ b/packages/worklist-proto/arms/mobx/pool/models.ts
+@@ -29,6 +29,7 @@ import type { ArmStats } from '../../../shared/src/stats'
+ import type { StoredRow } from './tables'
+ import {
+   activityAtPartOf,
++  blocksCountPartOf,
+   buildRowView,
+   displayRefPartOf,
+   displayTitlePartOf,
+@@ -110,6 +111,7 @@ export class IssueModel extends EntityModel implements IssueParts {
+       originRef: computed,
+       originId: computed,
+       originTick: computedStruct,
++      blocksCount: computed,
+       sessionIds: computedStruct,
+       activityAt: computed,
+       loading: computed,
+@@ -149,6 +151,10 @@ export class IssueModel extends EntityModel implements IssueParts {
+     return originTickPartOf(this.host.inputs, this.originId)
+   }
+ 
++  get blocksCount(): number {
++    return blocksCountPartOf(this.host.inputs, this.id)
++  }
++
+   get sessionIds(): readonly string[] {
+     return sessionIdsPartOf(this.host.inputs, this.id)
+   }
+diff --git a/packages/worklist-proto/arms/mobx/pool/views.ts b/packages/worklist-proto/arms/mobx/pool/views.ts
+index 7137ecbaa..129eab056 100644
+--- a/packages/worklist-proto/arms/mobx/pool/views.ts
++++ b/packages/worklist-proto/arms/mobx/pool/views.ts
+@@ -90,6 +90,12 @@ export interface IssueParts {
+   /** The origin when it is resident. */
+   readonly originId: string | null
+   readonly originTick: RowOriginTick | null
++  /**
++   * N1a change D (throwaway): how many issues this one blocks — the size of
++   * the declared inverse `blockedByOf`. `size` is free (no member read), so
++   * a blocker's change re-runs only this part, never the blocked rows.
++   */
++  readonly blocksCount: number
+   /**
+    * The own sessions (`issue.sessions`: explicit members, resume twins
+    * collapsed, session-id order). One maintained read (POD-4678), cached: a
+@@ -366,6 +372,14 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
+   }
+ }
+ 
++/**
++ * N1a change D (throwaway): the inverse collection's size, directly. Reads
++ * no row and no member — only the maintained bucket's size.
++ */
++export function blocksCountPartOf(input: ViewInputs, id: string): number {
++  return input.relations.size('issue', id, 'blockedByOf')
++}
++
+ /**
+  * The own sessions, one maintained read (`IssueParts.sessionIds`), already in
+  * session-id order (the mirror is maintained SORTED). POD-4678 (item 2, O(1)
+@@ -444,6 +458,9 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
+     get originTick() {
+       return originTickPartOf(input, parts.originId)
+     },
++    get blocksCount() {
++      return blocksCountPartOf(input, id)
++    },
+     get sessionIds() {
+       return sessionIdsPartOf(input, id)
+     },
+@@ -491,6 +508,8 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
+     dismissed: own.dismissed && !waiting,
+     selected: input.selected(id),
+     originTick: self.originTick,
++    // N1a change D (throwaway): beside the snapshot, never in SliceRow.
++    blocksCount: self.blocksCount,
+     // The own-row stamp, raised by the latest seat below (`rows.ts:336-339`).
+     activityAt:
+       seatActivity !== null && seatActivity > self.activityAt ? seatActivity : self.activityAt,
+diff --git a/packages/worklist-proto/harness/src/oracle/row-views.ts b/packages/worklist-proto/harness/src/oracle/row-views.ts
+index b17fbe821..d037f81ab 100644
+--- a/packages/worklist-proto/harness/src/oracle/row-views.ts
++++ b/packages/worklist-proto/harness/src/oracle/row-views.ts
+@@ -78,6 +78,17 @@ function originTickOf(
+   }
+ }
+ 
++/** N1a change D (throwaway): how many issues name this one in a `blocked-by` dep. */
++function blocksCountOf(models: readonly IssueNavigationModel[], id: string): number {
++  let count = 0
++  for (const model of models) {
++    if (model.deps?.some((edge) => edge.type === 'blocked-by' && edge.id === id) === true) {
++      count += 1
++    }
++  }
++  return count
++}
++
+ /** Project an already-run legacy derivation onto every visible row's view. */
+ export function projectRowViews(derivation: LegacyDerivation, locals: SliceLocals): RowViews {
+   const snapshot = projectSnapshot(derivation, locals)
+@@ -92,6 +103,7 @@ export function projectRowViews(derivation: LegacyDerivation, locals: SliceLocal
+       ...base,
+       selected: locals.selectedIssueId === id,
+       originTick: originTickOf(row.issue, byId, derivation),
++      blocksCount: blocksCountOf(derivation.models, id),
+       activityAt: row.activityAt,
+       workingSince: workingSinceOf(row.sessions),
+       pinned: row.issue.pinned === true,
+diff --git a/packages/worklist-proto/shared/src/instrument/reads.ts b/packages/worklist-proto/shared/src/instrument/reads.ts
+index 32421bdab..1b4361f22 100644
+--- a/packages/worklist-proto/shared/src/instrument/reads.ts
++++ b/packages/worklist-proto/shared/src/instrument/reads.ts
+@@ -179,6 +179,9 @@ export const COPY_EXEMPT_FIELDS: ReadonlySet<string> = new Set([
+   'closed',
+   'selected',
+   'originTick',
++  // N1a change D (throwaway): a derived count, never a raw row value, so
++  // exempting it changes nothing; listed to keep the vocabulary == RowView.
++  'blocksCount',
+   'activityAt',
+   'workingSince',
+   'pinned',
+diff --git a/packages/worklist-proto/shared/src/row-contract.types.test.tsx b/packages/worklist-proto/shared/src/row-contract.types.test.tsx
+index 90e501df2..7f5222c9d 100644
+--- a/packages/worklist-proto/shared/src/row-contract.types.test.tsx
++++ b/packages/worklist-proto/shared/src/row-contract.types.test.tsx
+@@ -51,6 +51,7 @@ const row: RowView = {
+   closed: false,
+   selected: false,
+   originTick: { id: 'O', seq: 3, title: 'Origin', ref: 'POD-3' },
++  blocksCount: 0,
+   activityAt: 0,
+   workingSince: null,
+   pinned: false,
+diff --git a/packages/worklist-proto/shared/src/row-view.test.ts b/packages/worklist-proto/shared/src/row-view.test.ts
+index 709e3350d..b71127460 100644
+--- a/packages/worklist-proto/shared/src/row-view.test.ts
++++ b/packages/worklist-proto/shared/src/row-view.test.ts
+@@ -32,6 +32,7 @@ function view(over: Partial<RowView> & Pick<RowView, 'id'>): RowView {
+     closed: false,
+     selected: false,
+     originTick: null,
++    blocksCount: 0,
+     activityAt: 0,
+     workingSince: null,
+     pinned: false,
+diff --git a/packages/worklist-proto/shared/src/row-view.ts b/packages/worklist-proto/shared/src/row-view.ts
+index 5d3110a70..92fb8bf79 100644
+--- a/packages/worklist-proto/shared/src/row-view.ts
++++ b/packages/worklist-proto/shared/src/row-view.ts
+@@ -184,6 +184,15 @@ export interface RowView extends Readonly<SliceRow> {
+    */
+   readonly originTick: RowOriginTick | null
+ 
++  /**
++   * N1a change D (throwaway): how many issues this one blocks — the size of
++   * the declared inverse `blockedByOf`, never a scan. A count, not refs: a
++   * `RowView` holds only scalars and one flat record. Inputs: the inverse
++   * collection (maintained by the pool from the schema). Rides beside the
++   * snapshot; `sliceRowOf` drops it, so parity holds by construction.
++   */
++  readonly blocksCount: number
++
+   /**
+    * Recency anchor, epoch ms: max `lastActiveAt` of own sessions, else own
+    * `updatedAt`, else 0 (spec R-BAND, `rows.ts:108-117`). The stamp is a pure
+diff --git a/packages/worklist-proto/shared/src/schema.ts b/packages/worklist-proto/shared/src/schema.ts
+index 695012127..c7286c4d1 100644
+--- a/packages/worklist-proto/shared/src/schema.ts
++++ b/packages/worklist-proto/shared/src/schema.ts
+@@ -628,6 +628,36 @@ export const SCHEMA: ModelSchema = defineSchema({
+         slice: 'R4',
+         why: 'The inverse: issues discovered from this one.',
+       }),
++      /**
++       * N1a change D (throwaway): a second edge type over the same `deps`
++       * list. `blockedBy` names this issue's blockers (out, first match);
++       * `blockedByOf` the issues it blocks (in). The row view reads the
++       * INVERSE (`blocksCount`). No pool code names either relation: the
++       * engine resolves edge specs generically (relations.ts `relationRef`,
++       * `linkInputs`).
++       */
++      blockedBy: edge({
++        to: 'issue',
++        edgeField: 'deps',
++        edgeIdKey: 'id',
++        edgeTypeKey: 'type',
++        edgeType: 'blocked-by',
++        direction: 'out',
++        inverse: 'blockedByOf',
++        lazy: true,
++        why: 'What blocks this issue; the row view counts the inverse side.',
++      }),
++      blockedByOf: edge({
++        to: 'issue',
++        edgeField: 'deps',
++        edgeIdKey: 'id',
++        edgeTypeKey: 'type',
++        edgeType: 'blocked-by',
++        direction: 'in',
++        inverse: 'blockedBy',
++        lazy: true,
++        why: 'The inverse: issues this one blocks; the row view reads it.',
++      }),
+       worktree: belongsTo({
+         to: 'worktree',
+         foreignKey: 'worktreePath',
