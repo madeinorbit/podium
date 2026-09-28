@@ -35,14 +35,71 @@ for (const probe of PROBES) {
       'record every verdict (no assertions)',
       async () => {
         const run = await runProbe(probe, MOBX)
+        for (const step of run.steps) {
+          console.log(
+            `[N1b ${probe.id}] step ${step.step} ${step.scenario}: parity=${step.parity} commits=${step.commits === null ? 'ok' : step.commits.slice(0, 200)} reads=${step.reads}/${step.readsBudget} rebuild=${step.rebuild === undefined ? 'n/a' : step.rebuild === null ? 'ok' : step.rebuild.slice(0, 200)} relations=${step.relations === null ? 'blind' : step.relations.total === 0 ? 'ok' : step.relations.problems[0]?.slice(0, 200)}`,
+          )
+        }
+        for (const seq of run.sequences) {
+          const skipped = seq.steps.filter((s) => s.skipped !== undefined)
+          console.log(
+            `[N1b ${probe.id}] seq "${seq.name}": gate=${seq.gate === undefined ? 'n/a' : seq.gate.ok ? 'ok' : `FAIL step ${seq.gate.step} vs ${seq.gate.against}: ${(seq.gate.diff ?? '').slice(0, 200)} shrunk=${seq.gate.shrunk?.length}`} skipped=${skipped.length === 0 ? 'none' : skipped.map((s) => `${s.index}:${s.skipped}`).join(',')}`,
+          )
+          for (const s of seq.steps) {
+            if (s.history !== null || (s.relations !== null && s.relations.total > 0)) {
+              console.log(
+                `[N1b ${probe.id}] seq "${seq.name}" step ${s.index} (${(s.change as { kind: string }).kind}): history=${s.history?.slice(0, 200) ?? 'ok'} relations=${s.relations === null ? 'blind' : s.relations.total === 0 ? 'ok' : s.relations.problems[0]?.slice(0, 200)}`,
+              )
+            }
+          }
+        }
         const got = verdicts(probe, run)
-        results[probe.id] = got.map((v) => ({
-          instrument: v.instrument,
-          kind: v.kind,
-          verdict: v.verdict,
-          ...(v.blind === undefined ? {} : { blind: v.blind }),
-          evidence: v.evidence.slice(0, 400),
-        }))
+        results[probe.id] = {
+          verdicts: got.map((v) => ({
+            instrument: v.instrument,
+            kind: v.kind,
+            verdict: v.verdict,
+            ...(v.blind === undefined ? {} : { blind: v.blind }),
+            evidence: v.evidence.slice(0, 400),
+          })),
+          steps: run.steps.map((s) => ({
+            step: s.step,
+            scenario: s.scenario,
+            parity: s.parity,
+            parityDiff: s.parityDiff?.slice(0, 300) ?? null,
+            commits: s.commits?.slice(0, 300) ?? null,
+            reads: s.reads,
+            readsBudget: s.readsBudget,
+            rebuild: s.rebuild === undefined ? 'n/a' : (s.rebuild?.slice(0, 300) ?? null),
+            relations:
+              s.relations === null
+                ? 'blind'
+                : s.relations.total === 0
+                  ? `ok (${s.relations.edges} edges)`
+                  : s.relations.problems[0]?.slice(0, 300),
+          })),
+          sequences: run.sequences.map((q) => ({
+            name: q.name,
+            gate:
+              q.gate === undefined
+                ? 'n/a'
+                : q.gate.ok
+                  ? 'ok'
+                  : `FAIL step ${q.gate.step} vs ${q.gate.against}: ${(q.gate.diff ?? '').slice(0, 300)} shrunk=${q.gate.shrunk?.length}`,
+            steps: q.steps.map((s) => ({
+              index: s.index,
+              kind: (s.change as { kind: string }).kind,
+              skipped: s.skipped ?? null,
+              history: s.history?.slice(0, 300) ?? null,
+              relations:
+                s.relations === null
+                  ? 'blind'
+                  : s.relations.total === 0
+                    ? `ok (${s.relations.edges} edges)`
+                    : s.relations.problems[0]?.slice(0, 300),
+            })),
+          })),
+        }
         for (const v of got) {
           console.log(
             `[N1b ${probe.id}] ${v.instrument}: ${v.verdict}${v.blind === undefined ? '' : ` (blind: ${v.blind})`} — ${v.evidence.slice(0, 400)}`,

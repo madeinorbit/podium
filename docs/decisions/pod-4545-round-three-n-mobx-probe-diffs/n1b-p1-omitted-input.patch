@@ -1,0 +1,49 @@
+diff --git a/packages/worklist-proto/arms/mobx/pool/models.ts b/packages/worklist-proto/arms/mobx/pool/models.ts
+index d3ccb7d7f..a8b7c9237 100644
+--- a/packages/worklist-proto/arms/mobx/pool/models.ts
++++ b/packages/worklist-proto/arms/mobx/pool/models.ts
+@@ -22,9 +22,9 @@
+  * unchanged part or view keeps its identity and its row does not redraw.
+  */
+ 
+-import { computed, computedStruct, makeObservable } from 'mobx'
++import { computed, computedStruct, makeObservable, untracked } from 'mobx'
+ import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
+-import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
++import { isDraftNameSession, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
+ import { type EntityName, SCHEMA } from '../../../shared/src/schema'
+ import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
+ import type { ArmStats } from '../../../shared/src/stats'
+@@ -33,7 +33,7 @@ import {
+   activityAtPartOf,
+   buildRowView,
+   displayRefPartOf,
+-  displayTitlePartOf,
++  displayTitleOf,
+   type IssueParts,
+   loadingPartOf,
+   type OwnPart,
+@@ -126,7 +126,22 @@ export class IssueModel extends EntityModel implements IssueParts {
+   }
+ 
+   get displayTitle(): string | undefined {
+-    return displayTitlePartOf(this.host.inputs, this.id, this.sessionIds)
++    // PLANTED (P1 N1b): the displayed title is read outside the tracked
++    // graph, so this computed keeps no dependency on the row it names. A
++    // title-only change leaves the row stale until another input of the same
++    // row moves and heals it.
++    const issue = untracked(() => this.host.inputs.issue(this.id))
++    if (issue === undefined) return undefined
++    // Tracked: the row's other inputs still heal it when they move.
++    const sessionIds = this.sessionIds
++    return displayTitleOf(issue, () => {
++      for (const sessionId of sessionIds) {
++        const session = this.host.inputs.session(sessionId)
++        if (!isDraftNameSession(session)) continue
++        return session
++      }
++      return undefined
++    })
+   }
+ 
+   get originRef(): string | null {

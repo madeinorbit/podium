@@ -27,4 +27,30 @@ Subject: `{ mode: 'overlaid', armFor: () => mobxPoolArm, lintFolder: 'mobx' }`
 
 ## Runs
 
-(clean baseline + per-probe records go here)
+Clean baseline (`n1b-mobx-all.json`, on issue branch before any plant): all
+five probes SILENT everywhere run, none blind (relation check looked,
+checkable). Arm ready.
+
+### P1 omitted input (branch `n1b-p1-omitted-input`, patch `n1b-p1-omitted-input.patch`)
+
+Plant: `IssueModel.displayTitle` reads the issue row through
+`untracked()`; other inputs (sessionIds) stay tracked. First variant isolated
+the title with zero tracked deps and tripped MobX's own
+"derivation without observable" warning under the arm's warn trap — a
+plant-shape artifact, reshaped to the faithful form (heals when another input
+moves); warn-trap episode recorded in the doc as a shaping note.
+
+- typecheck SILENT (8/8 green). lint-fence SILENT (clean).
+- commit-fence FIRED — #4 `visibleTitleRename`: drew 0, oracle changed 1,
+  `under=[i214]`, `rowsCommitted=0`.
+- reads-fence SILENT (#4 reads 1/3). parity FIRED (#4, stale title).
+- gate FIRED via the #4 fence-step rebuild (`title: "collapse rail 3"
+  (expected "Renamed visible row")`); the write-path sequence leg green.
+- relation-check SILENT. history-check SILENT — FINDING vs catalogue
+  (reference FIRED): bare-arm snapshots recompute unobserved computeds on
+  every read, so staleness shows only under a mounted observer.
+- behaviour-test FIRED (via #4 parity+gate).
+- arm-tests FIRED — `counts.test.tsx` "meets the shared reads budget":
+  `[commits] visibleTitleRename (#4): drew 0 rows… under=[i214]`.
+- Screen: renamed row keeps its old title until another input of the same row
+  moves. Notice: immediate (the row never redraws on rename).
