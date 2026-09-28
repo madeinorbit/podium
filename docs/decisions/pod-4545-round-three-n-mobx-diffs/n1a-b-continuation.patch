@@ -1,0 +1,195 @@
+diff --git a/packages/worklist-proto/arms/hand/pool/views.ts b/packages/worklist-proto/arms/hand/pool/views.ts
+index 4d8053a14..0a86151ce 100644
+--- a/packages/worklist-proto/arms/hand/pool/views.ts
++++ b/packages/worklist-proto/arms/hand/pool/views.ts
+@@ -432,6 +432,11 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
+     dismissed: own.dismissed && !waiting,
+     selected: input.selected(id),
+     originTick: self.originTick,
++    // N1a change B (throwaway STUB): the other arm's contract field. A real
++    // landing implements the hand arm's own continuation part; null here keeps
++    // the package compiling and the hand gate green, while diverging from the
++    // MobX arm on every spin-off row (no gate compares across arms).
++    continuation: null,
+     // The own-row stamp, raised by the latest seat below (`rows.ts:336-339`).
+     activityAt:
+       seatActivity !== null && seatActivity > self.activityAt ? seatActivity : self.activityAt,
+diff --git a/packages/worklist-proto/arms/mobx/pool/models.ts b/packages/worklist-proto/arms/mobx/pool/models.ts
+index f32a15db2..174f6e0d2 100644
+--- a/packages/worklist-proto/arms/mobx/pool/models.ts
++++ b/packages/worklist-proto/arms/mobx/pool/models.ts
+@@ -30,6 +30,7 @@ import type { StoredRow } from './tables'
+ import {
+   activityAtPartOf,
+   buildRowView,
++  continuationPartOf,
+   displayRefPartOf,
+   displayTitlePartOf,
+   type IssueParts,
+@@ -110,6 +111,7 @@ export class IssueModel extends EntityModel implements IssueParts {
+       originRef: computed,
+       originId: computed,
+       originTick: computedStruct,
++      continuation: computed,
+       sessionIds: computedStruct,
+       activityAt: computed,
+       loading: computed,
+@@ -149,6 +151,10 @@ export class IssueModel extends EntityModel implements IssueParts {
+     return originTickPartOf(this.host.inputs, this.originId)
+   }
+ 
++  get continuation(): string | null {
++    return continuationPartOf(this.host.inputs, this.originId)
++  }
++
+   get sessionIds(): readonly string[] {
+     return sessionIdsPartOf(this.host.inputs, this.id)
+   }
+diff --git a/packages/worklist-proto/arms/mobx/pool/views.ts b/packages/worklist-proto/arms/mobx/pool/views.ts
+index 7137ecbaa..30f5853fc 100644
+--- a/packages/worklist-proto/arms/mobx/pool/views.ts
++++ b/packages/worklist-proto/arms/mobx/pool/views.ts
+@@ -90,6 +90,12 @@ export interface IssueParts {
+   /** The origin when it is resident. */
+   readonly originId: string | null
+   readonly originTick: RowOriginTick | null
++  /**
++   * N1a change B (throwaway): the continuation line. Read off the origin's
++   * already-derived display ref (the `displayRef` part), never a fresh
++   * resolution: an origin rename re-runs only its spin-offs' continuation.
++   */
++  readonly continuation: string | null
+   /**
+    * The own sessions (`issue.sessions`: explicit members, resume twins
+    * collapsed, session-id order). One maintained read (POD-4678), cached: a
+@@ -366,6 +372,20 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
+   }
+ }
+ 
++/**
++ * N1a change B (throwaway): `continued · <ref>` off the origin's
++ * already-derived display ref, null when there is no resident origin. Reads
++ * the origin's parts through `inputs.parts` (tracked in the live pool), the
++ * same channel `originTickPartOf` uses.
++ */
++export function continuationPartOf(input: ViewInputs, originId: string | null): string | null {
++  if (originId === null) return null
++  const origin = input.parts(originId)
++  if (origin === undefined) return null
++  const ref = origin.displayRef ?? ''
++  return ref === '' ? null : `continued · ${ref}`
++}
++
+ /**
+  * The own sessions, one maintained read (`IssueParts.sessionIds`), already in
+  * session-id order (the mirror is maintained SORTED). POD-4678 (item 2, O(1)
+@@ -444,6 +464,9 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
+     get originTick() {
+       return originTickPartOf(input, parts.originId)
+     },
++    get continuation() {
++      return continuationPartOf(input, parts.originId)
++    },
+     get sessionIds() {
+       return sessionIdsPartOf(input, id)
+     },
+@@ -491,6 +514,9 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
+     dismissed: own.dismissed && !waiting,
+     selected: input.selected(id),
+     originTick: self.originTick,
++    // N1a change B (throwaway): the continuation line rides beside the
++    // snapshot and never enters SliceRow (sliceRowOf drops it).
++    continuation: self.continuation,
+     // The own-row stamp, raised by the latest seat below (`rows.ts:336-339`).
+     activityAt:
+       seatActivity !== null && seatActivity > self.activityAt ? seatActivity : self.activityAt,
+diff --git a/packages/worklist-proto/harness/src/oracle/row-views.ts b/packages/worklist-proto/harness/src/oracle/row-views.ts
+index b17fbe821..658028587 100644
+--- a/packages/worklist-proto/harness/src/oracle/row-views.ts
++++ b/packages/worklist-proto/harness/src/oracle/row-views.ts
+@@ -78,6 +78,18 @@ function originTickOf(
+   }
+ }
+ 
++/** N1a change B (throwaway): the continuation line from the legacy models. */
++function continuationOf(
++  issue: IssueNavigationModel,
++  byId: ReadonlyMap<string, IssueNavigationModel>,
++): string | null {
++  const dep = issue.deps?.find((edge) => edge.type === 'discovered-from')
++  if (dep === undefined) return null
++  const origin = byId.get(dep.id)
++  if (origin === undefined) return null
++  return `continued · ${origin.displayRef ?? `#${origin.seq}`}`
++}
++
+ /** Project an already-run legacy derivation onto every visible row's view. */
+ export function projectRowViews(derivation: LegacyDerivation, locals: SliceLocals): RowViews {
+   const snapshot = projectSnapshot(derivation, locals)
+@@ -92,6 +104,7 @@ export function projectRowViews(derivation: LegacyDerivation, locals: SliceLocal
+       ...base,
+       selected: locals.selectedIssueId === id,
+       originTick: originTickOf(row.issue, byId, derivation),
++      continuation: continuationOf(row.issue, byId),
+       activityAt: row.activityAt,
+       workingSince: workingSinceOf(row.sessions),
+       pinned: row.issue.pinned === true,
+diff --git a/packages/worklist-proto/shared/src/instrument/reads.ts b/packages/worklist-proto/shared/src/instrument/reads.ts
+index 32421bdab..24dca4370 100644
+--- a/packages/worklist-proto/shared/src/instrument/reads.ts
++++ b/packages/worklist-proto/shared/src/instrument/reads.ts
+@@ -179,6 +179,9 @@ export const COPY_EXEMPT_FIELDS: ReadonlySet<string> = new Set([
+   'closed',
+   'selected',
+   'originTick',
++  // N1a change B (throwaway): a derived string, never a raw row value, so
++  // exempting it changes nothing; listed to keep the vocabulary == RowView.
++  'continuation',
+   'activityAt',
+   'workingSince',
+   'pinned',
+diff --git a/packages/worklist-proto/shared/src/row-contract.types.test.tsx b/packages/worklist-proto/shared/src/row-contract.types.test.tsx
+index 90e501df2..1ee828b9f 100644
+--- a/packages/worklist-proto/shared/src/row-contract.types.test.tsx
++++ b/packages/worklist-proto/shared/src/row-contract.types.test.tsx
+@@ -51,6 +51,7 @@ const row: RowView = {
+   closed: false,
+   selected: false,
+   originTick: { id: 'O', seq: 3, title: 'Origin', ref: 'POD-3' },
++  continuation: null,
+   activityAt: 0,
+   workingSince: null,
+   pinned: false,
+diff --git a/packages/worklist-proto/shared/src/row-view.test.ts b/packages/worklist-proto/shared/src/row-view.test.ts
+index 709e3350d..45e4ed6a2 100644
+--- a/packages/worklist-proto/shared/src/row-view.test.ts
++++ b/packages/worklist-proto/shared/src/row-view.test.ts
+@@ -32,6 +32,7 @@ function view(over: Partial<RowView> & Pick<RowView, 'id'>): RowView {
+     closed: false,
+     selected: false,
+     originTick: null,
++    continuation: null,
+     activityAt: 0,
+     workingSince: null,
+     pinned: false,
+diff --git a/packages/worklist-proto/shared/src/row-view.ts b/packages/worklist-proto/shared/src/row-view.ts
+index 5d3110a70..df3e81614 100644
+--- a/packages/worklist-proto/shared/src/row-view.ts
++++ b/packages/worklist-proto/shared/src/row-view.ts
+@@ -184,6 +184,16 @@ export interface RowView extends Readonly<SliceRow> {
+    */
+   readonly originTick: RowOriginTick | null
+ 
++  /**
++   * N1a change B (throwaway): the continuation line, `continued · <ref>`
++   * naming the spin-off origin's display ref, or null when the row is not a
++   * spin-off. Derived from the same edge as `originTick` (one hop: the
++   * origin's already-derived display ref, never a fresh resolution). A new
++   * contract field rides beside the snapshot and never enters `SliceRow`
++   * (`sliceRowOf` drops it), so parity holds by construction.
++   */
++  readonly continuation: string | null
++
+   /**
+    * Recency anchor, epoch ms: max `lastActiveAt` of own sessions, else own
+    * `updatedAt`, else 0 (spec R-BAND, `rows.ts:108-117`). The stamp is a pure
