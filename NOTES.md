@@ -77,3 +77,27 @@ maintenance path, so every relation is affected).
 - Screen: right throughout (ghost visible only to a graph check). Notice: a
   developer watching the screen never would; the relation check / arm suite
   fires at once.
+
+### P3 O(N) scan inside a row (branch `n1b-p3-row-scan`, patch `n1b-p3-row-scan.patch`)
+
+Plant (3 files): `pool/react/pool-context.ts` (new, pool type only),
+`pool/react/row.tsx` (observer row, aliased walk over `pool.fenced.issue`
+counting children), `pool/react/list.tsx` (provides the context).
+
+- typecheck SILENT (green). lint-fence SILENT on the planted alias; the
+  direct form (`pool.fenced.issue.values()`) FIRED `fence/no-table-walk`
+  (1 error; `no-store-in-component` silent — the context indirection already
+  defeats it). Restored via cp; lint clean again.
+- commit-fence FIRED — #4 drew 732 rows, oracle changed 1 (K MobX F: the
+  observer row subscribes to every issue it walks). #2 commits ok (a session
+  change touches no issue slot).
+- reads-fence FIRED — #2 read 2,821 rows vs budget 3; #4 2,820 vs 3.
+- parity SILENT, gate SILENT, relation-check SILENT — screen right, cost wrong.
+- behaviour-test FIRED (via the reads fence).
+- arm-tests FIRED — `counts.test.tsx`: `[reads]
+  visibleSessionPhaseChange (#2): read 2821 rows, budget 3.
+  byEntity={"session":1,"issue":2820}…` (2 tests fail; the probe run proves
+  the #4 commit leg fires too).
+- Screen: right (the count is even correct). Notice: nobody — until the
+  reads fence or a budget test runs; then immediate with the exact attribution
+  (`issue:2820` iterates).

@@ -1,0 +1,82 @@
+diff --git a/packages/worklist-proto/arms/mobx/pool/react/list.tsx b/packages/worklist-proto/arms/mobx/pool/react/list.tsx
+index f3f8f7d1e..65d4e5f34 100644
+--- a/packages/worklist-proto/arms/mobx/pool/react/list.tsx
++++ b/packages/worklist-proto/arms/mobx/pool/react/list.tsx
+@@ -44,6 +44,7 @@ import { RowShell } from '../../../../shared/src/row-shell'
+ import type { IssueModel } from '../models'
+ import type { MobxPool } from '../pool'
+ import type { WorklistGroups } from '../worklist/groups'
++import { PoolContext } from './pool-context'
+ import { PoolRow } from './row'
+ 
+ /** Item heights (px): the browser harness's viewport is sized to them. */
+@@ -201,8 +202,10 @@ export const PoolList = observer(function PoolList({ pool }: { pool: MobxPool })
+     ))
+   }
+   return (
+-    <div ref={scrollRef} data-pool-list style={{ overflowY: 'auto', height: '100vh' }}>
+-      {body}
+-    </div>
++    <PoolContext.Provider value={pool}>
++      <div ref={scrollRef} data-pool-list style={{ overflowY: 'auto', height: '100vh' }}>
++        {body}
++      </div>
++    </PoolContext.Provider>
+   )
+ })
+diff --git a/packages/worklist-proto/arms/mobx/pool/react/pool-context.ts b/packages/worklist-proto/arms/mobx/pool/react/pool-context.ts
+new file mode 100644
+index 000000000..b5938052d
+--- /dev/null
++++ b/packages/worklist-proto/arms/mobx/pool/react/pool-context.ts
+@@ -0,0 +1,10 @@
++/**
++ * PLANTED (P3 N1b) — the pool to the row through a context. The module
++ * imports the pool type only, so the lint fence's syntactic rules do not see
++ * the store reach the component.
++ */
++
++import { createContext } from 'react'
++import type { MobxPool } from '../pool'
++
++export const PoolContext = createContext<MobxPool | null>(null)
+diff --git a/packages/worklist-proto/arms/mobx/pool/react/row.tsx b/packages/worklist-proto/arms/mobx/pool/react/row.tsx
+index a4a86fa35..cd86349f7 100644
+--- a/packages/worklist-proto/arms/mobx/pool/react/row.tsx
++++ b/packages/worklist-proto/arms/mobx/pool/react/row.tsx
+@@ -4,18 +4,32 @@
+  * scope, and `memo`, not `observer`: a view is plain data, so the row reads no
+  * observable (an `observer` here trips `reactionRequiresObservable`); its
+  * slot (`list.tsx`) is the observer.
++ *
++ * PLANTED (P3 N1b): the row counts its children by walking the whole issue
++ * table through a context the list provides, over a local alias.
+  */
+ 
+-import { memo, type ReactElement } from 'react'
++import { observer } from 'mobx-react-lite'
++import { type ReactElement, useContext } from 'react'
+ import type { RowProps } from '../../../../shared/src/row-shell'
++import { PoolContext } from './pool-context'
+ 
+-export const PoolRow = memo(function PoolRow({ row }: RowProps): ReactElement {
++export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElement {
++  const pool = useContext(PoolContext)
++  // PLANTED (P3 N1b): one row's draw walks the corpus.
++  const table = pool === null ? undefined : pool.fenced.issue
++  let children = 0
++  if (table !== undefined) {
++    for (const issue of table.values()) {
++      if ((issue as { parentId?: string | null }).parentId === row.id) children += 1
++    }
++  }
+   return (
+     <div data-issue-row={row.id} data-selected={row.selected ? 'true' : 'false'}>
+       {row.displayRef} {row.title} [{row.phase}
+       {row.working ? '*' : ''}
+       {row.asking ? '?' : ''}] {row.progressDone}/{row.progressTotal}
+-      {row.originTick !== null ? ` ⤷${row.originTick.ref}` : ''}
++      {row.originTick !== null ? ` ⤷${row.originTick.ref}` : ''} ({children})
+     </div>
+   )
+ })
