@@ -20,7 +20,7 @@
  * nudged differs.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import type {
   DriverFamily,
   InteractionAskSpec,
@@ -170,6 +170,18 @@ export interface ConformanceControl {
   }
   restartSupervisor(): void
   connectWithoutSecret(sessionId: SessionId): { refused: boolean }
+  /**
+   * THE STORE'S OWN READ of the session's conversation, independent of the
+   * driver's `transcript.history`.
+   *
+   * Only implemented by targets whose history moved to the Store port (codex
+   * first; opencode and grok follow in their own issues). When present, the
+   * corpus asserts it agrees with `transcript.history` after a turn — proving
+   * the driver delegates to the injected Store port rather than re-reading
+   * the live process. Absent everywhere else, where the suite skips the
+   * property rather than asserting a shape the target never promised.
+   */
+  readStoreHistory?(sessionId: SessionId): Promise<readonly TranscriptItem[]>
 }
 
 export interface ConformanceTarget {

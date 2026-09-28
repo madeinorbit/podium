@@ -92,6 +92,10 @@ function liveHost(workdir: string): {
     mintSessionId: () => `live-${++seq}` as SessionId,
     reportAuthMode: ({ authMethod, subscription }) =>
       void authReports.push({ authMethod, subscription }),
+    // Live runs read the real rollout through the production engine host in
+    // practice; this opt-in harness keeps its own transport, so history reads
+    // as empty rather than failing the run.
+    readHistory: async () => ({ items: [], hasMore: false }),
 
     async launch(input) {
       const env = { ...process.env }

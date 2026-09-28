@@ -157,6 +157,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
       }
     },
     rolloutExists: async () => false,
+    readHistory: async () => ({ items: [], hasMore: false }),
     attachClient: async ({ sessionId, clientAddress }) => {
       attachedAddresses.push(clientAddress)
       return {

@@ -1134,6 +1134,48 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(after.items.map((item) => item.id)).toEqual(ids.slice(1))
         expect(before.items.map((item) => item.id)).toEqual(ids.slice(0, -1))
       })
+
+      it('reads history from the Store rollout, not the live process', async () => {
+        /**
+         * HISTORY IS AT-REST DATA (ADR 10, decision B).
+         *
+         * A live Driver reads history through its injected Store port over the
+         * agent's on-disk store — never from a protocol call or process memory,
+         * which for every measured agent returns exactly what the disk holds
+         * while adding a process dependency and a second cursor namespace. The
+         * target proves the delegation by exposing the Store's own read
+         * (`control.readStoreHistory`); targets that have not moved yet leave
+         * it absent and this property skips rather than asserting a shape they
+         * never promised.
+         *
+         * ARMED: the codex fake's `thread/read` answers empty by design, while
+         * its rollout map holds the conversation. A driver that regressed to
+         * the live RPC would return no witness here while the Store holds it,
+         * and the equality below goes red. (Verified by pointing the driver's
+         * history back at the live call and watching this fail.)
+         */
+        const { handle, control, driver } = setup()
+        if (!control.readStoreHistory) return
+        const declared = driver.capabilities().transcript
+        if (!declared.supported || !declared.value.history) return
+        const session = await handle
+        // A thread that has not run its first turn yet has no rollout file:
+        // history is an empty page, not an error.
+        const empty = await session.transcript.history({ limit: 100 })
+        expect(empty.items).toEqual([])
+        expect(empty.hasMore).toBe(false)
+        const witness = mintWitness(`${target.name}-store`)
+        const receipt = await session.send(
+          { text: witness },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(receipt.outcome).toBe('accepted')
+        await control.completeTurn(session.binding.sessionId)
+        const history = await session.transcript.history({ limit: 100 })
+        const store = await control.readStoreHistory(session.binding.sessionId)
+        expect(history.items).toEqual([...store])
+        expect(history.items.some((item) => item.text.includes(witness))).toBe(true)
+      })
     })
 
     describe('fine watch — token fragments', () => {

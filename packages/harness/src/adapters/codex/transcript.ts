@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
 import { findCodexRolloutPath } from './state-provider.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
@@ -519,7 +520,21 @@ export function codexRuntime(record: unknown): HarnessRuntimeObservation {
 
 // Codex stores no derivable per-cwd path; resolve the rollout from the resume
 // value (state DB, then filename fallback). null/undefined → no chain.
+//
+// A recorded `pathHint` — the exact rollout path `thread/start` reported —
+// short-circuits discovery when the file exists, exactly as the claude and
+// grok locators do. Before the first turn the file does not exist yet, so a
+// hint naming nothing falls through to the resume lookup, which also finds
+// nothing: an empty chain, never an error.
 export async function codexChainPaths(input: TranscriptSourceInput): Promise<string[]> {
+  if (input.pathHint) {
+    try {
+      const st = await stat(input.pathHint)
+      if (st.isFile()) return [input.pathHint]
+    } catch {
+      // Not there yet (or unreadable) — fall through to the resume lookup.
+    }
+  }
   if (!input.resumeValue) return []
   const path = await findCodexRolloutPath({
     resumeValue: input.resumeValue,

@@ -29,7 +29,7 @@
  * differently.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
 // refusal worlds below are judged by the same corpus function the run judges its
@@ -50,6 +50,8 @@ import {
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import { DriverRefusalError } from '../../errors.js'
+import { threadItemToItems } from './map.js'
 
 /**
  * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
@@ -105,6 +107,35 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
 
   /** The SESSION's key, not the incarnation's — see the header. */
   const processKey = (sessionId: SessionId): string => `podium-cx-${sessionId}`
+
+  /**
+   * THE FAKE ROLLOUT READ, through the same mapper the Store uses.
+   *
+   * The fake keeps per-thread rollout records (the on-disk conversation the
+   * real Store would parse with the codex adapter's grammar). History maps
+   * them with `threadItemToItems` — the same live-shape mapping the driver's
+   * old `readThreadItems` used, because the fake records live shapes rather
+   * than rollout JSONL. What matters for the conformance property is not the
+   * grammar but the SOURCE: this reads the rollout map, never the `thread/read`
+   * RPC (whose fake handler now answers empty — see test-support), so a driver
+   * that regressed to the live call would read a different conversation and
+   * the suite's equality property goes red.
+   */
+  const storeItemsFor = (threadId: string): TranscriptItem[] => {
+    const raw = rollouts.get(threadId) ?? []
+    const items: TranscriptItem[] = []
+    for (const item of raw) {
+      if (typeof item?.type !== 'string' || typeof (item as { id?: unknown }).id !== 'string') {
+        continue
+      }
+      items.push(...threadItemToItems(item as never, undefined))
+    }
+    return items
+  }
+
+  const threadIdForHistory = (input: { resume?: { value?: string }; pathHint?: string }): string =>
+    input.resume?.value ??
+    (/rollout-(.+)\.jsonl$/.exec(input.pathHint?.split('/').at(-1) ?? '')?.[1] ?? '')
 
   const host: CodexRuntimeHost = {
     stageAttachment: async ({ source }) => {
@@ -199,6 +230,39 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       if (hostsClientTerminals === false) return undefined
       if (hostsClientTerminals === 'spectators-only' && input.mode === 'takeover') return undefined
       return { streamId: `cx-attach-${input.sessionId}`, warmTtlMs: 300_000 }
+    },
+
+    async readHistory(session, range) {
+      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
+      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
+      }
+      const items = storeItemsFor(threadIdForHistory(session))
+      // Store cursors carry the anchor as an index string in `pathHint`.
+      const anchor = range.from?.pathHint ? Number.parseInt(range.from.pathHint, 10) : undefined
+      const direction = range.direction ?? 'before'
+      const limit = range.limit
+      let page: TranscriptItem[]
+      let start: number
+      let end: number
+      if (direction === 'after') {
+        start = anchor === undefined || Number.isNaN(anchor) ? 0 : anchor + 1
+        end = Math.min(items.length, start + limit)
+        page = items.slice(start, end)
+      } else {
+        end = anchor === undefined || Number.isNaN(anchor) ? items.length : anchor
+        start = Math.max(0, end - limit)
+        page = items.slice(start, end)
+      }
+      const cursor = (index: number) => ({ segmentId, pathHint: String(index), components: {} })
+      return {
+        items: page,
+        ...(page.length ? { head: cursor(start), tail: cursor(end - 1) } : {}),
+        hasMore: direction === 'after' ? end < items.length : start > 0,
+      }
     },
 
     async readRollout(path: string) {
@@ -363,6 +427,19 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
        */
       void sessionId
       return { refused: true }
+    },
+
+    /**
+     * THE STORE'S OWN READ, straight off the fake rollout map — no driver, no
+     * RPC. The suite compares it against `transcript.history` after a turn;
+     * the two agree exactly when the driver delegates to the injected Store
+     * port, and disagree when it re-reads the live process (whose fake
+     * `thread/read` handler answers empty — see test-support).
+     */
+    async readStoreHistory(sessionId) {
+      const threadId = serverFor(sessionId).threadId
+      if (!threadId) return []
+      return storeItemsFor(threadId)
     },
   }
 

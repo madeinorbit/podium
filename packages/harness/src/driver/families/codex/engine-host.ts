@@ -51,7 +51,12 @@ import { access, readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
+import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { codexMcpArgs } from '../../../adapters/codex/index.js'
+import { codexTranscript } from '../../../adapters/codex/transcript.js'
+import { transcriptSourceFromGrammar } from '../../../store/store.js'
+import { declaredValue } from '../../../transcript-types.js'
+import { DriverRefusalError } from '../../errors.js'
 import {
   CODEX_VERSION_POLICY,
   gateHarnessVersion,
@@ -761,6 +766,62 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         return true
       } catch {
         return false
+      }
+    },
+
+    /**
+     * THE STORE READ OVER THE ROLLOUT FILE — the host half of the injected
+     * `readHistory` port the driver answers `transcript.history` through.
+     *
+     * The same shape as the terminal host's `readHistory`
+     * (`apps/daemon/src/runtime/host.ts`) and the headless one
+     * (`apps/daemon/src/host-runtime.ts`): resolve the session's transcript
+     * source from the codex adapter's grammar — the rollout JSONL named by
+     * `pathHint` (the `thread/start` path the driver passes), falling back to
+     * the resume-value discovery when no hint names an existing file — and
+     * slice it with Store cursors. A thread that has not run its first turn
+     * yet has no file, which reads as an empty page, never an error: the
+     * slice layer returns empty for a missing chain or a missing file.
+     */
+    async readHistory(
+      session: {
+        sessionId: SessionId
+        agentKind: 'codex'
+        cwd: string
+        resume?: { kind: string; value: string }
+        pathHint?: string
+      },
+      range: Omit<RuntimeHistoryRange, 'direction'> & {
+        direction?: RuntimeHistoryRange['direction']
+      },
+    ): Promise<RuntimeHistoryPage> {
+      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
+      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
+      }
+      const grammar = declaredValue(codexTranscript)
+      if (!grammar) return { items: [], hasMore: false }
+      const source = await transcriptSourceFromGrammar(grammar, {
+        podiumSessionId: session.sessionId,
+        cwd: session.cwd,
+        ...(session.resume?.value ? { resumeValue: session.resume.value } : {}),
+        ...(session.pathHint ? { pathHint: session.pathHint } : {}),
+        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+      })
+      const slice = await source.readSlice({
+        ...(range.from ? { anchor: range.from.pathHint } : {}),
+        direction: range.direction ?? 'before',
+        limit: range.limit,
+      })
+      const cursor = (anchor: string) => ({ segmentId, pathHint: anchor, components: {} })
+      return {
+        items: slice.items,
+        ...(slice.head ? { head: cursor(slice.head) } : {}),
+        ...(slice.tail ? { tail: cursor(slice.tail) } : {}),
+        hasMore: slice.hasMore,
       }
     },
 
