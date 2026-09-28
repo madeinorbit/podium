@@ -217,9 +217,13 @@ export interface HarnessBoundaryAllowlistEntry {
  *  POD-4437 non-harness-spelling rule instead. Deleted nineteen emptied
  *  entries (web/harness 56, mobile/harness 17, perf 12): leak 112 → 27,
  *  total 148 → 63.
+ *  POD-4737 D6 (preset preference): ExecutionProfiles launch presets start
+ *  on Codex by product choice — distinct from the new-work default — so it
+ *  becomes the named policy entry ADR 10 provides for exactly this: leak
+ *  27 → 26, policy 36 → 37, total 63 → 63.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 27
-export const HARNESS_BASELINE_POLICY_COUNT = 36
+export const HARNESS_BASELINE_LEAK_COUNT = 26
+export const HARNESS_BASELINE_POLICY_COUNT = 37
 export const HARNESS_BASELINE_TOTAL = 63
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
@@ -230,7 +234,7 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/server/src/modules/sessions/session-lifecycle-types.ts', count: 1, category: 'leak', reason: 'homonym: sync-cursor Omit member (feed pagination key), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
   { file: 'apps/server/src/steward.ts', count: 1, category: 'leak', reason: 'homonym: steward_state cursor key (durable poll-window spelling), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
   { file: 'apps/server/src/store/events.ts', count: 1, category: 'leak', reason: 'homonym: steward_state cursor key write, not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'apps/web/src/features/workflows/ExecutionProfiles.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
+  { file: 'apps/web/src/features/workflows/ExecutionProfiles.tsx', count: 1, category: 'policy', reason: 'launch presets start on Codex by product choice (distinct from the new-work default); stays', policy: 'apps/web/src/features/workflows/ExecutionProfiles.tsx' },
   { file: 'apps/web/src/lib/agent-tone.ts', count: 1, category: 'leak', reason: 'bundled brand-component key for harnesses this build knows (4.1 amendment: bundled CODE stays)', issue: 'POD-4414/4.1' },
   { file: 'packages/harness/src/driver/headless-interrupt.ts', count: 2, category: 'policy', reason: 'driver FAMILY names (codex/opencode/claude-sdk), not harness names — stays', policy: 'packages/harness/src/driver/headless-interrupt.ts' },
   { file: 'packages/client-core/src/replica/replica.ts', count: 2, category: 'leak', reason: 'homonym: TanStack cursor key + family member (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
