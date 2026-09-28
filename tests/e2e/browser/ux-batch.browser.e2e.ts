@@ -5,10 +5,14 @@ import { newSession, openApp, podium } from './_harness'
 /**
  * Runtime click-through of the UX-batch-2026-06-30 changes against the REAL Live UI
  * on the harness relay (serve-harness registers THIS worktree, shell cwd === repo root):
- *   #13 right-click session context menu (tab) + Rename enters edit mode
  *   #3  copy button on a rendered code block (real click → clipboard)
  *   #4  external links in rendered markdown open in a new tab (target=_blank)
  * Desktop only — these are mouse interactions on desktop surfaces.
+ *
+ * #13 (right-click tab → full session menu) is gone: POD-710 took the verbs off
+ * the tab — its menu now offers only "Reveal in flight deck" — and 9bd36349a
+ * renamed the menu vocabulary (Hibernate/End session/Delete session). Rename
+ * itself is guarded by sidebar-rename-spawn.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop test (real mouse interactions)')
 
@@ -60,40 +64,6 @@ async function openStyledFile(
   }
   throw new Error(`could not open ${rel}`)
 }
-
-test('#13 right-click tab → session context menu; Rename enters edit mode', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await openApp(page)
-  await newSession(page, 'Shell')
-
-  // Right-click the session tab (center is over its label button, which carries the
-  // onContextMenu handler).
-  const tab = page.locator('[data-session]').first()
-  await expect(tab).toBeVisible({ timeout: 10_000 })
-  await tab.click({ button: 'right' })
-
-  // The cursor-anchored portal menu appears with the full action set.
-  const menu = page.locator('[role="menu"][aria-label="Session actions"]')
-  await expect(menu).toBeVisible({ timeout: 5_000 })
-  for (const name of ['Rename', 'Pin', 'Archive', 'Close']) {
-    await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible()
-  }
-  // Snooze options present (attention actions surface here too).
-  await expect(menu.getByRole('menuitem', { name: 'For 1 hour' })).toBeVisible()
-
-  // Rename → the tab swaps to an inline editor input.
-  await menu.getByRole('menuitem', { name: 'Rename', exact: true }).click()
-  await expect(menu).toBeHidden()
-  await expect(tab.locator('input')).toBeVisible({ timeout: 5_000 })
-  // Cancel the rename so it doesn't interfere with later assertions.
-  await tab.locator('input').press('Escape')
-
-  // Esc/outside-click dismissal: reopen, press Escape, menu closes.
-  await tab.click({ button: 'right' })
-  await expect(menu).toBeVisible({ timeout: 5_000 })
-  await page.keyboard.press('Escape')
-  await expect(menu).toBeHidden({ timeout: 5_000 })
-})
 
 test('#3/#4 code-block copy button + external links open in a new tab', async ({
   page,
@@ -153,6 +123,9 @@ test('#3/#4 code-block copy button + external links open in a new tab', async ({
 test('#16/#17 memory view: "Project processes" legend; hibernation note ahead of the process list', async ({
   page,
 }) => {
+  // STALE ENTRY (POD-4729): the breakdown button this clicks no longer renders
+  // on the POD-563 header chips. The panel assertions below are live; only the
+  // trigger needs rediscovery against a running app.
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
 
