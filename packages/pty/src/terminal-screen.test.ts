@@ -69,14 +69,10 @@ describe('TerminalScreen per-session survival', () => {
     const after = screen.snapshotFirstFrame().toString('latin1')
     expect(after).toContain('Agent TUI frame')
     expect(after).toContain('live update')
-    // Same-size alternate reconstitutes from the model, never replays stale bytes.
-    expect(
-      screen.decideReopen({
-        viewerSize: { cols: 80, rows: 24 },
-        ringReplayable: true,
-        replayRequired: true,
-      }),
-    ).toEqual({ kind: 'snapshot-then-live' })
+    // Alternate reconstitutes from the model, never replays stale bytes.
+    expect(screen.decideReopen({ ringReplayable: true, replayRequired: true })).toEqual({
+      kind: 'snapshot',
+    })
     screen.dispose()
   })
 
@@ -93,13 +89,9 @@ describe('TerminalScreen per-session survival', () => {
     second.emit(`back to shell${LEAVE_ALT}`)
     await screen.flush()
     expect(screen.mode).toBe('normal')
-    expect(
-      screen.decideReopen({
-        viewerSize: { cols: 80, rows: 24 },
-        ringReplayable: false,
-        replayRequired: false,
-      }),
-    ).toEqual({ kind: 'repaint-only' })
+    expect(screen.decideReopen({ ringReplayable: false, replayRequired: false })).toEqual({
+      kind: 'none',
+    })
     screen.dispose()
   })
 
@@ -115,17 +107,13 @@ describe('TerminalScreen per-session survival', () => {
     screen.dispose()
   })
 
-  it('a different-size viewer resizes first with the model as placeholder', () => {
+  it('a reopen never asks the program for anything: alternate reopens from the model at any viewer size (POD-4723)', () => {
     const screen = new TerminalScreen({ cols: 80, rows: 24 })
     screen.setAppliedSize(80, 24)
     screen.push(Buffer.from(`${ENTER_ALT}frame`, 'latin1'))
-    expect(
-      screen.decideReopen({
-        viewerSize: { cols: 40, rows: 24 },
-        ringReplayable: true,
-        replayRequired: true,
-      }),
-    ).toEqual({ kind: 'resize-repaint-with-placeholder' })
+    expect(screen.decideReopen({ ringReplayable: true, replayRequired: true })).toEqual({
+      kind: 'snapshot',
+    })
     screen.dispose()
   })
 

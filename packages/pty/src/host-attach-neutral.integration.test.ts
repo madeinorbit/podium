@@ -145,8 +145,8 @@ describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
       await waitFor(() => signals(o.text()).length > 0, 'the explicit resize to reach the agent')
       expect(signals(o.text()).at(-1)).toContain('cols=133 rows=44')
       expect(signals(o.text())).toHaveLength(1)
-      await waitFor(() => c.appliedGeometry?.cols === 133, 'RESIZED to be acknowledged')
-      expect(c.appliedGeometry).toEqual({ cols: 133, rows: 44 })
+      await waitFor(() => c.size?.()?.cols === 133, 'RESIZED to be acknowledged')
+      expect(c.size?.()).toEqual({ cols: 133, rows: 44 })
     } finally {
       o.close()
     }
@@ -193,7 +193,7 @@ describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
     sessions.push(again)
     expect(again.adopted).toBe(true)
     // The adopting attach reads the REAL size back; it does not report the belief.
-    expect(again.appliedGeometry).toEqual({ cols: 137, rows: 43 })
+    expect(again.size?.()).toEqual({ cols: 137, rows: 43 })
     await wait(1500)
     expect(signals(t.text())).toHaveLength(settled)
     expect(t.text()).not.toContain('cols=90')
@@ -214,7 +214,7 @@ describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
       expect(signals(o.text())).toHaveLength(0) // the attach itself: silent
 
       session.resize(111, 37) // the ask a daemon restart produces: for what the agent already is
-      await waitFor(() => session.appliedGeometry?.cols === 111, 'the same-size ask to be acknowledged')
+      await waitFor(() => session.size?.()?.cols === 111, 'the same-size ask to be acknowledged')
       await wait(600)
       expect(signals(o.text())).toHaveLength(0) // abduco: exactly one; the host: none
 
@@ -239,6 +239,6 @@ describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
     // Unlike abduco, whose master forks its pty at 80x25 and whose first attach
     // moves the program, the host forks the pty AT the requested size.
     expect(signals(t.text())).toHaveLength(0)
-    expect(s.appliedGeometry).toEqual({ cols: 137, rows: 43 })
+    expect(s.size?.()).toEqual({ cols: 137, rows: 43 })
   }, 30000)
 })

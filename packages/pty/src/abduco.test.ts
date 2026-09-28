@@ -93,33 +93,30 @@ describe('abduco command builders', () => {
       session.dispose()
     }
   })
-  it('queues a recovery redraw until the abduco attach client acknowledges readiness', () => {
-    let emit: ((data: Uint8Array) => void) | undefined
-    const resizes: Array<{ cols: number; rows: number }> = []
-    const proc: PtyProcess = {
-      pid: 4242,
-      onData: (cb) => {
-        emit = cb
-      },
-      onExit: () => {},
-      write: () => {},
-      resize: (cols, rows) => resizes.push({ cols, rows }),
-      kill: () => {},
+  it('an attach never nudges the program: a TUI gets nothing, a shell only its Ctrl-L (POD-4723)', () => {
+    for (const hardRepaint of [false, true]) {
+      const resizes: Array<{ cols: number; rows: number }> = []
+      const writes: string[] = []
+      const proc: PtyProcess = {
+        pid: 4242,
+        onData: () => {},
+        onExit: () => {},
+        write: (data: Uint8Array) => writes.push(Buffer.from(data).toString('hex')),
+        resize: (cols, rows) => resizes.push({ cols, rows }),
+        kill: () => {},
+      }
+      const session = attachAbducoAgent({
+        label: 'podium-no-nudge',
+        cols: 80,
+        rows: 24,
+        hardRepaint,
+        backend: { name: 'bun-terminal', spawn: () => proc },
+      })
+      // No shrink-and-restore: the attach pty is born at its size, and that is all.
+      expect(resizes).toEqual([])
+      expect(writes).toEqual(hardRepaint ? ['0c'] : [])
+      session.dispose()
     }
-    const session = attachAbducoAgent({
-      label: 'podium-ready-redraw',
-      cols: 80,
-      rows: 24,
-      backend: { name: 'bun-terminal', spawn: () => proc },
-      repaintOnAttach: false,
-    })
-
-    session.redrawWhenReady?.()
-    expect(resizes).toEqual([])
-
-    emit?.(Buffer.from('\x1b[?1049h\x1b[H', 'latin1'))
-    expect(resizes).toEqual([{ cols: 80, rows: 23 }])
-    session.dispose()
   })
 
   it('adopting a live master applies nothing and repaints nothing', async () => {
@@ -157,22 +154,11 @@ describe('abduco command builders', () => {
       expect(resizes).toEqual([])
       expect(writes).toEqual([]) // no attach-time repaint at all
 
-      // Even an explicit redraw stays silent while nothing has been asked of this
-      // session: its pty is a sentinel, so the nudge would move a program nobody
-      // asked to move, and the ask itself repaints [spec:SP-6144].
-      replaying.redraw()
-      expect(writes).toEqual([])
-      expect(resizes).toEqual([])
-
-      // Once a viewer HAS asked, the session is an ordinary one again: that one
-      // resize, and then a real nudge on demand.
+      // A viewer's ask is the one thing that moves it: exactly that resize, and
+      // no nudge after it (POD-4723).
       replaying.resize(80, 24)
       expect(resizes).toEqual([{ cols: 80, rows: 24 }])
-      replaying.redraw()
-      expect(resizes).toEqual([
-        { cols: 80, rows: 24 },
-        { cols: 80, rows: 23 },
-      ])
+      expect(writes).toEqual([])
       replaying.dispose()
 
       resizes.length = 0

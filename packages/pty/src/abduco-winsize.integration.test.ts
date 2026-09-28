@@ -146,9 +146,9 @@ describe.skipIf(!hasCompiler)(
         // the attach size.
         expect(seen.at(-1)).toMatchObject({ cols: 120, rows: 40 })
         lastN = seen.at(-1)!.n
-        // The daemon-side session reports the size it ASKED for, not one read
-        // back from the master — there is no read-back seam at all.
-        expect(bigger.geometry()).toEqual({ cols: 120, rows: 40 })
+        // abduco has no read-back seam at all, so the session states no size
+        // (POD-4723: a non-host backend reports nothing).
+        expect(bigger.size).toBeUndefined()
       } finally {
         bigger.dispose()
       }
@@ -247,7 +247,7 @@ describe.skipIf(!hasCompiler)(
       // the child's repaint, and anything the master had already read from the
       // old grid arrives between the two. The daemon's own half of the ordering
       // (its held output leaves BEFORE the report) is T2, in the unit lane.
-      expect(born.geometry()).toEqual({ cols: 132, rows: 43 })
+      expect(born.size).toBeUndefined()
 
       born.dispose()
       await wait(200)

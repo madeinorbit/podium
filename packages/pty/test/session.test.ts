@@ -22,7 +22,6 @@ describe('spawnAgent core', () => {
       const c = collect(s)
       await waitFor(() => c.text.includes('cols=80 rows=24'))
       expect(c.text).toContain('PODIUM-FIXTURE')
-      expect(s.geometry()).toEqual({ cols: 80, rows: 24 })
     } finally {
       s.dispose()
     }
@@ -48,7 +47,8 @@ describe('spawnAgent core', () => {
       await waitFor(() => c.text.includes('cols=80 rows=24'))
       s.resize(100, 30)
       await waitFor(() => c.text.includes('cols=100 rows=30'))
-      expect(s.geometry()).toEqual({ cols: 100, rows: 30 })
+      // A direct pty cannot read its size back, so it states none (POD-4723).
+      expect(s.size).toBeUndefined()
     } finally {
       s.dispose()
     }
@@ -109,31 +109,9 @@ describe('spawnAgent core', () => {
       s.dispose()
     }
   })
-
-  it('redraw() forces a fresh repaint even when geometry is unchanged', async () => {
-    const s = start()
-    try {
-      const c = collect(s)
-      await waitFor(() => c.text.includes('last-input=')) // initial render fully drained
-      const before = c.maxPaint()
-      s.redraw()
-      await waitFor(() => c.maxPaint() > before)
-      expect(c.maxPaint()).toBeGreaterThan(before)
-      expect(s.geometry()).toEqual({ cols: 80, rows: 24 }) // geometry restored
-    } finally {
-      s.dispose()
-    }
-  })
 })
 
-/**
- * A reattached shell sits idle at its prompt: it emits nothing on SIGWINCH, so the
- * soft shrink/restore nudge leaves a blank screen (and the restore, acked on the
- * next frame, never fires). A hard repaint also injects Ctrl-L, which readline/zle
- * redraw the prompt on even when idle. TUIs repaint on SIGWINCH and would mishandle
- * a stray ^L in their input, so they stay soft. Driven from a fake PtyProcess so the
- * exact bytes/resizes are observable without a real child.
- */
+/** A fake PtyProcess, so the exact bytes/resizes are observable without a real child. */
 function fakePty(): {
   proc: PtyProcess
   writes: Uint8Array[]
@@ -170,7 +148,7 @@ function fakePty(): {
 describe('wrapPty raw output', () => {
   it('emits arbitrary bytes without text or base64 conversion', () => {
     const { proc, emit } = fakePty()
-    const session = wrapPty(proc, { cols: 80, rows: 24 })
+    const session = wrapPty(proc)
     const frames: Uint8Array[] = []
     session.onFrame((frame) => frames.push(frame.data))
     emit(Uint8Array.of(0x00, 0xff, 0xc3, 0x28, 0x1b))
@@ -180,22 +158,15 @@ describe('wrapPty raw output', () => {
   })
 })
 
-describe('wrapPty redraw repaint mode', () => {
-  it('hard repaint injects Ctrl-L on top of the SIGWINCH nudge', () => {
-    const { proc, writes, resizes } = fakePty()
-    const s = wrapPty(proc, { cols: 80, rows: 24 })
-    s.redraw({ hard: true })
-    expect(writes.some((w) => w.length === 1 && w[0] === 0x0c)).toBe(true) // Ctrl-L
-    expect(resizes[0]).toEqual([80, 23]) // still performs the shrink nudge
-  })
-
-  it('soft repaint (default) does NOT inject Ctrl-L and restores on the next frame', () => {
+describe('wrapPty has no repaint of its own (POD-4723)', () => {
+  it('a resize is exactly one resize: no shrink-and-restore nudge, no Ctrl-L', () => {
     const { proc, writes, resizes, emit } = fakePty()
-    const s = wrapPty(proc, { cols: 80, rows: 24 })
-    s.redraw()
-    expect(writes.some((w) => w.length === 1 && w[0] === 0x0c)).toBe(false)
-    expect(resizes[0]).toEqual([80, 23]) // shrink…
-    emit(Buffer.from('repaint')) // child acks the shrink with a frame
-    expect(resizes[1]).toEqual([80, 24]) // …then the rows restore to full height
+    const s = wrapPty(proc)
+    s.resize(120, 40)
+    emit(Buffer.from('repaint'))
+    expect(resizes).toEqual([[120, 40]])
+    expect(writes).toEqual([])
+    expect('redraw' in s).toBe(false)
   })
 })
+

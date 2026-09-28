@@ -155,7 +155,7 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
     expect(w.hasPty).toBe(true)
     expect({ cols: w.cols, rows: w.rows }).toEqual({ cols: 101, rows: 31 })
     expect(s.pid).toBe(w.childPid)
-    expect(s.appliedGeometry).toEqual({ cols: 101, rows: 31 })
+    expect(s.size?.()).toEqual({ cols: 101, rows: 31 })
     const t = reader(s)
     await waitFor(() => /WINSZ /.test(t.text()), 'the child to report its size')
     // The child's own TIOCGWINSZ IS the birth size: no attach resize moved it there.
@@ -180,11 +180,10 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
     await wait(500)
     expect(winches(t.text())).toHaveLength(1) // zero new signals
 
-    // Through the DurableAttachment: resize() sets appliedGeometry from RESIZED.
+    // Through the DurableAttachment: resize() moves size() when RESIZED arrives.
     s.resize(90, 30)
-    await waitFor(() => s.appliedGeometry?.cols === 90, 'appliedGeometry to follow RESIZED')
-    expect(s.appliedGeometry).toEqual({ cols: 90, rows: 30 })
-    expect(s.geometry()).toEqual({ cols: 90, rows: 30 })
+    await waitFor(() => s.size?.()?.cols === 90, 'size() to follow RESIZED')
+    expect(s.size?.()).toEqual({ cols: 90, rows: 30 })
     await waitFor(() => winches(t.text()).length === 2, 'the second real change to signal once')
     expect(await s.connection.size()).toEqual({ cols: 90, rows: 30 })
   }, 30_000)

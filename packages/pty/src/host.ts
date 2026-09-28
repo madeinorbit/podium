@@ -207,7 +207,7 @@ export class HostConnection {
    * with it — a size can never outlive the terminal it describes. Every write
    * fires {@link onSize}.
    */
-  size: Geometry | undefined
+  kernelSize: Geometry | undefined
   /** The seq of the byte AFTER the last DATA byte received: the resume point. */
   lastSeq: bigint | undefined
   exited: { code: number; signal: number } | undefined
@@ -344,7 +344,7 @@ export class HostConnection {
 
   private setSize(cols: number, rows: number): void {
     const size = { cols, rows }
-    this.size = size
+    this.kernelSize = size
     for (const cb of [...this.sizeCbs]) cb(size)
   }
 
@@ -837,7 +837,7 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
       if (disposed) return Promise.resolve()
       return conn.resize(cols, rows).then(() => undefined)
     },
-    size: () => conn.size,
+    size: () => conn.kernelSize,
     onSize: (cb) => conn.onSize(cb),
     async replay(tailBytes) {
       if (disposed) return
