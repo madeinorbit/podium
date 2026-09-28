@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto'
 import { manifestFor } from '../../../registry.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -33,6 +33,7 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { createMemoryBindingRecords } from '../../testing/binding-records.js'
+import { isDriverRefusal } from '../../errors.js'
 import type { CodexJournalEntry } from './runtime.js'
 
 const FACTS = codexEngineFacts(manifestFor('codex')!)
@@ -578,4 +579,128 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
     }
   }, 60_000)
 })
+})
+
+describe('readHistory — the Store read over the rollout file', () => {
+  const THREAD = 'thr-history-probe'
+  const SESSION = asSessionId('44444444-4444-4434-8444-444444444444')
+
+  /** One user turn and its assistant reply, in the real rollout record format. */
+  const writeRollout = (path: string): void => {
+    const lines = [
+      {
+        timestamp: '2026-09-28T10:00:00.000Z',
+        type: 'session_meta',
+        payload: { id: THREAD, cwd: '/tmp/codex-history-probe' },
+      },
+      {
+        timestamp: '2026-09-28T10:00:01.000Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', id: 'u1', message: 'hello from disk' },
+      },
+      {
+        timestamp: '2026-09-28T10:00:05.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          id: 'msg1',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'reply from disk' }],
+          phase: 'final_answer',
+        },
+      },
+    ]
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`)
+  }
+
+  const sessionFor = (home: string, rollout: string) => ({
+    sessionId: SESSION,
+    agentKind: 'codex' as const,
+    cwd: '/tmp/codex-history-probe',
+    resume: { kind: 'codex-thread' as const, value: THREAD },
+    pathHint: rollout,
+  })
+
+  it('reads the rollout user turn and assistant reply through the pathHint', async () => {
+    // THE PRODUCTION READER, against a real file: the driver's history
+    // delegates here, so this is the half the conformance suite cannot see
+    // (that suite supplies its own readHistory over the fake's map).
+    const home = mkdtempSync(join(tmpdir(), 'pod-4780-cx-hist-'))
+    try {
+      const rollout = join(home, 'rollout-test.jsonl')
+      writeRollout(rollout)
+      const host = engineHost({ homeDir: home })
+      const page = await host.readHistory(sessionFor(home, rollout), { limit: 50 })
+      expect(page.items.map((item) => [item.role, item.text])).toEqual([
+        ['user', 'hello from disk'],
+        ['assistant', 'reply from disk'],
+      ])
+      expect(page.hasMore).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it("pages older items through the returned cursor ('before' limit 1, then head)", async () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-4780-cx-page-'))
+    try {
+      const rollout = join(home, 'rollout-test.jsonl')
+      writeRollout(rollout)
+      const host = engineHost({ homeDir: home })
+      const newest = await host.readHistory(sessionFor(home, rollout), { limit: 1 })
+      expect(newest.items.map((item) => item.text)).toEqual(['reply from disk'])
+      expect(newest.hasMore).toBe(true)
+      expect(newest.head).toBeDefined()
+      const earlier = await host.readHistory(sessionFor(home, rollout), {
+        from: newest.head,
+        limit: 10,
+      })
+      expect(earlier.items.map((item) => item.text)).toEqual(['hello from disk'])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('a thread with no rollout file yet reads as an empty page, not an error', async () => {
+    // Codex creates the rollout at the first turn. History before that is
+    // empty — the slice layer returns empty for a missing chain or file, so
+    // no existence check is needed here beyond what the Store already does.
+    const home = mkdtempSync(join(tmpdir(), 'pod-4780-cx-empty-'))
+    try {
+      const host = engineHost({ homeDir: home })
+      const page = await host.readHistory(sessionFor(home, join(home, 'not-yet-written.jsonl')), {
+        limit: 50,
+      })
+      expect(page).toEqual({ items: [], hasMore: false })
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a foreign history cursor instead of reading another session', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-4780-cx-cursor-'))
+    try {
+      const rollout = join(home, 'rollout-test.jsonl')
+      writeRollout(rollout)
+      const host = engineHost({ homeDir: home })
+      const session = sessionFor(home, rollout)
+      await expect(
+        host.readHistory(session, {
+          from: { segmentId: 'history:someone-else:thr-other', pathHint: 'x', components: {} },
+          limit: 10,
+        }),
+      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      // Same segment but no anchor is equally foreign: cursors are opaque.
+      const own = await host.readHistory(session, { limit: 50 })
+      expect(own.head).toBeDefined()
+      await expect(
+        host.readHistory(session, {
+          from: { segmentId: own.head!.segmentId, components: {} },
+          limit: 10,
+        }),
+      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
 })
