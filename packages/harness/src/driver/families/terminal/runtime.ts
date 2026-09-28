@@ -1,5 +1,5 @@
 import { respondToMailBoundary } from './mail-boundary.js'
-import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '@podium/harness/driver/host'
+import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '../../host.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type {
   TerminalDriverReport,
@@ -8,12 +8,12 @@ import type {
   TerminalSpawnControl,
   TerminalTransport,
 } from './host-ports.js'
-import { withDeliveryQueue } from '@podium/harness/driver/host'
+import { withDeliveryQueue } from '../../host.js'
 import {
   type InstalledTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
-} from '@podium/harness/driver/host'
+} from '../../host.js'
 /**
  * THE TERMINAL DRIVER — today's PTY stack behind the Agent Runtime contract
  * (POD-1761 W3; spec §3, §9 phase 2 terminal family, moved into the harness
@@ -102,7 +102,7 @@ import type {
   TurnInput,
   TurnReceipt,
   WatchLevel,
-} from '@podium/harness/driver/host'
+} from '../../host.js'
 import {
   createRuntimeEventStream,
   createTerminalInjection,
@@ -114,15 +114,15 @@ import {
   sessionHealth,
   stampRuntimeEvent,
   terminalCapabilities,
-} from '@podium/harness/driver/host'
+} from '../../host.js'
 
-import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '@podium/harness/metadata'
-import { canonicalDriverId } from '@podium/harness'
+import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '../../../metadata.js'
+import { canonicalDriverId } from '../../../index.js'
 import type {
   AgentStateEvent,
   TerminalAcceptCorrelation,
   TerminalAcceptCorrelations,
-} from '@podium/harness'
+} from '../../../index.js'
 import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
@@ -310,7 +310,7 @@ interface DriverSession {
  *  of per-harness behaviour. */
 export interface TerminalHarnessProfile {
   /** Manifest readiness policy, carried into the public send capability. */
-  composerReadiness: import('@podium/harness').HarnessComposerReadiness
+  composerReadiness: import('../../../index.js').HarnessComposerReadiness
   instrumentationRequired: boolean
   driverId: DriverId
   sendProof: DriverCapabilities['send']['proof']
