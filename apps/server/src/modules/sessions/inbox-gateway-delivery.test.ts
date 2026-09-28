@@ -23,7 +23,6 @@
 import {
   actorAgent,
   asAgentIdentityId,
-  asMutationId,
   asSessionId,
   asUserId,
   type SessionId,
@@ -345,7 +344,6 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
       await h.inbox.queueText({
         sessionId: SID,
         text: 'typed once, never confirmed',
-        mutationId: asMutationId('unverified-row'),
         sourceMessageId: 'msg_unverified',
         principal: agentPrincipal(),
       }),
@@ -353,9 +351,9 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     await flush()
 
     expect(h.contractSends).toEqual([
-      expect.objectContaining({ turnId: 'unverified-row', deliveryRecovery: false }),
+      expect.objectContaining({ turnId: 'msg_unverified', deliveryRecovery: false }),
     ])
-    expect(h.rows).toEqual([expect.objectContaining({ id: 'unverified-row', deliveryOwner: 'daemon' })])
+    expect(h.rows).toEqual([expect.objectContaining({ id: 'msg_unverified', deliveryOwner: 'daemon' })])
     expect(h.promptFailed).toHaveLength(1)
 
     // The sweep tick (relay.ts, QUEUED_INPUT_SWEEP_MS). Whatever the daemon
@@ -365,7 +363,7 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     await flush()
 
     expect(h.contractSends).toHaveLength(2)
-    expect(h.contractSends[1]).toMatchObject({ turnId: 'unverified-row', deliveryRecovery: true })
+    expect(h.contractSends[1]).toMatchObject({ turnId: 'msg_unverified', deliveryRecovery: true })
     expect(h.sent).toEqual([])
   })
 
@@ -411,7 +409,6 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
       await h.inbox.queueText({
         sessionId: SID,
         text: 'waiting for a driver',
-        mutationId: asMutationId('unbound-row'),
         sourceMessageId: 'msg_unbound',
         principal: agentPrincipal(),
       }),
@@ -438,9 +435,9 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
     expect(h.sent).toEqual([])
     expect(h.contractSends).toHaveLength(2)
-    expect(h.contractSends[1]).toMatchObject({ turnId: 'unbound-row', deliveryRecovery: false })
+    expect(h.contractSends[1]).toMatchObject({ turnId: 'msg_unbound', deliveryRecovery: false })
     expect(recoveryFailures).toEqual([])
-    await h.inbox.deliveryOutcome(SID, { rowId: 'unbound-row', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_unbound', outcome: 'delivered' })
     expect(h.rows).toEqual([])
     expect(h.applied).toEqual([{ sourceMessageId: 'msg_unbound', sessionId: SID }])
   })
@@ -493,7 +490,6 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
       await h.inbox.queueText({
         sessionId: SID,
         text: 'refused busy',
-        mutationId: asMutationId('busy-row'),
         sourceMessageId: 'msg_busy',
         principal: agentPrincipal(),
       }),
@@ -505,7 +501,7 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     h.inbox.markSessionBound(SID)
     await h.inbox.drain(SID, { justBound: true })
     await flush()
-    expect(h.contractSends[1]).toMatchObject({ turnId: 'busy-row', deliveryRecovery: true })
+    expect(h.contractSends[1]).toMatchObject({ turnId: 'msg_busy', deliveryRecovery: true })
   })
 
   it('shell rows settle onto the raw transport in FIFO order', async () => {
@@ -549,7 +545,6 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
       await shell.inbox.queueText({
         sessionId: SID,
         text: 'shell row',
-        mutationId: asMutationId('shell-settle'),
         sourceMessageId: 'msg_shell_settle',
         principal: agentPrincipal(),
       }),

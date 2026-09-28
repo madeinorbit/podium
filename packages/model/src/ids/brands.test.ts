@@ -17,6 +17,7 @@ import {
   MachineIdField,
   MemberId,
   MemberIdField,
+  MessageId,
   memberIdFromUserId,
   newInviteId,
   newMemberId,
@@ -512,5 +513,24 @@ describe('the UserId bridge', () => {
     // cast here would hand back something the type system swore was a branded
     // KSUID. A2 migrates the row; it does not re-brand the literal.
     expect(() => memberIdFromUserId(asUserId('user:sole'))).toThrow()
+  })
+})
+
+describe('MessageId is checked where a sender hands one in (POD-4763)', () => {
+  it('accepts msg_ and a UUID, as the app and the CLI mint it', () => {
+    expect(MessageId.safeParse('msg_0f8fad5b-d9cb-469f-a165-70867728950e').success).toBe(true)
+  })
+
+  it('refuses anything else: no prefix, another prefix, a padded or oversized value', () => {
+    for (const bad of [
+      '0f8fad5b-d9cb-469f-a165-70867728950e',
+      'iss_0f8fad5b-d9cb-469f-a165-70867728950e',
+      'msg_0f8fad5b-d9cb-469f-a165-70867728950e ',
+      `msg_0f8fad5b-d9cb-469f-a165-70867728950e${'0'.repeat(200)}`,
+      'msg_../../etc/passwd',
+      '',
+    ]) {
+      expect(MessageId.safeParse(bad).success).toBe(false)
+    }
   })
 })

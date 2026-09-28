@@ -12,6 +12,7 @@ import {
   firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
+import { MutationLedger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { SessionStore } from '../../store'
@@ -145,6 +146,7 @@ async function harness(opts?: {
     messages: svc,
     issues,
     sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+    mutations: new MutationLedger(store.sync, () => Date.now()),
     spawnSession:
       opts?.spawnSession ??
       (async (i) => {
@@ -610,6 +612,73 @@ describe('agent spawn (gate)', () => {
       prompt: 'x',
     })
     expect(spawns[0]).not.toHaveProperty('name')
+  })
+})
+
+describe('one id per send and per spawn [POD-4763]', () => {
+  const REQUEST = '00000000-0000-4000-8000-000000004763'
+  const MESSAGE = 'msg_00000000-0000-4000-8000-000000004763'
+
+  it('a rerun of a spawn under its request id is answered with the child the first run started', async () => {
+    const { gate, spawns } = await harness()
+    const input = { requestId: REQUEST, issue: ISSUE.id, prompt: 'start once' }
+
+    const first = await gate.dispatch(PARENT, true, 'spawnAgent', input)
+    const rerun = await gate.dispatch(PARENT, true, 'spawnAgent', input)
+
+    expect(rerun).toEqual(first)
+    expect(spawns).toHaveLength(1)
+  })
+
+  it('a rerun that arrives while the first spawn is still starting joins it', async () => {
+    let release!: () => void
+    const starting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const spawns: unknown[] = []
+    const { gate } = await harness({
+      spawnSession: async (i) => {
+        spawns.push(i)
+        await starting
+        return { sessionId: asSessionId('child1') }
+      },
+    })
+    const input = { requestId: REQUEST, issue: ISSUE.id, prompt: 'start once' }
+
+    const first = gate.dispatch(PARENT, true, 'spawnAgent', input)
+    const rerun = gate.dispatch(PARENT, true, 'spawnAgent', input)
+    release()
+
+    expect(await rerun).toEqual(await first)
+    expect(spawns).toHaveLength(1)
+  })
+
+  it('a resent mail under its message id is the same message', async () => {
+    const { gate, store } = await harness()
+    const input = { to: `#${ISSUE.seq}`, body: 'exactly once', messageId: MESSAGE }
+
+    const first = await gate.dispatch(PARENT, true, 'send', input)
+    const resent = await gate.dispatch(PARENT, true, 'send', input)
+
+    expect(resent).toEqual(first)
+    expect(first).toMatchObject({ id: MESSAGE, ok: true })
+    expect(
+      (await store.messages.listLedger({ issueId: asIssueId(ISSUE.id) })).map((m) => m.id),
+    ).toEqual([MESSAGE])
+  })
+
+  it('refuses an id that is not a message id before anything is written', async () => {
+    const { gate, store } = await harness()
+
+    for (const messageId of ['m-1', `msg_${'x'.repeat(36)}`, `${MESSAGE}/../x`]) {
+      await expect(
+        gate.dispatch(PARENT, true, 'send', { to: `#${ISSUE.seq}`, body: 'x', messageId }),
+      ).rejects.toThrow()
+    }
+    await expect(
+      gate.dispatch(PARENT, true, 'spawnAgent', { requestId: 'r1', issue: ISSUE.id, prompt: 'x' }),
+    ).rejects.toThrow()
+    expect(await store.messages.listLedger({ issueId: asIssueId(ISSUE.id) })).toEqual([])
   })
 })
 

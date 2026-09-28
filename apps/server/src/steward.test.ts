@@ -2,6 +2,7 @@ import {
   asIssueId,
   asSessionId,
   asThreadId,
+  MessageId,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
@@ -13,6 +14,7 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
   isAcceptedLiveTerminalEvent,
   JANITOR_STEWARD_EVENT_LIMIT,
+  noticeMessageId,
   type StewardDeps,
   StewardService,
   subscriptionEventKinds,
@@ -502,6 +504,35 @@ describe('StewardService unblock handler', () => {
     await steward.tick()
     expect(await stewardComments(issues, b.id)).toHaveLength(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect(Number(await store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    logs.restore()
+  })
+
+  it('a nudge whose send FAILS LATER is not claimed, and the next pass resends it under the same id', async () => {
+    const sessions = [fakeSession({ sessionId: asSessionId('s1'), cwd: '/r/.worktrees/issue-2-b' })]
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
+    const a = await issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    await issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    await issues.addDep(b.id, a.id, 'blocks')
+    await issues.close(a.id)
+    // A send that fails AFTER it was started — the shape a durable queue write
+    // that loses its connection has. Unawaited, this failure was invisible and
+    // the fact was claimed anyway: the notice was lost for good.
+    sendTextWhenReady.mockImplementationOnce(async () => {
+      await Promise.resolve()
+      throw new Error('queue write failed')
+    })
+    const logs = captureLogs()
+
+    await steward.tick()
+    expect(await store.events.getStewardState('cursor')).toBe('0')
+
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    const [first, second] = sendTextWhenReady.mock.calls.map((call) => call[2])
+    expect(second).toBe(first)
+    expect(second).toBe(noticeMessageId(`unblock:${b.id}:${a.seq}`, asSessionId('s1')))
     expect(Number(await store.events.getStewardState('cursor'))).toBeGreaterThan(0)
     logs.restore()
   })
@@ -2094,5 +2125,22 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     })
     expect(h.sendTextWhenReady).toHaveBeenCalledTimes(1)
     expect((h.sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
+  })
+})
+
+describe('noticeMessageId [POD-4763]', () => {
+  it('is the same for every attempt at one notice, and a message id', () => {
+    const id = noticeMessageId('unblock:iss_b:7', asSessionId('s1'))
+    expect(noticeMessageId('unblock:iss_b:7', asSessionId('s1'))).toBe(id)
+    expect(MessageId.safeParse(id).success).toBe(true)
+  })
+
+  it('differs per target, so one fact notifying two sessions queues two rows', () => {
+    expect(noticeMessageId('unblock:iss_b:7', asSessionId('s1'))).not.toBe(
+      noticeMessageId('unblock:iss_b:7', asSessionId('s2')),
+    )
+    expect(noticeMessageId('unblock:iss_b:7', asSessionId('s1'))).not.toBe(
+      noticeMessageId('unblock:iss_b:8', asSessionId('s1')),
+    )
   })
 })

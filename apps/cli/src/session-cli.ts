@@ -1,4 +1,4 @@
-import { makeRelayIssueClient } from '@podium/issue-client'
+import { makeRelayIssueClient, newMessageId, repeatUntilAnswered } from '@podium/issue-client'
 // The tier-1/2/3 session read models. These were three hand-copies here
 // (`StatusWire`, `RecapWire`, `ReadWire` — inventory §2.1 #22) because
 // `apps/cli` cannot import `apps/server`; `@podium/model` is the shared L0 home
@@ -414,10 +414,11 @@ export async function runSessionCli(
     }
     if (text.length > 32_768) throw new SessionCliError('message exceeds 32768 characters')
     const wake = command === 'resume-and-send' || args.wake === true
-    result = await (wake ? client.sessions.resumeAndSend : client.sessions.sendText).mutate({
-      sessionId,
-      text,
-    })
+    // The mutationId IS the message id (POD-4763): one for every attempt, so a
+    // repeat after a relay timeout is the same message.
+    const request = { sessionId, text, mutationId: newMessageId() }
+    const proc = wake ? client.sessions.resumeAndSend : client.sessions.sendText
+    result = await repeatUntilAnswered(() => proc.mutate(request))
     action = wake ? 'resume-and-send' : 'send'
   } else if (command === 'continue') {
     result = await client.sessions.continue.mutate({ sessionId })

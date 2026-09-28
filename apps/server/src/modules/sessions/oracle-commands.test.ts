@@ -947,8 +947,8 @@ describe('oracle: sendText / resumeAndSend', () => {
     o.daemon.length = 0
 
     const [first, second] = await Promise.all([
-      o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'm-dead-1' }),
-      o.call.sessions.sendText({ sessionId, text: 'two', mutationId: 'm-dead-2' }),
+      o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'msg_00000000-0000-4000-8000-00000000d001' }),
+      o.call.sessions.sendText({ sessionId, text: 'two', mutationId: 'msg_00000000-0000-4000-8000-00000000d002' }),
     ])
     expect(first).toMatchObject({ ok: true, queued: true })
     expect(second).toMatchObject({ ok: true, queued: true })
@@ -958,7 +958,7 @@ describe('oracle: sendText / resumeAndSend', () => {
       'the one wake spawn',
     )
 
-    await o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'm-dead-1' })
+    await o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'msg_00000000-0000-4000-8000-00000000d001' })
     expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
     expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
 

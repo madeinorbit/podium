@@ -9,7 +9,13 @@ import type { MutationId } from '@podium/model'
 import type { SyncSpan } from '../span'
 import type { BackoffPolicy } from './limits'
 import type { AuthorityRefusal, OutboxRejectionReason } from './reasons'
-import type { DeadLetterRecord, EnvelopeConfirmation, OutboxRecord, UserRef } from './records'
+import type {
+  DeadLetterRecord,
+  EnvelopeConfirmation,
+  OutboxCommand,
+  OutboxRecord,
+  UserRef,
+} from './records'
 import type { OutboxState } from './states'
 
 /**
@@ -304,9 +310,11 @@ export interface OutboxConfig {
   readonly backoff?: BackoffPolicy
   /**
    * Mints ids for re-issues that may not reuse the old one (D11.4: after
-   * `expired`, a receipt may still exist for the original id).
+   * `expired`, a receipt may still exist for the original id). Given the
+   * command, because some ids have a shape the Authority checks: a chat send's
+   * mutationId is its message id (POD-4763).
    */
-  readonly newMutationId: () => MutationId
+  readonly newMutationId: (command: OutboxCommand) => MutationId
   /**
    * Called when the store is unreadable. REQUIRED, not optional: making the one
    * data-loss path a mandatory parameter is how "it must be loud" becomes a

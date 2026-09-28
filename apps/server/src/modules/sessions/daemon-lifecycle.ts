@@ -1021,10 +1021,10 @@ export class SessionDaemonLifecycle {
           // If it throws, no ack is sent and the daemon retains/replays the report.
           //
           // DURABLE ROWS ARE ACKED AND IGNORED HERE, BY DESIGN (99ef2c33b,
-          // POD-3742). Since daemon-owned inbox delivery the daemon's `turnId`
-          // is the queue ROW id, while `record` looks messages up by MESSAGE id:
-          // a teardown report naming a durable row matches nothing, moves
-          // nothing, and still gets its ack. Teardown discards delivery state,
+          // POD-3742). The daemon's `turnId` for a durable row is the queue row
+          // id, which is its message's id (POD-4763); `record` skips any id
+          // still in the session's durable queue, so a teardown report naming a
+          // durable row moves nothing and still gets its ack. Teardown discards delivery state,
           // not durable work — the row stays visibly queued and the next owner
           // receives it again as a recovery, which the daemon fails visibly
           // rather than retyping. Only DIRECT turns (message-id-keyed driver

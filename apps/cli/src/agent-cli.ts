@@ -16,7 +16,7 @@
  * (curated name slot); distinct from `--new "title"` which names the ISSUE.
  */
 
-import { makeRelayIssueClient } from '@podium/issue-client'
+import { makeRelayIssueClient, newRequestId, repeatUntilAnswered } from '@podium/issue-client'
 import type { SessionId, IssueId } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { flagTable } from './argv'
@@ -108,7 +108,10 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
       if (typeof args.issue !== 'string' && typeof args.new !== 'string') {
         throw new MailCliError('spawn needs --issue <ref> or --new "title"')
       }
-      const r = (await client.messages.spawnAgent.mutate({
+      // One id for every attempt (POD-4763): a rerun after a relay timeout
+      // answers with the child the first attempt started, not a second child.
+      const request = {
+        requestId: newRequestId(),
         prompt,
         ...(typeof args.issue === 'string' ? { issue: args.issue } : {}),
         ...(typeof args.new === 'string' ? { newTitle: args.new } : {}),
@@ -128,7 +131,8 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         ...(typeof args['execution-profile-id'] === 'string'
           ? { executionProfileId: args['execution-profile-id'] }
           : {}),
-      })) as {
+      }
+      const r = (await repeatUntilAnswered(() => client.messages.spawnAgent.mutate(request))) as {
         ok: boolean
         sessionId: SessionId
         issueId: IssueId

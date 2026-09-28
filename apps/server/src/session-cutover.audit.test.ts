@@ -179,7 +179,6 @@ async function ctxFor(
         'send',
         input,
         'trpc',
-        input.correlationId,
       ))!,
     rpc: () => modules.rpc,
 
@@ -326,7 +325,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
   it('carries the chat mutation id onto the durable message ledger row', async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const mutationId = 'msg_chat-correlation'
+    const mutationId = 'msg_00000000-0000-4000-8000-0000000c0001'
     await o.call.sessions.sendText({ sessionId, text: 'same visible turn', mutationId })
 
     const ledger = (await o.call.messages.ledger({ sessionId })) as Array<{

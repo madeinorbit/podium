@@ -8,6 +8,11 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { type AgentClient, runAgentCli } from './agent-cli'
 
+/** Every spawn carries the request id its CLI minted (POD-4763). */
+const REQUEST_ID = expect.stringMatching(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+)
+
 function client(over?: Partial<Record<'spawnAgent' | 'awaitAgent', unknown>>) {
   const proc = (result: unknown) => ({ mutate: vi.fn(async () => result) })
   return {
@@ -106,6 +111,7 @@ describe('podium agent spawn', () => {
       c,
     )
     expect(c.messages.spawnAgent.mutate).toHaveBeenCalledWith({
+      requestId: REQUEST_ID,
       issue: '#228',
       harness: 'codex',
       prompt: 'do it',
@@ -121,10 +127,24 @@ describe('podium agent spawn', () => {
     expect(out).toContain('podium agent await child1')
   })
 
+  it('[POD-4763] a spawn that got no answer is repeated under the same request id', async () => {
+    const c = client()
+    c.messages.spawnAgent.mutate.mockRejectedValueOnce(new Error('agent relay timed out'))
+    await expect(
+      runAgentCli(['spawn', '--issue', '#228', '--prompt', 'start once'], c),
+    ).resolves.toContain('spawned child1')
+    const [first, second] = c.messages.spawnAgent.mutate.mock.calls.map(
+      (call) => (call as unknown[])[0],
+    )
+    expect(second).toEqual(first)
+    expect(first).toMatchObject({ requestId: REQUEST_ID })
+  })
+
   it('--new maps to newTitle (the deliberate issue-create path)', async () => {
     const c = client()
     await runAgentCli(['spawn', '--new', 'follow-up', '--repo', '/repo', '--prompt', 'go'], c)
     expect(c.messages.spawnAgent.mutate).toHaveBeenCalledWith({
+      requestId: REQUEST_ID,
       newTitle: 'follow-up',
       repo: '/repo',
       prompt: 'go',
@@ -138,6 +158,7 @@ describe('podium agent spawn', () => {
       c,
     )
     expect(c.messages.spawnAgent.mutate).toHaveBeenCalledWith({
+      requestId: REQUEST_ID,
       issue: '#228',
       prompt: 'go',
       title: 'Spawn placement worker',

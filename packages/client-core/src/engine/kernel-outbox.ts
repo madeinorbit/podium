@@ -15,7 +15,7 @@
  */
 
 import type { MutationId } from '@podium/model'
-import { actorUser, asUserId } from '@podium/model'
+import { actorUser, asUserId, MESSAGE_ID_PREFIX } from '@podium/model'
 import {
   Outbox as KernelOutbox,
   OUTBOX_MAX_AGE_MS,
@@ -78,6 +78,18 @@ const kindByCommand = new Map<string, keyof OutboxKinds>(
     kind as keyof OutboxKinds,
   ]),
 )
+
+/** The chat sends, whose mutationId IS the message id the server stores and
+ *  the daemon types under (POD-4763) — so it takes a message id's shape. */
+const MESSAGE_COMMANDS = new Set<string>([OUTBOX_COMMANDS.sendText.name, OUTBOX_COMMANDS.resumeAndSend.name])
+
+/** A fresh id for one command's entry: a message id for a chat send, a UUID
+ *  for everything else. */
+function mintMutationId(command: Pick<OutboxRecord['command'], 'name'>): MutationId {
+  return (
+    MESSAGE_COMMANDS.has(command.name) ? `${MESSAGE_ID_PREFIX}${randomUUID()}` : randomUUID()
+  ) as MutationId
+}
 
 function kindFor(record: Pick<OutboxRecord, 'command'>): keyof OutboxKinds {
   const kind = kindByCommand.get(record.command.name)
@@ -254,7 +266,7 @@ class KernelEngineOutbox implements EngineOutbox {
   ): Promise<OutboxEntry> {
     // A caller-supplied id (POD-1053: the optimistic ledger files its overlay
     // under the id before the entry exists) or one minted here.
-    const mutationId = opts?.mutationId ?? (randomUUID() as MutationId)
+    const mutationId = opts?.mutationId ?? mintMutationId(OUTBOX_COMMANDS[kind])
     this.metadata.set(mutationId, {
       ...(opts?.baseline === undefined ? {} : { baseline: opts.baseline }),
       ...(opts?.chained === true ? { chained: true } : {}),
@@ -534,7 +546,7 @@ export async function openKernelEngineOutbox(
     maxAgeMs: OUTBOX_MAX_AGE_MS,
     commandMaxAgeMs: OUTBOX_COMMAND_MAX_AGE_MS,
     parkedYieldsPartition: OUTBOX_PARKED_YIELDS_PARTITION,
-    newMutationId: () => randomUUID() as MutationId,
+    newMutationId: mintMutationId,
     onStoreUnreadable: options.onDegraded,
     onEvent: (event) => adapter?.onEvent(event),
   })

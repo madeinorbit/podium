@@ -273,3 +273,25 @@ describe('sessions.create carries the agent-runtime override', () => {
     expect(() => parse({ requestedDriverId: '' })).toThrow()
   })
 })
+
+/**
+ * A CHAT SEND'S mutationId IS ITS MESSAGE ID (POD-4763): the server stores the
+ * message under it and the daemon types under it, so its shape is checked here,
+ * where it enters — `msg_` and a UUID, nothing longer, nothing else.
+ */
+describe('a chat send names its message by a message id', () => {
+  const ok = 'msg_0f8fad5b-d9cb-469f-a165-70867728950e'
+
+  it.each([
+    'sendText',
+    'resumeAndSend',
+  ] as const)('%s accepts a message id and refuses anything else', (key) => {
+    const input = sessionCommandPlaneInputs[key]
+    const send = (mutationId: string) =>
+      input.safeParse({ sessionId: asSessionId('s1'), text: 'hi', mutationId }).success
+    expect(send(ok)).toBe(true)
+    expect(send('m1')).toBe(false)
+    expect(send(`${ok}x`)).toBe(false)
+    expect(send('0f8fad5b-d9cb-469f-a165-70867728950e')).toBe(false)
+  })
+})

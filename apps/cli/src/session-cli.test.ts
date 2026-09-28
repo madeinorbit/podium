@@ -4,6 +4,11 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { parseSessionArgs, runSessionCli, type SessionControlClient } from './session-cli'
 
+/** Every send carries the message id its CLI minted (POD-4763). */
+const MESSAGE_ID = expect.stringMatching(
+  /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+)
+
 const STATUS = {
   sessionId: 's1',
   agentKind: 'claude-code',
@@ -169,8 +174,23 @@ describe('podium session CLI', () => {
   it('sends a real turn to a running session', async () => {
     const c = client()
     await expect(runSessionCli(['send', 's1', '--text', 'hello'], c)).resolves.toBe('sent')
-    expect(c.sessions.sendText.mutate).toHaveBeenCalledWith({ sessionId: 's1', text: 'hello' })
+    expect(c.sessions.sendText.mutate).toHaveBeenCalledWith({
+      mutationId: MESSAGE_ID,
+      sessionId: 's1',
+      text: 'hello',
+    })
     expect(c.sessions.resumeAndSend.mutate).not.toHaveBeenCalled()
+  })
+
+  it('[POD-4763] repeats a send that got no answer under the same message id', async () => {
+    const c = client()
+    c.sessions.sendText.mutate.mockRejectedValueOnce(new Error('agent relay timed out'))
+    await expect(runSessionCli(['send', 's1', '--text', 'hello'], c)).resolves.toBe('sent')
+    const [first, second] = c.sessions.sendText.mutate.mock.calls.map(
+      (call) => (call as unknown[])[0],
+    )
+    expect(second).toEqual(first)
+    expect(first).toMatchObject({ mutationId: MESSAGE_ID })
   })
 
   it('wake-send uses the durable resumeAndSend path', async () => {
@@ -179,6 +199,7 @@ describe('podium session CLI', () => {
       'queued for delivery',
     )
     expect(c.sessions.resumeAndSend.mutate).toHaveBeenCalledWith({
+      mutationId: MESSAGE_ID,
       sessionId: 's1',
       text: 'continue',
     })

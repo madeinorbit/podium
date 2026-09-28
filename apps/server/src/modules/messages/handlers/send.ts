@@ -54,7 +54,7 @@ export async function sendHandler(
     to,
     body: input.body,
     ...(input.attachments ? { attachments: input.attachments } : {}),
-    ...(ctx.correlationId ? { correlationId: ctx.correlationId } : {}),
+    ...(input.messageId ? { messageId: input.messageId } : {}),
     ...(input.urgency ? { urgency: input.urgency } : {}),
     ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
     ...(input.expectResponse ? { expectsResponse: true } : {}),

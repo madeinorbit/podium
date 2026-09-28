@@ -58,8 +58,10 @@ export interface MessageSendInput {
   body: string
   /** Staged machine-local refs, never paths spliced into the human's prose. */
   attachments?: readonly RuntimeAttachmentRef[]
-  /** Internal id supplied by session chat; public mail inputs cannot set it. */
-  correlationId?: string
+  /** The sender's own id for this message (POD-4763): the app's `msg_<uuid>`,
+   *  a CLI's, or a notice's derived one. The row is stored under it exactly once;
+   *  a repeat answers with the stored message. Absent = the server mints one. */
+  messageId?: string
   kind?: MessageKind
   urgency?: MessageUrgency
   lifecycle?: MessageLifecycle

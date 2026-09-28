@@ -142,8 +142,8 @@ export type MailSendPort = (input: {
   urgency?: 'fyi' | 'next-turn' | 'interrupt'
   lifecycle?: 'wait' | 'wake'
   attachments?: readonly RuntimeAttachmentRef[]
-  /** Framework mutation id forwarded outside the public mail contract. */
-  correlationId?: string
+  /** The chat send's mutationId, which is the message's own id (POD-4763). */
+  messageId?: string
 }) => Promise<unknown>
 
 /** The daemon round-trip `uploadImage` is (bytes to the session's machine, an
@@ -483,7 +483,7 @@ async function substrateSend(
     ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     urgency: 'next-turn',
     lifecycle,
-    ...(input.mutationId ? { correlationId: input.mutationId } : {}),
+    ...(input.mutationId ? { messageId: input.mutationId } : {}),
   })) as SubstrateOutcome
   return {
     ok,

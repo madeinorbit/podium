@@ -11,7 +11,7 @@
  * the machine the resolved execution profile places the child on.
  */
 
-import { asIssueId, spawnedByTag } from '@podium/model'
+import { asIssueId, asMutationId, spawnedByTag } from '@podium/model'
 import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@podium/commands'
 import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import { checkIssueAccess } from '../../../issue-authz'
@@ -19,6 +19,21 @@ import { SPAWN_BUDGET_PER_DAY } from '../brakes'
 import type { MailHandlerContext } from './context'
 
 export async function spawnAgentHandler(
+  ctx: MailHandlerContext,
+  input: ContractInput<typeof spawnAgentContract>,
+): Promise<unknown> {
+  // ONE CHILD PER REQUEST ID (POD-4763). The CLI mints the id before its first
+  // attempt and repeats it only when no answer came back, so a repeat is
+  // answered with the child the first attempt started. The ledger joins a
+  // repeat that arrives while the first is still running.
+  const mutations = ctx.deps.mutations
+  if (!input.requestId || !mutations) return await spawnOnce(ctx, input)
+  return await mutations.once(asMutationId(input.requestId), 'mail.spawnAgent', () =>
+    spawnOnce(ctx, input),
+  )
+}
+
+async function spawnOnce(
   ctx: MailHandlerContext,
   input: ContractInput<typeof spawnAgentContract>,
 ): Promise<unknown> {

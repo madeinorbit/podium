@@ -1153,6 +1153,7 @@ const defs = {
       const r = await send(ctx.messageSender(), {
         to: { kind: 'issue', id: input.id },
         body: input.body,
+        ...(input.messageId ? { messageId: input.messageId } : {}),
       })
       // Surface the honest disposition (#834): held / dead_letter must never be a
       // bare success. The old code discarded r.ok/queued/reason and returned only

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { type MailClient, parseMailArgs, runMailCli } from './mail-cli'
 
+/** Every send carries the id its CLI minted (POD-4763). */
+const MESSAGE_ID = expect.stringMatching(
+  /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+)
+
 const WIRE = {
   id: 'msg_1',
   threadId: 'msg_1',
@@ -67,6 +72,7 @@ describe('podium mail CLI (argv shape)', () => {
     )
     expect(out).toContain('sent msg_9')
     expect(c.messages.send.mutate).toHaveBeenCalledWith({
+      messageId: MESSAGE_ID,
       to: 's-abc',
       body: 'x',
       urgency: 'next-turn',
@@ -83,6 +89,7 @@ describe('podium mail CLI (argv shape)', () => {
       c,
     )
     expect(c.messages.send.mutate).toHaveBeenCalledWith({
+      messageId: MESSAGE_ID,
       to: '#1',
       body: 'confirm the shape?',
       expectResponse: true,
@@ -93,7 +100,11 @@ describe('podium mail CLI (argv shape)', () => {
   it('[POD-835] no --expect-response means no flag forwarded (receipt is mechanical)', async () => {
     const c = client()
     await runMailCli(['send', '--to', '#1', '--body', 'landed the fix'], c)
-    expect(c.messages.send.mutate).toHaveBeenCalledWith({ to: '#1', body: 'landed the fix' })
+    expect(c.messages.send.mutate).toHaveBeenCalledWith({
+      messageId: MESSAGE_ID,
+      to: '#1',
+      body: 'landed the fix',
+    })
   })
 
   it('[POD-959] --expires-in computes and forwards an ISO expiresAt', async () => {
@@ -103,6 +114,7 @@ describe('podium mail CLI (argv shape)', () => {
       const c = client()
       await runMailCli(['send', '--to', '#1', '--body', 'expiry probe', '--expires-in', '2m'], c)
       expect(c.messages.send.mutate).toHaveBeenCalledWith({
+        messageId: MESSAGE_ID,
         to: '#1',
         body: 'expiry probe',
         expiresAt: '2026-07-18T10:02:00.000Z',
@@ -134,6 +146,7 @@ describe('podium mail CLI (argv shape)', () => {
         c,
       )
       expect(c.messages.send.mutate).toHaveBeenCalledWith({
+        messageId: MESSAGE_ID,
         to: '#845',
         body: 'POD-845/925 verification probe',
         expiresAt: '2026-07-18T10:02:00.000Z',
@@ -148,6 +161,25 @@ describe('podium mail CLI (argv shape)', () => {
     await expect(
       runMailCli(['send', '--to', '#1', '--body', 'x', '--expires-in', 'soon'], c),
     ).rejects.toThrow(/--expires-in/)
+  })
+
+  it('[POD-4763] repeats a send that got no answer under the SAME id, and never repeats a refusal', async () => {
+    const c = client()
+    c.messages.send.mutate.mockRejectedValueOnce(new Error('agent relay timed out'))
+    await expect(runMailCli(['send', '--to', '#1', '--body', 'once'], c)).resolves.toContain(
+      'msg_9',
+    )
+    const ids = c.messages.send.mutate.mock.calls.map((call) => (call as unknown[])[0])
+    expect(ids).toHaveLength(2)
+    expect(ids[1]).toEqual(ids[0])
+    expect(ids[0]).toMatchObject({ messageId: MESSAGE_ID })
+
+    const refused = client()
+    refused.messages.send.mutate.mockRejectedValueOnce(new Error('unknown issue #1'))
+    await expect(runMailCli(['send', '--to', '#1', '--body', 'once'], refused)).rejects.toThrow(
+      'unknown issue #1',
+    )
+    expect(refused.messages.send.mutate).toHaveBeenCalledTimes(1)
   })
 
   it('surfaces the clamp note on a downgraded send', async () => {
@@ -424,6 +456,7 @@ describe('unknown and misplaced flags on podium mail', () => {
     )
     expect(out).toContain('sent m1')
     expect(send).toHaveBeenCalledWith({
+      messageId: MESSAGE_ID,
       to: '#1',
       body: 'hi',
       urgency: 'fyi',

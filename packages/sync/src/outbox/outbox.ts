@@ -505,7 +505,7 @@ export class Outbox {
       )
     }
     return await this.mutate((draft) => {
-      const mutationId = request.mutationId ?? this.config.newMutationId()
+      const mutationId = request.mutationId ?? this.config.newMutationId(request.command)
       // Uniqueness is checked against the WHOLE store, not just this principal's
       // slice: a `mutationId` is the Authority's dedupe key, so a collision
       // across principals would be just as wrong.
@@ -1034,7 +1034,7 @@ export class Outbox {
       // Past it, a receipt for the old id may be gone: mint a new one. The old
       // record leaves the recovery surface by the user's own action (invariant
       // 1), and its work continues under the new id.
-      return await this.reissue(record, this.config.newMutationId(), {
+      return await this.reissue(record, this.config.newMutationId(record.command), {
         input: record.input,
         ...revisionOf(record),
       })
@@ -1069,7 +1069,7 @@ export class Outbox {
     if (record.state !== 'dead-letter') {
       throw new OutboxUsageError(`cannot edit ${mutationId} from ${record.state}`)
     }
-    return await this.reissue(record, this.config.newMutationId(), request)
+    return await this.reissue(record, this.config.newMutationId(record.command), request)
   }
 
   /** D9 invariant 3 — **discard** → `cancelled`. Also legal straight from

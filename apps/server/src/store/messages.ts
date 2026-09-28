@@ -269,13 +269,20 @@ export class MessagesRepository {
     return currentTransaction() ?? this.rootDb
   }
 
-  /** Store a new message. Every row starts `stored`: any later status is a move
-   *  through {@link MessagesRepository.move}, never an insert. */
-  async addMessage(m: MessageRow): Promise<void> {
+  /** Store a new message, ONCE PER ID (POD-4763). Every row starts `stored`:
+   *  any later status is a move through {@link MessagesRepository.move}, never
+   *  an insert.
+   *
+   *  The id is the sender's, and a sender that never heard back repeats its
+   *  attempt under the same one. So an id that is already stored is not an
+   *  error and not a second row: the insert does nothing and this answers
+   *  `false`, in the same statement, so two attempts racing each other cannot
+   *  both see "absent". The caller reads the stored row to answer the repeat. */
+  async addMessage(m: MessageRow): Promise<boolean> {
     if (m.deliveryStatus !== 'stored') {
       throw new Error(`message ${m.id} must be stored before it moves (got ${m.deliveryStatus})`)
     }
-    ;await this.committed.write(async () => (this.db
+    const { changes } = await this.committed.write(async () => (this.db
       .insert(messagesTable)
       .values({
         id: m.id,
@@ -315,7 +322,8 @@ export class MessagesRepository {
         expectsResponse: m.expectsResponse,
         factKey: m.factKey ?? null,
         factTarget: m.factTarget ?? null,
-      })).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+      })).onConflictDoNothing({ target: messagesTable.id }).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+    return changes > 0
   }
 
   /** Queued identities let apply distinguish mixed queued/delivered predicates

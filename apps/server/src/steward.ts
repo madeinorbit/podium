@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import type {
   IssueComment,
@@ -8,7 +9,13 @@ import type {
   MutationId,
   IssueId,
 } from '@podium/model'
-import { asIssueId, asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
+import {
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  MESSAGE_ID_PREFIX,
+  spawnedByParentSessionId,
+} from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
@@ -18,6 +25,24 @@ import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 
 const log = createLogger('server:steward')
+
+/**
+ * The id of the notice one fact sends to one session (POD-4763).
+ *
+ * DERIVED, so every attempt at the same notice carries the same id: the steward
+ * sends and then claims, a crash between the two re-runs the send on the next
+ * pass, and the session queue stores a row once per id, so the re-run is the row
+ * already there. Per fact AND target: one fact may notify several sessions, and
+ * a shared id would let the first session's row stand in for everyone else's.
+ * Shaped like a sender-minted message id (a UUID laid out from a hash).
+ */
+export function noticeMessageId(factKey: string, sessionId: SessionId): MutationId {
+  const h = createHash('sha256').update(`${factKey}\u0000${sessionId}`).digest('hex')
+  const variant = ((Number.parseInt(h.charAt(16), 16) & 0x3) | 0x8).toString(16)
+  return asMutationId(
+    `${MESSAGE_ID_PREFIX}${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`,
+  )
+}
 
 /** One row read back from the durable event log (`podium_events`). */
 export interface StewardEvent {
@@ -320,7 +345,7 @@ export interface StewardDeps {
    *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
    *  filters to live/starting; session-parent wake does not — a parked parent
    *  must be woken (POD-904 / POD-279). */
-  sendTextWhenReady: (sessionId: SessionId, text: string, mutationId?: MutationId) => void
+  sendTextWhenReady: (sessionId: SessionId, text: string, mutationId?: MutationId) => Promise<void>
   /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
@@ -788,8 +813,10 @@ export class StewardService {
           continue
         }
         if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
-        // Durable delivery before claim [POD-925].
-        this.deps.sendTextWhenReady(s.sessionId, text, asMutationId(factKey))
+        // Durable delivery before claim [POD-925], awaited (POD-4763): a send
+        // that fails throws out of the pass, the fact stays unclaimed and the
+        // held cursor re-runs it under the same id.
+        await this.deps.sendTextWhenReady(s.sessionId, text, noticeMessageId(factKey, s.sessionId))
         const claimed = await this.arbiter.claim(factKey, s.sessionId, {
           source: `subscription:${sub.id}`,
           issueId,
@@ -907,10 +934,10 @@ export class StewardService {
         // retry after a failed send and left no durable nudge on cursor rewind.
         const factKey = `unblock:${dependent.id}:${closedSeq}`
         if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
-        this.deps.sendTextWhenReady(
+        await this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
-          asMutationId(factKey),
+          noticeMessageId(factKey, s.sessionId),
         )
         await this.arbiter.claim(factKey, s.sessionId, {
           source: 'steward.unblock',
@@ -988,10 +1015,14 @@ export class StewardService {
     const factKey = `sessionparentnudge:phase-reported:${childSessionId}`
     const rawLabel = child?.name || child?.title || childSessionId
     const label = firstLineCapped(rawLabel) || childSessionId
-    // WAKE: durable delivery BEFORE claim [POD-925]. mutationId=factKey makes
-    // crash-retry / multi-poll re-entry idempotent (queueText already-applied).
+    // WAKE: durable delivery BEFORE claim [POD-925], awaited. The derived id
+    // makes crash-retry / multi-poll re-entry the queued row already there.
     if (await this.arbiter.isClaimed(factKey, parentId)) return
-    this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label), asMutationId(factKey))
+    await this.deps.sendTextWhenReady(
+      parentId,
+      sub.nudge(childSessionId, label),
+      noticeMessageId(factKey, parentId),
+    )
     await this.arbiter.claim(factKey, parentId, claimOpts)
   }
 
@@ -1091,10 +1122,10 @@ export class StewardService {
       // Durable delivery before claim [POD-925] — same ordering as handleUnblock.
       const factKey = `parentnudge:${group}:${parentId}:${lastChildSeq}`
       if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
-      this.deps.sendTextWhenReady(
+      await this.deps.sendTextWhenReady(
         s.sessionId,
         sub.nudge(lastChildSeq, { remaining, total }),
-        asMutationId(factKey),
+        noticeMessageId(factKey, s.sessionId),
       )
       await this.arbiter.claim(factKey, s.sessionId, {
         source: 'steward.parent-nudge',

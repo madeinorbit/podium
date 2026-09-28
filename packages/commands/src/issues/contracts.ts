@@ -63,6 +63,7 @@ import {
   IssueType,
   isSortKey,
   MachineIdField,
+  MessageId,
   MutationIdField,
   Revision,
   SessionIdField,
@@ -596,7 +597,13 @@ export const supersedeInput = z.object({ oldId: z.string(), newId: z.string() })
 
 export const duplicateInput = z.object({ id: IssueIdField, canonicalId: z.string() })
 
-export const mailSendInput = z.object({ id: IssueIdField, body: z.string().min(1) })
+/** `id` names the ISSUE; `messageId` is the sender's own id for the message
+ *  (POD-4763), repeated verbatim when the sender retries. */
+export const mailSendInput = z.object({
+  id: IssueIdField,
+  body: z.string().min(1),
+  messageId: MessageId.optional(),
+})
 
 export const mailInboxInput = z.object({ id: IssueIdField.optional() }).optional()
 

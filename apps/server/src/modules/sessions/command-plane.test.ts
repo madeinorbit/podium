@@ -135,7 +135,6 @@ async function ctxFor(
         'send',
         input,
         'relay',
-        'immediate',
       )!,
 
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
@@ -702,21 +701,21 @@ describe('chat interrupt ordering', () => {
     })
 
     expect(
-      await dispatchSessionCommand(ctx, 'interrupt', { sessionId, messageId: 'msg_stopped' }),
+      await dispatchSessionCommand(ctx, 'interrupt', { sessionId, messageId: 'msg_00000000-0000-4000-8000-00000000f001' }),
     ).toEqual({ ok: true, requested: 'retraction' })
 
     expect(
       await dispatchSessionCommand(ctx, 'sendText', {
         sessionId,
         text: 'must stay stopped',
-        mutationId: 'msg_stopped',
+        mutationId: 'msg_00000000-0000-4000-8000-00000000f001',
       }),
     ).toEqual({
       ok: false,
       reason: 'interaction interrupted',
       disposition: 'dead_letter',
     })
-    expect(await o.store.messages.getMessage('msg_stopped')).toBeNull()
+    expect(await o.store.messages.getMessage('msg_00000000-0000-4000-8000-00000000f001')).toBeNull()
   })
 })
 

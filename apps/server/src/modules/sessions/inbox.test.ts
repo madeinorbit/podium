@@ -2001,6 +2001,8 @@ describe('shell rows held past the typing loop', () => {
  * either delivers through the runtime contract, or stays visibly queued.
  */
 describe('server-family drain via the runtime contract [POD-2291]', () => {
+  /** A row backed by a message is queued under that message's id (POD-4763), so
+   *  the tests below name both with the one id. */
   const queueOne = async (h: ReturnType<typeof harness>, id: string, sourceMessageId?: string) =>
     await h.inbox.queueText({
       sessionId: SID,
@@ -2014,13 +2016,13 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
 
-    expect(await queueOne(h, 'srv-1', 'msg_srv_1')).toEqual({ ok: true, queued: true })
+    expect(await queueOne(h, 'msg_srv_1', 'msg_srv_1')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(h.contractCalls).toEqual([
       expect.objectContaining({
         sessionId: SID,
-        turnId: 'srv-1',
+        turnId: 'msg_srv_1',
         text: 'first prompt',
       }),
     ])
@@ -2028,8 +2030,8 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.sent).toEqual([])
     expect(h.applied).not.toHaveBeenCalled()
     expect(h.rows).toHaveLength(1)
-    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-1', outcome: 'delivered' })
-    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-1', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_srv_1', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_srv_1', outcome: 'delivered' })
     expect(h.applied).toHaveBeenCalledTimes(1)
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_1', sessionId: SID })
     expect(h.rows).toEqual([])
@@ -2038,7 +2040,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     vi.useFakeTimers()
     const h = harness({ nativeView: true, contractReceipts: [] })
 
-    expect(await queueOne(h, 'srv-native', 'msg_srv_native')).toEqual({ ok: true, queued: true })
+    expect(await queueOne(h, 'msg_srv_native', 'msg_srv_native')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toEqual([])
     expect(h.rows).toHaveLength(1)
@@ -2049,7 +2051,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
     expect(h.contractCalls).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
-    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-native', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_srv_native', outcome: 'delivered' })
     expect(h.applied).toHaveBeenCalledWith({
       sourceMessageId: 'msg_srv_native',
       sessionId: SID,
@@ -2066,7 +2068,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       ],
     })
 
-    expect(await queueOne(h, 'srv-2', 'msg_srv_2')).toEqual({ ok: true, queued: true })
+    expect(await queueOne(h, 'msg_srv_2', 'msg_srv_2')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(5_000)
 
     // One attempt, then the drain ended — the row REMAINS, visible, for the
@@ -2093,7 +2095,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       at: new Date().toISOString(),
     }
 
-    expect(await queueOne(h, 'srv-exit-bind', 'msg_srv_exit_bind')).toEqual({ ok: true, queued: true })
+    expect(await queueOne(h, 'msg_srv_exit_bind', 'msg_srv_exit_bind')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(1)
     expect(h.inbox.isDraining(SID)).toBe(false)
@@ -2121,7 +2123,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     h.contractResolvers[1]!(accepted)
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows).toHaveLength(1)
-    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-exit-bind', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_srv_exit_bind', outcome: 'delivered' })
     expect(h.rows).toEqual([])
     expect(h.session.queuedMessageCount).toBe(0)
     expect(h.applied).toHaveBeenCalledTimes(1)
@@ -2131,7 +2133,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
   it('forwards during a busy turn without any server readiness polling', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [], phase: 'working' })
-    await queueOne(h, 'srv-3', 'msg_srv_3')
+    await queueOne(h, 'msg_srv_3', 'msg_srv_3')
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(1)
     expect(h.rows).toHaveLength(1)
@@ -2139,14 +2141,14 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await vi.advanceTimersByTimeAsync(40000)
     expect(h.contractCalls).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
-    await h.inbox.deliveryOutcome(SID, { rowId: 'srv-3', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_srv_3', outcome: 'delivered' })
     expect(h.rows).toEqual([])
   })
 
   it('reimports custody on explicit rearm after a busy refusal', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [{ outcome: 'refused', refusal: { reason: 'busy' } }] })
-    await queueOne(h, 'srv-4', 'msg_srv_4')
+    await queueOne(h, 'msg_srv_4', 'msg_srv_4')
     await vi.advanceTimersByTimeAsync(30000)
     await h.inbox.drain(SID)
     await vi.advanceTimersByTimeAsync(0)
@@ -2213,29 +2215,29 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
   it('cancels by row id without double-decrementing when the event beats the reply', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await queueOne(h, 'cancel-row', 'cancel-source')
-    await queueOne(h, 'keep-row', 'keep-source')
+    await queueOne(h, 'cancel-source', 'cancel-source')
+    await queueOne(h, 'keep-source', 'keep-source')
     await vi.advanceTimersByTimeAsync(0)
     h.contractCancel.mockImplementation(async (sessionId, rowId) => {
       await h.inbox.deliveryOutcome(sessionId, { rowId, outcome: 'dropped' })
       return { ok: true }
     })
     expect(await h.inbox.cancelQueuedMessage(SID, 'cancel-source')).toBe(true)
-    expect(h.contractCancel).toHaveBeenCalledWith(SID, 'cancel-row')
-    expect(h.rows.map((row) => row.id)).toEqual(['keep-row'])
+    expect(h.contractCancel).toHaveBeenCalledWith(SID, 'cancel-source')
+    expect(h.rows.map((row) => row.id)).toEqual(['keep-source'])
     expect(h.session.queuedMessageCount).toBe(1)
   })
 
   it('settles failed and dropped outcomes visibly by durable row identity', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
-    await queueOne(h, 'failed', 'source-failed')
-    await queueOne(h, 'dropped', 'source-dropped')
+    await queueOne(h, 'source-failed', 'source-failed')
+    await queueOne(h, 'source-dropped', 'source-dropped')
     await vi.advanceTimersByTimeAsync(0)
-    await h.inbox.deliveryOutcome(SID, { rowId: 'failed', outcome: 'failed', reason: 'confirmation exhausted' })
-    await h.inbox.deliveryOutcome(SID, { rowId: 'dropped', outcome: 'dropped' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'source-failed', outcome: 'failed', reason: 'confirmation exhausted' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'source-dropped', outcome: 'dropped' })
     expect(h.rows).toEqual([])
-    expect(h.rejected).toEqual([expect.objectContaining({ queueId: 'failed', reason: 'confirmation exhausted' })])
+    expect(h.rejected).toEqual([expect.objectContaining({ queueId: 'source-failed', reason: 'confirmation exhausted' })])
     expect(h.applied).not.toHaveBeenCalled()
   })
 
@@ -2258,7 +2260,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       ],
     })
 
-    expect(await queueOne(h, 'srv-6', 'msg_srv_6')).toEqual({ ok: true, queued: true })
+    expect(await queueOne(h, 'msg_srv_6', 'msg_srv_6')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(30_000)
 
     // One attempt, then stop — the row REMAINS queued and unconfirmed, and no
@@ -2273,7 +2275,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     vi.useFakeTimers()
     const h = harness({})
 
-    expect(await queueOne(h, 'srv-5', 'msg_srv_5')).toEqual({ ok: true, queued: true })
+    expect(await queueOne(h, 'msg_srv_5', 'msg_srv_5')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(30_000)
 
     expect(h.sent).toEqual([])
@@ -2728,7 +2730,7 @@ describe('agent drain via the runtime contract', () => {
     const h = harness({ contractReceipts: [
       { outcome: 'unverified', deliveredAs: 'when-ready', verificationWindowMs: 12000, at: new Date().toISOString() },
     ] })
-    await h.inbox.queueText({ sessionId: SID, text: 'once', mutationId: asMutationId('lost'), sourceMessageId: 'mail' })
+    await h.inbox.queueText({ sessionId: SID, text: 'once', sourceMessageId: 'lost' })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows).toHaveLength(1)
     expect(h.getDraft()).toBe('once')

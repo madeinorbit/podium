@@ -16,7 +16,7 @@
 
 import type { ThreadId } from '@podium/model'
 import { deadLetterDeliveryLine, deadLetterSenderGloss } from '@podium/model'
-import { makeRelayIssueClient } from '@podium/issue-client'
+import { makeRelayIssueClient, newMessageId, repeatUntilAnswered } from '@podium/issue-client'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
   declareFlags,
@@ -303,14 +303,18 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         }
         expiresAt = new Date(Date.now() + parseExpiresIn(rawExpiresIn)).toISOString()
       }
-      const r = (await client.messages.send.mutate({
+      // One id for every attempt (POD-4763): a repeat after a relay timeout is
+      // the same message, answered with what the server stored.
+      const request = {
         to,
         body,
+        messageId: newMessageId(),
         ...(args.urgency ? { urgency: args.urgency } : {}),
         ...(args.lifecycle ? { lifecycle: args.lifecycle } : {}),
         ...(args['expect-response'] === true ? { expectResponse: true } : {}),
         ...(expiresAt ? { expiresAt } : {}),
-      })) as {
+      }
+      const r = (await repeatUntilAnswered(() => client.messages.send.mutate(request))) as {
         id: string
         ok: boolean
         queued?: boolean

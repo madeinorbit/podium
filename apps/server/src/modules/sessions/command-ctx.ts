@@ -105,7 +105,6 @@ export async function sessionCommandCtx(
         'send',
         input,
         transport,
-        input.correlationId,
       ))!,
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await issues.createDraftFor(repoPath, agentKind, issueId, ownership),

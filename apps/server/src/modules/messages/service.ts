@@ -571,6 +571,10 @@ export class MessageDeliveryService {
   /** needs-attention already emitted per `${messageId}|${reason}` — the sweep
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
+  /** The send in progress per sender-supplied message id (POD-4763). A sender
+   *  that gave up waiting repeats its attempt while the first may still be
+   *  running; the repeat waits for it and then answers from the stored row. */
+  private readonly sending = new Map<string, Promise<unknown>>()
 
   private readonly notificationArbiter: NotificationArbiter
   /** Envelope/pointer rendering and the confirmation mode that follows from it
@@ -790,6 +794,42 @@ export class MessageDeliveryService {
    * always holds the effective values and `clamped_from` the requested ones.
    */
   async send(from: MessageSender, input: MessageSendInput): Promise<MessageSendResult> {
+    const id = input.messageId
+    if (id === undefined) return await this.sendUnder(`msg_${randomUUID()}`, from, input)
+    // ONE ATTEMPT AT A TIME PER ID. The repeat of a send still running would
+    // otherwise find the row stored but not yet handed on, and hand it on a
+    // second time beside the first.
+    const before = this.sending.get(id)
+    const attempt = (async () => {
+      await before?.catch(() => undefined)
+      return await this.sendUnder(id, from, input)
+    })()
+    this.sending.set(id, attempt)
+    try {
+      return await attempt
+    } finally {
+      if (this.sending.get(id) === attempt) this.sending.delete(id)
+    }
+  }
+
+  /**
+   * Store a message under `id` ONCE, and answer.
+   *
+   * THE ROW IS THE DUPLICATE CHECK (POD-4763; POD-4720 §4 rule 2). A sender
+   * repeats an attempt it never heard back from under the same id; the insert
+   * below does nothing for an id already stored, in the same transaction as the
+   * rest of the send's writes, and the repeat is answered from the stored row.
+   * There is no second record to write after the effect, so a crash between the
+   * store and the answer leaves nothing half done: the retry finds the row and
+   * finishes the send the first attempt started.
+   */
+  private async sendUnder(
+    id: string,
+    from: MessageSender,
+    input: MessageSendInput,
+  ): Promise<MessageSendResult> {
+    const already = await this.deps.messages.getMessage(id)
+    if (already) return await this.answerRepeat(already, from, input)
     const issues = this.deps.issues
     // Resolve an issue recipient ref (#N / seq / id) to the canonical id up
     // front so the stored to_id is stable.
@@ -896,7 +936,6 @@ export class MessageDeliveryService {
       this.isRecipientOf(from, original)
     const stampsAck = (kind === 'ack' || respondsToRequest) && !!input.inReplyTo
 
-    const id = input.correlationId ?? `msg_${randomUUID()}`
     const authority = await this.authorityOf(from)
     const message: MessageRow = {
       id,
@@ -936,14 +975,21 @@ export class MessageDeliveryService {
     }
     // The reply row and the acked_by stamp on the original commit atomically —
     // the steward's suppression check can never observe one without the other.
-    const write = async (): Promise<void> => {
-      await this.deps.messages.addMessage(message)
+    const write = async (): Promise<boolean> => {
+      if (!(await this.deps.messages.addMessage(message))) return false
       if (stampsAck && message.inReplyTo) {
         await this.deps.messages.markAcked(message.inReplyTo, id)
       }
+      return true
     }
-    if (this.deps.transact) await this.deps.transact(write)
-    else await write()
+    const stored = this.deps.transact ? await this.deps.transact(write) : await write()
+    if (!stored) {
+      // Another server process stored this id between the read above and the
+      // insert. It is the same case as a repeat, answered the same way.
+      const existing = await this.deps.messages.getMessage(id)
+      if (!existing) throw new Error(`message ${id} was neither stored nor found`)
+      return await this.answerRepeat(existing, from, input)
+    }
     if (stampsAck && original) {
       await this.emitTransition({ ...original, ackedBy: id }, 'message.acked')
       // A reply PROVES the recipient received the original — a stronger signal than
@@ -1019,6 +1065,75 @@ export class MessageDeliveryService {
       ...outcome,
       ...(position !== undefined ? { position } : {}),
       legacy,
+    }
+  }
+
+  /**
+   * Answer a send whose id is already stored (POD-4763).
+   *
+   * Only the SAME message is answered. An id is the sender's, so a repeat comes
+   * from the same sender with the same body to the same address; anything else
+   * under a stored id is a different message that must not be merged into this
+   * one, and must not be told what this one is.
+   *
+   * The answer is the stored message and where it stands now. A row still
+   * `stored` and never handed on is a send whose first attempt stopped between
+   * the store and the delivery (a crash, a lost connection): the repeat finishes
+   * it, exactly as the delivery sweep would. Every later status is reported as
+   * it is; nothing is handed on a second time.
+   */
+  private async answerRepeat(
+    stored: MessageRow,
+    from: MessageSender,
+    input: MessageSendInput,
+  ): Promise<MessageSendResult> {
+    const toId =
+      input.to.kind === 'issue'
+        ? await this.deps.issues.resolveRef(input.to.id ?? '')
+        : input.to.kind === 'session'
+          ? (input.to.id ?? null)
+          : null
+    const sameAddress = stored.toKind === input.to.kind && stored.toId === toId
+    if (!sameAddress || stored.body !== input.body || !(await this.sameSenderAs(from, stored))) {
+      throw new Error(`message id ${stored.id} is already used by a different message`)
+    }
+    if (stored.deliveryStatus === 'stored' && stored.deliveredTo === null) {
+      const outcome = await this.attemptDelivery(stored)
+      const position =
+        outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
+      await this.scheduleQueuedWakeRetry(stored)
+      return {
+        message: (await this.deps.messages.getMessage(stored.id)) ?? stored,
+        ...outcome,
+        ...(position !== undefined ? { position } : {}),
+      }
+    }
+    return { message: stored, ...(await this.standingOf(stored)) }
+  }
+
+  /** Where a stored message stands, in the words a send answers with. */
+  private async standingOf(message: MessageRow): Promise<DeliveryOutcome> {
+    switch (message.deliveryStatus) {
+      case 'confirmed':
+        return { ok: true, disposition: 'delivered' }
+      case 'cancelled':
+      case 'failed':
+      case 'expired':
+        return {
+          ok: false,
+          reason: message.deliveryDeferredReason ?? message.deliveryStatus,
+          disposition: 'dead_letter',
+        }
+      default: {
+        // Held by the server, on its way, or lost track of: accepted, not done.
+        const position = await this.queuePositionForMessage(message)
+        return {
+          ok: true,
+          queued: true,
+          ...(position !== undefined ? { position } : {}),
+          disposition: message.deliveryStatus === 'stored' ? 'held' : 'queued',
+        }
+      }
     }
   }
 
@@ -1407,16 +1522,17 @@ export class MessageDeliveryService {
    * told once, the way any dead-letter tells them — being told nothing is the
    * defect this closes.
    *
-   * DIRECT TURNS ONLY. Every `turnId` here is a MESSAGE id: a driver-local FIFO
-   * entry the daemon held in custody (an interrupt parked behind a lease, a
-   * steer queued behind a turn). A DURABLE row's `turnId` is its queue ROW id
-   * (99ef2c33b, POD-3742) and matches no message, so it falls through the
-   * lookup below, moves nothing, and is still acknowledged — teardown discards
-   * delivery state, not durable work, and the row is re-sent to the next owner
-   * as a recovery (relay.test.ts "a teardown report naming a durable row leaves
-   * it queued for the next owner"). Do not "fix" the lookup to match row ids:
-   * the server never holds messages based on agent state, and a server-side
-   * guess about durable work is exactly what that rule forbids [POD-4676].
+   * DIRECT TURNS ONLY. A direct turn is a driver-local FIFO entry the daemon
+   * held in custody (an interrupt parked behind a lease, a steer queued behind a
+   * turn), named by its message id. A DURABLE row is named by the same id since
+   * the queue row took the message's id (POD-4763), so it is told apart by what
+   * it is — a row still in this session's durable queue — and skipped: it moves
+   * nothing and is still acknowledged. Teardown discards delivery state, not
+   * durable work, and the row is re-sent to the next owner as a recovery
+   * (relay.test.ts "a teardown report naming a durable row leaves it queued for
+   * the next owner"). The server never holds messages based on agent state, and
+   * failing durable work on a teardown would be a server-side guess about it
+   * [POD-4676].
    *
    * REPORTS REPEAT. They are retryable, they survive restarts, and they carry turn
    * ids a previous report already moved. Dedupe is the repository's guarded write,
@@ -1433,6 +1549,7 @@ export class MessageDeliveryService {
     for (const messageId of turnIds) {
       const message = await this.deps.messages.getMessage(messageId)
       if (!message || !isMessagePending(message.deliveryStatus)) continue
+      if (await this.deps.sessions.hasQueuedMessage?.(sessionId, messageId)) continue
       if (!moved(await this.deps.messages.markDeliveryAbandoned(messageId, sessionId, at, reason))) continue
       const abandoned: MessageRow = {
         ...message,

@@ -222,9 +222,6 @@ export interface MailHandlerContext {
   caller: MailCaller
   deps: MessageGateDeps
   access: MailAccess
-  /** Internal chat-send correlation. It comes from the session command's
-   * framework mutation id, never from the validated public mail payload. */
-  correlationId?: string
 }
 
 /**

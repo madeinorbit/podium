@@ -190,6 +190,30 @@ export type MutationId = z.infer<typeof MutationId>
 export const MutationIdField = idField<'MutationId'>()
 export const asMutationId = (s: string): MutationId => s as MutationId
 
+/**
+ * A MESSAGE'S ONE ID, minted by its sender before the first attempt (POD-4763;
+ * POD-4720 §4 rule 1). The app, the CLI and the server's own notices all mint it,
+ * and every hop keeps it: the server's `messages` row, the session queue row and
+ * the frame the daemon types from. The server stores a message once per id, so a
+ * sender that repeats an attempt it never heard back from repeats it under this
+ * id and gets the stored message back instead of a second copy.
+ *
+ * The shape is checked where a sender hands one in: the `msg_` prefix and a
+ * UUID, nothing else, which also caps its length. A sender cannot pick an id
+ * that names something else, and an id that is not a message id is refused
+ * before it is written anywhere.
+ */
+export const MESSAGE_ID_PREFIX = 'msg_'
+export const MessageId = z
+  .string()
+  .max(MESSAGE_ID_PREFIX.length + 36)
+  .regex(/^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, {
+    message: 'a message id is msg_ followed by a UUID',
+  })
+  .brand<'MessageId'>()
+export type MessageId = z.infer<typeof MessageId>
+export const asMessageId = (s: string): MessageId => s as MessageId
+
 export const ThreadId = z.string().min(1).brand<'ThreadId'>()
 export type ThreadId = z.infer<typeof ThreadId>
 export const ThreadIdField = idField<'ThreadId'>()

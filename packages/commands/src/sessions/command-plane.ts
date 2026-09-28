@@ -57,6 +57,7 @@ import {
   ConversationIdField,
   IssueIdField,
   MachineIdField,
+  MessageId,
   ResumeRef,
   SessionIdField,
 } from '@podium/model'
@@ -86,7 +87,10 @@ const sendInput = z
     sessionId: SessionIdField,
     text: z.string().max(32_768),
     attachments: z.array(RuntimeAttachmentRef).min(1).max(20).optional(),
-    mutationId,
+    /** A chat send's mutationId IS the message's id (POD-4763): the server
+     * stores the message under it and the daemon types it under it, so it is
+     * checked for a message id's shape here, where it enters. */
+    mutationId: MessageId.optional(),
   })
   .superRefine((input, ctx) => {
     if (input.text.length > 0 || input.attachments?.length) return

@@ -937,10 +937,14 @@ export class SessionInbox {
       return { ok: false, reason: 'session changed during admission' }
     const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
-    if (input.sourceMessageId && (await this.hasQueuedMessage(input.sessionId, input.sourceMessageId)))
-      return { ok: true, queued: true }
+    // ONE ID FROM THE SENDER TO THE DAEMON (POD-4763). A row that carries a
+    // message is stored under THAT message's id, which is also the id the daemon
+    // is handed and settles (`forwardContractRows`), so no hop mints its own. The
+    // insert does nothing for an id already queued, which is what makes a second
+    // push of the same message the row already here — atomically, not by the
+    // look-then-insert above, which only spares the admission work.
     const insertion: Promise<boolean> = this.deps.queue.enqueue({
-      id: input.mutationId ?? randomUUID(),
+      id: input.sourceMessageId ?? input.mutationId ?? randomUUID(),
       sessionId: input.sessionId,
       text: input.text,
       inputOrigin: input.inputOrigin ?? 'controller',

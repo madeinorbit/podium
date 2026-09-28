@@ -28,6 +28,7 @@ import {
 } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
+import { newMessageId, repeatUntilAnswered } from './send-once.js'
 
 /**
  * THE `podium issue` COMMAND TABLE — A RENDERING LAYER OVER THE SHARED CONTRACTS.
@@ -1147,7 +1148,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         case 'send': {
           if (!ref) throw new Error('mail send needs an issue id: mail send <id> --body "…"')
           if (!a.body) throw new Error('mail send needs --body')
-          const m = (await c.issues.mailSend.mutate({ id: ref, body: a.body as string })) as {
+          // One id for every attempt (POD-4763): a repeat after a relay timeout
+          // is the same message, never a second one.
+          const messageId = newMessageId()
+          const m = (await repeatUntilAnswered(() =>
+            c.issues.mailSend.mutate({ id: ref, body: a.body as string, messageId }),
+          )) as {
             id: string
             issueId: IssueId
             ok?: boolean

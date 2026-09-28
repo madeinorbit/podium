@@ -35,6 +35,7 @@ import type { Capability } from '../../issue-authz'
 import { resolvePrincipalAsync, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
 import { withReadScope } from '../../store/executor/read-scope'
+import type { MutationLedgerPort } from '@podium/sync'
 import type { IssueService } from '../issues/service'
 import {
   type MachineAccess,
@@ -111,6 +112,10 @@ export interface MessageGateDeps {
     parentId?: IssueId
     origin: 'human' | 'agent'
   }): Promise<{ id: string }>
+  /** The applied-mutation ledger, keyed here by a spawn's `requestId`
+   *  (POD-4763): a rerun of `agent spawn` after a lost answer is answered with
+   *  the child the first run started. Absent = no dedupe (bare fixtures). */
+  mutations?: MutationLedgerPort
   /** Durable ledger for spawn events (best-effort). */
   appendEvent?(e: { ts: string; kind: string; subject: string; payload: unknown }): Promise<void>
   /** await polling seam (tests inject a fake clock/sleep). */
@@ -251,18 +256,10 @@ export class MessageGate {
     proc: string,
     input: unknown,
     transport: TransportTag = 'relay',
-    correlationId?: string,
   ): Promise<unknown | undefined> {
     if (!isMailProcExposedOn(proc, transport)) return undefined
     return await withReadScope(async () =>
-      await this.dispatchInScope(
-        capability,
-        overrideScope,
-        proc,
-        input,
-        transport,
-        correlationId,
-      ),
+      await this.dispatchInScope(capability, overrideScope, proc, input),
     )
   }
 
@@ -271,8 +268,6 @@ export class MessageGate {
     overrideScope: boolean | undefined,
     proc: string,
     input: unknown,
-    transport: TransportTag,
-    correlationId: string | undefined,
   ): Promise<unknown> {
     const principal =
       (await this.principalForCapability?.(capability)) ??
@@ -298,7 +293,6 @@ export class MessageGate {
       caller,
       deps: this.deps,
       access,
-      ...(correlationId ? { correlationId } : {}),
     }
     // Invoked SYNCHRONOUSLY, with a sync throw converted to a rejection.
     //

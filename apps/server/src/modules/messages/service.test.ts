@@ -226,7 +226,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     }),
   )
   const sent: { sessionId: SessionId; text: string }[] = []
-  const queued: { sessionId: SessionId; text: string }[] = []
+  const queued: { sessionId: SessionId; text: string; sourceMessageId?: string }[] = []
   const interrupted: { sessionId: SessionId; text: string }[] = []
   const attention: { messageId: string; reason: string }[] = []
   const listCalls = { n: 0 }
@@ -398,6 +398,18 @@ function queuedRow(id: string): MessageRow {
 }
 
 describe('MessagesRepository (store CRUD)', () => {
+  it('stores an id once: a repeat insert changes nothing and says so [POD-4763]', async () => {
+    const store = await openTestStore(':memory:')
+    expect(await store.messages.addMessage(queuedRow('msg_1'))).toBe(true)
+    expect(await store.messages.addMessage({ ...queuedRow('msg_1'), body: 'a second copy' })).toBe(
+      false,
+    )
+    expect(await store.messages.getMessage('msg_1')).toMatchObject({ body: 'hello' })
+    expect((await store.messages.listLedger({ issueId: asIssueId('iss_a') })).map((m) => m.id)).toEqual(
+      ['msg_1'],
+    )
+  })
+
   it('round-trips a row and walks the ledger', async () => {
     const store = await openTestStore(':memory:')
     const m = {
@@ -1544,7 +1556,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       {
         to: { kind: 'session', id: target.sessionId },
         body: 'keep this one',
-        correlationId: 'msg_keep',
+        messageId: 'msg_keep',
       },
     )
     const held = await svc.send(
@@ -1552,7 +1564,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       {
         to: { kind: 'session', id: target.sessionId },
         body: 'cancel this one',
-        correlationId: 'msg_cancel',
+        messageId: 'msg_cancel',
       },
     )
 
@@ -4685,5 +4697,89 @@ describe('MessageDeliveryService under the async store (POD-3806)', () => {
       expect(r.message.deliveryStatus).toBe('confirmed')
       await store.issues.getIssue(asIssueId('iss_after'))
     })
+  })
+})
+
+describe('one message per id [POD-4763]', () => {
+  const S1 = asSessionId('s1')
+  const ID = 'msg_00000000-0000-4000-8000-000000004763'
+  const OTHER = 'msg_00000000-0000-4000-8000-000000004764'
+  const sendAs = (svc: MessageDeliveryService, messageId: string, body = 'exactly once') =>
+    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: S1 }, body, messageId })
+
+  it('stores a message under the id its sender minted, and a repeat is the same message with the same answer', async () => {
+    const { svc, store, queued } = await harness([session({ sessionId: S1, agentState: WORKING })])
+
+    const first = await sendAs(svc, ID)
+    const again = await sendAs(svc, ID)
+
+    expect(first.message.id).toBe(ID)
+    expect(first).toMatchObject({ ok: true, queued: true, disposition: 'queued' })
+    expect(again).toEqual(first)
+    // Handed on once: the repeat is answered from the row, not pushed again.
+    expect(queued.map((q) => q.sourceMessageId)).toEqual([ID])
+    expect((await store.messages.listLedger({ sessionId: S1 })).map((m) => m.id)).toEqual([ID])
+  })
+
+  it('finishes a send whose first attempt stopped between the store and the answer', async () => {
+    let stopOnce = true
+    const { svc, store, queued } = await harness(
+      [session({ sessionId: S1, agentState: WORKING })],
+      {
+        queueText: async () => {
+          if (stopOnce) {
+            stopOnce = false
+            throw new Error('server stopped mid-send')
+          }
+          return { ok: true, queued: true }
+        },
+      },
+    )
+
+    await expect(sendAs(svc, ID)).rejects.toThrow('server stopped mid-send')
+    // The row is stored and was never handed on: the state a crash leaves.
+    expect(await store.messages.getMessage(ID)).toMatchObject({
+      deliveryStatus: 'stored',
+      deliveredTo: null,
+    })
+
+    const retry = await sendAs(svc, ID)
+    // The answer a send that never stopped gives, for the same message.
+    const control = await sendAs(svc, OTHER, 'a send that never stopped')
+    expect(retry).toMatchObject({
+      ok: control.ok,
+      queued: control.queued,
+      disposition: control.disposition,
+      message: { id: ID, deliveryStatus: 'dispatched', deliveredTo: S1 },
+    })
+    expect(queued.map((q) => q.sourceMessageId)).toEqual([ID, ID, OTHER])
+  })
+
+  it('refuses a different message under a stored id, and leaves the stored one untouched', async () => {
+    const { svc, store } = await harness([session({ sessionId: S1, agentState: WORKING })])
+    await sendAs(svc, ID)
+
+    await expect(sendAs(svc, ID, 'something else')).rejects.toThrow(
+      `message id ${ID} is already used by a different message`,
+    )
+    await expect(
+      svc.send(
+        { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+        { to: { kind: 'session', id: S1 }, body: 'exactly once', messageId: ID },
+      ),
+    ).rejects.toThrow('already used by a different message')
+    expect(await store.messages.getMessage(ID)).toMatchObject({
+      body: 'exactly once',
+      fromKind: 'operator',
+    })
+  })
+
+  it('hands a message on once when two attempts under its id arrive together', async () => {
+    const { svc, queued } = await harness([session({ sessionId: S1, agentState: WORKING })])
+
+    const [a, b] = await Promise.all([sendAs(svc, ID), sendAs(svc, ID)])
+
+    expect(queued.map((q) => q.sourceMessageId)).toEqual([ID])
+    expect(b).toEqual(a)
   })
 })

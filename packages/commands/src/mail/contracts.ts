@@ -40,7 +40,7 @@
  * being snapshotted at accept.
  */
 
-import { IssueIdField, SessionIdField } from '@podium/model'
+import { IssueIdField, MessageId, SessionIdField } from '@podium/model'
 import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
 import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { z } from 'zod'
@@ -128,6 +128,9 @@ export const mailSendInput = z
   .object({
     to: z.string().min(1),
     body: z.string().max(32_768),
+    /** The sender's own id for this message (POD-4763). A repeat under the same
+     * id is the same message: the server answers with the one it stored. */
+    messageId: MessageId.optional(),
     /** Internal chat sends carry refs minted by runtime staging. The CLI has no
      * attachment argument, but it shares this governed delivery contract. */
     attachments: z.array(RuntimeAttachmentRef).min(1).max(20).optional(),
@@ -156,6 +159,9 @@ export const mailLedgerInput = z.object({
 })
 
 export const spawnAgentInput = z.object({
+  /** The caller's own id for this spawn (POD-4763). A rerun after a lost answer
+   * repeats it, and the server answers with the child it already started. */
+  requestId: z.string().uuid().optional(),
   issue: z.string().optional(),
   newTitle: z.string().min(1).optional(),
   repo: z.string().optional(),

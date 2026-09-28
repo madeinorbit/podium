@@ -806,7 +806,19 @@ describe('mail command (agent mail #103)', () => {
   it('mail send posts id+body via mailSend', async () => {
     const { client, calls } = mockClient({ mailSend: { id: 'msg_1', issueId: 'iss_1' } })
     const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
-    expect(calls).toEqual([{ path: 'mailSend', kind: 'mutate', input: { id: '#7', body: 'ping' } }])
+    expect(calls).toEqual([
+      {
+        path: 'mailSend',
+        kind: 'mutate',
+        input: {
+          id: '#7',
+          body: 'ping',
+          messageId: expect.stringMatching(
+            /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+          ),
+        },
+      },
+    ])
     expect(r.text).toContain('msg_1')
   })
 
@@ -843,6 +855,23 @@ describe('mail command (agent mail #103)', () => {
     expect(r.text).toContain('QUEUED')
     expect(r.text).toContain('no live session')
     expect(r.text).not.toContain('mail sent')
+  })
+
+  it('[POD-4763] mail send repeats an unanswered attempt under the same message id', async () => {
+    const { client, calls } = mockClient({ mailSend: { id: 'msg_1', issueId: 'iss_1' } })
+    const mailSend = (client.issues.mailSend as unknown as { mutate: ReturnType<typeof vi.fn> })
+      .mutate
+    const answered = mailSend.getMockImplementation()
+    mailSend.mockImplementationOnce(async (input: unknown) => {
+      calls.push({ path: 'mailSend', kind: 'mutate', input })
+      throw new Error('agent relay timed out')
+    })
+    if (answered) mailSend.mockImplementation(answered)
+
+    await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
+
+    expect(calls).toHaveLength(2)
+    expect(calls[1].input).toEqual(calls[0].input)
   })
 
   it('mail send without body or id throws', async () => {
