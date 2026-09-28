@@ -90,6 +90,28 @@ const TIMED_OUT_INV: Inventory = {
   ],
 }
 
+describe('terminalRuntimeDriverInventory', () => {
+  /**
+   * Stated literally, not derived (POD-4737): the report tests below spread
+   * terminalRuntimeDriverInventory() into their expectations, so they compare
+   * the function with itself and stay green when a harness's row goes missing
+   * (verified: dropping Codex's row keeps them 18/18). These six literal rows
+   * — one generic-pty terminal per shipped harness, registry order — turn red
+   * the moment the reader stops reporting one. Test files are outside the
+   * vendor-boundary lint, so the literals are allowed here.
+   */
+  it('reports one generic-pty terminal row per shipped harness', () => {
+    expect(terminalRuntimeDriverInventory()).toEqual([
+      { harness: 'claude-code', id: 'generic-pty', family: 'terminal' },
+      { harness: 'codex', id: 'generic-pty', family: 'terminal' },
+      { harness: 'grok', id: 'generic-pty', family: 'terminal' },
+      { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
+      { harness: 'cursor', id: 'generic-pty', family: 'terminal' },
+      { harness: 'pi', id: 'generic-pty', family: 'terminal' },
+    ])
+  })
+})
+
 let seq = 0
 /** A ctx that only wires what reportInventory touches, with a fresh homeDir per
  *  test so the module-global cache never bleeds across cases. */
