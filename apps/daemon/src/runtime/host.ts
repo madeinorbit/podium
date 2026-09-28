@@ -309,3 +309,10 @@ export function engineClientTerminals(
       terminals.relaunch(sessionId, kind as ClientTerminalKind),
   }
 }
+
+/** The terminal family's constructor and port type, re-exported for the
+ *  cross-app contract tests that already drive daemon internals from the
+ *  server's test tree (apps/server/src/store/terminal-answer-contract.test.ts).
+ *  The server package may not import `@podium/harness/driver/host` itself;
+ *  the daemon, which owns this wiring, can hand it over (POD-4785 fallout). */
+export { createTerminalRuntime, type TerminalHostPorts } from '@podium/harness/driver/host'
