@@ -70,9 +70,6 @@ import { createServer, type Server } from 'node:http'
 import { hostname, loadavg, uptime } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { chromium, type Page } from '@playwright/test'
-import { FIXTURE_SEED } from '../../shared/src/scenarios'
-import { buildCorpus } from '../src/fixture/index'
-import { expectedSnapshot } from '../src/oracle/index'
 import type {
   ProtoLifecycleResult,
   ProtoOracleCheck,
@@ -87,6 +84,7 @@ import {
   plannedRounds,
   runShortfalls,
 } from './complete'
+import { truthRows } from './grown-truth'
 import {
   ALL_SCENARIOS,
   ARMS,
@@ -127,23 +125,12 @@ function rescopeScale(scale: Scale): 2 | 4 {
 
 /**
  * POD-4715 — the grown state's true visible rows at `scale`: the fixture
- * oracle over the grown corpus. Every rescope record must hold exactly this
- * many grown rows (the floor draws its frozen boot snapshot by design, so it
- * holds the 1x truth instead); anything else FAILS the run, because a control
- * doing half the grown work understates the ratio the arms are held to.
- * Computed once per invocation (a corpus build plus one legacy derivation).
+ * oracle over the grown corpus (see `grown-truth.ts`). Every rescope record
+ * must hold exactly this many grown rows (the floor draws its frozen boot
+ * snapshot by design, so it holds the 1x truth instead); anything else FAILS
+ * the run, because a control doing half the grown work understates the ratio
+ * the arms are held to.
  */
-const truthRowsByScale = new Map<number, number>()
-function truthRows(scale: 1 | 2 | 4): number {
-  const hit = truthRowsByScale.get(scale)
-  if (hit !== undefined) return hit
-  const corpus = buildCorpus(scale, FIXTURE_SEED)
-  const rows = Object.keys(
-    expectedSnapshot(corpus, { selectedIssueId: null, coarseNow: corpus.fixedNow }).rowsById,
-  ).length
-  truthRowsByScale.set(scale, rows)
-  return rows
-}
 
 interface OpenPage {
   page: Page
