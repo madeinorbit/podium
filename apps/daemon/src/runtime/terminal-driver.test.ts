@@ -918,7 +918,7 @@ describe('send receipts', () => {
     const [otherReceipt, namedReceipt] = await Promise.all([other, named])
 
     expect(JSON.stringify([otherReceipt, namedReceipt])).toMatchInlineSnapshot(
-      `"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":5090,"at":"2026-08-14T00:00:05.090Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:00.090Z"}]"`,
+      `"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}]"`,
     )
     expect(namedReceipt.outcome).toBe('accepted')
     if (namedReceipt.outcome !== 'accepted') return
@@ -3954,6 +3954,14 @@ describe('the history entry a delivered send became', () => {
     }
   }
 
+  const deliveries = (world: World) =>
+    world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'delivery' ? [frame.event] : [],
+    )
+  const waitFor = async (done: () => boolean): Promise<void> => {
+    for (let i = 0; i < 80 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+
   it('a hook-proven Claude send names the entry its later, rewrapped record became', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
@@ -3966,13 +3974,23 @@ describe('the history entry a delivered send became', () => {
       timestamp: '2026-08-14T00:00:01.000Z',
       message: { role: 'user', content: '  ship\n   it  ' },
     })
-    const receipt = await session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
-    expect(receipt).toMatchObject({
-      outcome: 'accepted',
-      provenBy: 'hook',
-      transcriptItem: { id: 'claude-uuid-1', cursor: 'cursor-claude-uuid-1' },
-    })
-    // The id the chat then shows for that message.
+    const receipt = await session.send(
+      { id: 'msg_direct', text: 'ship it' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    // The hook proved it; the record had not been written yet.
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+    expect(receipt).not.toHaveProperty('transcriptItem')
+    // When it is, the send's turn id is named with the entry — the id the chat
+    // then shows for that message.
+    await waitFor(() => deliveries(world).length > 0)
+    expect(deliveries(world)).toEqual([
+      expect.objectContaining({
+        rowId: 'msg_direct',
+        outcome: 'delivered',
+        transcriptItem: { id: 'claude-uuid-1', cursor: 'cursor-claude-uuid-1' },
+      }),
+    ])
     expect(shownUserIds(world)).toEqual(['claude-uuid-1'])
     world.runtime.dispose()
   })
@@ -4026,9 +4044,15 @@ describe('the history entry a delivered send became', () => {
       timestamp: '2026-08-14T00:00:01.000Z',
       message: { role: 'user', content: 'a different prompt' },
     })
-    const receipt = await session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    const receipt = await session.send(
+      { id: 'msg_direct', text: 'ship it' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
     expect(receipt).not.toHaveProperty('transcriptItem')
+    // Past the whole window: still nothing named.
+    await new Promise<void>((resolve) => world.host.setTimer(resolve, 31_000))
+    expect(deliveries(world)).toEqual([])
     world.runtime.dispose()
   })
 
@@ -4048,15 +4072,12 @@ describe('the history entry a delivered send became', () => {
       (await session.send({ text: 'durable turn', rowId: 'msg_row' }, { origin: 'controller', delivery: 'when-ready' }))
         .outcome,
     ).toBe('queued')
-    const delivered = () =>
-      world.frames.flatMap((frame) =>
-        frame.type === 'runtimeEvent' && frame.event.t === 'delivery' ? [frame.event] : [],
-      )
-    for (let i = 0; i < 80 && delivered().length === 0; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-    expect(delivered()).toHaveLength(1)
-    expect(delivered()[0]).toMatchObject({
+    // Delivered on the hook; the entry rides that outcome when the record had
+    // landed by then, or a second one when it lands after.
+    await waitFor(() => deliveries(world).some((event) => event.transcriptItem !== undefined))
+    expect(deliveries(world).length).toBeLessThanOrEqual(2)
+    for (const event of deliveries(world)) expect(event).toMatchObject({ rowId: 'msg_row', outcome: 'delivered' })
+    expect(deliveries(world).at(-1)).toMatchObject({
       t: 'delivery',
       rowId: 'msg_row',
       outcome: 'delivered',

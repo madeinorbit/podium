@@ -104,17 +104,17 @@ export const QUEUE_MESSAGE_SPACING_MS = 400
 export const VERIFICATION_WINDOW_MS = SUBMIT_VERIFY_DELAY_MS * (SUBMIT_MAX_RETRIES + 1)
 
 /**
- * How long a HOOK-proven send waits for its transcript echo, to learn which
- * history entry it became (POD-4774).
+ * How long a HOOK-proven send keeps watching for its transcript echo, to learn
+ * which history entry it became (POD-4774).
  *
  * The hook fires when the CLI takes the prompt, which can be before the
- * harness has written its record of it; the hook payload names no entry. The
- * echo watch is already armed, so this only bounds how long the receipt waits
- * for it. The cost is paid once per send and only on a hook proof, and the
- * receipt is already `accepted` — an echo that never matches ends the wait
- * with the item unidentified, never with a weaker outcome.
+ * harness has written its record of it, and the hook payload names no entry.
+ * The receipt does not wait: it goes back `accepted` on the hook, and the
+ * echo, when it lands inside this window, names the entry through
+ * `onTranscriptItem`. An echo that never matches leaves the entry
+ * unidentified — never a weaker outcome, never a guess.
  */
-export const HOOK_ECHO_ITEM_WAIT_MS = 5_000
+export const HOOK_ECHO_ITEM_WAIT_MS = 30_000
 
 /**
  * The ESC this module is allowed to write.
@@ -168,11 +168,10 @@ export interface AcceptPort {
   watch(text: string): AcceptWatch
 }
 
-/** The proof a send landed on, when it landed, and the entry it named. */
+/** The proof a send landed on, and the entry the echo named when it was the
+ *  echo that landed. */
 type Proven = {
   provenBy: 'hook' | 'transcript-echo'
-  provenAt: number
-  turnEpoch: number
   transcriptItem?: TranscriptItemRef
 }
 
@@ -324,6 +323,8 @@ export interface DeliverOptions {
   /** Set by the interrupt path: the manifest key already went out, so the `needs_user`
    *  refusal below does not apply (the key is what clears the prompt). */
   afterEsc?: boolean
+  /** The entry, when a hook proved the send before its echo named it (POD-4774). */
+  onTranscriptItem?: (item: TranscriptItemRef) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -421,30 +422,16 @@ export function createTerminalInjection(
     void echoWatch?.accepted.then((seen) => {
       echoSeen ??= seen
     })
-    /**
-     * THE DECLARED ORDER, and the hook wins a tie on purpose: it is the causal
-     * signal, so where both landed the stronger one is the honest attribution.
-     * The ITEM, though, only ever comes from the echo — it is the harness's
-     * record of the prompt, and the hook payload names none. A hook that won
-     * before the record was written waits a bounded moment for it (POD-4774).
-     */
-    const proven = async (): Promise<Proven | null> => {
-      if (!hookSeen && !echoSeen) return null
-      // Stamped when the proof LANDED: waiting for the item below says nothing
-      // about when the prompt was taken.
-      const provenAt = ports.now()
-      // The epoch too: a turn observed during the item wait is not the one
-      // this proof saw (POD-4655's receipt epoch).
-      const turnEpoch = nextTurnEpoch()
-      if (hookSeen) {
-        if (!echoSeen && echoWatch && !signal?.aborted) {
-          await Promise.race([echoWatch.accepted, sleep(HOOK_ECHO_ITEM_WAIT_MS)])
-        }
-        const transcriptItem = echoSeen?.transcriptItem
-        return { provenBy: 'hook', provenAt, turnEpoch, ...(transcriptItem ? { transcriptItem } : {}) }
-      }
+    // THE DECLARED ORDER, and the hook wins a tie on purpose: it is the causal
+    // signal, so where both landed the stronger one is the honest attribution.
+    // The ITEM only ever comes from the echo — the harness's record of the
+    // prompt; the hook payload names none (POD-4774).
+    const proven = (): Proven | null => {
       const transcriptItem = echoSeen?.transcriptItem
-      return { provenBy: 'transcript-echo', provenAt, turnEpoch, ...(transcriptItem ? { transcriptItem } : {}) }
+      const named = transcriptItem ? { transcriptItem } : {}
+      if (hookSeen) return { provenBy: 'hook', ...named }
+      if (echoSeen) return { provenBy: 'transcript-echo', ...named }
+      return null
     }
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
     let nudging = true
@@ -460,7 +447,7 @@ export function createTerminalInjection(
       if (hookWatch) settled.push(hookWatch.accepted)
       if (echoWatch) settled.push(echoWatch.accepted)
       await Promise.race(settled)
-      if (hookSeen || echoSeen) return await proven()
+      if (hookSeen || echoSeen) return proven()
       if (signal?.aborted) return null
       // A dead session cannot echo and cannot be nudged. Stop; the caller gets
       // `unverified`, which is the truth: the bytes went out, nothing confirmed.
@@ -476,7 +463,7 @@ export function createTerminalInjection(
         ports.write('\r')
       }
     }
-    return await proven()
+    return proven()
   }
 
   async function deliver(text: string, options: DeliverOptions): Promise<TurnReceipt> {
@@ -516,6 +503,8 @@ export function createTerminalInjection(
     // to recognise its own accept.
     const hookWatch = ports.hookAccept?.watch(payload.body)
     const echoWatch = ports.echoAccept?.watch(payload.body)
+    /** The echo watch that outlives this call to name the entry late. */
+    let lateEcho: AcceptWatch | undefined
     try {
       ports.write(payload.bytes)
       setTimer(() => {
@@ -532,18 +521,41 @@ export function createTerminalInjection(
           at: new Date(ports.now()).toISOString(),
         }
       }
+      if (proof.provenBy === 'hook' && !proof.transcriptItem && echoWatch && options.onTranscriptItem) {
+        nameLate(echoWatch, options.onTranscriptItem)
+        lateEcho = echoWatch
+      }
       return {
         outcome: 'accepted',
-        turnEpoch: proof.turnEpoch,
+        turnEpoch: nextTurnEpoch(),
         deliveredAs: options.delivery,
         provenBy: proof.provenBy,
         ...(proof.transcriptItem ? { transcriptItem: proof.transcriptItem } : {}),
-        at: new Date(proof.provenAt).toISOString(),
+        at: new Date(ports.now()).toISOString(),
       }
     } finally {
       hookWatch?.cancel()
-      echoWatch?.cancel()
+      if (echoWatch !== lateEcho) echoWatch?.cancel()
     }
+  }
+
+  /** Keep a hook-proven send's echo watch open, bounded, to name its entry
+   *  when the harness records it (POD-4774). */
+  function nameLate(echoWatch: AcceptWatch, onItem: (item: TranscriptItemRef) => void): void {
+    let open = true
+    let timer: TimerHandle | undefined
+    // Attached before the window opens: an echo that already landed is named
+    // ahead of anything the window's timer can do.
+    void echoWatch.accepted.then((seen) => {
+      if (!open) return
+      open = false
+      if (timer !== undefined) ports.clearTimer(timer)
+      if (seen.transcriptItem) onItem(seen.transcriptItem)
+    })
+    timer = setTimer(() => {
+      open = false
+      echoWatch.cancel()
+    }, HOOK_ECHO_ITEM_WAIT_MS)
   }
 
   /**

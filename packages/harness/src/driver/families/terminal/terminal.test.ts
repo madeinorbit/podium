@@ -556,52 +556,66 @@ describe('the history entry a delivered send became (POD-4774)', () => {
     expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo', transcriptItem: item })
   })
 
-  it('after a hook proof, waits for the echo that names the entry', async () => {
+  it('after a hook proof, names the entry late, when its echo lands', async () => {
     vi.useFakeTimers()
     try {
       let echo!: (seen: AcceptSeen) => void
+      let cancelled = false
+      const named: unknown[] = []
       const { ports } = terminal({
         setTimer: (fn, delay) => setTimeout(fn, delay),
         hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
         echoAccept: {
-          watch: () => ({ accepted: new Promise<AcceptSeen>((resolve) => { echo = resolve }), cancel: () => {} }),
+          watch: () => ({
+            accepted: new Promise<AcceptSeen>((resolve) => { echo = resolve }),
+            cancel: () => { cancelled = true },
+          }),
         },
       })
-      const started = Date.now()
-      let receipt: TurnReceiptLike | undefined
-      void createTerminalInjection(ports)
-        .deliver('ship it', { origin: 'human', delivery: 'when-ready' })
-        .then((value) => { receipt = value })
-      // The hook has landed; the harness has not written its record yet.
-      await vi.advanceTimersByTimeAsync(2_000)
-      expect(receipt).toBeUndefined()
+      const receipt = await createTerminalInjection(ports).deliver('ship it', {
+        origin: 'human',
+        delivery: 'when-ready',
+        onTranscriptItem: (entry) => named.push(entry),
+      })
+      // The receipt does not wait for the record: the hook proved the send.
+      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+      expect(receipt).not.toHaveProperty('transcriptItem')
+      expect(cancelled).toBe(false)
+      await vi.advanceTimersByTimeAsync(HOOK_ECHO_ITEM_WAIT_MS - 1_000)
       echo({ transcriptItem: item })
       await vi.advanceTimersByTimeAsync(0)
-      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook', transcriptItem: item })
-      // Stamped when the hook landed, not when the entry was learned.
-      expect(Date.parse((receipt as { at: string }).at)).toBeLessThan(started + 2_000)
+      expect(named).toEqual([item])
     } finally { vi.useRealTimers() }
   })
 
-  it('reports a hook proof with no entry when the echo never matches, after a bounded wait', async () => {
+  it('names nothing when the echo never lands inside the window, and stops watching', async () => {
     vi.useFakeTimers()
     try {
+      let echo!: (seen: AcceptSeen) => void
+      let cancelled = false
+      const named: unknown[] = []
       const { ports } = terminal({
         setTimer: (fn, delay) => setTimeout(fn, delay),
         hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
-        echoAccept: { watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }) },
+        echoAccept: {
+          watch: () => ({
+            accepted: new Promise<AcceptSeen>((resolve) => { echo = resolve }),
+            cancel: () => { cancelled = true },
+          }),
+        },
       })
-      let receipt: TurnReceiptLike | undefined
-      void createTerminalInjection(ports)
-        .deliver('ship it', { origin: 'human', delivery: 'when-ready' })
-        .then((value) => { receipt = value })
-      await vi.advanceTimersByTimeAsync(HOOK_ECHO_ITEM_WAIT_MS - 1)
-      expect(receipt).toBeUndefined()
-      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS + 1)
-      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
-      expect(receipt).not.toHaveProperty('transcriptItem')
+      await createTerminalInjection(ports).deliver('ship it', {
+        origin: 'human',
+        delivery: 'when-ready',
+        onTranscriptItem: (entry) => named.push(entry),
+      })
+      await vi.advanceTimersByTimeAsync(HOOK_ECHO_ITEM_WAIT_MS)
+      expect(cancelled).toBe(true)
+      // A record that lands after the window is not attributed to this send.
+      echo({ transcriptItem: item })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(named).toEqual([])
     } finally { vi.useRealTimers() }
   })
 })
 
-type TurnReceiptLike = Awaited<ReturnType<ReturnType<typeof createTerminalInjection>['deliver']>>

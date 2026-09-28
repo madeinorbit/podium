@@ -2116,6 +2116,7 @@ export function createTerminalRuntime(
               origin: options.origin,
               delivery: 'interrupt',
               afterEsc: true,
+              ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
             }),
           )
         }
@@ -2127,6 +2128,7 @@ export function createTerminalRuntime(
             signal: options.signal,
             durable: options.deliveryAttempt,
             initialPrompt: input.initialPrompt,
+            ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
           }),
         )
       },

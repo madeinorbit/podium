@@ -452,3 +452,63 @@ describe('durable row delivery', () => {
   })
 
 })
+
+describe('the entry a delivered row became (POD-4774)', () => {
+  const fixture = (receiptItem?: { id: string }) => {
+    vi.useFakeTimers()
+    let named: ((item: { id: string; cursor?: string }) => void) | undefined
+    const send = vi.fn(async (_input: { text: string }, options?: { onTranscriptItem?: typeof named }) => {
+      named = options?.onTranscriptItem
+      return {
+        outcome: 'accepted',
+        turnEpoch: 1,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        ...(receiptItem ? { transcriptItem: receiptItem } : {}),
+        at: new Date().toISOString(),
+      }
+    })
+    const emit = vi.fn()
+    const handle = withDeliveryQueue(
+      { send, state: async () => ({ phase: 'idle' }), lease: { state: async () => null } } as unknown as AgentSessionHandle,
+      emit,
+    )
+    return { handle, emit, name: (item: { id: string; cursor?: string }) => named?.(item) }
+  }
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+
+  it('carries the entry the receipt named on the delivered outcome', async () => {
+    const f = fixture({ id: 'entry-1' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'delivered', transcriptItem: { id: 'entry-1' } },
+    ])
+  })
+
+  it('names an entry learned after the receipt as a second delivered outcome, once, and replays it', async () => {
+    const f = fixture()
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    f.name({ id: 'entry-2', cursor: 'c-2' })
+    f.name({ id: 'entry-other' })
+    const named = { t: 'delivery', rowId: 'row', outcome: 'delivered', transcriptItem: { id: 'entry-2', cursor: 'c-2' } }
+    expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'delivered' },
+      named,
+    ])
+    // A repeated admission of the same row replays the outcome WITH its entry.
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    expect(f.emit.mock.calls.at(-1)?.[0]).toEqual(named)
+  })
+
+  it("names a direct send's entry under its turn id", async () => {
+    const f = fixture()
+    const receipt = await f.handle.send({ id: 'msg_direct', text: 'a' }, options)
+    expect(receipt.outcome).toBe('accepted')
+    f.name({ id: 'entry-3' })
+    expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
+      { t: 'delivery', rowId: 'msg_direct', outcome: 'delivered', transcriptItem: { id: 'entry-3' } },
+    ])
+  })
+})
