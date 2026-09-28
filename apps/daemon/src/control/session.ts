@@ -67,7 +67,7 @@ import {
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
-import { TerminalRecoveryRefusal } from '../runtime/terminal-driver'
+import { TerminalRecoveryRefusal } from '@podium/harness/driver/host'
 import { beginServerDriverReap } from '../runtime/server-reap'
 import {
   type InstalledTerminalInstrumentation,
@@ -1034,6 +1034,19 @@ function requireTerminalHandle(
   ) {
     throw new Error(`terminal driver '${profile.driverId}' did not establish a handle; retry this session`)
   }
+  // REFRESH THE HANDED TERMINAL (POD-4785): the entry's surface may have been
+  // replaced (reattach, steal) without a new bind carrying it, so push the
+  // current one. Inline adapt avoids a runtime/host import cycle.
+  const current = ctx.sessions.get(msg.sessionId)?.terminal
+  ctx.agentRuntime?.setTerminal?.(
+    msg.sessionId,
+    current
+      ? {
+          live: current.live,
+          writeBase64: (dataBase64: string) => current.writeBase64(dataBase64),
+        }
+      : undefined,
+  )
 }
 
 /** Bind before publishing success, including historical rows with no driver ID.
@@ -1071,6 +1084,10 @@ async function bindDriver(
   if (!ctx.agentRuntime) {
     throw new Error('agent runtime is unavailable; retry after the daemon recovers')
   }
+  // HAND THE TERMINAL AT BIND (POD-4785): the entry holds one Terminal by
+  // structure (wireBridge ran before this), so the registration carries the
+  // live surface instead of the driver looking it up per write.
+  const bindTerminal = ctx.sessions.get(msg.sessionId)?.terminal
   await ctx.agentRuntime.bindTerminal(
     {
       sessionId: msg.sessionId,
@@ -1084,6 +1101,14 @@ async function bindDriver(
         ? { bindingVersion: msg.observationBindingVersion }
         : {}),
       rebind,
+      ...(bindTerminal
+        ? {
+            terminal: {
+              live: bindTerminal.live,
+              writeBase64: (dataBase64: string) => bindTerminal.writeBase64(dataBase64),
+            },
+          }
+        : {}),
     },
     profile,
   )

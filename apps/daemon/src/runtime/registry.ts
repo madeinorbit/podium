@@ -34,7 +34,7 @@ import {
 import type { TerminalInstrumentationSections } from '@podium/harness/driver/host'
 import type { TerminalComposerSections } from '@podium/harness/driver/host'
 import type { AgentKind } from '@podium/model'
-import type { TerminalHarnessProfile } from './terminal-driver'
+import type { TerminalHarnessProfile } from '@podium/harness/driver/host'
 
 /**
  * The per-harness facts the terminal driver needs, resolved from the manifest.

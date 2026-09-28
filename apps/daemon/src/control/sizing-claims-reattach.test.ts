@@ -112,8 +112,9 @@ vi.mock('@podium/process/abduco', async (importOriginal) => {
 })
 
 const { sessionHandlers } = await import('./session')
-const { createTerminalRuntime } = await import('../runtime/terminal-driver')
+const { createTerminalRuntime } = await import('@podium/harness/driver/host')
 const { daemonRuntimeHost } = await import('../runtime/host')
+const { driverSlotsOver } = await import('../session/driver-slots.js')
 
 type BindFrame = { type: 'bind'; geometry?: { cols: number; rows: number } }
 
@@ -169,7 +170,7 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     send: (m: { type: string }) => sent.push({ ...m, resizesBefore: stub.state.resizes.length }),
   } as unknown as DaemonContext
   const send = ctx.send
-  const terminal = createTerminalRuntime(daemonRuntimeHost(ctx, send), undefined, ctx.sessions)
+  const terminal = createTerminalRuntime(daemonRuntimeHost(ctx, send), undefined, driverSlotsOver(ctx.sessions))
   ctx.send = (msg) => {
     terminal.observe(msg)
     send(msg)

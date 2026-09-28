@@ -1,11 +1,9 @@
-import { composeMailContext, createMailInjector, createAckReminderInjector } from '../mail-injector'
 import { startHookIngest } from '@podium/harness/driver/host'
 import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { pageHistory } from '@podium/harness/driver/host'
-import { primeHookResponse } from '../prime-injector'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
@@ -35,39 +33,86 @@ import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 
 import {
   type ActingPrincipal,
+  type BoundaryContextEvent,
+  type BoundaryContextOperation,
   closesPasteEnvelope,
   ESC,
   type PendingInteraction,
   RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
   type RuntimeEvent,
+  type TerminalInstrumentationSections,
 } from '@podium/harness/driver/host'
+import { hookEventName, hookString } from '../../../adapters/shared/hook-fields.js'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DurableAttachment } from '@podium/process/screen'
-import { TerminalScreen } from '@podium/process/screen'
-import { Terminal } from '../terminal/terminal.js'
-import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
+import {
+  harnessInterrupt,
+  harnessNeedsSubmitVerification,
+  harnessUsesRawFirstTurn,
+  manifestFor,
+} from '../../../registry.js'
+import { declaredValue } from '../../../transcript-types.js'
 import {
   createTerminalRuntime,
   EVENT_LOG_LIMIT,
   stateEventForObservation,
   type TerminalHarnessProfile,
+  TerminalRecoveryRefusal,
   type TerminalRuntime,
-  type TerminalRuntimeHost,
   turnEventForObservation,
-} from './terminal-driver'
-import { testSessions } from '../session/testing.js'
-import type { SessionRegistry } from '../session/registry.js'
+} from './runtime.js'
+import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
+import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 
 // ---------------------------------------------------------------------------
 // A fixture world, sized for one assertion at a time
 // ---------------------------------------------------------------------------
 
+/**
+ * Local mirror of the daemon's `terminalProfileFor` (apps/daemon/src/runtime/registry.ts):
+ * the per-harness facts the terminal driver needs, resolved from the harness
+ * manifest. Lives here so this test does not reach back into apps/daemon.
+ */
+function testProfileFor(agentKind: AgentKind): TerminalHarnessProfile | undefined {
+  const manifest = manifestFor(agentKind)
+  if (!manifest) return undefined
+  const terminal = manifest.runtime.terminal
+  const interrupt = harnessInterrupt(agentKind)
+  return {
+    driverId: terminal.driverId,
+    instrumentationRequired: declaredValue(manifest.instrumentation) !== undefined,
+    sendProof: terminal.sendProof,
+    composerReadiness: manifest.capabilities.composerReadiness,
+    acceptCorrelation: terminal.acceptCorrelation,
+    lifecycleFromState: terminal.lifecycleFromState === true,
+    needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
+    usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),
+    archivable: declaredValue(manifest.handoffTranscript) !== undefined,
+    reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
+    interruptBytes: interrupt.bytes,
+    interruptQuitsWhenIdle: interrupt.quitsWhenIdle,
+  }
+}
+
+/**
+ * Local mirror of the daemon's `terminalInstrumentationSectionsFor`: the ONE
+ * place that resolves a manifest by harness kind for the hook installer.
+ */
+function testInstrumentationSectionsFor(kind: string): TerminalInstrumentationSections {
+  const manifest = manifestFor(kind)
+  const instrumentation = manifest ? declaredValue(manifest.instrumentation) : undefined
+  if (!manifest || !instrumentation) {
+    throw new Error(`no instrumentation installer for ${kind}`)
+  }
+  return { instrumentation }
+}
+
 function shippedProfile(harness: 'claude-code' | 'grok' | 'opencode'): TerminalHarnessProfile {
-  const profile = terminalProfileFor(harness)
+  const profile = testProfileFor(harness)
   if (!profile) throw new Error(`missing manifest terminal profile for ${harness}`)
   return profile
 }
@@ -77,28 +122,175 @@ const GROK = shippedProfile('grok')
 const OPENCODE = shippedProfile('opencode')
 
 /**
- * A Terminal for `bridge()` stubs (POD-4434): the port returns the Terminal
- * now, so tests hold a real one over a fake attachment. Base64 writes route
- * to `onWrite`, exactly as the driver's `writeBase64` calls them.
+ * A TerminalTransport for host stubs (POD-4785): the port hands the transport
+ * directly now, so tests hold a fake one. Base64 writes route to `onWrite`,
+ * exactly as the driver's `writeBase64` calls them.
  */
-function fakeTerminal(onWrite?: (dataBase64: string) => void): Terminal {
-  const attachment = {
-    pid: 99,
-    onFrame: () => () => {},
-    onTitle: () => () => {},
-    onExit: () => () => {},
-    write: (dataBase64: string) => {
+function fakeTransport(onWrite?: (dataBase64: string) => void): TerminalTransport {
+  return {
+    live: true,
+    writeBase64: (dataBase64: string) => {
       onWrite?.(dataBase64)
     },
-    writeBytes: () => {},
-    resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
-    dispose: () => {},
-  } as unknown as DurableAttachment
-  return Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {
-    onFrame: () => {},
-  })
+  }
+}
+
+/**
+ * Local mirrors of the daemon's `mail-injector.ts` / `prime-injector.ts`
+ * (POD-4785): harness-neutral mail policy and the prime wire codec, copied
+ * verbatim so this test does not reach back into apps/daemon.
+ */
+export const MAIL_BLOCK_COOLDOWN_MS = 60_000
+
+export interface MailContextSource {
+  pendingContext(sessionId: SessionId, signal?: AbortSignal): Promise<string | null>
+}
+
+function contextSource(
+  read: (sessionId: SessionId) => Promise<string | null>,
+  now: () => number,
+): MailContextSource {
+  const lastBlockedAt = new Map<SessionId, number>()
+  const pending = new Map<SessionId, object>()
+  return {
+    async pendingContext(sessionId, signal) {
+      if (signal?.aborted) return null
+      const at = lastBlockedAt.get(sessionId)
+      if (pending.has(sessionId) || (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS))
+        return null
+      const claim = {}
+      pending.set(sessionId, claim)
+      const release = () => {
+        if (pending.get(sessionId) === claim) pending.delete(sessionId)
+      }
+      signal?.addEventListener('abort', release, { once: true })
+      try {
+        const text = await read(sessionId)
+        if (signal?.aborted) return null
+        if (text !== null) lastBlockedAt.set(sessionId, now())
+        return text
+      } catch {
+        return null // old server, non-issue session or failed relay: fail open
+      } finally {
+        signal?.removeEventListener('abort', release)
+        release()
+      }
+    },
+  }
+}
+
+function mailBlockReason(unread: number, senders: string[]): string {
+  const who = senders.length > 0 ? ` from ${senders.join(', ')}` : ''
+  return (
+    `You have ${unread} message(s)${who} on your issue: run 'podium issue mail inbox' to read them now; ` +
+    "claim a message with 'podium issue mail claim <id>' only if you will act on it."
+  )
+}
+
+export function createMailInjector(
+  relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
+  now: () => number = Date.now,
+): MailContextSource {
+  return contextSource(async (sessionId) => {
+    const r = await relay(sessionId)
+    if (!r.ok) return null
+    const result = r.result as { unread?: unknown; senders?: unknown } | null
+    const unread = result?.unread
+    if (typeof unread !== 'number' || !Number.isFinite(unread) || unread <= 0) return null
+    const senders = Array.isArray(result?.senders)
+      ? result.senders.filter((s): s is string => typeof s === 'string').slice(0, 5)
+      : []
+    return mailBlockReason(unread, senders)
+  }, now)
+}
+
+export function createAckReminderInjector(
+  relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
+  now: () => number = Date.now,
+): MailContextSource {
+  return contextSource(async (sessionId) => {
+    const r = await relay(sessionId)
+    if (!r.ok || !Array.isArray(r.result)) return null
+    const reminders = r.result.filter(
+      (m): m is { id: string; from: string } =>
+        typeof (m as { id?: unknown })?.id === 'string' &&
+        typeof (m as { from?: unknown })?.from === 'string',
+    )
+    if (reminders.length === 0) return null
+    const lines = reminders
+      .slice(0, 5)
+      .map(
+        (m) =>
+          `- ${m.id} (from ${m.from}): reply with what you did — podium mail reply ${m.id} --body "…"`,
+      )
+    return (
+      `You have ${reminders.length} podium message(s) awaiting your reply before you go idle:\n` +
+      `${lines.join('\n')}\n` +
+      'This is your only reminder; unanswered senders get a mechanical system notice instead.'
+    )
+  }, now)
+}
+
+export function composeMailContext(...sources: MailContextSource[]): MailContextSource {
+  const pending = new Map<SessionId, object>()
+  return {
+    async pendingContext(sessionId, signal) {
+      if (signal?.aborted || pending.has(sessionId)) return null
+      const claim = {}
+      pending.set(sessionId, claim)
+      const release = () => {
+        if (pending.get(sessionId) === claim) pending.delete(sessionId)
+      }
+      signal?.addEventListener('abort', release, { once: true })
+      try {
+        for (const source of sources) {
+          if (signal?.aborted) return null
+          try {
+            const text = await source.pendingContext(sessionId, signal)
+            if (text !== null) return text
+          } catch {
+            // A failing source must not silence the next source.
+          }
+        }
+        return null
+      } finally {
+        signal?.removeEventListener('abort', release)
+        release()
+      }
+    },
+  }
+}
+
+export async function primeHookResponse(
+  respond: BoundaryContextOperation,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const name = hookEventName(payload)
+  if (name === 'SessionStart' && hookString(payload, 'source', 'source') === 'compact') {
+    await respond({ event: 'before-compaction' })
+    const context = await respond({ event: 'start', ...(signal ? { signal } : {}) })
+    return context === null
+      ? null
+      : JSON.stringify({
+          hookSpecificOutput: { hookEventName: name, additionalContext: context },
+        })
+  }
+  const event: BoundaryContextEvent | undefined =
+    name === 'SessionStart'
+      ? 'start'
+      : name === 'UserPromptSubmit'
+        ? 'prompt'
+        : name === 'PreCompact'
+          ? 'before-compaction'
+          : undefined
+  if (!event) return null
+  const context = await respond({ event, ...(signal ? { signal } : {}) })
+  return context === null
+    ? null
+    : JSON.stringify({
+        hookSpecificOutput: { hookEventName: name, additionalContext: context },
+      })
 }
 
 /** The bracketed-paste envelope, parsed without a regex: the escape bytes are
@@ -118,9 +310,9 @@ interface VirtualTimer {
 
 interface World {
   runtime: TerminalRuntime
-  host: TerminalRuntimeHost
-  /** The session entries the driver binds its handles onto (POD-4512). */
-  sessions: SessionRegistry
+  host: TerminalHostPorts
+  /** The slots the driver binds its handles onto (POD-4512). */
+  slots: SessionDriverSlots
   /** What the PTY was actually given, in order, decoded. */
   written: string[]
   frames: DaemonMessage[]
@@ -191,8 +383,11 @@ interface World {
    */
   registerDuringLaunch(): void
   setPhase(sessionId: SessionId, phase: AgentRuntimeState['phase']): void
-  killHost(label: string): void
+  killHost(sessionId: SessionId): void
   now(): number
+  /** The cached fake transport for a session, creating it on first touch. */
+  transportFor(sessionId: SessionId): TerminalTransport
+  setTerminal(sessionId: SessionId, transport: TerminalTransport | undefined): void
 }
 
 function makeWorld(
@@ -212,7 +407,7 @@ function makeWorld(
   let runtime!: TerminalRuntime
   let bindOnLaunch = false
   let registerOnLaunch = false
-  const sessions = testSessions()
+  const slots = createMemoryDriverSlots()
 
   const bindFrame = (sessionId: SessionId): void => {
     runtime.observe({
@@ -242,8 +437,47 @@ function makeWorld(
     })
   }
 
-  const bridges = new Map<SessionId, NonNullable<ReturnType<TerminalRuntimeHost['bridge']>>>()
-  const host: TerminalRuntimeHost = {
+  /**
+   * The fake PTY per session (POD-4785): the host hands the transport at bind
+   * and the driver never looks one up. `ensureTransport` is the auto-create the
+   * old `bridge()` stub had — every bound session gets a live surface unless a
+   * test replaces or clears it — and its write logic is verbatim the old
+   * `attachment.write`: decode base64, record, handle paste envelope and CR to
+   * fire the auto hook.
+   */
+  const transports = new Map<SessionId, TerminalTransport>()
+  const ensureTransport = (sessionId: SessionId): TerminalTransport => {
+    let transport = transports.get(sessionId)
+    if (!transport) {
+      transport = {
+        live: true,
+        writeBase64: (dataBase64: string) => {
+          const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+          written.push(text)
+          const paste = pastedText(text)
+          if (paste !== undefined) {
+            pendingPaste.set(sessionId, paste)
+            return
+          }
+          if (text !== '\r') return
+          const pasted = pendingPaste.get(sessionId)
+          pendingPaste.delete(sessionId)
+          const hook = autoHook.get(sessionId)
+          if (!hook || pasted === undefined) return
+          runtime.onHookPayload(
+            sessionId,
+            hook.payload ?? {
+              hook_event_name: 'UserPromptSubmit',
+              prompt: hook.prompt ?? pasted,
+            },
+          )
+        },
+      }
+      transports.set(sessionId, transport)
+    }
+    return transport
+  }
+  const host: TerminalHostPorts = {
     installInstrumentation: async () => ({ args: [] }),
     stageAttachment: async ({ source }) => ({
       id: 'attachment-1',
@@ -253,58 +487,13 @@ function makeWorld(
       kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
     }),
     send: (msg) => frames.push(msg),
-    bridge: (sessionId) => {
-      if (!alive.get(`podium-${sessionId}`)) return undefined
-      let bridge = bridges.get(sessionId)
-      if (!bridge) {
-        const attachment = {
-          pid: 99,
-          onFrame: () => () => {},
-          onTitle: () => () => {},
-          onExit: () => () => {},
-          write: (dataBase64: string) => {
-            const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-            written.push(text)
-            const paste = pastedText(text)
-            if (paste !== undefined) {
-              pendingPaste.set(sessionId, paste)
-              return
-            }
-            if (text !== '\r') return
-            const pasted = pendingPaste.get(sessionId)
-            pendingPaste.delete(sessionId)
-            const hook = autoHook.get(sessionId)
-            if (!hook || pasted === undefined) return
-            runtime.onHookPayload(
-              sessionId,
-              hook.payload ?? {
-                hook_event_name: 'UserPromptSubmit',
-                prompt: hook.prompt ?? pasted,
-              },
-            )
-          },
-          writeBytes: () => {},
-          resize: () => {},
-          redraw: () => {},
-          geometry: () => ({ cols: 80, rows: 24 }),
-          dispose: () => {},
-        } as unknown as DurableAttachment
-        bridge = Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {
-          onFrame: () => {},
-        })
-        bridges.set(sessionId, bridge)
-      }
-      return bridge
-    },
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
-    durableLabel: (sessionId) => `podium-${sessionId}`,
-    scopeUnit: () => undefined,
-    durableHostAlive: async (label) => alive.get(label) === true,
+    processAlive: async (sessionId) => alive.get(sessionId) === true,
     recover: async (msg, ready) => {
-      if (!alive.get(msg.durableLabel)) throw new Error('session not found')
-      ready()
+      if (!alive.get(msg.sessionId)) throw new Error('session not found')
+      ready(ensureTransport(msg.sessionId))
       runtime?.observe({
         type: 'bind',
         sessionId: msg.sessionId,
@@ -313,12 +502,12 @@ function makeWorld(
         agentKind: msg.agentKind,
       })
     },
-    stopSession: async ({ durableLabel }) => {
-      alive.set(durableLabel, false)
+    stopSession: async ({ sessionId }) => {
+      alive.set(sessionId, false)
       return true
     },
     launch: async (msg) => {
-      alive.set(`podium-${msg.sessionId}`, true)
+      alive.set(msg.sessionId, true)
       phases.set(msg.sessionId, {
         phase: 'idle',
         since: new Date(clock).toISOString(),
@@ -348,7 +537,7 @@ function makeWorld(
       ),
 
     archiveTranscript: async () => ({ path: '/tmp/session.jsonl' }),
-    readFileBytes: async () => new TextEncoder().encode('{"role":"user"}'),
+    readArchiveBytes: async () => new TextEncoder().encode('{"role":"user"}'),
     resources: () => ({ memoryBytes: 1024, oomKills: 0 }),
     now: () => clock,
     setTimer: (fn, delayMs) => {
@@ -367,12 +556,21 @@ function makeWorld(
     },
   }
 
-  runtime = createTerminalRuntime(host, options.primeSource, sessions)
+  runtime = createTerminalRuntime(host, options.primeSource, slots)
+  // Every bound handle gets the session's live surface, the way the daemon
+  // wires a fresh Terminal at bind: `register`/`createWithId`/`recoverWithId`
+  // all bind through `slots.set`, so one hook here covers every path,
+  // including the `registerOnLaunch` branch above.
+  const slotsSet = slots.set.bind(slots)
+  slots.set = (sessionId, handle) => {
+    slotsSet(sessionId, handle)
+    runtime.setTerminal(sessionId, ensureTransport(sessionId))
+  }
 
   return {
     runtime,
     host,
-    sessions,
+    slots,
     written,
     frames,
     abandoned,
@@ -440,9 +638,15 @@ function makeWorld(
         nativeSubagentCount: 0,
       })
     },
-    killHost: (label) => {
-      alive.set(label, false)
+    // Killing the host parks the surface too: the old world answered sends
+    // with `bridge()` (undefined once dead); the driver now reads the handed
+    // terminal, so the kill must clear it to keep the refusal.
+    killHost: (sessionId) => {
+      alive.set(sessionId, false)
+      runtime.setTerminal(sessionId, undefined)
     },
+    transportFor: (sessionId) => ensureTransport(sessionId),
+    setTerminal: (sessionId, transport) => runtime.setTerminal(sessionId, transport),
     now: () => clock,
   }
 }
@@ -482,7 +686,7 @@ describe('the session-owned driver handle', () => {
     const handle = await driver.create(SPEC)
     // WHAT `register` USED TO INDEX IN ITS OWN MAP is the same object the
     // session holds, and the same object the runtime answers for the session.
-    expect(world.sessions.get(handle.binding.sessionId)?.driver).toBe(handle)
+    expect(world.slots.get(handle.binding.sessionId)).toBe(handle)
     expect(world.runtime.handleFor(handle.binding.sessionId)).toBe(handle)
     expect(world.runtime.bindings()).toHaveLength(1)
     world.runtime.dispose()
@@ -579,12 +783,12 @@ describe('instrumented terminal creation', () => {
           sessionId,
           harness: spec.harness,
           spec,
-          sections: terminalInstrumentationSectionsFor(spec.harness),
+          sections: testInstrumentationSectionsFor(spec.harness),
           homeDir,
           settingsDir: join(homeDir, 'settings'),
         })
       const launch = vi.spyOn(world.host, 'launch')
-      const profile = terminalProfileFor('codex')
+      const profile = testProfileFor('codex')
       if (!profile) throw new Error('missing Codex profile')
       const driver = world.runtime.driverFor('codex', profile)
       for (let i = 0; i < 2; i++) await driver.create({ ...SPEC, harness: 'codex' })
@@ -738,7 +942,7 @@ describe('send receipts', () => {
     'cursor',
     'pi',
   ] as const)('%s supplies a correlation adapter for every declared send proof', (harness) => {
-    const profile = terminalProfileFor(harness)!
+    const profile = testProfileFor(harness)!
     expect(Object.keys(profile.acceptCorrelation ?? {}).sort()).toEqual(
       [...profile.sendProof].sort(),
     )
@@ -2007,27 +2211,23 @@ describe('busy OpenCode delivery (POD-4700)', () => {
     // the echo synchronously inside the write — the moment the bytes land,
     // before any yield — is deterministic either way.
     const pendingEchoes = new Set(['first turn', 'second turn', 'cut in line'])
-    const realBridge = world.host.bridge.bind(world.host)
-    world.host.bridge = (id) => {
-      const bridge = realBridge(id)
-      if (!bridge || id !== sessionId) return bridge
-      return new Proxy(bridge, {
-        get(target, prop, receiver) {
-          if (prop === 'writeBase64') {
-            return (dataBase64: string) => {
-              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-              const pasted = pastedText(text)
-              if (pasted !== undefined && pendingEchoes.has(pasted)) {
-                pendingEchoes.delete(pasted)
-                world.echo(id, pasted)
-              }
-              return target.writeBase64(dataBase64)
+    const real = world.transportFor(sessionId)
+    world.setTerminal(sessionId, new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop === 'writeBase64') {
+          return (dataBase64: string) => {
+            const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+            const pasted = pastedText(text)
+            if (pasted !== undefined && pendingEchoes.has(pasted)) {
+              pendingEchoes.delete(pasted)
+              world.echo(sessionId, pasted)
             }
+            return target.writeBase64(dataBase64)
           }
-          return Reflect.get(target, prop, target)
-        },
-      })
-    }
+        }
+        return Reflect.get(target, prop, target)
+      },
+    }))
 
     const deliveryOutcomes = (): Array<{ rowId: string; outcome: string }> =>
       world.frames.flatMap((frame) =>
@@ -2154,27 +2354,23 @@ describe('busy OpenCode delivery (POD-4700)', () => {
     world.ready(sessionId)
 
     const pendingEchoes = new Set(['first turn', 'cut in line'])
-    const realBridge = world.host.bridge.bind(world.host)
-    world.host.bridge = (id) => {
-      const bridge = realBridge(id)
-      if (!bridge || id !== sessionId) return bridge
-      return new Proxy(bridge, {
-        get(target, prop, receiver) {
-          if (prop === 'writeBase64') {
-            return (dataBase64: string) => {
-              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-              const pasted = pastedText(text)
-              if (pasted !== undefined && pendingEchoes.has(pasted)) {
-                pendingEchoes.delete(pasted)
-                world.echo(id, pasted)
-              }
-              return target.writeBase64(dataBase64)
+    const real = world.transportFor(sessionId)
+    world.setTerminal(sessionId, new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop === 'writeBase64') {
+          return (dataBase64: string) => {
+            const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+            const pasted = pastedText(text)
+            if (pasted !== undefined && pendingEchoes.has(pasted)) {
+              pendingEchoes.delete(pasted)
+              world.echo(sessionId, pasted)
             }
+            return target.writeBase64(dataBase64)
           }
-          return Reflect.get(target, prop, target)
-        },
-      })
-    }
+        }
+        return Reflect.get(target, prop, target)
+      },
+    }))
 
     const pastes = (): string[] =>
       world.written
@@ -2299,7 +2495,7 @@ describe('adopt', () => {
     // restarted daemon looks like from the session's point of view. A fresh
     // registry goes with it — a restarted daemon has no entries, so no handle
     // survives except through a rebind.
-    const restarted = createTerminalRuntime({ ...world.host, now: () => world.host.now() + 10_000 }, undefined, testSessions())
+    const restarted = createTerminalRuntime({ ...world.host, now: () => world.host.now() + 10_000 }, undefined, createMemoryDriverSlots())
     const framesBefore = world.frames.length
     // The boot-time path: the daemon re-registers the surviving pty as a rebind.
     restarted.register(
@@ -2353,7 +2549,15 @@ describe('adopt', () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
     const binding = session.binding
-    world.host.recover = async () => {
+    // The identity fence lives in the host's recover now (POD-4785): the driver
+    // hands the binding's key through as `durableLabel` and the host refuses a
+    // foreign one, the way the daemon's `recoverTerminalHost` compares against
+    // the entry's label. The stub enforces it so the refusal still precedes
+    // any composition.
+    world.host.recover = async (msg) => {
+      if (msg.durableLabel !== binding.process.key) {
+        throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
+      }
       throw new Error('must not compose')
     }
     for (const key of [binding.process.key.slice(0, -1), `${binding.process.key}-other`]) {
@@ -2446,11 +2650,11 @@ describe('adopt', () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
     const binding = session.binding
-    world.killHost(binding.process.key)
+    world.killHost(binding.process.key as SessionId)
     world.runtime.control.restartSupervisor()
     // EXACT identity, checked against the world. Adopting the wrong process is
     // worse than not adopting: it produces a session reporting someone else's work.
-    await expect(driver.adopt(binding)).rejects.toThrow(/no surviving durable host/)
+    await expect(driver.adopt(binding)).rejects.toThrow(/no surviving process/)
   })
 })
 
@@ -2645,7 +2849,7 @@ describe('observation translation', () => {
     'observation-first',
   ] as const)('keeps OpenCode poll epochs authoritative across turns (%s)', async (order) => {
     const world = makeWorld()
-    const profile = terminalProfileFor('opencode')
+    const profile = testProfileFor('opencode')
     if (!profile) throw new Error('OpenCode terminal profile missing')
     expect(profile.lifecycleFromState).toBe(true)
     const session = await world.runtime.driverFor('opencode', profile).create({
@@ -2704,7 +2908,7 @@ describe('observation translation', () => {
 
   it('does not let an observation epoch or fence poison the OpenCode poll counter', async () => {
     const world = makeWorld()
-    const profile = terminalProfileFor('opencode')
+    const profile = testProfileFor('opencode')
     if (!profile) throw new Error('OpenCode terminal profile missing')
     const session = await world.runtime.driverFor('opencode', profile).create({
       ...SPEC,
@@ -3491,7 +3695,7 @@ describe('answer script ownership', () => {
     world.observe(handle.binding.sessionId, { nextPhase: 'needs_user' })
     const id = (await handle.interactions())[0]!.id
     const replacementWrites: string[] = []
-    world.host.bridge = () => fakeTerminal((data) => void replacementWrites.push(data))
+    world.setTerminal(handle.binding.sessionId, fakeTransport((data) => void replacementWrites.push(data)))
     expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'expired' })
     expect(world.written).toEqual([])
     expect(replacementWrites).toEqual([])
@@ -3522,8 +3726,8 @@ describe('answer script ownership', () => {
         if (cause === 'replacement') ask('second')
         if (cause === 'human') world.observe(sessionId, { priorPhase: 'needs_user', nextPhase: 'working' })
         const replacementWrites: string[] = []
-        if (cause === 'bridge') world.host.bridge = () => fakeTerminal((data) => void replacementWrites.push(data))
-        if (cause === 'bridge-disposal') world.host.bridge = () => undefined
+        if (cause === 'bridge') world.setTerminal(sessionId, fakeTransport((data) => void replacementWrites.push(data)))
+        if (cause === 'bridge-disposal') world.setTerminal(sessionId, undefined)
         if (cause === 'dispose') world.runtime.dispose()
         if (cause === 'clear') world.runtime.clear(sessionId)
         if (cause === 'rebind') world.runtime.register({ sessionId, agentKind: 'claude-code', cwd: SPEC.workdir, resume: null }, CLAUDE)
@@ -3621,7 +3825,7 @@ describe('driver-owned prime boundary', () => {
     '%s preserves startup, duplicate, compaction, failed fetch, scope and resume behavior', async (harness) => {
       const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
       const world = makeWorld({ primeSource: source })
-      const profile = terminalProfileFor(harness)!
+      const profile = testProfileFor(harness)!
       const spec = { ...SPEC, harness }
       const driver = world.runtime.driverFor(harness, profile)
       try {
@@ -3662,7 +3866,7 @@ describe('driver-owned prime boundary', () => {
   const deliversOverWire = async (harness: 'claude-code' | 'codex' | 'grok'): Promise<void> => {
     const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
     const world = makeWorld({ primeSource: source })
-    const profile = terminalProfileFor(harness)!
+    const profile = testProfileFor(harness)!
     const handle = await world.runtime
       .driverFor(harness, profile)
       .create({ ...SPEC, harness })

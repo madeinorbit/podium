@@ -1819,8 +1819,12 @@ export function createTerminalRuntime(
           // message string is not something a caller may branch on.
           throw new DriverRefusalError({ reason: 'no_resume_ref' }, 'terminal driver export')
         }
-        const located = await host.archiveTranscript(session.sessionId)
-        const bytes = await host.readArchiveBytes(session.sessionId, located.path)
+        const located = await host.archiveTranscript({
+          agentKind: session.agentKind,
+          cwd: session.cwd,
+          resumeValue: session.resume.value,
+        })
+        const bytes = await host.readArchiveBytes(located.path)
         const name = located.path.split('/').pop() ?? `${session.sessionId}.jsonl`
         return {
           harness: session.agentKind,
