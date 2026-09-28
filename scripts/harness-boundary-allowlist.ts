@@ -185,16 +185,20 @@ export interface HarnessBoundaryAllowlistEntry {
  *  provider-namespace entries go back to leak with homonym reasons naming
  *  POD-4437; every real removal above stands: leak 137 → 154,
  *  policy 52 → 35, total 189 → 189.
+ *  POD-4737 D1 (alternative executables): server specs declare `executable`
+ *  (opencode primary + opencode2 alternative); the daemon reads admission
+ *  binaries via serverDriverExecutable and inventory alternatives via
+ *  harnessServerAlternatives, probing each resolved binary with its family
+ *  probe. Deleted the emptied inventory (1) + session (1) entries: leak
+ *  154 → 152, total 189 → 187.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 154
+export const HARNESS_BASELINE_LEAK_COUNT = 152
 export const HARNESS_BASELINE_POLICY_COUNT = 35
-export const HARNESS_BASELINE_TOTAL = 189
+export const HARNESS_BASELINE_TOTAL = 187
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'homonym: read-command cursor arg (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
   { file: 'apps/daemon/src/binding-store.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/daemon/src/control/inventory.ts', count: 1, category: 'leak', reason: 'opencode2-server row: second binary versioned by a separate probe, not the harness version (POD-4737 follow-up)', issue: 'POD-4737' },
-  { file: 'apps/daemon/src/control/session.ts', count: 1, category: 'leak', reason: 'admission executable keyed by harness; derive from driver manifest (POD-4737 follow-up)', issue: 'POD-4737' },
   { file: 'apps/daemon/src/handoff-package.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 4, category: 'leak', reason: 'daemon headless host/driver names a harness; move into driver families (1.5)', issue: 'POD-4414/1.5' },
   { file: 'apps/mobile/harness/agent-mark-entry.tsx', count: 13, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },

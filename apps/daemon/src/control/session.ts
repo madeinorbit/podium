@@ -20,6 +20,7 @@ import {
   harnessTranscriptStorage,
   type LaunchFile,
   parseHarnessVersion,
+  serverDriverExecutable,
 } from '@podium/harness'
 import { managementLoginCommandFor } from '../harness-management.js'
 import { createLogger } from '@podium/logger'
@@ -1671,9 +1672,14 @@ export function resolvedAdmissionExecutable(
   preferred: string | undefined,
   executables: ReadonlyMap<string, { readonly path: string }> | undefined,
 ): string | undefined {
-  if (preferred === 'opencode-server') return executables?.get('opencode')?.path
-  if (preferred === 'opencode2-server') return executables?.get('opencode2')?.path
-  return undefined
+  // The manifest-declared probe binary for this server driver, if any
+  // (POD-4737 D1). Drivers without one (today: everything but the opencode
+  // pair) resolve through family defaults, exactly as before — notably a
+  // second binary with no map entry still answers undefined.
+  if (preferred === undefined) return undefined
+  const executable = serverDriverExecutable(preferred)
+  if (executable === undefined) return undefined
+  return executables?.get(executable)?.path
 }
 
 /**

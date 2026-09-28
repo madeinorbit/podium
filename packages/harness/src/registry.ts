@@ -485,6 +485,52 @@ export function harnessTranscriptStorage(
   return transcript?.storage
 }
 
+/**
+ * Explicit probe binary for a server driver id (POD-4737 D1): the `executable`
+ * a primary or alternative declares, or `undefined` when it declares none —
+ * which means family-default resolution, exactly as before. The daemon's
+ * spawn admission reads this instead of naming harnesses per driver.
+ */
+export function serverDriverExecutable(driverId: string): string | undefined {
+  for (const manifest of Object.values(AGENT_MANIFESTS)) {
+    const server = declaredValue(manifest.runtime.server)
+    if (server?.driverId === driverId) return server.executable
+    for (const alternative of manifest.runtime.serverAlternatives ?? []) {
+      if (alternative.driverId === driverId) return alternative.executable
+    }
+  }
+  return undefined
+}
+
+/** One declared server alternative with its owning harness and probe binary. */
+export interface ServerAlternativeSource {
+  harness: HarnessAgent
+  driverId: string
+  executable: string
+}
+
+/**
+ * Every declared server alternative with an explicit probe binary (POD-4737
+ * D1): second binaries with their own probes. The daemon's inventory reads
+ * this to resolve and probe each alternative instead of naming one harness's
+ * second binary; a second alternative anywhere flows through with no edit here.
+ */
+export function harnessServerAlternatives(): ServerAlternativeSource[] {
+  const out: ServerAlternativeSource[] = []
+  for (const manifest of Object.values(AGENT_MANIFESTS)) {
+    for (const alternative of manifest.runtime.serverAlternatives ?? []) {
+      if (alternative.executable !== undefined) {
+        out.push({
+          harness: manifest.kind,
+          driverId: alternative.driverId,
+          executable: alternative.executable,
+        })
+      }
+    }
+  }
+  return out
+}
+
 /** The runtime-fact reader declared by this CLI's manifest — what model, effort
  * and context use its records report. Harnesses that report none (and unknown
  * kinds) return undefined, so the caller observes nothing rather than inferring

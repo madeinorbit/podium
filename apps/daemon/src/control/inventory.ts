@@ -4,6 +4,7 @@ import {
   declaredValue,
   gateHarnessVersion,
   HARNESS_KINDS,
+  harnessServerAlternatives,
   harnessTerminalDriverId,
   harnessVersionPolicyFor,
   manifestFor,
@@ -69,12 +70,17 @@ export function terminalRuntimeDriverInventory(): NonNullable<Inventory['runtime
  * only concrete drivers this machine can select from the facts already observed. */
 export function runtimeDriverInventory(
   inventory: Inventory,
-  opencode2Drivable = false,
+  drivableAlternatives: readonly string[] = [],
 ): NonNullable<Inventory['runtimeDrivers']> {
   const versionFor = (kind: Inventory['agents'][number]['kind']): string | undefined => {
     const agent = inventory.agents.find((candidate) => candidate.kind === kind)
     return agent?.installed === true ? agent.version : undefined
   }
+  // Read per call, not memoized at module scope: tests overlay manifests and
+  // a cached map would keep answering for the registry as first imported.
+  const alternativeById = new Map(
+    harnessServerAlternatives().map((alternative) => [alternative.driverId, alternative]),
+  )
   return [
     ...terminalRuntimeDriverInventory(),
     // Server drivers, read off each manifest (POD-4737): a harness without a
@@ -96,9 +102,16 @@ export function runtimeDriverInventory(
       }
       return servers.map((server) => ({ harness, id: server.driverId, family: 'server' as const }))
     }),
-    ...(opencode2Drivable
-      ? ([{ harness: 'opencode', id: 'opencode2-server', family: 'server' }] as const)
-      : []),
+    // Declared server alternatives admitted by probe (POD-4737 D1): each
+    // alternative states its own probe binary, so a second alternative
+    // anywhere reports with no edit here. Unknown ids never occur — the
+    // caller resolves them against the same declarations — and are skipped.
+    ...drivableAlternatives.flatMap((driverId) => {
+      const alternative = alternativeById.get(driverId)
+      return alternative
+        ? [{ harness: alternative.harness, id: alternative.driverId, family: 'server' as const }]
+        : []
+    }),
   ]
 }
 
@@ -149,17 +162,30 @@ export async function reportInventory(
         ? ctx.harnessRuntime.refresh()
         : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
-      const opencode2Executable = snapshot.commandEnvironment.resolve('opencode2')
-      const opencode2Drivable = opencode2Executable
-        ? (await opencode2VersionProbeForExecutable(opencode2Executable)).drivable
-        : false
+      // Declared server alternatives admitted by probe (POD-4737 D1): each
+      // alternative states its own probe binary, resolved here and probed
+      // with its family's probe — today the only declared alternative is
+      // opencode2's, whose beta-pin semantics live in its family probe.
+      // Probe dispatch shared with the spawn path
+      // (defaultServerDriverAdmissionProbe) is the follow-up that unifies
+      // the two call sites; it is deliberately not folded in here.
+      const drivableAlternatives: string[] = []
+      for (const alternative of harnessServerAlternatives()) {
+        const executable = snapshot.commandEnvironment.resolve(alternative.executable)
+        if (
+          executable &&
+          (await opencode2VersionProbeForExecutable(executable)).drivable
+        ) {
+          drivableAlternatives.push(alternative.driverId)
+        }
+      }
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       ctx.send({
         type: 'inventoryReport',
         machineId: asMachineId(ctx.machineId),
         inventory: {
           ...snapshot.inventory,
-          runtimeDrivers: runtimeDriverInventory(snapshot.inventory, opencode2Drivable),
+          runtimeDrivers: runtimeDriverInventory(snapshot.inventory, drivableAlternatives),
         },
         // Served descriptors (POD-4475): adapter DATA plus this machine's
         // availability, so clients render harnesses they never shipped.

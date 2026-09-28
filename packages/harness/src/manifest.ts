@@ -1178,6 +1178,15 @@ export interface ServerRuntimeSpec {
    *  driver, so this is the STEM, not a complete command line. */
   spawn: readonly string[]
   /**
+   * Binary this driver resolves and probes as (POD-4737 D1). Primaries whose
+   * admission passes a generation-resolved executable state their CLI binary;
+   * alternatives with a second binary state that one. Absent means
+   * family-default resolution — the driver is admitted without an explicit
+   * executable, exactly as before. Stated (never parsed out of `spawn`) so
+   * the probe target is a declaration the daemon reads, not argv surgery.
+   */
+  executable?: string
+  /**
    * `stdio` IS THE CHILD'S OWN PIPE PAIR, added by W6 after measuring codex.
    *
    * The plan expected a per-session unix socket there and codex does create one

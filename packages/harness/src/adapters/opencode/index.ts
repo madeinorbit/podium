@@ -196,6 +196,8 @@ export const opencodeManifest: AgentManifest = {
     server: supported({
       driverId: 'opencode-server',
       kind: 'http-sse',
+      // Admission resolves and probes this binary (POD-4737 D1).
+      executable: 'opencode',
       // THE DAEMON PICKS THE PORT and substitutes it here. `--port 0` works, but
       // reading back which port opencode chose means scraping its stdout banner,
       // and a binding that depends on a log line breaks when the log line does.
@@ -267,6 +269,10 @@ export const opencodeManifest: AgentManifest = {
       {
         driverId: 'opencode2-server',
         kind: 'http-sse',
+        // Second binary with its own probe (POD-4737 D1): the daemon
+        // resolves this (not the harness CLI) and version-probes it before
+        // admitting the alternative driver.
+        executable: 'opencode2',
         spawn: ['opencode2', 'serve', '--port', '<daemon-picked>', '--hostname', '127.0.0.1'],
         transport: 'loopback-tcp',
         requiresPerSessionSecret: true,
