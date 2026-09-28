@@ -205,9 +205,3 @@ function rebuild(
   }
   return { views, issue: inputs.issue }
 }
-
-/** The visible ids in rank order, from scratch (tests: the live `worklist.order` against it). */
-export function rebuildOrder(source: RowSource, locals: LocalsSource): string[] {
-  const snapshot = rebuildSnapshot(source, locals)
-  return Object.keys(snapshot.rowsById)
-}
