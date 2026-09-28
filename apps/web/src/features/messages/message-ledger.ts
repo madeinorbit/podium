@@ -1,5 +1,5 @@
 import type { ThreadId } from '@podium/model'
-import { deadLetterDeliveryLine as sharedDeadLetterDeliveryLine } from '@podium/model'
+import { deadLetterDeliveryLine } from '@podium/model'
 /**
  * Message-ledger view model (#237) [spec:SP-34d7 web]: pure helpers over the
  * `messages.ledger` wire — the anti-"mail broke down mysteriously" surface.
@@ -67,7 +67,7 @@ export type LedgerStatusTone = 'queued' | 'ok' | 'dead'
  * without manufacturing a complete ledger row. One shared wording [POD-4704]:
  * an injected-but-unconfirmed dead letter (delivery-failed) is a delivery
  * failure, never a vanished target. */
-export const deadLetterDeliveryLine = sharedDeadLetterDeliveryLine
+export { deadLetterDeliveryLine }
 
 /** Chip tone for a delivery status: queued = pending amber; delivered/read = ok
  *  (the agent has it, pushed or pulled [POD-834]); expired/cancelled/dead_letter
