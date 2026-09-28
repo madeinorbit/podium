@@ -29,15 +29,15 @@ async function openShell(page: Page): Promise<void> {
 }
 
 async function openLoginPasswordSection(page: Page): Promise<Locator> {
-  // POD-318 moved Settings out of the aside into the top bar; POD-365 made it
-  // an inset sheet (role=dialog, not region).
   await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
   await settings.getByRole('button', { name: 'Security' }).click()
+  // The old single 'Login password' section split into Profile / Your password
+  // / Instance login; the password + disable flow lives under 'Your password'.
   return settings
     .locator('section')
-    .filter({ has: page.getByRole('heading', { name: 'Login password' }) })
+    .filter({ has: page.getByRole('heading', { name: 'Your password' }) })
     .first()
 }
 

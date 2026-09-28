@@ -64,7 +64,8 @@ test('Telegram setup button shows code link and fills chat id after polling', as
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
   await settings.getByRole('button', { name: 'Notifications' }).click()
-  await settings.getByPlaceholder('empty = off', { exact: true }).fill('123456:secret')
+  // Placeholder carries an example plus the empty-means-off hint.
+  await settings.getByPlaceholder(/empty = off/).fill('123456:secret')
 
   const popups: (typeof page)[] = []
   page.on('popup', (popup) => popups.push(popup))
