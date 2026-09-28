@@ -1127,6 +1127,33 @@ export function mountPage(options: MountPageOptions): void {
   }
 
   /**
+   * POD-4715 — untimed heal for POD-4722 (a production bug of the current app,
+   * filed outside round three; documented in `docs/plans/pod-4441-harness.md`
+   * "Lifecycle walls", and the control's grow wall stays flagged stale there).
+   *
+   * A kernel rescope install notifies the replica binding before the
+   * issue-view cache, and the mounted control list's synchronous snapshot
+   * check then derives against not-yet-invalidated views: the grown-only rows
+   * are skipped, the partial list is consecrated as unchanged, and it is
+   * pinned under the grown store — so the control page would read 735 of
+   * 1,464 grown rows (and its oracle the same) while the pools, which never
+   * derive inside the cascade, read the true grown state.
+   *
+   * This step publishes a fresh store snapshot with no row changes (a
+   * discovery refresh answering the already-staged repos) and settles, so the
+   * next derive rebuilds models from refreshed views. Same step on every page
+   * (the pools and the floor ignore it); untimed, after each install window,
+   * before midParity, grownRows and the driver's after-step reads. The timed
+   * install windows are untouched; rescope carries no wall budget, and the
+   * budgeted heap growth must reflect a correct round trip, which the stale
+   * control never makes.
+   */
+  async function healGrownDerivation(): Promise<void> {
+    await live().boot.engine.getSnapshot().refreshRepos()
+    await settleQuiet()
+  }
+
+  /**
    * rescope, timed in two windows: the install onto the staged corpus (2x the
    * page's), then, the page's own rows restaged untimed, the install back.
    * `actionMs` is the two windows' sum; the kernel cache writes before each
@@ -1150,11 +1177,16 @@ export function mountPage(options: MountPageOptions): void {
       await stageScope(stage.grown)
       installedCorpus = stage.grown.corpus
       const grow = await withCommitLogAsync(log, () => timeWindow(fire))
+      // POD-4715: untimed heal (POD-4722), same on every page — see
+      // healGrownDerivation. The timed install above is untouched.
+      await healGrownDerivation()
       const midParity = parityNow()
       const grownRows = Object.keys(live().handle.snapshot().rowsById).length
       await stageScope(stage.base)
       installedCorpus = null
       const back = await withCommitLogAsync(log, () => timeWindow(fire))
+      // Same heal after the return trip, before the driver's after-step reads.
+      await healGrownDerivation()
       return {
         commits: grow.commits + back.commits,
         mounts: grow.mounts + back.mounts,
