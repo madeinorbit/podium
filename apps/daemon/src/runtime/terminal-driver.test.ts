@@ -41,6 +41,7 @@ import {
   RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
   type RuntimeEvent,
 } from '@podium/harness/driver/host'
+import { transcriptRecordMapperFor } from '@podium/harness'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
@@ -917,7 +918,7 @@ describe('send receipts', () => {
     const [otherReceipt, namedReceipt] = await Promise.all([other, named])
 
     expect(JSON.stringify([otherReceipt, namedReceipt])).toMatchInlineSnapshot(
-      `"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}]"`,
+      `"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":5090,"at":"2026-08-14T00:00:05.090Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:00.090Z"}]"`,
     )
     expect(namedReceipt.outcome).toBe('accepted')
     if (namedReceipt.outcome !== 'accepted') return
@@ -3917,5 +3918,151 @@ describe('a Stop the daemon must follow up [POD-4633]', () => {
     world.hookOnSubmit(session.binding.sessionId)
     await session.send({ text: 'do this instead' }, { origin: 'human', delivery: 'interrupt' })
     expect(requested).toEqual([session.binding.sessionId, session.binding.sessionId])
+  })
+})
+
+/**
+ * THE CONFIRMATION NAMES THE HISTORY ENTRY (POD-4774). The daemon already pairs
+ * a typed message with the harness's own record of it to prove delivery; the
+ * receipt — and a durable row's delivery outcome — now say WHICH entry that is,
+ * by the id the chat's transcript items carry, so nothing downstream matches
+ * by text. Items are built by the real Claude recorder mapping where the
+ * rewrite matters, because the rewrite is the point.
+ */
+describe('the history entry a delivered send became', () => {
+  const claudeRecordToItems = transcriptRecordMapperFor('claude-code')!
+  const shownUserIds = (world: World): string[] =>
+    world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'item' && frame.event.item.item.role === 'user'
+        ? [frame.event.item.item.id]
+        : [],
+    )
+  /** Claude fires `UserPromptSubmit` on submission and writes its transcript
+   *  record a moment later: post `record` (a raw Claude JSONL record) that long
+   *  after the hook, through the real recorder mapping. */
+  const recordAfterHook = (world: World, record: Record<string, unknown>, delayMs = 1_000): void => {
+    const onHook = world.runtime.onHookPayload.bind(world.runtime)
+    world.runtime.onHookPayload = (sessionId, payload) => {
+      onHook(sessionId, payload)
+      world.host.setTimer(() => {
+        world.runtime.observe({
+          type: 'transcriptDelta',
+          sessionId,
+          items: claudeRecordToItems(record).map((item) => ({ ...item, cursor: `cursor-${item.id}` })),
+        })
+      }, delayMs)
+    }
+  }
+
+  it('a hook-proven Claude send names the entry its later, rewrapped record became', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.hookOnSubmit(sessionId)
+    recordAfterHook(world, {
+      type: 'user',
+      uuid: 'claude-uuid-1',
+      timestamp: '2026-08-14T00:00:01.000Z',
+      message: { role: 'user', content: '  ship\n   it  ' },
+    })
+    const receipt = await session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'hook',
+      transcriptItem: { id: 'claude-uuid-1', cursor: 'cursor-claude-uuid-1' },
+    })
+    // The id the chat then shows for that message.
+    expect(shownUserIds(world)).toEqual(['claude-uuid-1'])
+    world.runtime.dispose()
+  })
+
+  it('pairs a Claude send whose image attachment the recorder moved out of the text', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // Claude's hook reports the prompt with its image placeholder, not the path
+    // that was typed: the hook cannot attribute this send, the record can.
+    world.hookOnSubmit(sessionId, { prompt: '[Image #1]look at this' })
+    recordAfterHook(world, {
+      type: 'user',
+      uuid: 'claude-uuid-2',
+      timestamp: '2026-08-14T00:00:01.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          { type: 'text', text: '[Image #1]look at this\n[Image: source: /uploads/s1/a.png]' },
+        ],
+      },
+    })
+    const receipt = await session.send(
+      {
+        text: 'look at this',
+        attachments: [{ id: 'a', path: '/uploads/s1/a.png', filename: 'a.png', mediaType: 'image/png', kind: 'image' }],
+      },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'transcript-echo',
+      transcriptItem: { id: 'claude-uuid-2' },
+    })
+    expect(shownUserIds(world)).toEqual(['claude-uuid-2'])
+    world.runtime.dispose()
+  })
+
+  it('a hook proof whose record never matches reports no entry rather than a guess', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.hookOnSubmit(sessionId)
+    // Somebody else's turn lands in the window: it must not be named.
+    recordAfterHook(world, {
+      type: 'user',
+      uuid: 'someone-else',
+      timestamp: '2026-08-14T00:00:01.000Z',
+      message: { role: 'user', content: 'a different prompt' },
+    })
+    const receipt = await session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+    expect(receipt).not.toHaveProperty('transcriptItem')
+    world.runtime.dispose()
+  })
+
+  it("a durable row's delivered outcome carries the entry", async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.hookOnSubmit(sessionId)
+    recordAfterHook(world, {
+      type: 'user',
+      uuid: 'claude-uuid-3',
+      timestamp: '2026-08-14T00:00:01.000Z',
+      message: { role: 'user', content: 'durable turn' },
+    })
+    expect(
+      (await session.send({ text: 'durable turn', rowId: 'msg_row' }, { origin: 'controller', delivery: 'when-ready' }))
+        .outcome,
+    ).toBe('queued')
+    const delivered = () =>
+      world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'delivery' ? [frame.event] : [],
+      )
+    for (let i = 0; i < 80 && delivered().length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(delivered()).toHaveLength(1)
+    expect(delivered()[0]).toMatchObject({
+      t: 'delivery',
+      rowId: 'msg_row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'claude-uuid-3', cursor: 'cursor-claude-uuid-3' },
+    })
+    expect(shownUserIds(world)).toEqual(['claude-uuid-3'])
+    world.runtime.dispose()
   })
 })

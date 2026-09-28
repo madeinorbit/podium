@@ -17,6 +17,8 @@ import {
   cursorSeq,
   driverLocalCursor,
   ESC,
+  HOOK_ECHO_ITEM_WAIT_MS,
+  type AcceptSeen,
   type HookAcceptPort,
   injectionPayload,
   isDriverLocalCursor,
@@ -209,7 +211,7 @@ function terminal(overrides: Partial<TerminalInjectionPorts> = {}): {
   const hookAccept: HookAcceptPort = {
     watch(text) {
       watched.push(text)
-      return { accepted: new Promise<boolean>(() => {}), cancel: () => {} }
+      return { accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }
     },
   }
   const ports: TerminalInjectionPorts = {
@@ -222,7 +224,7 @@ function terminal(overrides: Partial<TerminalInjectionPorts> = {}): {
     // are about the BYTES, not the receipt — a test that wants an unproven send
     // overrides `echoAccept` with a watch that never resolves.
     echoAccept: {
-      watch: () => ({ accepted: Promise.resolve(true), cancel: () => {} }),
+      watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }),
     },
     lastOutputAtMs: () => Date.now(),
     now: () => Date.now(),
@@ -471,7 +473,7 @@ describe('row cancellation at the terminal submit boundary', () => {
     const { ports, written } = terminal({
       needsSubmitVerification: () => true,
       // Nothing echoes this row back: the point is the receipt an abort produces.
-      echoAccept: { watch: () => ({ accepted: new Promise<boolean>(() => {}), cancel: () => {} }) },
+      echoAccept: { watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }) },
     })
     const delivery = createTerminalInjection(ports).deliver('cancelled row', {
       origin: 'human', delivery: 'when-ready', signal: abort.signal,
@@ -498,8 +500,8 @@ describe('the receipt epoch (POD-4655)', () => {
       // The initial-prompt turn was observed; the runtime send's turn has not
       // been yet, and still has not been when the hook fires below.
       observedTurnEpoch: () => 1,
-      hookAccept: { watch: () => ({ accepted: Promise.resolve(true), cancel: () => {} }) },
-      echoAccept: { watch: () => ({ accepted: new Promise<boolean>(() => {}), cancel: () => {} }) },
+      hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
+      echoAccept: { watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }) },
     })
     const receipt = await createTerminalInjection(ports).deliver('second prompt', {
       origin: 'controller',
@@ -514,8 +516,8 @@ describe('durable prompt confirmation', () => {
     vi.useFakeTimers()
     try {
       let phase = 'idle'
-      let confirm!: (accepted: boolean) => void
-      const accepted = new Promise<boolean>((resolve) => { confirm = resolve })
+      let confirm!: (seen: AcceptSeen) => void
+      const accepted = new Promise<AcceptSeen>((resolve) => { confirm = resolve })
       const { ports, written } = terminal({
         phase: () => phase,
         needsSubmitVerification: () => true,
@@ -533,8 +535,73 @@ describe('durable prompt confirmation', () => {
       expect(settled).toBe(false)
       expect(written.filter((bytes) => pasted(bytes) !== undefined)).toHaveLength(1)
       expect(written.filter((bytes) => bytes === '\r')).toHaveLength(1)
-      confirm(true)
+      confirm({})
       expect(await delivery).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
     } finally { vi.useRealTimers() }
   })
 })
+
+describe('the history entry a delivered send became (POD-4774)', () => {
+  const item = { id: 'u-7', cursor: 'c-7' }
+
+  it('names the entry the proving echo recorded', async () => {
+    const { ports } = terminal({
+      hookAccept: undefined,
+      echoAccept: { watch: () => ({ accepted: Promise.resolve({ transcriptItem: item }), cancel: () => {} }) },
+    })
+    const receipt = await createTerminalInjection(ports).deliver('ship it', {
+      origin: 'human',
+      delivery: 'when-ready',
+    })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo', transcriptItem: item })
+  })
+
+  it('after a hook proof, waits for the echo that names the entry', async () => {
+    vi.useFakeTimers()
+    try {
+      let echo!: (seen: AcceptSeen) => void
+      const { ports } = terminal({
+        setTimer: (fn, delay) => setTimeout(fn, delay),
+        hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
+        echoAccept: {
+          watch: () => ({ accepted: new Promise<AcceptSeen>((resolve) => { echo = resolve }), cancel: () => {} }),
+        },
+      })
+      const started = Date.now()
+      let receipt: TurnReceiptLike | undefined
+      void createTerminalInjection(ports)
+        .deliver('ship it', { origin: 'human', delivery: 'when-ready' })
+        .then((value) => { receipt = value })
+      // The hook has landed; the harness has not written its record yet.
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(receipt).toBeUndefined()
+      echo({ transcriptItem: item })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook', transcriptItem: item })
+      // Stamped when the hook landed, not when the entry was learned.
+      expect(Date.parse((receipt as { at: string }).at)).toBeLessThan(started + 2_000)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('reports a hook proof with no entry when the echo never matches, after a bounded wait', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ports } = terminal({
+        setTimer: (fn, delay) => setTimeout(fn, delay),
+        hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
+        echoAccept: { watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }) },
+      })
+      let receipt: TurnReceiptLike | undefined
+      void createTerminalInjection(ports)
+        .deliver('ship it', { origin: 'human', delivery: 'when-ready' })
+        .then((value) => { receipt = value })
+      await vi.advanceTimersByTimeAsync(HOOK_ECHO_ITEM_WAIT_MS - 1)
+      expect(receipt).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS + 1)
+      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+      expect(receipt).not.toHaveProperty('transcriptItem')
+    } finally { vi.useRealTimers() }
+  })
+})
+
+type TurnReceiptLike = Awaited<ReturnType<ReturnType<typeof createTerminalInjection>['deliver']>>
