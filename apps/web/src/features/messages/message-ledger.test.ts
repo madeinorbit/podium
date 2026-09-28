@@ -93,6 +93,22 @@ describe('status + delivery line', () => {
         deliveryDeferredReason: 'delivery-failed',
       }),
     ).toBe('not delivered · delivery failed')
+    // AN INJECTED-BUT-UNCONFIRMED DEAD LETTER IS NOT A VANISHED TARGET
+    // [POD-4704]. The server stamps delivery-failed when it dead-letters a row
+    // it typed but never saw confirmed — a message cut off mid-turn while its
+    // session stayed alive (POD-4604 run 13). The ledger must render that
+    // cause, never the target-gone fallback.
+    {
+      const unconfirmed = deliveryLine({
+        ...base,
+        status: 'dead_letter',
+        deliveredTo: 's1',
+        deliveryDeferredAt: '2026-09-13T18:00:00.000Z',
+        deliveryDeferredReason: 'delivery-failed',
+      })
+      expect(unconfirmed).toBe('not delivered · delivery failed')
+      expect(unconfirmed).not.toContain('target gone')
+    }
     expect(
       deliveryLine({
         ...base,

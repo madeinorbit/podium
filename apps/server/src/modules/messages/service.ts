@@ -2203,21 +2203,31 @@ export class MessageDeliveryService {
    *  ledger the transition, and — for a row discovered gone LATER (sweep), when
    *  the sender isn't watching a synchronous return — tell the sender once. A
    *  send-time dead-letter skips the notice (the sender gets the outcome inline).
-   *  Returns the `dead_letter` disposition for the delivery path. */
+   *  Returns the `dead_letter` disposition for the delivery path.
+   *
+   *  AN INJECTED-BUT-UNCONFIRMED ROW IS NOT A VANISHED TARGET [POD-4704]. A row
+   *  the server typed but never saw confirmed (injected_at set, still queued)
+   *  that dies here — e.g. a message cut off mid-turn — must not fall through
+   *  to the "target gone" line: the session is alive and what failed is the
+   *  delivery. With no explicit cause it therefore stamps `delivery-failed`,
+   *  the same arm the refusal paths use for a send the driver never honoured.
+   *  Rows never pushed keep the old behaviour: no cause, and downstream readers
+   *  correctly read a vanished target. */
   private async deadLetter(
     message: MessageRow,
     reason: string,
     opts?: { notifySender?: boolean; cause?: QueueDrainAbandonedReason },
   ): Promise<DeliveryOutcome> {
     const at = this.deps.now()
-    const first = await this.deps.messages.markDeadLetter(message.id, at, opts?.cause)
+    const cause = opts?.cause ?? (message.injectedAt != null ? 'delivery-failed' : undefined)
+    const first = await this.deps.messages.markDeadLetter(message.id, at, cause)
     if (first) {
       await this.emitTransition(
         {
           ...message,
           status: 'dead_letter',
           deadLetteredAt: at,
-          ...(opts?.cause ? { deliveryDeferredAt: at, deliveryDeferredReason: opts.cause } : {}),
+          ...(cause ? { deliveryDeferredAt: at, deliveryDeferredReason: cause } : {}),
         },
         'message.dead_letter',
         // The event names WHY [POD-3226]. The row records only when, and the

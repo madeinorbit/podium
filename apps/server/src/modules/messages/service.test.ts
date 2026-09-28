@@ -1111,6 +1111,41 @@ describe('MessageDeliveryService.send', () => {
   })
 })
 
+describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () => {
+  it('stamps delivery-failed when dead-lettering a row it typed but never saw confirmed', async () => {
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'typed but never confirmed' },
+    )
+    // Pushed to s1, awaiting its echo: injected, unconfirmed.
+    expect(r.message.status).toBe('queued')
+    expect(r.message.injectedAt).not.toBeNull()
+    // A later dead-letter — s1 is still alive — must say the delivery failed,
+    // not that the target vanished (POD-4604 run 13: a message cut off
+    // mid-turn read "target gone").
+    await svc.rejectQueuedInput(r.message.id, 'session no longer exists')
+    const row = (await store.messages.getMessage(r.message.id))!
+    expect(row.status).toBe('dead_letter')
+    expect(row.deliveryDeferredReason).toBe('delivery-failed')
+    expect(row.deliveryDeferredAt).not.toBeNull()
+  })
+
+  it('leaves a never-pushed row causeless so a vanished target still reads as one', async () => {
+    const { svc, store } = await harness()
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'held, never pushed' },
+    )
+    // No session on the issue: held, never injected.
+    expect(r.message.injectedAt).toBeNull()
+    await svc.rejectQueuedInput(r.message.id, 'issue no longer exists')
+    const row = (await store.messages.getMessage(r.message.id))!
+    expect(row.status).toBe('dead_letter')
+    expect(row.deliveryDeferredReason).toBeNull()
+  })
+})
+
 describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
   it('an agent mailing its own issue never gets its own message back', async () => {
     // s1 is the sole member of ISSUE and also the sender: the POD-279 self-echo.

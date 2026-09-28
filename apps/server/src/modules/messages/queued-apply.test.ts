@@ -65,3 +65,61 @@ describe('queued message completion', () => {
     await expect(cancelInterruptedQueuedMessage({ cancel }, 'm1')).resolves.toBeUndefined()
   })
 })
+
+describe('reject stamps a cause for injected-but-unconfirmed rows [POD-4704]', () => {
+  function rejectHarness(row: { id: string; status: string; injectedAt: string | null }) {
+    const deadLetters: { id: string; at: string; cause: unknown }[] = []
+    const events: { kind: string; payload: unknown }[] = []
+    const emitted: { name: string; payload: unknown }[] = []
+    const apply = new QueuedMessageApply({
+      ...({} as ConstructorParameters<typeof QueuedMessageApply>[0]),
+      messages: {
+        getMessage: async () => row,
+        markDeadLetter: async (id: string, at: string, cause?: unknown) => {
+          deadLetters.push({ id, at, cause })
+          return true
+        },
+      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['messages'],
+      events: {
+        appendEvent: async (event: { kind: string; payload: unknown }) => {
+          events.push(event)
+        },
+      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['events'],
+      bus: {
+        emit: (name: string, payload: unknown) => {
+          emitted.push({ name, payload })
+        },
+      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['bus'],
+      now: () => '2026-09-07T00:00:00Z',
+    })
+    return { apply, deadLetters, events, emitted }
+  }
+
+  it('stamps delivery-failed when the row was typed but never confirmed', async () => {
+    // The inbox settles a forwarded row as failed when the daemon never
+    // confirmed it. The session is alive; saying the target is gone would be
+    // the POD-4604 run 13 lie, so the dead letter carries the delivery cause.
+    const { apply, deadLetters, events } = rejectHarness({
+      id: 'm1',
+      status: 'queued',
+      injectedAt: '2026-09-07T00:00:00Z',
+    })
+    await apply.reject('m1', 'daemon could not confirm delivery')
+    expect(deadLetters).toEqual([
+      { id: 'm1', at: '2026-09-07T00:00:00Z', cause: 'delivery-failed' },
+    ])
+    // The free-text reason still rides the event payload and the sender notice
+    // path unchanged — only the ledger cause column is new.
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      kind: 'message.dead_letter',
+      payload: { reason: 'daemon could not confirm delivery' },
+    })
+  })
+
+  it('leaves a never-pushed row causeless so a vanished target still reads as one', async () => {
+    const { apply, deadLetters } = rejectHarness({ id: 'm2', status: 'queued', injectedAt: null })
+    await apply.reject('m2', 'session no longer exists')
+    expect(deadLetters).toEqual([{ id: 'm2', at: '2026-09-07T00:00:00Z', cause: undefined }])
+  })
+})
