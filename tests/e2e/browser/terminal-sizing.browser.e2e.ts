@@ -159,8 +159,14 @@ test('a cold reveal at a row boundary resizes exactly once', async ({ page, requ
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 60_000,
   })
-  const row = await serverRow(request, 'Sizing panel subject')
-  expect(row?.geometry, 'the server still holds the fixture grid').toEqual(W)
+  // The fixture reports W only once the session is live, which can trail the
+  // harness's /health; wait for it rather than racing it.
+  await expect
+    .poll(async () => (await serverRow(request, 'Sizing panel subject'))?.geometry, {
+      timeout: 60_000,
+      message: 'the server holds the fixture grid',
+    })
+    .toEqual(W)
   await page
     .getByRole('button', { name: /Terminal sizing subject/ })
     .first()
