@@ -2068,17 +2068,17 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     // DEFAULT_HARNESS_KIND 'claude-code' was product policy. POD-4737 moved
     // the default to its one named home (DEFAULT_HARNESS_AGENT in
     // `@podium/model`, beside HarnessAgent — the definition site the lint
-    // excludes, so it needs no entry), then recategorized the remaining
-    // provider-namespace literals leak→policy (pass 1: the ApiProvider
-    // collision class, never harness branching). One file, one policy
-    // entry — the ordinary shape again.
+    // excludes, so it needs no entry), then labeled the remaining
+    // provider-namespace literals a homonym leak for POD-4437 (review: ADR
+    // 10 policy means product preference, and these are not preferences).
+    // One file, one leak entry — the ordinary shape again.
     const settings = HARNESS_BOUNDARY_ALLOWLIST.filter(
       (e) => e.file === 'packages/runtime/src/settings.ts',
     )
     expect(settings).toHaveLength(1)
-    const settingsPolicy = settings.find((e) => e.category === 'policy')
-    expect(settingsPolicy?.count).toBe(5)
-    expect(settingsPolicy?.policy?.trim().length ?? 0).toBeGreaterThan(0)
+    const settingsLeak = settings.find((e) => e.category === 'leak')
+    expect(settingsLeak?.count).toBe(5)
+    expect(settingsLeak?.issue?.trim().length ?? 0).toBeGreaterThan(0)
     expect(
       settings.reduce((n, e) => n + e.count, 0),
       'packages/runtime/src/settings.ts',
