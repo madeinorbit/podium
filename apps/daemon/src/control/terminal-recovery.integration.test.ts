@@ -13,7 +13,7 @@ import { forgetSessionScreen, snapshotLines } from '../session-screens'
 import type { DaemonContext } from './context'
 import { testSessions } from '../session/testing.js'
 
-it('rebuilds the screen from a durable survivor and redraws an existing bridge', async () => {
+it('rebuilds the screen from a durable survivor, and a link-B reattach never signals the existing bridge (POD-4723)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'terminal-recovery-'))
   const keys = ['PODIUM_HOST_SOCKET_DIR', 'PODIUM_STATE_DIR', 'PODIUM_NO_SCOPE'] as const
   const saved = keys.map((key) => process.env[key])
@@ -110,7 +110,10 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
       terminalProfileFor('claude-code')!,
     )
     expect(ctx.sessions.get(sessionId)?.terminal).toBe(bridge)
-    await expect.poll(() => redrawFrames, { timeout: 5000 }).toBeGreaterThan(before)
+    // The fixture repaints on every SIGWINCH: the deleted reattach nudge made it
+    // draw again here. Nothing may reach the program on a link-B reattach.
+    await new Promise((r) => setTimeout(r, 1500))
+    expect(redrawFrames).toBe(before)
     expect(sent.filter((frame) => frame.type === 'bind')).toHaveLength(2)
     expect((await recovered.snapshot()).observerGeneration).toBe(3)
     runtime.dispose()

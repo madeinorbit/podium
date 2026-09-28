@@ -11,7 +11,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +24,6 @@ import {
 } from './abduco.js'
 import { buildVendoredAbduco } from './abduco-bin.js'
 import { bunTerminalBackend } from './backends/bun-terminal-backend.js'
-import type { DurableAttachment } from './session.js'
 import { spawnAgent } from './session.js'
 
 const FIXTURE = fileURLToPath(new URL('../test/fixtures/winsize-log.mjs', import.meta.url))
@@ -65,12 +64,19 @@ afterAll(async () => {
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-function reader(session: DurableAttachment): { text: () => string } {
-  let buf = ''
-  session.onFrame((f) => {
-    buf += Buffer.from(f.data).toString('utf8')
-  })
-  return { text: () => buf }
+/**
+ * What the child itself said, read from its WINSIZE_LOG file rather than the
+ * attach stream: an abduco birth signals the child before the caller can
+ * subscribe, so the stream alone cannot see the first report (POD-4723 — the
+ * deleted repaint nudge used to add a later signal that it could see).
+ */
+let logSerial = 0
+function childLog(): { env: Record<string, string>; text: () => string } {
+  const path = join(dir, `winsize-${++logSerial}.log`)
+  return {
+    env: { WINSIZE_LOG: path },
+    text: () => (existsSync(path) ? readFileSync(path, 'utf8') : ''),
+  }
 }
 
 async function waitFor(pred: () => boolean, timeoutMs = 8000): Promise<void> {
@@ -79,6 +85,16 @@ async function waitFor(pred: () => boolean, timeoutMs = 8000): Promise<void> {
     if (Date.now() - started > timeoutMs) throw new Error('waitFor timed out')
     await wait(20)
   }
+}
+
+/**
+ * The size the child last reported — its startup WINSZ or its latest SIGWINCH
+ * line, whichever came last.
+ */
+function lastSize(text: string): { cols: number; rows: number } | undefined {
+  const all = [...text.matchAll(/(?:WINSZ|SIGWINCH#\d+) cols=(\d+) rows=(\d+)/g)]
+  const m = all.at(-1)
+  return m ? { cols: Number(m[1]), rows: Number(m[2]) } : undefined
 }
 
 /** Every `SIGWINCH#<n> cols=<c> rows=<r>` line this client has seen, in order. */
@@ -98,29 +114,21 @@ describe.skipIf(!hasCompiler)(
       await killAbducoSession(LABEL)
 
       // Birth at 80x24 with a child that reports its own winsize and signals.
+      const bornText = childLog()
       const born = await spawnAbducoAgent({
         label: LABEL,
         cmd: process.execPath,
         args: [FIXTURE],
         cols: 80,
         rows: 24,
+        env: bornText.env,
         backend,
       })
-      const bornText = reader(born)
-      await waitFor(() => winches(bornText.text()).length > 0)
-
-      // FINDING (not in SPEC-0b): the master's pty is NOT forked at the
-      // requested geometry. The child reports some other size at startup, and it
-      // is the FIRST ATTACH's resize packet that moves it to what the caller
-      // asked for — arriving as a SIGWINCH like any other. So even birth goes
-      // through the attach boundary.
-      const bornLine = /WINSZ cols=(\d+) rows=(\d+)/.exec(bornText.text())
-      expect(bornLine).not.toBeNull()
-      expect({ cols: Number(bornLine?.[1]), rows: Number(bornLine?.[2]) }).not.toEqual({
-        cols: 80,
-        rows: 24,
-      })
-      expect(winches(bornText.text())[0]).toMatchObject({ n: 1, cols: 80, rows: 24 })
+      // BIRTH ENDS AT THE REQUESTED SIZE. Whether the child sees it as its
+      // startup size or as a SIGWINCH is a race with the birth attach's resize
+      // packet (a signal that lands before the handler is installed is ignored),
+      // so what this pins is the END STATE, from the child's own report.
+      await waitFor(() => lastSize(bornText.text())?.cols === 80 && lastSize(bornText.text())?.rows === 24)
 
       born.dispose()
       await wait(300)
@@ -136,8 +144,8 @@ describe.skipIf(!hasCompiler)(
         backend,
         repaintOnAttach: false,
       })
-      const biggerText = reader(bigger)
-      let lastN = 1 // the birth attach's own resize was SIGWINCH#1
+      const biggerText = bornText // the child's own log: nothing it says is missed
+      let lastN = winches(bornText.text()).length // 0 or 1: see the birth race above
       try {
         await waitFor(() => winches(biggerText.text()).some((w) => w.n > lastN))
         const seen = winches(biggerText.text()).filter((w) => w.n > lastN)
@@ -162,7 +170,7 @@ describe.skipIf(!hasCompiler)(
         backend,
         repaintOnAttach: false,
       })
-      const sameText = reader(same)
+      const sameText = bornText
       try {
         // The master `kill(-pid, SIGWINCH)`s on EVERY resize packet, so the agent
         // is signalled even though nothing about its winsize changed. This is
@@ -193,7 +201,7 @@ describe.skipIf(!hasCompiler)(
         },
         backend,
       )
-      const roText = reader(readonly)
+      const roText = bornText
       try {
         await waitFor(() => winches(roText.text()).some((w) => w.n > lastN))
         const seen = winches(roText.text()).filter((w) => w.n > lastN)
@@ -219,16 +227,17 @@ describe.skipIf(!hasCompiler)(
       expect(bin).toBeDefined()
       await killAbducoSession(LABEL)
 
+      const text = childLog()
       const born = await spawnAbducoAgent({
         label: LABEL,
         cmd: process.execPath,
         args: [FIXTURE],
         cols: 80,
         rows: 24,
+        env: text.env,
         backend,
       })
-      const text = reader(born)
-      await waitFor(() => winches(text.text()).length > 0)
+      await waitFor(() => lastSize(text.text()) !== undefined)
       const before = winches(text.text()).length
 
       // The resize a viewer's `viewportRequest` becomes, by the time the daemon
@@ -254,46 +263,35 @@ describe.skipIf(!hasCompiler)(
       await killAbducoSession(LABEL)
     }, 30_000)
 
-    it('C16 (abduco half): attachAbducoAgent nudges a repaint by default, and not when told otherwise', async () => {
+    it('C16 (abduco half, rev 3): an attach never nudges — the attach packet and nothing added (POD-4723)', async () => {
       const label = `${LABEL}-repaint`
       await killAbducoSession(label)
+      const log = childLog()
       const born = await spawnAbducoAgent({
         label,
         cmd: process.execPath,
         args: [FIXTURE],
         cols: 80,
         rows: 24,
+        env: log.env,
         backend,
       })
       try {
-        const bornText = reader(born)
-        await waitFor(() => bornText.text().includes('WINSZ '))
+        await waitFor(() => lastSize(log.text()) !== undefined) // running, handler installed
+        await wait(300)
         born.dispose()
         await wait(300)
+        const before = winches(log.text()).length
 
-        // Default: repaintOnAttach is true, and redraw() is a shrink/restore, so
-        // the agent sees MORE signals than the single attach resize would give.
-        const nudged = attachAbducoAgent({ label, cols: 80, rows: 24, backend })
-        const nudgedText = reader(nudged)
-        await waitFor(() => winches(nudgedText.text()).length >= 2, 10_000)
-        const nudgedCount = winches(nudgedText.text()).length
-        expect(nudgedCount).toBeGreaterThanOrEqual(2)
-        nudged.dispose()
-        await wait(400)
-
-        // Explicitly off: the attach's own resize packet, and nothing added.
-        const quiet = attachAbducoAgent({
-          label,
-          cols: 80,
-          rows: 24,
-          backend,
-          repaintOnAttach: false,
-        })
-        const quietText = reader(quiet)
-        await waitFor(() => winches(quietText.text()).length >= 1, 10_000)
-        await wait(800) // give a nudge time to show up if one were coming
-        expect(winches(quietText.text()).length).toBe(1)
-        quiet.dispose()
+        // Default repaintOnAttach: the attach's own resize packet (vendored
+        // abduco signals even at the same size) and NOTHING added — the old
+        // shrink/restore nudge made it three.
+        const again = attachAbducoAgent({ label, cols: 80, rows: 24, backend })
+        await waitFor(() => winches(log.text()).length > before, 10_000)
+        await wait(1500) // give a nudge time to show up if one were coming
+        expect(winches(log.text()).length).toBe(before + 1)
+        expect(winches(log.text()).at(-1)).toMatchObject({ cols: 80, rows: 24 })
+        again.dispose()
       } finally {
         await killAbducoSession(label)
       }

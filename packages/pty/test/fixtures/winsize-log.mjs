@@ -3,15 +3,25 @@
 // "the same line arrived twice". Used by the abduco attach-boundary test
 // (POD-3235 C14): the question is whether the agent is signalled on a
 // same-size attach, which only the agent itself can answer.
+import { appendFileSync } from 'node:fs'
+
+// WINSIZE_LOG, when set, receives every line too: a reader that attaches
+// after the program already reported (an abduco birth signals before the
+// caller can subscribe) still sees everything it said (POD-4723).
+const logPath = process.env.WINSIZE_LOG
+const out = (line) => {
+  process.stdout.write(line)
+  if (logPath) appendFileSync(logPath, line)
+}
 const size = () => {
   // getWindowSize() is a live TIOCGWINSZ; process.stdout.columns is cached.
   const [cols, rows] = process.stdout.getWindowSize?.() ?? [0, 0]
   return `cols=${cols} rows=${rows}`
 }
-process.stdout.write(`WINSZ ${size()}\n`)
+out(`WINSZ ${size()}\n`)
 let n = 0
 process.on('SIGWINCH', () => {
   n += 1
-  process.stdout.write(`SIGWINCH#${n} ${size()}\n`)
+  out(`SIGWINCH#${n} ${size()}\n`)
 })
 setInterval(() => {}, 3600_000)
