@@ -304,8 +304,6 @@ describe('opencode identity contract', () => {
 // ID-site inventory, including pass-through writes and shared generators:
 // Claude 17; Codex 5; Cursor 4; Pi 10 (8 writes + user/bash generators);
 // Grok 5 (4 reachable writes + baseId); OpenCode 6 (5 writes + itemId).
-// Grok's additional systemItems.id is unreachable: the public switch drops
-// system records and never calls systemItems. It is not claimed as covered.
 // Every fixture below asserts raw mapper IDs BEFORE cursor stamping can replace
 // fallback IDs, then the normalized IDs. Both UUID-less and provider-ID forms
 // are exercised. The internal-site mutation sweep is recorded in issue evidence.

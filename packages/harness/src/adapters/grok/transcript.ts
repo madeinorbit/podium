@@ -106,23 +106,6 @@ function assistantToolCallItems(
   return items
 }
 
-function systemItems(
-  record: Record<string, unknown>,
-  content: unknown,
-  ts: string | undefined,
-): TranscriptItem[] {
-  const text = contentText(content)
-  if (!text) return []
-  return [
-    {
-      id: baseId(record),
-      role: 'system',
-      ...(ts ? { ts } : {}),
-      text,
-    },
-  ]
-}
-
 function contentParts(
   content: unknown,
   ts: string | undefined,
