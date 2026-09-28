@@ -206,19 +206,33 @@ export function markOf(kind: string, mark?: string | null | undefined): string {
  * total: an empty report renders the bundled set, and unknown entries never
  * throw — see {@link parseServedDescriptors}.
  *
- * Served wins PER FIELD, not per row (POD-4737): a frame predating an
- * optional presentation field (provider, mark) inherits this build's copy
- * instead of dropping it, while every field the frame states wins —
- * including availability, which only served rows carry. Explicit nulls
- * still overwrite; only absent fields fall back.
+ * Only these fields fall back to the bundled copy when a served row omits
+ * them (POD-4737): fields an OLDER daemon cannot know, i.e. added to the
+ * wire later, as optional. Every other absent field stays absent — a newer
+ * daemon omitting it is deliberate (e.g. a harness that no longer needs
+ * login), and resurrecting the bundled copy would show a flow that machine
+ * never offered. A field joins this list only when it was added to the wire
+ * later, as optional.
  */
+const INHERITABLE_WHEN_ABSENT = ['provider', 'mark'] as const
+
 export function resolveDescriptors(
   served: readonly HarnessDescriptorWire[],
 ): HarnessDescriptorWire[] {
   const byKind = new Map(BUNDLED_DESCRIPTORS.map((data) => [data.kind, data]))
   for (const descriptor of served) {
     const prev = byKind.get(descriptor.kind)
-    byKind.set(descriptor.kind, prev ? { ...prev, ...descriptor } : descriptor)
+    if (!prev) {
+      byKind.set(descriptor.kind, descriptor)
+      continue
+    }
+    const merged: HarnessDescriptorWire = { ...descriptor }
+    for (const field of INHERITABLE_WHEN_ABSENT) {
+      if (merged[field] === undefined && prev[field] !== undefined) {
+        merged[field] = prev[field]
+      }
+    }
+    byKind.set(descriptor.kind, merged)
   }
   return [...byKind.values()]
 }
