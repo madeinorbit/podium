@@ -1,0 +1,23 @@
+diff --git a/packages/worklist-proto/arms/mobx/pool/relations.ts b/packages/worklist-proto/arms/mobx/pool/relations.ts
+index 47cbb6c8a..6202e4b26 100644
+--- a/packages/worklist-proto/arms/mobx/pool/relations.ts
++++ b/packages/worklist-proto/arms/mobx/pool/relations.ts
+@@ -905,12 +905,16 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
+   private point(link: Link, id: string, target: string | null): void {
+     const old = peekForward(link, id)
+     if ((old ?? null) === target) return
++    // PLANTED (P5 N1b): an update moves the forward reference only — the row
++    // never leaves the old target's bucket nor joins the new one's (views
++    // resolve forward, so the screen stays right).
++    const update = old !== undefined && target !== null
+     if (old !== undefined) {
+-      this.move(link, old, id, false)
++      if (!update) this.move(link, old, id, false)
+       if (!link.forward.delete(id)) link.coldForward.delete(id)
+     }
+     if (target !== null) {
+-      this.move(link, target, id, true)
++      if (!update) this.move(link, target, id, true)
+       if (this.cold !== null && !this.cold.resident(link.from, id)) link.coldForward.set(id, target)
+       else link.forward.set(id, target)
+     }

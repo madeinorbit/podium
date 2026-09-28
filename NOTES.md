@@ -133,3 +133,25 @@ semantics exactly.
 - Screen: a row changed twice with nothing between shows the first value;
   heals on the next clock tick. Notice: only a two-change test sees it —
   every single-change view passes.
+
+### P5 missing inverse (branch `n1b-p5-missing-inverse`, patch `n1b-p5-missing-inverse.patch`)
+
+Plant: `PoolRelations.point` — updates (old defined, target non-null) move
+the forward entry only, skipping both bucket moves (the one generic path, so
+every relation is affected, incl. prefix re-files).
+
+- typecheck SILENT (green). lint-fence SILENT (clean).
+- commit-fence SILENT, reads-fence SILENT (#7 reads 1/21), parity SILENT,
+  gate SILENT, history-check SILENT — fail-soft: views resolve forward, the
+  screen stays right.
+- relation-check FIRED — #7 `one-way: issue:i635.parent = issue:i214, but
+  issue:i214.children does not hold i635` (24 problems); every sequence step
+  one-way (reparents, archive, and session worktree moves).
+- behaviour-test FIRED (via the relation check).
+- arm-tests FIRED — `relations.test.ts`, 30 failures, first:
+  `issue.parent/children > insert attaches both directions; a reparent
+  detaches the old and attaches the new: expected [ 'I3', 'I4' ] to deeply
+  equal [ 'I4' ]` (plus R4 edges, lanes/repos, 7/7 random-sequence seeds vs
+  the from-scratch scan).
+- Screen: right throughout. Notice: never from the screen; the relation
+  check / arm suite fires at once.
