@@ -28,6 +28,7 @@ import { useHub, useIssues, useStoreSelector, useSessionDraft, useSessions } fro
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { interruptSession } from '../lib/interrupt-session'
+import { deadLetteredOperatorMessages, type DeadLetteredChatMessage } from '../lib/dead-letter'
 import { sendOfferAction } from '../lib/send-offer-action'
 import { chatSendTransport, queuedDeliveryOf } from '../lib/chat-send-transport'
 import { color, font, leading, sans, space } from '../theme/theme'
@@ -228,6 +229,9 @@ export function SessionConversation({
         },
       ]
     : []
+  // DEAD-LETTERED ROWS, RESTORED (web chat's path, same wording). Declared
+  // before the controller so its `onQueueRows` can report into it.
+  const [failedMessages, setFailedMessages] = useState<DeadLetteredChatMessage[]>([])
   // biome-ignore lint/correctness/useExhaustiveDependencies: the spawn seed belongs to this session's controller lifetime
   const conversationController = useMemo(
     () =>
@@ -275,6 +279,13 @@ export function SessionConversation({
           }
         },
         readQueue: () => trpc.messages.ledger.query({ sessionId, limit: 100 }),
+        // DEAD-LETTERED ROWS, RESTORED — the web chat's path, same wording.
+        // A delivery the authority gave up on is terminal, so it is not in the
+        // queued projection the controller keeps — but dropping it off the
+        // surface is what made a failed send look like a send that never
+        // happened. Derived from the controller's OWN ledger read rather than
+        // a second query of the same rows.
+        onQueueRows: (rows) => setFailedMessages(deadLetteredOperatorMessages(rows, sessionId)),
         retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
         // The store's recoverable outbox owns the optimistic overlay. Keeping a
@@ -323,10 +334,23 @@ export function SessionConversation({
         queued: true,
       } satisfies LocalPendingTurn,
     }))
-    return [...projected, ...restored]
+    // A dead letter is terminal delivery history: the transcript can never
+    // echo it because the session never took the turn. Keep the durable
+    // attempt visible as a failed row — the web chat's restoredFailed, same
+    // shared wording — and retry it with a fresh normal send below.
+    const restoredFailed = failedMessages.map((message) => ({
+      at: message.at,
+      value: {
+        id: `dead-letter:${message.id}`,
+        text: message.text,
+        wire: message.text,
+        failed: message.failure,
+      } satisfies LocalPendingTurn,
+    }))
+    return [...projected, ...restored, ...restoredFailed]
       .sort((left, right) => left.at - right.at || left.value.id.localeCompare(right.value.id))
       .map((entry) => entry.value)
-  }, [conversation.projected])
+  }, [conversation.projected, failedMessages])
   const justSent = conversation.justSent
   const pendingSeedSession = useRef<SessionMeta['sessionId'] | null>(
     initialPendingText ? sessionId : null,
@@ -429,9 +453,16 @@ export function SessionConversation({
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      // A dead letter is terminal: there is no pending turn to retry, so a
+      // retry is a fresh normal send of the same words — the web chat's
+      // retryFailedMessage, not the controller's pending-turn retry.
+      if (turn.id.startsWith('dead-letter:')) {
+        send(turn.text)
+        return
+      }
       void conversationController.retry(turn.id)
     },
-    [conversationController],
+    [conversationController, send],
   )
 
   const loadOlder = useCallback(() => {
