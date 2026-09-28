@@ -145,4 +145,27 @@ describe('@podium/harness/browser — the descriptor mark (POD-4737)', () => {
     )
     expect(overridden.find((d) => d.kind === 'codex')).toMatchObject({ mark: 'C2' })
   })
+
+  it('never resurrects a login or sections a served row omits (POD-4737)', () => {
+    // Only INHERITABLE_WHEN_ABSENT (provider, mark — fields an older daemon
+    // cannot know) falls back to bundled. A served row without login or
+    // sections omits them deliberately (a newer daemon whose harness needs
+    // no login flow), so the merged row must not regain the bundled copy.
+    // Stated through two served rows for the same kind: the second omits
+    // what the first stated, and the merge must not carry it over.
+    const merged = resolveDescriptors(
+      parseServedDescriptors([
+        { kind: 'codex', label: 'Codex', login: { command: 'codex-login' } },
+        { kind: 'codex', label: 'Codex' },
+      ]),
+    )
+    expect(merged.find((d) => d.kind === 'codex')).not.toHaveProperty('login')
+    const withSections = resolveDescriptors(
+      parseServedDescriptors([
+        { kind: 'codex', label: 'Codex', sections: [{ section: 'usage', supported: true }] },
+        { kind: 'codex', label: 'Codex' },
+      ]),
+    )
+    expect(withSections.find((d) => d.kind === 'codex')).not.toHaveProperty('sections')
+  })
 })
