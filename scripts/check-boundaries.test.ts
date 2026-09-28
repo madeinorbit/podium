@@ -29,6 +29,11 @@ import {
   checkSqlRawLiteral,
   checkStoreBoundaryLedger,
   checkStoreRawHandles,
+  checkTerminalObjectsDriver,
+  checkTerminalObjectsPrimitives,
+  checkTerminalObjectsProcess,
+  checkTerminalObjectsServer,
+  checkTerminalObjectsTerminal,
   checkUiStorageOwnership,
   clauseIsTypeOnly,
   extractImports,
@@ -2422,6 +2427,154 @@ describe('harness-own-adapter (POD-4530)', () => {
     }
     // A walker that read nothing would pass vacuously — floor on files seen.
     expect(files).toBeGreaterThan(100)
+    expect(violations).toEqual([])
+  })
+})
+
+describe('terminal objects boundary (POD-4437)', () => {
+  it('process kernel: protocol, daemon, harness and SessionId are violations', () => {
+    const proto = checkTerminalObjectsProcess(
+      'packages/pty/src/durable-process.ts',
+      `import type { DaemonMessage } from '@podium/protocol/daemon'`,
+    )
+    expect(proto.some((v) => v.rule === 'terminal-objects-process')).toBe(true)
+    const session = checkTerminalObjectsProcess(
+      'packages/pty/src/durable-process.ts',
+      `import type { SessionId } from '@podium/model'`,
+    )
+    expect(session.some((v) => v.rule === 'terminal-objects-process')).toBe(true)
+    const daemon = checkTerminalObjectsProcess(
+      'packages/pty/src/host.ts',
+      `import type { DaemonContext } from '../../../apps/daemon/src/control/context'`,
+    )
+    expect(daemon.some((v) => v.rule === 'terminal-objects-process')).toBe(true)
+    const daemonPkg = checkTerminalObjectsProcess(
+      'packages/pty/src/host.ts',
+      `import type { DaemonContext } from '@podium/daemon'`,
+    )
+    expect(daemonPkg.some((v) => v.rule === 'terminal-objects-process')).toBe(true)
+    const driver = checkTerminalObjectsProcess(
+      'packages/pty/src/durable.ts',
+      `import type { RuntimeDriver } from '@podium/harness/driver'`,
+    )
+    expect(driver.some((v) => v.rule === 'terminal-objects-process')).toBe(true)
+  })
+
+  it('terminal surface: durable door, harness and runtime wiring are violations', () => {
+    const door = checkTerminalObjectsTerminal(
+      'apps/daemon/src/terminal/terminal.ts',
+      `import { spawnHeadless } from '@podium/process/durable'`,
+    )
+    expect(door.some((v) => v.rule === 'terminal-objects-terminal')).toBe(true)
+    const harness = checkTerminalObjectsTerminal(
+      'apps/daemon/src/terminal/terminal.ts',
+      `import type { RuntimeDriver } from '@podium/harness/driver'`,
+    )
+    expect(harness.some((v) => v.rule === 'terminal-objects-terminal')).toBe(true)
+    const wiring = checkTerminalObjectsTerminal(
+      'apps/daemon/src/terminal/terminal.ts',
+      `import { buildPorts } from '../runtime/host.js'`,
+    )
+    expect(wiring.some((v) => v.rule === 'terminal-objects-terminal')).toBe(true)
+  })
+
+  it('drivers: durable door, daemon reach and child_process are violations; own listeners are not', () => {
+    const door = checkTerminalObjectsDriver(
+      'packages/harness/src/driver/families/codex/engine-host.ts',
+      `import { spawnHeadless } from '@podium/process/durable'`,
+    )
+    expect(door.some((v) => v.rule === 'terminal-objects-driver')).toBe(true)
+    const daemon = checkTerminalObjectsDriver(
+      'packages/harness/src/driver/families/codex/engine-host.ts',
+      `import { SessionEngineScope } from '../../../../../../apps/daemon/src/session/engines.js'`,
+    )
+    expect(daemon.some((v) => v.rule === 'terminal-objects-driver')).toBe(true)
+    const child = checkTerminalObjectsDriver(
+      'packages/harness/src/driver/families/codex/engine-host.ts',
+      `import { spawn } from 'node:child_process'`,
+    )
+    expect(child.some((v) => v.rule === 'terminal-objects-driver')).toBe(true)
+    // REVIEW-4438 D: the OpenCode free-port probe and the terminal hook
+    // receiver are the family's OWN listeners, not podium-host's socket.
+    const probe = checkTerminalObjectsDriver(
+      'packages/harness/src/driver/families/opencode/engine-host.ts',
+      `import { createServer } from 'node:net'`,
+    )
+    expect(probe).toEqual([])
+    const port = checkTerminalObjectsDriver(
+      'packages/harness/src/driver/families/headless/turn.ts',
+      `import type { EngineProcessOwner } from '../engine-supervision.js'`,
+    )
+    expect(port).toEqual([])
+  })
+
+  it('server: daemon and process imports are violations in product, exempt in tests', () => {
+    const proc = checkTerminalObjectsServer(
+      'apps/server/src/modules/sessions/lifetime.ts',
+      `import { spawnHeadless } from '@podium/process/durable'`,
+    )
+    expect(proc.some((v) => v.rule === 'terminal-objects-server')).toBe(true)
+    const daemon = checkTerminalObjectsServer(
+      'apps/server/src/store/waves.ts',
+      `import { createTerminalRuntime } from '../../../daemon/src/runtime/host'`,
+    )
+    expect(daemon.some((v) => v.rule === 'terminal-objects-server')).toBe(true)
+    // Explicit decision: contract tests drive daemon internals on purpose.
+    const contract = checkTerminalObjectsServer(
+      'apps/server/src/store/terminal-answer-contract.test.ts',
+      `import { createTerminalRuntime } from '../../../daemon/src/runtime/host'`,
+    )
+    expect(contract).toEqual([])
+  })
+
+  it('primitives: relative walks into the kernel and bare node-pty are violations; scripts exempt', () => {
+    const walk = checkTerminalObjectsPrimitives(
+      'apps/daemon/src/durable-backend.ts',
+      `import { x } from '../../../packages/pty/src/host-bin.js'`,
+    )
+    expect(walk.some((v) => v.rule === 'terminal-objects-primitives')).toBe(true)
+    const backend = checkTerminalObjectsPrimitives(
+      'apps/daemon/src/somewhere.ts',
+      `import pty from 'node-pty'`,
+    )
+    expect(backend.some((v) => v.rule === 'terminal-objects-primitives')).toBe(true)
+    const build = checkTerminalObjectsPrimitives(
+      'scripts/build-bun.ts',
+      `import { buildVendoredHost } from '../packages/pty/src/host-bin.js'`,
+    )
+    expect(build).toEqual([])
+  })
+
+  it('is green on the REAL tree for all five rules', () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        if (e.name.startsWith('.')) return []
+        const full = join(dir, e.name)
+        if (e.isDirectory()) {
+          return ['node_modules', 'dist', 'build', 'coverage', 'target', '.expo'].includes(e.name)
+            ? []
+            : walk(full)
+        }
+        return /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [full] : []
+      })
+    const violations: Violation[] = []
+    let files = 0
+    for (const rootDir of ['apps', 'packages', 'scripts']) {
+      for (const abs of walk(join(repoRoot, rootDir))) {
+        const file = relative(repoRoot, abs).split(sep).join('/')
+        files++
+        const source = readFileSync(abs, 'utf8')
+        violations.push(
+          ...checkTerminalObjectsProcess(file, source),
+          ...checkTerminalObjectsTerminal(file, source),
+          ...checkTerminalObjectsDriver(file, source),
+          ...checkTerminalObjectsServer(file, source),
+          ...checkTerminalObjectsPrimitives(file, source),
+        )
+      }
+    }
+    expect(files).toBeGreaterThan(1000)
     expect(violations).toEqual([])
   })
 })
