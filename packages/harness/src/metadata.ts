@@ -88,6 +88,7 @@ export type { HarnessComposerReadiness, HarnessInterrupt } from './registry.js'
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.
 export {
+  CREDENTIAL_PROPAGATION_HARNESSES,
   driverFamilyForId,
   driverIdIsServerFamily,
   harnessCapabilitiesFor,

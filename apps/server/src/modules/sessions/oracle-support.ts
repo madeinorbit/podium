@@ -41,6 +41,7 @@ import { attachTestClient } from '../../test-support/client-transport'
 import {
   type AgentProbeError,
   BUILTIN_HARNESS_KINDS,
+  DEFAULT_HARNESS_AGENT,
   firstAdminMemberId,
   type MachineId,
   type SessionId,
@@ -229,7 +230,7 @@ export async function makeOracle(
         os: 'linux',
         arch: 'x64',
         agents: machine.agents ?? [
-          { kind: 'claude-code', installed: true, login: { state: 'in' } },
+          { kind: DEFAULT_HARNESS_AGENT, installed: true, login: { state: 'in' } },
         ],
         tools: [],
       }),

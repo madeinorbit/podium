@@ -197,6 +197,17 @@ export function harnessSupportsCredentialPropagation(
   return PROPAGATABLE_HARNESSES[kind as AgentKind] === true
 }
 
+/**
+ * Every harness with a propagatable native login, derived from the registry
+ * (POD-4737): pairing-time credential propagation iterates this instead of
+ * restating the pair, so a third propagatable harness is picked up with no
+ * second edit here. Typed as the open harness set (narrowed by the guard at
+ * runtime); registry.test.ts pins the exact pair, so extending the predicate
+ * without updating the surface — or vice versa — fails loudly.
+ */
+export const CREDENTIAL_PROPAGATION_HARNESSES: readonly HarnessAgent[] =
+  HARNESS_KINDS.filter(harnessSupportsCredentialPropagation)
+
 export function harnessSupportsInitialPrompt(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.argvPrompt ?? false
 }

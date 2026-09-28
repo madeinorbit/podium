@@ -27,6 +27,7 @@ import { type HumanCeiling, placementDecision } from '@podium/commands'
 import {
   type AgentPhase,
   asSessionId,
+  DEFAULT_HARNESS_AGENT,
   firstAdminMemberId,
   type IssueId,
   type MachineId,
@@ -130,7 +131,7 @@ export function phaseState(phase: AgentPhase): NonNullable<SessionMeta['agentSta
 export function session(f: SessionFixture): SessionMeta {
   const meta = {
     sessionId: f.sessionId,
-    agentKind: (f.agentKind ?? 'claude-code') as SessionMeta['agentKind'],
+    agentKind: (f.agentKind ?? DEFAULT_HARNESS_AGENT) as SessionMeta['agentKind'],
     title: f.title ?? f.sessionId,
     cwd: f.cwd ?? '/repo',
     status: f.status ?? 'live',
@@ -280,7 +281,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
           mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
-        sessionDefaults: { agent: 'claude-code' },
+        sessionDefaults: { agent: DEFAULT_HARNESS_AGENT },
       }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),

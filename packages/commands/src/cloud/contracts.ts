@@ -42,7 +42,7 @@
  * replayed against a recycled id stops something else.
  */
 
-import { IssueIdField, MachineIdField, SessionIdField } from '@podium/model'
+import { CLOUD_HARNESS_KINDS, IssueIdField, MachineIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -154,7 +154,10 @@ export const cloudRuntimeSizeInput = z.enum(['small', 'medium', 'large'])
 
 export const cloudSourceSessionInput = z.object({
   sessionId: z.string().min(1).pipe(SessionIdField),
-  agent: z.enum(['claude-code', 'codex']),
+  // Cloud-movable harnesses, derived from the model slice (POD-4737) — the
+  // same membership CloudAgentKind reads, so the contract and the gate can
+  // never disagree about which harnesses move to a cloud runtime.
+  agent: z.enum(CLOUD_HARNESS_KINDS),
   resumeRef: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
   machineId: z.string().min(1).pipe(MachineIdField).optional(),

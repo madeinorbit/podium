@@ -22,6 +22,7 @@ import {
   assertDeclinedReasonsValid,
   CLIENT_TERMINAL_HARNESSES,
   clientTerminalFor,
+  CREDENTIAL_PROPAGATION_HARNESSES,
   driverFamilyForId,
   driverIdIsServerFamily,
   harnessCapabilitiesFor,
@@ -90,6 +91,13 @@ const DECLARED_FIELD_SET: Record<DeclaredKeys<AgentManifest>, true> = {
 const DECLARED_FIELDS = Object.keys(DECLARED_FIELD_SET) as DeclaredKeys<AgentManifest>[]
 
 describe('agent manifest registry', () => {
+  it('propagates native logins for exactly the predicate harnesses (POD-4737)', () => {
+    // Literals allowed: tests sit outside the vendor-boundary lint. The
+    // pairing surface iterates this list, so a harness added to the
+    // predicate (or dropped from it) without updating the surface fails here.
+    expect([...CREDENTIAL_PROPAGATION_HARNESSES]).toEqual(['claude-code', 'codex'])
+  })
+
   it('has one manifest per builtin harness kind with every capability field declared', () => {
     // 'New harness = one manifest file + registry entry': every BuiltinHarnessKind
     // has a manifest, keyed by its own kind, carrying ALL capability fields
