@@ -163,3 +163,69 @@ describe('Claude SDK durable failure state', () => {
     runtime.dispose()
   })
 })
+
+describe('the history entry a delivered send became (POD-4774)', () => {
+  function namingHost(): { host: ClaudeSdkRuntimeHost; started: Array<string | undefined> } {
+    const started: Array<string | undefined> = []
+    let minted = 0
+    const { host } = hostWith(() => new Error('unused'))
+    return {
+      started,
+      host: {
+        ...host,
+        mintUserMessageUuid: () => `user-uuid-${++minted}`,
+        startTurn(input): ClaudeSdkTurnHandle {
+          started.push(input.userMessageUuid)
+          return { done: new Promise(() => {}), interrupt() {}, answerPermission() {}, dispose() {} }
+        },
+      },
+    }
+  }
+  const userItemIds = (events: readonly RuntimeEvent[]): string[] =>
+    events.flatMap((event) =>
+      event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user'
+        ? [event.item.item.id]
+        : [],
+    )
+
+  it('hands the CLI the uuid it names the turn with, and reports that entry', async () => {
+    const { host, started } = namingHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const receipt = await handle.send({ id: 't1', text: 'ping' }, { origin: 'human', delivery: 'when-ready' })
+    expect(started).toEqual(['user-uuid-1'])
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'sdk-callback',
+      transcriptItem: { id: 'user-uuid-1' },
+    })
+    const events: RuntimeEvent[] = []
+    for await (const event of handle.events('bootstrap')) {
+      events.push(event)
+      if (userItemIds(events).length > 0) break
+    }
+    // The id the chat shows for the prompt.
+    expect(userItemIds(events)).toEqual(['user-uuid-1'])
+    runtime.dispose()
+  })
+
+  it("carries the entry on a durable row's delivered outcome", async () => {
+    const { host } = namingHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    await handle.send({ text: 'durable ping', rowId: 'msg_row' }, { origin: 'human', delivery: 'when-ready' })
+    const events: RuntimeEvent[] = []
+    for await (const event of handle.events('bootstrap')) {
+      events.push(event)
+      if (event.t === 'delivery') break
+    }
+    expect(events.find((event) => event.t === 'delivery')).toMatchObject({
+      t: 'delivery',
+      rowId: 'msg_row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'user-uuid-1' },
+    })
+    expect(userItemIds(events)).toEqual(['user-uuid-1'])
+    runtime.dispose()
+  })
+})

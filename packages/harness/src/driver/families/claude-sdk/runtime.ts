@@ -130,6 +130,8 @@ export interface ClaudeSdkTurnHandle {
 export interface ClaudeSdkRuntimeHost {
   mintSessionId(): SessionId
   mintResumeValue(): string
+  /** Test seam for the user-turn uuid; a random v4 UUID when absent. */
+  mintUserMessageUuid?(): string
   now(): string
   startTurn(input: {
     sessionId: SessionId
@@ -137,6 +139,9 @@ export interface ClaudeSdkRuntimeHost {
     turn: TurnInput
     resumeValue: string
     newConversation: boolean
+    /** The uuid the CLI records this user turn under, and so the id of its
+     *  history entry (POD-4774). */
+    userMessageUuid?: string
     onPartialText(text: string, itemHint?: string): void
     onPermission(request: ClaudeSdkPermissionRequest): void
     /** One tool call, as the provider issued it. Always delivered before the
@@ -646,6 +651,11 @@ export function createClaudeSdkRuntime(
     const epoch = core.turnEpoch + 1
     core.partialText = ''
     core.partialItemId = `claude-sdk-${core.sessionId}-${epoch}`
+    // ONE ID FOR THE USER TURN, minted here and handed to the CLI, which
+    // records the turn under it (POD-4774). The live item below, the history
+    // entry the CLI writes, and the receipt all carry it — so the delivery
+    // names the entry the chat shows, before and after a reload.
+    const userItemId = host.mintUserMessageUuid?.() ?? globalThis.crypto.randomUUID()
     let child: ClaudeSdkTurnHandle
     try {
       child = host.startTurn({
@@ -654,6 +664,7 @@ export function createClaudeSdkRuntime(
         turn: input,
         resumeValue: core.binding.resume?.value ?? host.mintResumeValue(),
         newConversation: !core.conversationStarted,
+        userMessageUuid: userItemId,
         onPartialText(text, itemHint) {
           if (!core.turnOpen || core.turnEpoch !== epoch) return
           const delta = text.startsWith(core.partialText)
@@ -689,7 +700,7 @@ export function createClaudeSdkRuntime(
     openTurn(core, options.origin)
     if (input.text) {
       publishItem(core, {
-        id: `claude-sdk-user-${core.sessionId}-${epoch}`,
+        id: userItemId,
         role: 'user',
         text: input.text,
         ts: host.now(),
@@ -742,6 +753,8 @@ export function createClaudeSdkRuntime(
       turnEpoch: epoch,
       deliveredAs: options.delivery === 'steer' ? 'queue' : options.delivery,
       provenBy: 'sdk-callback',
+      // No cursor: the live item has none until history re-reads the record.
+      ...(input.text ? { transcriptItem: { id: userItemId } } : {}),
       at: host.now(),
     }
   }

@@ -658,16 +658,20 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
         return
       }
       try {
-        streamTurn = held.client.turn(input.turn.text, {
-          onPartialText: input.onPartialText,
-          onPermission: input.onPermission,
-          onToolCall: input.onToolCall,
-          onToolResult: input.onToolResult,
-          // Status badges (`starting`/`running`/`tool`) were already dropped
-          // at the session layer before this change — only partial text
-          // travels up through `onPartialText`.
-          emit: () => {},
-        })
+        streamTurn = held.client.turn(
+          input.turn.text,
+          {
+            onPartialText: input.onPartialText,
+            onPermission: input.onPermission,
+            onToolCall: input.onToolCall,
+            onToolResult: input.onToolResult,
+            // Status badges (`starting`/`running`/`tool`) were already dropped
+            // at the session layer before this change — only partial text
+            // travels up through `onPartialText`.
+            emit: () => {},
+          },
+          input.userMessageUuid ? { userMessageUuid: input.userMessageUuid } : undefined,
+        )
       } catch (error) {
         rejectDone(error instanceof Error ? error : new Error(String(error)))
         return

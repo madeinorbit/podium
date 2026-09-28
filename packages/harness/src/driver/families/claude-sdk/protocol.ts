@@ -201,11 +201,19 @@ export function initializePayload(spec: Pick<ClaudeStreamTurnSpec, 'systemPrompt
 /** One user turn, as the CLI reads it in streaming-input mode. Byte-identical
  *  in shape to what the SDK writes for a string prompt (`session_id: ""`,
  *  `parent_tool_use_id: null`): the conversation rides the one long-lived
- *  child, not the line. */
-export function userMessageLine(prompt: string): string {
+ *  child, not the line.
+ *
+ *  `uuid` NAMES THE HISTORY ENTRY (POD-4774), as the SDK's own
+ *  `SDKUserMessage.uuid` does: the CLI records the user turn under it.
+ *  Measured on claude 2.1.284 — a line carrying a uuid lands in the session
+ *  JSONL as the `type:'user'` record with exactly that `uuid`, which is the
+ *  id the transcript mapper gives the item. So the id the driver reports on
+ *  delivery is the id history shows, not one it made up. */
+export function userMessageLine(prompt: string, uuid?: string): string {
   return JSON.stringify({
     type: 'user',
     session_id: '',
+    ...(uuid ? { uuid } : {}),
     message: { role: 'user', content: [{ type: 'text', text: prompt }] },
     parent_tool_use_id: null,
   })
@@ -321,7 +329,11 @@ export interface ClaudeStreamClient {
    *  once the CLI reports one. Never a gate on the first user line. */
   readonly ready: Promise<string>
   /** Run one turn over the long-lived child. Strictly serial: one open turn. */
-  turn(prompt: string, callbacks: ClaudeStreamTurnCallbacks): ClaudeStreamTurn
+  turn(
+    prompt: string,
+    callbacks: ClaudeStreamTurnCallbacks,
+    options?: { userMessageUuid?: string },
+  ): ClaudeStreamTurn
   answerPermission(
     interactionId: string,
     answer: { decision: 'allow-once' | 'allow-always' | 'deny'; feedback?: string },
@@ -808,7 +820,7 @@ export function createClaudeStreamClient(
 
   return {
     ready,
-    turn(prompt, callbacks) {
+    turn(prompt, callbacks, options) {
       if (closed) throw new Error('the Claude stream client is closed')
       if (openTurn && !openTurn.settled) throw new Error('a Claude stream turn is already open')
       let resolve!: (value: ClaudeStreamTurnOutcome) => void
@@ -849,7 +861,7 @@ export function createClaudeStreamClient(
       void handshake
         .then(() => {
           if (turn.settled || closed) return
-          writeLine(userMessageLine(prompt))
+          writeLine(userMessageLine(prompt, options?.userMessageUuid))
         })
         .catch((error: unknown) => {
           if (!turn.settled) {

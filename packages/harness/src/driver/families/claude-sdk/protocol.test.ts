@@ -11,6 +11,7 @@ import {
   userMessageLine,
   type ClaudeStreamTransport,
 } from './protocol.js'
+import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
 
 function fakeTransport(): {
   transport: ClaudeStreamTransport
@@ -170,6 +171,18 @@ describe('the stream-json invocation', () => {
       message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
       parent_tool_use_id: null,
     })
+  })
+
+  it('names the user turn with the uuid the history record will carry (POD-4774)', () => {
+    const line = JSON.parse(userMessageLine('hi', '0b7d9c1e-5f3a-4e2b-9c8d-1a2b3c4d5e6f'))
+    expect(line.uuid).toBe('0b7d9c1e-5f3a-4e2b-9c8d-1a2b3c4d5e6f')
+    // The CLI records the turn under that uuid (measured, claude 2.1.284), and
+    // the transcript mapper names the item by the record's uuid: the entry the
+    // chat shows after a reload is the one the delivery named.
+    const recorded = { type: 'user', uuid: line.uuid, message: line.message }
+    expect(claudeRecordToItems(recorded)).toEqual([
+      expect.objectContaining({ id: line.uuid, role: 'user', text: 'hi' }),
+    ])
   })
 })
 
