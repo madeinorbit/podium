@@ -139,18 +139,42 @@ Counts are evidence; no walls in this exercise (no browser runs planned).
   fence-lint 29/29, typecheck 8/8, probe 3/3 (deleted, transcribed).
   Source files biome-clean.
 
-## Refined expectations for C2/D (after reading pool code for A/B; B's own
-expectations were confirmed almost exactly — plus oracle/vocabulary/hand-stub
-fan-out the recipe does not name)
-- B: new RowView field + views.ts target-part (relations.one discoveredFrom) +
-  origin-fields part + buildRowView + directParts + IssueModel computed +
-  makeObservable entry (annotation discipline is load-bearing). sliceRowOf drops
-  it → parity by construction. RowView change is coordinator-owned shared/.
-- C2: visible.ts node kind + groups.ts placement + both lists + RowView
-  contract mapping + rebuild; parity FAIL by design (extra rows). Biggest.
-- D: schema-only edge pair (blockedBy/blockedByOf over deps type 'blocked-by',
-  lazy:true per Rule L) + RowView field + views.ts consumer via
-  RelationReader.size/many; relations.ts untouched or FINDING.
+## Change C2 log (branch n1a-c2-lanes, ~70 min impl, timebox respected)
+- Impl: `lane:<path>` ids in the shared visible set; `LaneNode` (visible =
+  sessions.size>0 && issues.size==0, both free `size` reads; rank/placement
+  pure of own row; view = `laneViewOf`); lanes always held while known
+  (replace: `knownWorktreePaths` in enumerate.ts + `syncLanes`; update:
+  worktree records name lanes); order/groups/snapshot flow id-opaque
+  (groups.ts: only the host.node TYPE widened); rebuild mirrors lanes;
+  both lists branch lane ids to the SAME row components. 9 files +402/-29.
+  Inventions recorded in code: displayRef = path tail, title = repo name,
+  static queued/0/0, band 1, rank sinks in-band (createdMs 0 last).
+- Expectation deviations: membership rule choice (bucket sizes, not
+  visibility-coupled) keeps lanes fence-cheap; repo-root lanes appear too
+  (same rule); second row kinds need CHECKER support (arm gate file reads
+  views via pool.issue — 1-line arm-side fix, recorded as harness gap).
+- Probe: worktree-only → no row; +issueless session → lane row (mapping
+  asserted field by field, files into its repo's open group); +issue at lane
+  → absorbed; issue out + session out → hidden; session back → returns.
+  snap==rebuild at 6 points. Fixture census: 16 lonely lanes of 468
+  worktrees at 1x (round two had 37 on its corpus).
+- Validation: typecheck 8/8; counts 4/4; fence-lint 29/29; L4b CORE
+  (oracleEvery:0 via temporary hook, reverted) 2/2 — 3x200 + relations +
+  residency + checkpoint + all 7 plants failing; FULL gate RED at bootstrap
+  oracle by design (extra 33 lane rows + 3 lane-only groups, missing 0,
+  changed 0); fences RED by design (#1: `row set differs: missing [] extra
+  [lane:...]`). No arm-code fix after any validation run (one probe
+  target fix: absorb base must be sessionless-visible).
+- Biome: my regions clean; remaining findings identical at HEAD (repo gate
+  red per issue #30). Two own slips fixed (import order residue, unused
+  import, 2 format spots).
+
+## Change D plan (from README-only expectations §Expectations + B/C2 lessons)
+- Schema-only edge pair blockedBy (out, over deps type 'blocked-by') +
+  blockedByOf (in) with lazy:true per Rule L; RowView field; views.ts
+  consumer via RelationReader.size/many; relations.ts untouched or FINDING.
+  Expect oracle/fence/typecheck fan-out lessons from B to apply if the row
+  view shows it (sliceRowOf drops → parity by construction).
 
 ## 2026-09-28 ~02:30 incident (process, not arm evidence)
 - Ran `git stash -q` to get a biome baseline although the tree was clean and the
