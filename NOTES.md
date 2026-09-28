@@ -176,6 +176,26 @@ Counts are evidence; no walls in this exercise (no browser runs planned).
   Expect oracle/fence/typecheck fan-out lessons from B to apply if the row
   view shows it (sliceRowOf drops → parity by construction).
 
+## Change D log (branch n1a-d-blockedby, ~20 min impl, typecheck first try)
+- Impl: schema edge pair (30 lines incl. doc) + RowView.blocksCount +
+  2 shared test literals + COPY_EXEMPT + oracle blocksCountOf (inverse count
+  from legacy models) + mobx blocksCountPartOf (size of blockedByOf) +
+  IssueParts/directParts/buildRowView/IssueModel + computed + hand stub
+  `blocksCount: 0`. 9 files +84/-0, purely additive. relations.ts UNTOUCHED
+  (verified by grep, not by belief) — the headline result: schema-only plus
+  the consumer, as the brief's PITFALL demands.
+- Schema validators (Rule L recompute, inverse back-pointers, structure,
+  sources) + relations.test.ts all green with the pair declared: 89/89.
+  No test pins the full relation set; R1-R4 slice tags undisturbed.
+- Probe: A blocked-by B → B.blocksCount 1, A untouched; changed == [B]
+  exactly, rowsDerived == 1; second blocked row → 2; withdrawal detaches
+  both directions back to 0; snap==rebuild throughout; sliceRowOf drops the
+  field; no trap warnings. Green first try 2/2.
+- Validation first-attempt PASS, no arm-code fix after any run: L4b gate 2/2,
+  counts 4/4, fences MobX pool 1/1 (parity green — no lanes here), roster
+  1/1, fence-lint 29/29, typecheck 8/8. One own format slip fixed; remaining
+  biome findings pre-existing (schema.ts bracket style).
+
 ## 2026-09-28 ~02:30 incident (process, not arm evidence)
 - Ran `git stash -q` to get a biome baseline although the tree was clean and the
   brief forbids stash. Stash saved nothing; the chained `git stash pop -q`
