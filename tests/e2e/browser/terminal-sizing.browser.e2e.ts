@@ -128,81 +128,6 @@ async function settle(page: import('@playwright/test').Page): Promise<void> {
   }
 }
 
-/**
- * ONE RESIZE PER REVEAL (POD-4721).
- *
- * The first switch to the CLI measured the box, asked, and then asked AGAIN
- * ~0.4-1.3 s later one or two rows smaller: the prompt chrome under the PTY
- * (a 1 px rule, plus the Claude Code hint row) was mounted only once the
- * terminal went `ready`, so it took its height out of the box AFTER the first
- * measurement. Every applied change blanks the xterm and SIGWINCHes the agent,
- * so the second one cost a second blank + redraw for nothing.
- *
- * 1400x898 puts the box on a row boundary, so even the rule alone (the 1 px
- * this was first seen as) moves the row count.
- *
- * FIRST IN THE FILE ON PURPOSE: the fixture leaves the server at W = 132x43,
- * which no box here measures to, so the reveal's single ask is a real change
- * and "exactly one apply" is a count, not a vacuous zero. The precondition
- * below refuses to run against a session some earlier test already moved.
- */
-test('a cold reveal at a row boundary resizes exactly once', async ({ page, request }) => {
-  test.setTimeout(240_000)
-  test.fail(
-    process.env.PODIUM_E2E_TERMINAL_SIZING !== '1',
-    'needs PODIUM_E2E_TERMINAL_SIZING=1 on the harness server',
-  )
-  await page.setViewportSize({ width: 1400, height: 898 })
-  await page.addInitScript(() => localStorage.setItem('podium.panelModeDefault', 'chat'))
-  await page.goto(`/?server=${RELAY}&e2e=1`)
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 60_000,
-  })
-  // The fixture reports W only once the session is live, which can trail the
-  // harness's /health; wait for it rather than racing it.
-  await expect
-    .poll(async () => (await serverRow(request, 'Sizing panel subject'))?.geometry, {
-      timeout: 60_000,
-      message: 'the server holds the fixture grid',
-    })
-    .toEqual(W)
-  await page
-    .getByRole('button', { name: /Terminal sizing subject/ })
-    .first()
-    .click()
-  await expect(page.getByTestId('agent-panel-header')).toContainText('Sizing panel subject', {
-    timeout: 60_000,
-  })
-  const chat = page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true')
-  const cli = page.getByRole('tab', { name: 'CLI', exact: true }).locator('visible=true')
-  await expect(cli).toBeVisible({ timeout: 60_000 })
-  if ((await chat.getAttribute('aria-selected')) !== 'true') await chat.click()
-  await expect(chat).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('.xterm-screen')).toHaveCount(0)
-
-  await page.evaluate(() => globalThis.__podiumTerminalDiagnostics?.clear())
-  await cli.click()
-  await expect(page.locator('.xterm-screen')).toHaveCount(1, { timeout: 60_000 })
-  // The late resize came after `ready`, so wait for it, and then hold an
-  // observation window as long as the slowest late resize seen (1.3 s on the
-  // Mac) with margin: an ABSENCE needs a window to be observed in.
-  await expect(page.getByTestId('terminal-startup-overlay')).toHaveCount(0, { timeout: 60_000 })
-  await page.waitForTimeout(3_000)
-  await settle(page)
-
-  const entries = await trace(page)
-  const asks = entries
-    .filter((e) => e.event === 'ask:sent')
-    .map((e) => `${e.data.reason as string} ${JSON.stringify(e.data.geometry)}`)
-  const applied = entries.filter((e) => e.event === 'geometry:applied')
-  const story = `asks: ${asks.join(' → ')}; applied: ${applied.length}`
-  expect(asks, `the reveal asks once, from a box that is already final (${story})`).toHaveLength(1)
-  expect(applied, `the buffer moves once (${story})`).toHaveLength(1)
-  expect(await currentGrid(page), 'and it lands where it asked').toEqual(
-    entries.find((e) => e.event === 'ask:sent')?.data.geometry,
-  )
-})
-
 test('a chat → CLI switch never paints the default grid, cold or warm', async ({
   page,
   request,
@@ -212,7 +137,9 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
     process.env.PODIUM_E2E_TERMINAL_SIZING !== '1',
     'needs PODIUM_E2E_TERMINAL_SIZING=1 on the harness server — without a session the server already holds at a non-default grid these assertions are vacuous',
   )
-  await page.setViewportSize({ width: 1400, height: 900 })
+  // A ROW BOUNDARY (POD-4721): at 1400x898 the box sits on one, so even a 1 px
+  // late change to it moves the row count and shows up as a second resize.
+  await page.setViewportSize({ width: 1400, height: 898 })
   // Start in CHAT: the switch to the CLI is the subject, so the terminal must
   // not already be mounted when the run begins.
   await page.addInitScript(() => localStorage.setItem('podium.panelModeDefault', 'chat'))
@@ -220,6 +147,15 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 60_000,
   })
+  // The fixture reports W only once the session is live, which can trail the
+  // harness's /health. Waited for, not raced: the one-resize count below is only
+  // a count when the reveal's ask is a real change from W.
+  await expect
+    .poll(async () => (await serverRow(request, 'Sizing panel subject'))?.geometry, {
+      timeout: 60_000,
+      message: 'the server holds the fixture grid',
+    })
+    .toEqual(W)
   // The harness has more than one task, so the workspace does not open ours by
   // itself — click it in the sidebar, as an operator would.
   await page
@@ -247,6 +183,11 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
   // the instant `.xterm-screen` appears would be a race between this test and the
   // thing it is measuring. Wait until the grid has been the same for two
   // consecutive reads, then read the trace once and assert against that.
+  //
+  // AND HOLD A WINDOW PAST `ready`. The late resize this pins (POD-4721) came
+  // 0.4-1.3 s after the attach; an absence has to be given time to be absent.
+  await expect(page.getByTestId('terminal-startup-overlay')).toHaveCount(0, { timeout: 60_000 })
+  await page.waitForTimeout(3_000)
   await settle(page)
 
   const cold = await trace(page)
@@ -271,23 +212,25 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
   expect(coldEvents).not.toContain('fit:retry-start')
   expect(coldEvents).not.toContain('reveal:fit-mismatch')
   expect(coldEvents.some((e) => e.startsWith('anomaly:'))).toBe(false)
-  // THE ASKS, AND THE 0a DOUBLE RESIZE. A cold switch used to ask twice: the
-  // claim, then again once the box shrank 27 px after the first frame (0a saw
-  // 727 → 700 px). That shrink was the prompt chrome mounting on `ready`, and
-  // it was a bug, not a settle — POD-4721 lays the chrome out from the first
-  // frame, and the row-boundary test above pins one ask and one apply.
+  // THE ASKS: EXACTLY ONE, AND ONE APPLY (POD-4721). A cold switch used to ask
+  // twice — the claim, then again once the box shrank after the first frame
+  // (0a saw 727 → 700 px and read it as the chrome settling). That shrink was
+  // the prompt chrome under the PTY mounting on `ready`, i.e. AFTER the mount
+  // had measured and asked: a second resize, a second blank of the xterm and a
+  // second SIGWINCH redraw for a box that was always going to be that size. The
+  // chrome is now laid out from the first frame, so the box the claim measures
+  // is final and nothing asks again.
   //
-  // What it must NEVER do is state a size, state another, and come BACK. 0a's
-  // capture caught exactly that — 104x31 → 104x33 → 104x31, two SIGWINCH
-  // repaints for zero net change — and it happened because the client compared
-  // its measurement against a grid seeded from the freshly constructed xterm
-  // rather than against W. So the assertion is the property, not a count: no
-  // size is ever asked for twice.
+  // (0a also caught 104x31 → 104x33 → 104x31 — a size stated, left and come
+  // back to — from a client comparing against the freshly constructed xterm
+  // rather than W. One ask rules that out too.)
   const asks = cold.filter((e) => e.event === 'ask:sent')
-  const asked = asks.map((e) => JSON.stringify(e.data.geometry))
-  expect(asked.length, 'the switch asked for something').toBeGreaterThan(0)
-  expect(new Set(asked).size, `no size asked for twice: ${asked.join(' → ')}`).toBe(asked.length)
-  expect(asks[0]?.data, 'the first ask is the claim').toMatchObject({ claimControl: true })
+  const asked = asks.map((e) => `${e.data.reason as string} ${JSON.stringify(e.data.geometry)}`)
+  const applied = cold.filter((e) => e.event === 'geometry:applied')
+  const story = `asks: ${asked.join(' → ')}; applied: ${applied.length}`
+  expect(asked, `the reveal asks once, from a box that is already final (${story})`).toHaveLength(1)
+  expect(asks[0]?.data, 'the one ask is the claim').toMatchObject({ claimControl: true })
+  expect(applied, `the buffer moves once (${story})`).toHaveLength(1)
 
   // PAINT EVIDENCE. The terminal has a real box on screen, and the grid it is at
   // when it gets one — asserted together, so the screenshot below is a picture of
