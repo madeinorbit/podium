@@ -1259,15 +1259,6 @@ export class RollupCollection {
     return this.fileNestCells.size
   }
 
-  /**
-   * POD-4707 — whether `id` holds filing cells (the read path materialises
-   * an unfiled resident row's formal subtree on first view, so a hidden
-   * parent outside the bootstrap closure still composes over its children).
-   */
-  isFiled(id: string): boolean {
-    return this.fileNestCells.has(id)
-  }
-
   /** Cells held, by kind (tests: the bootstrap census names every live cell). */
   heldCells(): { filings: number; verdicts: number; rollupParts: number } {
     let rollupParts = 0
