@@ -69,7 +69,7 @@ Three overlapping packages (`packages/transcript`, `packages/composer`, `package
 | `/inventory` | probe, login, credentials, usage, install | daemon only |
 | `/browser` | Descriptor projection (bundled fallback) | clients |
 
-- The contract entries (`/driver`, `/store`, root) **MUST** import no host code: no `child_process`, `net`, `http`, no `@podium/process`. An **import check enforces** it; the server may import them, clients may import `/browser` only.
+- The contract entries (`/driver`, `/store`, root) **MUST** import no host code: no `child_process`, `net`, `http`, no `@podium/process`. An **import check enforces** it; the server may import them, clients may import `/browser` only. Driver families are host code, not contract entries: a family may own its own protocol listener (the OpenCode family's free-port probe, the terminal family's hook receiver, which the daemon starts once at boot). What no family may touch is podium-host's socket, because code that could reach podium-host directly could start or kill processes behind the session's back. (Amended 2026-09-28, REVIEW-4438 D, user decision.)
 - A harness on existing mechanisms is one directory, one registry line, and its name added to `HarnessAgent` in `@podium/model`; the compiler lists every missing section. A genuinely new protocol or store kind adds an implementation **inside the harness package** and still changes no application consumer.
 
 **Rationale:** the lint enforces direction, so one package gives a one-word answer to "where is the harness code" without splitting knowledge from its mechanisms.
