@@ -6,6 +6,15 @@ import { createTitleScanner } from './osc-title.js'
 
 const CTRL_L = Uint8Array.of(0x0c)
 
+/**
+ * How long a redraw nudge waits for the program's answering frame before it
+ * restores the row it took anyway (POD-4723). The frame is the preferred
+ * trigger — it proves the program saw the shrink, so the restore repaints —
+ * but a program that answers a SIGWINCH with nothing would otherwise leave the
+ * pty one row short until something else resized it.
+ */
+export const REDRAW_RESTORE_FALLBACK_MS = 1000
+
 export interface SpawnOptions {
   cmd: string
   args?: string[]
@@ -241,13 +250,17 @@ export function wrapPty(
       // Acking on the next frame guarantees the child observed the shrink, so the
       // restore is always a genuine size change that forces a repaint.
       proc.resize(cols, rows - 1)
+      // …or after a bound, for a program that never answers (POD-4723): late is
+      // only a longer transient, never a pty stranded one row short.
       const restore = () => {
-        frameCbs.delete(restore)
-        cancelNudge = undefined
+        cancelNudge?.()
         if (!disposed) proc.resize(cols, rows)
       }
+      const timer = setTimeout(restore, REDRAW_RESTORE_FALLBACK_MS)
+      timer.unref?.()
       cancelNudge = () => {
         frameCbs.delete(restore)
+        clearTimeout(timer)
         cancelNudge = undefined
       }
       frameCbs.add(restore)

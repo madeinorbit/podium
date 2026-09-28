@@ -24,7 +24,7 @@ import {
 } from './abduco.js'
 import type { PtyProcess } from './backends/types.js'
 import { resolveHostBin } from './host-bin.js'
-import { type DurableAttachment, withHardRepaint, wrapPty } from './session.js'
+import { type DurableAttachment, REDRAW_RESTORE_FALLBACK_MS, withHardRepaint, wrapPty } from './session.js'
 
 const log = createLogger('pty:host')
 
@@ -765,17 +765,50 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
   ready.catch(() => {})
 
   /**
+   * THE SIZE THE CALLER LAST ASKED FOR (POD-4723). `applied` trails it by one
+   * socket round-trip, so anything that must act on "the size this pty is
+   * being put at" — the redraw nudge below — reads this, never `applied`.
+   * Reading `applied` there was the loss: the daemon sends a viewer resize and
+   * then a redraw in the same tick, the nudge shrank and restored around the
+   * BIRTH size still in `applied`, and the restore overwrote the viewer's size.
+   */
+  let asked: Geometry | undefined
+  /** Cancels an in-flight redraw nudge's restore; set only while one is pending. */
+  let cancelNudge: (() => void) | undefined
+
+  const hostResize = (cols: number, rows: number): Promise<Geometry | undefined> =>
+    conn.resize(cols, rows).then(
+      (r) => (applied = { cols: r.cols, rows: r.rows }),
+      (err: unknown) => {
+        // Never silent: an ERR (not the writer, no pty, exited) or a closed
+        // connection means the kernel did NOT take this size.
+        if (!disposed) {
+          log.warn('podium-host did not apply a resize', {
+            label: opts.label,
+            cols,
+            rows,
+            err: err instanceof Error ? err.message : String(err),
+          })
+        }
+        return undefined
+      },
+    )
+
+  /**
    * THE ACKNOWLEDGED RESIZE (POD-3919 audit item 4). The host answers every
    * resize with a RESIZED frame carrying what the kernel now reports, so the
    * acknowledgement is known — it just never left this module, because
    * `DurableAttachment.resize` returns void. This resolves with it; `undefined`
-   * when the resize never reached the host.
+   * when the resize never reached the host or the host refused it.
+   *
+   * A caller's resize supersedes a redraw nudge still waiting to restore: the
+   * restore would put back the size the nudge started from, over this one.
    */
-  const resizeAcknowledged = (cols: number, rows: number): Promise<Geometry | undefined> =>
-    conn.resize(cols, rows).then(
-      (r) => (applied = { cols: r.cols, rows: r.rows }),
-      () => undefined,
-    )
+  const resizeAcknowledged = (cols: number, rows: number): Promise<Geometry | undefined> => {
+    asked = { cols, rows }
+    cancelNudge?.()
+    return hostResize(cols, rows)
+  }
 
   const proc: PtyProcess = {
     get pid() {
@@ -814,7 +847,6 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
 
   const base = wrapPty(proc, { cols: 0, rows: 0 })
   const session = withHardRepaint(base, opts.hardRepaint ?? false)
-  let restoreOff: (() => void) | undefined
 
   return {
     ...session,
@@ -844,19 +876,34 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
       void ready.then(() => {
         if (disposed) return
         if (o?.hard) proc.write(CTRL_L)
-        const g = applied
+        // The size the pty is being PUT at, not the last one acknowledged: a
+        // resize asked in this same tick has not been answered yet (POD-4723).
+        const g = asked ?? applied
         if (!g || g.rows <= 1) {
           if (!o?.hard) proc.write(CTRL_L)
           return
         }
-        restoreOff?.()
-        proc.resize(g.cols, g.rows - 1)
-        const off = conn.onData(() => {
-          off()
-          restoreOff = undefined
-          if (!disposed) proc.resize(g.cols, g.rows)
-        })
-        restoreOff = off
+        cancelNudge?.()
+        void hostResize(g.cols, g.rows - 1)
+        // Restore on the program's next frame — its answer to the shrink, so the
+        // restore is a genuine size change that repaints — or after a bound,
+        // for a program that answers a SIGWINCH with nothing: without it the
+        // pty would sit one row short until something else resized it
+        // (POD-4723: the 80x23 hosts). Late is only a longer transient; never
+        // is a wrong size.
+        const restore = (): void => {
+          cancel()
+          if (!disposed) void hostResize(g.cols, g.rows)
+        }
+        const offData = conn.onData(restore)
+        const timer = setTimeout(restore, REDRAW_RESTORE_FALLBACK_MS)
+        timer.unref?.()
+        const cancel = (): void => {
+          offData()
+          clearTimeout(timer)
+          if (cancelNudge === cancel) cancelNudge = undefined
+        }
+        cancelNudge = cancel
       }).catch(() => {
         // Redraw is fire-and-forget; connection failure remains exposed by ready.
       })
@@ -864,7 +911,7 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     dispose() {
       if (disposed) return
       disposed = true
-      restoreOff?.()
+      cancelNudge?.()
       session.dispose() // calls proc.kill → DETACH
     },
   }

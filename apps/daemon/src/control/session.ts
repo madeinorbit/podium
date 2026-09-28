@@ -252,6 +252,67 @@ function dispatchClientResize(
   return terminals.resize(sessionId, cols, rows) === true ? { cols, rows } : undefined
 }
 
+/**
+ * Put a headed session's pty at this size and REPORT WHAT THE KERNEL TOOK
+ * (POD-4723) — the bridge twin of {@link dispatchClientResize}, recorded the
+ * way the client arm records.
+ *
+ * The bridge arm used to dispatch and report in one synchronous breath, so
+ * the report said the size ASKED, whatever the pty did with it. A podium-host
+ * answers every resize with the kernel's size (RESIZED); this records that
+ * answer and nothing else. A backend with no acknowledgement (abduco, a direct
+ * pty) answers now and is recorded now, exactly as before.
+ *
+ * A resize that is not acknowledged — the Terminal was parked, the host
+ * refused it (not the writer, no pty, exited) or the connection closed — is
+ * logged and HELD, never reported: a report is the only thing that moves the
+ * server's W, and it must never state a size the pty does not have. The hold
+ * is what a later redraw or reattach dispatches.
+ *
+ * `onApplied` runs after the record, for the site's own bookkeeping.
+ */
+function applyBridgeResize(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  bridge: Terminal,
+  cols: number,
+  rows: number,
+  onApplied?: () => void,
+): void {
+  // BEFORE the dispatch (MODEL rule 5): bytes held now were drawn at the old grid.
+  ctx.outputScheduler?.flushNow?.(sessionId)
+  const settle = (acked: Geometry | undefined): void => {
+    const owned = ctx.sessions.get(sessionId)
+    if (!acked) {
+      log.warn('pty resize was not acknowledged; holding it, not reporting it', {
+        sessionId,
+        cols,
+        rows,
+        live: bridge.live,
+      })
+      if (owned) owned.pendingResize = { cols, rows }
+      return
+    }
+    // An answer for a surface that has since been replaced says nothing about
+    // the one that holds the session now.
+    if (owned?.terminal !== bridge) return
+    const applied = appliedGeometryFor(ctx).apply(sessionId, acked.cols, acked.rows)
+    if (!applied) return
+    bridge.applied = { cols: applied.cols, rows: applied.rows }
+    // The program is at the acknowledged size now, so the headless model follows it.
+    trackSessionSize(ctx, sessionId, applied.cols, applied.rows)
+    onApplied?.()
+  }
+  const answer = bridge.resizeAcknowledged(cols, rows)
+  if (answer === undefined || !isResizePromise(answer)) {
+    settle(answer)
+    return
+  }
+  void answer.then(settle).catch((err) =>
+    log.warn('pty resize failed', { err, sessionId, cols, rows }),
+  )
+}
+
 /** Whether an acknowledgement answer arrived as a promise or was answered now. */
 function isResizePromise(
   answer: Geometry | Promise<Geometry | undefined>,
@@ -2866,57 +2927,39 @@ export const sessionHandlers: Pick<
   resize: (ctx, msg) => {
     const owned = ctx.sessions.ensure(msg.sessionId)
     // The arm follows the surface kind, never the other way round: a headed
-    // surface applies synchronously exactly as a bridge always did, while a
-    // client TUI acknowledges through the client-terminal host (audit item 4).
+    // surface resizes its pty through the bridge, while a client TUI
+    // acknowledges through the client-terminal host (audit item 4). Both arms
+    // now record the ACKNOWLEDGED size (POD-4723).
     const bridge = owned.terminal?.kind === 'headed' ? owned.terminal : undefined
-    // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5) — and since
-    // POD-3809 those are ONE operation, `record.apply`, which flushes,
-    // dispatches, records and reports in that order before it returns. This
-    // handler no longer owns the ordering; it only says WHAT the dispatch is:
+    // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5):
     //
     //   1. FLUSH what the scheduler is holding for this session. Those bytes
     //      were produced at the OLD grid; a P2/P3 session can sit on up to
     //      `coalesceMs` of them, and delivering them after the report would put
     //      old-grid output on a viewer that has already resized.
     //   2. DISPATCH the resize to the pty.
-    //   3. REPORT the grid we dispatched. This frame is the only thing that
-    //      moves the server's W, so it must not be able to arrive behind output
-    //      the daemon itself was withholding.
+    //   3. REPORT the grid the pty ACKNOWLEDGED — the kernel's size from a
+    //      podium-host's RESIZED, or the dispatched size from a backend that
+    //      offers no acknowledgement. This frame is the only thing that moves
+    //      the server's W, so it must never state a size the pty does not have
+    //      (POD-4723: it reported 122x38 over a pty that stayed 80x24).
     //
-    // "Dispatched", not "acknowledged": for an abduco session the attach pty's
+    // For an abduco session, which acknowledges nothing, the attach pty's
     // TIOCSWINSZ reaches the master asynchronously, and the master may forward
     // already-read old bytes after applying it. That transient is one SIGWINCH
     // propagation plus one repaint and is what every terminal shows during a
-    // resize — see MODEL.md "Accepted residuals". What this ordering DOES buy is
-    // the half the daemon owns: nothing it was holding lands after the report.
+    // resize — see MODEL.md "Accepted residuals".
     //
-    // The branch below keeps today's order exactly (0b C7): a driver-owned
-    // (server-family) session takes the resize through `clientTerminals` and
-    // never holds it on the session; only a session with no terminal at all
-    // holds. A HELD request still gets no report — nothing was
-    // applied, so there is nothing to report, which is the one thing this file
-    // and the record agree on without either having to remember it.
+    // A driver-owned (server-family) session takes the resize through
+    // `clientTerminals`; only a session with no terminal at all holds. A HELD
+    // request gets no report — nothing was applied, so there is nothing to
+    // report.
     const record = appliedGeometryFor(ctx)
     if (bridge) {
-      const applied = record.apply(msg.sessionId, msg.cols, msg.rows, (cols, rows) => {
-        bridge.resize(cols, rows)
-        return true
-      })
-      if (applied) bridge.applied = { cols: applied.cols, rows: applied.rows }
-      if (!applied) {
-        // Nothing to put at the size yet — no bridge and no client terminal, so the
-        // spawn this resize belongs to is still in flight. Hold the request instead
-        // of dropping it: the server has already moved its own geometry (and told
-        // the browser), so a drop here is what leaves the PTY at 80x24 under a
-        // client rendering a fitted grid (POD-628). Last one wins — an in-flight
-        // session has no screen to reflow, only a size to be BORN at, and being
-        // born at it is now what happens (POD-3809): `wireBridge` dispatches it for
-        // a pty session, and a client terminal is opened at it.
-        owned.pendingResize = { cols: msg.cols, rows: msg.rows }
-      } else {
-        // The program is at the asked size now, so the headless model follows it.
-        trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
-      }
+      // RECORDED AT THE ACKNOWLEDGED SIZE (POD-4723), as the client arm below
+      // has been since POD-3919: see `applyBridgeResize`. A resize that reaches
+      // no pty is held there, never reported.
+      applyBridgeResize(ctx, msg.sessionId, bridge, msg.cols, msg.rows)
       ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
       ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
       return
