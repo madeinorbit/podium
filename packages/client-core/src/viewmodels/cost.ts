@@ -28,8 +28,9 @@ import type {
   TaskCostState,
   TaskCostWire,
 } from '@podium/model'
-import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
+import { harnessDescriptorFor } from './harness-labels'
 
 /**
  * The API-equivalent cost of one model's token total.
@@ -460,11 +461,12 @@ export const COST_HEDGE = 'at list price for the same tokens — not what you we
 
 /**
  * One harness's word in the attribution sentence, read off its one home in the
- * harness package (POD-4737): the adapter's descriptor shortLabel, via the
- * bundled fallback. Unknown kinds render as their own kind.
+ * harness package (POD-4737): the adapter's descriptor shortLabel, resolved
+ * served-over-bundled. Unknown kinds render as their own kind. `served` is
+ * what the caller holds (see `./harness-labels.ts`).
  */
-function harnessWord(harness: CostHarness): string {
-  return bundledDescriptorFor(harness)?.shortLabel ?? harness
+function harnessWord(harness: CostHarness, served?: readonly HarnessDescriptorWire[]): string {
+  return harnessDescriptorFor(harness, served)?.shortLabel ?? harness
 }
 
 /**
@@ -477,8 +479,11 @@ function harnessWord(harness: CostHarness): string {
  * a label that states a falsehood as a fact. A lone harness gets `all` because
  * that is the claim ("nothing else contributed"); two or more are simply named.
  */
-export function costHarnessLabel(harnesses: readonly CostHarness[]): string {
-  const words = harnesses.map((h) => harnessWord(h))
+export function costHarnessLabel(
+  harnesses: readonly CostHarness[],
+  served?: readonly HarnessDescriptorWire[],
+): string {
+  const words = harnesses.map((h) => harnessWord(h, served))
   if (words.length === 0) return ''
   if (words.length === 1) return `all ${words[0] as string}`
   return words.join(' + ')

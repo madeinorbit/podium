@@ -22,9 +22,10 @@ import {
   idleVerdictFinishedTurn,
   type SessionMeta,
 } from '@podium/model'
-import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { attentionGroup } from '../focus'
 import { errorPhrase } from './error-phrase'
+import { harnessDescriptorFor } from './harness-labels'
 
 // ---------------------------------------------------------------------------
 // Agent identity vocabulary — which agent this is, as opposed to what it is
@@ -33,13 +34,21 @@ import { errorPhrase } from './error-phrase'
 
 /**
  * Short menu label for a harness ("New Claude"), read off its one home in the
- * harness package (POD-4737): the adapter's descriptor shortLabel, via the
- * bundled fallback. Unknown kinds render as their own kind. 'shell' is not a
- * harness (no descriptor) and keeps its neutral name.
+ * harness package (POD-4737): the adapter's descriptor shortLabel, resolved
+ * served-over-bundled (so a newer daemon's names win over this build's copy).
+ * Unknown kinds render as their own kind. 'shell' is not a harness (no
+ * descriptor) and keeps its neutral name.
+ *
+ * `served` is what the caller holds — raw served frames or an
+ * already-resolved list (see `./harness-labels.ts`); absent renders the
+ * bundled fallback.
  */
-export function panelLabel(agentKind: AgentKind): string {
+export function panelLabel(
+  agentKind: AgentKind,
+  served?: readonly HarnessDescriptorWire[],
+): string {
   if (agentKind === 'shell') return 'Shell'
-  return bundledDescriptorFor(agentKind)?.shortLabel ?? agentKind
+  return harnessDescriptorFor(agentKind, served)?.shortLabel ?? agentKind
 }
 
 /**

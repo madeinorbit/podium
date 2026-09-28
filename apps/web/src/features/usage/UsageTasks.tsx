@@ -8,9 +8,10 @@ import {
   RATE_COHORT_MIN_REPLIES,
   type TaskCostRowView,
 } from '@podium/client-core/viewmodels'
-import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { CostHarness, IssueStage } from '@podium/model/browser'
 import { type JSX, useMemo, useState } from 'react'
+import { descriptorForKind } from '@/lib/agent-tone'
 import { issueRefLabel } from '@/lib/issue-labels'
 import { Unfilled } from './Unfilled'
 import type { TaskCostsFeed } from './useTaskCosts'
@@ -52,9 +53,11 @@ import type { TaskCostsFeed } from './useTaskCosts'
  */
 
 /** Which harness wrote a transcript, as the reader would name it — read off the
- *  adapter's descriptor row (POD-4737), never a second label table. */
-function harnessLabel(harness: CostHarness): string {
-  return bundledDescriptorFor(harness)?.label ?? harness
+ *  adapter's descriptor row (POD-4737): served over bundled, unknown the raw
+ *  kind. `served` is what the caller holds (this feed has no machine scope, so
+ *  callers pass nothing). */
+function harnessLabel(harness: CostHarness, served?: readonly HarnessDescriptorWire[]): string {
+  return descriptorForKind(harness, served)?.label ?? harness
 }
 
 /** Rank by what a task cost, or by what a unit of its work cost. */
@@ -125,8 +128,12 @@ export function taskCostStats(rows: readonly TaskCostRowView[]): TaskCostStats {
  * figure is short. "all Codex" over a task that also ran Grok would be a lie,
  * and a task really can read `[codex, grok]`.
  */
-function floorReason(harnesses: readonly CostHarness[], uncostedSessionCount: number): string {
-  const named = harnesses.filter((h) => h !== 'claude-code').map((h) => harnessLabel(h))
+function floorReason(
+  harnesses: readonly CostHarness[],
+  uncostedSessionCount: number,
+  served?: readonly HarnessDescriptorWire[],
+): string {
+  const named = harnesses.filter((h) => h !== 'claude-code').map((h) => harnessLabel(h, served))
   const reasons: string[] = []
   if (named.length > 0) {
     const list =

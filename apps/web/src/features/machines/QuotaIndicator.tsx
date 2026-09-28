@@ -17,6 +17,7 @@ import {
   windowScopeModel,
 } from '@podium/client-core/viewmodels'
 import type { AgentQuotaWire, MachineQuotaWire } from '@podium/model/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -24,6 +25,7 @@ import { useStoreSelector } from '@/app/store'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { agentIconFor } from '@/lib/agent-tone'
+import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import { cn } from '@/lib/utils'
 import { HealthPopover } from './HealthPopover'
 import { QuotaPanel } from './QuotaPanel'
@@ -48,9 +50,15 @@ const PACE: Record<QuotaPace, string> = {
  *  Read off the one bundled-icon home in agent-tone (POD-4737) — never a second
  *  kind→icon table. 'shell' has no mark (null); unknown kinds render nothing
  *  rather than another harness's brand. */
-function QuotaHarnessIcon({ agent }: { agent: AccountQuotaGroup['agent'] }): JSX.Element | null {
+function QuotaHarnessIcon({
+  agent,
+  descriptors,
+}: {
+  agent: AccountQuotaGroup['agent']
+  descriptors: readonly HarnessDescriptorWire[]
+}): JSX.Element | null {
   if (agent === 'shell') return null
-  const Icon = agentIconFor(agent)
+  const Icon = agentIconFor(agent, descriptors)
   const props = {
     size: 12,
     className: 'header-harness-icon',
@@ -153,6 +161,9 @@ export function QuotaIndicator({
 
   // Nothing to show until the first payload arrives, or when no account is
   // signed in on any machine (unauthenticated agents are dropped by grouping).
+  // Served descriptors unioned over bundled (POD-4737): a newer daemon's
+  // harness names win over this build's copy on every label below.
+  const descriptors = useResolvedDescriptors((machines ?? []).map((m) => m.machineId))
   const groups = groupQuotaByAccount(machines ?? [])
   const pools = quotaPools(groups)
   const surging = useQuotaSurge(
@@ -174,14 +185,14 @@ export function QuotaIndicator({
       .map(({ group, percent, models }) => {
         const account = group.account?.email ? ` (${group.account.email})` : ''
         if (percent === null) {
-          return `${agentLabel(group.agent)}${account} ${statusNote(group) || 'quota unavailable'}`
+          return `${agentLabel(group.agent, descriptors)}${account} ${statusNote(group) || 'quota unavailable'}`
         }
         // Each model bucket is named in the label — the rail segment is the
         // glance, this is what a screen reader reads out.
         const scoped = models
           .map((w) => `, ${windowScopeModel(w)} ${Math.round(w.usedPercent)}% used`)
           .join('')
-        return `${agentLabel(group.agent)}${account} ${Math.round(percent)}% used${scoped}`
+        return `${agentLabel(group.agent, descriptors)}${account} ${Math.round(percent)}% used${scoped}`
       })
       .join('; ')
     return (
@@ -220,7 +231,7 @@ export function QuotaIndicator({
                     )}
                     data-harness={group.agent}
                   >
-                    <QuotaHarnessIcon agent={group.agent} />
+                    <QuotaHarnessIcon agent={group.agent} descriptors={descriptors} />
                     <span className="header-mark">{agentShortLabel(group.agent)}</span>
                     {/* The fallback rail exists only for a pool that reports
                         model-scoped buckets — a single-quota harness renders
@@ -263,7 +274,7 @@ export function QuotaIndicator({
           </button>
         }
       >
-        <QuotaPanel groups={groups} now={Date.now()} />
+        <QuotaPanel groups={groups} now={Date.now()} descriptors={descriptors} />
       </HealthPopover>
     )
   }
@@ -294,7 +305,7 @@ export function QuotaIndicator({
               )}
               {!compact && detail && worstW && (
                 <span className="whitespace-nowrap text-text-dim">
-                  {agentLabel(worstW.g.agent)} {Math.round(worstW.w.usedPercent)}% ·{' '}
+                  {agentLabel(worstW.g.agent, descriptors)} {Math.round(worstW.w.usedPercent)}% ·{' '}
                   {formatReset(worstW.w.resetsAt, Date.now())}
                 </span>
               )}
@@ -303,7 +314,7 @@ export function QuotaIndicator({
         />
         <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
           <strong>Agent quota</strong>
-          <QuotaTooltipBody groups={groups} />
+          <QuotaTooltipBody groups={groups} descriptors={descriptors} />
           <span className="text-background/70">Click for the breakdown</span>
         </TooltipContent>
       </Tooltip>
@@ -312,7 +323,7 @@ export function QuotaIndicator({
           <DialogTitle>Agent quota</DialogTitle>
           <div className="flex flex-col gap-3">
             {groups.map((g) => (
-              <AccountQuotaCard key={g.key} g={g} />
+              <AccountQuotaCard key={g.key} g={g} descriptors={descriptors} />
             ))}
             <p className="mt-0.5 mb-0 max-w-[60ch] text-xs text-muted-foreground">
               Read live from each agent's own usage endpoint on each dev machine. Limits are
@@ -328,7 +339,13 @@ export function QuotaIndicator({
 }
 
 /** Tooltip body: one line per account, with its window summary. */
-function QuotaTooltipBody({ groups }: { groups: AccountQuotaGroup[] }): JSX.Element {
+function QuotaTooltipBody({
+  groups,
+  descriptors,
+}: {
+  groups: AccountQuotaGroup[]
+  descriptors: readonly HarnessDescriptorWire[]
+}): JSX.Element {
   const ok = groups.filter((g) => g.status === 'ok')
   if (ok.length === 0) {
     return <span className="text-background/70">No quota reported — click for detail</span>
@@ -337,7 +354,7 @@ function QuotaTooltipBody({ groups }: { groups: AccountQuotaGroup[] }): JSX.Elem
     <>
       {ok.map((g) => (
         <span key={g.key} className="text-background/70">
-          {agentLabel(g.agent)}
+          {agentLabel(g.agent, descriptors)}
           {g.account?.email ? ` (${g.account.email})` : ''} —{' '}
           {g.windows.map((w, i) => (
             <span key={w.key}>
@@ -353,15 +370,21 @@ function QuotaTooltipBody({ groups }: { groups: AccountQuotaGroup[] }): JSX.Elem
 
 /** One account card: agent + plan, the account email and the machine(s) it's used
  *  on, then either the per-window bars (ok) or a short status note. */
-function AccountQuotaCard({ g }: { g: AccountQuotaGroup }): JSX.Element {
+function AccountQuotaCard({
+  g,
+  descriptors,
+}: {
+  g: AccountQuotaGroup
+  descriptors: readonly HarnessDescriptorWire[]
+}): JSX.Element {
   const now = Date.now()
   const { gating, models } = splitQuotaWindows(g.windows)
-  const modelNote = modelLimitNote(g.agent, g.windows)
+  const modelNote = modelLimitNote(g.agent, g.windows, descriptors)
   return (
     <div className="rounded-md border border-border px-3 py-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-medium text-foreground">
-          {agentLabel(g.agent)}
+          {agentLabel(g.agent, descriptors)}
           {g.account?.plan ? (
             <span className="ml-1.5 text-[11px] font-normal text-muted-foreground/70">
               {g.account.plan}

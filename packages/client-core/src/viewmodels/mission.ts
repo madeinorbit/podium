@@ -7,7 +7,7 @@ import {
   type SessionMeta,
   spawnedByParentSessionId,
 } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
+import { type HarnessDescriptorWire, issueDisplayRef } from '@podium/protocol'
 import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
@@ -2250,10 +2250,13 @@ export function issueContinuation(
 }
 
 /** The session sentence underneath a continuation signpost. Kept shared so a
- * phone never claims a duplicate is empty while its parked agent is in view. */
+ * phone never claims a duplicate is empty while its parked agent is in view.
+ * `served` is caller-held descriptors (see `./harness-labels.ts`); absent
+ * renders the bundled fallback. */
 export function continuationPresenceLine(
   kind: IssueContinuation['kind'],
   sessions: readonly SessionMeta[],
+  served?: readonly HarnessDescriptorWire[],
 ): string {
   const present = sessions.filter(sessionPresentOnTask)
   if (present.length === 0) {
@@ -2263,7 +2266,7 @@ export function continuationPresenceLine(
   }
   if (present.length > 1) return `${present.length} sessions are still on this task.`
   const only = present[0] as SessionMeta
-  const who = agentLabel(only.agentKind)
+  const who = agentLabel(only.agentKind, served)
   return sessionParked(only) ? `${who} is parked on this task.` : `${who} is still on this task.`
 }
 
