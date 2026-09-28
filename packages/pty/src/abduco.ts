@@ -1275,7 +1275,6 @@ export function attachAbducoAgent(opts: AbducoAttachOptions): DurableAttachment 
     rows: geometry.rows,
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
-  let ready = false
   let repaintPending = false
   let repaintTimer: ReturnType<typeof setTimeout> | undefined
   // THE ONE REPAINT AN ATTACH MAY STILL ASK FOR (POD-4723): a shell's Ctrl-L.
@@ -1291,10 +1290,7 @@ export function attachAbducoAgent(opts: AbducoAttachOptions): DurableAttachment 
     repaintPending = false
     repaint()
   }
-  const filtered = stripAttachChrome(proc, () => {
-    ready = true
-    flushRepaint()
-  })
+  const filtered = stripAttachChrome(proc, flushRepaint)
   const session = wrapPty(filtered)
   if (opts.repaintOnAttach ?? true) {
     if (attach.sizeNeutral) {

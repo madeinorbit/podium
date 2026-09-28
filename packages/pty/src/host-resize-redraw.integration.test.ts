@@ -20,8 +20,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import {
+  connectHost,
+  type HostDurableAttachment,
+  HostErr,
+  hostSocketPath,
+  killHostSession,
+  spawnHostAgent,
+} from './host.js'
 import { resolveHostBin } from './host-bin.js'
-import { connectHost, type HostDurableAttachment, HostErr, hostSocketPath, killHostSession, spawnHostAgent } from './host.js'
 
 const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
   try {
@@ -59,7 +66,12 @@ function label(tag: string): string {
   return l
 }
 
-async function spawn(tag: string, args: string[], cols = 80, rows = 24): Promise<HostDurableAttachment> {
+async function spawn(
+  tag: string,
+  args: string[],
+  cols = 80,
+  rows = 24,
+): Promise<HostDurableAttachment> {
   const s = await spawnHostAgent({ label: label(tag), cmd: process.execPath, args, cols, rows })
   sessions.push(s)
   await s.ready
@@ -69,7 +81,12 @@ async function spawn(tag: string, args: string[], cols = 80, rows = 24): Promise
 beforeAll(() => {
   if (!hasCompiler) return
   root = mkdtempSync(join(tmpdir(), 'pod-rr-'))
-  for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN']) {
+  for (const k of [
+    'PODIUM_STATE_DIR',
+    'PODIUM_HOST_SOCKET_DIR',
+    'PODIUM_NO_SCOPE',
+    'PODIUM_HOST_BIN',
+  ]) {
     saved[k] = process.env[k]
   }
   process.env.PODIUM_STATE_DIR = join(root, 'state')
@@ -105,7 +122,7 @@ afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 }, 120_000)
 
-describe.skipIf(!hasCompiler)('podium-host adapter: the size is the kernel\'s (POD-4723)', () => {
+describe.skipIf(!hasCompiler)("podium-host adapter: the size is the kernel's (POD-4723)", () => {
   it('WELCOME states the birth size; a burst of asks ends with size() == the child tty == the last ask', async () => {
     const s = await spawn('burst', [WINSIZE_FIXTURE])
     const events: Array<{ cols: number; rows: number }> = []

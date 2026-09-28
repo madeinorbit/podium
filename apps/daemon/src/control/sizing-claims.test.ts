@@ -9,7 +9,7 @@
  * bytes, still stands.
  */
 
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'

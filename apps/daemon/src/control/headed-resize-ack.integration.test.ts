@@ -33,8 +33,8 @@ import {
 } from '@podium/process/durable'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { forgetSessionScreen } from '../session-screens'
 import { testSessions } from '../session/testing.js'
+import { forgetSessionScreen } from '../session-screens'
 import type { DaemonContext } from './context'
 import { sessionHandlers, sessionSize, wireBridge } from './session'
 
@@ -62,7 +62,12 @@ process.stdin.on('data', (d) => process.stdout.write('IN ' + d.toString('hex') +
 setInterval(() => {}, 3600_000)
 `
 
-const keys = ['PODIUM_HOST_SOCKET_DIR', 'PODIUM_STATE_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN'] as const
+const keys = [
+  'PODIUM_HOST_SOCKET_DIR',
+  'PODIUM_STATE_DIR',
+  'PODIUM_NO_SCOPE',
+  'PODIUM_HOST_BIN',
+] as const
 const saved = keys.map((k) => process.env[k])
 let root = ''
 let fixture = ''
@@ -133,7 +138,10 @@ function daemonContext(): Harness {
   return { ctx, sent, output: () => out }
 }
 
-function reports(sent: DaemonMessage[], sessionId: SessionId): Array<{ cols: number; rows: number }> {
+function reports(
+  sent: DaemonMessage[],
+  sessionId: SessionId,
+): Array<{ cols: number; rows: number }> {
   return sent.flatMap((m) =>
     m.type === 'geometryApplied' && m.sessionId === sessionId
       ? [{ cols: m.geometry.cols, rows: m.geometry.rows }]
@@ -178,7 +186,13 @@ describe.skipIf(!hasCompiler)('headed sizing on a real podium-host (POD-4723)', 
     const label = `podium-${sessionId}`
     const h = daemonContext()
     try {
-      const attachment = await spawnHostAgent({ label, cmd: process.execPath, args: [fixture], cols: 80, rows: 24 })
+      const attachment = await spawnHostAgent({
+        label,
+        cmd: process.execPath,
+        args: [fixture],
+        cols: 80,
+        rows: 24,
+      })
       wireBridge(h.ctx, sessionId, attachment, 'claude-code', label)
       // WELCOME states the birth size through the size event.
       expect(reports(h.sent, sessionId)).toEqual([{ cols: 80, rows: 24 }])
@@ -203,7 +217,13 @@ describe.skipIf(!hasCompiler)('headed sizing on a real podium-host (POD-4723)', 
     const first = daemonContext()
     const h = daemonContext()
     try {
-      const born = await spawnHostAgent({ label, cmd: process.execPath, args: [fixture], cols: 80, rows: 24 })
+      const born = await spawnHostAgent({
+        label,
+        cmd: process.execPath,
+        args: [fixture],
+        cols: 80,
+        rows: 24,
+      })
       wireBridge(first.ctx, sessionId, born, 'claude-code', label)
       viewerAsks(first.ctx, sessionId, 100, 30)
       await settlesAt(first, sessionId, born.pid, { cols: 100, rows: 30 })
@@ -211,7 +231,13 @@ describe.skipIf(!hasCompiler)('headed sizing on a real podium-host (POD-4723)', 
       cleanup(first, sessionId)
 
       // The new daemon adopts the live host and reattaches; it resizes nothing.
-      const adopted = await spawnHostAgent({ label, cmd: process.execPath, args: [fixture], cols: 80, rows: 24 })
+      const adopted = await spawnHostAgent({
+        label,
+        cmd: process.execPath,
+        args: [fixture],
+        cols: 80,
+        rows: 24,
+      })
       expect(adopted.adopted).toBe(true)
       wireBridge(h.ctx, sessionId, adopted, 'claude-code', label)
       const pid = adopted.pid
@@ -235,7 +261,13 @@ describe.skipIf(!hasCompiler)('headed sizing on a real podium-host (POD-4723)', 
     const h = daemonContext()
     const thief = { conn: undefined as ReturnType<typeof connectHost> | undefined }
     try {
-      const attachment = await spawnHostAgent({ label, cmd: process.execPath, args: [fixture], cols: 80, rows: 24 })
+      const attachment = await spawnHostAgent({
+        label,
+        cmd: process.execPath,
+        args: [fixture],
+        cols: 80,
+        rows: 24,
+      })
       wireBridge(h.ctx, sessionId, attachment, 'claude-code', label)
       const before = reports(h.sent, sessionId).length
       // Another writer takes the lease: this daemon's RESIZE now answers ERR NOT_WRITER.
@@ -255,12 +287,18 @@ describe.skipIf(!hasCompiler)('headed sizing on a real podium-host (POD-4723)', 
     }
   }, 60_000)
 
-  it('a redraw never signals the child; only the user\'s hard redraw reaches it, as one Ctrl-L', async () => {
+  it("a redraw never signals the child; only the user's hard redraw reaches it, as one Ctrl-L", async () => {
     const sessionId = asSessionId(`hra-${process.pid}-${++serial}`)
     const label = `podium-${sessionId}`
     const h = daemonContext()
     try {
-      const attachment = await spawnHostAgent({ label, cmd: process.execPath, args: [fixture], cols: 90, rows: 30 })
+      const attachment = await spawnHostAgent({
+        label,
+        cmd: process.execPath,
+        args: [fixture],
+        cols: 90,
+        rows: 30,
+      })
       wireBridge(h.ctx, sessionId, attachment, 'claude-code', label)
       await expect.poll(() => h.output(), { timeout: 15_000 }).toContain('BORN 90x30')
 
