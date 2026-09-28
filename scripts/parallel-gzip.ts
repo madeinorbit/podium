@@ -45,7 +45,7 @@ const defaultDeps: PigzDeps = {
 
 /**
  * Locate a pigz that RUNS: PODIUM_PIGZ, then PATH, then the usual install prefixes. Unlike
- * `resolveZig`/`resolveRcodesign` in scripts/abduco-cross.ts this returns undefined instead of
+ * `resolveZig`/`resolveRcodesign` in scripts/tool-pins.ts this returns undefined instead of
  * throwing — pigz is an optimisation, not a prerequisite, and a host without it still produces
  * a valid signed bundle through plain gzip.
  *

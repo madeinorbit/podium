@@ -87,9 +87,10 @@ Two details that are not obvious and will bite anyone who re-derives the flags:
 
 **Linux helpers link musl, statically.** The native leg linked the runner's
 glibc, which quietly made that glibc version the floor for every machine that
-took the bundle. A static musl helper has no libc floor at all. It is the one
-deliberate behavioural difference between the cross and native legs for either
-helper, and it is what the arm64 A/B check exists to confirm (see below).
+took the bundle. A static musl helper has no libc floor at all. A one-release
+A/B built linux-aarch64 the old native way beside the cross build and ran both on
+ARM hardware to confirm the static helper behaves like the glibc one. It passed on
+the 2026-09-21 release and was retired (POD-4789).
 
 ## The Darwin signature
 
@@ -152,13 +153,12 @@ byte-identical web assets.
 
 ## Checking what was built
 
-Three scripts, deliberately separate:
+Four scripts, deliberately separate:
 
 | Script | Subject | Answers |
 |---|---|---|
 | `assert-headless-bundle.sh` | one tarball | is this really a bundle for the platform it claims? |
 | `assert-release-platform-set.sh` | a release directory | is every platform there, summed, signed and named by the manifest? |
-| `ab-headless-cross-vs-native.sh` | two tarballs, on target hardware | does the cross-built one BEHAVE like the native one? |
 | `prove-headless-assertions-can-fail.sh` | the first script | can the gate say NO, and for the right reason? |
 | `smoke-headless-bundle.sh` | one tarball, on matching hardware | does it actually RUN? |
 
@@ -179,8 +179,11 @@ a stale or wrong directory being packaged, partial/corrupt copies, and bytes cha
 between build and packaging; it does **not** prove the build itself is correct, because
 a broken build can agree with its own captured identity. The tarball gate still verifies
 both sites' exact-file manifests, refuses to run without `--source-commit <sha>`, and requires
-either `--abduco <reference>` or an explicit `--no-abduco-identity`, so an
-omitted input can never read as a green.
+either `--abduco <reference>` or an explicit `--no-abduco-identity`, and either
+`--host <reference>` or an explicit `--no-host-identity`, so an omitted input can
+never read as a green. The podium-host check is abduco's: the reference is the right
+format and architecture, it appears in the shipped binary exactly once, and the other
+platform's is absent. A build that embedded an empty podium-host fails it.
 
 And a fourth script exists to check the checker:
 `prove-headless-assertions-can-fail.sh` breaks a real bundle and
@@ -197,7 +200,10 @@ platform's helper actually embedded in the bundle** · wrong-platform reference
 supplied · signature stripped · byte flipped inside the sealed region · empty
 entitlements · raw Bun output never re-signed · reference helper deleted ·
 archive root not `headless/` · `VERSION` removed · no `--abduco` and no waiver ·
-`systemd/` removed · stub `web/index.html` · `NOTICE` missing.
+no `--host` and no waiver · podium-host reference deleted · wrong-platform
+podium-host reference · **the Linux podium-host embedded in the Darwin binary** ·
+no podium-host embedded at all · `systemd/` removed · stub `web/index.html` ·
+`NOTICE` missing.
 Plus a positive control, without which a gate that rejected *everything* would
 score a perfect set. The last three are the production-layout checks: a gate
 that only required what the spike happened to emit would have accepted them.
@@ -225,8 +231,9 @@ instead of stopping.
 ### Executing what can be executed
 
 `smoke-headless-bundle.sh` runs a bundle whose platform matches the machine: the
-binary starts and agrees with the bundle's `VERSION`, the embedded helper
-materializes and runs, and it hosts a detached session that outlives its starter.
+binary starts and agrees with the bundle's `VERSION`, and each embedded helper —
+abduco and podium-host — materializes, runs, and hosts a detached session that
+outlives its starter.
 The release job runs it on `linux-x86_64` **before** publishing. The published
 smoke also runs that bundle, but only after publication — which is too late to
 stop a bad one.
@@ -245,7 +252,7 @@ build-time stand-in for the JIT failure.
 
 Versions are pinned ONCE, in `mise.toml` at the repo root. CI installs from it
 (`jdx/mise-action`), dev machines install from it (`mise install`), and
-`resolveZig`/`resolveRcodesign` (scripts/abduco-cross.ts, via scripts/tool-pins.ts)
+`resolveZig`/`resolveRcodesign` (scripts/tool-pins.ts, shared by abduco-cross.ts and host-cross.ts)
 refuse a tool whose `--version` disagrees with the pin —
 `PODIUM_SKIP_TOOL_PIN_CHECK=1` waives that for deliberate experiments.
 
@@ -262,28 +269,6 @@ feed is the continuous test of the release mechanism, and a path only production
 takes is a path nothing tests until release day. `resolveZig`/`resolveRcodesign`
 fall back to `~/.local/bin` and `~/.cargo/bin` before failing with the install
 step named.
-
-## The A/B, and when to delete it
-
-`.github/workflows/release.yml` keeps a temporary `ab-native-arm64` job that
-builds `linux-aarch64` the old way, and an `ab-check` job that compares the two
-**on ARM hardware**: same version, same packed web build, same file set, both
-binaries run and report the same version, both embedded helpers run and report
-the same abduco banner, and the cross-built helper hosts a detached session that
-outlives its starter.
-
-It gates `publish`, because for the one release this control exists a
-cross-built bundle that misbehaves on its own architecture must not ship. The
-native leg uploads under its own artifact name — it stages the same asset name
-as the cross build, and `loadPreparedHeadless` refuses two descriptors claiming
-one platform.
-
-**Delete both jobs after the first release that ships both legs**, along with
-`--prepare-arch` in `scripts/release.ts` and
-`scripts/ab-headless-cross-vs-native.sh`. That removal is tracked as **POD-2529**,
-with the exact list and the removal condition — a temporary control with no
-removal ticket becomes permanent by accident, and this one costs an extra ARM
-runner on every release.
 
 ## What is still not proven here
 

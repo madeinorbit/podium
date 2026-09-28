@@ -7,13 +7,16 @@
 # then compares this tarball to that process-local value. This script deliberately accepts
 # no expected digest; letting a caller provide one would make forged bytes their own proof.
 #
-# A MISSING INPUT IS A FAILURE, NEVER A SKIP. The embedded-helper identity check needs
-# the reference abduco; running without it requires saying so explicitly with
-# --no-abduco-identity, so an omitted path can never read as a green.
+# A MISSING INPUT IS A FAILURE, NEVER A SKIP. The embedded-helper identity checks need
+# the reference abduco and podium-host; running without either requires saying so
+# explicitly with --no-abduco-identity / --no-host-identity, so an omitted path can
+# never read as a green.
 #
 # Usage:
-#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> --abduco <reference-binary>
-#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> --no-abduco-identity
+#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> \
+#     --abduco <reference-binary> --host <reference-binary>
+#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> \
+#     --no-abduco-identity --no-host-identity
 #
 # platform: linux-x86_64 | linux-aarch64 | darwin-aarch64 | darwin-x86_64
 set -euo pipefail
@@ -29,11 +32,15 @@ TARBALL=""
 PLATFORM=""
 ABDUCO_REF=""
 ABDUCO_IDENTITY=unset
+HOST_REF=""
+HOST_IDENTITY=unset
 SOURCE_COMMIT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --abduco) ABDUCO_REF="${2:-}"; ABDUCO_IDENTITY=required; shift 2 ;;
     --no-abduco-identity) ABDUCO_IDENTITY=waived; shift ;;
+    --host) HOST_REF="${2:-}"; HOST_IDENTITY=required; shift 2 ;;
+    --no-host-identity) HOST_IDENTITY=waived; shift ;;
     --source-commit) SOURCE_COMMIT="${2:-}"; shift 2 ;;
     -*) fail "unknown flag $1" ;;
     *)
@@ -52,6 +59,8 @@ done
 [ -f "$TARBALL" ] || fail "no such tarball: $TARBALL"
 [ "$ABDUCO_IDENTITY" != unset ] \
   || fail "pass --abduco <reference-binary> to check the embedded helper, or --no-abduco-identity to state deliberately that you are not checking it"
+[ "$HOST_IDENTITY" != unset ] \
+  || fail "pass --host <reference-binary> to check the embedded podium-host, or --no-host-identity to state deliberately that you are not checking it"
 
 need file
 need tar
@@ -322,6 +331,57 @@ PY
   esac
 else
   echo "NOTE: embedded-helper identity NOT checked (--no-abduco-identity was passed)"
+fi
+
+# --- The embedded podium-host is the one built FOR THIS PLATFORM ---
+#
+# podium-host keeps every agent, shell and login session alive across daemon restarts,
+# and the daemon starts no session without it. build-bun.ts embeds it the way it embeds
+# abduco, from scripts/host-cross.ts's content-addressed cache; an EMPTY embed is how a
+# build says "no host for this target", and materializeEmbeddedHost then unpacks
+# nothing — a bundle that ships no host looks healthy until a machine refuses to start
+# a session. So the same three questions as abduco: is the reference right, is it
+# inside the shipped binary, and is the other platform's copy absent. There is no
+# banner count: the CLI's own JavaScript names podium-host many times over, so "exactly
+# one copy" is asked of the reference bytes themselves.
+if [ "$HOST_IDENTITY" = required ]; then
+  [ -f "$HOST_REF" ] || fail "reference podium-host missing: $HOST_REF (regenerate with scripts/host-cross.ts)"
+  host_ref_file="$(file -b "$HOST_REF")"
+  case "$host_ref_file" in
+    *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
+    *) fail "reference podium-host is not $EXPECT_FORMAT $EXPECT_ARCH (got: $host_ref_file)" ;;
+  esac
+  OTHER_HOST_REF="$(dirname "$HOST_REF")/$OTHER_PLATFORM-$(basename "$HOST_REF" | sed "s/^$PLATFORM-//")"
+  host_report="$(python3 - "$CLI" "$HOST_REF" "$OTHER_HOST_REF" <<'PY'
+import sys
+cli, ref, other = sys.argv[1:4]
+data = open(cli, 'rb').read()
+want = open(ref, 'rb').read()
+at = data.find(want)
+print(f"ref_len={len(want)}")
+print(f"ref_at={at}")
+print(f"second_at={data.find(want, at + 1) if at >= 0 else -1}")
+try:
+    print(f"other_at={data.find(open(other, 'rb').read())}")
+except OSError:
+    print("other_at=absent-input")
+PY
+)" || fail "embedded podium-host byte scan failed"
+  echo "$host_report"
+  eval "$(echo "$host_report" | sed 's/^/HOST_/')"
+  [ "${HOST_ref_at}" != "-1" ] \
+    || fail "the $PLATFORM podium-host (${HOST_ref_len} bytes) does NOT appear inside the shipped binary — it embeds no podium-host, or the wrong one"
+  pass "shipped binary embeds the $PLATFORM podium-host verbatim at offset ${HOST_ref_at}"
+  [ "${HOST_second_at}" = "-1" ] \
+    || fail "the $PLATFORM podium-host is embedded twice (offsets ${HOST_ref_at} and ${HOST_second_at})"
+  pass "shipped binary carries exactly one podium-host"
+  case "${HOST_other_at}" in
+    -1) pass "the $OTHER_PLATFORM podium-host is absent from the shipped binary" ;;
+    absent-input) echo "NOTE: no $OTHER_PLATFORM podium-host reference built; cross-arch absence not checked" ;;
+    *) fail "the $OTHER_PLATFORM podium-host is embedded at offset ${HOST_other_at} — wrong architecture podium-host" ;;
+  esac
+else
+  echo "NOTE: embedded podium-host identity NOT checked (--no-host-identity was passed)"
 fi
 
 # --- Darwin signature + entitlements ---

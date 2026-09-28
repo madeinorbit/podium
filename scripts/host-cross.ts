@@ -32,15 +32,14 @@
  *
  * See docs/internal/headless-cross-compilation.md for the full provenance note.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HOST_FEATURES } from '../packages/pty/src/host-bin.js'
 import { sharedCacheDir } from './shared-cache-dir'
-import { readToolPins } from './tool-pins'
+import { resolveRcodesign, resolveZig } from './tool-pins'
 
 /** Repo root, from this file's location (works under bun run and bun --compile alike). */
 export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -196,54 +195,6 @@ export function hostCachePath(
   return join(hostCacheDir(root), `${platform}-${sourceHash.slice(0, 16)}`)
 }
 
-function findTool(envName: string, binary: string, fallbacks: string[]): string {
-  const configured = process.env[envName]?.trim()
-  if (configured) return configured
-  if (spawnSync(binary, ['--version'], { stdio: 'ignore' }).status === 0) return binary
-  for (const candidate of fallbacks) {
-    if (existsSync(candidate)) return candidate
-  }
-  throw new Error(
-    `host-cross: ${binary} is required to cross-compile the podium-host helper but was not found. ` +
-      `Install it, put it on PATH, or set ${envName} to its path.`,
-  )
-}
-
-/**
- * The found tool must MATCH the mise.toml pin [POD-3187]. Both tools change the bytes a
- * release ships (zig compiles the embedded helper, rcodesign writes the Darwin signature),
- * so a drifted local install must fail here, loudly, rather than produce a bundle that
- * differs from what CI would have built. `PODIUM_SKIP_TOOL_PIN_CHECK=1` waives it for
- * deliberate experiments. Memoized per (tool, path): one probe per process, not per call.
- */
-const pinChecked = new Set<string>()
-function assertPinnedVersion(tool: string, path: string, args: string[], pinned: string): string {
-  if (process.env.PODIUM_SKIP_TOOL_PIN_CHECK === '1') return path
-  const key = `${tool}\0${path}`
-  if (pinChecked.has(key)) return path
-  const printed = spawnSync(path, args, { encoding: 'utf8' }).stdout?.trim() ?? ''
-  if (!printed.split(/\s+/).includes(pinned)) {
-    throw new Error(
-      `host-cross: ${tool} at ${path} reports "${printed}" but mise.toml pins ${pinned}. ` +
-        `Run \`mise install\` (or install ${tool} ${pinned}), or set PODIUM_SKIP_TOOL_PIN_CHECK=1 ` +
-        `to build with an off-pin toolchain deliberately.`,
-    )
-  }
-  pinChecked.add(key)
-  return path
-}
-
-export function resolveZig(): string {
-  const zig = findTool('PODIUM_ZIG', 'zig', [join(homedir(), '.local/bin/zig')])
-  return assertPinnedVersion('zig', zig, ['version'], readToolPins().zig)
-}
-
-export function resolveRcodesign(): string {
-  const rcodesign = findTool('PODIUM_RCODESIGN', 'rcodesign', [
-    join(homedir(), '.cargo/bin/rcodesign'),
-  ])
-  return assertPinnedVersion('rcodesign', rcodesign, ['--version'], readToolPins().rcodesign)
-}
 
 /**
  * Build (or reuse) the podium-host helper for one platform and return its path.

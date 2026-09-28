@@ -15,7 +15,8 @@
 # Usage:
 #   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> [<linux-x64-tarball>]
 #
-# Needs the abduco cache (scripts/abduco-cross.ts) for the reference helpers.
+# Needs the abduco and podium-host caches (scripts/abduco-cross.ts, scripts/host-cross.ts)
+# for the reference helpers.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,6 +38,15 @@ HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.
 ABDUCO_CACHE="$(bun scripts/abduco-cross.ts --print-cache-dir)"
 DARWIN_REF="$ABDUCO_CACHE/darwin-aarch64-$HASH"
 LINUX_REF="$ABDUCO_CACHE/linux-x86_64-$HASH"
+
+# podium-host the same way. Every gate run below passes the darwin reference, so each
+# case still reaches the check it was built for; the host cases override it.
+bun scripts/host-cross.ts >/dev/null || { echo "ABORT: could not build the reference podium-host helpers" >&2; exit 1; }
+HOST_HASH="$(bun -e 'import{hostSourceHash}from"./scripts/host-cross.ts";console.log(hostSourceHash().slice(0,16))')"
+HOST_CACHE="$(bun scripts/host-cross.ts --print-cache-dir)"
+DARWIN_HOST_REF="$HOST_CACHE/darwin-aarch64-$HOST_HASH"
+LINUX_HOST_REF="$HOST_CACHE/linux-x86_64-$HOST_HASH"
+HOST_ARGS=(--host "$DARWIN_HOST_REF")
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-negctl-XXXXXX")"
 # When a case fails, the first question is always "what was actually in that tarball?".
@@ -71,9 +81,9 @@ check() {
   local label="$1" expect="$2" platform="$3" abduco="$4" tarball="$5"
   local out status line
   if [ -n "$abduco" ]; then
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --abduco "$abduco" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --abduco "$abduco" "${HOST_ARGS[@]}" 2>&1)"
   else
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" 2>&1)"
+    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" "${HOST_ARGS[@]}" 2>&1)"
   fi
   status=$?
   if [ "$status" -eq 0 ]; then
@@ -104,7 +114,7 @@ check_caller_client_root() {
   local out status line
   out="$(bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
     --source-commit "$SOURCE_COMMIT" --client-root-digest "$(printf 'a%.0s' {1..64})" \
-    --abduco "$DARWIN_REF" 2>&1)"
+    --abduco "$DARWIN_REF" "${HOST_ARGS[@]}" 2>&1)"
   status=$?
   line="$(printf '%s\n' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
   if [ "$status" -ne 0 ] && printf '%s' "$line" | grep -qi -- 'unknown flag --client-root-digest'; then
@@ -308,7 +318,9 @@ RAW="$WORK/raw-podium"
 # left there — often another platform's helper. Put the darwin one back first, so the
 # only thing wrong with this binary is its signature. Otherwise the embedded-helper
 # check fires first and this case silently stops testing LINKER_SIGNED at all.
+# The same holds for podium-host, whose check also runs before the signature's.
 cp "$DARWIN_REF" dist-bun/abduco.bin 2>/dev/null
+cp "$DARWIN_HOST_REF" dist-bun/podium-host.bin 2>/dev/null
 if bun build --compile --target=bun-darwin-arm64 --conditions=@podium/source \
      scripts/cli-compiled.ts --outfile "$RAW" >/dev/null 2>&1; then
   edit_raw() { cp "$RAW" "$CASE/headless/podium-cli"; chmod +x "$CASE/headless/podium-cli"; }
@@ -346,6 +358,46 @@ check "VERSION removed" "tarball missing headless/VERSION" \
 # 11. (ours) No --abduco and no explicit waiver: an omitted input must be an ERROR,
 #     never a silent skip that reads as a green.
 check "no abduco flag" "pass --abduco" darwin-aarch64 "" "$DARWIN_TARBALL"
+
+# 11a–11e. PODIUM-HOST. The daemon starts no session without it, and it is embedded the
+#     way abduco is, so it gets abduco's cases: an omitted input, a missing or
+#     wrong-platform reference, the wrong platform's host inside a good binary, and a
+#     build that shipped no host at all. HOST_ARGS is overridden per case and restored.
+HOST_ARGS=()
+check "no podium-host flag" "pass --host" darwin-aarch64 "$DARWIN_REF" "$DARWIN_TARBALL"
+HOST_ARGS=(--host "$WORK/does-not-exist")
+check "reference podium-host deleted" "reference podium-host missing" \
+  darwin-aarch64 "$DARWIN_REF" "$DARWIN_TARBALL"
+HOST_ARGS=(--host "$LINUX_HOST_REF")
+check "wrong-platform podium-host reference supplied" "reference podium-host is not" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate wronghostref edit_noop)"
+HOST_ARGS=(--host "$DARWIN_HOST_REF")
+# embed-wrong-abduco.py overwrites whichever helper it is handed, byte for byte.
+edit_wrong_host() {
+  python3 scripts/embed-wrong-abduco.py "$CASE/headless/podium-cli" "$DARWIN_HOST_REF" "$LINUX_HOST_REF"
+}
+# Swapping the helper REMOVES the right one, so this is refused by the same line as a
+# missing host, exactly as the abduco swap is refused above — the cross-arch line only
+# fires when both copies are present.
+check "linux podium-host embedded in the darwin binary" "does NOT appear inside the shipped binary" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate wronghost edit_wrong_host)"
+# A build that embedded NO host (the empty placeholder): zero the host's bytes in place,
+# so nothing else about the Mach-O shifts and only the host is missing.
+edit_no_host() {
+  python3 - "$CASE/headless/podium-cli" "$DARWIN_HOST_REF" <<'PY'
+import sys
+binary, ref = sys.argv[1], sys.argv[2]
+data = bytearray(open(binary, 'rb').read())
+want = open(ref, 'rb').read()
+at = data.find(want)
+if at < 0:
+    sys.exit(f'{ref} is not embedded in {binary}; cannot build the mutation')
+data[at:at + len(want)] = bytes(len(want))
+open(binary, 'wb').write(data)
+PY
+}
+check "no podium-host embedded" "does NOT appear inside the shipped binary — it embeds no podium-host" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate nohost edit_no_host)"
 
 # 12–14. THE PRODUCTION LAYOUT, not the spike layout. The spike packed no systemd/,
 #     no NOTICE, and stub web/mobile index.html files. A gate that only checked what
@@ -502,7 +554,7 @@ check "NOTICE missing" "tarball missing headless/NOTICE" \
 # gate that rejected everything would score a perfect set above.
 echo
 if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
-    --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" >/dev/null 2>&1; then
+    --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" "${HOST_ARGS[@]}" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
   PASSED=$((PASSED + 1))
 else

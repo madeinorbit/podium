@@ -26,14 +26,13 @@
  *
  * See docs/internal/headless-cross-compilation.md for the full provenance note.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sharedCacheDir } from './shared-cache-dir'
-import { readToolPins } from './tool-pins'
+import { resolveRcodesign, resolveZig } from './tool-pins'
 
 /** Repo root, from this file's location (works under bun run and bun --compile alike). */
 export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -177,80 +176,8 @@ export function abducoCachePath(
   return join(abducoCacheDir(root), `${platform}-${sourceHash.slice(0, 16)}`)
 }
 
-/**
- * THE PROBE ARGS ARE THE CALLER'S TO SUPPLY [POD-3771], because `--version` is not universal.
- * `zig --version` is not a zig command at all — it exits 1 with "unknown command: --version",
- * so probing with it declared a zig sitting on PATH to be missing, and every headless release
- * since has failed on a runner that had just installed zig successfully. The version this
- * asks for is the one the pin check then reads, so the two cannot drift apart again.
- */
-function findTool(
-  envName: string,
-  binary: string,
-  versionArgs: string[],
-  fallbacks: string[],
-): string {
-  const configured = process.env[envName]?.trim()
-  if (configured) return configured
-  if (spawnSync(binary, versionArgs, { stdio: 'ignore' }).status === 0) return binary
-  for (const candidate of fallbacks) {
-    if (existsSync(candidate)) return candidate
-  }
-  throw new Error(
-    `abduco-cross: ${binary} is required to cross-compile the abduco helper but was not found. ` +
-      `Install it, put it on PATH, or set ${envName} to its path.`,
-  )
-}
-
-/**
- * The found tool must MATCH the mise.toml pin [POD-3187]. Both tools change the bytes a
- * release ships (zig compiles the embedded helper, rcodesign writes the Darwin signature),
- * so a drifted local install must fail here, loudly, rather than produce a bundle that
- * differs from what CI would have built. `PODIUM_SKIP_TOOL_PIN_CHECK=1` waives it for
- * deliberate experiments. Memoized per (tool, path): one probe per process, not per call.
- */
-const pinChecked = new Set<string>()
-function assertPinnedVersion(tool: string, path: string, args: string[], pinned: string): string {
-  if (process.env.PODIUM_SKIP_TOOL_PIN_CHECK === '1') return path
-  const key = `${tool}\0${path}`
-  if (pinChecked.has(key)) return path
-  const printed = spawnSync(path, args, { encoding: 'utf8' }).stdout?.trim() ?? ''
-  if (!printed.split(/\s+/).includes(pinned)) {
-    throw new Error(
-      `abduco-cross: ${tool} at ${path} reports "${printed}" but mise.toml pins ${pinned}. ` +
-        `Run \`mise install\` (or install ${tool} ${pinned}), or set PODIUM_SKIP_TOOL_PIN_CHECK=1 ` +
-        `to build with an off-pin toolchain deliberately.`,
-    )
-  }
-  pinChecked.add(key)
-  return path
-}
-
-const ZIG_VERSION_ARGS = ['version']
-const RCODESIGN_VERSION_ARGS = ['--version']
-
-export function resolveZig(): string {
-  const zig = findTool('PODIUM_ZIG', 'zig', ZIG_VERSION_ARGS, [
-    join(homedir(), '.local/bin/zig'),
-    // Where mise puts its shims. CI adds this to PATH, but a `mise install` on a shell that
-    // has not been hooked does not, and the failure it produced was indistinguishable.
-    join(homedir(), '.local/share/mise/shims/zig'),
-  ])
-  return assertPinnedVersion('zig', zig, ZIG_VERSION_ARGS, readToolPins().zig)
-}
-
-export function resolveRcodesign(): string {
-  const rcodesign = findTool('PODIUM_RCODESIGN', 'rcodesign', RCODESIGN_VERSION_ARGS, [
-    join(homedir(), '.cargo/bin/rcodesign'),
-    join(homedir(), '.local/share/mise/shims/rcodesign'),
-  ])
-  return assertPinnedVersion(
-    'rcodesign',
-    rcodesign,
-    RCODESIGN_VERSION_ARGS,
-    readToolPins().rcodesign,
-  )
-}
+// Re-exported: build-bun.ts and older callers import the resolvers from here.
+export { resolveRcodesign, resolveZig }
 
 /**
  * Build (or reuse) the abduco helper for one platform and return its path.

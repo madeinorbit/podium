@@ -75,6 +75,10 @@ echo "manifest version $TARGET_VERSION declares exactly: $MANIFEST_PLATFORMS"
 bun scripts/abduco-cross.ts >/dev/null || fail "could not build the reference abduco helpers"
 ABDUCO_HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
 ABDUCO_CACHE="$(bun scripts/abduco-cross.ts --print-cache-dir)"
+# podium-host the same way: same content-addressed cache shape, same reason.
+bun scripts/host-cross.ts >/dev/null || fail "could not build the reference podium-host helpers"
+HOST_HASH="$(bun -e 'import{hostSourceHash}from"./scripts/host-cross.ts";console.log(hostSourceHash().slice(0,16))')"
+HOST_CACHE="$(bun scripts/host-cross.ts --print-cache-dir)"
 
 for pair in $PLATFORMS; do
   platform="${pair%%:*}"
@@ -104,7 +108,8 @@ for pair in $PLATFORMS; do
 
   bash scripts/assert-headless-bundle.sh "$DIR/$asset" "$platform" \
     --source-commit "$TARGET_SOURCE" \
-    --abduco "$ABDUCO_CACHE/${platform}-${ABDUCO_HASH}" || exit 1
+    --abduco "$ABDUCO_CACHE/${platform}-${ABDUCO_HASH}" \
+    --host "$HOST_CACHE/${platform}-${HOST_HASH}" || exit 1
 
   BUNDLE_VERSION="$(tar -xzOf "$DIR/$asset" headless/VERSION | tr -d '\n')"
   [ "$BUNDLE_VERSION" = "$TARGET_VERSION" ] \

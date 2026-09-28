@@ -23,7 +23,7 @@
 # not name. It said nothing for as long as it ran. What it hid was real: lightningcss
 # returns a CSS module's class map from a Rust HashMap, whose order is re-rolled on
 # every call, so the phone's entry chunk was renaming itself on every uncached build
-# and only the release A/B (scripts/ab-headless-cross-vs-native.sh), which compares two
+# and only the release A/B (a cross-vs-native comparison, since retired), which compared two
 # MACHINES, ever saw it.
 #
 # A separate TMPDIR per leg makes the second build transform from source, which is the

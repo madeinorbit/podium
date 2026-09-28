@@ -108,13 +108,15 @@ jobs:
         run: |
           set -euo pipefail
           HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
+          HOST_HASH="$(bun -e 'import{hostSourceHash}from"./scripts/host-cross.ts";console.log(hostSourceHash().slice(0,16))')"
           for pair in "linux-x86_64:linux-x64" "linux-aarch64:linux-arm64" \
                       "darwin-aarch64:darwin-arm64" "darwin-x86_64:darwin-x64"; do
             platform="${pair%%:*}"; asset="${pair##*:}"
             bash scripts/assert-headless-bundle.sh \
               "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
               --source-commit "$GITHUB_SHA" \
-              --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
+              --abduco "dist-bun/abduco-cache/${platform}-${HASH}" \
+              --host "dist-bun/host-cache/${platform}-${HOST_HASH}"
           done
       # RUN the one bundle this runner can run, BEFORE publishing it. Everything above
       # interrogates tarballs without executing anything — the only option for the three
@@ -147,58 +149,8 @@ jobs:
           path: dist-bun/release/*
           if-no-files-found: error
 
-  # TEMPORARY — the A/B control for the matrix collapse, to be deleted after the first
-  # release that ships both legs.
-  #
-  # It builds linux-aarch64 the old way, on a real ARM runner, so `ab-check` below can
-  # compare the two on hardware of that architecture. It uploads to its OWN artifact
-  # name: the publisher refuses two descriptors claiming one platform, and the native
-  # bundle must never be the one that ships.
-  ab-native-arm64:
-    name: A/B control — native arm64 build
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-        with:
-          install_args: bun
-      - uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: headless-native-arm64-${{ hashFiles('bun.lock') }}
-      - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Build the native arm64 headless artifact
-        env:
-          PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
-        run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --prepare-arch arm64
-      - uses: actions/upload-artifact@v4
-        with:
-          name: headless-ab-native-arm64
-          path: dist-bun/release/*
-          if-no-files-found: error
-
-  # The behavioural half of the A/B, ON ARM HARDWARE. The assertions in `headless` prove
-  # the cross-built arm64 bundle is shaped right without running it; only this job can
-  # prove it RUNS. It gates publish: for the one release this control exists, a
-  # cross-built bundle that misbehaves on its own architecture must not ship.
-  ab-check:
-    name: A/B — cross vs native on arm64
-    needs: [headless, ab-native-arm64]
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { name: headless-cross, path: ab/cross }
-      - uses: actions/download-artifact@v4
-        with: { name: headless-ab-native-arm64, path: ab/native }
-      - name: Compare the cross-built and native arm64 bundles
-        run: |
-          bash scripts/ab-headless-cross-vs-native.sh \
-            ab/cross/podium-headless-linux-arm64.tar.gz \
-            ab/native/podium-headless-linux-arm64.tar.gz
-
   publish:
-    needs: [headless, ab-check]
+    needs: [headless]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -218,8 +170,9 @@ jobs:
       # `bun scripts/release.ts`, and that import graph reaches `zod` through
       # packages/protocol/src/update/target.ts, so on edge and dev it ran with no
       # node_modules at all and died before it opened a single artifact. Nobody saw
-      # it because `publish` needs ab-check, and ab-check had failed on every run
-      # since v0.1.0 — the job was skipped, not passing.
+      # it because `publish` then also waited on the temporary cross-vs-native A/B
+      # (retired in POD-4789), which had failed on every run since v0.1.0 — the job
+      # was skipped, not passing.
       - name: Install the release toolchain's own dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Ensure the real-release base image is available
@@ -230,8 +183,6 @@ jobs:
         run: >-
           cargo build --release --locked
           --manifest-path scripts/stable-candidate-minisign/Cargo.toml
-      # Only the cross artifact. The native A/B leg stages under the same asset name and
-      # must never reach the release.
       - uses: actions/download-artifact@v4
         with:
           name: headless-cross

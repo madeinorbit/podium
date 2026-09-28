@@ -13,8 +13,8 @@
  * literal — seven keys, in the one CSS module the phone graph pulls in
  * (`expo-router/assets/native-tabs.module.css`) — renamed the entry chunk, rewrote
  * index.html and its `.br`/`.gz` siblings, and changed every digest in
- * `podium-build-manifest.json`. That is what the release A/B
- * (`scripts/ab-headless-cross-vs-native.sh`) caught: two runners packing the same
+ * `podium-build-manifest.json`. That is what the release A/B (a cross-vs-native
+ * comparison, since retired) caught: two runners packing the same
  * commit produced two different phone websites while the desktop one matched byte
  * for byte.
  *

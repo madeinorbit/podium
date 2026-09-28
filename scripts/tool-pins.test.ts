@@ -5,12 +5,11 @@
  * and the resolvers must actually REFUSE an off-pin binary — a pin nothing enforces
  * is documentation, not a pin.
  */
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolveZig } from './abduco-cross'
-import { readToolPins } from './tool-pins'
+import { readToolPins, resolveZig } from './tool-pins'
 
 const SEMVER = /^\d+\.\d+\.\d+$/
 
@@ -107,4 +106,21 @@ describe('resolveZig pin enforcement', () => {
     process.env.PODIUM_ZIG = bin
     expect(resolveZig()).toBe(bin)
   })
+})
+
+/**
+ * ONE LOOKUP FOR BOTH HELPER BUILDS. host-cross.ts once carried its own copy of the tool
+ * lookup, taken before the POD-3771 fix, so it probed `zig --version` and declared missing
+ * the zig that abduco-cross had just used. The PATH test above only ever exercised
+ * abduco's copy. So: neither build script may define a lookup of its own.
+ */
+describe('both helper builds resolve their tools through tool-pins', () => {
+  for (const file of ['abduco-cross.ts', 'host-cross.ts']) {
+    it(`${file} has no tool lookup of its own`, () => {
+      const source = readFileSync(join(import.meta.dirname, file), 'utf8')
+      expect(source).not.toMatch(/function findTool\b/)
+      expect(source).not.toMatch(/export function resolve(Zig|Rcodesign)\b/)
+      expect(source).toMatch(/resolveRcodesign, resolveZig } from '\.\/tool-pins'/)
+    })
+  }
 })

@@ -52,7 +52,9 @@ echo "PASS: the binary runs and agrees with the bundle's VERSION"
 #    out because it must not depend on anything that could block, and its exit status is
 #    ignored on purpose — what is under test is the side effect, asserted below.
 STATE="$WORK/state"
-env -u PODIUM_ABDUCO -u PODIUM_AGENT_RELAY PODIUM_STATE_DIR="$STATE" PODIUM_HOME="$HOME_DIR" \
+#    The same probe unpacks podium-host (steps 4 and 5); PODIUM_HOST_BIN would make it
+#    skip that, so it is unset alongside PODIUM_ABDUCO.
+env -u PODIUM_ABDUCO -u PODIUM_HOST_BIN -u PODIUM_AGENT_RELAY PODIUM_STATE_DIR="$STATE" PODIUM_HOME="$HOME_DIR" \
   timeout 60 "$HOME_DIR/podium" channel >/dev/null 2>&1 || true
 HELPER="$STATE/bin/abduco"
 [ -x "$HELPER" ] || { echo "ABORT: the bundle did not materialize an executable abduco into $STATE/bin" >&2; exit 1; }
@@ -78,5 +80,41 @@ done
   || { echo "ABORT: the detached session is absent from the helper's own session list" >&2; exit 1; }
 echo "PASS: the embedded helper hosts a detached session that outlived its starter"
 pkill -f "abduco.*$SESSION" 2>/dev/null || true
+
+# 4. The EMBEDDED podium-host materializes and runs. It is what the daemon actually hosts
+#    sessions in — abduco is only the fallback — and a daemon that finds none starts no
+#    session at all, so a bundle without a working one is broken however well it starts.
+#    An empty embed (a build that produced no host for this target) unpacks nothing and
+#    fails here.
+HOST_HELPER="$STATE/bin/podium-host"
+[ -x "$HOST_HELPER" ] || { echo "ABORT: the bundle did not materialize an executable podium-host into $STATE/bin" >&2; exit 1; }
+HOST_BANNER="$("$HOST_HELPER" version 2>&1 | head -1)" || { echo "ABORT: the embedded podium-host does not run here" >&2; exit 1; }
+echo "podium-host version -> $HOST_BANNER"
+case "$HOST_BANNER" in
+  "podium-host "*" features="*) : ;;
+  *) echo "ABORT: the embedded podium-host produced no recognisable version banner" >&2; exit 1 ;;
+esac
+echo "PASS: the embedded podium-host materializes and runs ($(file -b "$HOST_HELPER" | cut -d, -f1-2))"
+
+# 5. podium-host's one job: host a session that outlives the process that started it.
+#    `create` daemonizes and returns while the host stays up; a second `create` on the
+#    same socket must then refuse with exit 3 ("already running"), which proves the
+#    socket is live rather than a file left behind.
+HOST_SOCK="$WORK/host-$$.sock"
+"$HOST_HELPER" create --socket "$HOST_SOCK" --no-pty --linger-secs 2 -- sh -c 'sleep 60' \
+  || { echo "ABORT: the embedded podium-host could not start a detached session" >&2; exit 1; }
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -S "$HOST_SOCK" ] && break
+  sleep 0.5
+done
+[ -S "$HOST_SOCK" ] || { echo "ABORT: the podium-host session left no socket at $HOST_SOCK after its starter exited" >&2; exit 1; }
+set +e
+DUP_OUT="$("$HOST_HELPER" create --socket "$HOST_SOCK" --no-pty -- true 2>&1)"
+DUP_CODE=$?
+set -e
+pkill -f "$HOST_SOCK" 2>/dev/null || true
+[ "$DUP_CODE" = 3 ] && [[ "$DUP_OUT" == *"already running"* ]] \
+  || { echo "ABORT: a second create on the live socket exited $DUP_CODE, want 3 (already running): $DUP_OUT" >&2; exit 1; }
+echo "PASS: the embedded podium-host hosts a detached session that outlived its starter"
 
 echo "=== BUNDLE SMOKE PASSED for $(basename "$TARBALL") ==="

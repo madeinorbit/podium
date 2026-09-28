@@ -498,19 +498,22 @@ describe('desktop release workflow', () => {
    * mode POD-2556 caught.
    *
    * What is worth pinning is the part a mistake could silently undo: that one
-   * job really does produce ALL FOUR platforms, and that both gates still stand
-   * in front of publish.
+   * job really does produce ALL FOUR platforms, that its gates stand in front of
+   * publish, and that each gate checks both embedded helpers.
    */
   it('cross-builds every headless platform, gated, before one atomic publish', () => {
     const parsed = Bun.YAML.parse(headlessWorkflow) as {
       jobs?: { headless?: { strategy?: unknown }; publish?: { needs?: string[] } }
     }
-    // Publish waits on BOTH, and the second one is the point: `headless` proves the
-    // cross-built arm64 bundle is SHAPED right without running it, and only `ab-check`
-    // on real arm hardware proves it RUNS. Asserting the pair keeps the behavioural
-    // gate in front of publish, so a cross-built bundle that misbehaves on its own
-    // architecture cannot ship.
-    expect(parsed.jobs?.publish?.needs).toEqual(['headless', 'ab-check'])
+    // Publish waits on `headless`, whose steps are the gates: every bundle's shape
+    // and embedded helpers asserted, and the linux-x64 one RUN. The temporary
+    // cross-vs-native A/B that also gated publish was retired after the first release
+    // it passed (POD-4789).
+    expect(parsed.jobs?.publish?.needs).toEqual(['headless'])
+    // podium-host is checked as abduco is. The daemon starts no session without it,
+    // so a bundle that embeds none must not reach a release page.
+    expect(headlessWorkflow).toContain(`--host "dist-bun/host-cache/\${platform}-\${HOST_HASH}"`)
+    expect(headlessWorkflow).toContain('scripts/smoke-headless-bundle.sh')
     // No matrix: reintroducing one would mean an architecture decided where a bundle
     // was built again, which is exactly what cross-compilation removed.
     expect(parsed.jobs?.headless?.strategy).toBeUndefined()

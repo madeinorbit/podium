@@ -189,6 +189,7 @@ function runGate(tarball: string): {
       '--source-commit',
       TEST_SOURCE_SHA,
       '--no-abduco-identity',
+      '--no-host-identity',
     ],
     { encoding: 'utf8', cwd: repoRoot },
   )
@@ -340,6 +341,7 @@ describe('assert-headless-bundle production layout', () => {
         '--client-root-digest',
         attackerDigest,
         '--no-abduco-identity',
+        '--no-host-identity',
       ],
       { encoding: 'utf8', cwd: repoRoot },
     )
@@ -454,6 +456,7 @@ describe('assert-headless-bundle production layout', () => {
         '--source-commit',
         'fffffff',
         '--no-abduco-identity',
+        '--no-host-identity',
       ],
       { encoding: 'utf8', cwd: repoRoot },
     )
@@ -510,6 +513,8 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(prove).toContain('padded forged web stub with matching forged manifest')
     expect(prove).toContain('web build provenance manifest removed')
     expect(prove).toContain('NOTICE missing')
+    expect(prove).toContain('no podium-host embedded')
+    expect(prove).toContain('linux podium-host embedded in the darwin binary')
   })
 
   it('says in the release job that rcodesign supplies entitlements, not the signature', () => {

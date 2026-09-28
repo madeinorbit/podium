@@ -13,12 +13,8 @@
  * `rcodesign` re-signs each Darwin Mach-O with Bun's JIT entitlements (Bun's own
  * compile already emitted an ad-hoc LINKER_SIGNED signature; dropping rcodesign
  * breaks JIT at runtime, not code signing at build time), so the architecture of
- * the runner stopped meaning anything.
- *
- * `--prepare-arch x64|arm64` REMAINS, and still builds natively on a runner of that
- * architecture. It is no longer how a release is made: it is the A/B leg that proves
- * the cross-built linux-aarch64 bundle behaves like the native one. It is expected to
- * be deleted after the first release that ships both.
+ * the runner stopped meaning anything. The native `--prepare-arch` leg that was kept
+ * for one release as an A/B control against the cross build is gone (POD-4789).
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -59,20 +55,6 @@ export function headlessAsset(platform: HeadlessPlatform): string {
   return `podium-headless-${BUN_TARGETS[bunTargetForPlatform(platform)].asset}.tar.gz`
 }
 
-export type HeadlessArch = 'x64' | 'arm64'
-
-/**
- * The two NATIVE legs. Retained only for the A/B check described at the top of this
- * file; a release's four bundles all come from {@link prepareHeadlessCross}.
- */
-const HEADLESS_ARCH = {
-  x64: { nodeArch: 'x64', target: 'linux-x86_64' },
-  arm64: { nodeArch: 'arm64', target: 'linux-aarch64' },
-} as const satisfies Record<
-  HeadlessArch,
-  { nodeArch: NodeJS.Architecture; target: HeadlessPlatform }
->
-
 type PreparedHeadless = {
   version: string
   target: string
@@ -81,9 +63,8 @@ type PreparedHeadless = {
   webDigest: string
   clientRootDigest: string
   /**
-   * How the bundle was produced. Recorded rather than inferred so the A/B job can say
-   * which leg it is comparing, and so a descriptor can never be mistaken for the other
-   * kind after the native legs are deleted.
+   * How the bundle was produced. Every bundle is cross-built now; `native` names the
+   * retired A/B leg, so a stray descriptor from it can never pass for a cross one.
    */
   mode?: 'cross' | 'native'
 }
@@ -177,7 +158,6 @@ type OptionKind = 'value' | 'repeated' | 'flag'
 const RELEASE_OPTIONS = {
   '--channel': 'value',
   '--tag': 'value',
-  '--prepare-arch': 'value',
   '--publish-dir': 'value',
   '--min-required': 'value',
   '--platform': 'repeated',
@@ -480,37 +460,6 @@ export async function prepareHeadlessCross(
   return prepared
 }
 
-/**
- * The NATIVE leg: build this runner's own architecture the pre-cross way.
- *
- * Kept as the A/B control against {@link prepareHeadlessCross} for one release. It
- * stages under the SAME asset name as the cross build, so the two legs must be uploaded
- * to different directories — the publisher rejects two descriptors claiming one platform.
- */
-export async function prepareHeadlessArchitecture(
-  arch: HeadlessArch,
-  outDir = 'dist-bun/release',
-): Promise<PreparedHeadless> {
-  const config = HEADLESS_ARCH[arch]
-  if (process.platform !== 'linux' || process.arch !== config.nodeArch) {
-    throw new Error(
-      `headless ${arch} must build natively on linux/${config.nodeArch}; ` +
-        `this runner is ${process.platform}/${process.arch}`,
-    )
-  }
-
-  const session = await beginFreshClientPackagingSession([])
-  mkdirSync(outDir, { recursive: true })
-  writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
-  const packaged = packageHeadlessForFreshClients(session, [])
-  return stagePrepared({
-    platform: config.target,
-    packaged,
-    outDir,
-    mode: 'native',
-  })
-}
-
 export function loadPreparedHeadless(
   dir: string,
   requiredTargets: readonly string[] = RELEASE_PLATFORMS,
@@ -808,12 +757,10 @@ async function main(): Promise<void> {
     throw new Error(`unknown channel ${channel}`)
   // A rolling channel publishes onto a tag named after itself; only stable is told its tag.
   const tag = channel === 'stable' ? (args.value('--tag') ?? '') : channel
-  const prepareArch = args.value('--prepare-arch')
   const publishDir = args.value('--publish-dir')
   const prepareCross = args.flag('--prepare-cross')
-  const modes = [prepareArch, publishDir, prepareCross || undefined].filter(Boolean)
-  if (modes.length > 1) {
-    throw new Error('choose one of --prepare-cross, --prepare-arch or --publish-dir')
+  if (publishDir && prepareCross) {
+    throw new Error('choose one of --prepare-cross or --publish-dir')
   }
 
   if (prepareCross) {
@@ -836,13 +783,6 @@ async function main(): Promise<void> {
     )
     return
   }
-  if (prepareArch) {
-    if (prepareArch !== 'x64' && prepareArch !== 'arm64') {
-      throw new Error(`unknown headless architecture ${prepareArch}`)
-    }
-    await prepareHeadlessArchitecture(prepareArch)
-    return
-  }
   if (publishDir) {
     publishPreparedHeadless({
       channel,
@@ -854,14 +794,15 @@ async function main(): Promise<void> {
     return
   }
 
-  // Local build convenience: prepare only the native architecture and emit a
+  // Local build convenience: prepare only this machine's own platform and emit a
   // local single-platform manifest. Publishing is intentionally reserved for the
   // release workflow, which supplies every published platform atomically.
   if (process.env.GH_TOKEN) {
     throw new Error('publishing requires the multi-platform --publish-dir workflow')
   }
-  const nativeArch: HeadlessArch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  const prepared = await prepareHeadlessArchitecture(nativeArch)
+  const hostPlatform: HeadlessPlatform = process.arch === 'arm64' ? 'linux-aarch64' : 'linux-x86_64'
+  const [prepared] = await prepareHeadlessCross([hostPlatform])
+  if (!prepared) throw new Error(`prepare-cross produced no bundle for ${hostPlatform}`)
   publishPreparedHeadless({
     channel,
     tag,
