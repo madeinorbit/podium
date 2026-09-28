@@ -67,8 +67,8 @@ export { codexMcpArgs, codexTranscriptPlacement } from './adapters/codex/index.j
 // entry — see store.ts.
 export { stampOpencodeItems } from './store/sources/sqlite.js'
 export * from './model-probe.js'
-export { opencodeAuthPath } from './opencode/auth.js'
-export * from './opencode/cli.js'
+export { opencodeAuthPath } from './adapters/opencode/auth.js'
+export * from './adapters/opencode/cli.js'
 export * from './opencode/db.js'
 export * from './pi/paths.js'
 export * from './registry.js'

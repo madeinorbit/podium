@@ -16,16 +16,15 @@ import {
   type ScanAgentConversationsResult,
 } from '../discovery/types.js'
 
-// The adapters own the provider instances (#158); scan priority keeps the
-// historical order (codex first, then claude-code, grok, opencode, cursor).
-const builtInProviders: readonly ConversationProvider[] = [
-  HARNESS_ADAPTERS.codex.discovery,
-  HARNESS_ADAPTERS['claude-code'].discovery,
-  HARNESS_ADAPTERS.grok.discovery,
-  HARNESS_ADAPTERS.opencode.discovery,
-  HARNESS_ADAPTERS.cursor.discovery,
-  HARNESS_ADAPTERS.pi.discovery,
-]
+// The adapters own the provider instances (#158), derived from the registry
+// rather than restated (POD-4737 D3): a seventh harness's discovery joins
+// the scan with no second edit here. Order follows the registry; it is not
+// a priority — providers scan disjoint roots concurrently, so list order is
+// unobservable in results. pi included: its manifest declares a discovery
+// section like the rest.
+const builtInProviders: readonly ConversationProvider[] = Object.values(HARNESS_ADAPTERS).map(
+  (manifest) => manifest.discovery,
+)
 
 const providersById = new Map(builtInProviders.map((provider) => [provider.id, provider]))
 

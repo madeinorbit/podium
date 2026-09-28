@@ -11,8 +11,8 @@ import {
   parseJsonLines,
   readJsonLinesHead,
   stringField,
-} from '../jsonl.js'
-import { canonicalPath, pathExists } from '../paths.js'
+} from '../../discovery/jsonl.js'
+import { canonicalPath, pathExists } from '../../discovery/paths.js'
 import type {
   AgentConversation,
   AgentConversationDiagnostic,
@@ -25,8 +25,8 @@ import type {
   ProviderScanResult,
   ProviderSummaryContext,
   ProviderSummaryResult,
-} from '../types.js'
-import { AgentConversationLoadError } from '../types.js'
+} from '../../discovery/types.js'
+import { AgentConversationLoadError } from '../../discovery/types.js'
 
 const log = createLogger('harness:discovery')
 const providerId = 'pi-sessions'

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { createPiConversationProvider } from './pi.js'
+import { createPiConversationProvider } from './discovery.js'
 
 const id = '9e804279-978a-4644-adc4-f815f25a5728'
 const cwd = '/home/user/src/other/podium'

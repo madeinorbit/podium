@@ -3,6 +3,12 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
+import { codexModelProbeArgv, parseCodexModels } from './adapters/codex/model-probe.js'
+import { cursorModelProbeArgv, parseCursorModels } from './adapters/cursor/model-probe.js'
+import { grokModelProbeArgv, parseGrokModels } from './adapters/grok/model-probe.js'
+import { opencodeModelProbeArgv, parseOpencodeModels } from './adapters/opencode/model-probe.js'
+import { parsePiModels, piModelProbeArgv } from './adapters/pi/model-probe.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -38,135 +44,30 @@ export interface ModelChoice {
   efforts?: string[]
 }
 
-/** Agent kinds that can enumerate models → the argv that lists them. Keyed by the
- *  web/protocol agent kind ('cursor'), not the binary ('cursor-agent'). codex uses
- *  `codex debug models` (JSON; the only non-interactive path — `codex models` forwards
- *  to the TUI). claude/codex-less agents have no list command → the web static list. */
+/** Agent kinds that can enumerate models → the argv that lists them, stated by
+ *  each adapter beside its own parser (POD-4737 D3). Keyed by the web/protocol
+ *  agent kind ('cursor'), not the binary ('cursor-agent'). codex uses
+ *  `codex debug models` (JSON; the only non-interactive path — `codex models`
+ *  forwards to the TUI). claude/codex-less agents have no list command → the
+ *  web static list. Keys stay bare identifiers (never quoted literals); every
+ *  binary spelling lives in its adapter module. */
 const MODEL_PROBES = {
-  grok: ['grok', 'models'],
-  cursor: ['cursor-agent', 'models'],
-  opencode: ['opencode', 'models'],
-  codex: ['codex', 'debug', 'models'],
-  pi: ['pi', '--list-models'],
+  grok: grokModelProbeArgv,
+  cursor: cursorModelProbeArgv,
+  opencode: opencodeModelProbeArgv,
+  codex: codexModelProbeArgv,
+  pi: piModelProbeArgv,
 } as const satisfies Record<string, readonly string[]>
 
 export type ProbeableAgent = keyof typeof MODEL_PROBES
 
 export const PROBEABLE_AGENTS = Object.keys(MODEL_PROBES) as ProbeableAgent[]
 
-// ---- parsers (pure; one per CLI's output shape) ----
+// ---- parsers (pure; one per CLI's output shape, owned by each adapter) ----
 
-/** grok models → a marker list under "Available models:" (`* id (default)` / `- id`). */
-export function parseGrokModels(out: string): ModelChoice[] {
-  const models: ModelChoice[] = []
-  let inList = false
-  for (const raw of out.split('\n')) {
-    if (/^available models:/i.test(raw.trim())) {
-      inList = true
-      continue
-    }
-    if (!inList) continue
-    const m = raw.match(/^\s*[*-]\s+(\S+)/)
-    if (m?.[1]) models.push({ value: m[1], label: m[1] })
-  }
-  return models
-}
-
-/** cursor-agent models → `id - Label` lines. Drops `auto` (the picker adds its own
- *  sentinel) and strips trailing "(current)"/"(default)" markers. */
-export function parseCursorModels(out: string): ModelChoice[] {
-  const models: ModelChoice[] = []
-  for (const raw of out.split('\n')) {
-    const m = raw.match(/^([A-Za-z0-9][\w.:/-]*)\s+-\s+(.+)$/)
-    if (!m?.[1]) continue
-    const value = m[1]
-    if (value === 'auto') continue
-    const label = (m[2] ?? '').replace(/\s*\((?:current|default)\)\s*$/i, '').trim()
-    models.push({ value, label: label || value })
-  }
-  return models
-}
-
-/** opencode models → one `provider/model` id per line. */
-export function parseOpencodeModels(out: string): ModelChoice[] {
-  const models: ModelChoice[] = []
-  for (const raw of out.split('\n')) {
-    const line = raw.trim()
-    if (/^[^\s/]+\/\S+$/.test(line)) models.push({ value: line, label: line })
-  }
-  return models
-}
-
-/** pi --list-models → a whitespace table `provider model context max-out thinking images`
- *  (verified against pi 0.84.4). The id Podium passes back is `provider/model`, the
- *  form `--model` accepts. A model whose thinking column is `yes` takes every
- *  thinking level; `no` means the effort picker has nothing to offer. */
-export function parsePiModels(out: string): ModelChoice[] {
-  const models: ModelChoice[] = []
-  let inTable = false
-  for (const raw of out.split('\n')) {
-    const cells = raw.trim().split(/\s+/)
-    if (cells.length < 2) continue
-    const [provider, model] = cells
-    if (!provider || !model) continue
-    // Rows count only under the table header; prose ("No models found") never does.
-    if (provider === 'provider' && model === 'model') {
-      inTable = true
-      continue
-    }
-    if (!inTable) continue
-    const thinking = cells[4]
-    models.push({
-      value: `${provider}/${model}`,
-      label: `${provider}/${model}`,
-      efforts: thinking === 'yes' ? [...PI_THINKING_LEVELS] : [],
-    })
-  }
-  return models
-}
-
-const PI_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-
-/** codex debug models → `{ models: [{ slug, display_name, visibility, priority }] }`.
- *  Keep only user-selectable models (`visibility === 'list'` drops internal ones like
- *  codex-auto-review), ordered by the CLI's own priority. */
-export function parseCodexModels(out: string): ModelChoice[] {
-  try {
-    const parsed = JSON.parse(out) as {
-      models?: Array<{
-        slug?: string
-        display_name?: string
-        visibility?: string
-        priority?: number
-        supported_reasoning_levels?: Array<{ effort?: unknown }>
-      }>
-    }
-    return (parsed.models ?? [])
-      .filter(
-        (
-          m,
-        ): m is {
-          slug: string
-          display_name?: string
-          priority?: number
-          supported_reasoning_levels?: Array<{ effort?: unknown }>
-        } => Boolean(m.slug && m.visibility === 'list'),
-      )
-      .sort(
-        (a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER),
-      )
-      .map((m) => ({
-        value: m.slug,
-        label: m.display_name || m.slug,
-        // Per-model effort from the CLI's own catalog (authoritative).
-        efforts: (m.supported_reasoning_levels ?? [])
-          .map((r) => r.effort)
-          .filter((e): e is string => typeof e === 'string'),
-      }))
-  } catch {
-    return []
-  }
-}
+// Re-exported so existing readers (tests, catalog builders) keep working;
+// the implementations live beside the adapters that own them.
+export { parseCodexModels, parseCursorModels, parseGrokModels, parseOpencodeModels, parsePiModels }
 
 const PARSERS: Record<ProbeableAgent, (out: string) => ModelChoice[]> = {
   grok: parseGrokModels,
@@ -334,6 +235,7 @@ export async function probeAllModels(
     }),
   ])
   const byAgent: Record<string, ModelChoice[]> = Object.fromEntries(cli)
-  if (claude.length > 0) byAgent['claude-code'] = claude
+  // Keyed by the adapter's declared kind (POD-4737 D3), never a literal.
+  if (claude.length > 0) byAgent[claudeCodeDescriptor.kind] = claude
   return byAgent
 }

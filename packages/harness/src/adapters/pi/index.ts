@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { observePiState, piStateProvider } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { createPiConversationProvider } from '../../discovery/providers/pi.js'
+import { createPiConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,

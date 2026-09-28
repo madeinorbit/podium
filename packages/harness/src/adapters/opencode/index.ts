@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
+import { createOpencodeConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -12,11 +12,11 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { detectOpencodeLogin } from '../../opencode/auth.js'
-import { resolveOpencode2Bin, resolveOpencodeBin } from '../../opencode/cli.js'
+import { detectOpencodeLogin } from './auth.js'
+import { resolveOpencode2Bin, resolveOpencodeBin } from './cli.js'
 import {
   opencodeDbPathForSession,
-} from '../../opencode/db.js'
+} from './paths.js'
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
 import { opencodeCredentials } from './credentials.js'
 import { opencodeInstall } from './install.js'

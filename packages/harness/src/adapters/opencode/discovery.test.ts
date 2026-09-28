@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createOpencodeConversationProvider } from './opencode.js'
+import { createOpencodeConversationProvider } from './discovery.js'
 
 const provider = createOpencodeConversationProvider()
 

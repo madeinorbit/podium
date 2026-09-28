@@ -2,8 +2,8 @@ import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveCursorBin } from './cursor/cli.js'
 import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
-import { resolveOpencodeBin } from './opencode/cli.js'
-import { opencodeSessionDbPath } from './opencode/db.js'
+import { resolveOpencodeBin } from './adapters/opencode/cli.js'
+import { opencodeSessionDbPath } from './adapters/opencode/paths.js'
 
 const CODEX_NETWORK_ARGS = ['-c', 'sandbox_workspace_write.network_access=true']
 describe('agentLaunchCommand', () => {

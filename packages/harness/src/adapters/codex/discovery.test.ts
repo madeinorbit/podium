@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, test } from 'vitest'
-import { AgentConversationLoadError } from '../types.js'
-import { codexPromptTitle, createCodexConversationProvider } from './codex.js'
+import { AgentConversationLoadError } from '../../discovery/types.js'
+import { codexPromptTitle, createCodexConversationProvider } from './discovery.js'
 
 async function createRoot(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-codex-'))

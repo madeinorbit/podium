@@ -1,3 +1,5 @@
+import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
+
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the point
 const CONTROL = /[\x00-\x1f\x7f]/
 
@@ -26,9 +28,12 @@ export function isTransientTitle(title: string): boolean {
 
 /** The generic placeholder Claude Code shows before it generates a real title.
  *  We treat it as low-priority: a first-prompt title beats it, and it must never
- *  overwrite a real title the agent later sets. */
+ *  overwrite a real title the agent later sets. Read off the adapter's
+ *  descriptor label (POD-4737 D3) — never a second copy of the name. Stays
+ *  Claude-scoped on purpose: other harnesses' boot titles have their own
+ *  shapes, and folding them in here would drop real titles. */
 export function isGenericClaudeTitle(title: string): boolean {
-  return title.trim() === 'Claude Code'
+  return title.trim() === claudeCodeDescriptor.label
 }
 
 /** Claude Code records a first turn that was a slash command (`/model`, `/effort`)
@@ -39,7 +44,7 @@ export function isGenericClaudeTitle(title: string): boolean {
  *  first-prompt fallback also LOCKS the title, it sticks for the life of the
  *  session. Such a turn is not a prompt and can never be a title: skip it and wait
  *  for the first real one. Same rule the discovery providers already apply when
- *  parsing transcripts from disk (discovery/providers/claude-code.ts). [spec:SP-eb60] */
+ *  parsing transcripts from disk (adapters/claude-code/discovery.ts). [spec:SP-eb60] */
 export function isCommandWrapperText(text: string): boolean {
   return text.trim().startsWith('<')
 }

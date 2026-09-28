@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { AgentConversationLoadError } from '../types.js'
-import { createClaudeCodeConversationProvider } from './claude-code.js'
+import { AgentConversationLoadError } from '../../discovery/types.js'
+import { createClaudeCodeConversationProvider } from './discovery.js'
 
 async function createRoot(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-claude-'))

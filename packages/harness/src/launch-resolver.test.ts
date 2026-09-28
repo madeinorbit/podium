@@ -12,7 +12,7 @@ vi.mock('node:fs', async (importOriginal) => ({
 
 import { resetCursorCliCache } from './cursor/cli.js'
 import { agentLaunchCommand } from './index.js'
-import { resetOpencodeCliCache } from './opencode/cli.js'
+import { resetOpencodeCliCache } from './adapters/opencode/cli.js'
 
 describe('PTY launch command resolution', () => {
   beforeEach(() => {
