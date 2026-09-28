@@ -2,6 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId } from '@podium/model/browser'
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import {
   ArchiveRestore,
@@ -490,7 +491,7 @@ function IssueHarnessPicker({
   issue: RefIssueLike
   onAgentChange: (issueId: IssueId, defaultAgent: string) => Promise<unknown>
 }): JSX.Element {
-  const persisted = issueAgentKind(issue.defaultAgent) ?? 'claude-code'
+  const persisted = issueAgentKind(issue.defaultAgent) ?? DEFAULT_HARNESS_AGENT
   const [selected, setSelected] = useState(persisted)
   const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [error, setError] = useState('')

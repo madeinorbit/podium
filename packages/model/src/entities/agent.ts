@@ -49,6 +49,14 @@ export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
 /**
+ * Product policy (POD-4737): Claude is the default for new work. The one
+ * named home for the default harness — settings, launch sheets and demo
+ * fixtures read this instead of restating a literal or taking a registry
+ * position (which would silently change the default on a reorder).
+ */
+export const DEFAULT_HARNESS_AGENT: HarnessAgent = 'claude-code'
+
+/**
  * The OPEN, canonical cross-layer and wire identity of a harness: "what software
  * is this?" Any non-empty string is a valid `HarnessId`, because a newer peer may
  * name a harness this build has never heard of, and the older side must degrade

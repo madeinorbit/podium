@@ -2063,26 +2063,25 @@ describe('harness-vendor-boundary (POD-4467)', () => {
       (e) => e.file === 'packages/runtime/src/harness-defaults.ts',
     )
     expect(defaults?.category).toBe('policy')
-    // Runtime settings is the one SPLIT file (POD-4601): five
+    // Runtime settings was the one SPLIT file (POD-4601): five
     // provider-namespace 'codex' literals stay leak, while
-    // DEFAULT_HARNESS_KIND 'claude-code' is product policy — the default
-    // harness choice, never removable and unmovable (settings ↔
-    // harness-defaults would cycle). The entries' counts sum to the file's
-    // six literals; the lint aggregates coverage by file.
+    // DEFAULT_HARNESS_KIND 'claude-code' was product policy. POD-4737 moved
+    // the default to its one named home (DEFAULT_HARNESS_AGENT in
+    // `@podium/model`, beside HarnessAgent — the definition site the lint
+    // excludes, so it needs no entry), leaving the single leak entry: the
+    // lint aggregates coverage by file, and one file with one entry is the
+    // ordinary shape again.
     const settings = HARNESS_BOUNDARY_ALLOWLIST.filter(
       (e) => e.file === 'packages/runtime/src/settings.ts',
     )
-    expect(settings).toHaveLength(2)
+    expect(settings).toHaveLength(1)
     const settingsLeak = settings.find((e) => e.category === 'leak')
-    const settingsPolicy = settings.find((e) => e.category === 'policy')
     expect(settingsLeak?.count).toBe(5)
     expect(settingsLeak?.issue?.trim().length ?? 0).toBeGreaterThan(0)
-    expect(settingsPolicy?.count).toBe(1)
-    expect(settingsPolicy?.policy?.trim().length ?? 0).toBeGreaterThan(0)
     expect(
       settings.reduce((n, e) => n + e.count, 0),
       'packages/runtime/src/settings.ts',
-    ).toBe(6)
+    ).toBe(5)
     // Baselines equal the seeded totals — the ratchet holds from here.
     const leak = HARNESS_BOUNDARY_ALLOWLIST.filter((e) => e.category === 'leak').reduce(
       (n, e) => n + e.count,

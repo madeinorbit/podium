@@ -1,3 +1,4 @@
+import { DEFAULT_HARNESS_AGENT } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   allConnectorModelLabel,
@@ -8,10 +9,23 @@ import {
   filterCatalogOptions,
   groupedCatalogOptions,
   isEffortValid,
+  issueDefaultAgentKind,
   spawnSelection,
 } from './agent-models'
 
 describe('cross-harness model picks', () => {
+  /**
+   * The phone's default IS the named product policy (POD-4737) — not the
+   * registry's first row, so reordering the registry can never silently
+   * change the default and the two can never drift.
+   */
+  it('defaults to the named product default regardless of registry order', () => {
+    expect(issueDefaultAgentKind(undefined)).toBe(DEFAULT_HARNESS_AGENT)
+    expect(issueDefaultAgentKind(null)).toBe(DEFAULT_HARNESS_AGENT)
+    expect(issueDefaultAgentKind('codex')).toBe('codex')
+    expect(issueDefaultAgentKind('no-such-harness')).toBe(DEFAULT_HARNESS_AGENT)
+  })
+
   it('namespaces a model so opus on Claude and a custom opus cannot collide', () => {
     expect(encodeModelPick('claude-code', 'opus')).toBe('claude-code:opus')
     expect(decodeModelPick('claude-code:opus')).toEqual({

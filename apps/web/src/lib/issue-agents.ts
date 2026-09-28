@@ -4,7 +4,7 @@ import {
   resolveDescriptors,
 } from '@podium/harness/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import type { AgentKind } from '@podium/model/browser'
+import { type AgentKind, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { createElement, type ReactNode } from 'react'
 import { agentIconFor } from './agent-tone'
 import type { PropertyOption } from './PropertyMenu'
@@ -70,11 +70,13 @@ export function issueAgentKind(value: string | null | undefined): IssueAgentKind
 }
 
 /**
- * The default harness: the registry's first row. Index, not a literal, so
- * the default follows the same derivation as every other row here.
+ * The default harness (POD-4737): the named product policy
+ * (`DEFAULT_HARNESS_AGENT` in `@podium/model` — Claude is the default for new
+ * work), not the registry's first row, so a reorder can never silently change
+ * the default and the two can never drift.
  */
 export function issueDefaultAgentKind(value: string | null | undefined): IssueAgentKind {
-  return issueAgentKind(value) ?? ISSUE_AGENT_KINDS[0]!
+  return issueAgentKind(value) ?? DEFAULT_HARNESS_AGENT
 }
 
 export function issueAgentLabel(

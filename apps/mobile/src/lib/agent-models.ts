@@ -11,7 +11,7 @@ import {
   resolveDescriptors,
 } from '@podium/harness/browser'
 import type { HarnessDescriptorWire, ModelChoiceWire } from '@podium/protocol'
-import type { AgentKind } from '@podium/model'
+import { type AgentKind, DEFAULT_HARNESS_AGENT } from '@podium/model'
 
 /**
  * Cross-harness model + effort catalogs for the phone launch sheet (POD-4475):
@@ -31,9 +31,14 @@ export const ISSUE_AGENT_KINDS: readonly IssueAgentKind[] = BUNDLED_DESCRIPTORS.
   (d) => d.kind as IssueAgentKind,
 )
 
-/** The default harness: the registry's first row (index, not a literal). */
+/**
+ * The default harness (POD-4737): the named product policy
+ * (`DEFAULT_HARNESS_AGENT` in `@podium/model` — Claude is the default for new
+ * work), not the registry's first row, so a reorder can never silently change
+ * the default and the two can never drift.
+ */
 export function issueDefaultAgentKind(value: string | null | undefined): IssueAgentKind {
-  return issueAgentKind(value) ?? ISSUE_AGENT_KINDS[0]!
+  return issueAgentKind(value) ?? DEFAULT_HARNESS_AGENT
 }
 
 /** Picker label for a harness: the descriptor label, or the wire id when new. */

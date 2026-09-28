@@ -76,7 +76,7 @@ function initialState(automation: Automation | null, defaultTarget: string): Aut
     glob: '',
     target: automation ? (automation.repoPath ?? GLOBAL_TARGET) : defaultTarget,
     prompt: automation?.prompt ?? '',
-    agent: issueDefaultAgentKind(automation?.agentKind ?? 'claude-code'),
+    agent: issueDefaultAgentKind(automation?.agentKind),
     model: automation?.model ?? AUTO,
     effort: automation?.effort ?? AUTO,
     enabled: automation?.enabled ?? true,
