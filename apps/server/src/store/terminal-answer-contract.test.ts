@@ -2,8 +2,9 @@ import { asThreadId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
-import { createTerminalRuntime, type TerminalRuntimeHost } from '../../../daemon/src/runtime/terminal-driver'
+import { createTerminalRuntime, type TerminalHostPorts } from '../../../daemon/src/runtime/host'
 import { SessionRegistry as DaemonSessionRegistry } from '../../../daemon/src/session/registry.js'
+import { driverSlotsOver } from '../../../daemon/src/session/driver-slots.js'
 import { terminalProfileFor } from '../../../daemon/src/runtime/registry'
 import { runtimeHandlers } from '../../../daemon/src/runtime/handlers'
 import type { DaemonContext } from '../../../daemon/src/control/context'
@@ -35,8 +36,8 @@ describe('production terminal answer identity', () => {
       readHistory: async () => ({ items: [], hasMore: false }),
       setTimer: (fn: () => void, delay: number) => setTimeout(fn, delay),
       clearTimer: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
-    } as unknown as TerminalRuntimeHost
-    const runtime = createTerminalRuntime(host, undefined, new DaemonSessionRegistry())
+    } as unknown as TerminalHostPorts
+    const runtime = createTerminalRuntime(host, undefined, driverSlotsOver(new DaemonSessionRegistry()))
     const daemon = { agentRuntime: runtime, send } as unknown as DaemonContext
     try {
       await store.machines.upsertMachine({ id: store.hostMachineId, name: 'Host', hostname: 'test',
