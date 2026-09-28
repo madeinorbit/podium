@@ -32,7 +32,6 @@ export function bootKeyecho(args: string[] = []): Keyecho {
       cwd: PKG_DIR,
       env: { ...(process.env as Record<string, string>), TERM: 'xterm-256color', COLORTERM: 'truecolor' },
     }),
-    { cols: 100, rows: 30 },
   )
   let raw = ''
   const decoder = new TextDecoder()
