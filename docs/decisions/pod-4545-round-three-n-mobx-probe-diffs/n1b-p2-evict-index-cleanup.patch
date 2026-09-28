@@ -1,0 +1,16 @@
+diff --git a/packages/worklist-proto/arms/mobx/pool/relations.ts b/packages/worklist-proto/arms/mobx/pool/relations.ts
+index 47cbb6c8a..59dec3491 100644
+--- a/packages/worklist-proto/arms/mobx/pool/relations.ts
++++ b/packages/worklist-proto/arms/mobx/pool/relations.ts
+@@ -546,7 +546,10 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
+     const selfFlipped = flipped.delete(id)
+     for (const link of this.outgoing.get(entity) ?? []) {
+       if (after === undefined) {
+-        this.relink(link, id, undefined)
++        // PLANTED (P2 N1b): a delete drops the forward entry, but the row
++        // stays in its targets' inverse buckets (rebuilt on re-add, or so
++        // the reasoning went).
++        if (!link.forward.delete(id)) link.coldForward.delete(id)
+         continue
+       }
+       if (before !== undefined && !selfFlipped && sameInputs(link.inputs, before, after)) continue

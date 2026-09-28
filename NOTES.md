@@ -54,3 +54,26 @@ moves); warn-trap episode recorded in the doc as a shaping note.
   `[commits] visibleTitleRename (#4): drew 0 rows… under=[i214]`.
 - Screen: renamed row keeps its old title until another input of the same row
   moves. Notice: immediate (the row never redraws on rename).
+
+### P2 missing index cleanup on eviction (branch `n1b-p2-evict-index`, patch `n1b-p2-evict-index-cleanup.patch`)
+
+Plant: `PoolRelations.changed` on a delete drops the forward entry only and
+returns before the row leaves its targets' inverse buckets (the one generic
+maintenance path, so every relation is affected).
+
+- typecheck SILENT (green). lint-fence SILENT (clean).
+- commit-fence SILENT, reads-fence SILENT (#6c reads 1/15, #6d 1/30),
+  parity SILENT, gate SILENT, history-check SILENT — fail-soft on the real
+  arm, as in K MobX E: every view re-checks the table, the screen stays right.
+- relation-check FIRED — #6c `ghost: issue:i516.spinOffs holds issue:i57,
+  which the feed no longer has`; #6d `ghost: issue:i390.children holds
+  issue:i430…`; sequence steps 0/2/4 ghost, re-add steps 1/3 ok (24,228
+  edges seen per step).
+- behaviour-test FIRED (via the relation check).
+- arm-tests FIRED — `relations.test.ts`, 8 failures, first:
+  `issue.parent/children > delete removes the row from every inverse:
+  expected [ 'I2', 'I3' ] to deeply equal [ 'I3' ]` (plus evict/re-add,
+  M3-F1 upkeep, 3/3 random-sequence seeds vs the from-scratch scan).
+- Screen: right throughout (ghost visible only to a graph check). Notice: a
+  developer watching the screen never would; the relation check / arm suite
+  fires at once.
