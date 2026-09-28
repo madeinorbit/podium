@@ -1,5 +1,5 @@
 import { DEFAULT_HARNESS_AGENT } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   allConnectorModelLabel,
   allConnectorModelOptions,
@@ -13,11 +13,32 @@ import {
   spawnSelection,
 } from './agent-models'
 
+/**
+ * A reordered registry: codex — not claude-code — is the first row
+ * (POD-4737). Only the `BUNDLED_DESCRIPTORS` export is replaced; every
+ * function (notably `resolveDescriptors`, whose bundled fallback stays the
+ * real one) is the original, so the rest of this file still exercises the
+ * true registry while `ISSUE_AGENT_KINDS` reads codex-first.
+ */
+vi.mock('@podium/harness/browser', async (importOriginal) => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  BUNDLED_DESCRIPTORS: [
+    { kind: 'codex' },
+    { kind: 'claude-code' },
+    { kind: 'grok' },
+    { kind: 'opencode' },
+    { kind: 'cursor' },
+    { kind: 'pi' },
+  ],
+}))
+
 describe('cross-harness model picks', () => {
   /**
    * The phone's default IS the named product policy (POD-4737) — not the
    * registry's first row, so reordering the registry can never silently
-   * change the default and the two can never drift.
+   * change the default and the two can never drift. Proved by the mock
+   * above: the positional fallback (`ISSUE_AGENT_KINDS[0]`) would answer
+   * 'codex' here, and this test goes red under it.
    */
   it('defaults to the named product default regardless of registry order', () => {
     expect(issueDefaultAgentKind(undefined)).toBe(DEFAULT_HARNESS_AGENT)
