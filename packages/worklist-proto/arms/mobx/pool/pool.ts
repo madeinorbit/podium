@@ -36,8 +36,9 @@
  * body runs; `notifications` counts actions that changed pool state;
  * `indexUpdates` counts relation slots written (forward entries and
  * buckets; `counters.bucketElements` the elements inside them);
- * `rollupsDerived` counts runs of the two roll-up compositions (Mb3,
- * `worklist/rollup.ts`: a node's attention `aggregate` and its `unitsBelow`).
+ * `rollupsDerived` counts runs of the three roll-up compositions (Mb3,
+ * `worklist/rollup.ts`: a node's attention `aggregate`, its `unitsBelow`,
+ * and its `seatActivity`).
  * The pool's own counters are in `counters`.
  */
 

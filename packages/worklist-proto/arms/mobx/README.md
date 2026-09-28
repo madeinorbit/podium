@@ -218,7 +218,9 @@ idle).
   whatever the bucket's size (`relations.test.ts` "bucket upkeep is
   proportional to the change": 4,000-member buckets, 1 per insert and per
   delete). `PoolRelations.lastElements` is the last action's.
-- `rollupsDerived` — 0 until the roll-ups (Mb3).
+- `rollupsDerived` — runs of the three roll-up compositions (Mb3,
+  `pool/worklist/rollup.ts`: a node's attention `aggregate`, its
+  `unitsBelow`, and its `seatActivity`).
 - `stats.counters` (the pool's own): `modelsCreated` (first accesses:
   every drawn issue, and each resident member session a drawn row's
   activity reads),
@@ -269,10 +271,10 @@ idle).
 - **Fence steps #1-#4**, `pool/counts.test.tsx`: the shared
   `assertCommits` (#1-#3), `assertReads` and `assertNoCopies`, no parity.
 - **Every fence step #1-#10 with parity**, `harness/src/fences.test.tsx`:
-  the pool is on the roster (`harness/src/roster.ts`, POD-4572) with its
-  named allowances (`worklist/known-gaps.ts` `MOBX_POOL_ALLOWANCES`: POD-4671
-  parity, POD-4674 `activityAt`, POD-4678 #10 reads), each failing the suite
-  once no step needs it.
+  the pool is on the roster (`harness/src/roster.ts`, POD-4572) with no
+  allowances (POD-4671 fixed: parity holds exactly, so the named exception
+  is gone with it; POD-4674 `activityAt` and POD-4678 #10 reads likewise
+  need none).
 - **The console trap** (M3 N3): `installMobxWarnTrap({ errors: true })` also
   fails a test on any `console.error` (MobX reports a throw inside a reaction
   there); the native lane runs under it. The browser driver fails a candidate
