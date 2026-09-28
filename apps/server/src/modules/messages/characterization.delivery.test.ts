@@ -323,7 +323,7 @@ describe('characterization: urgency x target state (D3)', () => {
     )
     // Only the daemon sees the prompt line and decides when to type; the
     // server's belief that a draft is present holds nothing.
-    expect(r.disposition).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored') // the send-time snapshot
     expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText'])
   })
 

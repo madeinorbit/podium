@@ -170,6 +170,22 @@ describe('the receipt, not the push, confirms a direct send (POD-4765)', () => {
     // A repeated acceptance is already there: one transition, not two.
     expect(await transitions(h, 'message.delivered', id)).toHaveLength(1)
   })
+
+  it('never answers an interrupt send `delivered` before the driver does (POD-4775)', async () => {
+    // An unwrapped operator line has no id to echo, which is why it used to be
+    // "confirmed on injection" — and the sender was told `delivered` while the
+    // receipt was still out. The answer is `queued` (handed on) until it lands.
+    const h = await chatHarness(() => ACCEPTED)
+    const r = await h.svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: TARGET }, body: 'stop and read this', urgency: 'interrupt' },
+    )
+    expect(r.disposition).toBe('queued')
+    expect((await h.svc.message(r.message.id))!.deliveryStatus).toBe('dispatched')
+
+    await h.settleReceipts()
+    expect((await h.svc.message(r.message.id))!.deliveryStatus).toBe('confirmed')
+  })
 })
 
 describe('a refusal that will not clear goes terminal, and says so once (F2)', () => {
@@ -442,7 +458,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     expect(await notices(h)).toEqual([])
   })
 
-  it('still does nothing at all for unverified — the policy the sibling file pins', async () => {
+  it('records unverified as unknown — never failed, never a resend (POD-4775)', async () => {
     const h = await chatHarness(() => ({
       outcome: 'unverified',
       deliveredAs: 'when-ready',
@@ -453,12 +469,19 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
 
     await h.settleReceipts()
 
-    // `unverified` means the keystrokes WERE delivered and acceptance could not be
-    // proven. Correcting on it would turn the one honest outcome in the contract
-    // into a duplicate turn — the exact reading this issue must not widen into.
-    // It stays handed on; a turn boundary or the transcript confirms it later.
-    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
+    // `unverified` means nobody could prove whether the keystrokes landed.
+    // Correcting on it would turn the one honest outcome in the contract into a
+    // duplicate turn or a false failure. The row says exactly that — `unknown`
+    // — and nothing is pushed again and nobody is told it failed.
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('unknown')
+    expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText'])
     expect(await notices(h)).toEqual([])
+    await h.svc.sweep()
+    expect(h.pushes).toHaveLength(1)
+
+    // A later settlement still lands on it.
+    await h.svc.onQueuedInputApplied(id, TARGET)
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('confirmed')
   })
 })
 

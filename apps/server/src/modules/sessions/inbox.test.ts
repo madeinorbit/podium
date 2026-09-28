@@ -116,6 +116,7 @@ function harness(
   })
   const interrupted = vi.fn(async () => {})
   const interruptedPending = vi.fn(async () => {})
+  const unconfirmed = vi.fn(async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {})
   const handleInput = vi.fn()
   // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
   // base64 spelling of the same call (terminal.ts). This fixture records the
@@ -207,6 +208,7 @@ function harness(
       injected,
       interrupted,
       interruptedPending,
+      unconfirmed,
       rejected: async (input) => { rejected.push(input) },
     },
     attention: {
@@ -320,6 +322,7 @@ function harness(
     injected,
     interrupted,
     interruptedPending,
+    unconfirmed,
     handleInput,
     handleInputBytes,
     transcript,
@@ -723,8 +726,8 @@ describe('SessionInbox authorization and identity', () => {
     })
     expect(h.rows).toEqual([])
 
-    // A row still held (its drain waits on authorization) confirms nothing.
-    const held = harness({ agentKind: 'shell', authorizeAtDrain: () => new Promise(() => {}) })
+    // A row still held (parked: no process to type into) confirms nothing.
+    const held = harness({ agentKind: 'shell', status: 'hibernated' })
     await held.inbox.queueText({
       sessionId: SID,
       text: 'held',
@@ -738,7 +741,8 @@ describe('SessionInbox authorization and identity', () => {
   it('retracts a source message while the queued input is still held', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
-    const h = harness({ agentKind: 'shell', authorizeAtDrain: () => new Promise(() => {}) })
+    // Parked, so the row is still queued when the retraction lands.
+    const h = harness({ agentKind: 'shell', status: 'hibernated' })
 
     await h.inbox.queueText({
       sessionId: SID,
@@ -953,7 +957,10 @@ describe('SessionInbox authorization and identity', () => {
       ...identity,
       authorizeAtDrain: () => new Promise(() => {}),
     })
-    await h.inbox.queueText({ sessionId: SID, text: 'keep explicit recovery semantics' })
+    // Not awaited: a shell's queueText awaits its drain, which is parked on
+    // authorization for the rest of the test.
+    void h.inbox.queueText({ sessionId: SID, text: 'keep explicit recovery semantics' })
+    await vi.advanceTimersByTimeAsync(0)
     h.setStatus('exited')
 
     expect(await h.inbox.recoverQueuedAfterExit(SID)).toBe(false)
@@ -1531,19 +1538,16 @@ describe('SessionInbox authorization and identity', () => {
 
   it('a shell stop retracts the queued row while still typing its abort key', async () => {
     vi.useFakeTimers()
-    // Held at the drain's authorization, so the row is still queued (not
-    // already sent and settled) when the stop lands. Shells have no driver
+    // Queued while parked, so the row is still queued (not already sent and
+    // settled) when the stop lands on the live shell. Shells have no driver
     // retraction: the row is deleted locally AND the shell's own Ctrl-C is
     // typed (harmless at an idle prompt). Agents retract through the contract
     // instead.
-    const h = harness({
-      agentKind: 'shell',
-      phase: 'idle',
-      authorizeAtDrain: () => new Promise(() => {}),
-    })
+    const h = harness({ agentKind: 'shell', phase: 'idle', status: 'hibernated' })
 
     await h.inbox.queueText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
     expect(h.rows).toHaveLength(1)
+    h.setStatus('live')
     expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
       requested: 'keystroke',
@@ -2637,6 +2641,9 @@ describe('agent drain via the runtime contract', () => {
     expect(h.getDraft()).toBe('create once')
   })
 
+  // A forward whose answer never came (the 12 s RPC window) is `unknown`: the
+  // text may still arrive, so it is NOT written back into the draft and the
+  // owner is NOT asked to send it again (POD-4775).
   it('retains an unacknowledged row for late proof and retries only its custody import', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [
@@ -2645,8 +2652,12 @@ describe('agent drain via the runtime contract', () => {
     await h.inbox.queueText({ sessionId: SID, text: 'once', sourceMessageId: 'lost' })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows).toHaveLength(1)
-    expect(h.getDraft()).toBe('once')
+    expect(h.getDraft()).toBeUndefined()
+    expect(h.setSessionDraft).not.toHaveBeenCalled()
+    expect(h.unconfirmed).toHaveBeenCalledWith(expect.objectContaining({ sourceMessageId: 'lost', sessionId: SID }))
     expect(h.promptFailed).toHaveBeenCalledTimes(1)
+    expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: true }))
+    expect(h.rejected).toEqual([])
     await h.inbox.sweepQueuedInputs()
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toEqual([
@@ -2657,6 +2668,43 @@ describe('agent drain via the runtime contract', () => {
     expect(h.rows).toHaveLength(0)
     expect(h.applied).toHaveBeenCalledTimes(1)
     expect(h.getDraft()).toBeUndefined()
+  })
+
+  it('a daemon report that cannot prove the text landed is unknown: no draft, no dead letter', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'maybe typed', sourceMessageId: 'msg_maybe' })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_maybe',
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+      cause: 'unconfirmed',
+    })
+    expect(h.unconfirmed).toHaveBeenCalledWith(expect.objectContaining({ sourceMessageId: 'msg_maybe' }))
+    expect(h.rejected).toEqual([])
+    expect(h.setSessionDraft).not.toHaveBeenCalled()
+    expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: true }))
+    // The server stops pushing it: only a later report or a person moves it.
+    expect(h.rows).toEqual([])
+  })
+
+  it('a daemon that says the agent was not accepting input fails the row as never-live', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'never typed', sourceMessageId: 'msg_stuck' })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_stuck',
+      outcome: 'failed',
+      reason: 'agent not accepting input',
+      cause: 'not-accepting-input',
+    })
+    expect(h.rejected).toEqual([
+      expect.objectContaining({ sourceMessageId: 'msg_stuck', cause: 'never-live' }),
+    ])
+    expect(h.unconfirmed).not.toHaveBeenCalled()
+    expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: false }))
   })
 
   it('does not overwrite a newer human draft on delivery failure', async () => {
