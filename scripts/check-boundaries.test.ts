@@ -19,6 +19,7 @@ import {
   checkHarnessClassifierBoundary,
   checkHarnessOwnAdapter,
   checkHarnessVendorLiterals,
+  checkHistoryFromDisk,
   checkHostEdgeSeparationAll,
   checkManifestFile,
   checkPlaneLeakAll,
@@ -2599,6 +2600,62 @@ describe('terminal objects boundary (POD-4437)', () => {
       }
     }
     expect(files).toBeGreaterThan(1000)
+    expect(violations).toEqual([])
+  })
+})
+
+describe('history from disk (POD-4784)', () => {
+  const FAMILY = 'packages/harness/src/driver/families/codex/runtime.ts'
+
+  it('a history that calls its protocol client fails; a Store delegation is clean', () => {
+    const live = checkHistoryFromDisk(
+      FAMILY,
+      `const x = { transcript: { async history(range) { const live = await session.client.call('thread/read' as never, {} as never); return host.readHistory({ sessionId: session.sessionId }, range) } } }`,
+    )
+    expect(live.some((v) => v.rule === 'history-from-disk')).toBe(true)
+    const clean = checkHistoryFromDisk(
+      FAMILY,
+      `const x = { transcript: { async history(range) { return host.readHistory({ sessionId: session.sessionId }, range) } } }`,
+    )
+    expect(clean).toEqual([])
+  })
+
+  it('fetch, transport and message literals fail; documenting comments stay quiet', () => {
+    const fetch = checkHistoryFromDisk(
+      FAMILY,
+      `const x = { transcript: { async history(range) { const r = await fetch('http://x/session/1/message'); return host.readHistory({ sessionId: session.sessionId }, range) } } }`,
+    )
+    expect(fetch.some((v) => v.rule === 'history-from-disk')).toBe(true)
+    // Documenting the prohibition (thread/read returns exactly disk) must not
+    // trip the lint enforcing it — same treatment as the sync kernel's prose.
+    const commentOnly = checkHistoryFromDisk(
+      FAMILY,
+      `const x = { transcript: { async history(range) { /* thread/read returns exactly what the file holds */ return host.readHistory({ sessionId: session.sessionId }, range) } } }`,
+    )
+    expect(commentOnly).toEqual([])
+  })
+
+  it('is green on the REAL families tree', () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        if (e.name.startsWith('.')) return []
+        const full = join(dir, e.name)
+        if (e.isDirectory()) {
+          return ['node_modules', 'dist', 'build', 'coverage', 'target', '.expo'].includes(e.name)
+            ? []
+            : walk(full)
+        }
+        return /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [full] : []
+      })
+    const violations: Violation[] = []
+    let files = 0
+    for (const abs of walk(join(repoRoot, 'packages/harness/src/driver/families'))) {
+      const file = relative(repoRoot, abs).split(sep).join('/')
+      files++
+      violations.push(...checkHistoryFromDisk(file, readFileSync(abs, 'utf8')))
+    }
+    expect(files).toBeGreaterThan(20)
     expect(violations).toEqual([])
   })
 })
