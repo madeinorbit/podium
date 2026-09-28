@@ -102,7 +102,7 @@
  * Terminal transport is already keyed by Podium session id at the browser,
  * server, and daemon boundaries. Giving the client endpoint that same opaque id
  * makes its frames resolve through the existing session row, while the daemon's
- * input/resize/redraw handlers route the reverse direction here without
+ * input and resize handlers route the reverse direction here without
  * registering a phantom engine bridge. `sessionPriority.nativeView` creates the
  * client only while a browser renders Native and releases its control lease on
  * a switch back to Chat.
@@ -123,7 +123,6 @@ import type { ClientProcessOwner } from '../session/clients.js'
 import type { SessionRegistry } from '../session/registry.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
 import { Terminal } from '../terminal/terminal.js'
-import type { AppliedGeometryRecord } from '../control/applied-geometry'
 import {
   harnessChildStripEnv,
   harnessCompatEnv,
@@ -153,19 +152,17 @@ export const WARM_TTL_MS = ATTACH_TUI_WARM_TTL_MS
 /**
  * THE LAST-RESORT BIRTH SIZE, and by POD-3809 the rarest one.
  *
- * A client terminal is now opened at {@link OpencodeClientTerminalPorts.birthGeometry}
- * — the viewport request this session has been holding, else the grid the daemon
- * last applied to it — so the first frame is already the viewer's size instead
- * of being corrected a beat later. This constant is what remains when neither is
- * known: a session nobody has ever asked about, painted behind the startup
- * overlay.
- *
- * IT IS STILL AN APPLY, AND IT IS STILL REPORTED. The fallback is the case most
- * likely to be forgotten, and forgetting it is the bug: whatever grid the client
- * is born at, the daemon put it there and the server must be told (MODEL rule 1,
- * amended). The one operation that records it reports it.
+ * A client terminal is opened at {@link OpencodeClientTerminalPorts.birthGeometry}
+ * — the size the session's program last had — so the first frame is usually
+ * already right. This constant is what remains when that is not known: a
+ * session nobody has ever sized, painted behind the startup overlay. Whatever
+ * the client is born at, the host's WELCOME states it and the size event
+ * reports it (POD-4723).
  */
 const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
+
+/** How much of a returning client's host ring is replayed: several screens of a TUI. */
+const CLIENT_REPLAY_TAIL_BYTES = 256 * 1024
 
 export const CLIENT_TERMINAL_INPUT_MAX_MESSAGES = 64
 export const CLIENT_TERMINAL_INPUT_MAX_BYTES = 256 * 1024
@@ -289,8 +286,8 @@ export interface OpencodeClientTerminals {
    * outlive the view — codex, whose TUI holds a direct writer to the engine —
    * this is exactly the old unconditional teardown.
    *
-   * A PARKED CLIENT HAS NO WRITER. `input`, `resize` and `redraw` all answer
-   * from the session's Terminal, which the park drops, so the lease obligation
+   * A PARKED CLIENT HAS NO WRITER. `input` and the daemon's resize handler both
+   * answer from the session's Terminal, which the park drops, so the lease obligation
    * is met by there being nothing to type into rather than by ending the
    * process. A parked client waits out its warm window under the SERVER's
    * clock (POD-4524): the server orders `closeClientTerminal` when the table's
@@ -311,27 +308,6 @@ export interface OpencodeClientTerminals {
   viewers(sessionId: SessionId, watched: boolean): void
   /** Route the browser terminal transport to the attached harness client. */
   input(sessionId: SessionId, data: Uint8Array): boolean
-  resize(sessionId: SessionId, cols: number, rows: number): boolean
-  /**
-   * Resize and answer what the terminal ACKNOWLEDGED (POD-3919 audit item 4) —
-   * the size the kernel now reports, which is not always what was asked for.
-   * Answers NOW (a plain {@link Geometry}) when the session's backend offers
-   * no acknowledgement: the fire-and-forget resize IS the apply there, so the
-   * requested size stays the fact — the abduco behaviour, and what every
-   * caller stated before the host exposed its RESIZED frame. Answers LATER (a
-   * promise) when it does. `undefined` when there is no client to resize: the
-   * caller must hold the request, not record it.
-   *
-   * The sync-or-async shape is the point: callers keep the synchronous
-   * hold/record contract for backends that apply synchronously, and await only
-   * where an acknowledgement can actually differ.
-   */
-  resizeAcknowledged?(
-    sessionId: SessionId,
-    cols: number,
-    rows: number,
-  ): Geometry | Promise<Geometry | undefined> | undefined
-  redraw(sessionId: SessionId, replayRequired?: boolean): boolean
   /**
    * What could be reclaimed right now WITHOUT touching a session (spec §5:
    * attachments are the first thing reclaimed under pressure, because they are
@@ -379,27 +355,19 @@ export interface OpencodeClientTerminalPorts {
    */
   clients: ClientProcessOwner
   /**
-   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290).
-   *
-   * Opening a client terminal is one of the few places the daemon really does
-   * put a session at a size — `geometry` below — and it is the only place that
-   * fact is knowable, since nothing else sees the spawn. Written here, read by
-   * the one bind builder and by the resize report; absent in a harness built
-   * without a daemon behind it.
+   * THE SIZE EVENT (POD-4723): the client TUI's host stated its size (WELCOME,
+   * RESIZED). The daemon's `onSessionSize` — flush, report, move the model,
+   * observers and composer. Absent in a harness built without a daemon.
    */
-  appliedGeometry?: AppliedGeometryRecord
+  sizeEvent?(sessionId: SessionId, size: Geometry): void
   /**
    * THE SIZE TO OPEN THIS SESSION'S CLIENT TERMINAL AT (POD-3809).
    *
-   * Being born right beats being corrected. The viewer's first ask routinely
-   * arrives BEFORE the client terminal exists — there is no pty bridge on a
-   * server-family session, so the resize handler holds it — and opening the
-   * terminal at {@link DEFAULT_GEOMETRY} and resizing afterwards is what made
-   * the first paint a small top-left quadrant for a second or two.
-   *
-   * The daemon answers with the held request if there is one, else the grid it
-   * last applied to this session; `undefined` when it knows neither, which is
-   * the one case that falls back to the default.
+   * Being born right beats being corrected: the size the session's program
+   * last had (its model's size, which only size events move), or `undefined`
+   * when it never had one — the one case that falls back to the default. An
+   * ask that arrived while no client existed was dropped (POD-4723); the
+   * server re-drives it once the client states its size.
    */
   birthGeometry?(sessionId: SessionId): Geometry | undefined
   /** The per-daemon last resort, when {@link birthGeometry} knows nothing. */
@@ -522,9 +490,9 @@ export function createOpencodeClientTerminals(
     driverTiming.nativeCliStage(sessionId, kind, 'native_cli_spawn_requested', {
       command: launch.cmd,
     })
-    // BORN AT THE VIEWER'S SIZE WHEN THERE IS ONE (POD-3809). Read here rather
-    // than at `attach()` because this is the only path that creates a terminal:
-    // a warm reattach reuses the client that exists and applies nothing.
+    // BORN AT THE LAST-KNOWN SIZE (POD-3809). Read here rather than at
+    // `attach()` because this is the only path that creates a terminal: a warm
+    // reattach reuses the client that exists and applies nothing.
     const birth = ports.birthGeometry?.(sessionId) ?? geometry
     // THE SESSION SUMMONS, THE RELAY RENDERS: the client open path reaches
     // the process only through the session-owned owner.
@@ -606,7 +574,7 @@ export function createOpencodeClientTerminals(
      * outlives every client generation; without a reset the next full interface
      * lands below the first. A reattach is the opposite: `[3J` would delete the
      * surviving TUI's history from both the browser and the replay log, while
-     * its resize redraw restores only the viewport.
+     * the ring replay on return restores only its tail.
      *
      * Emitted only after spawn succeeds, so a refusal cannot blank a terminal,
      * and before subscribing to client frames, so every observable byte from a
@@ -616,38 +584,6 @@ export function createOpencodeClientTerminals(
     if (!session.adopted && !policy.preserveReplayOnRelaunch) {
       ports.frames(sessionId, Buffer.from(CLIENT_GENERATION_RESET))
     }
-    /**
-     * AN APPLY SITE (POD-3290), and the only one outside `control/session.ts` —
-     * and until POD-3809 the SILENT one. A client terminal being born is the
-     * moment a headed session first has a grid at all, and nothing told the
-     * server, so W stayed at the row's 80x24 while the client painted 80x24 and
-     * the view only reflowed on a later ask.
-     *
-     * A CREATED client terminal really is opened at `birth`, so the daemon has
-     * put this session at a grid and the one operation that records it also
-     * reports it. No dispatch callback: the terminal was created at the size,
-     * so there is nothing left to send it.
-     *
-     * An ADOPTED master is the opposite case and is deliberately excluded: it
-     * survived this daemon at a size of its own, and recording a size for it
-     * would invent exactly the 120x40 that the server-family binds used to
-     * announce.
-     *
-     * ON THE HOST THE SIZE IS KNOWABLE (POD-3919 audit item 5), so the
-     * exclusion is conditional, not blanket. The host's WELCOME frame carries
-     * the kernel's size for the running program — `session.appliedGeometry`,
-     * set only when the host reports `hasPty` — and an adopted host terminal
-     * reports it here: recorded and reported with no dispatch, because the
-     * terminal is already at it. An adopted abduco master reports nothing and
-     * keeps the exclusion above: its size is still unknowable.
-     */
-    if (!session.adopted) ports.appliedGeometry?.apply(sessionId, birth.cols, birth.rows)
-    else if (session.appliedGeometry)
-      ports.appliedGeometry?.apply(
-        sessionId,
-        session.appliedGeometry.cols,
-        session.appliedGeometry.rows,
-      )
     policy.preserveReplayOnRelaunch = false
     // A client TUI is a Terminal with no driver (POD-4434): the same ONE
     // factory the headed path uses, over the session's screen, with no
@@ -655,6 +591,10 @@ export function createOpencodeClientTerminals(
     const owned = sessions.ensure(sessionId)
     owned.clientLabel = policy.label
     const terminal = Terminal.attach(session, owned.screen(), {
+      // The host states the size — WELCOME now, RESIZED later — and the daemon
+      // reports it (POD-4723). A created client is born at `birth`; an adopted
+      // one is at a size of its own, which WELCOME reads back.
+      onSize: (size) => ports.sizeEvent?.(sessionId, size),
       onFrame: (data) => {
         driverTiming.nativeCliStage(sessionId, kind, 'native_cli_first_output', {
           bytes: data.byteLength,
@@ -668,37 +608,22 @@ export function createOpencodeClientTerminals(
         // (unwire + detach) and let the next attach reconnect; the reaper still
         // owns the deadline.
         owned.dropTerminal(terminal)
-        if (session.adopted) policy.suppressNextReplayRedraw = true
       },
     },
     { kind: 'client' })
-    if (!session.adopted) terminal.applied = { ...birth }
-    else if (session.appliedGeometry) terminal.applied = { ...session.appliedGeometry }
     /**
-     * SUBSCRIBE, THEN REPLAY THE ATTACH-TIME REDRAW.
-     *
-     * A fresh browser attach asks the daemon to redraw from `SessionTerminal`,
-     * but a server-family client is created later, from the viewer-priority
-     * frame. If that redraw arrives before this spawn finishes,
-     * `clientTerminals.redraw(sessionId)` correctly returns false: there is no
-     * client PTY yet, and nothing replays the request when one appears.
-     *
-     * Reissue it after the relay consumer exists only for a fresh generation.
-     * An adopted master already painted before this daemon existed, and the
-     * session-addressed replay log already holds those bytes. Redrawing it here
-     * clears and repaints only the current viewport, destroying older Native
-     * content while the provider conversation and Chat transcript survive.
-     *
-     * `DurableAttachment.adopted` is exact process truth established by the spawn
-     * port after the master create race, so both sides of this RuntimeDriver
-     * attach seam agree on whether this is continuity or a new client.
+     * A RETURNING CLIENT MISSED WHAT ITS TUI DREW WHILE PARKED. The master kept
+     * following its provider with no relay attached, so those bytes never
+     * reached the viewer or the model. Replay the host ring's tail through the
+     * relay — the program is never signalled (POD-4723: the repaint nudge that
+     * used to do this is what put ptys back at a stale size). A fresh
+     * generation paints itself at startup and needs nothing.
      */
-    if (!session.adopted || policy.replayRequired) {
-      const waitForAttach = session.adopted && policy.replayRequired
+    if (session.adopted && policy.replayRequired) {
       policy.replayRequired = false
-      policy.suppressNextReplayRedraw = false
-      if (waitForAttach) terminal.redrawWhenReady()
-      else terminal.redraw()
+      void terminal.replay(CLIENT_REPLAY_TAIL_BYTES).catch((err) =>
+        log.warn('client terminal replay failed', { err, sessionId }),
+      )
     }
     return terminal
   }
@@ -712,12 +637,9 @@ export function createOpencodeClientTerminals(
       generation.pendingInput = []
       generation.pendingBytes = 0
     }
-    // Retire the policy, not the entry: the session's screen, held resize and
-    // viewer flag belong to the session lifecycle, which outlives its client.
+    // Retire the policy, not the entry: the session's screen and viewer flag
+    // belong to the session lifecycle, which outlives its client.
     if (owned) owned.client = undefined
-    // THE TERMINAL THAT WAS AT THAT SIZE IS GONE (POD-3290), so the daemon holds
-    // no applied grid for this session any more.
-    ports.appliedGeometry?.forget(sessionId)
     if (policy) {
       // The relay keeps a coalescing entry per session stream. Nothing else
       // would ever drop the attachment's pending output after teardown.
@@ -778,7 +700,6 @@ export function createOpencodeClientTerminals(
     // authoritative for the process itself.
     sessions.get(sessionId)?.park()
     policy.preserveReplayOnRelaunch = true
-    policy.suppressNextReplayRedraw = false
     policy.replayRequired = false
     if (clients.hasClientMaster(policy.label)) await clients.reclaimClient(policy.label)
     // No daemon clock: the replacement client (if the viewer returns) starts a
@@ -826,13 +747,12 @@ export function createOpencodeClientTerminals(
     if (sessions.get(sessionId)?.client !== policy) return
     // PARK = drop the Terminal, keep the process. Cleared from the session
     // BEFORE anything can find a handle that is on its way out, so no input,
-    // resize or redraw reaches a client whose writer was revoked.
+    // or resize reaches a client whose writer was revoked.
     sessions.get(sessionId)?.park()
     // The master keeps following its provider while parked, but with this relay
     // detached those bytes never enter SessionTerminal's replay. Returning to
-    // Native must repaint after subscribing even though spawn reports adoption.
+    // Native replays the ring after subscribing (see the start path).
     policy.replayRequired = true
-    policy.suppressNextReplayRedraw = false
     // Nobody is watching a parked client by definition. Its warm window is the
     // server's to measure (POD-4524) — this daemon arms nothing here; the
     // server orders `closeClientTerminal` when the table's row fires, and the
@@ -925,7 +845,6 @@ export function createOpencodeClientTerminals(
       owned.client = {
         label,
         kind,
-        suppressNextReplayRedraw: true,
       }
       // Born knowing whether anyone is looking: see `viewers` below.
       owned.watched = owned.watched || sessions.isWatched(sessionId)
@@ -974,42 +893,6 @@ export function createOpencodeClientTerminals(
       const copy = Uint8Array.from(data)
       generation.pendingInput.push(copy)
       generation.pendingBytes += copy.byteLength
-      return true
-    },
-
-    resize(sessionId, cols, rows) {
-      const terminal = sessions.get(sessionId)?.terminal
-      if (!terminal?.live) return false
-      terminal.resize(cols, rows)
-      return true
-    },
-
-    resizeAcknowledged(sessionId, cols, rows) {
-      const terminal = sessions.get(sessionId)?.terminal
-      if (!terminal?.live) return undefined
-      // No acknowledgement on this backend: the fire-and-forget resize above
-      // IS the apply, so the requested size stays the fact — answered now, so
-      // the caller keeps its synchronous record.
-      return terminal.resizeAcknowledged(cols, rows)
-    },
-
-    redraw(sessionId, replayRequired = false) {
-      const owned = sessions.get(sessionId)
-      const policy = owned?.client
-      if (!owned || !policy) return false
-      const terminal = owned.terminal
-      if (replayRequired && !terminal) {
-        policy.replayRequired = true
-        policy.suppressNextReplayRedraw = false
-        return true
-      }
-      if (policy.suppressNextReplayRedraw && !replayRequired) {
-        policy.suppressNextReplayRedraw = false
-        return true
-      }
-      policy.suppressNextReplayRedraw = false
-      if (!terminal?.live) return false
-      terminal.redraw()
       return true
     },
 

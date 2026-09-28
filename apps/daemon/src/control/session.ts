@@ -76,7 +76,7 @@ import {
 } from '@podium/harness/driver/host'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
-import { appliedGeometryFor, bindFrame } from './applied-geometry'
+import { bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 
@@ -232,34 +232,6 @@ export function nativeClientInteractionAnswered(ctx: DaemonContext, sessionId: S
 }
 
 /**
- * Put a server-family session's client terminal at this size and answer what
- * it ACKNOWLEDGED (POD-3919 audit item 4) — the size the kernel now reports,
- * not necessarily what was asked for. Answers NOW for a terminal whose backend
- * offers no acknowledgement, LATER (a promise) where one can differ — see
- * `OpencodeClientTerminals.resizeAcknowledged` for why the shape is both.
- * `undefined` when there is no client to resize, or the acknowledgement never
- * arrived: the caller must hold the request, never record the ask as the fact.
- */
-function dispatchClientResize(
-  ctx: DaemonContext,
-  sessionId: SessionId,
-  cols: number,
-  rows: number,
-): Geometry | Promise<Geometry | undefined> | undefined {
-  const terminals = ctx.clientTerminals
-  if (!terminals) return undefined
-  if (terminals.resizeAcknowledged) return terminals.resizeAcknowledged(sessionId, cols, rows)
-  return terminals.resize(sessionId, cols, rows) === true ? { cols, rows } : undefined
-}
-
-/** Whether an acknowledgement answer arrived as a promise or was answered now. */
-function isResizePromise(
-  answer: Geometry | Promise<Geometry | undefined>,
-): answer is Promise<Geometry | undefined> {
-  return typeof (answer as Promise<Geometry | undefined>)?.then === 'function'
-}
-
-/**
  * Reconcile one server-family session's on-demand original harness TUI.
  *
  * `spendBudget` IS WHAT KEEPS TWO DIFFERENT HAZARDS FROM SHARING ONE COUNTER.
@@ -320,41 +292,10 @@ export function reconcileNativeClientTerminal(
         // Attached: the request is honoured, so nothing is owed a retry.
         const owned = ctx.sessions.get(sessionId)
         if (owned) owned.nativeRetryCount = undefined
-        const pending = owned?.pendingResize
-        if (pending && owned) {
-          const record = appliedGeometryFor(ctx)
-          const already = record.applied(sessionId)
-          if (already?.cols === pending.cols && already.rows === pending.rows) {
-            // BORN AT IT (POD-3809). The client terminal was opened at this very
-            // request — see `birthGeometry` — so it is already applied and
-            // already reported. Re-dispatching the same winsize would cost a
-            // SIGWINCH and a TUI repaint for no change; the request is simply
-            // no longer held.
-            owned.pendingResize = undefined
-          } else {
-            // AN APPLY SITE (POD-3290), and one of the two that used to be
-            // SILENT (POD-3809). The held request has just reached a real client
-            // terminal, so it stops being a request and becomes this daemon's
-            // applied grid — and the one operation that records it is the one
-            // that reports it.
-            //
-            // RECORDED AT THE ACKNOWLEDGED SIZE (POD-3919 audit item 4). The
-            // host answers with what the kernel now reports, which is not
-            // always what was asked for; the record and its report state that
-            // size. `undefined` keeps the request held for the next reconcile:
-            // nothing was applied, so nothing is recorded.
-            const acked = await dispatchClientResize(ctx, sessionId, pending.cols, pending.rows)
-            if (acked) {
-              record.apply(sessionId, acked.cols, acked.rows)
-              owned.pendingResize = undefined
-            } else {
-              // Held, as before — and flushed, as before: `record.apply` flushes
-              // before it dispatches, so a request held for lack of a terminal
-              // still moved the bytes it was holding out first.
-              ctx.outputScheduler?.flushNow?.(sessionId)
-            }
-          }
-        }
+        // No held resize to dispatch (POD-4723): the client terminal was born at
+        // the session's last-known size and states the host's size through the
+        // size event; an ask that arrived before it existed was dropped, and the
+        // server re-drives it.
       } else {
         // LEAVING NATIVE RETIRES A PENDING RETRY. The bounded re-arm above exists
         // to honour a request the user still has open; firing it after they went
@@ -499,29 +440,9 @@ function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): vo
   })
 }
 
-/**
- * Attach a freshly spawned/reattached PTY to the daemon's plumbing. `geometry` is
- * the size the PTY was created at; the RETURN value is the size it is actually
- * running at once any resize that arrived before this bridge existed has been
- * applied — that is what `bind` must report, so the server is not told the PTY is
- * 80x24 when we just sized it to the client's fitted grid (POD-628).
- */
-/**
- * WHAT THIS RETURNS IS WHAT THE DAEMON APPLIED (MODEL rule 1, POD-3279).
- *
- * `reported` is the size this bridge is being stood up at, when there is one: a
- * spawn's requested geometry, which the first attach's packet moves the child
- * to. A REATTACH passes `undefined` — the attach is size-neutral and the agent
- * has been running at a size of its own — so the answer is whatever resize was
- * held for this session and dispatched just above, or nothing at all. Nothing is
- * a real answer: the bind that follows carries no geometry and the server keeps
- * W `unknown` until the first viewer asks.
- *
- * IT ALSO WRITES THE RECORD (POD-3290), which is what makes the return value
- * something the bind can be built from rather than something it has to be
- * told. The two are the same fact stated twice: callers that need the number
- * (the headless screens) read the return; the bind reads the record.
- */
+/** The user's redraw button: the one repaint that reaches the program. */
+const CTRL_L = Uint8Array.of(0x0c)
+
 /** How much of the host's ring a `replayRequired` redraw replays: several screens of a TUI. */
 const HOST_REPLAY_TAIL_BYTES = 256 * 1024
 
@@ -544,65 +465,55 @@ export function rememberDurableSeq(
   if (conn) ctx.sessions.ensure(sessionId).seqReader = () => conn.lastSeq
 }
 
+/**
+ * What a bind states as the session's size: the host connection's, read at
+ * the bind (`Terminal.size()`), or nothing when there is no terminal or its
+ * backend cannot read its size back. EXPORTED for `host-runtime.ts`'s bind.
+ */
+export function sessionSize(ctx: DaemonContext, sessionId: SessionId): Geometry | undefined {
+  return ctx.sessions.get(sessionId)?.terminal?.size()
+}
+
+/**
+ * THE SIZE EVENT (POD-4723, design rev 3 rule 1): the ONE callback that runs
+ * when the host states a session's size — its WELCOME, or a RESIZED. In
+ * order: flush held output and report the size (`reportSize`), then move the
+ * headless model, the observers and the composer to it. The ask itself moves
+ * none of these, so a refused or lost ask leaves every one of them at the size
+ * the program really has.
+ *
+ * EXPORTED for the client-terminal host (`runtime/opencode-attach.ts`), whose
+ * Terminal states its size the same way, through a port.
+ */
+export function onSessionSize(ctx: DaemonContext, sessionId: SessionId, size: Geometry): void {
+  reportSize(ctx, sessionId, size)
+  trackSessionSize(ctx, sessionId, size.cols, size.rows)
+  ctx.observers.onResize?.(sessionId, size.cols, size.rows)
+  ctx.composerEngine.onResize(sessionId, size.cols, size.rows)
+}
+
+/**
+ * Attach a freshly spawned or reattached PTY to the daemon's plumbing. It
+ * applies nothing and records nothing: the Terminal it builds states the
+ * host's size through {@link onSessionSize} (once now, then on every RESIZED),
+ * and a bind reads `terminal.size()`.
+ */
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
   session: DurableAttachment,
   agentKind: AgentKind,
   durableLabel: string,
-  reported: Geometry,
-): Geometry
-export function wireBridge(
-  ctx: DaemonContext,
-  sessionId: SessionId,
-  session: DurableAttachment,
-  agentKind: AgentKind,
-  durableLabel: string,
-  reported: Geometry | undefined,
-): Geometry | undefined
-export function wireBridge(
-  ctx: DaemonContext,
-  sessionId: SessionId,
-  session: DurableAttachment,
-  agentKind: AgentKind,
-  durableLabel: string,
-  reported: Geometry | undefined,
-): Geometry | undefined {
+): Terminal {
   // THE ONE headed construction site (POD-4434): spawn and reattach both build
-  // their surface here. The Session owns the label, the held resize and the
-  // replay cursor; the Terminal is the surface over the attachment just opened.
+  // their surface here. The Session owns the label and the replay cursor; the
+  // Terminal is the surface over the attachment just opened.
   const owned = ctx.sessions.ensure(sessionId)
   owned.label = durableLabel
-  const record = appliedGeometryFor(ctx)
-  const pending = owned.pendingResize
-  owned.pendingResize = undefined
-  if (pending) {
-    // AN APPLY SITE (POD-3290): the held request is dispatched here, so here is
-    // where it becomes an applied grid. Recorded BEFORE the bind that follows
-    // reads the record, which is what makes that bind's geometry a report — and
-    // the apply itself reports too (POD-3809), so this site is covered whether
-    // or not its caller remembers to bind.
-    record.apply(sessionId, pending.cols, pending.rows, (cols, rows) => {
-      session.resize(cols, rows)
-      return true
-    })
-    // The program is at the held size now, so the headless model follows it.
-    trackSessionSize(ctx, sessionId, pending.cols, pending.rows)
-    ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
-  } else if (reported) {
-    // AN APPLY SITE TOO, and the one that is easy to misread. `reported` is the
-    // size a SPAWN created this pty at — the child is born at it and the first
-    // attach's packet moves it there — so the daemon really did put it at that
-    // grid. No dispatch: it is already there. A reattach passes `undefined` and
-    // records nothing, because a size-neutral attach applies nothing.
-    record.apply(sessionId, reported.cols, reported.rows)
-    trackSessionSize(ctx, sessionId, reported.cols, reported.rows)
-  }
-  // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
-  // nudge — the shell hard-repaint rule, as a Terminal option rather than a
-  // second attach path (POD-4434). The screen is held (not fed) here — see the
-  // Terminal contract. Feeding stays in the fan-out below, unchanged.
+  // The screen is held (not fed) here — see the Terminal contract. Feeding
+  // stays in the fan-out below, unchanged.
   const terminal = Terminal.attach(session, owned.screen(), {
+      onSize: (size) => onSessionSize(ctx, sessionId, size),
       onFrame: (data) => {
         driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
           bytes: data.byteLength,
@@ -641,11 +552,6 @@ export function wireBridge(
         // slot only if it is still this one: a Terminal that lost the slot
         // must not clear its successor (the epoch on the session says the same).
         owned.dropTerminal(terminal)
-        // THE PTY THAT WAS AT THAT SIZE IS GONE, so the daemon holds no applied
-        // grid for this session any more (POD-3290). Dropped here rather than left
-        // to be overwritten: a later bind must not report a size that belongs to a
-        // terminal that no longer exists.
-        record.forget(sessionId)
         forgetSessionScreen(ctx, sessionId)
         ctx.composerEngine.detach(sessionId)
         ctx.outputScheduler.remove(sessionId)
@@ -677,12 +583,10 @@ export function wireBridge(
         })()
       },
     },
-    { kind: 'headed', hardRepaint: agentKind === 'shell' },
+    { kind: 'headed' },
   )
   owned.replaceTerminal(terminal)
-  if (pending) terminal.applied = { cols: pending.cols, rows: pending.rows }
-  else if (reported) terminal.applied = { cols: reported.cols, rows: reported.rows }
-  return pending ? { cols: pending.cols, rows: pending.rows } : reported
+  return terminal
 }
 
 /**
@@ -874,7 +778,11 @@ export async function launchSpawn(
       driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
         adopted: session.adopted,
       })
-      const geometry = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label, msg.geometry)
+      const terminal = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label)
+      // The size the program is at: the host's WELCOME (the Terminal already
+      // stated it through the size event), or — on a backend that cannot read
+      // its size back — the size it was born at.
+      const geometry = terminal.size() ?? msg.geometry
       // Stand up the agent-state tracker, harness observer, resume transcript tail
       // and seeded phase. The frame tap buffers the bounded gap between bridge
       // wiring and this setup so screen-derived state still sees the first screen.
@@ -883,6 +791,7 @@ export async function launchSpawn(
         startedAtMs: spawnStartedAt,
         ...(newSessionId ? { newSessionId } : {}),
       })
+      // The size event above ran before these observers existed: tell them now.
       ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
       await bindDriver(ctx, msg, false, profile)
       const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
@@ -913,7 +822,7 @@ export async function launchSpawn(
       // the grid a spawn announces is the grid `wireBridge` recorded a moment ago
       // — the pty's birth size, or the held resize it dispatched instead.
       ctx.send(
-        bindFrame(appliedGeometryFor(ctx), {
+        bindFrame(sessionSize(ctx, msg.sessionId), {
           sessionId: msg.sessionId,
           cmd: session.adopted ? (durable as DurableProcess).primary.attachCommand(label) : cmd.cmd,
           cwd: cmd.cwd,
@@ -993,10 +902,6 @@ export async function launchSpawn(
       })
     } else if (ctx.sessions.get(msg.sessionId)?.attached) stopSessionProcess(ctx, msg)
     removeSessionInstructions(ctx, msg.sessionId)
-    // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
-    // must not be applied to whatever is spawned for this id next.
-    const failed = ctx.sessions.get(msg.sessionId)
-    if (failed) failed.pendingResize = undefined
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -1327,7 +1232,7 @@ async function adoptServerDriverSession(
   }
   try {
     ctx.send(
-      bindFrame(appliedGeometryFor(ctx), {
+      bindFrame(sessionSize(ctx, msg.sessionId), {
         sessionId: msg.sessionId,
         cmd: `${what} (${handle.binding.driver})`,
         cwd: workdir,
@@ -1415,7 +1320,7 @@ async function adoptHeadlessSession(
   try {
     const handle = await runtime.adopt(binding)
     ctx.send(
-      bindFrame(appliedGeometryFor(ctx), {
+      bindFrame(sessionSize(ctx, msg.sessionId), {
         sessionId: msg.sessionId,
         cmd: `headless (${handle.binding.driver})`,
         cwd: msg.cwd,
@@ -1463,7 +1368,7 @@ async function adoptHeadlessSession(
       }
       const handle = await runtime.resume(msg.resume, spec, msg.sessionId)
       ctx.send(
-        bindFrame(appliedGeometryFor(ctx), {
+        bindFrame(sessionSize(ctx, msg.sessionId), {
           sessionId: msg.sessionId,
           cmd: `headless (${handle.binding.driver})`,
           cwd: msg.cwd,
@@ -1570,7 +1475,7 @@ async function resumeJournalledServerSession(
   }
   try {
     ctx.send(
-      bindFrame(appliedGeometryFor(ctx), {
+      bindFrame(sessionSize(ctx, msg.sessionId), {
         sessionId: msg.sessionId,
         cmd: `${what} (${handle.binding.driver})`,
         // THE JOURNAL'S WORKDIR, like the reattach path uses. The frame's `cwd` is
@@ -2269,16 +2174,15 @@ export async function recoverTerminalHost(
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
     if (msg.draftSync) {
-      // THE HEADLESS SCREEN'S GRID, NOT THE PTY'S. The session's one
-      // TerminalScreen model (P2c) is shared here instead of building a second
-      // emulator; the cols/rows hint only sizes a fallback owned screen, and
-      // the first applied report moves the shared model through the ordinary
-      // onResize path.
+      // The session's one TerminalScreen model (P2c) is shared here instead
+      // of building a second emulator; the cols/rows hint only sizes a
+      // fallback owned screen, and the next size event moves it.
+      const hint = sessionSize(ctx, msg.sessionId) ?? msg.lastKnownGeometry
       ctx.composerEngine.attach(
         msg.sessionId,
         msg.agentKind,
-        msg.lastKnownGeometry.cols,
-        msg.lastKnownGeometry.rows,
+        hint.cols,
+        hint.rows,
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
@@ -2287,20 +2191,15 @@ export async function recoverTerminalHost(
     if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     ctx.send(
-      bindFrame(appliedGeometryFor(ctx), {
+      bindFrame(sessionSize(ctx, msg.sessionId), {
         sessionId: msg.sessionId,
         cmd,
         cwd: msg.cwd,
         agentKind: msg.agentKind,
-        // WHATEVER THIS DAEMON APPLIED, WHICH ON THIS PATH IS USUALLY NOTHING
-        // (MODEL rule 1, POD-3279; centralised POD-3290). The bridge was never
-        // lost, so the reattach itself applies nothing — no resize is dispatched
-        // and the pty is wherever it already was. If this daemon had put the
-        // session at a grid earlier in its life, the record holds it and that is
-        // a true report; if it never did, the bind is bare. What is gone either
-        // way is echoing `msg.lastKnownGeometry`, which handed the server its own
-        // belief back as a daemon report — the lie that made `geometryState` read
-        // `current` after a reconnect that confirmed nothing.
+        // THE CONNECTION'S SIZE (POD-4723): the bridge was never lost, so the
+        // host's last statement is still the truth, and this bind is the full
+        // statement the server re-drives a lost ask from. Never
+        // `msg.lastKnownGeometry`: that is the server's own belief handed back.
         ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
         // The driver handle actually exists for this session (POD-1761 W4,
         // unconditional since POD-4426). The server records `driverId` on the
@@ -2315,7 +2214,11 @@ export async function recoverTerminalHost(
         ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
       }),
     )
-    existing.redraw()
+    // NO REDRAW (POD-4723, design rev 3). This used to nudge the program on every
+    // link-B reattach — two RESIZEs and a full repaint per session, fanned out to
+    // every viewer — and the nudge is what put ptys back at a stale size. The
+    // server keeps its byte log across a link-B drop; a viewer that needs more
+    // asks with `redraw`, which repaints it from the snapshot or the ring.
     // Re-push agent state for the same reason we re-seed the transcript below: a
     // freshly restarted SERVER (the daemon survived) starts with NO agentState for
     // this session, and an idle survivor fires no hook to re-establish it — so it
@@ -2335,7 +2238,7 @@ export async function recoverTerminalHost(
     void ctx.tailSeedGate(async () => {
       try {
         // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
-        // Keep bind/state/redraw above immediate, but pace the allocation-heavy
+        // Keep bind/state above immediate, but pace the allocation-heavy
         // transcript read/parse/reset-send through the existing seed gate.
         await seedRuntimeHistory(ctx, msg.sessionId)
       } catch (err) {
@@ -2357,11 +2260,6 @@ export async function recoverTerminalHost(
     // Inside the gate on purpose — a restart reattaches every session at once, and
     // this forks git.
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
-    // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
-    // nudge, so without a Ctrl-L it shows blank until the user types. TUIs repaint
-    // on resize, so only shells take the hard path. The abduco attach below is
-    // size-neutral, so it repaints nothing on its own — the first viewport
-    // request does — but a shell still gets this Ctrl-L, as it does today.
     let found: DurableReattach | undefined
     const durable = durableProcessFor(ctx)
     if (durable) {
@@ -2398,38 +2296,11 @@ export async function recoverTerminalHost(
     if (!found) {
       throw new Error(durable ? 'session not found' : 'durable backend unavailable')
     }
-    // NOTHING REPORTED, BECAUSE THE ATTACH APPLIED NOTHING (POD-3279). The only
-    // geometry a reattach can honestly report is a resize this session was
-    // holding, which `wireBridge` dispatches and returns; with no held resize the
-    // answer is `undefined` and the bind below carries no geometry at all.
-    const held = wireBridge(
-      ctx,
-      msg.sessionId,
-      found.attachment,
-      msg.agentKind,
-      msg.durableLabel,
-      undefined,
-    )
-    // A machine without a `-N` abduco build downgrades to an attach that DOES
-    // announce a size, and the session says so. That is a size the daemon
-    // applied, so rule 1 rev 4 lets the bind report it — AN APPLY SITE
-    // (POD-3290), and the only one the daemon learns about after the fact
-    // rather than by dispatching it.
-    //
-    // THE HOST READS THE SIZE BACK (SPEC-6, stage 5 record). Its WELCOME carries
-    // the kernel's TIOCGWINSZ for the running program — not a belief, the size it
-    // IS at — so the bind after a restart reports it and the `unknown` window
-    // closes at reattach. abduco's attach reports nothing here.
-    const downgraded = held ? undefined : (found.readGeometry ?? found.attachment.appliedGeometry)
-    // No dispatch: the attach itself announced and applied the size, so the
-    // session is already at it and this call only records and reports it.
-    if (downgraded) {
-      appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
-      // The host's kernel report also sizes the model before ring replay.
-      // This records the observed grid; it sends no resize to the process.
-      if (ready) trackSessionSize(ctx, msg.sessionId, downgraded.cols, downgraded.rows)
-    }
-    const applied = held ?? downgraded
+    // THE ATTACH RESIZES NOTHING (POD-4723). The Terminal states the host's
+    // WELCOME size through the size event — which reports it and sizes the
+    // model before the ring replay below — and the bind carries the same size.
+    // abduco cannot read its size back, so it states nothing and binds bare.
+    const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, msg.durableLabel)
     rememberDurableSeq(ctx, msg.sessionId, found.attachment)
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
@@ -2441,13 +2312,11 @@ export async function recoverTerminalHost(
     ctx.observers.initSessionObservers(msg, found.attachment, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
-    // THE HEADLESS SCREENS, AT THE BEST HINT THERE IS. The screen observers and
-    // the composer engine have to be built at some cols x rows to parse output
-    // against, and they are consumers of W like any viewer — so they take the
-    // resize this attach applied if there was one, and the server's last-known
-    // otherwise. Neither number reaches the pty; the first applied report moves
-    // them both through the ordinary onResize path.
-    const screens = applied ?? msg.lastKnownGeometry
+    // THE HEADLESS SCREENS, AT THE BEST HINT THERE IS. The observers did not
+    // exist when the size event ran, so they take the host's size now, or the
+    // server's last-known where the backend cannot say. Neither number reaches
+    // the pty; the next size event moves them.
+    const screens = terminal.size() ?? msg.lastKnownGeometry
     ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
     if (msg.draftSync) {
       // The session's one TerminalScreen model (P2c), not a second emulator.
@@ -2462,25 +2331,21 @@ export async function recoverTerminalHost(
     // A fresh host attachment starts at the output tail. Reconstruct the
     // agent's missing screen through the existing bounded replay port after
     // wiring all consumers; waiting for a viewer resize leaves idle survivors
-    // blank. Plain terminals retain their viewer-driven replay path.
-    const terminal = ctx.sessions.get(msg.sessionId)?.terminal
-    if (ready && terminal) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
+    // blank. Plain terminals retain their viewer-driven replay path. The
+    // program is never signalled: a fresh daemon repaints from the ring.
+    if (ready) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
     ready?.()
     const recoveryProfile = terminalProfileFor(msg.agentKind)
     if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     ctx.send(
-      bindFrame(appliedGeometryFor(ctx), {
+      bindFrame(sessionSize(ctx, msg.sessionId), {
         sessionId: msg.sessionId,
         cmd: found.cmd,
         cwd: msg.cwd,
         agentKind: msg.agentKind,
-        // ONLY A SIZE THIS ATTACH APPLIED (MODEL rule 1, POD-3279). Present when a
-        // held resize was dispatched at bind or the attach downgraded and
-        // announced one, absent otherwise — and absent is the ordinary case,
-        // because a size-neutral attach applies nothing. Both halves are the
-        // record's answer now (POD-3290), not this site's. The server reads the
-        // absence as "W is unknown to me" and waits for the first ask.
+        // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
+        // restart binds the size the program really has. Bare on abduco.
         ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
         // The driver handle actually exists for this session (POD-1761 W4,
         // unconditional since POD-4426). The server records `driverId` on the
@@ -2495,12 +2360,6 @@ export async function recoverTerminalHost(
         ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
       }),
     )
-    // abduco keeps no output history, so a reattach asks the program to repaint
-    // (attachAbducoAgent nudged before the bridge was wired, and that paint can
-    // be lost). The host replays its ring instead — nothing is owed when this
-    // daemon knew where it left off; a fresh daemon still nudges (see
-    // DurableReattach.redrawOnReattach).
-    if (found.redrawOnReattach) terminal?.redraw()
   })
 }
 
@@ -2524,8 +2383,8 @@ export async function stealTerminalWriter(
   const owned = ctx.sessions.ensure(msg.sessionId)
   const label = msg.durableLabel ?? owned.label ?? ctx.durableLabelFor(msg.sessionId)
   owned.label = label
-  // Park first: the losing attachment detaches while the master, the screen,
-  // the held resize and the replay cursor stay owned. The stolen attachment
+  // Park first: the losing attachment detaches while the master, the screen
+  // and the replay cursor stay owned. The stolen attachment
   // replaces the surface below; nothing is reaped. The slot would park it on
   // replace too — first is about ORDER: the old connection lets go before the
   // lease is taken over.
@@ -2544,12 +2403,8 @@ export async function stealTerminalWriter(
     ...(resumeFrom !== undefined ? { lastSeq: resumeFrom } : {}),
   })
   log.warn('writer lease stolen on operator action', { sessionId: msg.sessionId, label })
-  wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, label, undefined)
-  const downgraded = found.readGeometry ?? found.attachment.appliedGeometry
-  if (downgraded) {
-    appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
-    trackSessionSize(ctx, msg.sessionId, downgraded.cols, downgraded.rows)
-  }
+  // The stolen connection's WELCOME states the size through the size event.
+  const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, label)
   rememberDurableSeq(ctx, msg.sessionId, found.attachment)
   // The observers were subscribed to the parked attachment: re-subscribe them
   // to the stolen one through the same path spawn and reattach use. The
@@ -2569,13 +2424,13 @@ export async function stealTerminalWriter(
     agentStateProviderFor(msg.agentKind),
     { seedOnFrame: false },
   )
-  const screens = downgraded ?? observerMsg.lastKnownGeometry
+  const screens = terminal.size() ?? observerMsg.lastKnownGeometry
   ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
   const recoveryProfile = terminalProfileFor(msg.agentKind)
   if (recoveryProfile) requireTerminalHandle(ctx, observerMsg, recoveryProfile)
   const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
   ctx.send(
-    bindFrame(appliedGeometryFor(ctx), {
+    bindFrame(sessionSize(ctx, msg.sessionId), {
       sessionId: msg.sessionId,
       cmd: found.cmd,
       cwd: msg.cwd,
@@ -2614,12 +2469,6 @@ export function stopSessionProcess(
   // A timeout retry must observe the same retirement, not the now-empty
   // registry. Binding retirement may strengthen a park after it completes.
   if (previous && !opts.retire) return previous
-  // Synchronous bookkeeping, before the async teardown below: a dispatched
-  // kill invalidates the held viewer ask NOW. The reaps settle on microtasks
-  // the sender never waits for, so retiring it there leaves a resize held for
-  // a spawn that will never bind.
-  const dying = ctx.sessions.get(msg.sessionId)
-  if (dying) dying.pendingResize = undefined
   const work = (previous ? previous.catch(() => false) : Promise.resolve()).then(
     () => stopSessionProcessOnce(ctx, msg, opts),
   ).catch((error) => {
@@ -2644,7 +2493,6 @@ async function stopSessionProcessOnce(
   ctx.observers.clearSession(msg.sessionId)
   ctx.agentRuntime?.clearTerminal(msg.sessionId)
   if (owned) {
-    owned.pendingResize = undefined
     owned.nativeRequested = false
     // The request is gone, so the retry it was owed is too — there is no session
     // left to become idle, and a stale count would outlive the id.
@@ -2864,244 +2712,72 @@ export const sessionHandlers: Pick<
       Buffer.from(msg.data, 'base64'),
     ),
   resize: (ctx, msg) => {
-    const owned = ctx.sessions.ensure(msg.sessionId)
-    // The arm follows the surface kind, never the other way round: a headed
-    // surface applies synchronously exactly as a bridge always did, while a
-    // client TUI acknowledges through the client-terminal host (audit item 4).
-    const bridge = owned.terminal?.kind === 'headed' ? owned.terminal : undefined
-    // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5) — and since
-    // POD-3809 those are ONE operation, `record.apply`, which flushes,
-    // dispatches, records and reports in that order before it returns. This
-    // handler no longer owns the ordering; it only says WHAT the dispatch is:
-    //
-    //   1. FLUSH what the scheduler is holding for this session. Those bytes
-    //      were produced at the OLD grid; a P2/P3 session can sit on up to
-    //      `coalesceMs` of them, and delivering them after the report would put
-    //      old-grid output on a viewer that has already resized.
-    //   2. DISPATCH the resize to the pty.
-    //   3. REPORT the grid we dispatched. This frame is the only thing that
-    //      moves the server's W, so it must not be able to arrive behind output
-    //      the daemon itself was withholding.
-    //
-    // "Dispatched", not "acknowledged": for an abduco session the attach pty's
-    // TIOCSWINSZ reaches the master asynchronously, and the master may forward
-    // already-read old bytes after applying it. That transient is one SIGWINCH
-    // propagation plus one repaint and is what every terminal shows during a
-    // resize — see MODEL.md "Accepted residuals". What this ordering DOES buy is
-    // the half the daemon owns: nothing it was holding lands after the report.
-    //
-    // The branch below keeps today's order exactly (0b C7): a driver-owned
-    // (server-family) session takes the resize through `clientTerminals` and
-    // never holds it on the session; only a session with no terminal at all
-    // holds. A HELD request still gets no report — nothing was
-    // applied, so there is nothing to report, which is the one thing this file
-    // and the record agree on without either having to remember it.
-    const record = appliedGeometryFor(ctx)
-    if (bridge) {
-      const applied = record.apply(msg.sessionId, msg.cols, msg.rows, (cols, rows) => {
-        bridge.resize(cols, rows)
-        return true
+    // THE ASK (POD-4723, design rev 3). It moves nothing here: no report, no
+    // model, no observers, no composer. The host answers with RESIZED, and the
+    // size event (`onSessionSize`) moves all of them to what the kernel took —
+    // so a refused or lost ask can never be reported as applied. One path for
+    // a headed pty and a native client TUI alike: both are the session's one
+    // Terminal.
+    const terminal = ctx.sessions.get(msg.sessionId)?.terminal
+    if (!terminal?.live) {
+      // No terminal to ask: the spawn is still in flight, or the client TUI is
+      // not open. Dropped, not held — the bind that follows states the size,
+      // and the server re-drives the viewer's box from it.
+      log.info('resize for a session with no terminal; dropped', {
+        sessionId: msg.sessionId,
+        cols: msg.cols,
+        rows: msg.rows,
       })
-      if (applied) bridge.applied = { cols: applied.cols, rows: applied.rows }
-      if (!applied) {
-        // Nothing to put at the size yet — no bridge and no client terminal, so the
-        // spawn this resize belongs to is still in flight. Hold the request instead
-        // of dropping it: the server has already moved its own geometry (and told
-        // the browser), so a drop here is what leaves the PTY at 80x24 under a
-        // client rendering a fitted grid (POD-628). Last one wins — an in-flight
-        // session has no screen to reflow, only a size to be BORN at, and being
-        // born at it is now what happens (POD-3809): `wireBridge` dispatches it for
-        // a pty session, and a client terminal is opened at it.
-        owned.pendingResize = { cols: msg.cols, rows: msg.rows }
-      } else {
-        // The program is at the asked size now, so the headless model follows it.
-        trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
-      }
-      ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
-      ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
       return
     }
-    // A driver-owned (server-family) session takes it through the client
-    // terminal instead. Its output travels through the same scheduler, and
-    // its W has to move for the same reason, so it flushes and reports
-    // exactly as a bridged session does — because it is the same operation.
-    //
-    // RECORDED AT THE ACKNOWLEDGED SIZE (POD-3919 audit item 4), so this arm
-    // answers in two times where the bridge arm answers in one: a terminal
-    // whose backend offers no acknowledgement is recorded synchronously,
-    // exactly as before, and only an acknowledged resize waits out its
-    // round-trip. The observers still hear the ask immediately — the screens
-    // reflow to the viewer's grid while the report carries the truth a beat
-    // behind, exactly as before when the two agreed (which is every time but
-    // a clamp).
-    ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
-    ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
-    const answer = dispatchClientResize(ctx, msg.sessionId, msg.cols, msg.rows)
-    if (answer === undefined) {
-      // Nothing to put at the size yet — no client terminal, so the spawn this
-      // resize belongs to is still in flight. Hold the request instead of
-      // dropping it: the server has already moved its own geometry (and told
-      // the browser), so a drop here is what leaves the PTY at 80x24 under a
-      // client rendering a fitted grid (POD-628). Last one wins — an in-flight
-      // session has no screen to reflow, only a size to be BORN at, and being
-      // born at it is now what happens (POD-3809): a client terminal is opened
-      // at it. Flushed, as before: `record.apply` flushes before it dispatches,
-      // so a held request still moves the bytes it was holding out first.
-      ctx.outputScheduler?.flushNow?.(msg.sessionId)
-      owned.pendingResize = { cols: msg.cols, rows: msg.rows }
-    } else if (isResizePromise(answer)) {
-      void answer
-        .then((acked) => {
-          if (!acked) {
-            ctx.outputScheduler?.flushNow?.(msg.sessionId)
-            ctx.sessions.ensure(msg.sessionId).pendingResize = { cols: msg.cols, rows: msg.rows }
-            return
-          }
-          record.apply(msg.sessionId, acked.cols, acked.rows)
-          // The program is at the acknowledged size now: the model follows it.
-          trackSessionSize(ctx, msg.sessionId, acked.cols, acked.rows)
-        })
-        .catch((err) =>
-          log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }),
-        )
-    } else {
-      record.apply(msg.sessionId, answer.cols, answer.rows)
-      // The program is at the answered size now: the model follows it.
-      trackSessionSize(ctx, msg.sessionId, answer.cols, answer.rows)
-    }
+    void Promise.resolve(terminal.resize(msg.cols, msg.rows)).catch((err: unknown) =>
+      log.warn('the host refused a resize', {
+        sessionId: msg.sessionId,
+        cols: msg.cols,
+        rows: msg.rows,
+        err: err instanceof Error ? err.message : String(err),
+      }),
+    )
   },
   draftTarget: (ctx, msg) => {
     // A chat-originated draft to mirror into the native composer (POD-859 phase 4).
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    // MODE-AWARE REOPEN (POD-3918 P1b) — the same decision for the headed arm
-    // and the bridge arm (audit item 6): alternate screens never replay stale
-    // bytes, a viewer size that differs from the model is applied FIRST, and
-    // a same-size alternate reopens from the model serialisation. The arms
-    // differ only in HOW they apply (client terminal vs pty bridge), never in
-    // WHAT they decide.
-    const screen = sessionScreenFor(ctx, msg.sessionId)?.screen
-    const record = appliedGeometryFor(ctx)
+    // A REDRAW NEVER SIGNALS THE PROGRAM (POD-4723, design rev 3 "Repaint").
+    // A same-size SIGWINCH repaints nothing in a Node TUI, and the nudge that
+    // forced one is what put ptys back at a stale size. The viewer is repainted
+    // from what the daemon holds — the headless snapshot or the host ring —
+    // and the one repaint that touches the program is the user's own redraw
+    // button, as a Ctrl-L (`hard`).
     const owned = ctx.sessions.get(msg.sessionId)
-    const viewer =
-      owned?.pendingResize ?? record.applied(msg.sessionId) ?? undefined
-    const bridge = owned?.terminal?.kind === 'headed' ? owned.terminal : undefined
+    const terminal = owned?.terminal?.live ? owned.terminal : undefined
+    if (msg.hard && terminal) terminal.write(CTRL_L)
+    const screen = sessionScreenFor(ctx, msg.sessionId)?.screen
     const decision = decideReopenScreen({
       mode: screen?.mode ?? 'normal',
-      modelSize: screen?.modelSize ?? record.applied(msg.sessionId) ?? undefined,
-      viewerSize: viewer ? { cols: viewer.cols, rows: viewer.rows } : undefined,
       modelAlive: screen?.alive ?? false,
-      ringReplayable: bridge?.replayable ?? false,
+      ringReplayable: terminal?.replayable ?? false,
       replayRequired: msg.replayRequired === true,
     })
-    const enqueueSnapshot = (): void => {
-      // The screen owns the serialisation now: one model, one snapshot.
-      const snapshot = screen?.alive ? screen.snapshotFirstFrame() : undefined
-      if (snapshot) ctx.outputScheduler.enqueue(msg.sessionId, snapshot)
-    }
-    const applyBridgeSizeFirst = (): void => {
-      if (!viewer || !bridge) return
-      const applied = record.apply(msg.sessionId, viewer.cols, viewer.rows, (cols, rows) => {
-        bridge.resize(cols, rows)
-        return true
-      })
-      if (applied) {
-        if (owned) owned.pendingResize = undefined
-        bridge.applied = { cols: applied.cols, rows: applied.rows }
-        trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
-      }
-    }
-    const applyHeadedSizeFirst = (): void => {
-      // The headed twin of the apply above, under the resize handler's
-      // discipline: record only what was really applied (POD-3919), and a
-      // request that reaches no terminal stays held.
-      if (!viewer || !ctx.clientTerminals) return
-      const answer = dispatchClientResize(ctx, msg.sessionId, viewer.cols, viewer.rows)
-      if (answer === undefined) return
-      if (isResizePromise(answer)) {
-        void answer
-          .then((acked) => {
-            if (!acked) return
-            record.apply(msg.sessionId, acked.cols, acked.rows)
-            trackSessionSize(ctx, msg.sessionId, acked.cols, acked.rows)
-            const ackedSession = ctx.sessions.get(msg.sessionId)
-            if (ackedSession) ackedSession.pendingResize = undefined
-          })
-          .catch((err) =>
-            log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }),
-          )
+    switch (decision.kind) {
+      case 'snapshot': {
+        // The screen owns the serialisation: one model, one snapshot.
+        const snapshot = screen?.alive ? screen.snapshotFirstFrame() : undefined
+        if (snapshot) ctx.outputScheduler.enqueue(msg.sessionId, snapshot)
         return
       }
-      record.apply(msg.sessionId, answer.cols, answer.rows)
-      trackSessionSize(ctx, msg.sessionId, answer.cols, answer.rows)
-      if (owned) owned.pendingResize = undefined
-    }
-    const terminals = ctx.clientTerminals
-    // A LIVE client surface answers from the Terminal itself (POD-3918 P1b):
-    // the mode-aware policy must decide (size-first, snapshot) BEFORE any
-    // repaint is nudged, and `redraw()` both decides and nudges in one call.
-    // False while starting, parked, or absent — those keep the bookkeeping path.
-    if (ctx.sessions.get(msg.sessionId)?.terminal?.kind === 'client' && terminals) {
-      switch (decision.kind) {
-        case 'snapshot-then-live':
-          enqueueSnapshot()
-          break
-        case 'resize-repaint-with-placeholder':
-          enqueueSnapshot()
-          applyHeadedSizeFirst()
-          break
-        case 'resize-repaint':
-          applyHeadedSizeFirst()
-          break
-        case 'ring-replay':
-        case 'repaint':
-        case 'repaint-only':
-          break
-      }
-      terminals.redraw(msg.sessionId, msg.replayRequired)
-      return
-    }
-    if (terminals?.redraw(msg.sessionId, msg.replayRequired)) return
-    if (!bridge) return
-    switch (decision.kind) {
       case 'ring-replay':
         // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server sends
-        // `replayRequired` when a client attaches against an EMPTY log — a
-        // server restart, or a deploy that restarted both server and daemon.
-        // abduco can only ask the program to repaint. The host keeps the
-        // output, so it replays its tail instead: the viewer gets the last
+        // `replayRequired` when a client attaches against an EMPTY log. The host
+        // keeps the output, so it replays its tail: the viewer gets the last
         // screen, and the program is not touched at all. Approximate until
-        // POD-3925: the ring carries no size history, so the tail is assumed
-        // at one size.
-        if (bridge.replayable) {
-          void bridge.replay(HOST_REPLAY_TAIL_BYTES).catch((err) => {
-            log.warn('host replay failed; falling back to a repaint', {
-              err,
-              sessionId: msg.sessionId,
-            })
-            bridge.redraw()
-          })
-          return
-        }
-        bridge.redraw()
+        // POD-3925: the ring carries no size history.
+        void terminal?.replay(HOST_REPLAY_TAIL_BYTES).catch((err) => {
+          log.warn('host replay failed', { err, sessionId: msg.sessionId })
+        })
         return
-      case 'snapshot-then-live':
-        enqueueSnapshot()
-        bridge.redraw()
-        return
-      case 'resize-repaint-with-placeholder':
-        enqueueSnapshot()
-        applyBridgeSizeFirst()
-        bridge.redraw()
-        return
-      case 'resize-repaint':
-        applyBridgeSizeFirst()
-        bridge.redraw()
-        return
-      case 'repaint':
-      case 'repaint-only':
-        bridge.redraw()
+      case 'none':
         return
     }
   },

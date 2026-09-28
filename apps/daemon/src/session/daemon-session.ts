@@ -81,9 +81,7 @@ export interface ClientTerminalPolicy {
   /** The one Native generation allowed to accept input, plus what arrived
    *  while its process was starting. Replaced on every start. */
   generation?: { acceptingInput: boolean; pendingInput: Uint8Array[]; pendingBytes: number }
-  /** An adopted master must ACK one replay redraw without forwarding it. */
-  suppressNextReplayRedraw?: boolean
-  /** The parked master evolved while no relay was attached: repaint on return. */
+  /** The parked master evolved while no relay was attached: replay the ring on return. */
   replayRequired?: boolean
   /** The next client continues the same surface: no scrollback-clear anchor. */
   preserveReplayOnRelaunch?: boolean

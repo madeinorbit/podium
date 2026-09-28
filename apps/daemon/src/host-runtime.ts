@@ -95,10 +95,18 @@ import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
-import { appliedGeometryFor, bindFrame } from './control/applied-geometry'
+import { bindFrame } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { launchSpawn, recoverTerminalHost, rememberDurableSeq, sessionRelayEnv, stopSessionProcess } from './control/session'
+import {
+  launchSpawn,
+  onSessionSize,
+  recoverTerminalHost,
+  rememberDurableSeq,
+  sessionRelayEnv,
+  sessionSize,
+  stopSessionProcess,
+} from './control/session'
 import { headlessTurnEnv, spawnEnv } from './control/session-env'
 import { sourceForRead } from './control/transcripts'
 import {
@@ -165,7 +173,7 @@ import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
-import { terminalScreenFor, trackSessionOutput } from './session-screens'
+import { sessionModelSize, terminalScreenFor, trackSessionOutput } from './session-screens'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
 import { ShippingExecutionPlane } from './shipping/executor'
 import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './transfer-lifecycle'
@@ -1075,29 +1083,19 @@ export async function createDaemonHostRuntime(args: {
     createSessionClientScope(ctx.durable, homeDir ? { homeDir } : undefined),
     {
       sessions,
-    // The one applied-size record this daemon owns (POD-3290). Opening a client
-    // terminal is a real apply, and this is the only wiring that lets that fact
-    // reach the frames which report a grid.
-    appliedGeometry: appliedGeometryFor(ctx),
+    // The one size event (POD-4723): a client TUI's host stating its size is
+    // reported and moves the model exactly as a headed pty's does.
+    sizeEvent: (sessionId, size) => onSessionSize(ctx, sessionId, size),
     // A client terminal never becomes a bridge, so the bridge path's resume
     // point never sees it (POD-3919 audit item 7). The same function, on the
     // same map, for the same kind of session — a host connection with a ring.
     rememberDurableSeq: (sessionId, session) => rememberDurableSeq(ctx, sessionId, session),
     /**
-     * WHAT SIZE TO OPEN IT AT (POD-3809). The viewer's first ask reaches a
-     * server-family session before it has any terminal, so the resize handler
-     * parks it in `pendingResizes`; that held request is the best answer there
-     * is and it is what the client is born at. Failing that, the grid this
-     * daemon last applied to the session — its own last-known W. Failing both,
-     * the port answers nothing and the client host uses its default.
-     *
-     * PEEKED, NOT CONSUMED. The request stays held until the attach that used it
-     * comes back through the native reconcile, which sees the record already at
-     * that grid and retires it without a second SIGWINCH. A start that FAILS
-     * therefore still leaves the request for the next attempt.
+     * WHAT SIZE TO OPEN IT AT (POD-3809): the size the session's program last
+     * had — its model's size, which only the host's size events move
+     * (POD-4723). Nothing when it never had one: the client host's default.
      */
-    birthGeometry: (sessionId) =>
-      ctx.sessions.get(sessionId)?.pendingResize ?? appliedGeometryFor(ctx).applied(sessionId),
+    birthGeometry: (sessionId) => sessionModelSize(ctx, sessionId),
     // One session-addressed relay for engine terminals and on-demand harness
     // client terminals. The latter intentionally returns the parent session id.
     frames: (streamId, frame) => {
@@ -1214,7 +1212,7 @@ export async function createDaemonHostRuntime(args: {
   // the one bind builder, timing stages and the mail continuation. The
   // supervisor owns the wire; the families own the translation.
   const emitBind: ServerSessionFramePorts['emitBind'] = (input) =>
-    send(bindFrame(appliedGeometryFor(ctx), input))
+    send(bindFrame(sessionSize(ctx, input.sessionId), input))
   const sessionReady: ServerSessionFramePorts['sessionReady'] = (binding) =>
     driverTiming.sessionReady(binding)
   const traceRuntimeEvent: ServerSessionFramePorts['traceRuntimeEvent'] = (binding, event) =>
