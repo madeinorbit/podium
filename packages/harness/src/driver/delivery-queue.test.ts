@@ -207,13 +207,25 @@ describe('durable row delivery', () => {
     expect(f.emit.mock.calls.every(([event]) => event.outcome === 'dropped')).toBe(true)
   })
 
-  it('bounds a busy agent without writing or losing the queued text silently', async () => {
-    const f = fixture()
-    await f.handle.send({ rowId: 'busy', text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
-    await vi.advanceTimersByTimeAsync(30 * 60_000 + 200)
-    expect(f.send).not.toHaveBeenCalled()
-    expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'busy', outcome: 'failed' }))
-  })
+  // A phase that ends on its own waits for the turn boundary with NO
+  // deadline: a row admitted while the agent is busy for longer than any
+  // old ceiling is typed when the turn ends, never failed.
+  for (const phase of ['working', 'compacting', 'needs_user'] as const) {
+    it(`waits out a ${phase} turn past the old ceiling, then delivers`, async () => {
+      const f = fixture()
+      f.setPhase(phase)
+      await f.handle.send({ rowId: `long-${phase}`, text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
+      await vi.advanceTimersByTimeAsync(45 * 60_000)
+      expect(f.send).not.toHaveBeenCalled()
+      expect(f.emit).not.toHaveBeenCalled()
+      f.ready()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(f.send).toHaveBeenCalledTimes(1)
+      expect(f.emit).toHaveBeenCalledWith(
+        expect.objectContaining({ rowId: `long-${phase}`, outcome: 'delivered' }),
+      )
+    })
+  }
 
   // A human answering a question ends needs_user just as a turn's end ends
   // working. The server no longer holds a message for that [POD-4661], so the
@@ -232,17 +244,8 @@ describe('durable row delivery', () => {
     expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'asked', outcome: 'delivered' }))
   })
 
-  it('bounds a needs_user wait at the same ceiling as a running turn', async () => {
-    const f = fixture()
-    f.setPhase('needs_user')
-    await f.handle.send({ rowId: 'unanswered', text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
-    await vi.advanceTimersByTimeAsync(30 * 60_000 + 200)
-    expect(f.send).not.toHaveBeenCalled()
-    expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'unanswered', outcome: 'failed' }))
-  })
-
   // These phases do not end on their own, so a short ceiling reports the stuck
-  // row instead of holding it for half an hour.
+  // row with a precise reason instead of holding it forever.
   for (const phase of ['unknown', 'errored', 'ended'] as const) {
     it(`keeps the short ceiling for a ${phase} agent`, async () => {
       const f = fixture()
@@ -250,11 +253,15 @@ describe('durable row delivery', () => {
       await f.handle.send({ rowId: phase, text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
       await vi.advanceTimersByTimeAsync(60_200)
       expect(f.send).not.toHaveBeenCalled()
-      expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: phase, outcome: 'failed' }))
+      expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({
+        rowId: phase,
+        outcome: 'failed',
+        reason: 'agent not accepting input',
+      }))
     })
   }
 
-  it('bounds a never-ready composer', async () => {
+  it('bounds a never-ready composer with the precise reason', async () => {
     vi.useFakeTimers()
     const send = vi.fn()
     const emit = vi.fn()
@@ -263,7 +270,11 @@ describe('durable row delivery', () => {
     await handle.send({ rowId: 'starting', text: 'first' }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(60_200)
     expect(send).not.toHaveBeenCalled()
-    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'starting', outcome: 'failed' }))
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      rowId: 'starting',
+      outcome: 'failed',
+      reason: 'agent not accepting input',
+    }))
   })
 
   it('does not turn a nested queued receipt into acceptance or retry it', async () => {
@@ -360,7 +371,43 @@ describe('durable row delivery', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
-  it('abandons an expired held row as never-live', async () => {
+  it('abandons a held row on a stuck composer as never-live', async () => {
+    const f = fixture()
+    const abandoned: Array<{ turns: Array<{ id: string }>; reason: string }> = []
+    const handle = withDeliveryQueue(
+      {
+        send: f.send,
+        state: async () => ({ phase: 'errored' }),
+        lease: { state: async () => null },
+      } as unknown as AgentSessionHandle,
+      f.emit,
+      () => true,
+      () => true,
+      ({ turns, reason }) => {
+        abandoned.push({ turns: [...turns], reason })
+      },
+    )
+    await handle.send(
+      { id: 'turn-stuck', rowId: 'turn-stuck', text: 'never ready' },
+      { origin: 'human', delivery: 'when-ready', daemonHeld: true },
+    )
+    await vi.advanceTimersByTimeAsync(60_000 + 1000)
+    expect(f.send).not.toHaveBeenCalled()
+    expect(abandoned).toEqual([
+      { turns: [{ id: 'turn-stuck', text: 'never ready', origin: 'human' }], reason: 'never-live' },
+    ])
+    expect(f.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowId: 'turn-stuck',
+        outcome: 'failed',
+        reason: 'agent not accepting input',
+      }),
+    )
+  })
+
+  // A held row on a live turn waits for the boundary like a durable row: no
+  // deadline, no abandonment while the agent is still working.
+  it('holds a held row through a long working turn without abandoning it', async () => {
     const f = fixture()
     const abandoned: Array<{ turns: Array<{ id: string }>; reason: string }> = []
     const handle = withDeliveryQueue(
@@ -377,17 +424,13 @@ describe('durable row delivery', () => {
       },
     )
     await handle.send(
-      { id: 'turn-stuck', rowId: 'turn-stuck', text: 'never ready' },
+      { id: 'turn-patient', rowId: 'turn-patient', text: 'waits' },
       { origin: 'human', delivery: 'when-ready', daemonHeld: true },
     )
-    await vi.advanceTimersByTimeAsync(30 * 60_000 + 1000)
+    await vi.advanceTimersByTimeAsync(45 * 60_000)
     expect(f.send).not.toHaveBeenCalled()
-    expect(abandoned).toEqual([
-      { turns: [{ id: 'turn-stuck', text: 'never ready', origin: 'human' }], reason: 'never-live' },
-    ])
-    expect(f.emit).toHaveBeenCalledWith(
-      expect.objectContaining({ rowId: 'turn-stuck', outcome: 'failed' }),
-    )
+    expect(f.emit).not.toHaveBeenCalled()
+    expect(abandoned).toEqual([])
   })
 
 })

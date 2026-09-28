@@ -16,17 +16,18 @@ export interface HeldAbandonedTurn {
 }
 
 /**
- * Phases a row waits through for up to {@link BOUNDARY_CEILING_MS}: each ends on
- * its own — a turn finishes, a compaction completes, the human answers the
- * question. The server does not hold a message for any of them [POD-4661], so
- * this queue must. Every other phase (`unknown`: no signal at all; `errored`: the
- * turn stopped and a continue is a new send; `ended`) and a composer that never
- * reports ready get the short {@link STUCK_CEILING_MS}, so a row that cannot land
- * is reported rather than held for half an hour. (A never-ready composer reads
- * `idle`, so it takes the short ceiling too.)
+ * Phases a row waits through with NO deadline: each ends on its own — a turn
+ * finishes, a compaction completes, the human answers the question. The
+ * message is durable on the server; the user sees it pending and can retract
+ * it. Only the daemon decides when to type, so the queue waits for the turn
+ * boundary however long that takes. Every other phase (`unknown`: no signal
+ * at all; `errored`: the turn stopped and a continue is a new send; `ended`)
+ * and a composer that never reports ready get the short
+ * {@link STUCK_CEILING_MS}, so a row that cannot land is reported as
+ * `agent not accepting input` rather than held forever. (A never-ready
+ * composer reads `idle`, so it takes the short ceiling too.)
  */
 const ENDS_ON_ITS_OWN: ReadonlySet<string> = new Set(['working', 'compacting', 'needs_user'])
-const BOUNDARY_CEILING_MS = 30 * 60_000
 const STUCK_CEILING_MS = 60_000
 
 /** Disposable daemon delivery state. Admission and ordering belong to the server;
@@ -133,15 +134,22 @@ export function withDeliveryQueue(
           const state = await handle.state()
           if (row.abort.signal.aborted) continue
           if (state.phase !== 'idle' || !ready()) {
-            const ceiling = ENDS_ON_ITS_OWN.has(state.phase) ? BOUNDARY_CEILING_MS : STUCK_CEILING_MS
-            if (Date.now() - row.admittedAt >= ceiling) {
-              // The readiness wait is over and the turn was never typed. A
-              // durable row's failure stays recoverable for an operator retry;
-              // a held row (POD-4700) has no ledger row to keep it alive, so
-              // its turn id goes out through abandonment instead of vanishing
-              // with a delivery event nobody settles.
+            if (ENDS_ON_ITS_OWN.has(state.phase)) {
+              // A live turn ends on its own: wait for the boundary with no
+              // deadline, however long the agent stays busy. The row is
+              // durable on the server and retractable while it waits.
+              await pause(200)
+              continue
+            }
+            if (Date.now() - row.admittedAt >= STUCK_CEILING_MS) {
+              // The composer is genuinely stuck, not mid-turn: nothing will
+              // end this state on its own. A durable row's failure stays
+              // recoverable for an operator retry; a held row (POD-4700) has
+              // no ledger row to keep it alive, so its turn id goes out
+              // through abandonment instead of vanishing with a delivery
+              // event nobody settles.
               if (isHeld(row)) abandonHeld([row], 'never-live')
-              settle(id, 'failed', 'the agent did not become ready before the delivery deadline')
+              settle(id, 'failed', 'agent not accepting input')
             } else {
               await pause(200)
             }
@@ -174,15 +182,11 @@ export function withDeliveryQueue(
           receipt.outcome === 'refused' &&
           ['busy', 'needs_user', 'lease_held'].includes(receipt.refusal.reason)
         ) {
-          if (Date.now() - row.admittedAt >= BOUNDARY_CEILING_MS) {
-            // Same never-typed rule as the readiness ceiling above: a held
-            // row's turn id is reported, a durable row's failure stays on the
-            // delivery event for an operator retry.
-            if (isHeld(row)) abandonHeld([row], 'never-live')
-            settle(id, 'failed', 'the agent stayed busy before accepting this input')
-          } else {
-            await pause(200)
-          }
+          // The agent went busy between the state read and the send: the same
+          // turn-boundary wait as above, with the same no-deadline rule.
+          // Bounding this race would fail rows on long turns through the back
+          // door. Re-checks the state on the next pass.
+          await pause(200)
           continue
         }
         if (
