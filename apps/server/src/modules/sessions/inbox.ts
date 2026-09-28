@@ -31,7 +31,7 @@ import {
   isAgentComputing,
 } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
-import type { Refusal, TurnReceipt } from '@podium/protocol/daemon'
+import type { QueueDrainAbandonedReason, Refusal, TurnReceipt } from '@podium/protocol/daemon'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -96,6 +96,15 @@ const INITIAL_PROMPT_QUEUE_ID_PREFIX = 'session-initial-prompt:'
  * Any other reason keeps the reservation: confirm-or-fail leaves a visible,
  * retryable failure, while a wrong release can type the same turn twice.
  */
+/** One daemon settlement of a durable row, as the runtime-event gate admits it.
+ *  `cause` is read only for the values this server knows (POD-4775). */
+export interface DeliveryOutcomeEvent {
+  rowId: string
+  outcome: 'delivered' | 'failed' | 'dropped'
+  reason?: string
+  cause?: string
+}
+
 const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
 
 /**
@@ -211,7 +220,14 @@ export interface InboxAuthorizationPort {
     sourceMessageId: string | null
     principal: InboxPrincipalReference
     reason: string
+    /** Why, when the daemon said so: `never-live` = the agent was not
+     *  accepting input, so nothing was typed. Absent = no cause known. */
+    cause?: QueueDrainAbandonedReason
   }): Promise<void>
+  /** The row was handed on and nobody can say any more whether it arrived:
+   *  the forward timed out, or the daemon could not prove the text landed.
+   *  The ledger records it `unknown` — never failed (POD-4775). */
+  unconfirmed?(input: { sourceMessageId: string; sessionId: SessionId; reason: string }): Promise<void>
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
@@ -240,13 +256,15 @@ export interface InboxAttentionPort {
     sessionId: SessionId
     attribution: Attribution
   }): Promise<void>
-  /** A queued input was not witnessed before its bounded confirmation window. */
+  /** A queued input did not land: it failed (`unconfirmed: false`, never
+   *  typed), or nobody can say whether it arrived (`unconfirmed: true`). */
   promptFailed(input: {
     ownerUserId?: UserId
     sessionId: SessionId
     text: string
     reason: string
     initialPrompt: boolean
+    unconfirmed: boolean
   }): Promise<void>
 }
 
@@ -1137,21 +1155,28 @@ export class SessionInbox {
           if (!current()) return
           if (receipt.outcome !== 'queued' && receipt.outcome !== 'accepted') {
             binding.ids.delete(row.id)
-            // A refusal proves only THIS forward typed nothing. A reservation
-            // an earlier forward took stays: that one may have written.
-            if (receipt.outcome === 'refused' && reservedHere && REFUSALS_PROVING_NO_WRITE.has(receipt.refusal.reason)) {
-              await this.deps.queue.releaseDelivery?.(row.id, attemptsBeforeReservation)
+            if (receipt.outcome === 'refused') {
+              // A refusal proves only THIS forward typed nothing. A reservation
+              // an earlier forward took stays: that one may have written.
+              if (reservedHere && REFUSALS_PROVING_NO_WRITE.has(receipt.refusal.reason)) {
+                await this.deps.queue.releaseDelivery?.(row.id, attemptsBeforeReservation)
+              }
+              // The row stays queued and the next bind or sweep forwards it
+              // again; nothing about it is uncertain, so nothing is reported
+              // beyond the log (POD-4775).
+              log.warn('contract queue forward refused; the row stays queued', {
+                sessionId, rowId: row.id, refusal: receipt.refusal,
+              })
+            } else {
+              await this.reportContractUnconfirmed(sessionId, row, 'the agent\'s machine did not answer the forward in time')
             }
-            await this.reportContractUnconfirmed(sessionId, row, receipt.outcome === 'refused'
-              ? receipt.refusal.detail ?? receipt.refusal.reason
-              : 'the daemon did not acknowledge custody; delivery remains unconfirmed')
             return
           }
         } catch (error) {
           if (!current()) return
           binding.ids.delete(row.id)
           log.warn('contract queue forwarding failed', { sessionId, err: error })
-          await this.reportContractUnconfirmed(sessionId, row, 'the daemon did not acknowledge custody; delivery remains unconfirmed')
+          await this.reportContractUnconfirmed(sessionId, row, 'the agent\'s machine did not answer the forward')
           return
         }
       }
@@ -1177,24 +1202,37 @@ export class SessionInbox {
     this.forwardedRows.get(sessionId)?.ids.delete(row.id)
   }
 
-  /** Transport uncertainty keeps the row: a delayed proof may still settle it. */
+  /**
+   * A FORWARD WHOSE ANSWER NEVER CAME IS `unknown`, NOT FAILED (POD-4775).
+   *
+   * The frame went toward the machine, so the text may still be typed; the row
+   * stays queued, the next forward carries it as a recovery the daemon answers
+   * by id without retyping, and a delayed settlement still confirms it. What
+   * this does NOT do is write the text back into the session's draft or ask
+   * anyone to "send it again": with the original possibly on its way, that
+   * invitation is how one message became two.
+   */
   private async reportContractUnconfirmed(sessionId: SessionId, row: QueuedInboxMessage, reason: string): Promise<void> {
     if (this.reportedPromptFailures.has(row.id)) return
     if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) return
     this.reportedPromptFailures.add(row.id)
-    const draft = this.deps.draftText?.(sessionId)
-    if (draft === undefined || draft === '' || draft === row.text) {
-      await this.deps.setSessionDraft?.({ sessionId, text: row.text })
+    await this.reportUnconfirmed(sessionId, row, reason)
+  }
+
+  /** The ledger and the owner learn a row's fate is unknown — never a draft. */
+  private async reportUnconfirmed(sessionId: SessionId, row: QueuedInboxMessage, reason: string): Promise<void> {
+    if (row.sourceMessageId) {
+      await this.deps.authorization.unconfirmed?.({ sessionId, sourceMessageId: row.sourceMessageId, reason })
     }
     const ownerUserId = await this.deps.ownerOf(sessionId)
     await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}),
-      sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
+      sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row), unconfirmed: true })
   }
 
   private readonly settlingDeliveries = new Map<string, Promise<void>>()
 
   /** Already ownership/generation-fenced by the runtime event gate. Repeat-safe by row id. */
-  async deliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
+  async deliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
     const key = `${sessionId}:${event.rowId}`
     const pending = this.settlingDeliveries.get(key)
     if (pending) { await pending; return }
@@ -1203,7 +1241,7 @@ export class SessionInbox {
     try { await settlement } finally { this.settlingDeliveries.delete(key) }
   }
 
-  private async settleDeliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
+  private async settleDeliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
@@ -1212,15 +1250,24 @@ export class SessionInbox {
       await this.settleDelivered(session, row)
     } else if (event.outcome === 'dropped') {
       await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
+    } else if (event.cause === 'unconfirmed') {
+      // The daemon may have typed it and could not prove it landed: `unknown`,
+      // never failed, and never written back into the draft (POD-4775).
+      await this.reportUnconfirmed(sessionId, row, event.reason ?? 'the agent\'s machine could not confirm delivery')
     } else {
-      const reason = event.reason ?? 'daemon could not confirm delivery'
+      // The daemon says it was never typed: a real failure, told once, and
+      // the text goes back to an empty composer so nothing typed is lost.
+      const reason = event.reason ?? 'the agent\'s machine could not deliver it'
       const draft = this.deps.draftText?.(sessionId)
       if (draft === undefined || draft === '' || draft === row.text) {
         await this.deps.setSessionDraft?.({ sessionId, text: row.text })
       }
-      await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason })
+      await this.deps.authorization.rejected({
+        queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason,
+        ...(event.cause === 'not-accepting-input' ? { cause: 'never-live' as const } : {}),
+      })
       const ownerUserId = await this.deps.ownerOf(sessionId)
-      await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
+      await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row), unconfirmed: false })
     }
     if (event.outcome !== 'delivered') {
       await this.deps.queue.delete(row.id)
@@ -1354,6 +1401,7 @@ export class SessionInbox {
       text: head.text,
       reason,
       initialPrompt: isInitialPromptRow(session.sessionId, head),
+      unconfirmed: false,
     })
   }
 

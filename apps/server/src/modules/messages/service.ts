@@ -30,6 +30,7 @@ import { createLogger } from '@podium/logger'
 import {
   asThreadId,
   deadLetterSenderGloss,
+  isMessageHandedOn,
   isMessageOnItsWay,
   isMessagePending,
   isSpawnedBy,
@@ -466,7 +467,7 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
  *  [POD-2132, POD-2202]. Written for the person holding the receipt, not for the
  *  driver: neither reason is anybody's fault and neither is a retry instruction. */
 const ABANDONED_REASON_TEXT: Record<QueueDrainAbandonedReason, string> = {
-  'never-live': 'the target session never finished starting within the readiness deadline',
+  'never-live': 'the agent was not accepting input, so it was never typed',
   teardown: 'the target session was torn down before it could be typed into',
   'delivery-failed': 'the target session accepted it, then failed to hand it to the agent',
 }
@@ -1348,11 +1349,18 @@ export class MessageDeliveryService {
   /**
    * The ONE place a push toward a session records its ledger state [POD-834].
    * `via` picks the transport; `okDisposition` is what a successful dispatch means
-   * to the sender. Crucially it marks the row `injected` (handed on, awaiting the
-   * daemon's settlement or the transcript echo), NOT `delivered` — except a
-   * direct push (interrupt, or a send with files) of an unwrapped operator body,
-   * which carries no id to echo and so is confirmed on injection. This is the fix for the POD-495 defect-B lie: an
-   * enqueue is no longer a delivery.
+   * to the sender. Crucially it marks the row `dispatched` (handed on, awaiting
+   * the daemon's settlement, the receipt or the transcript echo), NOT
+   * `confirmed`. This is the fix for the POD-495 defect-B lie: an enqueue is no
+   * longer a delivery.
+   *
+   * ONE EXCEPTION, AND IT IS NOT AN AGENT (POD-4775): a direct push of an
+   * unwrapped body with no driver behind it — a plain-terminal shell, whose only
+   * delivery is the raw PTY write. There is no agent to take it, no receipt and
+   * no echo that could ever confirm it later, and the bytes landing on the
+   * terminal the operator is watching is exactly what was asked for, so the
+   * push is the confirmation. Every agent push has a driver receipt coming and
+   * is only handed on until it lands.
    */
   private async injectAndMark(
     via: 'now' | 'queue' | 'interrupt',
@@ -1435,8 +1443,8 @@ export class MessageDeliveryService {
       recorded = true
       return { ...r, disposition: via === 'queue' ? okDisposition : 'queued' }
     }
-    const confirmed = this.render.confirmedOnInjection(message)
-    if (confirmed && !receiptPending) {
+    const confirmed = this.render.confirmedOnInjection(message) && !receiptPending
+    if (confirmed) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification), and no driver will
       // answer — the injection IS the delivery [POD-834, POD-853].
@@ -1450,7 +1458,8 @@ export class MessageDeliveryService {
     }
     recorded = true
     // Honest sync disposition [spec:SP-cb9f] [POD-854]: `delivered` only when the
-    // push is confirmed on injection; an enveloped push is merely handed on.
+    // push was confirmed above. An enveloped push, and any push whose driver
+    // receipt is still coming, is merely handed on (POD-4775).
     if (okDisposition === 'delivered') {
       return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
     }
@@ -1479,6 +1488,17 @@ export class MessageDeliveryService {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
     await this.markTyped(message, sessionId)
+  }
+
+  /** SessionInbox calls this when a forwarded durable row's fate is lost: the
+   *  forward timed out, or the daemon reported that it cannot prove the text
+   *  landed (POD-4775). That is not a failure — the machine may still type it —
+   *  so the row goes `unknown`, and the daemon's settlement or the echo still
+   *  confirms it later. */
+  async onQueuedInputUnknown(messageId: string, sessionId: SessionId, reason: string): Promise<void> {
+    const message = await this.deps.messages.getMessage(messageId)
+    if (!message) return
+    await this.markUnknown(message, sessionId, reason)
   }
 
   /**
@@ -1981,6 +2001,19 @@ export class MessageDeliveryService {
     }
   }
 
+  /** → unknown: handed to `sessionId`, and nobody can say any more whether it
+   *  arrived (POD-4775). The honest end of a timeout or an unproven write — the
+   *  sender is told nothing has failed, because nothing has. */
+  private async markUnknown(message: MessageRow, sessionId: SessionId, reason: string): Promise<void> {
+    if (moved(await this.deps.messages.markUnknown(message.id, sessionId))) {
+      await this.emitTransition(
+        { ...message, deliveryStatus: 'unknown', deliveredTo: sessionId },
+        'message.unknown',
+        { reason, deliveryConfirmed: false },
+      )
+    }
+  }
+
   /**
    * WHAT THE DRIVER ACTUALLY DID, WRITTEN INTO THE LEDGER (POD-1761 W4).
    *
@@ -1996,14 +2029,16 @@ export class MessageDeliveryService {
    * it would fire hardest on a slow agent (the case most likely to have received
    * the text and be working on it).
    *
-   * An unverified or queued receipt moves no row and triggers no push. It records
-   * `message.receipt` beside the transitions the row already emitted, which is
-   * what "ledger-visible delivered-unconfirmed" means here. An ACCEPTED receipt
-   * is the driver saying the turn took the text, so it settles the injected row
-   * it answers as delivered [POD-4661]; refusals use the correction table below.
-   * The other paths that advance a row are unchanged: the transcript echo
-   * confirms it (`markDelivered` via 'echo'), an inbox read confirms a pointer.
-   * Nothing re-pushes an injected row on a timer.
+   * A queued receipt moves no row and triggers no push. An UNVERIFIED one — the
+   * driver could not prove acceptance, or the forward timed out — moves the row
+   * it answers to `unknown` and nothing else (POD-4775): not `failed`, because
+   * the text may well have landed, and never a resend. An ACCEPTED receipt is
+   * the driver saying the turn took the text, so it settles the row it answers
+   * as delivered [POD-4661], `unknown` included; refusals use the correction
+   * table below. Every receipt records `message.receipt` beside the row's own
+   * transitions. The other paths that advance a row are unchanged: the
+   * transcript echo confirms it (`markDelivered` via 'echo'), an inbox read
+   * confirms a pointer. Nothing re-pushes a handed-on row on a timer.
    *
    * What the ledger gains is the ability to tell three things apart that were
    * indistinguishable while delivery was inferred: a turn that provably opened,
@@ -2067,9 +2102,14 @@ export class MessageDeliveryService {
     })
     if (receipt.outcome === 'accepted' && receipt.deliveredAs !== 'queue') {
       const current = await this.deps.messages.getMessage(messageId)
-      if (current && isMessageOnItsWay(current.deliveryStatus) && current.deliveredTo === sessionId) {
+      if (current && isMessageHandedOn(current.deliveryStatus) && current.deliveredTo === sessionId) {
         await this.markDelivered(current, sessionId, 'injection')
       }
+    }
+    // Only a push that was recorded can be lost track of; a synchronous answer
+    // belongs to the caller still recording it.
+    if (receipt.outcome === 'unverified' && afterRecord) {
+      await this.markUnknown(message, sessionId, 'the push was not confirmed; it may still have reached the agent')
     }
     if (receipt.outcome !== 'refused') return
     if (
@@ -2251,7 +2291,8 @@ export class MessageDeliveryService {
         const id = m[1]
         if (!id) continue
         const row = await this.deps.messages.getMessage(id)
-        if (!row || !isMessageOnItsWay(row.deliveryStatus)) continue
+        // `unknown` included: the echo is exactly the proof it was waiting for.
+        if (!row || !isMessageHandedOn(row.deliveryStatus)) continue
         // Confirm ONLY a push WE made to THIS session. A row we never handed on
         // (still stored — e.g. a HELD issue message with no live session, or
         // one waiting for a boundary) has deliveredTo null; some OTHER session's
@@ -2430,17 +2471,15 @@ export class MessageDeliveryService {
   async notifyQueuedInputRejected(messageId: string, reason: string): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (message?.deliveryStatus !== 'failed') return
-    // The inbox settles a forwarded row as failed when the daemon never
-    // confirmed it [POD-4704]: typed but cut off mid-turn, stamped
-    // delivery-failed by QueuedMessageApply, while the free-text reason still
-    // says "session no longer exists" about a session that is alive. The
-    // steward notice must say the delivery failed, never that the target
-    // vanished — the same shared gloss the sweep path uses.
-    const unconfirmed = message.deliveryDeferredReason === 'delivery-failed'
-    await this.notifyDeadLetter(
-      message,
-      unconfirmed ? deadLetterSenderGloss('delivery-failed') : reason,
-    )
+    // A handed-on row the inbox fails is stamped with a cause by
+    // QueuedMessageApply [POD-4704] — `never-live` when the daemon said the
+    // agent was not accepting input (POD-4775), `delivery-failed` otherwise —
+    // while the free-text reason can still say "session no longer exists"
+    // about a session that is alive. The notice must never say the target
+    // vanished: the shared gloss words the cause, so the notice, the CLI and
+    // the ledger say the same thing.
+    const cause = message.deliveryDeferredReason
+    await this.notifyDeadLetter(message, cause ? deadLetterSenderGloss(cause) : reason)
   }
 
   async rejectQueuedInput(messageId: string, reason: string): Promise<void> {

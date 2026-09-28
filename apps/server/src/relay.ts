@@ -1435,6 +1435,7 @@ export class SessionRegistry {
     const queuedApplyHooks: {
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       injected?: (messageId: string, sessionId: SessionId) => Promise<void>
+      unconfirmed?: (messageId: string, sessionId: SessionId, reason: string) => Promise<void>
       abandoned?: (input: {
         sessionId: SessionId
         turnIds: readonly string[]
@@ -1455,6 +1456,11 @@ export class SessionRegistry {
         const completion: Promise<void> | undefined = queuedApplyHooks.injected?.(messageId, sessionId)
         await completion
       },
+      unconfirmed: async (messageId, sessionId, reason) => {
+        const completion: Promise<void> | undefined =
+          queuedApplyHooks.unconfirmed?.(messageId, sessionId, reason)
+        await completion
+      },
       bus: this.bus,
       now: () => new Date(this.now()).toISOString(),
     })
@@ -1464,11 +1470,14 @@ export class SessionRegistry {
       now: () => this.now(),
       bus: this.bus,
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
-      rejectQueuedMessage: async (messageId, reason) => await queuedMessageApply.reject(messageId, reason),
+      rejectQueuedMessage: async (messageId, reason, cause) =>
+        await queuedMessageApply.reject(messageId, reason, cause),
       confirmQueuedMessageApplied: (messageId, sessionId) =>
         queuedMessageApply.applied(messageId, sessionId),
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
+      noteQueuedMessageUnconfirmed: (messageId, sessionId, reason) =>
+        queuedMessageApply.unconfirmed(messageId, sessionId, reason),
       queueDrainAbandoned: async (input) => {
         const completion: Promise<void> | undefined = queuedApplyHooks.abandoned?.(input)
         await completion
@@ -2127,6 +2136,8 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.injected = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputInjected(messageId, sessionId)
+    queuedApplyHooks.unconfirmed = async (messageId, sessionId, reason) =>
+      await messagesSvc.onQueuedInputUnknown(messageId, sessionId, reason)
     queuedApplyHooks.abandoned = async ({ sessionId, turnIds, reason }) =>
       await messagesSvc.onQueueDrainAbandoned(sessionId, turnIds, reason)
     // A live busy send can be in the message ledger without a SessionInbox row.

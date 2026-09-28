@@ -44,9 +44,10 @@
  * before the row exists there is nothing to hold one, and the sender's own
  * outbox tracks that leg.
  *
- * `reached-machine`, `typing` and `unknown` are declared now so the table is the
- * whole lifecycle; their producers arrive with the daemon's delivery journal and
- * status reports (POD-4777, POD-4775).
+ * `reached-machine` and `typing` are declared now so the table is the whole
+ * lifecycle; their producers arrive with the daemon's delivery journal (POD-4777).
+ * `unknown` is produced by the server since POD-4775: a forward or push that
+ * timed out, and a machine report that says it cannot prove the text landed.
  */
 
 import { z } from 'zod'
@@ -113,6 +114,15 @@ export const MESSAGE_PENDING = MESSAGE_DELIVERY_STATUSES.filter(
 
 export const isMessageOnItsWay = (status: MessageDeliveryStatus): status is MessageOnItsWayStatus =>
   (MESSAGE_ON_ITS_WAY as readonly MessageDeliveryStatus[]).includes(status)
+
+/** Handed on toward one session and not ended: on its way, or lost track of.
+ *  Any of these may still be settled by a machine report, a receipt, the echo
+ *  or a read — `unknown` included, because the machine may still type it. */
+export const MESSAGE_HANDED_ON = [...MESSAGE_ON_ITS_WAY, 'unknown'] as const
+export type MessageHandedOnStatus = (typeof MESSAGE_HANDED_ON)[number]
+
+export const isMessageHandedOn = (status: MessageDeliveryStatus): status is MessageHandedOnStatus =>
+  (MESSAGE_HANDED_ON as readonly MessageDeliveryStatus[]).includes(status)
 
 export const isMessagePending = (status: MessageDeliveryStatus): boolean =>
   !MessageDelivery.isTerminal(status)

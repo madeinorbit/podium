@@ -1,4 +1,4 @@
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type { DeliveryFailureCause, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
 import type { InputOrigin, SendOptions, TurnInput, TurnReceipt } from './turns.js'
@@ -74,9 +74,20 @@ export function withDeliveryQueue(
       const timer = setTimeout(resolve, ms)
       timer.unref?.()
     })
-  function settle(id: string, outcome: 'delivered' | 'failed' | 'dropped', reason?: string) {
+  function settle(
+    id: string,
+    outcome: 'delivered' | 'failed' | 'dropped',
+    reason?: string,
+    cause?: DeliveryFailureCause,
+  ) {
     if (finished.has(id)) return
-    const event: Outcome = { t: 'delivery', rowId: id, outcome, ...(reason ? { reason } : {}) }
+    const event: Outcome = {
+      t: 'delivery',
+      rowId: id,
+      outcome,
+      ...(reason ? { reason } : {}),
+      ...(cause ? { cause } : {}),
+    }
     finished.set(id, event)
     rows.delete(id)
     emit(event)
@@ -124,7 +135,12 @@ export function withDeliveryQueue(
         // possible write, not permission to retry. Same-owner repeats never
         // reach here: rows/finished replay custody or its proven outcome.
         if (row.input.deliveryRecovery) {
-          settle(id, 'failed', 'previous delivery could not be confirmed; check the transcript before retrying')
+          settle(
+            id,
+            'failed',
+            'previous delivery could not be confirmed; check the transcript before retrying',
+            'unconfirmed',
+          )
           continue
         }
         let receipt: TurnReceipt
@@ -149,7 +165,7 @@ export function withDeliveryQueue(
               // through abandonment instead of vanishing with a delivery
               // event nobody settles.
               if (isHeld(row)) abandonHeld([row], 'never-live')
-              settle(id, 'failed', 'agent not accepting input')
+              settle(id, 'failed', 'agent not accepting input', 'not-accepting-input')
             } else {
               await pause(200)
             }
@@ -204,9 +220,14 @@ export function withDeliveryQueue(
         // A held row is left on its delivery event here too: the write may
         // have landed, and the transcript echo remains its settler — an
         // abandonment would dead-letter a turn that was actually typed.
-        settle(id, 'failed', row.input.initialPrompt
-          ? 'the creation prompt was not confirmed; it will not be typed again automatically'
-          : 'delivery could not be confirmed; check the transcript before retrying')
+        settle(
+          id,
+          'failed',
+          row.input.initialPrompt
+            ? 'the creation prompt was not confirmed; it will not be typed again automatically'
+            : 'delivery could not be confirmed; check the transcript before retrying',
+          'unconfirmed',
+        )
       }
     } finally {
       draining = false
@@ -249,7 +270,12 @@ export function withDeliveryQueue(
         return { reason: 'busy', detail: 'the row was already delivered' }
       }
       if (receipt && receipt.outcome !== 'refused') {
-        settle(id, 'failed', 'cancellation could not retract an unconfirmed delivery; check the transcript before retrying')
+        settle(
+          id,
+          'failed',
+          'cancellation could not retract an unconfirmed delivery; check the transcript before retrying',
+          'unconfirmed',
+        )
         return { reason: 'busy', detail: 'delivery may already have occurred' }
       }
       // An explicit retraction, owned by its caller: the holder of the

@@ -15,6 +15,7 @@ import {
   asSessionId,
   asUserId,
   type IssueId,
+  MESSAGE_HANDED_ON,
   MESSAGE_ON_ITS_WAY,
   MESSAGE_PENDING,
   MessageDelivery,
@@ -66,7 +67,7 @@ const isPointerRow = (): SQL =>
 
 /** Handed on toward a session and not confirmed, or handed on and lost track
  *  of: either way the server has done its part and nothing re-pushes it. */
-const HANDED_ON: readonly MessageDeliveryStatus[] = [...MESSAGE_ON_ITS_WAY, 'unknown']
+const HANDED_ON: readonly MessageDeliveryStatus[] = MESSAGE_HANDED_ON
 
 /** Still worth a "you have mail" nag: not an INLINE row that was handed to
  *  `handedTo` (any session when omitted) and is on its way into that session's
@@ -801,6 +802,20 @@ export class MessagesRepository {
       },
       where: [or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)) as SQL],
     })
+  }
+
+  /**
+   * → unknown: the row was handed to `deliveredTo` and nobody can say any more
+   * whether it arrived — the forward timed out, or the machine reported that it
+   * cannot prove the text landed (POD-4775). Never `failed`: the machine may
+   * still type it, and a later report or the echo still moves it on. Guarded on
+   * the push it answers, like {@link markSendRefused}.
+   */
+  async markUnknown(
+    id: string,
+    deliveredTo: SessionId,
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'unknown', { where: [eq(messagesTable.deliveredTo, deliveredTo)] })
   }
 
   /**

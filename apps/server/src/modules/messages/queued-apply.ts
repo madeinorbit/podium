@@ -1,4 +1,5 @@
 import { isMessagePending, MessageDelivery, type SessionId } from '@podium/model'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import { moved } from '../../store/messages'
 import type { EventBus } from '../bus'
@@ -18,6 +19,7 @@ export class QueuedMessageApply {
         | Promise<{ ok: true } | { ok: false; reason: string }>
       applied(messageId: string, sessionId: SessionId): Promise<void>
       injected(messageId: string, sessionId: SessionId): Promise<void>
+      unconfirmed(messageId: string, sessionId: SessionId, reason: string): Promise<void>
       bus: EventBus
       now(): string
     },
@@ -26,9 +28,12 @@ export class QueuedMessageApply {
   async authorize(messageId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
-    // Typing it must still be a move the lifecycle allows: not ended, not already
-    // typed, not lost track of.
-    if (!MessageDelivery.canMove(message.deliveryStatus, 'typed')) {
+    // Typing it must still be a move the lifecycle allows: not ended, not
+    // already typed. An `unknown` row is the one exception: it was forwarded
+    // and its answer lost, so the next forward is a RECOVERY the daemon answers
+    // by id without retyping (POD-4775) — refusing it here would dead-letter a
+    // message that may well have arrived.
+    if (message.deliveryStatus !== 'unknown' && !MessageDelivery.canMove(message.deliveryStatus, 'typed')) {
       return { ok: false, reason: `message is ${message.deliveryStatus}` }
     }
     return await this.deps.authorize(message)
@@ -46,7 +51,14 @@ export class QueuedMessageApply {
     await completion
   }
 
-  async reject(messageId: string, reason: string): Promise<void> {
+  /** The row's fate is lost: a forward timed out, or the daemon could not prove
+   *  the text landed. `unknown`, never failed (POD-4775). */
+  async unconfirmed(messageId: string, sessionId: SessionId, reason: string): Promise<void> {
+    const completion: Promise<void> = this.deps.unconfirmed(messageId, sessionId, reason)
+    await completion
+  }
+
+  async reject(messageId: string, reason: string, knownCause?: QueueDrainAbandonedReason): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
     const at = this.deps.now()
@@ -58,7 +70,9 @@ export class QueuedMessageApply {
     // (POD-4604 run 13), so stamp `delivery-failed`: the delivery is what
     // failed, not the target. Rows never pushed keep no cause, and downstream
     // readers correctly read those as a vanished target.
-    const cause = message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined
+    // A cause the daemon named wins: `never-live` says the agent was not
+    // accepting input, which is exactly what the sender should read (POD-4775).
+    const cause = knownCause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
     if (!moved(await this.deps.messages.markDeadLetter(message.id, at, cause))) return
     await this.deps.events.appendEvent({
       ts: at,

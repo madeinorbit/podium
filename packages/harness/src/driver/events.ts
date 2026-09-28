@@ -4,6 +4,7 @@
 import type { AgentStateEvent } from '../agent-state/types.js'
 import type { ResumeRef, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { DeliveryFailureCause } from '@podium/protocol/daemon'
 import type { ProcessEvent, TurnEvent } from './errors.js'
 import type { InteractionAnswered, InteractionAsked, InteractionExpired } from './interactions.js'
 
@@ -79,7 +80,14 @@ export type RuntimeEventBody =
    * their host acknowledgement protocol until the server projection commits. */
   | { t: 'binding'; resume: ResumeRef; confidence: 'exact' | 'heuristic'; bindingVersion: number; ackRequested?: boolean; receipt?: import('@podium/protocol/daemon').NativeBindingReceipt }
   | { t: 'draft'; text: string }
-  | { t: 'delivery'; rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }
+  | {
+      t: 'delivery'
+      rowId: string
+      outcome: 'delivered' | 'failed' | 'dropped'
+      reason?: string
+      /** Why a `failed` failed, when the daemon knows (POD-4775). */
+      cause?: DeliveryFailureCause
+    }
   | {
       /** The existing normalized state vocabulary, INCLUDING compaction — which
        *  is the re-prime boundary for `SessionSpec.instructions`. */

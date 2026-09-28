@@ -310,9 +310,26 @@ export const SessionMetadataObservation = z.intersection(CausalEnvelope, z.objec
 }))
 export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
 
+/**
+ * WHY A `failed` DELIVERY FAILED, when the daemon can say (POD-4775).
+ *
+ *  - `not-accepting-input` the agent never took input, so nothing was typed.
+ *  - `unconfirmed`         the text may have been typed and nothing proved it
+ *                          landed. Not a failure at all to the server, which
+ *                          records the message `unknown`: retyping it could
+ *                          open a duplicate turn, and it may still arrive.
+ *
+ * Carried as a plain optional string beside the outcome, never as a new
+ * outcome arm: an older server strips a field it does not know and reads the
+ * `failed` it always read, and a value a newer daemon adds reaches this server
+ * as a string it ignores rather than a frame it rejects.
+ */
+export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed'] as const
+export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
+
 export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({ t: z.literal('binding'), resume: ResumeRef, confidence: z.enum(['exact', 'heuristic']), bindingVersion: z.number().int().nonnegative(), ackRequested: z.boolean().optional(), receipt: NativeBindingReceipt.optional() }),
-  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional() }),
+  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional(), cause: z.string().optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
   z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),

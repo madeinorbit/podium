@@ -423,11 +423,16 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           deps.interruptPendingMessage?.(sessionId, sourceMessageId)
         await retraction
       },
-      rejected: async ({ sourceMessageId, reason }) => {
+      rejected: async ({ sourceMessageId, reason, cause }) => {
         if (sourceMessageId) {
-          const completion: Promise<void> | undefined = deps.rejectQueuedMessage?.(sourceMessageId, reason)
+          const completion: Promise<void> | undefined = deps.rejectQueuedMessage?.(sourceMessageId, reason, cause)
           await completion
         }
+      },
+      unconfirmed: async ({ sourceMessageId, sessionId, reason }) => {
+        const completion: Promise<void> | undefined =
+          deps.noteQueuedMessageUnconfirmed?.(sourceMessageId, sessionId, reason)
+        await completion
       },
     },
     attention: {
@@ -440,9 +445,16 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           payload: { sessionId, ownerUserId, attribution },
         })
       },
-      promptFailed: async ({ ownerUserId, sessionId, text, reason, initialPrompt }) => {
-        const title = initialPrompt ? 'Initial prompt unconfirmed' : 'Input delivery unconfirmed'
-        const body = `${reason}. The queued text is still recoverable; check the session and send it again.`
+      promptFailed: async ({ ownerUserId, sessionId, text, reason, initialPrompt, unconfirmed }) => {
+        const title = initialPrompt
+          ? unconfirmed ? 'Initial prompt unconfirmed' : 'Initial prompt not delivered'
+          : unconfirmed ? 'Input delivery unconfirmed' : 'Input not delivered'
+        // NEVER "SEND IT AGAIN" FOR AN UNCONFIRMED ROW (POD-4775): it may still
+        // arrive, and that invitation is how one message became two. Only a
+        // row the daemon says was never typed is safe to send again.
+        const body = unconfirmed
+          ? `${reason}. It may still reach the agent; check the session before sending anything again.`
+          : `${reason}. It was never typed into the agent.`
         // Persist first. The bus attention event is intentionally only a live
         // notification; the event and queue are the recovery record even when
         // there is no owner or no connected client.
@@ -455,7 +467,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
             ownerUserId: ownerUserId ?? null,
             text,
             reason,
-            recoverable: true,
+            unconfirmed,
           },
         })
         if (ownerUserId) {

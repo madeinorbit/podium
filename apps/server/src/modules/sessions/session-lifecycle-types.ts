@@ -92,13 +92,21 @@ export interface SessionLifecycleDeps {
   authorizeQueuedMessage?(
     messageId: string,
   ): Promise<import('./inbox').InboxAuthorizationDecision>
-  /** Dead-letter the durable source intent after a drain-time refusal. */
-  rejectQueuedMessage?(messageId: string, reason: string): Promise<void>
+  /** Dead-letter the durable source intent after a drain-time refusal or a
+   *  daemon failure; `cause` names why when the daemon said (POD-4775). */
+  rejectQueuedMessage?(
+    messageId: string,
+    reason: string,
+    cause?: import('@podium/protocol/daemon').QueueDrainAbandonedReason,
+  ): Promise<void>
   /** Advance the source intent only after queued input crosses into the PTY. */
   confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): Promise<void>
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): Promise<void>
+  /** The queued input was handed on and its fate is lost — a forward timeout,
+   *  or the daemon could not prove it landed. Recorded `unknown` (POD-4775). */
+  noteQueuedMessageUnconfirmed?(messageId: string, sessionId: SessionId, reason: string): Promise<void>
   /** Persist the sender-facing correction when a driver queue abandons delivery. */
   queueDrainAbandoned?(input: {
     sessionId: SessionId

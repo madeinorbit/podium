@@ -301,20 +301,29 @@ export class ReceiptSender {
     // mid-window rejects, and a caller waiting to reconcile a row would
     // otherwise wait forever — so the failure is reported AS a receipt, in the
     // vocabulary the caller already handles.
+    //
+    // AND IT IS `unverified`, NEVER A REFUSAL (POD-4775). The frame may have
+    // left before the throw, so "nobody can prove what happened" is the true
+    // statement; a `not_running` refusal would tell the caller nothing was
+    // typed and let it fail — or resend — a message that may have landed.
     void settled.then(
       (receipt) => {
         this.dispatchReceipt(input, via, receipt, onReceipt)
       },
       (err: unknown) => {
+        console.error('[receipt-send] direct send rejected; its outcome is unknown', {
+          sessionId: input.sessionId,
+          sourceMessageId: input.sourceMessageId,
+          error: describeError(err),
+        })
         this.dispatchReceipt(
           input,
           via,
           {
-            outcome: 'refused',
-            refusal: {
-              reason: 'not_running',
-              detail: describeError(err),
-            },
+            outcome: 'unverified',
+            deliveredAs: delivery,
+            verificationWindowMs: 0,
+            at: new Date(this.ports.now()).toISOString(),
           },
           onReceipt,
         )
