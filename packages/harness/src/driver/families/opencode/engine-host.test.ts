@@ -10,8 +10,13 @@
  * flavor facts, no edits.
  */
 
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import { isDriverRefusal } from '../../errors.js'
 import { asSessionId } from '@podium/model'
 import {
   type OpencodeEngineHostDeps,
@@ -457,4 +462,227 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
     expect(killed).toEqual([])
     expect(written).toEqual([])
   }, 90_000)
+})
+
+describe('readHistory — the Store read over the sqlite database', () => {
+  const NATIVE = 'ses-history-probe'
+  const PODIUM = asSessionId('55555555-5555-4555-8555-555555555555')
+
+  const OPENCODE_SCHEMA = {
+    session: `CREATE TABLE session (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL DEFAULT 'proj',
+      parent_id TEXT,
+      slug TEXT NOT NULL DEFAULT 'slug',
+      directory TEXT NOT NULL,
+      title TEXT NOT NULL,
+      version TEXT NOT NULL DEFAULT '1',
+      share_url TEXT,
+      summary_additions INTEGER,
+      summary_deletions INTEGER,
+      summary_files INTEGER,
+      summary_diffs TEXT,
+      revert TEXT,
+      permission TEXT,
+      time_created INTEGER NOT NULL,
+      time_updated INTEGER NOT NULL,
+      time_compacting INTEGER,
+      time_archived INTEGER,
+      workspace_id TEXT,
+      path TEXT,
+      agent TEXT,
+      model TEXT,
+      cost REAL NOT NULL DEFAULT 0,
+      tokens_input INTEGER NOT NULL DEFAULT 0,
+      tokens_output INTEGER NOT NULL DEFAULT 0,
+      tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+      tokens_cache_read INTEGER NOT NULL DEFAULT 0,
+      tokens_cache_write INTEGER NOT NULL DEFAULT 0,
+      metadata TEXT
+    )`,
+    message: `CREATE TABLE message (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL,
+      time_updated INTEGER NOT NULL,
+      data TEXT NOT NULL
+    )`,
+    part: `CREATE TABLE part (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL,
+      time_updated INTEGER NOT NULL,
+      data TEXT NOT NULL
+    )`,
+  }
+
+  interface SeedPart {
+    partId: string
+    messageId: string
+    role: 'user' | 'assistant'
+    part: Record<string, unknown>
+    timeUpdated: number
+  }
+
+  /** Build a temp opencode home with one session and a list of parts, in the
+   *  order given. Each part rides its own message row (role lives on the message). */
+  async function seedOpencode(sessionId: string, parts: SeedPart[]): Promise<{ homeDir: string }> {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pod-4781-oc-hist-'))
+    const root = join(homeDir, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    const db = openDatabase(join(root, 'opencode.db'))
+    db.exec(OPENCODE_SCHEMA.session)
+    db.exec(OPENCODE_SCHEMA.message)
+    db.exec(OPENCODE_SCHEMA.part)
+    db.prepare(
+      `INSERT INTO session (id, directory, title, time_created, time_updated)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(sessionId, '/tmp/opencode-history-probe', 't', 1, 2)
+    const seenMessages = new Set<string>()
+    const insMsg = db.prepare(
+      `INSERT INTO message (id, session_id, time_created, time_updated, data)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    const insPart = db.prepare(
+      `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    for (const p of parts) {
+      if (!seenMessages.has(p.messageId)) {
+        seenMessages.add(p.messageId)
+        insMsg.run(p.messageId, sessionId, p.timeUpdated, p.timeUpdated, JSON.stringify({ role: p.role }))
+      }
+      insPart.run(p.partId, p.messageId, sessionId, p.timeUpdated, p.timeUpdated, JSON.stringify(p.part))
+    }
+    db.close()
+    return { homeDir }
+  }
+
+  function textPart(
+    partId: string,
+    messageId: string,
+    role: 'user' | 'assistant',
+    text: string,
+    timeUpdated: number,
+  ): SeedPart {
+    return { partId, messageId, role, timeUpdated, part: { type: 'text', text } }
+  }
+
+  function hostFor(homeDir: string) {
+    return engineHost({ homeDir })
+  }
+
+  it('reads the sqlite user message and assistant reply through the resume value', async () => {
+    // THE PRODUCTION READER, against a real sqlite store: the driver's history
+    // delegates here, so this is the half the conformance suite cannot see
+    // (that suite supplies its own readHistory over the fake's map).
+    const { homeDir } = await seedOpencode(NATIVE, [
+      textPart('prt-u1', 'msg-u1', 'user', 'hello from disk', 100),
+      textPart('prt-a1', 'msg-a1', 'assistant', 'reply from disk', 101),
+    ])
+    try {
+      const host = hostFor(homeDir)
+      const page = await host.readHistory(
+        {
+          sessionId: PODIUM,
+          agentKind: 'opencode',
+          cwd: '/tmp/opencode-history-probe',
+          resume: { kind: 'opencode-session', value: NATIVE },
+        },
+        { limit: 50 },
+      )
+      expect(page.items.map((item) => [item.role, item.text])).toEqual([
+        ['user', 'hello from disk'],
+        ['assistant', 'reply from disk'],
+      ])
+      expect(page.hasMore).toBe(false)
+    } finally {
+      await rm(homeDir, { recursive: true, force: true })
+    }
+  })
+
+  it("pages older items through the returned cursor ('before' limit 1, then head)", async () => {
+    const { homeDir } = await seedOpencode(NATIVE, [
+      textPart('prt-u1', 'msg-u1', 'user', 'hello from disk', 100),
+      textPart('prt-a1', 'msg-a1', 'assistant', 'reply from disk', 101),
+    ])
+    try {
+      const host = hostFor(homeDir)
+      const session = {
+        sessionId: PODIUM,
+        agentKind: 'opencode' as const,
+        cwd: '/tmp/opencode-history-probe',
+        resume: { kind: 'opencode-session' as const, value: NATIVE },
+      }
+      const newest = await host.readHistory(session, { limit: 1 })
+      expect(newest.items.map((item) => item.text)).toEqual(['reply from disk'])
+      expect(newest.hasMore).toBe(true)
+      expect(newest.head).toBeDefined()
+      const earlier = await host.readHistory(session, {
+        from: newest.head,
+        limit: 10,
+      })
+      expect(earlier.items.map((item) => item.text)).toEqual(['hello from disk'])
+    } finally {
+      await rm(homeDir, { recursive: true, force: true })
+    }
+  })
+
+  it('a session with no messages yet reads as an empty page, not an error', async () => {
+    // No rows for this native session id: history before the first turn is
+    // empty — the slice layer returns empty for a missing session, so no
+    // existence check is needed here beyond what the Store already does.
+    const { homeDir } = await seedOpencode(NATIVE, [
+      textPart('prt-u1', 'msg-u1', 'user', 'hello from disk', 100),
+    ])
+    try {
+      const host = hostFor(homeDir)
+      const page = await host.readHistory(
+        {
+          sessionId: PODIUM,
+          agentKind: 'opencode' as const,
+          cwd: '/tmp/opencode-history-probe',
+          resume: { kind: 'opencode-session' as const, value: 'ses-not-yet-written' },
+        },
+        { limit: 50 },
+      )
+      expect(page).toEqual({ items: [], hasMore: false })
+    } finally {
+      await rm(homeDir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a foreign history cursor instead of reading another session', async () => {
+    const { homeDir } = await seedOpencode(NATIVE, [
+      textPart('prt-u1', 'msg-u1', 'user', 'hello from disk', 100),
+      textPart('prt-a1', 'msg-a1', 'assistant', 'reply from disk', 101),
+    ])
+    try {
+      const host = hostFor(homeDir)
+      const session = {
+        sessionId: PODIUM,
+        agentKind: 'opencode' as const,
+        cwd: '/tmp/opencode-history-probe',
+        resume: { kind: 'opencode-session' as const, value: NATIVE },
+      }
+      await expect(
+        host.readHistory(session, {
+          from: { segmentId: 'history:someone-else:ses-other', pathHint: 'x', components: {} },
+          limit: 10,
+        }),
+      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      // Same segment but no anchor is equally foreign: cursors are opaque.
+      const own = await host.readHistory(session, { limit: 50 })
+      expect(own.head).toBeDefined()
+      await expect(
+        host.readHistory(session, {
+          from: { segmentId: own.head!.segmentId, components: {} },
+          limit: 10,
+        }),
+      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+    } finally {
+      await rm(homeDir, { recursive: true, force: true })
+    }
+  })
 })
