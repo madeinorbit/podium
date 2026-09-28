@@ -69,6 +69,21 @@ export function repoFieldOf(row: LaneStoredRow, field: string): unknown {
 }
 
 /**
+ * Test-only consumption pin (POD-4695 addendum 2): incremented once per
+ * `ingestWorktreeRecord` call, so the guard test can assert that every
+ * worktree record an arm ingests passed through this composer. A renamed
+ * local copy produces the same table contents but never touches this
+ * counter, which is what tells delegation apart from duplication.
+ * Production code never reads it; reset it with `resetRepoLaneCalls()`.
+ */
+export const repoLaneCalls = { worktreeRecords: 0 }
+
+/** Reset the consumption pin before a scripted sequence. */
+export function resetRepoLaneCalls(): void {
+  repoLaneCalls.worktreeRecords = 0
+}
+
+/**
  * What the composition needs from a pool. The two arms' put/drop count
  * differently (MobX slot writes, hand deltas), so the arms pass their own
  * slot writes as closures and this module owns only the routing.
@@ -122,6 +137,7 @@ export function ingestWorktreeRecord(
   id: string,
   value: LaneStoredRow | undefined,
 ): void {
+  repoLaneCalls.worktreeRecords += 1
   const previous = ops.getWorktree(id)
   if (value === undefined) {
     if (previous !== undefined) {

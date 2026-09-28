@@ -14,6 +14,18 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  createTables as createHandTables,
+  ingestOut as handIngestOut,
+  ingestRecord as handIngestRecord,
+  type RelationMaintenance as HandMaintenance,
+} from '../../arms/hand/pool/tables'
+import {
+  createPlainTables as createMobxPlainTables,
+  ingestOut as mobxIngestOut,
+  ingestRecord as mobxIngestRecord,
+} from '../../arms/mobx/pool/tables'
+import type { RelationMaintenance as MobxMaintenance } from '../../arms/mobx/pool/relations'
 import { moduleGraphOf } from '../../harness/entry-pin'
 import {
   FEED_SPELLING,
@@ -21,8 +33,11 @@ import {
   isLaneRow,
   laneRepoId,
   repoFieldOf,
+  repoLaneCalls,
+  resetRepoLaneCalls,
   type RepoLaneOps,
 } from './repo-from-lane'
+import type { RowRecord } from './stats'
 
 const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   ? process.cwd()
@@ -254,5 +269,132 @@ describe('both arms consume the shared composer', () => {
       const code = codeOf(tables)
       expect(code, `${tables} spells no lane field`).not.toContain('repoPath')
     }
+  })
+})
+
+// ------------------------------------------------------------------ Part C
+
+/**
+ * Behavioural consumption pin (POD-4695 addendum 2): every worktree record
+ * an arm ingests must pass through the shared composer. A renamed local
+ * copy produces the same table contents, so contents are asserted too but
+ * the COUNT is what tells delegation apart from duplication: the plant
+ * keeps the import alive (`void ingestWorktreeRecord`) yet never calls it.
+ */
+function liveWorktreeMembers(worktree: Map<string, object>) {
+  return {
+    changed: () => {},
+    members: (from: string, id: string, relation: string): Set<string> => {
+      if (from !== 'repo' || relation !== 'worktrees') {
+        throw new Error(`unexpected collection ${from}.${relation}`)
+      }
+      const out = new Set<string>()
+      for (const [path, row] of worktree) if (laneRepoId(row) === id) out.add(path)
+      return out
+    },
+  }
+}
+
+const worktreeRecord = (id: string, value: object | undefined): RowRecord => ({
+  kind: 'worktree',
+  id,
+  value: value as RowRecord['value'],
+})
+
+/**
+ * Join, latest-wins, takeover, move, raw-row hold, last-leave, repo-less
+ * lane, plus one issue record the composer must ignore. Returns the lane
+ * objects for identity assertions.
+ */
+function laneScript() {
+  const a = lane('/repo', 'r1')
+  const b = lane('/repo/wt', 'r1')
+  const aMoved = lane('/repo', 'r2')
+  const raw = { id: 'r3', prefix: 'POD' }
+  const c = lane('/r3', 'r3')
+  const lonely = { path: '/lonely', repoPath: '/lonely' }
+  const records: RowRecord[] = [
+    worktreeRecord('/repo', a),
+    worktreeRecord('/repo/wt', b),
+    { kind: 'issue', id: 'i1', value: { id: 'i1' } as RowRecord['value'] },
+    worktreeRecord('/repo/wt', undefined),
+    worktreeRecord('/repo', aMoved),
+    worktreeRecord('r3', raw),
+    worktreeRecord('/r3', c),
+    worktreeRecord('r3', { id: 'r3', prefix: 'NEW' }),
+    worktreeRecord('r3', undefined),
+    worktreeRecord('/r3', undefined),
+    worktreeRecord('/lonely', lonely),
+  ]
+  return { records, a, b, aMoved, raw, c, lonely, worktreeRecords: 10 }
+}
+
+function expectScriptedHoldings(
+  repo: Map<string, object>,
+  worktree: Map<string, object>,
+  script: ReturnType<typeof laneScript>,
+): void {
+  expect(repo.get('r1')).toBeUndefined()
+  expect(repo.get('r2')).toBe(script.aMoved)
+  expect(repo.get('r3')).toBeUndefined()
+  expect(repo.size).toBe(1)
+  expect(worktree.get('/repo')).toBe(script.aMoved)
+  expect(worktree.get('/lonely')).toBe(script.lonely)
+  expect(worktree.has('/repo/wt')).toBe(false)
+  expect(worktree.has('/r3')).toBe(false)
+}
+
+describe('every worktree record passes through the shared composer', () => {
+  it('mobx ingestRecord routes each worktree record through it', () => {
+    const script = laneScript()
+    const tables = createMobxPlainTables()
+    const target = {
+      read: tables,
+      write: tables,
+      relations: liveWorktreeMembers(
+        tables.worktree as Map<string, object>,
+      ) as unknown as MobxMaintenance,
+    }
+    const out = mobxIngestOut()
+    const repo = target.write.repo as Map<string, object>
+    resetRepoLaneCalls()
+    const [w1, w2, issue, w3, ...rest] = script.records
+    mobxIngestRecord(target, w1!, out)
+    mobxIngestRecord(target, w2!, out)
+    expect(repo.get('r1')).toBe(script.b)
+    mobxIngestRecord(target, issue!, out)
+    expect(repoLaneCalls.worktreeRecords).toBe(2)
+    mobxIngestRecord(target, w3!, out)
+    expect(repo.get('r1')).toBe(script.a)
+    for (const record of rest) mobxIngestRecord(target, record, out)
+    expect(repoLaneCalls.worktreeRecords).toBe(script.worktreeRecords)
+    expectScriptedHoldings(
+      repo,
+      target.write.worktree as Map<string, object>,
+      script,
+    )
+  })
+
+  it('hand ingestRecord routes each worktree record through it', () => {
+    const script = laneScript()
+    const tables = createHandTables()
+    const target = {
+      read: tables,
+      write: tables,
+      relations: liveWorktreeMembers(tables.worktree) as unknown as HandMaintenance,
+    }
+    const out = handIngestOut()
+    resetRepoLaneCalls()
+    const [w1, w2, issue, w3, ...rest] = script.records
+    handIngestRecord(target, w1!, out)
+    handIngestRecord(target, w2!, out)
+    expect(tables.repo.get('r1')).toBe(script.b)
+    handIngestRecord(target, issue!, out)
+    expect(repoLaneCalls.worktreeRecords).toBe(2)
+    handIngestRecord(target, w3!, out)
+    expect(tables.repo.get('r1')).toBe(script.a)
+    for (const record of rest) handIngestRecord(target, record, out)
+    expect(repoLaneCalls.worktreeRecords).toBe(script.worktreeRecords)
+    expectScriptedHoldings(target.write.repo, target.write.worktree, script)
   })
 })
