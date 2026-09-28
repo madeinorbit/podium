@@ -24,10 +24,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
-import {
-  harnessDisplayName,
-  harnessInterrupt,
-} from '../../harness-manifest'
+import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { HeadlessService } from '../superagent/headless'
@@ -425,13 +422,20 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       },
       rejected: async ({ sourceMessageId, reason, cause }) => {
         if (sourceMessageId) {
-          const completion: Promise<void> | undefined = deps.rejectQueuedMessage?.(sourceMessageId, reason, cause)
+          const completion: Promise<void> | undefined = deps.rejectQueuedMessage?.(
+            sourceMessageId,
+            reason,
+            cause,
+          )
           await completion
         }
       },
       unconfirmed: async ({ sourceMessageId, sessionId, reason }) => {
-        const completion: Promise<void> | undefined =
-          deps.noteQueuedMessageUnconfirmed?.(sourceMessageId, sessionId, reason)
+        const completion: Promise<void> | undefined = deps.noteQueuedMessageUnconfirmed?.(
+          sourceMessageId,
+          sessionId,
+          reason,
+        )
         await completion
       },
     },
@@ -445,10 +449,21 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           payload: { sessionId, ownerUserId, attribution },
         })
       },
-      promptFailed: async ({ ownerUserId, sessionId, text, reason, initialPrompt, unconfirmed }) => {
+      promptFailed: async ({
+        ownerUserId,
+        sessionId,
+        text,
+        reason,
+        initialPrompt,
+        unconfirmed,
+      }) => {
         const title = initialPrompt
-          ? unconfirmed ? 'Initial prompt unconfirmed' : 'Initial prompt not delivered'
-          : unconfirmed ? 'Input delivery unconfirmed' : 'Input not delivered'
+          ? unconfirmed
+            ? 'Initial prompt unconfirmed'
+            : 'Initial prompt not delivered'
+          : unconfirmed
+            ? 'Input delivery unconfirmed'
+            : 'Input not delivered'
         // NEVER "SEND IT AGAIN" FOR AN UNCONFIRMED ROW (POD-4775): it may still
         // arrive, and that invitation is how one message became two. Only a
         // row the daemon says was never typed is safe to send again.

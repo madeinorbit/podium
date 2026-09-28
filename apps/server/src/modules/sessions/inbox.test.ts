@@ -116,7 +116,9 @@ function harness(
   })
   const interrupted = vi.fn(async () => {})
   const interruptedPending = vi.fn(async () => {})
-  const unconfirmed = vi.fn(async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {})
+  const unconfirmed = vi.fn(
+    async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {},
+  )
   const handleInput = vi.fn()
   // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
   // base64 spelling of the same call (terminal.ts). This fixture records the
@@ -524,12 +526,19 @@ describe('SessionInbox: a stored errored phase holds nothing (POD-4775)', () => 
     // Pending custody keeps the first forward open while the failure lands.
     const h = harness({ contractPending: true })
     await h.inbox.queueText({ sessionId: SID, text: 'first', principal: agentPrincipal() })
-    await h.inbox.queueText({ sessionId: SID, text: 'already accepted', principal: agentPrincipal() })
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'already accepted',
+      principal: agentPrincipal(),
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(1)
     erred(h)
     h.contractResolvers[0]!({
-      outcome: 'queued', position: 1, deliveredAs: 'queue', at: new Date().toISOString(),
+      outcome: 'queued',
+      position: 1,
+      deliveredAs: 'queue',
+      at: new Date().toISOString(),
     })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toEqual([
@@ -2654,7 +2663,9 @@ describe('agent drain via the runtime contract', () => {
     expect(h.rows).toHaveLength(1)
     expect(h.getDraft()).toBeUndefined()
     expect(h.setSessionDraft).not.toHaveBeenCalled()
-    expect(h.unconfirmed).toHaveBeenCalledWith(expect.objectContaining({ sourceMessageId: 'lost', sessionId: SID }))
+    expect(h.unconfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceMessageId: 'lost', sessionId: SID }),
+    )
     expect(h.promptFailed).toHaveBeenCalledTimes(1)
     expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: true }))
     expect(h.rejected).toEqual([])
@@ -2681,7 +2692,9 @@ describe('agent drain via the runtime contract', () => {
       reason: 'delivery could not be confirmed; check the transcript before retrying',
       cause: 'unconfirmed',
     })
-    expect(h.unconfirmed).toHaveBeenCalledWith(expect.objectContaining({ sourceMessageId: 'msg_maybe' }))
+    expect(h.unconfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceMessageId: 'msg_maybe' }),
+    )
     expect(h.rejected).toEqual([])
     expect(h.setSessionDraft).not.toHaveBeenCalled()
     expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: true }))

@@ -227,7 +227,11 @@ export interface InboxAuthorizationPort {
   /** The row was handed on and nobody can say any more whether it arrived:
    *  the forward timed out, or the daemon could not prove the text landed.
    *  The ledger records it `unknown` — never failed (POD-4775). */
-  unconfirmed?(input: { sourceMessageId: string; sessionId: SessionId; reason: string }): Promise<void>
+  unconfirmed?(input: {
+    sourceMessageId: string
+    sessionId: SessionId
+    reason: string
+  }): Promise<void>
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
@@ -526,9 +530,7 @@ export class SessionInbox {
     reason?: string
   }> {
     const session = this.deps.getSession(input.sessionId)
-    const blockedReason = session
-      ? archivedSessionSendReason(session)
-      : undefined
+    const blockedReason = session ? archivedSessionSendReason(session) : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
@@ -586,9 +588,7 @@ export class SessionInbox {
     input: InboxSendInput,
   ): Promise<{ ok: boolean; queued?: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
-    const blockedReason = session
-      ? archivedSessionSendReason(session)
-      : undefined
+    const blockedReason = session ? archivedSessionSendReason(session) : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
@@ -1165,10 +1165,16 @@ export class SessionInbox {
               // again; nothing about it is uncertain, so nothing is reported
               // beyond the log (POD-4775).
               log.warn('contract queue forward refused; the row stays queued', {
-                sessionId, rowId: row.id, refusal: receipt.refusal,
+                sessionId,
+                rowId: row.id,
+                refusal: receipt.refusal,
               })
             } else {
-              await this.reportContractUnconfirmed(sessionId, row, 'the agent\'s machine did not answer the forward in time')
+              await this.reportContractUnconfirmed(
+                sessionId,
+                row,
+                "the agent's machine did not answer the forward in time",
+              )
             }
             return
           }
@@ -1176,7 +1182,11 @@ export class SessionInbox {
           if (!current()) return
           binding.ids.delete(row.id)
           log.warn('contract queue forwarding failed', { sessionId, err: error })
-          await this.reportContractUnconfirmed(sessionId, row, 'the agent\'s machine did not answer the forward')
+          await this.reportContractUnconfirmed(
+            sessionId,
+            row,
+            "the agent's machine did not answer the forward",
+          )
           return
         }
       }
@@ -1220,13 +1230,27 @@ export class SessionInbox {
   }
 
   /** The ledger and the owner learn a row's fate is unknown — never a draft. */
-  private async reportUnconfirmed(sessionId: SessionId, row: QueuedInboxMessage, reason: string): Promise<void> {
+  private async reportUnconfirmed(
+    sessionId: SessionId,
+    row: QueuedInboxMessage,
+    reason: string,
+  ): Promise<void> {
     if (row.sourceMessageId) {
-      await this.deps.authorization.unconfirmed?.({ sessionId, sourceMessageId: row.sourceMessageId, reason })
+      await this.deps.authorization.unconfirmed?.({
+        sessionId,
+        sourceMessageId: row.sourceMessageId,
+        reason,
+      })
     }
     const ownerUserId = await this.deps.ownerOf(sessionId)
-    await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}),
-      sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row), unconfirmed: true })
+    await this.deps.attention.promptFailed({
+      ...(ownerUserId ? { ownerUserId } : {}),
+      sessionId,
+      text: row.text,
+      reason,
+      initialPrompt: isInitialPromptRow(sessionId, row),
+      unconfirmed: true,
+    })
   }
 
   private readonly settlingDeliveries = new Map<string, Promise<void>>()
@@ -1241,7 +1265,10 @@ export class SessionInbox {
     try { await settlement } finally { this.settlingDeliveries.delete(key) }
   }
 
-  private async settleDeliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
+  private async settleDeliveryOutcome(
+    sessionId: SessionId,
+    event: DeliveryOutcomeEvent,
+  ): Promise<void> {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
@@ -1253,21 +1280,35 @@ export class SessionInbox {
     } else if (event.cause === 'unconfirmed') {
       // The daemon may have typed it and could not prove it landed: `unknown`,
       // never failed, and never written back into the draft (POD-4775).
-      await this.reportUnconfirmed(sessionId, row, event.reason ?? 'the agent\'s machine could not confirm delivery')
+      await this.reportUnconfirmed(
+        sessionId,
+        row,
+        event.reason ?? "the agent's machine could not confirm delivery",
+      )
     } else {
       // The daemon says it was never typed: a real failure, told once, and
       // the text goes back to an empty composer so nothing typed is lost.
-      const reason = event.reason ?? 'the agent\'s machine could not deliver it'
+      const reason = event.reason ?? "the agent's machine could not deliver it"
       const draft = this.deps.draftText?.(sessionId)
       if (draft === undefined || draft === '' || draft === row.text) {
         await this.deps.setSessionDraft?.({ sessionId, text: row.text })
       }
       await this.deps.authorization.rejected({
-        queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason,
+        queueId: row.id,
+        sourceMessageId: row.sourceMessageId,
+        principal: row.principal,
+        reason,
         ...(event.cause === 'not-accepting-input' ? { cause: 'never-live' as const } : {}),
       })
       const ownerUserId = await this.deps.ownerOf(sessionId)
-      await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row), unconfirmed: false })
+      await this.deps.attention.promptFailed({
+        ...(ownerUserId ? { ownerUserId } : {}),
+        sessionId,
+        text: row.text,
+        reason,
+        initialPrompt: isInitialPromptRow(sessionId, row),
+        unconfirmed: false,
+      })
     }
     if (event.outcome !== 'delivered') {
       await this.deps.queue.delete(row.id)

@@ -140,9 +140,13 @@ describe('durable row delivery', () => {
       { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(f.send).toHaveBeenCalledTimes(1)
-    expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed',
-      reason: 'the creation prompt was not confirmed; it will not be typed again automatically',
-      cause: 'unconfirmed' }))
+    expect(f.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'failed',
+        reason: 'the creation prompt was not confirmed; it will not be typed again automatically',
+        cause: 'unconfirmed',
+      }),
+    )
   })
 
   it('imports attempted rows as recoverable ambiguity, without a second turn', async () => {
@@ -258,13 +262,15 @@ describe('durable row delivery', () => {
       await f.handle.send({ rowId: phase, text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
       await vi.advanceTimersByTimeAsync(60_200)
       expect(f.send).not.toHaveBeenCalled()
-      expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({
-        rowId: phase,
-        outcome: 'failed',
-        reason: 'agent not accepting input',
-        // Never typed: the server fails it as not accepting input (POD-4775).
-        cause: 'not-accepting-input',
-      }))
+      expect(f.emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rowId: phase,
+          outcome: 'failed',
+          reason: 'agent not accepting input',
+          // Never typed: the server fails it as not accepting input (POD-4775).
+          cause: 'not-accepting-input',
+        }),
+      )
     })
   }
 
@@ -277,12 +283,14 @@ describe('durable row delivery', () => {
     await handle.send({ rowId: 'starting', text: 'first' }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(60_200)
     expect(send).not.toHaveBeenCalled()
-    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
-      rowId: 'starting',
-      outcome: 'failed',
-      reason: 'agent not accepting input',
-      cause: 'not-accepting-input',
-    }))
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowId: 'starting',
+        outcome: 'failed',
+        reason: 'agent not accepting input',
+        cause: 'not-accepting-input',
+      }),
+    )
   })
 
   it('does not turn a nested queued receipt into acceptance or retry it', async () => {

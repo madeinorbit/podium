@@ -247,7 +247,10 @@ describe('markUnknown — only a handed-on row, only for its session (POD-4775)'
       kind: 'refused',
       current: 'confirmed',
     })
-    expect(await messages.markUnknown('held', READER)).toEqual({ kind: 'refused', current: 'stored' })
+    expect(await messages.markUnknown('held', READER)).toEqual({
+      kind: 'refused',
+      current: 'stored',
+    })
 
     const row = await back('on-its-way')
     expect(row?.deliveryStatus).toBe('unknown')

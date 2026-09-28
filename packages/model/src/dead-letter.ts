@@ -36,11 +36,9 @@ export function deadLetterDeliveryLine(reason: string | null | undefined): strin
  *  the honest "what happened", with the terminal note so `queued` is never
  *  implied. */
 export function deadLetterSenderGloss(reason: string | null | undefined): string {
-  if (reason === 'never-live')
-    return 'the agent was not accepting input — never typed, not dropped'
+  if (reason === 'never-live') return 'the agent was not accepting input — never typed, not dropped'
   if (reason === 'teardown')
     return 'the session was torn down before it could be typed into — never typed, not dropped'
-  if (reason === 'delivery-failed')
-    return 'delivery failed before the agent took it — not dropped'
+  if (reason === 'delivery-failed') return 'delivery failed before the agent took it — not dropped'
   return 'target was gone — dead-lettered, not dropped'
 }

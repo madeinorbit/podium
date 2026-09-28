@@ -1227,9 +1227,9 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
     )
     await store.messages.markDeadLetter(r.message.id, '2026-09-13T18:00:00.000Z', 'never-live')
     await svc.notifyQueuedInputRejected(r.message.id, 'agent not accepting input')
-    const notices = (await store.messages
-      .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
-      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    const notices = (
+      await store.messages.listMessagesFor({ kind: 'session', id: asSessionId('sX') })
+    ).filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
     expect(notices[0]!.body).toContain('the agent was not accepting input')
     expect(notices[0]!.body).not.toMatch(/target (was )?gone|deadline|typed but/)
@@ -3432,8 +3432,9 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     )
     await svc.onQueuedInputUnknown(r.message.id, asSessionId('s1'), 'the forward timed out')
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('unknown')
-    const lost = (await store.events.listEventsSince(0, { kinds: ['message.unknown'] }))
-      .filter((e) => e.subject === r.message.id)
+    const lost = (await store.events.listEventsSince(0, { kinds: ['message.unknown'] })).filter(
+      (e) => e.subject === r.message.id,
+    )
     expect(lost).toHaveLength(1)
     await echo(svc, asSessionId('s1'), r.message.id)
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')

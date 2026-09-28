@@ -1457,8 +1457,11 @@ export class SessionRegistry {
         await completion
       },
       unconfirmed: async (messageId, sessionId, reason) => {
-        const completion: Promise<void> | undefined =
-          queuedApplyHooks.unconfirmed?.(messageId, sessionId, reason)
+        const completion: Promise<void> | undefined = queuedApplyHooks.unconfirmed?.(
+          messageId,
+          sessionId,
+          reason,
+        )
         await completion
       },
       bus: this.bus,

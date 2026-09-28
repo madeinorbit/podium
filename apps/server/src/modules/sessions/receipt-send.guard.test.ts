@@ -196,9 +196,10 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     })
 
     for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
-      expect(
-        await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' }),
-      ).toEqual({ ok: false, reason: 'session is archived' })
+      expect(await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' })).toEqual({
+        ok: false,
+        reason: 'session is archived',
+      })
     }
 
     expect(forwarded).toEqual([])

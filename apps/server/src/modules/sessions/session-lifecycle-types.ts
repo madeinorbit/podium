@@ -106,7 +106,11 @@ export interface SessionLifecycleDeps {
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): Promise<void>
   /** The queued input was handed on and its fate is lost — a forward timeout,
    *  or the daemon could not prove it landed. Recorded `unknown` (POD-4775). */
-  noteQueuedMessageUnconfirmed?(messageId: string, sessionId: SessionId, reason: string): Promise<void>
+  noteQueuedMessageUnconfirmed?(
+    messageId: string,
+    sessionId: SessionId,
+    reason: string,
+  ): Promise<void>
   /** Persist the sender-facing correction when a driver queue abandons delivery. */
   queueDrainAbandoned?(input: {
     sessionId: SessionId

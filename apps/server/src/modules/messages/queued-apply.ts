@@ -33,7 +33,10 @@ export class QueuedMessageApply {
     // and its answer lost, so the next forward is a RECOVERY the daemon answers
     // by id without retyping (POD-4775) — refusing it here would dead-letter a
     // message that may well have arrived.
-    if (message.deliveryStatus !== 'unknown' && !MessageDelivery.canMove(message.deliveryStatus, 'typed')) {
+    if (
+      message.deliveryStatus !== 'unknown' &&
+      !MessageDelivery.canMove(message.deliveryStatus, 'typed')
+    ) {
       return { ok: false, reason: `message is ${message.deliveryStatus}` }
     }
     return await this.deps.authorize(message)
@@ -58,7 +61,11 @@ export class QueuedMessageApply {
     await completion
   }
 
-  async reject(messageId: string, reason: string, knownCause?: QueueDrainAbandonedReason): Promise<void> {
+  async reject(
+    messageId: string,
+    reason: string,
+    knownCause?: QueueDrainAbandonedReason,
+  ): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
     const at = this.deps.now()
@@ -72,7 +79,8 @@ export class QueuedMessageApply {
     // readers correctly read those as a vanished target.
     // A cause the daemon named wins: `never-live` says the agent was not
     // accepting input, which is exactly what the sender should read (POD-4775).
-    const cause = knownCause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
+    const cause =
+      knownCause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
     if (!moved(await this.deps.messages.markDeadLetter(message.id, at, cause))) return
     await this.deps.events.appendEvent({
       ts: at,

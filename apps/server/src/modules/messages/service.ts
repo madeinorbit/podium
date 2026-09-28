@@ -104,11 +104,7 @@ export type {
   SendDisposition,
 } from './types'
 
-import {
-  cursorOf,
-  DELIVERY_TARGET_PAGE_LIMIT,
-  type DeliveryTarget,
-} from './targets'
+import { cursorOf, DELIVERY_TARGET_PAGE_LIMIT, type DeliveryTarget } from './targets'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
@@ -1495,7 +1491,11 @@ export class MessageDeliveryService {
    *  landed (POD-4775). That is not a failure — the machine may still type it —
    *  so the row goes `unknown`, and the daemon's settlement or the echo still
    *  confirms it later. */
-  async onQueuedInputUnknown(messageId: string, sessionId: SessionId, reason: string): Promise<void> {
+  async onQueuedInputUnknown(
+    messageId: string,
+    sessionId: SessionId,
+    reason: string,
+  ): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return
     await this.markUnknown(message, sessionId, reason)
@@ -2004,7 +2004,11 @@ export class MessageDeliveryService {
   /** → unknown: handed to `sessionId`, and nobody can say any more whether it
    *  arrived (POD-4775). The honest end of a timeout or an unproven write — the
    *  sender is told nothing has failed, because nothing has. */
-  private async markUnknown(message: MessageRow, sessionId: SessionId, reason: string): Promise<void> {
+  private async markUnknown(
+    message: MessageRow,
+    sessionId: SessionId,
+    reason: string,
+  ): Promise<void> {
     if (moved(await this.deps.messages.markUnknown(message.id, sessionId))) {
       await this.emitTransition(
         { ...message, deliveryStatus: 'unknown', deliveredTo: sessionId },
@@ -2109,7 +2113,11 @@ export class MessageDeliveryService {
     // Only a push that was recorded can be lost track of; a synchronous answer
     // belongs to the caller still recording it.
     if (receipt.outcome === 'unverified' && afterRecord) {
-      await this.markUnknown(message, sessionId, 'the push was not confirmed; it may still have reached the agent')
+      await this.markUnknown(
+        message,
+        sessionId,
+        'the push was not confirmed; it may still have reached the agent',
+      )
     }
     if (receipt.outcome !== 'refused') return
     if (

@@ -149,7 +149,13 @@ describe('authorize lets an unknown row be forwarded again as a recovery [POD-47
   })
 
   it('still refuses a row that is already typed or ended', async () => {
-    expect(await authorizing('typed').authorize('m1')).toEqual({ ok: false, reason: 'message is typed' })
-    expect(await authorizing('failed').authorize('m1')).toEqual({ ok: false, reason: 'message is failed' })
+    expect(await authorizing('typed').authorize('m1')).toEqual({
+      ok: false,
+      reason: 'message is typed',
+    })
+    expect(await authorizing('failed').authorize('m1')).toEqual({
+      ok: false,
+      reason: 'message is failed',
+    })
   })
 })
