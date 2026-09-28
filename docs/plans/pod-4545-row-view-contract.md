@@ -40,7 +40,7 @@ and its inputs from a closed vocabulary:
 |---|---|---|
 | `id` | issue id | own row |
 | `displayRef` | `prefix-seq`, or `#seq` (R-SUM) | own row; one hop (`issue.repo.prefix`) |
-| `title` | display title, never a draft's raw title (R-SUM) | own row |
+| `title` | display title, never a draft's raw title (R-SUM); a draft is named after its first nameable member (§4b) | own row; own sessions (drafts only: the one nameable member) |
 | `phase` | waiting > working > done > queued over the formal subtree (R-SUM, §3.9 erratum) | own sessions; children's roll-ups |
 | `progressDone` / `progressTotal` | accepted formal members; a root with members is not its own unit (R-SUM / R-ROLL) | children's roll-ups; own row (lone root) |
 | `working` | any subtree session computing (R-SUM) | own sessions; children's roll-ups |
@@ -147,6 +147,54 @@ arm has the right shape.
 (`row-view.ts`) is the row's filter: no archived, no shell. The time decay of
 finished runs is an R-VIS rule over coarseNow, applied on top.
 
+## 4b. Draft title: the first nameable member
+
+Legacy names a draft after `sessionsForIssueNav(...)[0]` (`draftIssueLabel`,
+`slices/issues.ts:218`, over `session-ownership.ts:282-310`), which skips
+shells, archived and headless sessions. The pool takes the first session of
+its sorted member list admitted by the shared `isDraftNameSession`
+(`row-view.ts:339-348`): not archived, `agentKind !== 'shell'`,
+`headless !== true`. Only a draft asks for the member; a non-draft's title is
+its own. Both pools filter through the one shared function (MobX
+`firstMemberOf`, hand `displayTitle`).
+
+Invisible below 4x: at 1x no draft's lowest-id member is a shell, so parity
+there cannot see the old rule (first member of any kind). The 4x browser
+parity caught `i10142` ("New Shell session" against the oracle's "New Codex
+session"), `i13682`, `i3081` (`docs/measurements/POD-4572-b.md` §6; M4 lesson
+1 row 6). Named cover: `arms/mobx/pool/worklist/draft-title.test.tsx` and
+`arms/hand/pool/worklist/draft-title.test.tsx` — every visible 4x draft's
+title equals the oracle's, with a guard that at least one visible draft's
+lowest-id member is a shell. The old rule fails it
+(`i13682.title: expected 'New Shell session' to be 'New Codex session'`).
+
+## 4c. `originTick`: what the `SliceRow` rebuild cannot see
+
+`SliceRow` (11 fields, `slice-types.ts:137-154`) carries no `originTick`, so
+the `SliceRow` rebuild comparison (`rebuildSnapshot` vs `snapshot()`,
+projected through `sliceRowOf`) cannot see an `issue.discoveredFrom` error
+through row views (M3 §5.1 open item; `arms/mobx/NOTES.md:773-776`;
+`docs/measurements/POD-4568-a.md:339-341`). `RowView` does carry it (one hop
+via `issue.discoveredFrom`, reaching spin-offs through the declared inverse
+`spinOffs`, §2), and the whole-view check (`rebuildViews` + shared
+`diffViews`, POD-4674) compares it — but the cover this contract holds is the
+per-step relation scan: every gate snapshot also runs `diffRelations` (the
+live engine against a from-scratch `scanRelations` over the same tables) and
+fails on any divergence.
+
+`SliceRow` stays 11 fields deliberately: it is the parity oracle's projection
+(§2). Adding `originTick` to it would be the alternative; the scan is the
+cover taken instead. Named cover:
+`arms/mobx/pool/relations.test.ts` "a wrong issue.discoveredFrom forward slot
+reaches originTick" — plants a wrong forward slot, asserts the view follows
+the plant and `diffRelations` reports
+`issue:I3.discoveredFrom: live "I1", scan "I2"`; the hand mirror
+("a planted wrong forward entry is what the row view shows, and the scan
+names it" in `arms/hand/pool/relations.test.ts`) plants both `issue.repo`
+and `issue.discoveredFrom` forward slots and asserts both views follow while
+`diffRelations` reports both slots. Both pool gates run `diffRelations` at
+every snapshot (per-step) plus the full-residency checkpoint.
+
 ## 5. Evidence
 
 | Criterion | Evidence |
@@ -157,6 +205,8 @@ finished runs is an R-VIS rule over coarseNow, applied on top.
 | Rank and group as pure functions, tested against §3.9 | `shared/src/row-view.test.ts` (16 tests: worked example in three input orders, pin A, each R-ORDER / R-GROUP clause) |
 | Archived sessions, both directions (§4a) | `shared/src/row-seats.test.ts` (7 tests): an archived session passes the R2 and R3 membership filters, and neither filter reads `archived`; `isRowSeat` drops archived and shell sessions; composed, both sessions are R2 members of A and only the live one is a seat. Control: both filters reject a headless session, so they can say no. |
 | Agreement with legacy | `harness/src/oracle/row-view-legacy.test.ts` (6 tests): `rankOf`/`groupKeyOf` assemble exactly the oracle `SliceOrder` over the 1x corpus at three clocks (FIXED_NOW, +25 h, +8 d) and a second seed. The latch matches `rowInClosedFold` row by row under all 4 selection × latch states. |
+| Draft title, first nameable member (§4b) | `arms/mobx/pool/worklist/draft-title.test.tsx`, `arms/hand/pool/worklist/draft-title.test.tsx` (4x: every visible draft title equals the oracle's; at least one visible draft's lowest-id member is a shell). |
+| `discoveredFrom` cover (§4c) | `arms/mobx/pool/relations.test.ts` "a wrong issue.discoveredFrom forward slot reaches originTick" (the view follows the plant; `diffRelations` reports the slot); hand mirror in `arms/hand/pool/relations.test.ts`; both pool gates run per-step `diffRelations` plus the full-residency checkpoint. |
 
 **The instruments were shown to fail:**
 
@@ -181,6 +231,17 @@ finished runs is an R-VIS rule over coarseNow, applied on top.
 - *Archived, both directions.* Adding `archived !== true` to the schema's
   membership filters fails 3 tests. Making `isRowSeat` ignore `archived`
   fails 2.
+- *Draft title (§4b).* Taking the first member of any kind (dropping the
+  `isDraftNameSession` filter) fails the 4x draft-title test in both arms
+  (`i13682.title: expected 'New Shell session' to be 'New Codex session'`).
+  Removing the shell-first guard (the `shellFirst.length > 0` assertion) lets
+  the test go green on a corpus where the case is not exercised, so the guard
+  is the cover for the cover.
+- *`discoveredFrom` (§4c).* Planting a wrong `issue.discoveredFrom` forward
+  slot makes the row view follow the plant (`originTick.id` flips) while
+  `diffRelations` reports the slot; the `SliceRow` rebuild comparison stays
+  green throughout, which is why the scan is the held cover. Bypassing the
+  per-step `diffRelations` check lets the plant through the gate.
 - *Runtime guards.* Disabling the identity throw fails its test, and so does
   forwarding an extra prop from the shell.
 - *Differential sensitivity.* The ARMED control drops the manual key and
