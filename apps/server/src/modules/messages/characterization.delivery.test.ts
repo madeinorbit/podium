@@ -308,7 +308,7 @@ describe('characterization: urgency x target state (D3)', () => {
     expect(h.pushes.map((p) => p.fn)).toEqual(['queueText', 'queueText', 'interruptText'])
   })
 
-  it('a composer draft holds EVERY urgency including interrupt (POD-865)', async () => {
+  it('a composer draft holds nothing: interrupt reaches the daemon at once (POD-4775)', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'drafting' })
     h.put({
@@ -321,10 +321,10 @@ describe('characterization: urgency x target state (D3)', () => {
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt' },
     )
-    // Corrupting a human's half-typed line is never acceptable — the row stays
-    // queued and the boundary/sweep delivers once the draft clears.
+    // Only the daemon sees the prompt line and decides when to type; the
+    // server's belief that a draft is present holds nothing.
     expect(r.disposition).toBe('queued')
-    expect(h.pushes).toEqual([])
+    expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText'])
   })
 
   it('a parked session holds a `wait` and resurrects on a `wake`', async () => {
@@ -591,7 +591,7 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     expect(await kinds(h)).toContain('message.read')
   })
 
-  it('a turn boundary confirms an already-pushed row, but an ERRORED turn does not', async () => {
+  it('a turn boundary confirms nothing; the daemon settles the pushed row (POD-4775)', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
@@ -604,19 +604,14 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
 
     expect(h.pushes).toHaveLength(1)
     s1!.agentState = phaseState('idle')
+    h.svc.onSessionIdle(s1!.sessionId)
     expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
-    // An ERRORED turn did not complete, so it must not confirm the injected row.
-    await h.svc.onSessionIdle(s1!, { priorPhase: 'errored' })
-    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
-
-    // A clean turn boundary IS the reliable backstop for a mid-turn injection
-    // whose envelope never echoes as a clean user turn.
-    await h.svc.onSessionIdle(s1!, { priorPhase: 'idle' })
+    await h.svc.onQueuedInputApplied(id, asSessionId('s1'))
     expect((await h.svc.message(id))!.deliveryStatus).toBe('confirmed')
     expect(
       (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
-    ).toEqual(['boundary'])
+    ).toEqual(['injection'])
   })
 })
 
@@ -952,7 +947,7 @@ describe('characterization: self-delivery suppression (D10)', () => {
     // The real recipient gets it at once; the sender never does.
     expect(h.pushes.map((p) => p.sessionId)).toEqual(['sPeer'])
     sender!.agentState = phaseState('idle')
-    await h.svc.onSessionIdle(sender!)
+    h.svc.onSessionIdle(sender!.sessionId)
     expect(h.pushes.map((p) => p.sessionId)).toEqual(['sPeer'])
   })
 })

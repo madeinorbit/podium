@@ -111,7 +111,7 @@ export interface SessionFixture {
   spawnedBy?: string
   agentKind?: string
   lastActiveAt?: string
-  /** Composer-draft presence [POD-865]; any value = a hold. */
+  /** Composer-draft presence [POD-865]. Holds nothing since POD-4775. */
   draftUpdatedAt?: string
   queuedMessageCount?: number
   machineId?: MachineId

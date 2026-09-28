@@ -195,9 +195,6 @@ interface HarnessOpts {
     sessionId: SessionId,
     sourceMessageId: string,
   ) => Promise<number | undefined>
-  /** Whether a draft is typed into the agent's prompt line here [POD-1204].
-   *  Unset = unwired, which the guard reads as "assume it is". */
-  draftInjectionActive?: () => boolean
   /** Wire the legacy mirrors PRODUCTION-SHAPED: relay.ts wires both to
    *  `funnel.run({ write })`, which opens its own store transaction. The plain
    *  repository call the default harness uses does not, which is why the span
@@ -281,7 +278,6 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         interrupted.push(i)
         return { ok: true, queued: true }
       },
-      ...(opts?.draftInjectionActive ? { draftInjectionActive: opts.draftInjectionActive } : {}),
     },
     // AWAITED, as the composition root's `funnel.run({ write })` wiring now is:
     // the dep returns `Promise<void>` (POD-3820), so the discarded-promise
@@ -908,7 +904,7 @@ describe('MessageDeliveryService.send', () => {
     expect(r.message.deliveredTo).toBe('sCoord')
 
     // The peer reaching a turn boundary changes nothing.
-    await svc.onSessionIdle(session({ sessionId: 'sWorker', agentState: IDLE, issueId: ISSUE.id }))
+    svc.onSessionIdle(asSessionId('sWorker'))
     expect(queued.map((q) => q.sessionId)).toEqual(['sCoord'])
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('sCoord')
   })
@@ -1040,7 +1036,7 @@ describe('MessageDeliveryService.send', () => {
     expect(r.message.deliveryStatus).toBe('stored')
     expect(r.message.deliveredTo).toBeNull()
 
-    await svc.onSessionIdle(session({ sessionId: 'sWorker', agentState: IDLE, issueId: ISSUE.id }))
+    svc.onSessionIdle(asSessionId('sWorker'))
     expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
     expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).not.toBe('sWorker')
@@ -1278,7 +1274,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     )
     expect(queued.map((q) => q.sessionId)).toEqual(['s2'])
     // The sender reaching its turn boundary changes nothing.
-    await svc.onSessionIdle(session({ sessionId: asSessionId('s1'), issueId: ISSUE.id }))
+    svc.onSessionIdle(asSessionId('s1'))
     expect(queued.map((q) => q.sessionId)).toEqual(['s2'])
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s2')
     await echo(svc, asSessionId('s2'), r.message.id)
@@ -1541,7 +1537,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
 
     expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('dispatched')
     queuedSourceIds.add(sent.message.id)
-    await svc.onSessionIdle(session({ sessionId: asSessionId('s1'), agentState: IDLE }))
+    svc.onSessionIdle(asSessionId('s1'))
     expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('dispatched')
     expect((await svc.cancel(sent.message.id)).deliveryStatus).toBe('cancelled')
     await svc.onQueuedInputApplied(sent.message.id, asSessionId('s1'))
@@ -1825,7 +1821,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     expect(JSON.parse(r.message.clampedFrom!).reasons.join()).toContain('hop limit')
     expect(attention.some((a) => a.messageId === r.message.id)).toBe(true)
     // The NEXT turn (idle again) clears the hop context: hop resets to 0.
-    await svc.onSessionIdle(sessions[0]!)
+    svc.onSessionIdle(sessions[0]!.sessionId)
     const r2 = await svc.send(
       { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { to: { kind: 'session', id: asSessionId('s2') }, body: 'later', lifecycle: 'wake' },
@@ -3305,15 +3301,14 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
 })
 
 describe('turn-boundary confirmation backstop [POD-853]', () => {
-  it('confirms a pushed message at the next turn boundary when its echo never comes', async () => {
-    // A mid-turn/busy injection may never reappear as a clean role=user turn
-    // (Claude Code tags it isMeta / promptSource:system, or folds it into a
-    // tool_result record), so ECHO_ID_RE never confirms it. The turn boundary does.
+  it('the idle edge confirms nothing — only the daemon settles a pushed row [POD-4775]', async () => {
+    // The server's idle edge is its own lagging copy of the agent's phase. It
+    // used to flip every handed-on row confirmed; now only the daemon's
+    // settlement (or a receipt, the echo, a read) says a message arrived.
     let clock = Date.parse('2026-07-13T00:00:00.000Z')
     const now = () => new Date(clock).toISOString()
     const live = [session({ sessionId: asSessionId('s1'), issueId: ISSUE.id, agentState: WORKING })]
     const { svc, queued, store } = await harness(live, { now })
-    // A busy session: the message is handed to its daemon at once [POD-4661].
     const r = await svc.send(
       { kind: 'superagent' },
       {
@@ -3323,23 +3318,18 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       },
     )
     expect(queued).toHaveLength(1)
-    expect((await store.messages.getMessage(r.message.id))!.injectedAt).not.toBeNull()
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
-    // The turn boundary CONFIRMS delivery with no text matching.
     clock += LONG_AFTER_MS + 1_000
-    const idle = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id, agentState: IDLE })
-    await svc.onSessionIdle(idle)
-    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
-    expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s1')
-    expect(queued).toHaveLength(1) // never re-injected → no duplicate delivery
+    svc.onSessionIdle(asSessionId('s1'))
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     await svc.sweep()
-    expect(queued).toHaveLength(1) // and the sweep never resurrects a delivered row
-    // The ledger records HOW it was confirmed, so a boundary-confirm is
-    // distinguishable from an echo when debugging delivery [POD-853].
+    expect(queued).toHaveLength(1) // and nothing re-pushes it
+    await applied(svc, asSessionId('s1'), r.message.id)
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     const delivered = (await store.events
       .listEventsSince(0, { kinds: ['message.delivered'] }))
       .find((e) => e.subject === r.message.id)
-    expect((delivered?.payload as { confirmedVia?: string }).confirmedVia).toBe('boundary')
+    expect((delivered?.payload as { confirmedVia?: string }).confirmedVia).toBe('injection')
   })
 
   it('does not confirm a pointer (pull-path) row at a turn boundary — only an inbox read does', async () => {
@@ -3361,7 +3351,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
     // A second turn boundary must NOT flip pointer rows delivered — they are the
     // PULL path, confirmed by an inbox read, never by a turn ending.
-    await svc.onSessionIdle(s)
+    svc.onSessionIdle(s.sessionId)
     expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('dispatched')
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
@@ -3402,83 +3392,13 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // A turn boundary cannot confirm what was never shown; an inbox read can.
     clock += LONG_AFTER_MS + 1_000
-    await svc.onSessionIdle(s)
+    svc.onSessionIdle(s.sessionId)
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // ... and the sweep must not nudge again past the echo window.
     await svc.sweep()
     expect(queued).toHaveLength(1)
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
-  })
-
-  it('an ERRORED turn does not confirm its injected rows, and nothing re-pushes them', async () => {
-    // API 529 mid-turn is frequent: an errored turn (errored→idle fires here too)
-    // did not complete, so it must NOT confirm what it may not have consumed
-    // [coordinator caution]. The row stays queued for the daemon to settle.
-    let clock = Date.parse('2026-07-13T00:00:00.000Z')
-    const now = () => new Date(clock).toISOString()
-    const live = [session({ sessionId: asSessionId('s1'), issueId: ISSUE.id, agentState: WORKING })]
-    const { svc, queued, store } = await harness(live, { now })
-    const r = await svc.send(
-      { kind: 'superagent' },
-      { to: { kind: 'session', id: asSessionId('s1') }, body: 'work item', urgency: 'next-turn' },
-    )
-    // Handed on at once (queued, awaiting proof) [POD-4661].
-    expect((await store.messages.getMessage(r.message.id))!.injectedAt).not.toBeNull()
-    // The turn that would consume it ERRORS (errored→idle): do NOT confirm it.
-    const idle = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id, agentState: IDLE })
-    live[0] = idle
-    await svc.onSessionIdle(idle, { priorPhase: 'errored' })
-    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
-    // No timer re-pushes it, however long it waits.
-    clock += LONG_AFTER_MS + 1_000
-    await svc.sweep()
-    expect(queued).toHaveLength(1)
-    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
-    // A later CLEAN idle confirms it (the retry turn consumed it).
-    await svc.onSessionIdle(idle)
-    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
-  })
-
-  it('confirms only rows pushed to THIS session, never another session on the same issue', async () => {
-    const s1 = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id })
-    const s2 = session({ sessionId: asSessionId('s2'), issueId: ISSUE.id, cwd: '/wt/a' })
-    const { svc, store } = await harness([s1, s2])
-    // An issue-addressed row already pushed to s2 (injected, awaiting its echo).
-    await seedMessage(store.messages, {
-      id: asIssueId('msg_s2'),
-      threadId: asThreadId('msg_s2'),
-      inReplyTo: null,
-      fromKind: 'agent',
-      fromSession: asSessionId('sX'),
-      fromIssue: asIssueId(SENDER_ISSUE.id),
-      toKind: 'issue',
-      toId: ISSUE.id,
-      kind: 'message',
-      urgency: 'next-turn',
-      lifecycle: 'wait',
-      body: 'for s2',
-      expiresAt: null,
-      createdAt: '2026-07-13T00:00:00.000Z',
-      deliveryStatus: 'stored',
-      deliveredAt: null,
-      deliveredTo: null,
-      readAt: null,
-      injectedAt: null,
-      deadLetteredAt: null,
-      ackedBy: null,
-      hop: 0,
-      clampedFrom: null,
-      remindedAt: null,
-    })
-    await store.messages.markDispatched('msg_s2', asSessionId('s2'), '2026-07-13T00:00:00.000Z')
-    // s1 reaches a turn boundary — must NOT confirm a row pushed to s2.
-    await svc.onSessionIdle(s1)
-    expect((await store.messages.getMessage('msg_s2'))!.deliveryStatus).toBe('dispatched')
-    // s2's own boundary confirms it.
-    await svc.onSessionIdle(s2)
-    expect((await store.messages.getMessage('msg_s2'))!.deliveryStatus).toBe('confirmed')
-    expect((await store.messages.getMessage('msg_s2'))!.deliveredTo).toBe('s2')
   })
 
   it('onTranscriptDelta confirms EVERY id across a multi-id, multi-item delta', async () => {
@@ -3637,146 +3557,39 @@ describe('best-effort acks/notifications [POD-853]', () => {
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
       .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('never finished starting within the readiness deadline')
+    expect(notices[0]!.body).toContain('the agent was not accepting input')
   })
 })
 
-describe('composer-draft delivery guard [POD-865]', () => {
+describe('a composer draft never holds a send [POD-865 removed, POD-4775]', () => {
+  // The server used to hold every urgency while it believed the human had a
+  // half-typed line. Only the daemon can see the prompt line, and only it
+  // decides when to type: the send reaches it at once whatever the server
+  // thinks the draft is.
   const drafting = (over: Partial<SessionMetaInput> = {}) =>
     session({ draftUpdatedAt: '2026-07-12T23:59:55.000Z', ...over })
 
-  it('a non-empty draft holds EVERY urgency — including interrupt', async () => {
+  it('every urgency reaches the daemon at once while a draft is present', async () => {
     for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
-      const { svc, sent, queued, interrupted, store } = await harness([drafting()])
-      const r = await svc.send(
-        { kind: 'operator' },
-        { to: { kind: 'session', id: asSessionId('s1') }, body: 'note', urgency },
-      )
-      expect(sent).toHaveLength(0)
-      expect(queued).toHaveLength(0)
-      expect(interrupted).toHaveLength(0)
-      expect(r.disposition).toBe('queued')
-      expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
+      for (const agentState of [IDLE, WORKING]) {
+        const { svc, queued, interrupted, store } = await harness([drafting({ agentState })])
+        const r = await svc.send(
+          { kind: 'operator' },
+          { to: { kind: 'session', id: asSessionId('s1') }, body: 'note', urgency },
+        )
+        expect(queued.length + interrupted.length).toBe(1)
+        expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
+      }
     }
   })
 
-  it('holds a busy session at interrupt urgency too (draft beats the mid-turn path)', async () => {
-    const { svc, interrupted, sent } = await harness([drafting({ agentState: WORKING })])
-    const r = await svc.send(
-      { kind: 'operator' },
-      { to: { kind: 'session', id: asSessionId('s1') }, body: 'urgent', urgency: 'interrupt' },
-    )
-    expect(interrupted).toHaveLength(0)
-    expect(sent).toHaveLength(0)
-    expect(r.disposition).toBe('queued')
-  })
-
-  it('a freshly-updated draft (seconds old) holds', async () => {
-    // draftUpdatedAt presence ⇔ non-empty text; a just-typed draft is simply the
-    // freshest instance of presence.
-    const { svc, sent } = await harness([drafting({ draftUpdatedAt: '2026-07-12T23:59:59.000Z' })])
-    const r = await svc.send(
-      { kind: 'operator' },
-      { to: { kind: 'session', id: asSessionId('s1') }, body: 'hi' },
-    )
-    expect(sent).toHaveLength(0)
-    expect(r.disposition).toBe('queued')
-  })
-
-  it('a cleared draft releases the held row on the session change (no idle edge needed)', async () => {
-    const sessions = [drafting()]
-    const { svc, queued, store } = await harness(sessions)
-    const r = await svc.send(
-      { kind: 'operator' },
-      { to: { kind: 'session', id: asSessionId('s1') }, body: 'held' },
-    )
-    expect(queued).toHaveLength(0)
-    // Draft submitted/emptied: the session meta loses draftUpdatedAt, and that
-    // upsert is an eligibility change.
-    sessions[0] = session({ sessionId: asSessionId('s1') })
-    await svc.onSessionEligibilityChanged(asSessionId('s1'), sessions[0]!)
-    await svc.flushDeliveryTriggers()
-    expect(queued).toHaveLength(1)
-    expect(queued[0]!.text).toBe('held')
-    // Unwrapped operator body confirms when the daemon takes it.
-    await applied(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
-  })
-
-  it('the sweep also delivers once the draft clears', async () => {
-    const sessions = [drafting()]
-    const { svc, queued } = await harness(sessions)
-    await svc.send({ kind: 'operator' }, { to: { kind: 'session', id: asSessionId('s1') }, body: 'held' })
-    await svc.sweep()
-    expect(queued).toHaveLength(0) // still drafting
-    sessions[0] = session({ sessionId: asSessionId('s1') })
-    await svc.sweep()
-    expect(queued).toHaveLength(1)
-  })
-
-  it('an idle session with NO draft delivers normally (no false hold)', async () => {
-    const { svc, queued } = await harness([session({ sessionId: asSessionId('s1') })])
-    const r = await svc.send(
-      { kind: 'operator' },
-      { to: { kind: 'session', id: asSessionId('s1') }, body: 'go' },
-    )
-    expect(queued).toHaveLength(1)
-    expect(r.disposition).toBe('queued')
-  })
-
-  it('issue-addressed mail honours the recipient session draft too', async () => {
-    const { svc, sent } = await harness([drafting()])
-    const r = await svc.send(
+  it('issue-addressed mail reaches a drafting member at once too', async () => {
+    const { svc, queued } = await harness([drafting()])
+    await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'issue', id: `#${ISSUE.seq}` }, body: 'mail' },
     )
-    expect(sent).toHaveLength(0)
-    expect(r.disposition).toBe('queued')
-  })
-
-  // POD-1204: the guard's whole hazard is bytes merging into a prompt line that
-  // already holds half a sentence. Where a draft is never typed into the agent's
-  // input — draft injection off, which is what ships — there is no such line, and
-  // holding on the draft only stalled the human's own chat send behind the draft
-  // they had just submitted.
-  describe('and whether the draft can reach the agent at all [POD-1204]', () => {
-    const off = () => false
-    const on = () => true
-
-    it('does not hold when a draft is never typed into the agent (injection off)', async () => {
-      const { svc, queued } = await harness([drafting()], { draftInjectionActive: off })
-      const r = await svc.send(
-        { kind: 'operator' },
-        { to: { kind: 'session', id: asSessionId('s1') }, body: 'go' },
-      )
-      expect(queued).toHaveLength(1)
-      expect(r.disposition).toBe('queued')
-    })
-
-    it('still holds when injection makes the draft the prompt line', async () => {
-      const { svc, sent } = await harness([drafting()], { draftInjectionActive: on })
-      const r = await svc.send(
-        { kind: 'operator' },
-        { to: { kind: 'session', id: asSessionId('s1') }, body: 'go' },
-      )
-      expect(sent).toHaveLength(0)
-      expect(r.disposition).toBe('queued')
-    })
-
-    it('reads the switch per attempt, so flipping it releases a held row', async () => {
-      let injecting = true
-      const sessions = [drafting()]
-      const { svc, queued } = await harness(sessions, { draftInjectionActive: () => injecting })
-      await svc.send(
-        { kind: 'operator' },
-        { to: { kind: 'session', id: asSessionId('s1') }, body: 'held' },
-      )
-      expect(queued).toHaveLength(0)
-      injecting = false
-      await svc.sweep()
-      expect(queued).toHaveLength(1)
-    })
-
+    expect(queued).toHaveLength(1)
   })
 })
 
@@ -4225,7 +4038,6 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         sessions[0] = session({
           sessionId: asSessionId('moving'),
           cwd: '/detached',
-          draftUpdatedAt: undefined,
         })
         return sessions[0]
       },
@@ -4238,7 +4050,6 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
           sessionId: asSessionId('moving'),
           issueId: SENDER_ISSUE.id,
           cwd: SENDER_ISSUE.worktreePath,
-          draftUpdatedAt: undefined,
         })
         return sessions[0]
       },
@@ -4250,7 +4061,6 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         sessions[0] = session({
           sessionId: asSessionId('moving'),
           cwd: SENDER_ISSUE.worktreePath,
-          draftUpdatedAt: undefined,
         })
         return sessions[0]
       },
@@ -4266,15 +4076,19 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
   ] as const) {
     it(`retries the old issue principal on session ${transition.name} without an idle edge`, async () => {
       const sessions: SessionMeta[] = [
+        // A parked coordinator holds wait-lifecycle issue mail for its next
+        // run [POD-1371] — the hold the moves below have to release.
         session({
           sessionId: asSessionId('moving'),
           ...transition.initial,
-          draftUpdatedAt: '2026-07-13T00:00:00.000Z',
+          status: 'hibernated',
           lastActiveAt: 'z',
         }),
         session({ sessionId: asSessionId('remaining'), issueId: ISSUE.id, lastActiveAt: 'a' }),
       ]
-      const { svc, queued } = await harness(sessions)
+      const { svc, queued } = await harness(sessions, {
+        coordinatorByIssue: new Map([[ISSUE.id, 'moving']]),
+      })
       await svc.onSessionEligibilityChanged(asSessionId('moving'), sessions[0])
       await svc.flushDeliveryTriggers()
       await svc.send(
@@ -4299,7 +4113,8 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         sessionId: asSessionId('s1'),
         issueId: undefined,
         cwd: ISSUE.worktreePath,
-        draftUpdatedAt: '2026-07-13T00:00:00.000Z',
+        // Parked: a wait-lifecycle send holds for its next run.
+        status: 'hibernated',
       }),
     ]
     const { svc, queued } = await harness(sessions, {

@@ -1313,9 +1313,9 @@ describe('oracle: continue (the errored-agent retry)', () => {
    * 'continue\r' typed at the PTY stamped 'auto_continue'. An agent's continue
    * now rides the receipt seam (`sendContinueViaContract`, session-wiring.ts):
    * one when-ready `runtimeSendRequest` carrying 'continue' with origin
-   * 'auto_continue', crossing the errored gate it exists for (`allowErrored`).
-   * A plain shell keeps the raw keystroke, pinned byte-for-byte below. The gate
-   * — ONLY when the phase is errored — is unchanged on both.
+   * 'auto_continue' (no send gate reads the errored phase since POD-4775).
+   * A plain shell keeps the raw keystroke, pinned byte-for-byte below. The
+   * command's own gate — ONLY when the phase is errored — is unchanged on both.
    */
   it(`${MUST_NOT_CHANGE}: continue of an agent hands 'continue' to its driver stamped 'auto_continue', ONLY when the agent phase is errored, and types nothing`, async () => {
     const o = await makeOracle()

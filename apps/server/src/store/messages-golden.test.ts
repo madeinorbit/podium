@@ -223,6 +223,48 @@ describe('markSendRefused — only a row still on its way to that session', () =
 })
 
 // ---------------------------------------------------------------------------
+// A lost answer is `unknown`, never failed, and never walks a row back
+// ---------------------------------------------------------------------------
+
+describe('markUnknown — only a handed-on row, only for its session (POD-4775)', () => {
+  it('moves the row handed to that session and nothing else', async () => {
+    await add({ id: 'on-its-way' })
+    await messages.markDispatched('on-its-way', READER, 't1')
+    await add({ id: 'confirmed' })
+    await messages.markDispatched('confirmed', READER, 't1')
+    await messages.markDelivered('confirmed', String(READER), 't1')
+    await add({ id: 'held', deliveredTo: READER })
+
+    // Another session's lost answer cannot move this row.
+    expect(await messages.markUnknown('on-its-way', OTHER)).toEqual({
+      kind: 'refused',
+      current: 'dispatched',
+    })
+    expect((await messages.markUnknown('on-its-way', READER)).kind).toBe('applied')
+    expect(await messages.markUnknown('on-its-way', READER)).toEqual({ kind: 'already-there' })
+    // Confirmed is past the question; a row never handed on has no answer to lose.
+    expect(await messages.markUnknown('confirmed', READER)).toEqual({
+      kind: 'refused',
+      current: 'confirmed',
+    })
+    expect(await messages.markUnknown('held', READER)).toEqual({ kind: 'refused', current: 'stored' })
+
+    const row = await back('on-its-way')
+    expect(row?.deliveryStatus).toBe('unknown')
+    // Not a dead letter: nothing failed, the machine may still type it.
+    expect(row?.deadLetteredAt).toBeNull()
+  })
+
+  it('a later confirmation still lands on an unknown row', async () => {
+    await add({ id: 'lost' })
+    await messages.markDispatched('lost', READER, 't1')
+    await messages.markUnknown('lost', READER)
+    expect((await messages.markDelivered('lost', String(READER), 't2')).kind).toBe('applied')
+    expect((await back('lost'))?.deliveryStatus).toBe('confirmed')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The guarded ledger transitions
 // ---------------------------------------------------------------------------
 
@@ -467,7 +509,7 @@ describe('queued projections for a principal', () => {
     expect(await messages.queuedPositionForSession(READER, 'done')).toBeUndefined()
   })
 
-  it('pendingForPage pages forward by keyset and stops at `through`', async () => {
+  it('pendingForPage pages forward by keyset', async () => {
     for (const id of ['a', 'b', 'c', 'd']) await add({ id, createdAt: `t-${id}` })
     const to = { kind: 'issue' as const, id: TARGET }
 
@@ -479,28 +521,6 @@ describe('queued projections for a principal', () => {
       limit: 2,
     })
     expect(next.map((m) => m.id)).toEqual(['c', 'd'])
-
-    // `through` is INCLUSIVE (`<=`), which is what makes a high-water snapshot a
-    // finite scan rather than one that races new arrivals.
-    const bounded = await messages.pendingForPage(to, {
-      through: { createdAt: 't-c', id: 'c' },
-    })
-    expect(bounded.map((m) => m.id)).toEqual(['a', 'b', 'c'])
-  })
-
-  it('pendingHighWater returns the LAST queued row in delivery order', async () => {
-    await add({ id: 'a', createdAt: 't1' })
-    await add({ id: 'z', createdAt: 't3' })
-    await add({ id: 'm', createdAt: 't2' })
-    expect(await messages.pendingHighWater({ kind: 'issue', id: TARGET })).toEqual({
-      createdAt: 't3',
-      id: 'z',
-    })
-  })
-
-  it('pendingHighWater is null when nothing is queued', async () => {
-    await add({ id: 'a', deliveryStatus: 'confirmed', deliveredAt: 't1' })
-    expect(await messages.pendingHighWater({ kind: 'issue', id: TARGET })).toBeNull()
   })
 
   it('latestPendingOperatorForSession breaks a same-tick tie by rowid, not by id', async () => {

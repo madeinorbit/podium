@@ -92,8 +92,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
   const sender = (
     onContract: boolean,
     queueNotEmpty = false,
-    reasons: { archive?: string; failure?: string } = {},
-    nativeView = false,
+    reasons: { archive?: string } = {},
     prepareSend: () => Promise<void> = async () => {},
   ) => {
     const forwarded: string[] = []
@@ -142,9 +141,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       onContract: () => onContract,
       liveWithEmptyQueue: () => false,
       queueNotEmpty: () => queueNotEmpty,
-      nativeViewActive: () => nativeView,
       archiveReason: () => reasons.archive,
-      failureReason: () => reasons.failure,
       systemPrincipal: () => ({
         kind: 'system',
         attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
@@ -161,7 +158,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const retirement = new Promise<void>((resolve) => {
       release = resolve
     })
-    const { s, forwarded } = sender(true, false, {}, false, () => retirement)
+    const { s, forwarded } = sender(true, false, {}, () => retirement)
     const pending = s.send('now', { sessionId: asSessionId('s1'), text: 'continue' })
     expect(forwarded).toEqual([])
     release()
@@ -170,7 +167,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
   })
 
   it('refuses a contract send when offer retirement fails', async () => {
-    const { s, forwarded } = sender(true, false, {}, false, async () => {
+    const { s, forwarded } = sender(true, false, {}, async () => {
       throw new Error('offer retirement refused')
     })
     await expect(s.send('now', { sessionId: asSessionId('s1'), text: 'continue' })).rejects.toThrow(
@@ -189,50 +186,24 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // that reached the machine would drain unauthorized.
     expect(forwarded).toEqual([])
   })
-  it('reports a native-held send as queued with its durable position', async () => {
-    const { s, forwarded, enqueued } = sender(true, false, {}, true)
-    const r = await s.send('now', { sessionId: asSessionId('s1'), text: 'held by native' })
-
-    expect(r).toEqual({ ok: true, queued: true, position: 1 })
-    expect(enqueued).toEqual(['held by native'])
-    expect(forwarded).toEqual([])
-  })
 
   it.each([
     false,
     true,
-  ])('archive refusal outranks allowErrored before the contract=%s send seam', async (onContract) => {
+  ])('refuses an archived session before the contract=%s send seam', async (onContract) => {
     const { s, forwarded, enqueued, legacy } = sender(onContract, false, {
       archive: 'session is archived',
-      failure: 'provider failed',
     })
 
     for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
       expect(
-        await s.send(via, {
-          sessionId: asSessionId('s1'),
-          text: 'do not revive',
-          allowErrored: true,
-        }),
+        await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' }),
       ).toEqual({ ok: false, reason: 'session is archived' })
     }
 
     expect(forwarded).toEqual([])
     expect(enqueued).toEqual([])
     expect(legacy).toEqual([])
-  })
-
-  it('allowErrored still crosses a provider failure when archive is absent', async () => {
-    const { s, enqueued } = sender(true, false, { failure: 'provider failed' })
-
-    expect(
-      await s.send('queue', {
-        sessionId: asSessionId('s1'),
-        text: 'recovery answer',
-        allowErrored: true,
-      }),
-    ).toEqual({ ok: true, queued: true, position: 1 })
-    expect(enqueued).toEqual(['recovery answer'])
   })
 
   it('forwards staged refs on a live send and refuses to drop them into the durable queue', async () => {
@@ -282,37 +253,6 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     }
     const receipts: string[] = []
     const held = sender(true, true)
-    expect(
-      await held.s.send(
-        'now',
-        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
-        (receipt) =>
-          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
-      ),
-    ).toEqual({
-      ok: false,
-      reason: 'files cannot wait behind another turn; try again when pending messages have delivered',
-    })
-    expect(held.enqueued).toEqual([])
-    expect(held.forwarded).toEqual([])
-    expect(receipts).toEqual(['unsupported'])
-  })
-
-  it('refuses attachments while a native view holds the lease instead of queueing them', async () => {
-    // NATIVE-VIEW HOLD, WITH FILES. Without attachments the same hold enqueues
-    // (see 'reports a native-held send as queued'); with staged refs it must
-    // refuse — a native terminal owns the human-controller lease, and a queued
-    // attachment would wait behind a turn whose drain cannot carry it. The
-    // caller retries once the view clears.
-    const attachment = {
-      id: 'att-1',
-      path: '/state/uploads/s1/att-1.png',
-      filename: 'shot.png',
-      mediaType: 'image/png',
-      kind: 'image' as const,
-    }
-    const receipts: string[] = []
-    const held = sender(true, false, {}, true)
     expect(
       await held.s.send(
         'now',
@@ -467,10 +407,12 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(forwarded).toEqual([])
   })
 
-  it('reports a dead driver as a refusal instead of leaving the caller waiting', async () => {
+  it('reports a dead driver as unverified instead of leaving the caller waiting', async () => {
     // A driver that went away mid-window REJECTS. A reconciler waiting on that
     // promise would otherwise wait forever with a row stuck mid-flight, so the
-    // failure is delivered in the vocabulary the caller already handles.
+    // failure is delivered in the vocabulary the caller already handles — as
+    // `unverified`, never a `not_running` refusal: the frame may have left, so
+    // nobody can say the text was not typed (POD-4775).
     //
     // The handler is attached whether or not a reconciler was passed, which is
     // the half this test cannot observe directly and the reason it is worth
@@ -512,7 +454,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       )
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(seen).toEqual(['refused:not_running'])
+    expect(seen).toEqual(['unverified'])
   })
 
   it('touches neither path for a session with no driver behind it', async () => {

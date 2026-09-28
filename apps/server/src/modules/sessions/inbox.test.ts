@@ -61,8 +61,6 @@ function harness(
     /** Exact live runtime binding facts reported by the daemon bind. */
     hasBoundDriver?: boolean
     driverId?: string
-    /** Whether a native terminal view currently owns the controller lease. */
-    nativeView?: boolean
     /** Receipts the fake contract port answers with, in order; when omitted
      *  entirely the port itself is absent (the bare-fixture shape). */
     contractReceipts?: TurnReceipt[]
@@ -111,7 +109,6 @@ function harness(
     draft = text || undefined
   })
   let authorized = true
-  let nativeView = options.nativeView ?? false
   const applied = vi.fn(async () => {})
   const injected = vi.fn(async () => {})
   const resurrect = vi.fn((sessionId: SessionId, principal: InboxPrincipalReference) => {
@@ -219,7 +216,6 @@ function harness(
       },
       promptFailed,
     },
-    nativeViewActive: () => nativeView,
     now: () => Date.now(),
     persist,
     // The draft seam [POD-3330]: a real `write` applies the mutation to a draft
@@ -342,9 +338,6 @@ function harness(
     setPhase: (phase: string) => {
       ;(session as unknown as { agentState: Record<string, unknown> }).agentState.phase = phase
     },
-    setNativeView: (active: boolean) => {
-      nativeView = active
-    },
   }
 }
 
@@ -448,7 +441,7 @@ describe('SessionInbox persistence completion', () => {
 
   it('waits for the queued count commit before returning or broadcasting', async () => {
     vi.useFakeTimers()
-    const h = harness({ nativeView: true })
+    const h = harness()
     const pending = barrier()
     h.write.mockImplementationOnce(async (session, mutate) => {
       await pending.promise
@@ -469,7 +462,7 @@ describe('SessionInbox persistence completion', () => {
   })
 
   it('returns a queued count commit rejection to the caller', async () => {
-    const h = harness({ nativeView: true })
+    const h = harness()
     const error = new Error('count commit failed')
     h.write.mockRejectedValueOnce(error)
     await expect(h.inbox.queueText({ sessionId: SID, text: 'queued', principal: agentPrincipal() }))
@@ -479,17 +472,12 @@ describe('SessionInbox persistence completion', () => {
 
   it('restores the draft before notifying a shell failure, keeping the row queued', async () => {
     vi.useFakeTimers()
-    const h = harness({ nativeView: true, agentKind: 'shell' })
+    // Parked, so the row is still queued when the session is archived.
+    const h = harness({ status: 'hibernated', agentKind: 'shell' })
     await h.inbox.queueText({ sessionId: SID, text: 'recover me', principal: agentPrincipal() })
     expect(h.rows).toHaveLength(1)
-    h.setNativeView(false)
-    Object.assign(h.session, {
-      agentState: {
-        phase: 'errored',
-        since: '2026-08-22T10:00:00.000Z',
-        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
-      },
-    })
+    Object.assign(h.session, { archived: true })
+    h.setStatus('live')
     const draftPending = barrier()
     h.setSessionDraft.mockImplementationOnce(() => draftPending.promise)
     const drained = h.inbox.drain(SID)
@@ -504,9 +492,11 @@ describe('SessionInbox persistence completion', () => {
   })
 })
 
-describe('SessionInbox terminal provider failures', () => {
-  it('refuses ordinary text with the provider detail and recovery action', async () => {
-    const h = harness()
+describe('SessionInbox: a stored errored phase holds nothing (POD-4775)', () => {
+  // The server's `errored` phase is its copy of the agent's state. It used to
+  // refuse new sends and stop forwarding queued rows; whether the agent can
+  // take input now is the daemon's to answer when it types.
+  const erred = (h: ReturnType<typeof harness>) =>
     Object.assign(h.session, {
       agentState: {
         phase: 'errored',
@@ -515,117 +505,60 @@ describe('SessionInbox terminal provider failures', () => {
       },
     })
 
+  it('an agent send reaches the daemon at once while the session reads errored', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    erred(h)
     expect(
       await h.inbox.sendText({ sessionId: SID, text: 'third message', principal: agentPrincipal() }),
-    ).toEqual({
-      ok: false,
-      reason:
-        'Usage limit reached: API quota exhausted. Fix the provider issue, then choose “Resume the session”.',
-    })
-    expect(h.sent).toEqual([])
-    expect(h.rows).toEqual([])
-  })
-
-  it('leaves an already queued row in place but never drains it while errored', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(0)
-    // Held behind the native view so the row is still queued when the failure
-    // lands; the drain then refuses to type it into the errored session.
-    const h = harness({ transcriptAvailable: false, agentKind: 'shell', nativeView: true })
-    await h.inbox.queueText({
-      sessionId: SID,
-      text: 'already accepted',
-      mutationId: asMutationId('terminal-hold'),
-      principal: agentPrincipal(),
-    })
-    Object.assign(h.session, {
-      agentState: {
-        phase: 'errored',
-        since: '2026-08-22T10:00:00.000Z',
-        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
-      },
-    })
-    h.setNativeView(false)
-    await h.inbox.drain(SID)
-
-    await vi.advanceTimersByTimeAsync(7_000)
-
-    expect(typedTexts(h.sent)).toEqual([])
-    expect(h.rows).toHaveLength(1)
-    expect(h.session.queuedMessageCount).toBe(1)
-    expect(h.promptFailed).toHaveBeenCalledWith({
-      ownerUserId: ALICE,
-      sessionId: SID,
-      text: 'already accepted',
-      reason: expect.stringContaining(
-        'Usage limit reached: API quota exhausted. Fix the provider issue',
-      ),
-      initialPrompt: false,
-    })
-  })
-
-  it('drains a recovery answer and its held message through the errored-session gate', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(0)
-    const h = harness({ status: 'starting', agentKind: 'shell' })
-    Object.assign(h.session, {
-      agentState: {
-        phase: 'errored',
-        since: '2026-08-22T10:00:00.000Z',
-        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
-      },
-    })
-
-    expect(
-      await h.inbox.resumeAndSend({
-        sessionId: SID,
-        text: 'Continue where you left off.',
-        mutationId: asMutationId('recovery-answer'),
-        principal: agentPrincipal(),
-        allowErrored: true,
-      }),
     ).toEqual({ ok: true, queued: true })
-    h.setStatus('live')
-    await vi.advanceTimersByTimeAsync(12_000)
-
-    expect(typedTexts(h.sent)).toContain('Continue where you left off.')
-    expect(h.rows).toEqual([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toEqual([expect.objectContaining({ text: 'third message' })])
   })
 
-  it('names the login action for an authentication-shaped failure', async () => {
-    const h = harness()
-    Object.assign(h.session, {
-      agentState: {
-        phase: 'errored',
-        since: '2026-08-22T10:00:00.000Z',
-        error: { class: 'authentication', retryable: false, detail: 'token expired' },
-      },
+  it('a row queued before the failure is still forwarded', async () => {
+    vi.useFakeTimers()
+    // Pending custody keeps the first forward open while the failure lands.
+    const h = harness({ contractPending: true })
+    await h.inbox.queueText({ sessionId: SID, text: 'first', principal: agentPrincipal() })
+    await h.inbox.queueText({ sessionId: SID, text: 'already accepted', principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toHaveLength(1)
+    erred(h)
+    h.contractResolvers[0]!({
+      outcome: 'queued', position: 1, deliveredAs: 'queue', at: new Date().toISOString(),
     })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ text: 'first' }),
+      expect.objectContaining({ text: 'already accepted' }),
+    ])
+  })
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'hello' })).toEqual({
-      ok: false,
-      reason:
-        'Provider authentication failed: token expired. Re-authenticate with the provider, then choose “I signed in — retry”.',
-    })
+  it('a shell row drains while the session reads errored', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'shell' })
+    erred(h)
+    await h.inbox.queueText({ sessionId: SID, text: 'still typed', principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(typedTexts(h.sent)).toContain('still typed')
+    expect(h.promptFailed).not.toHaveBeenCalled()
   })
 })
 
 describe('SessionInbox archived boundary', () => {
-  it.each([
-    false,
-    true,
-  ])('refuses direct and resumable sends before enqueue or resurrection (allowErrored=%s)', async (allowErrored) => {
+  it('refuses direct and resumable sends before enqueue or resurrection', async () => {
     const h = harness({ status: 'hibernated', archived: true })
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'do not revive', allowErrored })).toEqual({
+    expect(await h.inbox.sendText({ sessionId: SID, text: 'do not revive' })).toEqual({
       ok: false,
       reason: 'session is archived',
     })
-    expect(await h.inbox.queueText({ sessionId: SID, text: 'do not queue', allowErrored })).toEqual({
+    expect(await h.inbox.queueText({ sessionId: SID, text: 'do not queue' })).toEqual({
       ok: false,
       reason: 'session is archived',
     })
-    expect(await h.inbox.resumeAndSend({ sessionId: SID, text: 'do not resume', allowErrored })).toEqual({
+    expect(await h.inbox.resumeAndSend({ sessionId: SID, text: 'do not resume' })).toEqual({
       ok: false,
       reason: 'session is archived',
     })
@@ -790,8 +723,8 @@ describe('SessionInbox authorization and identity', () => {
     })
     expect(h.rows).toEqual([])
 
-    // A row still held (native view) confirms nothing.
-    const held = harness({ agentKind: 'shell', nativeView: true })
+    // A row still held (its drain waits on authorization) confirms nothing.
+    const held = harness({ agentKind: 'shell', authorizeAtDrain: () => new Promise(() => {}) })
     await held.inbox.queueText({
       sessionId: SID,
       text: 'held',
@@ -805,7 +738,7 @@ describe('SessionInbox authorization and identity', () => {
   it('retracts a source message while the queued input is still held', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
-    const h = harness({ agentKind: 'shell', nativeView: true })
+    const h = harness({ agentKind: 'shell', authorizeAtDrain: () => new Promise(() => {}) })
 
     await h.inbox.queueText({
       sessionId: SID,
@@ -1015,9 +948,10 @@ describe('SessionInbox authorization and identity', () => {
     ],
   ])('does not auto-spawn %s after exit', async (_label, identity) => {
     vi.useFakeTimers()
+    // The drain waits on authorization, so the row is still queued at exit.
     const h = harness({
       ...identity,
-      nativeView: true,
+      authorizeAtDrain: () => new Promise(() => {}),
     })
     await h.inbox.queueText({ sessionId: SID, text: 'keep explicit recovery semantics' })
     h.setStatus('exited')
@@ -1597,12 +1531,16 @@ describe('SessionInbox authorization and identity', () => {
 
   it('a shell stop retracts the queued row while still typing its abort key', async () => {
     vi.useFakeTimers()
-    // Held behind the native view, so the row is still queued (not already
-    // sent and settled) when the stop lands. Shells have no driver
+    // Held at the drain's authorization, so the row is still queued (not
+    // already sent and settled) when the stop lands. Shells have no driver
     // retraction: the row is deleted locally AND the shell's own Ctrl-C is
     // typed (harmless at an idle prompt). Agents retract through the contract
     // instead.
-    const h = harness({ agentKind: 'shell', phase: 'idle', nativeView: true })
+    const h = harness({
+      agentKind: 'shell',
+      phase: 'idle',
+      authorizeAtDrain: () => new Promise(() => {}),
+    })
 
     await h.inbox.queueText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
     expect(h.rows).toHaveLength(1)
@@ -2036,30 +1974,6 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_1', sessionId: SID })
     expect(h.rows).toEqual([])
   })
-  it('parks a durable row while native terminal control is declared', async () => {
-    vi.useFakeTimers()
-    const h = harness({ nativeView: true, contractReceipts: [] })
-
-    expect(await queueOne(h, 'msg_srv_native', 'msg_srv_native')).toEqual({ ok: true, queued: true })
-    await vi.advanceTimersByTimeAsync(1_000)
-    expect(h.contractCalls).toEqual([])
-    expect(h.rows).toHaveLength(1)
-
-    h.setNativeView(false)
-    await h.inbox.drain(SID)
-    await vi.advanceTimersByTimeAsync(1_000)
-
-    expect(h.contractCalls).toHaveLength(1)
-    expect(h.applied).not.toHaveBeenCalled()
-    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_srv_native', outcome: 'delivered' })
-    expect(h.applied).toHaveBeenCalledWith({
-      sourceMessageId: 'msg_srv_native',
-      sessionId: SID,
-    })
-    expect(h.rows).toEqual([])
-    expect(h.sent).toEqual([])
-  })
-
   it('keeps the row visibly queued when the contract refuses (not_running)', async () => {
     vi.useFakeTimers()
     const h = harness({
