@@ -112,9 +112,8 @@ const currentGrid = (
  *
  * That is the end-state property worth waiting on — whatever a viewer last
  * asked for, the buffer ends up there — and waiting on it removes the race
- * between this test and the round trip it is measuring. The panel chrome settles
- * after the first frame, so a real switch legitimately asks more than once; a
- * fixed timeout would sample the middle of that and report a coincidence.
+ * between this test and the round trip it is measuring; a fixed timeout would
+ * sample the middle of it and report a coincidence.
  *
  * Bounded. A buffer that never reaches its last ask leaves the assertions below
  * to fail on what they see, rather than this helper deciding anything.
@@ -272,12 +271,11 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
   expect(coldEvents).not.toContain('fit:retry-start')
   expect(coldEvents).not.toContain('reveal:fit-mismatch')
   expect(coldEvents.some((e) => e.startsWith('anomaly:'))).toBe(false)
-  // THE ASKS, AND THE 0a DOUBLE RESIZE. A cold switch asks more than once and
-  // that is correct: the reveal's claim, which rule 4 sends whether or not the
-  // size moved and which carries the last-known W, and then the box this browser
-  // actually has — which changes once as the panel chrome settles after the
-  // first frame (0a saw the same, 727 → 700 px). Each of those is a genuinely
-  // different box.
+  // THE ASKS, AND THE 0a DOUBLE RESIZE. A cold switch used to ask twice: the
+  // claim, then again once the box shrank 27 px after the first frame (0a saw
+  // 727 → 700 px). That shrink was the prompt chrome mounting on `ready`, and
+  // it was a bug, not a settle — POD-4721 lays the chrome out from the first
+  // frame, and the row-boundary test above pins one ask and one apply.
   //
   // What it must NEVER do is state a size, state another, and come BACK. 0a's
   // capture caught exactly that — 104x31 → 104x33 → 104x31, two SIGWINCH
