@@ -489,12 +489,16 @@ export class SessionInbox {
     // (`hasBoundDriver` is derived as `driverId !== undefined`), so a bound
     // check would be redundant. This predicate is a Grok-ACP recovery guard,
     // not a delivery path.
+    // NOTE (POD-4737): no `agentKind` term either. Driver ids are unique per
+    // manifest — no other harness declares the grok-acp server driver — so the
+    // driver pin already names the harness, and the repair is keyed on the
+    // DRIVER that proved the dead-handle send race rather than on a harness
+    // name scattered in the server.
     if (
       !session ||
       session.status !== 'exited' ||
       session.archived ||
       session.queuedMessageCount === 0 ||
-      session.agentKind !== 'grok' ||
       session.driverId !== 'grok-acp' ||
       !session.resume
     ) {
