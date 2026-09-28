@@ -1,8 +1,8 @@
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { PtyProcess } from '../src/backends/types'
 import { spawnAgent } from '../src/session'
-import { REDRAW_RESTORE_FALLBACK_MS, wrapPty } from '../src/session'
+import { wrapPty } from '../src/session'
 import { collect, waitFor } from './helpers'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/fixture-tui.mjs', import.meta.url))
@@ -197,25 +197,5 @@ describe('wrapPty redraw repaint mode', () => {
     expect(resizes[0]).toEqual([80, 23]) // shrink…
     emit(Buffer.from('repaint')) // child acks the shrink with a frame
     expect(resizes[1]).toEqual([80, 24]) // …then the rows restore to full height
-  })
-
-  it('restores after a bound when the child never answers the shrink (POD-4723)', () => {
-    vi.useFakeTimers()
-    try {
-      const { proc, resizes, emit } = fakePty()
-      const s = wrapPty(proc, { cols: 80, rows: 24 })
-      s.redraw()
-      expect(resizes).toEqual([[80, 23]])
-      vi.advanceTimersByTime(REDRAW_RESTORE_FALLBACK_MS - 1)
-      expect(resizes).toEqual([[80, 23]])
-      vi.advanceTimersByTime(1)
-      expect(resizes).toEqual([[80, 23], [80, 24]]) // not stranded one row short
-      // Restored once: a late frame, or the timer, does not restore again.
-      emit(Buffer.from('late'))
-      vi.advanceTimersByTime(REDRAW_RESTORE_FALLBACK_MS * 2)
-      expect(resizes).toEqual([[80, 23], [80, 24]])
-    } finally {
-      vi.useRealTimers()
-    }
   })
 })

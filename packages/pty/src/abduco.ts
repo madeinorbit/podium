@@ -33,7 +33,7 @@ import {
 import { ABDUCO_FEATURES, resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
-import { type DurableAttachment, withHardRepaint, wrapPty } from './session.js'
+import { type DurableAttachment, wrapPty } from './session.js'
 import { shellQuote } from './shell-quote.js'
 // Canonical home is `./alt-screen-stripper.js` (P2c: output interpretation
 // belongs in the screen door); re-exported here so the move changes no importer.
@@ -1182,11 +1182,9 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<Durabl
  * client (the master + agent survive) — a hard kill on purpose: the client's atexit
  * handler would otherwise print cursor/alt-screen restore chrome into the stream.
  *
- * The attach nudges a repaint: abduco only SIGWINCHes the app's process group, and
- * node-based TUIs (Claude Code included) repaint only when the dimensions actually
- * CHANGE — so reattaching at the previous geometry would show a blank screen.
- * redraw()'s shrink/restore is ack-based (restores after the app's first frame), so
- * it lands correctly even while the abduco client is still connecting.
+ * An attach never signals a TUI to repaint (POD-4723): a viewer repaints from the
+ * daemon's screen snapshot, and the program repaints on a real size change only.
+ * A shell alone gets a Ctrl-L once attached (`hardRepaint`).
  */
 /**
  * How long a size-neutral attach waits for its client to connect before
@@ -1194,6 +1192,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<Durabl
  * reconnected viewer is not left looking at nothing.
  */
 const ATTACH_REPAINT_FALLBACK_MS = 1000
+const CTRL_L = Uint8Array.of(0x0c)
 
 /**
  * The size a size-neutral attach opens its pty at. `-N` means these dimensions
@@ -1211,11 +1210,11 @@ interface AbducoAttachCommon {
   /** Existing socket path, when recovery found a host-suffixed socket. */
   socketPath?: string
   env?: Record<string, string>
-  /** Reattaching a shell: nudge with Ctrl-L too, since it won't repaint on SIGWINCH while idle. */
+  /** Reattaching a shell: send Ctrl-L once attached, since an idle shell never repaints by itself. */
   hardRepaint?: boolean
   /**
    * False only after `spawnAbducoAgent` proved this is a live-master adoption.
-   * Fresh attaches default true; explicit redraw remains available afterward.
+   * Fresh attaches default true.
    */
   repaintOnAttach?: boolean
   backend?: PtyBackend
@@ -1248,7 +1247,7 @@ export type AbducoAttachOptions =
       /**
        * Used ONLY when no `-N` build exists and {@link resolveAttachBin}
        * downgrades this to an ordinary attach — which then APPLIES this geometry
-       * to the running program, and reports it back as `appliedGeometry`. Never
+       * to the running program (abduco reports nothing back: POD-4723). Never
        * read on the `-N` path. Last-known is the right value: the downgraded
        * attach re-grids the program, and any other size would leave the agent and
        * every viewer's render disagreeing until someone asked.
@@ -1278,56 +1277,39 @@ export function attachAbducoAgent(opts: AbducoAttachOptions): DurableAttachment 
   })
   let ready = false
   let repaintPending = false
-  let session: DurableAttachment
   let repaintTimer: ReturnType<typeof setTimeout> | undefined
+  // THE ONE REPAINT AN ATTACH MAY STILL ASK FOR (POD-4723): a shell's Ctrl-L.
+  // A TUI is never signalled by an attach — it repaints on a real size change,
+  // which only a viewer's ask produces.
+  const repaint = (): void => {
+    if (opts.hardRepaint) session.writeBytes(CTRL_L)
+  }
   const flushRepaint = (): void => {
     if (repaintTimer) clearTimeout(repaintTimer)
     repaintTimer = undefined
     if (!repaintPending) return
     repaintPending = false
-    session.redraw()
+    repaint()
   }
   const filtered = stripAttachChrome(proc, () => {
     ready = true
     flushRepaint()
   })
-  session = withHardRepaint(
-    wrapPty(filtered, {
-      cols: geometry.cols,
-      rows: geometry.rows,
-      sizeNeutral: attach.sizeNeutral,
-    }),
-    opts.hardRepaint ?? false,
-  )
+  const session = wrapPty(filtered)
   if (opts.repaintOnAttach ?? true) {
     if (attach.sizeNeutral) {
-      // A size-neutral attach repaints nothing by itself — the viewer's first ask
-      // does that. All this can still deliver is a SHELL's hard Ctrl-L, and a
-      // keystroke written before the attach client has taken the attach pty out
-      // of canonical mode sits in its line buffer — echoed, and delivered glued
-      // to whatever the viewer types next (measured: the agent read `0c796f0a`
-      // as one chunk). So wait for the client's first byte, with a fallback for a
-      // session quiet enough that none comes.
+      // A keystroke written before the attach client has taken the attach pty
+      // out of canonical mode sits in its line buffer — echoed, and delivered
+      // glued to whatever the viewer types next (measured: the agent read
+      // `0c796f0a` as one chunk). So wait for the client's first byte, with a
+      // fallback for a session quiet enough that none comes.
       repaintPending = true
       repaintTimer = setTimeout(flushRepaint, ATTACH_REPAINT_FALLBACK_MS)
       repaintTimer.unref?.()
-    } else session.redraw()
+    } else repaint()
   }
   return {
     ...session,
-    // A size-neutral attach applied nothing and reports nothing; an ordinary one
-    // — including a size-neutral request DOWNGRADED for want of a `-N` build —
-    // pushed this size onto the program, so the caller may report it (SPEC-3
-    // rule 1 rev 4: a report carries a geometry only when the daemon applied one).
-    ...(attach.sizeNeutral ? {} : { appliedGeometry: geometry }),
-    redrawWhenReady() {
-      if (ready) {
-        session.redraw()
-        return
-      }
-      repaintPending = true
-    },
-
     dispose() {
       if (repaintTimer) clearTimeout(repaintTimer)
       repaintTimer = undefined

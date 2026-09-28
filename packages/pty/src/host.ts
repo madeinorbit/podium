@@ -24,7 +24,7 @@ import {
 } from './abduco.js'
 import type { PtyProcess } from './backends/types.js'
 import { resolveHostBin } from './host-bin.js'
-import { type DurableAttachment, REDRAW_RESTORE_FALLBACK_MS, withHardRepaint, wrapPty } from './session.js'
+import { type DurableAttachment, wrapPty } from './session.js'
 
 const log = createLogger('pty:host')
 
@@ -196,7 +196,18 @@ export class HostConnection {
   private readonly closeCbs = new Set<(err?: Error) => void>()
   private readonly errCbs = new Set<(err: HostError) => void>()
   private readonly leaseLostCbs = new Set<() => void>()
+  private readonly sizeCbs = new Set<(size: Geometry) => void>()
   private closed = false
+  /**
+   * THE KERNEL'S SIZE, AS THE HOST LAST STATED IT (POD-4723, design rev 3).
+   *
+   * Written by WELCOME (when the host has a pty) and by RESIZED, and by
+   * nothing else: both frames carry the size the host read back from the
+   * kernel after its own TIOCSWINSZ. It lives on the connection, so it dies
+   * with it — a size can never outlive the terminal it describes. Every write
+   * fires {@link onSize}.
+   */
+  size: Geometry | undefined
   /** The seq of the byte AFTER the last DATA byte received: the resume point. */
   lastSeq: bigint | undefined
   exited: { code: number; signal: number } | undefined
@@ -247,6 +258,7 @@ export class HostConnection {
         }
         this.welcomed = w
         this.resolveWelcome(w)
+        if (w.hasPty) this.setSize(w.cols, w.rows)
         return
       }
       case HostFrame.DATA: {
@@ -274,9 +286,13 @@ export class HostConnection {
         for (const cb of [...this.gapCbs]) cb(low)
         return
       }
-      case HostFrame.RESIZED:
-        this.answer('resize', { cols: p.readUInt16BE(0), rows: p.readUInt16BE(2), changed: p[4] === 1 })
+      case HostFrame.RESIZED: {
+        const cols = p.readUInt16BE(0)
+        const rows = p.readUInt16BE(2)
+        this.setSize(cols, rows)
+        this.answer('resize', { cols, rows, changed: p[4] === 1 })
         return
+      }
       case HostFrame.SIZE_REPLY:
         this.answer('size', { cols: p.readUInt16BE(0), rows: p.readUInt16BE(2) })
         return
@@ -324,6 +340,12 @@ export class HostConnection {
       default:
         return // anything newer: ignored
     }
+  }
+
+  private setSize(cols: number, rows: number): void {
+    const size = { cols, rows }
+    this.size = size
+    for (const cb of [...this.sizeCbs]) cb(size)
   }
 
   private answer(kind: Pending['kind'], value: unknown): void {
@@ -396,6 +418,16 @@ export class HostConnection {
    */
   steal(): Promise<void> {
     return this.request<void>('steal', encodeHostFrame(HostFrame.STEAL))
+  }
+
+  /**
+   * Fired on every WELCOME (with a pty) and RESIZED: the kernel's size, as the
+   * host read it back. A same-size RESIZED fires too; a listener that only
+   * cares about changes compares for itself.
+   */
+  onSize(cb: (size: Geometry) => void): () => void {
+    this.sizeCbs.add(cb)
+    return () => this.sizeCbs.delete(cb)
   }
 
   /** Fired when this connection held the lease and someone stole it. */
@@ -656,8 +688,6 @@ async function reclaimStaleHostScope(
 
 // ---- DurableAttachment over a host connection ------------------------------------
 
-const CTRL_L = Uint8Array.of(0x0c)
-
 export interface HostAttachOptions {
   label: string
   /** Existing socket path; resolved from the label when absent. */
@@ -668,8 +698,6 @@ export interface HostAttachOptions {
    * attach right after a create), or `'tail'` for new output only.
    */
   fromSeq?: bigint | 'tail'
-  /** Reattaching a shell: `redraw()` defaults to the hard Ctrl-L repaint. */
-  hardRepaint?: boolean
   /**
    * Refuse when the host grants no writer lease (POD-4434): detach and throw
    * {@link WriterLeaseRefusedError} instead of holding a silent reader. The
@@ -688,13 +716,11 @@ export interface HostAttachOptions {
 export interface HostDurableAttachment extends DurableAttachment {
   readonly ready: Promise<HostWelcome>
   readonly connection: HostConnection
-  /** Kernel-reported size after the last RESIZED (or WELCOME); undefined until then. */
-  readonly appliedGeometry: Geometry | undefined
   /**
    * Replay the last `tailBytes` of the host's ring through `onFrame` — what a
    * viewer needs after a joint server+daemon restart, when the server's log is
    * empty and this daemon knows no seq. Nothing reaches the program (no signal,
-   * no resize), unlike `redraw()`.
+   * no resize).
    */
   replay(tailBytes: number): Promise<void>
 }
@@ -703,8 +729,8 @@ export interface HostDurableAttachment extends DurableAttachment {
  * Attach to a host as the writer. The connection is wrapped as a
  * `PtyProcess`-shaped view and handed to {@link wrapPty}, so frame/title/exit
  * plumbing is the one every backend uses. Differences from abduco, all in the
- * host's favour: `resize()` is acknowledged and `appliedGeometry` is the size the
- * KERNEL reports after it; the attach announces nothing to the program; `pid` is
+ * host's favour: `resize()` is acknowledged, and `size()`/`onSize` carry the size
+ * the KERNEL reports (WELCOME, RESIZED); the attach announces nothing to the program; `pid` is
  * the child's; `onExit` carries the real status; DATA arrives with sequence
  * numbers so a reconnect replays what was missed instead of asking for a repaint.
  */
@@ -714,7 +740,6 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
   const from = opts.fromSeq === undefined || opts.fromSeq === 'tail' ? HOST_TAIL : opts.fromSeq
   const conn = connectHost(socketPath, { mode: 'writer', fromSeq: from })
 
-  let applied: Geometry | undefined
   let childPid = 0
   let dataCb: ((bytes: Uint8Array) => void) | undefined
   let exitCb: ((e: { exitCode: number; signal?: number }) => void) | undefined
@@ -742,7 +767,6 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
 
   const ready = conn.welcome.then(async (w) => {
     childPid = w.childPid
-    if (w.hasPty) applied = { cols: w.cols, rows: w.rows }
     if (!w.lease) {
       if (opts.requireLease) {
         // REFUSE, never read silently: drop the connection and name the label
@@ -763,54 +787,6 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     return w
   })
   ready.catch(() => {})
-
-  /**
-   * THE SIZE THE CALLER LAST ASKED FOR (POD-4723). `applied` trails it by one
-   * socket round-trip, so anything that must act on "the size this pty is
-   * being put at" — the redraw nudge below — reads this, never `applied`.
-   * Reading `applied` there was the loss: the daemon sends a viewer resize and
-   * then a redraw in the same tick, the nudge shrank and restored around the
-   * BIRTH size still in `applied`, and the restore overwrote the viewer's size.
-   */
-  let asked: Geometry | undefined
-  /** Cancels an in-flight redraw nudge's restore; set only while one is pending. */
-  let cancelNudge: (() => void) | undefined
-  /** Restores an in-flight nudge NOW; set only while one is pending. */
-  let restoreNudge: (() => void) | undefined
-
-  const hostResize = (cols: number, rows: number): Promise<Geometry | undefined> =>
-    conn.resize(cols, rows).then(
-      (r) => (applied = { cols: r.cols, rows: r.rows }),
-      (err: unknown) => {
-        // Never silent: an ERR (not the writer, no pty, exited) or a closed
-        // connection means the kernel did NOT take this size.
-        if (!disposed) {
-          log.warn('podium-host did not apply a resize', {
-            label: opts.label,
-            cols,
-            rows,
-            err: err instanceof Error ? err.message : String(err),
-          })
-        }
-        return undefined
-      },
-    )
-
-  /**
-   * THE ACKNOWLEDGED RESIZE (POD-3919 audit item 4). The host answers every
-   * resize with a RESIZED frame carrying what the kernel now reports, so the
-   * acknowledgement is known — it just never left this module, because
-   * `DurableAttachment.resize` returns void. This resolves with it; `undefined`
-   * when the resize never reached the host or the host refused it.
-   *
-   * A caller's resize supersedes a redraw nudge still waiting to restore: the
-   * restore would put back the size the nudge started from, over this one.
-   */
-  const resizeAcknowledged = (cols: number, rows: number): Promise<Geometry | undefined> => {
-    asked = { cols, rows }
-    cancelNudge?.()
-    return hostResize(cols, rows)
-  }
 
   const proc: PtyProcess = {
     get pid() {
@@ -837,24 +813,32 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
         }
       })
     },
-    resize(cols, rows) {
-      // Fire-and-forget, exactly as before: the acknowledgement settles into
-      // `appliedGeometry` above for whoever reads it after.
-      void resizeAcknowledged(cols, rows)
-    },
+    // Unused: the attachment's own `resize` below answers the caller instead.
+    resize() {},
     kill() {
       conn.detach()
     },
   }
 
-  const base = wrapPty(proc, { cols: 0, rows: 0 })
-  const session = withHardRepaint(base, opts.hardRepaint ?? false)
+  const base = wrapPty(proc)
 
   return {
-    ...session,
+    ...base,
     ready,
     connection: conn,
-    resizeAcknowledged,
+    /**
+     * THE ASK (POD-4723, design rev 3). A FIFO request: it resolves once the
+     * host has applied it — the kernel's answer arrives as a size event, not
+     * here — and rejects with the host's ERR (not the writer, no pty, exited)
+     * or a closed connection, for the caller to log. The ask itself moves
+     * nothing on this side.
+     */
+    resize(cols, rows) {
+      if (disposed) return Promise.resolve()
+      return conn.resize(cols, rows).then(() => undefined)
+    },
+    size: () => conn.size,
+    onSize: (cb) => conn.onSize(cb),
     async replay(tailBytes) {
       if (disposed) return
       await ready
@@ -863,65 +847,10 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     get pid() {
       return childPid
     },
-    get appliedGeometry() {
-      return applied
-    },
-    geometry() {
-      return applied ?? { cols: 0, rows: 0 }
-    },
-    redraw(o) {
-      if (disposed) return
-      // A repaint is the program's behaviour, so the nudge is unchanged: Ctrl-L
-      // for idle shells, then a one-row shrink restored on the program's next
-      // frame — every step an acknowledged RESIZE through the host. Needs the
-      // kernel size, so it waits for WELCOME.
-      void ready.then(() => {
-        if (disposed) return
-        if (o?.hard) proc.write(CTRL_L)
-        // The size the pty is being PUT at, not the last one acknowledged: a
-        // resize asked in this same tick has not been answered yet (POD-4723).
-        const g = asked ?? applied
-        if (!g || g.rows <= 1) {
-          if (!o?.hard) proc.write(CTRL_L)
-          return
-        }
-        cancelNudge?.()
-        void hostResize(g.cols, g.rows - 1)
-        // Restore on the program's next frame — its answer to the shrink, so the
-        // restore is a genuine size change that repaints — or after a bound,
-        // for a program that answers a SIGWINCH with nothing: without it the
-        // pty would sit one row short until something else resized it
-        // (POD-4723: the 80x23 hosts). Late is only a longer transient; never
-        // is a wrong size.
-        const restore = (): void => {
-          cancel()
-          if (!disposed) void hostResize(g.cols, g.rows)
-        }
-        const offData = conn.onData(restore)
-        const timer = setTimeout(restore, REDRAW_RESTORE_FALLBACK_MS)
-        timer.unref?.()
-        const cancel = (): void => {
-          offData()
-          clearTimeout(timer)
-          if (cancelNudge === cancel) {
-            cancelNudge = undefined
-            restoreNudge = undefined
-          }
-        }
-        cancelNudge = cancel
-        restoreNudge = restore
-      }).catch(() => {
-        // Redraw is fire-and-forget; connection failure remains exposed by ready.
-      })
-    },
     dispose() {
       if (disposed) return
-      // Detaching mid-nudge must not leave the program one row short for
-      // whoever attaches next: put the row back first. The host handles frames
-      // in order, so the RESIZE lands before the DETACH below.
-      restoreNudge?.()
       disposed = true
-      session.dispose() // calls proc.kill → DETACH
+      base.dispose() // calls proc.kill → DETACH
     },
   }
 }

@@ -67,9 +67,9 @@ export interface DurableAttachOptions {
 
 /**
  * What locating a live master and attaching to it returns (POD-4434): the new
- * attachment over the surviving process, plus what only the attach knows — the
- * display command, whether the program must be asked to repaint, and the
- * kernel size when the host can report it. Formerly `DurableAttachment`; that
+ * attachment over the surviving process, plus the display command. The kernel
+ * size, where the backend can read it, is the attachment's own `size()`.
+ * Formerly `DurableAttachment`; that
  * name is the attachment handle itself (`DurableAttachment` in `./session.js`),
  * and this struct is the reattach result that carries one.
  */
@@ -77,19 +77,6 @@ export interface DurableReattach {
   attachment: DurableAttachment
   /** The display command the bind reports for the attach. */
   cmd: string
-  /**
-   * Whether the reattach path should nudge a repaint after binding. abduco keeps
-   * no output history, so a reattach must ask the program to repaint. The host
-   * never does (SPEC-6): with a known seq its ring replays exactly what was
-   * missed; without one it attaches at the tail and the server's own byte log
-   * is what a viewer renders until it asks for a size.
-   */
-  redrawOnReattach: boolean
-  /**
-   * The kernel-reported size of the running program, when the host can say
-   * (the host's WELCOME). abduco's size-neutral attach reports nothing.
-   */
-  readGeometry: Geometry | undefined
 }
 
 /** One adapter per host implementation. */
@@ -203,14 +190,12 @@ export function abducoDurableAdapter(): DurableAdapter {
         // Read ONLY if this machine has no `-N` abduco build and the attach
         // downgrades to one that does announce a size. Last-known is then the
         // only size that keeps the agent and every viewer's render agreeing;
-        // the session reports it back as `appliedGeometry`.
+        // nothing is reported back (POD-4723: abduco cannot read its size).
         fallbackGeometry: opts.lastKnownGeometry,
       })
       return {
         attachment,
         cmd: `abduco -a ${opts.socketPath}`,
-        redrawOnReattach: true,
-        readGeometry: undefined,
       }
     },
     async steal(opts) {
@@ -251,12 +236,10 @@ export function hostDurableAdapter(): DurableAdapter {
         fromSeq: opts.lastSeq ?? 'tail',
         ...(opts.requireLease ? { requireLease: true as const } : {}),
       })
-      const welcome = await attachment.ready
+      await attachment.ready
       return {
         attachment,
         cmd: `podium-host attach ${opts.socketPath}`,
-        redrawOnReattach: false,
-        readGeometry: welcome.hasPty ? { cols: welcome.cols, rows: welcome.rows } : undefined,
       }
     },
     async steal(opts) {
@@ -269,13 +252,11 @@ export function hostDurableAdapter(): DurableAdapter {
         socketPath: opts.socketPath,
         fromSeq: opts.lastSeq ?? 'tail',
       })
-      const welcome = await attachment.ready
+      await attachment.ready
       await attachment.connection.steal()
       return {
         attachment,
         cmd: `podium-host attach ${opts.socketPath}`,
-        redrawOnReattach: false,
-        readGeometry: welcome.hasPty ? { cols: welcome.cols, rows: welcome.rows } : undefined,
       }
     },
     has: (label) => hostHasSession(label),

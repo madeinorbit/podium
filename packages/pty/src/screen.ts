@@ -1,8 +1,8 @@
 /**
  * @podium/process/screen — terminal-screen concerns (P2a door, P2c filled).
  *
- * What a process is showing: the `DurableAttachment` wrapper (framing, redraw,
- * OSC title scan, geometry tracking), the title scanner itself, the cgroup
+ * What a process is showing: the `DurableAttachment` wrapper (framing and
+ * OSC title scan), the title scanner itself, the cgroup
  * resource helpers the scope monitor reads, POSIX shell quoting for `sh -c`
  * attach paths, the alt-screen stripper, the headless screen model, the 1049
  * screen-mode tracker, the reopen policy, and `TerminalScreen` — the one
@@ -15,7 +15,6 @@ export {
   type SpawnOptions,
   type AgentFrame,
   type DurableAttachment,
-  withHardRepaint,
   wrapPty,
 } from './session.js'
 export { type TitleScanner, createTitleScanner } from './osc-title.js'

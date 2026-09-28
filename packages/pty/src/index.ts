@@ -12,10 +12,9 @@
  *    the root deliberately does NOT re-export it, so building a durable host
  *    is always a visible, deliberate import (P2a closes the blanket hole that
  *    let a module do it unnoticed).
- *  - **framing / redraw / OSC scan** (`./screen`) — {@link wrapPty} turns raw
- *    PTY output into sequenced raw-byte frames, forces genuine repaints (the
- *    shrink-and-restore nudge, Ctrl-L for idle shells), and lifts the OSC 0/1/2
- *    title the child sets. Cgroup resource helpers and POSIX shell quoting
+ *  - **framing / OSC scan** (`./screen`) — {@link wrapPty} turns raw PTY
+ *    output into sequenced raw-byte frames and lifts the OSC 0/1/2 title the
+ *    child sets. Cgroup resource helpers and POSIX shell quoting
  *    live here too.
  *
  * This package is deliberately **harness-agnostic**: it does not know that
@@ -47,7 +46,6 @@ export {
   type SpawnOptions,
   type AgentFrame,
   type DurableAttachment,
-  withHardRepaint,
   wrapPty,
 } from './session.js'
 export { type TitleScanner, createTitleScanner } from './osc-title.js'

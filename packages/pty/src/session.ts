@@ -4,17 +4,6 @@ import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { createTitleScanner } from './osc-title.js'
 
-const CTRL_L = Uint8Array.of(0x0c)
-
-/**
- * How long a redraw nudge waits for the program's answering frame before it
- * restores the row it took anyway (POD-4723). The frame is the preferred
- * trigger — it proves the program saw the shrink, so the restore repaints —
- * but a program that answers a SIGWINCH with nothing would otherwise leave the
- * pty one row short until something else resized it.
- */
-export const REDRAW_RESTORE_FALLBACK_MS = 1000
-
 export interface SpawnOptions {
   cmd: string
   args?: string[]
@@ -54,33 +43,28 @@ export interface DurableAttachment {
   write(dataBase64: string): void
   /** Canonical PTY input boundary: write the exact bytes without text conversion. */
   writeBytes(data: Uint8Array): void
-  resize(cols: number, rows: number): void
   /**
-   * Resize and resolve with what the backend ACKNOWLEDGED — the size the
-   * kernel now reports, which is not always what was asked for. `resize()`
-   * returns void, so without this the acknowledgement a host already tracks
-   * (its RESIZED frame) is unreachable from the daemon, and the applied-size
-   * record can only state the request (POD-3919 audit item 4).
-   *
-   * Optional: backends with no acknowledgement (abduco, direct ptys) omit it
-   * and callers fall back to the requested size. Resolves `undefined` when the
-   * resize could not be acknowledged — the caller must then treat the request
-   * as unapplied, not as applied at the requested size.
+   * THE ASK (POD-4723, design rev 3): put the program at this size. It moves
+   * nothing on the caller's side — the kernel's answer arrives through
+   * {@link onSize}. A host answers with a promise that REJECTS when it refuses
+   * (not the writer, no pty, exited) or the connection is gone, so the caller
+   * can log the refusal; a backend with no acknowledgement returns nothing.
    */
-  resizeAcknowledged?(cols: number, rows: number): Promise<Geometry | undefined>
+  resize(cols: number, rows: number): Promise<void> | void
   /**
-   * Force a real repaint even when geometry is unchanged. `hard` additionally
-   * injects Ctrl-L for programs that ignore the SIGWINCH nudge while idle (shells
-   * at their prompt); leave it off for TUIs, which repaint on resize and would
-   * mishandle a stray ^L in their input.
+   * The kernel's size as the host last stated it (WELCOME or RESIZED), or
+   * `undefined` before the first statement. A method, never a copied field:
+   * a spread of the attachment must not freeze it. Absent on backends that
+   * cannot read the size back (abduco, a direct pty) — those report nothing.
    */
-  redraw(opts?: { hard?: boolean }): void
-  /** Queue a repaint until the transport has acknowledged attachment. Optional:
-   * direct PTYs are ready immediately; durable multiplexers implement this when
-   * an early resize can be lost while their attach client is still connecting. */
-  redrawWhenReady?(): void
+  size?(): Geometry | undefined
+  /**
+   * THE SIZE EVENT: fired with the kernel's size on every WELCOME and RESIZED.
+   * The only thing a daemon moves its report, model, observers and composer
+   * on. Absent where {@link size} is.
+   */
+  onSize?(cb: (size: Geometry) => void): () => void
 
-  geometry(): Geometry
   dispose(): void
   /**
    * Set when a spawn ADOPTED a durable master that already owned the label instead
@@ -89,24 +73,6 @@ export interface DurableAttachment {
    * than report a fresh launch.
    */
   readonly adopted?: boolean
-  /**
-   * The geometry this attach ANNOUNCED to the running program, when it announced
-   * one. Absent on a size-neutral attach, which applies nothing — so a caller
-   * reporting "what I applied" reports exactly this and nothing when it is
-   * absent [spec:SP-6144].
-   */
-  readonly appliedGeometry?: Geometry
-}
-
-/**
- * Wrap a session so a bare `redraw()` defaults to a HARD (Ctrl-L) repaint. Used for
- * reattached shells: they sit idle at their prompt and emit nothing on SIGWINCH, so
- * the soft nudge alone leaves a blank screen after reattach. A no-op when `hard` is
- * false, so TUIs keep the soft path. An explicit `redraw({ hard })` still wins.
- */
-export function withHardRepaint(session: DurableAttachment, hard: boolean): DurableAttachment {
-  if (!hard) return session
-  return { ...session, redraw: (opts) => session.redraw({ hard: opts?.hard ?? true }) }
 }
 
 export function spawnAgent(
@@ -136,35 +102,12 @@ export function spawnAgent(
     // was launched) but before opts.env so callers/tests can still override.
     env: childEnv,
   })
-  return wrapPty(proc, { cols: opts.cols, rows: opts.rows })
+  return wrapPty(proc)
 }
 
-export function wrapPty(
-  proc: PtyProcess,
-  init: {
-    cols: number
-    rows: number
-    /**
-     * This pty's size is not an opinion about the program's size — set on an
-     * abduco attach that carries `-N`, whose pty is opened at a sentinel size
-     * [spec:SP-6144]. Until a viewer asks, `redraw()` therefore does not nudge:
-     * the nudge is a REAL resize of the attach pty, the attach client forwards
-     * it, and the master applies it to the program, so a reconnect would push a
-     * size nobody asked for onto a running agent (measured: the restore lands on
-     * the next frame from a chatty agent and moves it).
-     */
-    sizeNeutral?: boolean
-  },
-): DurableAttachment {
-  let cols = init.cols
-  let rows = init.rows
+export function wrapPty(proc: PtyProcess): DurableAttachment {
   let seq = 0
   let disposed = false
-  let cancelNudge: (() => void) | undefined
-  // Whether a viewer has asked this session for a size yet. Always true for an
-  // ordinary attach, whose pty size IS the program's; a size-neutral one starts
-  // at a sentinel and stays silent until the first ask.
-  let announced = !init.sizeNeutral
   const frameCbs = new Set<(f: AgentFrame) => void>()
   const exitCbs = new Set<(code: number) => void>()
   const titleCbs = new Set<(t: string) => void>()
@@ -219,59 +162,11 @@ export function wrapPty(
     },
     resize(c, r) {
       if (disposed) return
-      cols = c
-      rows = r
-      announced = true
       proc.resize(c, r)
-    },
-    redraw(opts) {
-      if (disposed) return
-      // Idle shells ignore the SIGWINCH nudge below; Ctrl-L makes readline/zle
-      // redraw the prompt regardless. Sent before the resize so the shrink's ack
-      // frame (the restore trigger) is the repaint we just forced.
-      if (opts?.hard) proc.write(CTRL_L)
-      // A size-neutral attach has no size to nudge WITH until a viewer has asked
-      // for one — its pty is a sentinel, deliberately unrelated to the program's
-      // size. Nudging from it would move the program, which is the whole thing
-      // this attach exists to avoid; and no repaint is owed, because the ask
-      // itself repaints (the master signals the program on every resize packet,
-      // even a same-size one). Shells still got their Ctrl-L just above.
-      if (init.sizeNeutral && !announced) return
-      if (rows <= 1) {
-        if (!opts?.hard) proc.write(CTRL_L) // Ctrl-L fallback when a one-row nudge is impossible
-        return
-      }
-      cancelNudge?.() // drop any in-flight nudge
-      // Shrink one row, then restore — but only AFTER the child emits a frame in
-      // response to the shrink. A timer-based restore races the child's scheduling:
-      // under load both resizes can land before the child reads the intermediate
-      // size, so the net size is unchanged and Node suppresses the 'resize' event
-      // (tty._refreshSize only fires on a real dimension change) — no repaint.
-      // Acking on the next frame guarantees the child observed the shrink, so the
-      // restore is always a genuine size change that forces a repaint.
-      proc.resize(cols, rows - 1)
-      // …or after a bound, for a program that never answers (POD-4723): late is
-      // only a longer transient, never a pty stranded one row short.
-      const restore = () => {
-        cancelNudge?.()
-        if (!disposed) proc.resize(cols, rows)
-      }
-      const timer = setTimeout(restore, REDRAW_RESTORE_FALLBACK_MS)
-      timer.unref?.()
-      cancelNudge = () => {
-        frameCbs.delete(restore)
-        clearTimeout(timer)
-        cancelNudge = undefined
-      }
-      frameCbs.add(restore)
-    },
-    geometry() {
-      return { cols, rows }
     },
     dispose() {
       if (disposed) return
       disposed = true
-      cancelNudge?.()
       frameCbs.clear()
       titleCbs.clear()
       exitCbs.clear()
