@@ -11,6 +11,7 @@
  * Platform-neutral: no DOM, no storage, no styling vocabulary.
  */
 import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 
 /** "resets in 40m" / "resets in 2h 14m" / "resets in 1d 4h". */
 export function formatReset(resetsAt: string, nowMs: number): string {
@@ -39,16 +40,16 @@ export function windowShortLabel(label: string): string {
   return label.replace(/-hour/i, 'h').replace(/weekly/i, 'wk')
 }
 
-const AGENT_LABELS: Record<string, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  shell: 'Shell',
-}
+/**
+ * Picker label for a harness, read off its one home in the harness package
+ * (POD-4737): the adapter's descriptor row, via the bundled fallback. A harness
+ * this build has never heard of renders as its own kind — never another
+ * harness's label. 'shell' is not a harness (no descriptor); it keeps its
+ * neutral name, which the vendor-boundary lint does not count.
+ */
 export function agentLabel(agent: AgentKind): string {
-  return AGENT_LABELS[agent] ?? agent
+  if (agent === 'shell') return 'Shell'
+  return bundledDescriptorFor(agent)?.label ?? agent
 }
 
 /** Two-character provider mark for scoped meters in the constrained top bar. */

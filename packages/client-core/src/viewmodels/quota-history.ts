@@ -21,6 +21,7 @@
  */
 
 import type { AgentKind, QuotaWindowHistoryWire } from '@podium/model'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 
 /** Windows the ledger charts. See the header: 5-hour sessions are out of scope. */
 const LEDGER_WINDOW_KEYS = new Set(['weekly', 'weekly-all'])
@@ -101,13 +102,14 @@ export interface QuotaLedgerView {
   hasBackfill: boolean
 }
 
-const AGENT_LABEL: Record<string, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  shell: 'Shell',
+/**
+ * Picker label for a harness, read off its one home in the harness package
+ * (POD-4737): the adapter's descriptor row, via the bundled fallback. Unknown
+ * kinds render as their own kind. 'shell' is not a harness (no descriptor).
+ */
+function agentLedgerLabel(agent: string): string {
+  if (agent === 'shell') return 'Shell'
+  return bundledDescriptorFor(agent)?.label ?? agent
 }
 
 const AGENT_MARK: Record<string, string> = {
@@ -330,7 +332,7 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
       key,
       agent: first.agent,
       mark: AGENT_MARK[first.agent] ?? first.agent.slice(0, 2).toUpperCase(),
-      agentLabel: AGENT_LABEL[first.agent] ?? first.agent,
+      agentLabel: agentLedgerLabel(first.agent),
       // Closed windows only: a running one is still growing, so its length so far
       // is not the length it will turn out to have had.
       windowLabel: cadenceLabel(
@@ -361,7 +363,7 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
     averagePeak: average,
     completedCount: allCompleted.length,
     bestPeak: best?.peakPercent,
-    bestLabel: best ? `${best.spanLabel} · ${AGENT_LABEL[best.agent] ?? best.agent}` : undefined,
+    bestLabel: best ? `${best.spanLabel} · ${agentLedgerLabel(best.agent)}` : undefined,
     unusedWindows:
       average === undefined ? undefined : ((100 - average) / 100) * allCompleted.length,
     earliestAt: earliest,

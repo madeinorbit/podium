@@ -28,6 +28,7 @@ import type {
   TaskCostState,
   TaskCostWire,
 } from '@podium/model'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
 
 /**
@@ -457,10 +458,13 @@ export function formatCostMark(usd: number, floor: CostFloor): string {
  *  shows a figure to the cent, never paraphrased into a second wording. */
 export const COST_HEDGE = 'at list price for the same tokens — not what you were billed'
 
-const HARNESS_WORD: Record<CostHarness, string> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
+/**
+ * One harness's word in the attribution sentence, read off its one home in the
+ * harness package (POD-4737): the adapter's descriptor shortLabel, via the
+ * bundled fallback. Unknown kinds render as their own kind.
+ */
+function harnessWord(harness: CostHarness): string {
+  return bundledDescriptorFor(harness)?.shortLabel ?? harness
 }
 
 /**
@@ -474,7 +478,7 @@ const HARNESS_WORD: Record<CostHarness, string> = {
  * that is the claim ("nothing else contributed"); two or more are simply named.
  */
 export function costHarnessLabel(harnesses: readonly CostHarness[]): string {
-  const words = harnesses.map((h) => HARNESS_WORD[h])
+  const words = harnesses.map((h) => harnessWord(h))
   if (words.length === 0) return ''
   if (words.length === 1) return `all ${words[0] as string}`
   return words.join(' + ')
