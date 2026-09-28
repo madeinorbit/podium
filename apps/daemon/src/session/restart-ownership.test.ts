@@ -228,6 +228,9 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     })
     const entry1 = sessions1.ensure(SESSION)
     entry1.client = { label: clientLabel, kind: 'codex' }
+    // Mirrored onto the entry's `clientLabel`, as the relay does at open: the
+    // label is what teardown names after the policy is retired.
+    entry1.clientLabel = clientLabel
     entry1.nativeRequested = true
     const terminal1 = Terminal.attach(clientAttachment1, entry1.screen(), { onFrame: () => {} }, { kind: 'client' })
     entry1.replaceTerminal(terminal1)
@@ -243,15 +246,17 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     expect(address1).toMatch(/^unix:\/\//)
     expect(journal.store.read(SESSION)).toMatchObject({ address: address1 })
     expect(entry1.client).toMatchObject({ label: clientLabel })
+    expect(entry1.clientLabel).toBe(clientLabel)
     // The driver holds the lease and nothing else: no Terminal, no socket
     // path, no journal on the handle.
     expect(handle1).toMatchObject({ controllerLease: { holder: 'native-tui-1' } })
     expect(handle1).not.toHaveProperty('terminal')
     expect(handle1).not.toHaveProperty('engine')
     expect(handle1).not.toHaveProperty('journal')
-    // The session owns both processes by durable label (A6).
+    // The session owns both processes by durable label (A6): probed through
+    // the session scopes, the same verbs production uses.
     expect(await scope1.engineAlive(engineLabel)).toBe(true)
-    expect(clients.durable.hasMasterSync(clientLabel)).toBe(true)
+    expect(clientScope1.hasClientMaster(clientLabel)).toBe(true)
 
     // -- The restart: daemon close destroys every holder (host-runtime.ts) --
     // Server-family reaps start first (POD-4610) while the entries still name
@@ -266,9 +271,10 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     expect(entry1.driver).toBeUndefined()
     expect(entry1.engine).toBeUndefined()
     expect(entry1.client).toBeUndefined()
+    expect(entry1.clientLabel).toBeUndefined()
     expect(await scope1.engineAlive(engineLabel)).toBe(true)
-    expect(clients.durable.hasMasterSync(clientLabel)).toBe(true)
-    expect(journal.store.read(SESSION)?.address).toBe(address1)
+    expect(clientScope1.hasClientMaster(clientLabel)).toBe(true)
+    expect(journal.store.read(SESSION)).toMatchObject({ address: address1 })
 
     // -- Generation 2: the next boot re-attaches and adopts -----------------
     const sessions2 = new SessionRegistry()
@@ -302,6 +308,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     })
     const entry2 = sessions2.ensure(SESSION)
     entry2.client = { label: clientLabel, kind: 'codex' }
+    entry2.clientLabel = clientLabel
     entry2.nativeRequested = true
     const terminal2 = Terminal.attach(clientAttachment2, entry2.screen(), { onFrame: () => {} }, { kind: 'client' })
     entry2.replaceTerminal(terminal2)
@@ -325,6 +332,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     expect(entry2.engine).toMatchObject({ label: engineLabel, address: address1 })
     expect(journal.store.read(SESSION)).toMatchObject({ address: address1 })
     expect(entry2.client).toMatchObject({ label: clientLabel, kind: 'codex' })
+    expect(entry2.clientLabel).toBe(clientLabel)
     expect(handle2).toMatchObject({ controllerLease: { holder: 'native-tui-2' } })
     expect(handle2).not.toHaveProperty('terminal')
     expect(handle2).not.toHaveProperty('engine')
