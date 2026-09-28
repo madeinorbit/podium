@@ -47,6 +47,7 @@ import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { writeCodexStartupFixture } from './codex-fixture'
 import {
   applyHarnessEnv,
+  applyRealAgentClaudeEnv,
   applyRealAgentCodexEnv,
   harnessPidFile,
   harnessScratchRepo,
@@ -186,6 +187,9 @@ if (realAgentCodexEnv) {
   // Seed only non-secret startup state after its private home exists: every
   // harness worktree is trusted and personality onboarding is already resolved.
   writeCodexStartupFixture(realAgentCodexEnv.codexHomeDir, [REPO_ROOT, SCRATCH_REPO, SCRATCH_FEAT])
+  // Claude reads the same private home (the spawn sets HOME to it), so it needs
+  // its own login copy and folder trust or the launch composer shows it signed out.
+  applyRealAgentClaudeEnv(realAgentCodexEnv, [REPO_ROOT, SCRATCH_REPO, SCRATCH_FEAT])
   await ensurePodiumCodexHooks({ homeDir: realAgentCodexEnv.discoveryHomeDir })
 }
 const realCodexTraceRoot = process.env.CODEX_ROLLOUT_TRACE_ROOT

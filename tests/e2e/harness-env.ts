@@ -307,6 +307,59 @@ export function applyRealAgentCodexEnv(
   return dirs
 }
 
+export interface RealAgentClaudeEnvOptions {
+  /** Test hook: the native home containing .claude/.credentials.json and .claude.json. */
+  sourceHomeDir?: string
+}
+
+/**
+ * Give opt-in real-agent browser runs a logged-in Claude inside the same private
+ * home the Codex half created. The daemon's login gate and the spawned CLI both
+ * read `<home>/.claude/.credentials.json` (the spawn sets HOME to the discovery
+ * home), so a home without it shows "Claude Code signed out" and refuses to
+ * launch. Only the credential file is copied verbatim; `.claude.json` is rebuilt
+ * from the onboarding markers plus trust for the harness worktrees, so the
+ * developer's project history never enters the test.
+ */
+export function applyRealAgentClaudeEnv(
+  dirs: ReturnType<typeof harnessEnv>,
+  trustedPaths: readonly string[],
+  options: RealAgentClaudeEnvOptions = {},
+): void {
+  const sourceHomeDir = options.sourceHomeDir ?? homedir()
+  const sourceCredentials = join(sourceHomeDir, '.claude', '.credentials.json')
+  const sourceState = join(sourceHomeDir, '.claude.json')
+  if (!existsSync(sourceCredentials) || !existsSync(sourceState)) {
+    throw new Error(
+      `PODIUM_E2E_REAL_AGENTS=1 requires a native Claude login at ${sourceCredentials}; run claude and /login first`,
+    )
+  }
+  const claudeDir = join(dirs.discoveryHomeDir, '.claude')
+  mkdirSync(claudeDir, { recursive: true, mode: 0o700 })
+  chmodSync(claudeDir, 0o700)
+  const isolatedCredentials = join(claudeDir, '.credentials.json')
+  copyFileSync(sourceCredentials, isolatedCredentials, constants.COPYFILE_EXCL)
+  chmodSync(isolatedCredentials, 0o600)
+
+  const source = JSON.parse(readFileSync(sourceState, 'utf8')) as Record<string, unknown>
+  const state: Record<string, unknown> = {
+    hasCompletedOnboarding: true,
+    ...(typeof source.lastOnboardingVersion === 'string'
+      ? { lastOnboardingVersion: source.lastOnboardingVersion }
+      : {}),
+    ...(source.oauthAccount ? { oauthAccount: source.oauthAccount } : {}),
+    projects: Object.fromEntries(
+      trustedPaths.map((path) => [
+        path,
+        { hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true },
+      ]),
+    ),
+  }
+  const isolatedState = join(dirs.discoveryHomeDir, '.claude.json')
+  writeFileSync(isolatedState, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+  chmodSync(isolatedState, 0o600)
+}
+
 /**
  * SIGTERM every abduco master inside the harness dirs, then wipe.
  * Callers validate the ownership marker before reaching this private helper.
