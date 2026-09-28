@@ -25,6 +25,7 @@
  */
 
 import { createLogger } from '@podium/logger'
+import { CREDENTIAL_PROPAGATION_HARNESSES } from '@podium/harness/metadata'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -370,7 +371,10 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         !recoveryTransportOnly(registry) &&
         (outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials
       ) {
-        for (const agentKind of ['claude-code', 'codex'] as const) {
+        // Every harness with a propagatable native login (POD-4737): derived
+        // from the registry, so a third propagatable harness is picked up
+        // with no second edit here.
+        for (const agentKind of CREDENTIAL_PROPAGATION_HARNESSES) {
           await registry.modules.loginPropagation.trigger({
             targetMachineId: outcome.principal.machine,
             agentKind,

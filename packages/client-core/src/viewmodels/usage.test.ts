@@ -482,6 +482,10 @@ describe('bucketProvider', () => {
     ['grok-4.6-build', 'xai'],
     // An id belonging to neither is not guessed into one.
     ['some-new-model', 'other'],
+    // Future family ids read off the qualified fallbacks (POD-4737), at
+    // default rates under the family vendor — as the prefix rules did.
+    ['grok-5', 'xai'],
+    ['claude-9', 'anthropic'],
   ])('reads %s as %s', (model, expected) => {
     expect(bucketProvider(model)).toBe(expected)
   })

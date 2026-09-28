@@ -126,6 +126,9 @@ export interface UsageSummaryView {
  */
 interface ModelPricing {
   match: string
+  /** Which vendor bills this family — read by bucketProvider, so price and
+   *  provider can never disagree about where a model belongs. */
+  provider: UsageProvider
   inPerM: number
   outPerM: number
   cacheReadPerM: number
@@ -175,6 +178,7 @@ const PRICING: ModelPricing[] = [
   // first: `claude-fable-5-1` also contains `fable`.
   {
     match: 'fable-5-1',
+    provider: 'anthropic',
     inPerM: 10,
     outPerM: 50,
     cacheReadPerM: 0.25,
@@ -186,6 +190,7 @@ const PRICING: ModelPricing[] = [
   // model that gets reached for precisely on the expensive work.
   {
     match: 'fable',
+    provider: 'anthropic',
     inPerM: 10,
     outPerM: 50,
     cacheReadPerM: 1,
@@ -194,6 +199,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'mythos',
+    provider: 'anthropic',
     inPerM: 10,
     outPerM: 50,
     cacheReadPerM: 1,
@@ -202,6 +208,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'opus',
+    provider: 'anthropic',
     inPerM: 5,
     outPerM: 25,
     cacheReadPerM: 0.5,
@@ -211,6 +218,7 @@ const PRICING: ModelPricing[] = [
   // Anthropic made the $2/$10 Sonnet 5 launch tier permanent on 2026-08-11.
   {
     match: 'sonnet-5',
+    provider: 'anthropic',
     inPerM: 2,
     outPerM: 10,
     cacheReadPerM: 0.2,
@@ -219,6 +227,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'sonnet',
+    provider: 'anthropic',
     inPerM: 3,
     outPerM: 15,
     cacheReadPerM: 0.3,
@@ -227,6 +236,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'haiku',
+    provider: 'anthropic',
     inPerM: 1,
     outPerM: 5,
     cacheReadPerM: 0.1,
@@ -239,6 +249,7 @@ const PRICING: ModelPricing[] = [
   // not a billed class on the published list; cached input is.
   {
     match: 'grok-4.6',
+    provider: 'xai',
     inPerM: 2,
     outPerM: 6,
     cacheReadPerM: 0.5,
@@ -247,6 +258,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'grok-4.5',
+    provider: 'xai',
     inPerM: 2,
     outPerM: 6,
     cacheReadPerM: 0.3,
@@ -255,6 +267,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'grok-4.3',
+    provider: 'xai',
     inPerM: 1.25,
     outPerM: 2.5,
     cacheReadPerM: 0.2,
@@ -263,6 +276,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'grok-4.20-multi-agent',
+    provider: 'xai',
     inPerM: 1.25,
     outPerM: 2.5,
     cacheReadPerM: 0.2,
@@ -271,6 +285,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'grok-4.20',
+    provider: 'xai',
     inPerM: 1.25,
     outPerM: 2.5,
     cacheReadPerM: 0.2,
@@ -279,6 +294,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'grok-build',
+    provider: 'xai',
     inPerM: 1,
     outPerM: 2,
     cacheReadPerM: 0.2,
@@ -291,6 +307,7 @@ const PRICING: ModelPricing[] = [
   // both carry a single write rate, so 5m and 1h are equal here.
   {
     match: 'gpt-6-astra',
+    provider: 'openai',
     inPerM: 10,
     outPerM: 50,
     cacheReadPerM: 1,
@@ -302,6 +319,7 @@ const PRICING: ModelPricing[] = [
   // that bills for cache writes.
   {
     match: 'gpt-5.6-luna',
+    provider: 'openai',
     inPerM: 0.2,
     outPerM: 1.2,
     cacheReadPerM: 0.02,
@@ -310,6 +328,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.6-terra',
+    provider: 'openai',
     inPerM: 2,
     outPerM: 12,
     cacheReadPerM: 0.2,
@@ -318,6 +337,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.6-sol',
+    provider: 'openai',
     inPerM: 4,
     outPerM: 20,
     cacheReadPerM: 0.4,
@@ -327,6 +347,7 @@ const PRICING: ModelPricing[] = [
   // The bare `gpt-5.6` alias routes to Sol, so it prices as Sol.
   {
     match: 'gpt-5.6',
+    provider: 'openai',
     inPerM: 4,
     outPerM: 20,
     cacheReadPerM: 0.4,
@@ -340,6 +361,7 @@ const PRICING: ModelPricing[] = [
   // input, and writes are 0 like every other non-5.6/6 OpenAI row.
   {
     match: 'gpt-5.5-pro',
+    provider: 'openai',
     inPerM: 30,
     outPerM: 180,
     cacheReadPerM: 3,
@@ -348,6 +370,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.5',
+    provider: 'openai',
     inPerM: 5,
     outPerM: 30,
     cacheReadPerM: 0.5,
@@ -356,6 +379,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.4-pro',
+    provider: 'openai',
     inPerM: 30,
     outPerM: 180,
     cacheReadPerM: 3,
@@ -364,6 +388,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.4-nano',
+    provider: 'openai',
     inPerM: 0.2,
     outPerM: 1.25,
     cacheReadPerM: 0.02,
@@ -372,6 +397,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.4-mini',
+    provider: 'openai',
     inPerM: 0.75,
     outPerM: 4.5,
     cacheReadPerM: 0.075,
@@ -380,6 +406,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.4',
+    provider: 'openai',
     inPerM: 2.5,
     outPerM: 15,
     cacheReadPerM: 0.25,
@@ -390,6 +417,7 @@ const PRICING: ModelPricing[] = [
   // `gpt-5.3-chat-latest`, which all list at this rate.
   {
     match: 'gpt-5.3',
+    provider: 'openai',
     inPerM: 1.75,
     outPerM: 14,
     cacheReadPerM: 0.175,
@@ -398,6 +426,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.2-pro',
+    provider: 'openai',
     inPerM: 21,
     outPerM: 168,
     cacheReadPerM: 2.1,
@@ -406,6 +435,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.2',
+    provider: 'openai',
     inPerM: 1.75,
     outPerM: 14,
     cacheReadPerM: 0.175,
@@ -414,6 +444,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5.1',
+    provider: 'openai',
     inPerM: 1.25,
     outPerM: 10,
     cacheReadPerM: 0.125,
@@ -424,6 +455,7 @@ const PRICING: ModelPricing[] = [
   // below — otherwise it bills at $1.25/$10, 12x under its $15/$120 tier.
   {
     match: 'gpt-5-pro',
+    provider: 'openai',
     inPerM: 15,
     outPerM: 120,
     cacheReadPerM: 1.5,
@@ -432,6 +464,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5-nano',
+    provider: 'openai',
     inPerM: 0.05,
     outPerM: 0.4,
     cacheReadPerM: 0.005,
@@ -440,6 +473,7 @@ const PRICING: ModelPricing[] = [
   },
   {
     match: 'gpt-5-mini',
+    provider: 'openai',
     inPerM: 0.25,
     outPerM: 2,
     cacheReadPerM: 0.025,
@@ -449,6 +483,7 @@ const PRICING: ModelPricing[] = [
   // Also catches the retired `gpt-5-codex`, which billed at this rate.
   {
     match: 'gpt-5',
+    provider: 'openai',
     inPerM: 1.25,
     outPerM: 10,
     cacheReadPerM: 0.125,
@@ -468,6 +503,7 @@ const PRICING: ModelPricing[] = [
  * is labelled as the guess it is rather than passing as a list price.
  */
 const DEFAULT_PRICING: Omit<ModelPricing, 'match'> = {
+  provider: 'other',
   inPerM: 3,
   outPerM: 15,
   cacheReadPerM: 0.3,
@@ -530,11 +566,32 @@ const totalTokensOf = (b: UsageBucketWire): number =>
  */
 const isSyntheticModel = (model: string): boolean => model.startsWith('<')
 
+/**
+ * Vendor fallback for model ids no priced row names (POD-4737): qualified
+ * slug namespaces, mirroring the priced rows' convention. Bare harness kinds
+ * never appear as matches — 'codex' and 'grok' would collide with the
+ * HarnessAgent members the vendor-boundary lint gates, while the dashed
+ * slugs name the model families the harvest actually reads. No rates live
+ * here (the NO BLANKET `codex` ROW decision stands: unsourceable rates stay
+ * callers' DEFAULT_PRICING, admitted in the footer) — only the vendor, so a
+ * future grok id bills default rates under xai exactly as the prefix rule did.
+ */
+const UNPRICED_PROVIDER_FAMILIES: ReadonlyArray<{ match: string; provider: UsageProvider }> = [
+  { match: 'codex-', provider: 'openai' },
+  { match: 'grok-', provider: 'xai' },
+]
+
 export function bucketProvider(model: string): UsageProvider {
+  // Family prefixes that can never collide with a harness kind stay prefix
+  // rules; grok/codex families read off priced rows plus the qualified
+  // fallbacks above, so adding a harness never needs a branch here. The day
+  // one of these tokens becomes a harness kind, the vendor-boundary lint
+  // starts counting it and this line lights up — self-reporting.
   if (model.startsWith('claude')) return 'anthropic'
-  if (model.startsWith('gpt') || model.includes('codex')) return 'openai'
-  if (model.startsWith('grok')) return 'xai'
-  return 'other'
+  if (model.startsWith('gpt')) return 'openai'
+  const priced = PRICING.find((x) => model.includes(x.match))
+  if (priced) return priced.provider
+  return UNPRICED_PROVIDER_FAMILIES.find((x) => model.includes(x.match))?.provider ?? 'other'
 }
 
 /**

@@ -736,10 +736,10 @@ class TanstackReplica implements Replica {
               this.metaCol.update(CURSOR_META_KEY, (draft: UiRow) => {
                 draft.value = value
               }),
-              'cursor',
+              CURSOR_META_KEY,
             )
           } else {
-            this.track(this.metaCol.insert({ key: CURSOR_META_KEY, value }), 'cursor')
+            this.track(this.metaCol.insert({ key: CURSOR_META_KEY, value }), CURSOR_META_KEY)
           }
         } catch {
           // best-effort — a missing cursor just means a snapshot next boot
