@@ -3861,6 +3861,72 @@ it('refuses to start a transcript tail until native identity is known', () => {
   }
 })
 
+it('reattaches an idle Claude transcript from the durable lease without a resume ref [POD-4726]', async () => {
+  const { fileIdFor, readFileItems } = await import('@podium/harness/store')
+  const { transcriptRecordMapperFor } = await import('@podium/harness')
+  const claudeRecordToItems = transcriptRecordMapperFor('claude-code')
+  if (!claudeRecordToItems) throw new Error('claude-code grammar missing')
+  const dir = await mkdtemp(join(tmpdir(), 'observer-restart-'))
+  const path = join(dir, 'transcript.jsonl')
+  const record = (content: string) =>
+    `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`
+  const adapter = harnessAdapterFor('claude-code')
+  if (!adapter) throw new Error('Claude adapter missing')
+  const statTick = new ManualStatTick()
+  const sent: DaemonMessage[] = []
+  const sessionId = asSessionId('idle-after-restart')
+  // A new registry models daemon restart: no hooks or in-memory native identity.
+  const observers = createSessionObservers({
+    statTick,
+    harnessAdapterFor: () => ({
+      ...adapter,
+      observer: supported((_input, host) => {
+        host.tailFile(path)
+        return { stop() {} }
+      }),
+    }),
+    send: (message) => sent.push(message),
+    onTranscriptDirty: vi.fn(),
+    cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+  })
+  try {
+    await writeFile(path, record('before restart'))
+    observers.initSessionObservers(
+      {
+        type: 'reattach',
+        sessionId,
+        durableLabel: 'podium-idle-after-restart',
+        agentKind: 'claude-code',
+        cwd: dir,
+        lastKnownGeometry: G,
+        pathHint: path,
+        observationGeneration: 2,
+        observationBindingVersion: 1,
+        observationProviderSessionId: 'durable-native-session',
+      },
+      { onFrame: () => () => {} } as never,
+      undefined,
+      { seedOnFrame: false },
+    )
+    expect(statTick.watchers.size).toBe(1)
+    const deltas = () => sent.filter((message) => message.type === 'transcriptDelta')
+    await vi.waitFor(() => expect(deltas()).toHaveLength(1))
+    await appendFile(path, record('after restart'))
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() => expect(deltas()).toHaveLength(2))
+    const expected = await readFileItems(
+      path,
+      fileIdFor('durable-native-session'),
+      claudeRecordToItems,
+    )
+    expect(deltas().flatMap((message) => message.items)).toEqual(expected)
+    expect(expected).toHaveLength(2)
+  } finally {
+    observers.clearSession(sessionId)
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 /**
  * CODEX'S BLOCKING PROMPTS REACH CHAT (POD-4650). Codex draws its directory-trust
  * prompt right after SessionStart and its usage-limit modal right after

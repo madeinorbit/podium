@@ -1683,6 +1683,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (adapter) {
       const pathHint = pathHintOf(msg)
       const observationLease = causalLeases.get(msg.sessionId)
+      // Reattach carries the durable observation identity even when no resume
+      // ref is supplied. Recover it before the adapter requests a tail: an idle
+      // survivor will not fire a hook to refill the native identity map.
+      const resumeValue =
+        msg.resume?.value ??
+        init.newSessionId ??
+        (msg.type === 'reattach' ? (observationLease?.providerSessionId ?? undefined) : undefined)
       startObservation(msg.sessionId, adapter, {
         cwd: msg.cwd,
         statTick,
@@ -1692,11 +1699,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         loadOpencodeSource: () =>
           import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
         podiumSessionId: msg.sessionId,
-        ...(msg.resume?.value
-          ? { resumeValue: msg.resume.value }
-          : init.newSessionId
-            ? { resumeValue: init.newSessionId }
-            : {}),
+        ...(resumeValue ? { resumeValue } : {}),
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
         ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
