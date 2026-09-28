@@ -17,6 +17,7 @@ import {
   type DriverId,
   type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
+  harnessTranscriptStorage,
   type LaunchFile,
   parseHarnessVersion,
 } from '@podium/harness'
@@ -679,10 +680,18 @@ export async function launchSpawn(
         ? await ctx.harnessRuntime.launch(msg.agentKind, launchOptions)
         : ctx.launch(msg.agentKind, launchOptions)
     materializeLaunchFiles(cmd.files)
-    // OpenCode creates its SQLite parent lazily. Create the Podium-owned
-    // directory before the PTY starts so two fresh sessions cannot race on a
-    // missing per-session store directory.
-    if (msg.agentKind === 'opencode' && !msg.loginHarness && cmd.env?.OPENCODE_DB) {
+    // SQLite-backed harnesses create their store parent lazily. Create the
+    // Podium-owned directory before the PTY starts so two fresh sessions
+    // cannot race on a missing per-session store directory. Keyed on the
+    // manifest's transcript storage (POD-4737) — never a harness name — so a
+    // second sqlite harness inherits the guard. The env key itself is the
+    // sqlite harness's launch contract (its adapter sets it); only sqlite
+    // harnesses set one.
+    if (
+      !msg.loginHarness &&
+      harnessTranscriptStorage(msg.agentKind) === 'sqlite' &&
+      cmd.env?.OPENCODE_DB
+    ) {
       mkdirSync(dirname(cmd.env.OPENCODE_DB), { recursive: true })
     }
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)

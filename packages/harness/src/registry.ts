@@ -446,6 +446,22 @@ export function transcriptRecordMapperFor(
   return transcript ? declaredValue(transcript.recordToItems) : undefined
 }
 
+/**
+ * Which at-rest store this harness's transcript lives in (`file` the JSONL
+ * chain, `sqlite` the opencode database, `stream` a live-only event stream).
+ * Unknown kinds and shell answer `undefined` — the caller degrades rather
+ * than borrowing another harness's store shape. The daemon's spawn path reads
+ * this (not a harness name) to decide whether a per-session store directory
+ * must exist before the PTY starts.
+ */
+export function harnessTranscriptStorage(
+  kind: AgentKind | string,
+): HarnessTranscript['storage'] | undefined {
+  const declaredTranscript = manifestFor(kind)?.transcript
+  const transcript = declaredTranscript ? declaredValue(declaredTranscript) : undefined
+  return transcript?.storage
+}
+
 /** The runtime-fact reader declared by this CLI's manifest — what model, effort
  * and context use its records report. Harnesses that report none (and unknown
  * kinds) return undefined, so the caller observes nothing rather than inferring
