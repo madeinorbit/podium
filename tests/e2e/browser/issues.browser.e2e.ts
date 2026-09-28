@@ -40,7 +40,6 @@ const STAGES = [
   'Planning',
   'In Progress',
   'Review',
-  'Verifying',
   'Done',
 ] as const
 
