@@ -304,6 +304,49 @@ describe('Grok transcript read when cwd and session bucket disagree', () => {
     expect(texts).toContain('Unread stays off after you open an issue.')
   })
 
+  it('the Store reads a codex rollout via its thread/start pathHint', async () => {
+    // The driver passes the exact rollout path `thread/start` reported. The
+    // chain must honor it without needing the state DB or a filename walk —
+    // the resume value below names nothing discoverable on purpose.
+    const home = await mkdtemp(join(tmpdir(), 'home-'))
+    const hint = join(home, 'rollout-thread-abc.jsonl')
+    await writeFile(
+      hint,
+      `${JSON.stringify({
+        timestamp: '2026-09-28T00:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'hello via hint' },
+      })}\n`,
+    )
+    const chain = await resolveChain('codex', {
+      cwd: '/repo',
+      resumeValue: 'thread-that-does-not-exist',
+      pathHint: hint,
+      homeDir: home,
+    })
+    expect(chain.map((c) => c.path)).toEqual([hint])
+    const page = await readThroughGrammar('codex', {
+      cwd: '/repo',
+      resumeValue: 'thread-that-does-not-exist',
+      pathHint: hint,
+      homeDir: home,
+    })
+    expect(page.items.map((item) => item.text)).toEqual(['hello via hint'])
+  })
+
+  it('a missing codex rollout hint falls through to an empty chain, not an error', async () => {
+    // Before the first turn the rollout file does not exist yet. A hint
+    // naming nothing plus an undiscoverable resume value must read as empty.
+    const home = await mkdtemp(join(tmpdir(), 'home-'))
+    const chain = await resolveChain('codex', {
+      cwd: '/repo',
+      resumeValue: 'thread-that-does-not-exist',
+      pathHint: join(home, 'rollout-not-yet-written.jsonl'),
+      homeDir: home,
+    })
+    expect(chain).toEqual([])
+  })
+
   it('reads the current product transcript authority before legacy chat_history', async () => {
     const { home } = await seed()
     const nativeId = '67e48205-9b61-4c2e-a6de-250f50400142'
