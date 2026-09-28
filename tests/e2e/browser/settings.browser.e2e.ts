@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 import { makeTrpc } from '../../../apps/web/src/app/trpc'
-import { nativeAccountId, normalizeSettings } from '../../../packages/runtime/src/settings'
+import { nativeAccountId } from '../../../packages/runtime/src/settings'
 import { RELAY } from './_harness'
 
 test.skip(
@@ -11,17 +11,15 @@ test.describe.configure({ timeout: 90_000 })
 
 async function seedStaleCodexWorkLlm(): Promise<void> {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.set.mutate(
-    normalizeSettings({
-      workLlm: {
-        kind: 'api',
-        provider: 'codex',
-        model: 'gpt-5.5',
-        harnessAgent: 'codex',
-        harnessModel: 'auto',
-      },
-    }),
-  )
+  // Was a legacy workLlm blob write via settings.set; the blob write is gone
+  // (POD-420 family + POD-1213) and workLlm migrates onto roles.background, so
+  // seed the migrated shape through the contracted personal command.
+  await trpc.settings.updatePersonal.mutate({
+    values: {
+      'roles.background.accountId': nativeAccountId('codex'),
+      'roles.background.model': 'gpt-5.5',
+    },
+  })
 }
 
 async function openShell(page: Page): Promise<void> {
@@ -37,7 +35,7 @@ async function openShell(page: Page): Promise<void> {
 
 function backgroundWorkSection(page: Page) {
   return page
-    .getByRole('region', { name: 'Settings' })
+    .getByRole('dialog', { name: 'Settings' })
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Background work LLM' }) })
     .first()
@@ -45,7 +43,7 @@ function backgroundWorkSection(page: Page) {
 
 function superagentSection(page: Page) {
   return page
-    .getByRole('region', { name: 'Settings' })
+    .getByRole('dialog', { name: 'Settings' })
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Superagent' }) })
     .first()
@@ -53,7 +51,7 @@ function superagentSection(page: Page) {
 
 function newSessionsSection(page: Page) {
   return page
-    .getByRole('region', { name: 'Settings' })
+    .getByRole('dialog', { name: 'Settings' })
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'New sessions' }) })
     .first()
@@ -114,17 +112,14 @@ test('native account profile labels render when available', async ({ page }) => 
 
 test('new sessions allows effort with automatic model selection', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.set.mutate(
-    normalizeSettings({
-      roles: {
-        coding: {
-          accountId: nativeAccountId('codex'),
-          model: 'auto',
-          effort: 'auto',
-        },
-      },
-    }),
-  )
+  // settings.set (whole-blob write) is retired; seed through updatePersonal.
+  await trpc.settings.updatePersonal.mutate({
+    values: {
+      'roles.coding.accountId': nativeAccountId('codex'),
+      'roles.coding.model': 'auto',
+      'roles.coding.effort': 'auto',
+    },
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
@@ -153,17 +148,13 @@ test('new sessions allows effort with automatic model selection', async ({ page 
 
 test('new sessions exposes and persists both Grok implementation models', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.set.mutate(
-    normalizeSettings({
-      roles: {
-        coding: {
-          accountId: nativeAccountId('grok'),
-          model: 'auto',
-          effort: 'auto',
-        },
-      },
-    }),
-  )
+  await trpc.settings.updatePersonal.mutate({
+    values: {
+      'roles.coding.accountId': nativeAccountId('grok'),
+      'roles.coding.model': 'auto',
+      'roles.coding.effort': 'auto',
+    },
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
@@ -193,18 +184,14 @@ test('new sessions exposes and persists both Grok implementation models', async 
 
 test('superagent uses shared Codex model and effort dropdowns', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.set.mutate(
-    normalizeSettings({
-      roles: {
-        coding: { accountId: nativeAccountId('grok') },
-        superagent: {
-          accountId: nativeAccountId('codex'),
-          model: 'gpt-5.5',
-          effort: 'auto',
-        },
-      },
-    }),
-  )
+  await trpc.settings.updatePersonal.mutate({
+    values: {
+      'roles.coding.accountId': nativeAccountId('grok'),
+      'roles.superagent.accountId': nativeAccountId('codex'),
+      'roles.superagent.model': 'gpt-5.5',
+      'roles.superagent.effort': 'auto',
+    },
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
@@ -212,7 +199,7 @@ test('superagent uses shared Codex model and effort dropdowns', async ({ page })
     .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
-  const settings = page.getByRole('region', { name: 'Settings' })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
   await settings.getByRole('button', { name: 'Superagent' }).click()
 
@@ -246,7 +233,7 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
     .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
-  const settings = page.getByRole('region', { name: 'Settings' })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
   await settings.getByRole('button', { name: 'Background LLM' }).click()
 
@@ -264,11 +251,12 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
 
 test('idle-session convergence target round-trips and renders', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.set.mutate(normalizeSettings({ hibernation: { maxIdleSessions: null } }))
+  // hibernation is an instance-preference tier leaf (POD-1213), not personal.
+  await trpc.settings.updateInstance.mutate({ values: { 'hibernation.maxIdleSessions': null } })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
   await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('region', { name: 'Settings' })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   await settings.getByRole('button', { name: 'Hibernation', exact: true }).click()
   const input = settings.getByRole('spinbutton', { name: 'Maximum idle sessions' })
   await expect(input).toHaveValue('')
