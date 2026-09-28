@@ -67,7 +67,7 @@ beforeAll(() => {
   resolveHostBin({ fresh: true })
   fixture = join(root, 'tui.mjs')
   writeFileSync(fixture, REPAINTING)
-})
+}, 120_000)
 
 afterAll(() => {
   keys.forEach((k, i) => {
@@ -77,7 +77,7 @@ afterAll(() => {
   })
   resolveHostBin({ fresh: true })
   if (root) rmSync(root, { recursive: true, force: true })
-})
+}, 120_000)
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -113,11 +113,27 @@ function reports(sent: DaemonMessage[], sessionId: SessionId): Array<{ cols: num
   )
 }
 
-/** The server's control-transfer pair, then enough time for nudge + restore to land. */
-async function viewerAsks(ctx: DaemonContext, sessionId: SessionId, cols: number, rows: number) {
+/** The server's control-transfer pair: `resize`, then `redraw`. */
+function viewerAsks(ctx: DaemonContext, sessionId: SessionId, cols: number, rows: number): void {
   sessionHandlers.resize(ctx, { type: 'resize', sessionId, cols, rows })
   sessionHandlers.redraw(ctx, { type: 'redraw', sessionId })
-  await wait(2000)
+}
+
+/**
+ * The child tty reaches the size and STAYS there past the nudge's restore
+ * window — a transient pass on the way back to the birth size is the bug, not
+ * a green — and the daemon's last report says the same size.
+ */
+async function settlesAt(
+  sent: DaemonMessage[],
+  sessionId: SessionId,
+  pid: number,
+  want: { cols: number; rows: number },
+): Promise<void> {
+  await expect.poll(() => childTty(pid), { timeout: 15_000 }).toEqual(want)
+  await wait(2500)
+  expect(childTty(pid)).toEqual(want)
+  await expect.poll(() => reports(sent, sessionId).at(-1), { timeout: 15_000 }).toEqual(want)
 }
 
 describe.skipIf(!hasCompiler)('headed resize on a real podium-host (POD-4723)', () => {
@@ -133,13 +149,11 @@ describe.skipIf(!hasCompiler)('headed resize on a real podium-host (POD-4723)', 
       await wait(300)
       expect(childTty(attachment.pid)).toEqual({ cols: 80, rows: 24 })
 
-      await viewerAsks(ctx, sessionId, 122, 39)
-      expect(childTty(attachment.pid)).toEqual({ cols: 122, rows: 39 })
-      expect(reports(sent, sessionId).at(-1)).toEqual(childTty(attachment.pid))
+      viewerAsks(ctx, sessionId, 122, 39)
+      await settlesAt(sent, sessionId, attachment.pid, { cols: 122, rows: 39 })
 
-      await viewerAsks(ctx, sessionId, 122, 38)
-      expect(childTty(attachment.pid)).toEqual({ cols: 122, rows: 38 })
-      expect(reports(sent, sessionId).at(-1)).toEqual(childTty(attachment.pid))
+      viewerAsks(ctx, sessionId, 122, 38)
+      await settlesAt(sent, sessionId, attachment.pid, { cols: 122, rows: 38 })
     } finally {
       for (const [, owned] of ctx.sessions.entries()) owned.park()
       forgetSessionScreen(ctx, sessionId)
@@ -157,7 +171,8 @@ describe.skipIf(!hasCompiler)('headed resize on a real podium-host (POD-4723)', 
     try {
       const born = await spawnHostAgent({ label, cmd: process.execPath, args: [fixture], cols: 80, rows: 24 })
       wireBridge(first, sessionId, born, 'claude-code', label, { cols: 80, rows: 24 })
-      await viewerAsks(first, sessionId, 100, 30)
+      viewerAsks(first, sessionId, 100, 30)
+      await settlesAt(firstSent, sessionId, born.pid, { cols: 100, rows: 30 })
       // The old daemon dies: its surface detaches, the host and child live on.
       for (const [, owned] of first.sessions.entries()) owned.park()
       forgetSessionScreen(first, sessionId)
@@ -168,13 +183,12 @@ describe.skipIf(!hasCompiler)('headed resize on a real podium-host (POD-4723)', 
       expect(adopted.adopted).toBe(true)
       wireBridge(ctx, sessionId, adopted, 'claude-code', label, undefined)
       ctx.sessions.get(sessionId)?.terminal?.redraw()
-      await wait(1500)
       const pid = adopted.pid
+      await wait(2500)
       expect(childTty(pid)).toEqual({ cols: 100, rows: 30 })
 
-      await viewerAsks(ctx, sessionId, 122, 39)
-      expect(childTty(pid)).toEqual({ cols: 122, rows: 39 })
-      expect(reports(sent, sessionId).at(-1)).toEqual(childTty(pid))
+      viewerAsks(ctx, sessionId, 122, 39)
+      await settlesAt(sent, sessionId, pid, { cols: 122, rows: 39 })
     } finally {
       for (const [, owned] of [...first.sessions.entries(), ...ctx.sessions.entries()]) owned.park()
       forgetSessionScreen(ctx, sessionId)

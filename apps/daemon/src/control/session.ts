@@ -267,9 +267,9 @@ function dispatchClientResize(
  * refused it (not the writer, no pty, exited) or the connection closed — is
  * logged and HELD, never reported: a report is the only thing that moves the
  * server's W, and it must never state a size the pty does not have. The hold
- * is what a later redraw or reattach dispatches.
- *
- * `onApplied` runs after the record, for the site's own bookkeeping.
+ * is what a later redraw or reattach dispatches; an acknowledged size clears
+ * it, since answers arrive in the order asked and so supersede every earlier
+ * hold.
  */
 function applyBridgeResize(
   ctx: DaemonContext,
@@ -277,7 +277,6 @@ function applyBridgeResize(
   bridge: Terminal,
   cols: number,
   rows: number,
-  onApplied?: () => void,
 ): void {
   // BEFORE the dispatch (MODEL rule 5): bytes held now were drawn at the old grid.
   ctx.outputScheduler?.flushNow?.(sessionId)
@@ -295,13 +294,13 @@ function applyBridgeResize(
     }
     // An answer for a surface that has since been replaced says nothing about
     // the one that holds the session now.
-    if (owned?.terminal !== bridge) return
+    if (!owned || owned.terminal !== bridge) return
+    owned.pendingResize = undefined
     const applied = appliedGeometryFor(ctx).apply(sessionId, acked.cols, acked.rows)
     if (!applied) return
     bridge.applied = { cols: applied.cols, rows: applied.rows }
     // The program is at the acknowledged size now, so the headless model follows it.
     trackSessionSize(ctx, sessionId, applied.cols, applied.rows)
-    onApplied?.()
   }
   const answer = bridge.resizeAcknowledged(cols, rows)
   if (answer === undefined || !isResizePromise(answer)) {
@@ -3045,15 +3044,9 @@ export const sessionHandlers: Pick<
     }
     const applyBridgeSizeFirst = (): void => {
       if (!viewer || !bridge) return
-      const applied = record.apply(msg.sessionId, viewer.cols, viewer.rows, (cols, rows) => {
-        bridge.resize(cols, rows)
-        return true
-      })
-      if (applied) {
-        if (owned) owned.pendingResize = undefined
-        bridge.applied = { cols: applied.cols, rows: applied.rows }
-        trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
-      }
+      // Under the resize handler's discipline (POD-4723): record only what the
+      // pty acknowledged, and a request that reaches no pty stays held.
+      applyBridgeResize(ctx, msg.sessionId, bridge, viewer.cols, viewer.rows)
     }
     const applyHeadedSizeFirst = (): void => {
       // The headed twin of the apply above, under the resize handler's

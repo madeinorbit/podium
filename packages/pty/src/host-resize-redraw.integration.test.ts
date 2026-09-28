@@ -38,6 +38,17 @@ const sessions: HostDurableAttachment[] = []
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * The kernel reaches the size and STAYS there past the nudge's restore window —
+ * a transient pass on the way back to the birth size is the bug, not a green.
+ */
+async function settlesAt(s: HostDurableAttachment, want: { cols: number; rows: number }): Promise<void> {
+  await expect.poll(() => s.connection.size(), { timeout: 15_000 }).toEqual(want)
+  await wait(2500)
+  expect(await s.connection.size()).toEqual(want)
+  expect(s.appliedGeometry).toEqual(want)
+}
+
 function label(tag: string): string {
   // Short: the socket path must fit a unix socket's ~108 bytes.
   const l = `rr-${process.pid}-${tag}-${++serial}`
@@ -63,7 +74,7 @@ beforeAll(() => {
   process.env.PODIUM_NO_SCOPE = '1'
   delete process.env.PODIUM_HOST_BIN
   resolveHostBin({ fresh: true })
-})
+}, 120_000)
 
 afterEach(async () => {
   for (const s of sessions.splice(0)) {
@@ -89,7 +100,7 @@ afterAll(() => {
   }
   resolveHostBin({ fresh: true })
   if (root) rmSync(root, { recursive: true, force: true })
-})
+}, 120_000)
 
 describe.skipIf(!hasCompiler)('podium-host adapter: resize then redraw (POD-4723)', () => {
   it('a redraw issued before the resize is acknowledged nudges around the NEW size, and the pty ends there', async () => {
@@ -100,17 +111,12 @@ describe.skipIf(!hasCompiler)('podium-host adapter: resize then redraw (POD-4723
     s.resize(122, 39)
     s.resize(122, 39)
     s.redraw()
-    // Let the shrink, the child's SIGWINCH answer and the restore all land.
-    await wait(1500)
-    expect(await s.connection.size()).toEqual({ cols: 122, rows: 39 })
-    expect(s.appliedGeometry).toEqual({ cols: 122, rows: 39 })
+    await settlesAt(s, { cols: 122, rows: 39 })
 
     // And a second ask on the same attachment (the 122x38 that followed on the host).
     s.resize(122, 38)
     s.redraw()
-    await wait(1500)
-    expect(await s.connection.size()).toEqual({ cols: 122, rows: 38 })
-    expect(s.appliedGeometry).toEqual({ cols: 122, rows: 38 })
+    await settlesAt(s, { cols: 122, rows: 38 })
   }, 30_000)
 
   it('a redraw nudge on a child that emits no frame does not strand the pty one row short', async () => {
