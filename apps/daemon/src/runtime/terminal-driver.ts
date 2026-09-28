@@ -62,6 +62,7 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type {
   AcceptPort,
+  AcceptSeen,
   ActingPrincipal,
   AgentSessionHandle,
   AttachEndpoint,
@@ -127,7 +128,7 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asSessionId, transcriptItemRefOf } from '@podium/model'
 import type { Terminal } from '../terminal/terminal.js'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
@@ -322,6 +323,9 @@ interface LoggedEvent {
   event: RuntimeEvent
 }
 
+/** One open accept watch: the prompt text it credits, and how to tell it. */
+type AcceptWaiter = { text: string; resolve: (seen: AcceptSeen) => void }
+
 interface DriverSession {
   resumeConfidence?: 'exact' | 'heuristic'
   identityGeneration?: number
@@ -366,10 +370,10 @@ interface DriverSession {
   transcriptVersions: Map<string, string>
   injection: TerminalInjectionMachine
   /** Open waiters for a causal accept, keyed by the prompt text they watch. */
-  hookWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
+  hookWaiters: Set<AcceptWaiter>
   /** Open waiters for a transcript echo, keyed by the prompt text they watch.
    *  Same shape and same reason as `hookWaiters` — see `creditEchoWaiters`. */
-  echoWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
+  echoWaiters: Set<AcceptWaiter>
   /**
    * Whether ANY `UserPromptSubmit` hook payload has reached this session.
    *
@@ -1520,7 +1524,8 @@ export function createTerminalRuntime(
     // The channel answered even if its content cannot identify an open send.
     // Preserve that distinction for the absent-instrumentation warning.
     session.hookSeen = true
-    creditAcceptWaiter(session.hookWaiters, correlation, payload)
+    // A hook names no history entry; the echo that follows it does (POD-4774).
+    creditAcceptWaiter(session.hookWaiters, correlation, payload, {})
   }
 
   /**
@@ -1533,6 +1538,7 @@ export function createTerminalRuntime(
     waiters: DriverSession['hookWaiters'],
     correlation: TerminalAcceptCorrelation<Observation>,
     observation: Observation,
+    seen: AcceptSeen,
   ): void {
     if (waiters.size === 0) return
     const fingerprint = correlation.fingerprint(observation)
@@ -1543,7 +1549,7 @@ export function createTerminalRuntime(
     for (const waiter of [...waiters]) {
       if (correlation.fingerprintText(waiter.text) !== fingerprint) continue
       waiters.delete(waiter)
-      waiter.resolve(true)
+      waiter.resolve(seen)
       return
     }
   }
@@ -1553,17 +1559,21 @@ export function createTerminalRuntime(
     if (!correlation || session.echoWaiters.size === 0) return
     for (const item of items) {
       // The manifest adapter excludes non-prompts, including interrupt markers.
-      if (correlation.accepts(item)) creditAcceptWaiter(session.echoWaiters, correlation, item)
+      // The echo IS the harness's record of the prompt, so it names the entry
+      // the send became — by the item's own id, never by its text (POD-4774).
+      if (!correlation.accepts(item)) continue
+      const transcriptItem = transcriptItemRefOf(item)
+      creditAcceptWaiter(session.echoWaiters, correlation, item, transcriptItem ? { transcriptItem } : {})
     }
   }
 
   const acceptFor = (waiters: DriverSession['hookWaiters']): AcceptPort => ({
     watch(text: string) {
-      let settle: ((ok: boolean) => void) | undefined
-      const accepted = new Promise<boolean>((resolve) => {
+      let settle: ((seen: AcceptSeen) => void) | undefined
+      const accepted = new Promise<AcceptSeen>((resolve) => {
         settle = resolve
       })
-      const waiter = { text, resolve: (ok: boolean) => settle?.(ok) }
+      const waiter: AcceptWaiter = { text, resolve: (seen) => settle?.(seen) }
       waiters.add(waiter)
       return {
         accepted,

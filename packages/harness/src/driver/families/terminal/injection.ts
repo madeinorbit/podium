@@ -66,6 +66,7 @@
  * outcome.
  */
 
+import type { TranscriptItemRef } from '@podium/model'
 import type { QueueDrainAbandonedReason as WireQueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
 import { injectionPayload } from './paste.js'
@@ -101,6 +102,19 @@ export const QUEUE_MESSAGE_SPACING_MS = 400
  * mechanism was still in the middle of rescuing.
  */
 export const VERIFICATION_WINDOW_MS = SUBMIT_VERIFY_DELAY_MS * (SUBMIT_MAX_RETRIES + 1)
+
+/**
+ * How long a HOOK-proven send waits for its transcript echo, to learn which
+ * history entry it became (POD-4774).
+ *
+ * The hook fires when the CLI takes the prompt, which can be before the
+ * harness has written its record of it; the hook payload names no entry. The
+ * echo watch is already armed, so this only bounds how long the receipt waits
+ * for it. The cost is paid once per send and only on a hook proof, and the
+ * receipt is already `accepted` — an echo that never matches ends the wait
+ * with the item unidentified, never with a weaker outcome.
+ */
+export const HOOK_ECHO_ITEM_WAIT_MS = 5_000
 
 /**
  * The ESC this module is allowed to write.
@@ -154,9 +168,17 @@ export interface AcceptPort {
   watch(text: string): AcceptWatch
 }
 
+/** What an accept observation said about the prompt it credited. */
+export interface AcceptSeen {
+  /** The harness's own record of the prompt — set by a transcript echo, which
+   *  IS that record. A hook names no entry and leaves it unset (POD-4774). */
+  readonly transcriptItem?: TranscriptItemRef
+}
+
 export interface AcceptWatch {
-  /** Resolves true only for this prompt. The caller's window ends the wait. */
-  readonly accepted: Promise<boolean>
+  /** Resolves only for this prompt, with what the observation saw. It never
+   *  resolves otherwise: the caller's window ends the wait. */
+  readonly accepted: Promise<AcceptSeen>
   /** Idempotent; removes the waiter when the send ends. */
   cancel(): void
 }
@@ -373,7 +395,8 @@ export function createTerminalInjection(
    * The ported `scheduleSubmitVerify` ladder, plus the echo watch that turns it
    * into evidence instead of a nudge.
    *
-   * Returns the proof that landed, or null when the window closed without one.
+   * Returns the proof that landed — with the history entry the echo named,
+   * when one did — or null when the window closed without one.
    */
   async function awaitProof(
     hookWatch: AcceptWatch | undefined,
@@ -381,15 +404,38 @@ export function createTerminalInjection(
     signal?: AbortSignal,
     durable = false,
     initialPrompt = false,
-  ): Promise<'hook' | 'transcript-echo' | null> {
-    let hookFired = false
-    let echoFired = false
-    void hookWatch?.accepted.then((ok) => {
-      hookFired = hookFired || ok
+  ): Promise<{ provenBy: 'hook' | 'transcript-echo'; transcriptItem?: TranscriptItemRef } | null> {
+    let hookSeen: AcceptSeen | undefined
+    let echoSeen: AcceptSeen | undefined
+    void hookWatch?.accepted.then((seen) => {
+      hookSeen ??= seen
     })
-    void echoWatch?.accepted.then((ok) => {
-      echoFired = echoFired || ok
+    void echoWatch?.accepted.then((seen) => {
+      echoSeen ??= seen
     })
+    /**
+     * THE DECLARED ORDER, and the hook wins a tie on purpose: it is the causal
+     * signal, so where both landed the stronger one is the honest attribution.
+     * The ITEM, though, only ever comes from the echo — it is the harness's
+     * record of the prompt, and the hook payload names none. A hook that won
+     * before the record was written waits a bounded moment for it (POD-4774).
+     */
+    const proven = async (): Promise<
+      { provenBy: 'hook' | 'transcript-echo'; transcriptItem?: TranscriptItemRef } | null
+    > => {
+      if (hookSeen) {
+        if (!echoSeen && echoWatch && !signal?.aborted) {
+          await Promise.race([echoWatch.accepted, sleep(HOOK_ECHO_ITEM_WAIT_MS)])
+        }
+        const transcriptItem = echoSeen?.transcriptItem
+        return { provenBy: 'hook', ...(transcriptItem ? { transcriptItem } : {}) }
+      }
+      if (echoSeen) {
+        const transcriptItem = echoSeen.transcriptItem
+        return { provenBy: 'transcript-echo', ...(transcriptItem ? { transcriptItem } : {}) }
+      }
+      return null
+    }
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
     let nudging = true
     const windowMs = initialPrompt ? 30_000 : VERIFICATION_WINDOW_MS
@@ -404,10 +450,7 @@ export function createTerminalInjection(
       if (hookWatch) settled.push(hookWatch.accepted)
       if (echoWatch) settled.push(echoWatch.accepted)
       await Promise.race(settled)
-      // THE DECLARED ORDER, and the hook wins a tie on purpose: it is the causal
-      // signal, so where both landed the stronger one is the honest attribution.
-      if (hookFired) return 'hook'
-      if (echoFired) return 'transcript-echo'
+      if (hookSeen || echoSeen) return await proven()
       if (signal?.aborted) return null
       // A dead session cannot echo and cannot be nudged. Stop; the caller gets
       // `unverified`, which is the truth: the bytes went out, nothing confirmed.
@@ -423,7 +466,7 @@ export function createTerminalInjection(
         ports.write('\r')
       }
     }
-    return hookFired ? 'hook' : echoFired ? 'transcript-echo' : null
+    return await proven()
   }
 
   async function deliver(text: string, options: DeliverOptions): Promise<TurnReceipt> {
@@ -483,7 +526,8 @@ export function createTerminalInjection(
         outcome: 'accepted',
         turnEpoch: nextTurnEpoch(),
         deliveredAs: options.delivery,
-        provenBy: proof,
+        provenBy: proof.provenBy,
+        ...(proof.transcriptItem ? { transcriptItem: proof.transcriptItem } : {}),
         at: new Date(ports.now()).toISOString(),
       }
     } finally {

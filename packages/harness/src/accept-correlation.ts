@@ -50,9 +50,23 @@ const echoFingerprint = (text: string): string | null => {
   return collapsed.length > 0 ? collapsed : null
 }
 
+/**
+ * THE ITEM AS IT WAS TYPED, where a recorder moved part of it out of the text
+ * (POD-4774). The terminal driver types attachments as their paths, one per
+ * line, ahead of the prompt. Claude records a pasted image path as an image
+ * block plus a `[Image: source: <path>]` marker, and its transcript mapper
+ * lifts those paths into `toolPaths` and strips them from `text` — so the
+ * echo of `"<path>\nlook at this"` is `{ text: 'look at this', toolPaths:
+ * [path] }`. Putting the lifted paths back in front, in order, is the typed
+ * form again. Only user items carrying lifted paths are touched; no recorder
+ * sets `toolPaths` on a user item for any other reason.
+ */
+const typedForm = (item: TranscriptItem): string =>
+  item.toolPaths?.length ? [...item.toolPaths, item.text].join('\n') : item.text
+
 /** An interrupt marker is a user action, but never a typed prompt. */
 export const transcriptEchoAcceptCorrelation: TerminalAcceptCorrelation<TranscriptItem> = {
   accepts: (item) => item.role === 'user' && item.event !== 'interrupt',
-  fingerprint: (item) => echoFingerprint(item.text),
+  fingerprint: (item) => echoFingerprint(typedForm(item)),
   fingerprintText: echoFingerprint,
 }

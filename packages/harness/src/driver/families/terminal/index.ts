@@ -33,6 +33,7 @@ export {
 } from './envelope.js'
 export {
   type AcceptPort,
+  type AcceptSeen,
   type AcceptWatch,
   createTerminalInjection,
   DEFAULT_TERMINAL_INTERRUPT,
