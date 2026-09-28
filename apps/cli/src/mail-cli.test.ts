@@ -239,6 +239,35 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toContain('to-session=s-abc')
   })
 
+  it('[POD-4704] mail status says delivery failed, never target gone, for an unconfirmed send', async () => {
+    // The server stamps delivery-failed when it dead-letters a row it typed
+    // but never saw confirmed — a message cut off mid-turn while its session
+    // stayed alive (POD-4604 run 13). The CLI must render that cause, never
+    // the target-gone fallback.
+    const c = client({
+      status: {
+        ...WIRE,
+        status: 'dead_letter',
+        deadLetteredAt: '2026-09-13T18:00:00.000Z',
+        deliveryDeferredAt: '2026-09-13T18:00:00.000Z',
+        deliveryDeferredReason: 'delivery-failed',
+        deliveredTo: 's1',
+      },
+    })
+    const out = await runMailCli(['status', 'msg_1'], c)
+    expect(out).toContain('delivery failed')
+    expect(out).not.toMatch(/target (was )?gone/)
+    expect(out).toContain('deferred-reason=delivery-failed')
+  })
+
+  it('[POD-4704] mail status keeps target gone only for a target that is really gone', async () => {
+    const c = client({
+      status: { ...WIRE, status: 'dead_letter', deadLetteredAt: 't1' },
+    })
+    const out = await runMailCli(['status', 'msg_1'], c)
+    expect(out).toMatch(/target was gone/)
+  })
+
   it('inbox renders rows (and passes an --issue peek through)', async () => {
     const c = client()
     const out = await runMailCli(['inbox'], c)
@@ -254,6 +283,38 @@ describe('podium mail CLI (argv shape)', () => {
     const out = await runMailCli(['show', 'msg_1'], c)
     expect(out).toContain('thread=msg_1')
     expect(c.messages.show.query).toHaveBeenCalledWith({ id: 'msg_1' })
+  })
+
+  it('[POD-4704] show renders the delivery-failed cause, never target gone', async () => {
+    const c = client({
+      show: {
+        ...WIRE,
+        status: 'dead_letter',
+        deadLetteredAt: '2026-09-13T18:00:00.000Z',
+        deliveryDeferredAt: '2026-09-13T18:00:00.000Z',
+        deliveryDeferredReason: 'delivery-failed',
+        deliveredTo: 's1',
+      },
+    })
+    const out = await runMailCli(['show', 'msg_1'], c)
+    expect(out).toContain('delivery failed')
+    expect(out).not.toMatch(/target (was )?gone/)
+  })
+
+  it('[POD-4704] inbox renders the delivery-failed cause, never target gone', async () => {
+    const c = client({
+      inbox: [
+        {
+          ...WIRE,
+          status: 'dead_letter',
+          deliveryDeferredReason: 'delivery-failed',
+          deliveredTo: 's1',
+        },
+      ],
+    })
+    const out = await runMailCli(['inbox'], c)
+    expect(out).toContain('delivery failed')
+    expect(out).not.toMatch(/target (was )?gone/)
   })
 
   it('dismiss requires an id and clears through its mutation', async () => {

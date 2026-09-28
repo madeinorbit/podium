@@ -15,6 +15,7 @@
  */
 
 import type { ThreadId } from '@podium/model'
+import { deadLetterDeliveryLine, deadLetterSenderGloss } from '@podium/model'
 import { makeRelayIssueClient } from '@podium/issue-client'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
@@ -167,7 +168,12 @@ function renderRow(m: MessageWire): string {
     m.expectsResponse && !m.ackedBy ? 'wants-reply' : null,
     m.ackedBy ? 'acked' : null,
   ].filter(Boolean)
-  return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]\n  ${m.body}`
+  // A dead letter in the inbox must say WHY [POD-4704]: an injected-but-
+  // unconfirmed row (delivery-failed) is a delivery failure, not a vanished
+  // target. The shared ledger line keeps every surface worded one way.
+  const cause =
+    m.status === 'dead_letter' ? ` · ${deadLetterDeliveryLine(m.deliveryDeferredReason)}` : ''
+  return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]${cause}\n  ${m.body}`
 }
 
 /** The send disposition, worded for the sender (#834, [POD-854] blocking send).
@@ -217,13 +223,11 @@ function renderLifecycle(m: MessageWire): string {
       ? 'opened from an inbox, but NO recipient session was named'
       : 'the recipient opened its inbox and read it',
     // The drain reasons name what actually happened to the target [POD-2132,
-    // POD-2202]; without one, the plain "gone" story is the right one.
-    dead_letter:
-      m.deliveryDeferredReason === 'never-live'
-        ? 'the session never became ready within the deadline — never typed, not dropped'
-        : m.deliveryDeferredReason === 'teardown'
-          ? 'the session was torn down before it could be typed into — never typed, not dropped'
-          : 'target was gone — dead-lettered, not dropped',
+    // POD-2202]; without one, the plain "gone" story is the right one. An
+    // injected-but-unconfirmed dead letter (delivery-failed) is a delivery
+    // failure, not a vanished target [POD-4704] — the shared gloss keeps the
+    // CLI worded the same way as the web ledger and the steward notice.
+    dead_letter: deadLetterSenderGloss(m.deliveryDeferredReason),
     expired: 'sat undelivered past its TTL',
     cancelled: 'withdrawn',
   }
@@ -332,7 +336,10 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
       ]
         .filter(Boolean)
         .join(' ')
-      return done(`${renderRow(m)}\n  ${meta}`, m)
+      // `show` is the full ledger view: it carries the same lifecycle line as
+      // `status` so a dead-lettered unconfirmed send reads as delivery failed
+      // here too [POD-4704], never as a vanished target.
+      return done(`${renderRow(m)}\n  ${meta}\n${renderLifecycle(m)}`, m)
     }
     case 'status': {
       const id = positionals[0]
