@@ -91,6 +91,19 @@ function brandBgFor(
   return resolvedDescriptors(served).find((d) => d.kind === kind)?.brand?.bg
 }
 
+/**
+ * The resolved descriptor row for a harness kind (POD-4737): served frames
+ * over the bundled fallback, by kind — for label call sites that hold served
+ * descriptors but need no icon or tone. Unknown kinds answer undefined (the
+ * caller renders the raw kind, never another harness's row).
+ */
+export function descriptorForKind(
+  kind: WireHarnessKind,
+  served?: readonly HarnessDescriptorWire[],
+): HarnessDescriptorWire | undefined {
+  return resolvedDescriptors(served).find((d) => d.kind === kind)
+}
+
 /** Glyph colour for an agent-kind icon at rest. Total. */
 export function agentGlyphTone(kind: WireHarnessKind, served?: readonly HarnessDescriptorWire[]): string {
   const bg = brandBgFor(kind, served)

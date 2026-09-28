@@ -41,10 +41,11 @@ import {
   type SessionCostView,
   type TaskCostView,
 } from '@podium/client-core/viewmodels'
-import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { CostHarness } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { descriptorForKind } from '@/lib/agent-tone'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
 import { DOCK_BODY, DOCK_ROW, DOCK_STAMP } from '../issues/IssueCompactControls'
@@ -204,10 +205,12 @@ function SplitBar({
  * figure's completeness ("all Codex", "Codex + Grok") and is the binding wording
  * for the attribution line. This is a single harness naming a single session,
  * where "all Codex" would be nonsense. Read off the adapter's descriptor
- * shortLabel (POD-4737) — the one home for harness names.
+ * shortLabel (POD-4737) — served over bundled, so a newer daemon's names win;
+ * absent renders the bundled fallback, unknown the raw kind. `served` is what
+ * the caller holds (this feed has no machine scope, so callers pass nothing).
  */
-function harnessWord(harness: CostHarness): string {
-  return bundledDescriptorFor(harness)?.shortLabel ?? harness
+function harnessWord(harness: CostHarness, served?: readonly HarnessDescriptorWire[]): string {
+  return descriptorForKind(harness, served)?.shortLabel ?? harness
 }
 
 /**

@@ -11,7 +11,8 @@
  * Platform-neutral: no DOM, no storage, no styling vocabulary.
  */
 import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
-import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
+import { harnessDescriptorFor } from './harness-labels'
 
 /** "resets in 40m" / "resets in 2h 14m" / "resets in 1d 4h". */
 export function formatReset(resetsAt: string, nowMs: number): string {
@@ -42,14 +43,27 @@ export function windowShortLabel(label: string): string {
 
 /**
  * Picker label for a harness, read off its one home in the harness package
- * (POD-4737): the adapter's descriptor row, via the bundled fallback. A harness
- * this build has never heard of renders as its own kind — never another
- * harness's label. 'shell' is not a harness (no descriptor); it keeps its
- * neutral name, which the vendor-boundary lint does not count.
+ * (POD-4737): the adapter's descriptor row, resolved served-over-bundled (so
+ * a newer daemon's names win over this build's copy). A harness no row names
+ * renders as its own kind — never another harness's label. 'shell' is not a
+ * harness (no descriptor); it keeps its neutral name, which the
+ * vendor-boundary lint does not count.
+ *
+ * `served` is what the caller holds — raw served frames or an
+ * already-resolved list (see `./harness-labels.ts`); absent renders the
+ * bundled fallback.
+ *
+ * Widened past `AgentKind` on purpose (the same shape as `WireHarnessKind` in
+ * the web's agent-tone): callers hold open wire ids — a newer peer may name a
+ * harness this build has never heard of — and the honest answer for one of
+ * those is itself, not another harness's label.
  */
-export function agentLabel(agent: AgentKind): string {
+export function agentLabel(
+  agent: AgentKind | (string & {}),
+  served?: readonly HarnessDescriptorWire[],
+): string {
   if (agent === 'shell') return 'Shell'
-  return bundledDescriptorFor(agent)?.label ?? agent
+  return harnessDescriptorFor(agent, served)?.label ?? agent
 }
 
 /** Two-character provider mark for scoped meters in the constrained top bar. */
@@ -206,10 +220,14 @@ export function spentModels(windows: QuotaWindowWire[]): string[] {
  * which model you get, never whether the harness runs. Nothing spent, nothing
  * to say — the buckets already read as scoped.
  */
-export function modelLimitNote(agent: AgentKind, windows: QuotaWindowWire[]): string | null {
+export function modelLimitNote(
+  agent: AgentKind,
+  windows: QuotaWindowWire[],
+  served?: readonly HarnessDescriptorWire[],
+): string | null {
   const spent = spentModels(windows)
   if (spent.length === 0) return null
-  const harness = agentLabel(agent)
+  const harness = agentLabel(agent, served)
   const names =
     spent.length === 1
       ? `${spent[0]} is`

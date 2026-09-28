@@ -14,6 +14,7 @@ import {
   windowShortLabel,
 } from '@podium/client-core/viewmodels'
 import type { QuotaWindowWire } from '@podium/model/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { agentIconFor } from '@/lib/agent-tone'
 import { cn } from '@/lib/utils'
@@ -35,9 +36,12 @@ const PACE_CHIP: Record<QuotaPace, string> = {
 export function QuotaPanel({
   groups,
   now,
+  descriptors,
 }: {
   groups: AccountQuotaGroup[]
   now: number
+  /** Served-over-bundled descriptors from the mounting surface (POD-4737). */
+  descriptors: readonly HarnessDescriptorWire[]
 }): JSX.Element {
   const verdict = quotaPoolVerdict(groups, now)
   return (
@@ -62,7 +66,7 @@ export function QuotaPanel({
         {groups.map((g) => {
           const { gating, models } = splitQuotaWindows(g.windows)
           const pace = groupGatingPace(g, now)
-          const Icon = g.agent === 'shell' ? undefined : agentIconFor(g.agent)
+          const Icon = g.agent === 'shell' ? undefined : agentIconFor(g.agent, descriptors)
           const unavailable = g.status !== 'ok' || g.windows.length === 0
           return (
             <div key={g.key} className="hp-section">
@@ -70,7 +74,7 @@ export function QuotaPanel({
                 {Icon && (
                   <Icon size={13} className="hp-acct-icon" aria-hidden={true} />
                 )}
-                <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
+                <span className="hp-acct-agent">{agentLabel(g.agent, descriptors)}</span>
                 {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
                 {pace && (
                   <span className={cn('hp-pace-chip', PACE_CHIP[pace])}>{paceLabel(pace)}</span>

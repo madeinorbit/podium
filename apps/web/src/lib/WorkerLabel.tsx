@@ -1,9 +1,11 @@
 import { isUnstartedSession, panelLabel } from '@podium/client-core/viewmodels'
 import type { AgentKind, SessionMeta } from '@podium/model/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
 import type { JSX } from 'react'
 import { agentChipTint, agentGlyphTone, agentIconFor } from '@/lib/agent-tone'
+import { useHarnessDescriptors } from './use-harness-descriptors'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code
@@ -68,12 +70,14 @@ export function SessionNameEditor({
  *  leaves more room for the name; the kind's name rides on the hover title.
  *  Read off the one bundled-icon home in agent-tone (POD-4737: itself the
  *  bundled CODE half of the harness contract) — never a second kind→icon
- *  table. 'shell' keeps its neutral chevron; it is not a harness. */
+ *  table. Served descriptors (a newer daemon's marks) win through agentIconFor;
+ *  absent renders the bundled mark. 'shell' keeps its neutral chevron; it is
+ *  not a harness. */
 type IconComponent = React.ComponentType<Record<string, unknown>>
 
-function kindIcon(kind: AgentKind): IconComponent {
+function kindIcon(kind: AgentKind, served?: readonly HarnessDescriptorWire[]): IconComponent {
   if (kind === 'shell') return SquareChevronRight
-  return agentIconFor(kind) ?? SquareChevronRight
+  return agentIconFor(kind, served) ?? SquareChevronRight
 }
 
 /** The agent-kind icon — shown right after the status dot, with the kind's name
@@ -84,6 +88,7 @@ export function KindIcon({
   dimmed = false,
   chip = false,
   compact = false,
+  served,
 }: {
   kind: AgentKind
   dimmed?: boolean
@@ -91,32 +96,35 @@ export function KindIcon({
   /** The 16px tile. Same object one step down, for a census of them on one row
    *  (the flight deck's collapsed strips) rather than a single agent's row. */
   compact?: boolean
+  /** Caller-held descriptors (see `./harness-labels` in client-core and
+   *  `useHarnessDescriptors`); absent renders the bundled mark. */
+  served?: readonly HarnessDescriptorWire[]
 }): JSX.Element {
-  const Icon = kindIcon(kind)
+  const Icon = kindIcon(kind, served)
   // Claude's brand clay for its glyph; other kinds stay text-toned like the mock.
   // Table lookups, not comparisons — see apps/web/src/lib/agent-tone.ts.
   // Chip/fleet tints carry their own text tone (Claude is white-on-clay; Grok
   // is the light mark). A second glyph class would fight that. Standalone
   // marks still take the rest-state tone.
-  const tone = dimmed ? 'text-muted-foreground/70' : chip || compact ? '' : agentGlyphTone(kind)
+  const tone = dimmed ? 'text-muted-foreground/70' : chip || compact ? '' : agentGlyphTone(kind, served)
   if (chip || compact) {
     // Per-kind tinted tile (POD-293 / POD-912): Claude is opaque clay, Grok is
     // the light mark, other harnesses a quiet navy — solid fills so the chip
     // never ghosts through a neighbour.
-    const chipTint = dimmed ? 'border-hairline-bar bg-muted' : agentChipTint(kind)
+    const chipTint = dimmed ? 'border-hairline-bar bg-muted' : agentChipTint(kind, served)
     const box = compact ? 'size-4 rounded' : 'size-5 rounded-[6px]'
     return (
       <span
         className={`flex ${box} flex-none items-center justify-center border ${chipTint} ${tone} ${dimmed ? 'opacity-60' : ''}`}
-        title={panelLabel(kind)}
+        title={panelLabel(kind, served)}
       >
-        <Icon size={compact ? 10 : 12} aria-label={panelLabel(kind)} />
+        <Icon size={compact ? 10 : 12} aria-label={panelLabel(kind, served)} />
       </span>
     )
   }
   return (
-    <span className={`flex-none ${tone}`} title={panelLabel(kind)}>
-      <Icon size={13} aria-label={panelLabel(kind)} />
+    <span className={`flex-none ${tone}`} title={panelLabel(kind, served)}>
+      <Icon size={13} aria-label={panelLabel(kind, served)} />
     </span>
   )
 }
@@ -136,6 +144,12 @@ export function WorkerLabel({
   /** Wrap the kind icon in the 20px agent chip (work-list agent rows). */
   chip?: boolean
 }): JSX.Element {
+  // Served descriptors for this session's machine (POD-4737, the long-lived
+  // path): a newer daemon's harness names and marks win over this build's
+  // bundled copy on the icon, its tone and its hover title. Sessions with no
+  // machine yet render bundled — the hook reports unavailable without a
+  // request, never a throw.
+  const { served } = useHarnessDescriptors(session.machineId)
   // Mid-move the row says where the session is going — same words as the pane's
   // handover state (POD-337), so the sidebar and the panel read as one event.
   const name = session.handoffTarget
@@ -158,6 +172,7 @@ export function WorkerLabel({
         kind={session.agentKind}
         chip={chip}
         dimmed={session.status === 'hibernated' || session.status === 'exited'}
+        served={served}
       />
       {/* `min-w-0` beside the overflow rules, belt and braces: this label is a
           flex item in three different surfaces (the deck's agent rows, the

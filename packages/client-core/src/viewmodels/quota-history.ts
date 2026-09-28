@@ -21,7 +21,8 @@
  */
 
 import type { AgentKind, QuotaWindowHistoryWire } from '@podium/model'
-import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
+import { harnessDescriptorFor } from './harness-labels'
 
 /** Windows the ledger charts. See the header: 5-hour sessions are out of scope. */
 const LEDGER_WINDOW_KEYS = new Set(['weekly', 'weekly-all'])
@@ -104,12 +105,13 @@ export interface QuotaLedgerView {
 
 /**
  * Picker label for a harness, read off its one home in the harness package
- * (POD-4737): the adapter's descriptor row, via the bundled fallback. Unknown
- * kinds render as their own kind. 'shell' is not a harness (no descriptor).
+ * (POD-4737): the adapter's descriptor row, resolved served-over-bundled.
+ * Unknown kinds render as their own kind. 'shell' is not a harness (no
+ * descriptor). `served` is what the caller holds (see `./harness-labels.ts`).
  */
-function agentLedgerLabel(agent: string): string {
+function agentLedgerLabel(agent: string, served?: readonly HarnessDescriptorWire[]): string {
   if (agent === 'shell') return 'Shell'
-  return bundledDescriptorFor(agent)?.label ?? agent
+  return harnessDescriptorFor(agent, served)?.label ?? agent
 }
 
 const AGENT_MARK: Record<string, string> = {
@@ -285,7 +287,10 @@ function mean(values: number[]): number | undefined {
  * strip per (account, window), restores observation order, and marks where the
  * plan changed underneath.
  */
-export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
+export function quotaLedger(
+  rows: QuotaWindowHistoryWire[],
+  served?: readonly HarnessDescriptorWire[],
+): QuotaLedgerView {
   const byStrip = new Map<string, QuotaWindowHistoryWire[]>()
   for (const row of rows) {
     if (!isLedgerWindow(row)) continue
@@ -332,7 +337,7 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
       key,
       agent: first.agent,
       mark: AGENT_MARK[first.agent] ?? first.agent.slice(0, 2).toUpperCase(),
-      agentLabel: agentLedgerLabel(first.agent),
+      agentLabel: agentLedgerLabel(first.agent, served),
       // Closed windows only: a running one is still growing, so its length so far
       // is not the length it will turn out to have had.
       windowLabel: cadenceLabel(
@@ -363,7 +368,7 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
     averagePeak: average,
     completedCount: allCompleted.length,
     bestPeak: best?.peakPercent,
-    bestLabel: best ? `${best.spanLabel} · ${agentLedgerLabel(best.agent)}` : undefined,
+    bestLabel: best ? `${best.spanLabel} · ${agentLedgerLabel(best.agent, served)}` : undefined,
     unusedWindows:
       average === undefined ? undefined : ((100 - average) / 100) * allCompleted.length,
     earliestAt: earliest,

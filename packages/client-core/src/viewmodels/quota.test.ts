@@ -1,5 +1,6 @@
 import { asMachineId } from '@podium/model'
 import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { AccountQuotaGroup } from './quota'
 import {
@@ -56,6 +57,31 @@ describe('agentLabel / statusNote', () => {
     expect(agentShortLabel('codex')).toBe('CX')
     expect(statusNote({ status: 'unauthenticated' })).toBe('Not signed in')
     expect(statusNote({ status: 'ok' })).toBe('')
+  })
+
+  /**
+   * Served descriptors win over the bundled copy by kind (POD-4737): a
+   * machine running a newer daemon renames a harness and every label follows
+   * without a client change. The bundled fallback still answers when no
+   * served row names the kind, and an unheard-of kind renders as itself —
+   * never another harness's label.
+   */
+  it('prefers served descriptor labels over bundled ones', () => {
+    const served: HarnessDescriptorWire[] = [
+      {
+        schemaVersion: 1,
+        kind: 'codex',
+        provider: 'openai',
+        label: 'Codex Next',
+        shortLabel: 'Next',
+        icon: { id: 'codex', viewBox: '0 0 1 1', d: 'M0 0h1v1H0z' },
+        capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
+        catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+      },
+    ]
+    expect(agentLabel('codex', served)).toBe('Codex Next')
+    expect(agentLabel('codex')).toBe('Codex')
+    expect(agentLabel('some-future-harness', served)).toBe('some-future-harness')
   })
 })
 

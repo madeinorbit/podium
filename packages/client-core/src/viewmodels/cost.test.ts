@@ -4,6 +4,7 @@ import type {
   TaskCostRowWire,
   TaskCostWire,
 } from '@podium/model'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   COST_HEDGE,
@@ -287,6 +288,23 @@ describe('how a figure is worded', () => {
     // The case an arm-per-harness enum got wrong: POD-1484 really reads this.
     expect(costHarnessLabel(['codex', 'grok'])).toBe('Codex + Grok')
     expect(costHarnessLabel([])).toBe('')
+  })
+
+  it('prefers served short labels over bundled ones (POD-4737)', () => {
+    const served: HarnessDescriptorWire[] = [
+      {
+        schemaVersion: 1,
+        kind: 'grok',
+        provider: 'xai',
+        label: 'Grok Tomorrow',
+        shortLabel: 'Tomorrow',
+        icon: { id: 'grok', viewBox: '0 0 1 1', d: 'M0 0h1v1H0z' },
+        capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
+        catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+      },
+    ]
+    expect(costHarnessLabel(['grok'], served)).toBe('all Tomorrow')
+    expect(costHarnessLabel(['grok'])).toBe('all Grok')
   })
 
   it('states the hedge in exactly one wording', () => {

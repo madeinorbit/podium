@@ -30,6 +30,7 @@
  * Platform-neutral: no DOM, no storage.
  */
 import type { AgentKind, HostMetricsWire, MachineQuotaWire, MachineId } from '@podium/model'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import {
   type AccountQuotaGroup,
   agentLabel,
@@ -95,7 +96,10 @@ export interface CapacityView {
  * that model, not the harness, so letting one speak for the pool would report a
  * stop that is not happening (POD-271).
  */
-export function quotaRunways(groups: AccountQuotaGroup[]): QuotaRunway[] {
+export function quotaRunways(
+  groups: AccountQuotaGroup[],
+  served?: readonly HarnessDescriptorWire[],
+): QuotaRunway[] {
   const runways: QuotaRunway[] = []
   for (const group of groups) {
     if (group.status !== 'ok') continue
@@ -105,7 +109,7 @@ export function quotaRunways(groups: AccountQuotaGroup[]): QuotaRunway[] {
       worst = {
         key: group.key,
         agent: group.agent,
-        agentName: agentLabel(group.agent),
+        agentName: agentLabel(group.agent, served),
         windowLabel: w.label,
         usedPercent: w.usedPercent,
         resetsAt: w.resetsAt,
@@ -121,13 +125,19 @@ export function quotaRunways(groups: AccountQuotaGroup[]): QuotaRunway[] {
  * The pool with the most room — the one work would actually start on, and so
  * the one the capacity sentence speaks for.
  */
-export function roomiestQuota(groups: AccountQuotaGroup[]): QuotaRunway | null {
-  return quotaRunways(groups)[0] ?? null
+export function roomiestQuota(
+  groups: AccountQuotaGroup[],
+  served?: readonly HarnessDescriptorWire[],
+): QuotaRunway | null {
+  return quotaRunways(groups, served)[0] ?? null
 }
 
 /** The gating window with the least headroom, across every pool we can read. */
-export function tightestQuota(groups: AccountQuotaGroup[]): QuotaRunway | null {
-  const runways = quotaRunways(groups)
+export function tightestQuota(
+  groups: AccountQuotaGroup[],
+  served?: readonly HarnessDescriptorWire[],
+): QuotaRunway | null {
+  const runways = quotaRunways(groups, served)
   return runways[runways.length - 1] ?? null
 }
 
@@ -199,9 +209,11 @@ export function capacityView(args: {
   hosts: readonly HostMetricsWire[]
   loadPerCore: number | null
   nowMs: number
+  /** Caller-held descriptors (see `./harness-labels.ts`); absent renders bundled. */
+  served?: readonly HarnessDescriptorWire[]
 }): CapacityView {
   const groups = groupQuotaByAccount([...(args.machines ?? [])])
-  const pools = quotaRunways(groups)
+  const pools = quotaRunways(groups, args.served)
   const quota = pools[0] ?? null
   const spentPools = pools.filter((p) => p.usedPercent > SPENT_PERCENT)
   const hosts = loadRunways(args.hosts, args.loadPerCore)
