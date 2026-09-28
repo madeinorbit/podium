@@ -187,9 +187,13 @@ describe('an invisible referent', () => {
 
     const text = container.textContent ?? ''
     // Not loading-forever: the loading object is not shown for a terminal referent, and
-    // no amount of flushing turns it into one.
+    // no amount of flushing turns it into one. Assert on the LOADING UI itself
+    // (text + cold loader), not on the absence of any live region: the composer
+    // keeps one empty polite region mounted from the first render (POD-1734) so
+    // screen readers do not miss a later announcement, and it carries role=status
+    // with no content.
     expect(text).not.toContain('Loading transcript')
-    expect(container.querySelector('[role="status"]')).toBeNull()
+    expect(container.querySelector('[data-testid="transcript-cold"]')).toBeNull()
     // Not deleted: nothing on screen says the session was removed, and there is
     // no tombstone row standing in for it.
     expect(text.toLowerCase()).not.toContain('deleted')
@@ -328,7 +332,16 @@ describe('no chat payload carries attribution', () => {
     await flush()
     expect(answerAsk).toHaveBeenCalledTimes(1)
     const payload = answerAsk.mock.calls[0]?.[0] ?? {}
-    expect(Object.keys(payload).sort()).toEqual(['choices', 'sessionId'])
+    // interactionId is question identity (POD-4292: which menu is answered, so a
+    // stale card cannot answer a newer question), not actor attribution — the
+    // authority still stamps who answered (doc §3.1.3 A3). It is optional on the
+    // wire and undefined for a transcript-only question with no pending row.
+    const keys = Object.keys(payload).sort()
+    expect(['choices,sessionId', 'choices,interactionId,sessionId']).toContain(keys.join(','))
+    expect(
+      (payload as { interactionId?: unknown }).interactionId === undefined ||
+        typeof (payload as { interactionId?: unknown }).interactionId === 'string',
+    ).toBe(true)
   })
 })
 
