@@ -136,10 +136,19 @@ export interface HarnessBoundaryAllowlistEntry {
  *  took demo variety by registry position: deleted the emptied demoData (9) +
  *  ConfiguredIssueLaunchSheet (1) + NewIssueScreen (1) entries: leak 209 →
  *  198, total 245 → 234.
+ *  POD-4737 (named default policy) defined the default ONCE as
+ *  DEFAULT_HARNESS_AGENT in @podium/model (product policy: Claude is the
+ *  default for new work) and pointed runtime settings, mobile + web
+ *  issueDefaultAgentKind, client-core placement and the web launch defaults
+ *  at it: deleted the emptied settings policy (1) + placement (1) +
+ *  RefMiniview (1) + NewAutomationDialog (1) + ColdStartComposer (1) +
+ *  test-issue (1) entries: leak 198 → 193, policy 36 → 35, total 234 → 228.
+ *  ExecutionProfiles keeps its own codex preset default; the fenced
+ *  NewIssueDialog stays for its lane.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 198
-export const HARNESS_BASELINE_POLICY_COUNT = 36
-export const HARNESS_BASELINE_TOTAL = 234
+export const HARNESS_BASELINE_LEAK_COUNT = 193
+export const HARNESS_BASELINE_POLICY_COUNT = 35
+export const HARNESS_BASELINE_TOTAL = 228
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -170,15 +179,11 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/web/harness/setup-store.ts', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/sidebar-store.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/usage-tasks-fixture.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/components/RefMiniview.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/automations/NewAutomationDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/cost/cost-format.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/issues/NewIssueDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/setup/ColdStartComposer.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/usage/UsageTasks.tsx', count: 1, category: 'leak', reason: 'cost-completeness gate (non-Claude harness hedge); labels read off descriptors (POD-4737)', issue: 'POD-4414' },
   { file: 'apps/web/src/features/workflows/ExecutionProfiles.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/lib/agent-tone.ts', count: 1, category: 'leak', reason: 'bundled brand-component key for harnesses this build knows (4.1 amendment: bundled CODE stays)', issue: 'POD-4414/4.1' },
-  { file: 'apps/web/src/lib/test-issue.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/perf/large-state.frontend-perf.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/perf/responsive-filtering.frontend-perf.tsx', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -188,7 +193,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/client-core/src/replica/replica.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/viewmodels/quota-history.ts', count: 1, category: 'leak', reason: 'two-letter ledger mark table; labels read off descriptors (POD-4737)', issue: 'POD-4414/3.3' },
   { file: 'packages/client-core/src/viewmodels/quota.ts', count: 1, category: 'leak', reason: 'two-letter meter mark table; labels read off descriptors (POD-4737)', issue: 'POD-4414/3.3' },
-  { file: 'packages/client-core/src/viewmodels/slices/machines/placement.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/viewmodels/usage.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/commands/src/cloud/contracts.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/harness/src/browser.ts', count: 2, category: 'policy', reason: 'browser-safe no-tools table + bundled composer rules stay in browser entry; tested against manifests', policy: 'packages/harness/src/browser.ts' },
@@ -208,7 +212,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/janitor/src/janitor.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/runtime/src/harness-defaults.ts', count: 6, category: 'policy', reason: 'superagent harness order + shipwright eval harness choice are Podium policy, stay; must not move into an adapter (spec §5)', policy: 'packages/runtime/src/harness-defaults.ts' },
   { file: 'packages/runtime/src/settings.ts', count: 5, category: 'leak', reason: 'provider-namespace codex literals (ApiProvider + legacy harness migration + background mapping); AgentChoice derived (4.2 enums)', issue: 'POD-4414/4.1' },
-  { file: 'packages/runtime/src/settings.ts', count: 1, category: 'policy', reason: 'DEFAULT_HARNESS_KIND claude-code is the product default harness choice; stays', policy: 'packages/runtime/src/settings.ts' },
   { file: 'packages/sync/src/adapters/indexeddb/schema.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/sync/src/adapters/mobile-sqlite/schema.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/sync/src/conformance/suite.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },

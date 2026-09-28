@@ -14,7 +14,7 @@
  * Depends on nothing in `viewmodels/` except the shared view types.
  * Platform-neutral: no DOM, no storage.
  */
-import { isHeadlessSession, type AgentKind, type SessionMeta, type MachineId } from '@podium/model'
+import { DEFAULT_HARNESS_AGENT, isHeadlessSession, type AgentKind, type SessionMeta, type MachineId } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
 // ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ export function spawnTargetForRepo(
 
 /** Resolve the user's default agent kind for the unified split button. 'auto' (or
  *  unset) resolves to the most recently ACTIVE non-shell session's kind, falling
- *  back to claude-code.
+ *  back to the named product default (POD-4737: {@link DEFAULT_HARNESS_AGENT}).
  *
  *  POD-330: a spawn-placement question, so it belongs with the rest of spawn
  *  placement rather than with whichever surface happens to render the button —
@@ -122,5 +122,5 @@ export function resolveDefaultAgent(
     if (s.agentKind === 'shell' || isHeadlessSession(s)) continue
     if (!best || s.lastActiveAt > best.lastActiveAt) best = s
   }
-  return best && best.agentKind !== 'shell' ? best.agentKind : 'claude-code'
+  return best && best.agentKind !== 'shell' ? best.agentKind : DEFAULT_HARNESS_AGENT
 }

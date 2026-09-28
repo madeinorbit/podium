@@ -15,7 +15,7 @@ import {
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
-import { agentLoginCondition, asMachineId, preferredMachineChoices } from '@podium/model/browser'
+import { agentLoginCondition, asMachineId, DEFAULT_HARNESS_AGENT, preferredMachineChoices } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -347,7 +347,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * A pick made in THIS box outranks both — it is the most recent thing the
    * operator said about this specific task.
    */
-  const defaultAgent = issueAgentKind(resolveDefaultAgent(agentSetting, sessions)) ?? 'claude-code'
+  const defaultAgent = issueAgentKind(resolveDefaultAgent(agentSetting, sessions)) ?? DEFAULT_HARNESS_AGENT
 
   /**
    * PICKING A HARNESS HERE IS A WRITE (POD-1469).

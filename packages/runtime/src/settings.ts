@@ -6,6 +6,7 @@ import {
   AutoContinuePreferences,
   asAccountId,
   CodingRole,
+  DEFAULT_HARNESS_AGENT,
   DeploymentPreferences,
   ExperimentalFlags,
   GitWorkflowPolicy,
@@ -139,10 +140,6 @@ export {
  * (`ApiProvider`), not this set; the axiom note on that collision stands.
  */
 
-/** The harness assumed when no account names one. The single home for the
- *  default (issue 4.2) — every `nativeAccountId('claude-code')` fallback and
- *  decode fallback below reads this, so changing the default is one edit. */
-const DEFAULT_HARNESS_KIND: HarnessAgent = 'claude-code'
 
 export const AgentChoice = z.enum(['auto', ...AGENT_CHOICE_HARNESS_KINDS] as const)
 export type AgentChoice = z.infer<typeof AgentChoice>
@@ -190,7 +187,7 @@ export type ApiProvider = z.infer<typeof ApiProvider>
  */
 export const LlmBackend = z.object({
   kind: z.enum(['harness', 'api']).default('api'),
-  harnessAgent: HarnessAgent.default(DEFAULT_HARNESS_KIND),
+  harnessAgent: HarnessAgent.default(DEFAULT_HARNESS_AGENT),
   harnessModel: z.string().default('auto'),
   /** This backend's reasoning effort ('auto' = provider/CLI default). For a
    *  harness it maps to each CLI's effort flag at spawn (like
@@ -427,7 +424,7 @@ function migrateRoles(raw: Record<string, unknown>): Roles | undefined {
   const sd = SessionDefaults.parse(raw.sessionDefaults ?? {})
   return Roles.parse({
     coding: {
-      accountId: nativeAccountId(sd.agent === 'auto' ? DEFAULT_HARNESS_KIND : sd.agent),
+      accountId: nativeAccountId(sd.agent === 'auto' ? DEFAULT_HARNESS_AGENT : sd.agent),
       model: sd.model,
       effort: sd.effort,
       subagentModel: sd.subagentModel,
@@ -500,12 +497,12 @@ export interface ResolvedRole {
 }
 
 const DEFAULT_ACCOUNT: Record<RoleName, AccountId> = {
-  coding: nativeAccountId(DEFAULT_HARNESS_KIND),
+  coding: nativeAccountId(DEFAULT_HARNESS_AGENT),
   // The orchestrator always runs a real harness with Podium's MCP tools. Keep its
   // empty/default account aligned with what the settings UI displays.
-  superagent: nativeAccountId(DEFAULT_HARNESS_KIND),
+  superagent: nativeAccountId(DEFAULT_HARNESS_AGENT),
   background: managedAccountId('openrouter'),
-  shipwright: nativeAccountId(DEFAULT_HARNESS_KIND),
+  shipwright: nativeAccountId(DEFAULT_HARNESS_AGENT),
 }
 
 const BACKGROUND_API_PROVIDERS: Partial<Record<HarnessAgent, ApiProvider>> = {
@@ -524,7 +521,7 @@ function decodeAccount(
     const harnessRaw = raw.split(':', 1)[0]
     const harness = HarnessAgent.safeParse(harnessRaw).success
       ? (harnessRaw as HarnessAgent)
-      : DEFAULT_HARNESS_KIND
+      : DEFAULT_HARNESS_AGENT
     const backgroundProvider = BACKGROUND_API_PROVIDERS[harness]
     if (role === 'background' && backgroundProvider) {
       return { execution: 'api', harness, provider: backgroundProvider }
@@ -538,12 +535,12 @@ function decodeAccount(
     // fails the ApiProvider parse and falls back to 'openrouter', quietly turning
     // the Claude subscription into an OpenRouter backend.
     if (raw === MANAGED_CLAUDE_OAUTH) {
-      return { execution: 'api', harness: DEFAULT_HARNESS_KIND, provider: 'anthropic' }
+      return { execution: 'api', harness: DEFAULT_HARNESS_AGENT, provider: 'anthropic' }
     }
     const provider = ApiProvider.safeParse(raw).success ? (raw as ApiProvider) : 'openrouter'
-    return { execution: 'api', harness: DEFAULT_HARNESS_KIND, provider }
+    return { execution: 'api', harness: DEFAULT_HARNESS_AGENT, provider }
   }
-  return { execution: 'harness', harness: DEFAULT_HARNESS_KIND }
+  return { execution: 'harness', harness: DEFAULT_HARNESS_AGENT }
 }
 
 /** The single read path for a role's backend (SP-6454 B3): resolves the role's

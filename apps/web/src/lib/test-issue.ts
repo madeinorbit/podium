@@ -1,4 +1,5 @@
 import type { SessionMeta, UnbrandIds } from '@podium/model/browser'
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/react'
 
 type TestIssue = IssueViewModel & { sessions?: SessionMeta[] }
@@ -26,7 +27,7 @@ export const makeIssue = (
     worktreePath: '/r/wt',
     branch: 'issue/4-fix-login',
     parentBranch: 'main',
-    defaultAgent: 'claude-code',
+    defaultAgent: DEFAULT_HARNESS_AGENT,
     defaultModel: 'auto',
     defaultEffort: 'auto',
     blockedByNotes: [],
