@@ -31,6 +31,7 @@ import {
   profilePlacement,
 } from '@podium/client-core/viewmodels'
 import { AgentKind, asAccountId, asMachineId } from '@podium/model/browser'
+import { EXECUTION_PROFILE_DEFAULT_HARNESS } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -63,7 +64,7 @@ export function ExecutionProfiles({
 
   const [name, setName] = useState('')
   const [accountId, setAccountId] = useState('')
-  const [harness, setHarness] = useState<AgentKind>('codex')
+  const [harness, setHarness] = useState<AgentKind>(EXECUTION_PROFILE_DEFAULT_HARNESS)
   const [model, setModel] = useState('auto')
   const [effort, setEffort] = useState('auto')
   // Null is a real choice — "no machine chosen" — and it is submitted as null.

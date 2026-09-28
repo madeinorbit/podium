@@ -107,6 +107,15 @@ export const SUPERAGENT_HARNESS_DEFAULTS: Readonly<Record<HarnessAgent, HarnessR
 export const SHIPWRIGHT_EVAL_SUPPORTED_HARNESS: HarnessAgent = 'claude-code'
 export const SHIPWRIGHT_EVAL_UNSUPPORTED_HARNESS: HarnessAgent = 'grok'
 
+/**
+ * Launch-preset default harness (POD-4737 D6): execution profiles (the
+ * workflows/automations composer) start on Codex. Deliberately distinct from
+ * DEFAULT_HARNESS_AGENT (the default for new work) — presets are authored
+ * against Codex's surface, so they open where they run. Product policy, not
+ * adapter knowledge; the composer reads this instead of restating it.
+ */
+export const EXECUTION_PROFILE_DEFAULT_HARNESS: HarnessAgent = 'codex'
+
 /** One harness as the caller's fleet reports it. */
 export interface HarnessCandidate {
   harness: HarnessAgent
