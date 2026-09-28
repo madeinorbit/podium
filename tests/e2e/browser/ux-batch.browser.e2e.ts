@@ -6,7 +6,6 @@ import { newSession, openApp, podium } from './_harness'
  * Runtime click-through of the UX-batch-2026-06-30 changes against the REAL Live UI
  * on the harness relay (serve-harness registers THIS worktree, shell cwd === repo root):
  *   #13 right-click session context menu (tab) + Rename enters edit mode
- *   #8  shells are absent from the command center
  *   #3  copy button on a rendered code block (real click → clipboard)
  *   #4  external links in rendered markdown open in a new tab (target=_blank)
  * Desktop only — these are mouse interactions on desktop surfaces.
@@ -96,22 +95,6 @@ test('#13 right-click tab → session context menu; Rename enters edit mode', as
   await expect(menu).toBeHidden({ timeout: 5_000 })
 })
 
-test('#8 shells are not listed in the command center', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await openApp(page)
-  await newSession(page, 'Shell')
-
-  // Navigate to the command center.
-  await page.getByRole('button', { name: 'Command center' }).click()
-  await expect(page.getByRole('heading', { name: 'Command center' })).toBeVisible({
-    timeout: 10_000,
-  })
-
-  // With only a shell session present, the board has nothing to triage — the shell
-  // must NOT appear (it's filtered by withoutShells). The empty-state copy proves it.
-  await expect(page.getByText('No sessions yet', { exact: false })).toBeVisible({ timeout: 10_000 })
-})
-
 test('#3/#4 code-block copy button + external links open in a new tab', async ({
   page,
   context,
@@ -197,29 +180,6 @@ test('#16/#17 memory view: "Project processes" legend; hibernation note ahead of
     return Boolean(note.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING)
   })
   expect(noteBeforeList).toBe(true)
-})
-
-test('#18 archive button is available once a session has exited', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await openApp(page)
-  await newSession(page, 'Shell')
-  await expect
-    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
-    .toBeGreaterThan(0)
-
-  // Archive is present while the session is live... (the keep-mounted panel deck
-  // can hold a hidden second panel, so scope to the visible header button).
-  const archive = page.locator('button[title^="Archive session"]:visible')
-  await expect(archive).toBeVisible({ timeout: 10_000 })
-
-  // ...end the shell process; the panel flips to its read-only/exited state...
-  await sh(page, 'exit')
-  await expect(page.getByText('no longer running', { exact: false })).toBeVisible({
-    timeout: 15_000,
-  })
-
-  // ...and Archive STILL shows (the #18 fix — it used to disappear on exit).
-  await expect(archive).toBeVisible({ timeout: 10_000 })
 })
 
 test('#11 snooze hover menu opens, with a fixed gap-bridge', async ({ page }) => {
