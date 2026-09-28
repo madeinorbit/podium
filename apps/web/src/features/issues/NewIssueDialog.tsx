@@ -3,6 +3,7 @@ import { type RepoView, reposToViews, repoUsageAt } from '@podium/client-core/vi
 import {
   agentCapabilityRejection,
   agentLoginCondition,
+  DEFAULT_HARNESS_AGENT,
   ISSUE_STAGES,
   type IssueStage,
   type MachineWire,
@@ -236,7 +237,9 @@ export function NewIssueDialog({
     const mru = [...choices].sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))[0]
     return mru?.path ?? repos[0]?.path ?? ''
   })
-  const [defaultAgent, setDefaultAgent] = useState('claude-code')
+  // Placeholder until settings load (line ~258 resolves the coding role):
+  // the named product default, never a literal (POD-4737).
+  const [defaultAgent, setDefaultAgent] = useState(DEFAULT_HARNESS_AGENT)
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
   // 'auto' = inherit the settings default model/effort (no per-issue override).
