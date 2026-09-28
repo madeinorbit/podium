@@ -58,8 +58,7 @@ import type {
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
-import { ProviderCursor, SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
-import { TRPCError } from '@trpc/server'
+import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -69,7 +68,6 @@ import type {
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
   RuntimeHistoryResultMessage,
-  RuntimeHistoryRange,
   RuntimeStageAttachmentResultMessage,
   ShippingEvidenceResultMessage,
   ShippingJobRequestMessage,
@@ -175,23 +173,10 @@ export interface RpcSessionView {
   status?: string
 }
 
-const HISTORY_CURSOR_PREFIX = 'runtime-history:'
-
-/** Paging cursors are opaque and separate from item/stream identity. */
-export function encodeHistoryCursor(sessionId: SessionId, cursor: ProviderCursor): string {
-  return HISTORY_CURSOR_PREFIX + encodeURIComponent(JSON.stringify({ sessionId, cursor }))
-}
-
-function decodeHistoryCursor(sessionId: SessionId, anchor?: string): ProviderCursor | undefined {
-  if (!anchor?.startsWith(HISTORY_CURSOR_PREFIX)) return undefined
-  try {
-    const decoded = JSON.parse(decodeURIComponent(anchor.slice(HISTORY_CURSOR_PREFIX.length)))
-    if (decoded.sessionId !== sessionId) throw new Error('foreign session')
-    return ProviderCursor.parse(decoded.cursor)
-  } catch {
-    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid history cursor' })
-  }
-}
+/** Prefix of the retired runtime-history cursor namespace (POD-4783). The
+ *  encoder/decoder are gone; only this prefix check remains so a client
+ *  holding an old cursor gets a clean first page instead of an error. */
+const LEGACY_RUNTIME_HISTORY_PREFIX = 'runtime-history:'
 
 function withRuntimeTranscriptItems(
   slice: TranscriptSlice,
@@ -304,7 +289,10 @@ const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessag
 const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
 /** The observation bootstrap (POD-2023). Its result is the union the frame
  *  carries — a snapshot, or the typed refusal for a session that is not behind
- *  the contract. */
+ *  the contract. The server no longer SENDS runtimeHistoryRequest (POD-4783:
+ *  every family answers transcript.history from disk, so the live branch adds
+ *  nothing); the kind and the runtimeHistoryResult settler below stay for one
+ *  release so the fan-in remains total over the frames the gateway routes. */
 const RUNTIME_HISTORY = daemonRequestKind<Payload<RuntimeHistoryResultMessage>>('rh')
 const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
 const RUNTIME_DRAFT = daemonRequestKind<Payload<RuntimeDraftResultMessage>>('rd')
@@ -1008,22 +996,6 @@ export class DaemonRpcService {
     )
   }
 
-  /** Live-handle history. Archive/lake and handle-free reads stay in readTranscript;
-   * their cursor namespace must not be mixed with runtime history cursors. */
-  async runtimeHistory(
-    sessionId: SessionId,
-    machineId: MachineId,
-    range: RuntimeHistoryRange,
-  ): Promise<Payload<RuntimeHistoryResultMessage>> {
-    return await this.request(
-      RUNTIME_HISTORY,
-      RUNTIME_VERB_TIMEOUT_MS,
-      () => ({ sessionId, result: { reason: 'not_running' as const } }),
-      (requestId) => ({ type: 'runtimeHistoryRequest', requestId, sessionId, range }),
-      machineId,
-    )
-  }
-
   /**
    * THE OBSERVATION BOOTSTRAP, ACROSS THE WIRE (POD-2023).
    *
@@ -1435,8 +1407,9 @@ export class DaemonRpcService {
     return path ? { pathHint: path } : undefined
   }
 
-  /** Shared authorized read for chat, toolkit, answers and recaps. Live drivers
-   * own live history; immutable predecessor chains and parked rows stay archival. */
+  /** Shared authorized read for chat, toolkit, answers and recaps. One Store
+   *  read path (POD-4783): the daemon's transcriptRead when connected and the
+   *  session has no predecessor chain, the memory lake otherwise. */
   async readTranscript(
     input: {
       sessionId: SessionId
@@ -1459,47 +1432,14 @@ export class DaemonRpcService {
       recordTotal()
       return { items: [], hasMore: false }
     }
-    const historyCursor = decodeHistoryCursor(input.sessionId, input.anchor)
     const hasPredecessors = await this.deps.memory.transcriptHasPredecessors(session)
-    const live = session.driverId && session.status !== 'hibernated' && session.status !== 'exited'
-    // A pre-migration/raw anchor belongs to archive paging. Never pass it to a
-    // provider as though it were a runtime cursor.
-    if (live && !hasPredecessors && this.deps.hasDaemon(session.machineId) &&
-        (!input.anchor || historyCursor)) {
-      const { result } = await this.runtimeHistory(input.sessionId, session.machineId, {
-        ...(historyCursor ? { from: historyCursor } : {}),
-        direction: input.direction,
-        limit: input.limit,
-      })
-      if ('page' in result) {
-        recordTotal()
-        return withRuntimeTranscriptItems({
-          items: [...result.page.items],
-          ...(result.page.head ? { head: encodeHistoryCursor(input.sessionId, result.page.head) } : {}),
-          ...(result.page.tail ? { tail: encodeHistoryCursor(input.sessionId, result.page.tail) } : {}),
-          hasMore: result.page.hasMore,
-        }, session, input)
-      }
-      if (result.reason === 'invalid_value') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: result.detail ?? 'Invalid history cursor' })
-      }
-    }
+    // Retired runtime-history cursors have no Store interpretation. A client
+    // holding one gets a clean first page (latest window + reset) rather than
+    // an error or a silently appended foreign source.
     let sourceReset = false
-    if (historyCursor) {
-      // Only the terminal host explicitly embeds a native source cursor. This
-      // bridge permits paging the mirror after disconnect without interpreting
-      // arbitrary provider components or forwarding a live cursor to the lake.
-      if (hasPredecessors ||
-          historyCursor.segmentId !== `history:${session.id}:${session.resume?.value ?? ''}` ||
-          !historyCursor.pathHint) {
-        // Headless event/index cursors have no archive interpretation. Return
-        // a replacement latest archive window, never silently append it to the
-        // caller's old source or strand a persisted recap watermark.
-        input = { sessionId: input.sessionId, direction: 'before', limit: input.limit }
-        sourceReset = true
-      } else {
-        input = { ...input, anchor: historyCursor.pathHint }
-      }
+    if (input.anchor?.startsWith(LEGACY_RUNTIME_HISTORY_PREFIX)) {
+      input = { sessionId: input.sessionId, direction: 'before', limit: input.limit }
+      sourceReset = true
     }
     const archivePage = (page: TranscriptSlice): TranscriptSlice => {
       const projected = withRuntimeTranscriptItems(page, session, input)

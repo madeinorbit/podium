@@ -367,7 +367,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // closure stay legal per the file header.
     relay: () => bag.runtimeGateway,
     store: () => ({
-      history: (sessionId, machineId, range) => bag.rpc.runtimeHistory(sessionId, machineId, range),
+      history: (input) => bag.rpc.readTranscript(input, { kind: 'system', id: 'superagent-headless-turn' }),
       snapshot: (sessionId, machineId) => bag.rpc.runtimeSnapshot(sessionId, machineId),
     }),
   })
