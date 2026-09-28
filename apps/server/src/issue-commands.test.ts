@@ -189,9 +189,8 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(show.args.parse({ id: 'iss_abc' })).toEqual({ id: 'iss_abc' })
   })
 
-  it('comment defaults the author to agent', () => {
-    const parsed = cmd('comment').args.parse({ id: '10', body: 'hi' }) as { author: string }
-    expect(parsed.author).toBe('agent')
+  it('comment takes no author: the server derives it from the caller (POD-4751)', () => {
+    expect(() => cmd('comment').args.parse({ id: '10', body: 'hi', author: 'steward' })).toThrow()
   })
 
   it('close --note records a completion-note comment before closing', async () => {
@@ -199,7 +198,6 @@ describe('ISSUE_COMMANDS registry', () => {
     const out = await cmd('close').run(client, {
       id: '5',
       note: 'done: shipped the fix',
-      author: 'agent',
     })
     const idx = (p: string) => calls.findIndex((c) => c.path === p)
     expect(idx('addComment')).toBeGreaterThanOrEqual(0)

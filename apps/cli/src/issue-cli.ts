@@ -193,7 +193,7 @@ export async function resolveRepoArg(
 export async function runIssueCli(
   argv: string[],
   client: IssueTrpc,
-  opts?: { defaultAuthor?: string; discoveryWaitMs?: number },
+  opts?: { discoveryWaitMs?: number },
 ): Promise<string> {
   // `-h` ≡ `--help`; a leading `--help` reads as the `help` command (no command to attach to).
   const mapped = argv.map((a) => (a === '-h' ? '--help' : a))
@@ -216,12 +216,6 @@ export async function runIssueCli(
   if (cmd.restKey && args[cmd.restKey] == null) {
     const rest = positionals.slice(cmd.positionals?.length ?? 0)
     if (rest.length) args[cmd.restKey] = rest.join(',')
-  }
-  // Comment-style commands: default the author to who we are (agent via relay,
-  // operator when talking to the server directly) unless explicitly given.
-  const shape = (cmd.args as { shape?: Record<string, unknown> }).shape ?? {}
-  if ('author' in shape && args.author == null && opts?.defaultAuthor) {
-    args.author = opts.defaultAuthor
   }
   // Fill in --repoPath from the cwd when the command takes one and it was omitted.
   // The infer call is best-effort: a mock client without `repos` (unit tests) throws
@@ -291,7 +285,6 @@ export async function issueCliMain(argv: string[]): Promise<void> {
     : makeOperatorIssueClient(localServerUrl(resolvePort()))
   try {
     console.log(await runIssueCli(argv, client, {
-      defaultAuthor: relay ? 'agent' : 'operator',
       discoveryWaitMs: relay ? 0 : 5_000,
     }))
   } catch (err) {

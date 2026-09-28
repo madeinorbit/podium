@@ -7,7 +7,7 @@ it is relayed through your daemon with a capability scoped to the issue you're w
 1. `podium issue prime` — your current issue, acceptance, open children, blockers, and workflow.
 2. `podium issue ready` — unblocked work you can pick up.
 3. Work. Keep a short checkpoint:
-   `podium issue comment --id <id> --author <you> --body "repro → fixing"`.
+   `podium issue comment --id <id> --body "repro → fixing"`.
 4. Found new/out-of-scope work? File it and link it:
    `podium issue create --title "Bug: X" --repoPath <repo>` then
    `podium issue dep-add --fromId <new> --toId <current> --type discovered-from`.

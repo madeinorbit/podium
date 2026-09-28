@@ -851,7 +851,7 @@ const defs = {
     target: targetId,
     handler: async (ctx, input) =>
       await ctx.withMutation(input.mutationId, async () =>
-        await ctx.commentsMail.addComment(input.id, input.author, input.body, ctx.requirePrincipal()),
+        await ctx.commentsMail.addCallerComment(input.id, input.body, ctx.requirePrincipal()),
       ),
   }),
   depAdd: def('depAdd', {

@@ -196,7 +196,6 @@ interface MobileTrpcExtras {
     }>
     addComment: MutationProcedure<{
       id: string
-      author: string
       body: string
       mutationId?: MutationId
     }>

@@ -869,7 +869,7 @@ describe('issue spawn provenance', () => {
         },
         'issues',
         'addComment',
-        { id: issue.id, author: 'agent', body: 'transport attributed' },
+        { id: issue.id, body: 'transport attributed' },
       )
 
       const internal = registry as unknown as {
@@ -883,6 +883,59 @@ describe('issue spawn provenance', () => {
       }
       expect(await internal.store.issues.listIssueComments(issue.id)).toMatchObject([
         { actor: 'session:comment-agent', onBehalfOf: firstAdminMemberId() },
+      ])
+    } finally {
+      await registry.dispose()
+    }
+  })
+
+  it('stamps the displayed comment author from the caller, ignoring a spoofed author', async () => {
+    const registry = await reportingRegistry()
+    try {
+      const issue = await registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+      const internal = registry as unknown as {
+        store: {
+          users: { get(id: UserId): Promise<{ displayName: string } | undefined> }
+          issues: { listIssueComments(id: string): Promise<Array<{ author: string; body: string }>> }
+        }
+      }
+      const admin = await internal.store.users.get(firstAdminMemberId())
+      expect(admin?.displayName).toBeTruthy()
+      const spoof = { id: issue.id, author: 'steward', body: 'spoofed' }
+
+      await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'addComment', spoof)
+      await registry.issueCommands.dispatch(
+        {
+          capability: {
+            role: 'worker',
+            scope: { kind: 'subtree', rootId: issue.id },
+            actorSessionId: asSessionId('comment-agent'),
+            onBehalfOf: firstAdminMemberId(),
+          },
+        },
+        'issues',
+        'addComment',
+        spoof,
+      )
+      await registry.issueCommands.dispatch(
+        {
+          capability: {
+            role: 'worker',
+            scope: { kind: 'none' },
+            actorSessionId: asSessionId('issueless-agent'),
+            onBehalfOf: firstAdminMemberId(),
+          },
+          overrideScope: true,
+        },
+        'issues',
+        'addComment',
+        spoof,
+      )
+
+      expect((await internal.store.issues.listIssueComments(issue.id)).map((c) => c.author)).toEqual([
+        admin?.displayName,
+        `issue:#${issue.seq}`,
+        'agent',
       ])
     } finally {
       await registry.dispose()

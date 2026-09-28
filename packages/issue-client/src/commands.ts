@@ -53,8 +53,7 @@ import type { IssueTrpc } from './client.js'
  * second declaration of a command's input — they are a different schema doing a
  * different job. They parse ARGV: `idArg` accepts a bare number so `show 10` works,
  * `cliBool` accepts `--pinned`, `--pinned true` and `--pinned=false`, `label` takes a
- * comma string it splits before calling `setLabels` with an array, and `comment`
- * defaults an `author`. Deriving these from the wire input would either lose those
+ * comma string it splits before calling `setLabels` with an array. Deriving these from the wire input would either lose those
  * affordances or push argv coercion into the contract, where it does not belong. The
  * contract decides WHAT MAY BE CALLED; this table decides HOW A HUMAN TYPES IT.
  */
@@ -859,7 +858,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       id: idArg,
       reason: z.string().optional(),
       note: z.string().optional(),
-      author: z.string().default('agent'),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -868,7 +866,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.note) {
         await c.issues.addComment.mutate({
           id: a.id as string,
-          author: a.author as string,
           body: `[completion-note] ${a.note as string}`,
         })
       }
@@ -1117,17 +1114,15 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'comment',
-    summary: 'Add a comment: comment <id> --body "…" [--author name].',
+    summary: 'Add a comment: comment <id> --body "…". The author is whoever is signed in.',
     args: z.strictObject({
       id: idArg,
-      author: z.string().default('agent'),
       body: z.string().min(1),
     }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.addComment.mutate({
         id: a.id as string,
-        author: a.author as string,
         body: a.body as string,
       })) as { seq: number }
       return { text: `commented on #${i.seq}`, data: i }

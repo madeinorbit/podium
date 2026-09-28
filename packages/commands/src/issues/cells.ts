@@ -269,8 +269,8 @@ export const ISSUE_REDACTION: RedactionPolicy = {
  * is NOT an accepted input precisely so provenance cannot be forged.
  *
  * `wirePlacement: 'separate-field'`. The alternative — folding the human into
- * `assignee` or `author` — is the substitution D17 forbids: `addComment` already
- * takes a caller-supplied `author` STRING, which is display text and not an identity,
+ * `assignee` or `author` — is the substitution D17 forbids: a comment's `author` is
+ * DISPLAY TEXT (server-derived since POD-4751, but still a label and not an identity),
  * and letting it double as the accountability record would make "did a person or an
  * agent write this?" unanswerable.
  *
@@ -287,8 +287,8 @@ export const ISSUE_ATTRIBUTION: AttributionPolicy = {
     'Both halves are stamped from the transport principal and never read from payload — the shipped ' +
     'rule, kept: `mailIdentity`, `messageSender` and `spawnProvenance` all read `caller.capability`, ' +
     'and `create`/`attachSession` refuse a caller-supplied `origin` for exactly this reason. Reserved ' +
-    'as separate keys because `addComment.author` is DISPLAY TEXT: folding the pair into it would ' +
-    'answer "who acted" with a string the caller chose. POD-364’s finding that the close actor is ' +
+    'as separate keys because a comment `author` is DISPLAY TEXT: folding the pair into it would ' +
+    'answer "who acted" with a label rather than an identity. POD-364’s finding that the close actor is ' +
     'persisted nowhere stays open on ADR 1’s `issueCore` row — this declares the wire, not the column.',
 }
 

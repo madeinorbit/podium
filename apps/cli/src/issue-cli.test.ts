@@ -299,11 +299,11 @@ describe('runIssueCli', () => {
     expect(r.positionals).toEqual(['10'])
   })
 
-  it('defaults the comment author from opts (relay=agent, direct=operator)', async () => {
+  it('sends no comment author: the server derives it from the caller (POD-4751)', async () => {
     const addComment = vi.fn(async () => ({ seq: 4 }))
     const c = { issues: { addComment: { mutate: addComment } } } as any
-    await runIssueCli(['comment', '4', '--body', 'hi'], c, { defaultAuthor: 'operator' })
-    expect(addComment).toHaveBeenCalledWith({ id: '4', author: 'operator', body: 'hi' })
+    await runIssueCli(['comment', '4', '--body', 'hi'], c)
+    expect(addComment).toHaveBeenCalledWith({ id: '4', body: 'hi' })
   })
 })
 

@@ -53,6 +53,35 @@ export class IssueCommentsMailModule {
     )
   }
 
+  /**
+   * A comment from a TRANSPORT caller (POD-4751): the displayed author is
+   * derived from the principal, never taken from the request. `addComment`
+   * above stays the server-side path for in-process writers (steward,
+   * integrate, workflow audit notes) that name themselves — and the steward
+   * and integrate dedupe on those names, so a client that could choose its
+   * author could also suppress their notes.
+   */
+  async addCallerComment(id: string, body: string, principal: CommandPrincipal): Promise<IssueWire> {
+    return await this.addComment(id, await this.authorOf(principal), body, principal)
+  }
+
+  /** The display name a principal comments under: a human's own profile name,
+   *  an issue-bound agent as `issue:#<seq>` (the mail sender's vocabulary). */
+  private async authorOf(principal: CommandPrincipal): Promise<string> {
+    switch (principal.kind) {
+      case 'user':
+        return (await this.store.deps.store.users.get(principal.user))?.displayName || principal.user
+      case 'agent': {
+        const scope = principal.capability.scope
+        if (scope.kind !== 'subtree') return 'agent'
+        const root = this.store.rows.get(scope.rootId)
+        return root ? `issue:#${root.seq}` : 'agent'
+      }
+      case 'system':
+        return `system:${principal.job}`
+    }
+  }
+
   // ---- agent mail (issue #103): messages addressed to an ISSUE ----
 
   /** Create a mail message on the target issue, then fire the delivery hook

@@ -261,7 +261,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         startNow: false,
       })
       await regA.issues.claim(a.id, asUserId('agent:test'))
-      await regA.issues.addComment(a.id, 'agent:test', 'progress note', AS_OPERATOR)
+      await regA.issues.commentsMail.addCallerComment(a.id, 'progress note', AS_OPERATOR)
       await regA.issues.close(a.id, 'done')
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
@@ -283,7 +283,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       const seq = /created (?:[A-Z]{2,5}-|#)(\d+)/.exec(created)?.[1]
       if (!seq) throw new Error(`no seq in: ${created}`)
       await runIssueCli(['claim', seq, '--assignee', 'agent:test'], cli)
-      await runIssueCli(['comment', seq, '--body', 'progress note', '--author', 'agent:test'], cli)
+      await runIssueCli(['comment', seq, '--body', 'progress note'], cli)
       await runIssueCli(['close', seq, '--reason', 'done'], cli)
       const bId = await regB.issues.resolveRef(seq)
 
@@ -297,7 +297,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         startNow: false,
       })
       await trpc.issues.claim({ id: c.id, assignee: 'agent:test' })
-      await trpc.issues.addComment({ id: c.id, author: 'agent:test', body: 'progress note' })
+      await trpc.issues.addComment({ id: c.id, body: 'progress note' })
       await trpc.issues.close({ id: c.id, reason: 'done' })
 
       const obsA = await observe(regA, a.id)
@@ -318,7 +318,12 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         'issue.closed',
       ])
       expect(obsA.comments).toHaveLength(1)
-      expect(obsA.comments).toMatchObject([{ author: 'agent:test', body: 'progress note' }])
+      // The author is the caller's own name on every path (POD-4751) — never a
+      // label the caller chose.
+      const operator = await (
+        regA as unknown as { store: { users: { get(id: string): Promise<{ displayName: string } | undefined> } } }
+      ).store.users.get(firstAdminMemberId())
+      expect(obsA.comments).toMatchObject([{ author: operator?.displayName, body: 'progress note' }])
       expect(obsA.oplogIssues).toHaveLength(1)
 
       // The actual contract: all three entry points converge byte-for-byte

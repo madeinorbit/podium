@@ -572,7 +572,7 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
     if (!text || busy) return
     setBusy(true)
     void trpc.issues.addComment
-      .mutate({ id: issue.id, author: 'me', body: text })
+      .mutate({ id: issue.id, body: text })
       .then(() => setBody(''))
       .catch(() => {
         // Keep what they typed: a dropped mutation must not eat the words.

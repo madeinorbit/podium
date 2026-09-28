@@ -199,7 +199,6 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
 
       const comment = await caller.issues.addComment({
         id: issue.id,
-        author: 'agent',
         body: 'lands regardless of how far the issue has moved',
       })
       expect(comment).toBeTruthy()
@@ -233,7 +232,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
       expect(await revisionOf(registry, issue.id)).toBeGreaterThan(0)
       await caller.issues.update({ id: issue.id, patch: { title: 'edited' } })
       expect(await revisionOf(registry, issue.id)).toBeGreaterThan(0)
-      await caller.issues.addComment({ id: issue.id, author: 'a', body: 'b' })
+      await caller.issues.addComment({ id: issue.id, body: 'b' })
       expect(await revisionOf(registry, issue.id)).toBeGreaterThan(0)
     } finally {
       await registry.dispose()
@@ -251,13 +250,11 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
 
       const first = await caller.issues.addComment({
         id: issue.id,
-        author: 'agent',
         body: 'exactly once',
         mutationId,
       })
       const replay = await caller.issues.addComment({
         id: issue.id,
-        author: 'agent',
         body: 'exactly once',
         mutationId,
       })
@@ -342,8 +339,8 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
     try {
       const issue = await seed(registry)
       const caller = callerFor(registry)
-      await caller.issues.addComment({ id: issue.id, author: 'a', body: 'x', mutationId: 'm1' })
-      await caller.issues.addComment({ id: issue.id, author: 'a', body: 'x', mutationId: 'm2' })
+      await caller.issues.addComment({ id: issue.id, body: 'x', mutationId: 'm1' })
+      await caller.issues.addComment({ id: issue.id, body: 'x', mutationId: 'm2' })
       expect(await registry.issues.comments(issue.id)).toHaveLength(2)
     } finally {
       await registry.dispose()

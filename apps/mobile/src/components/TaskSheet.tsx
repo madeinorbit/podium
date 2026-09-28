@@ -100,7 +100,7 @@ export function TaskSheet({
 
   const post = (body: string) => {
     if (!issue) return
-    void trpc.issues.addComment.mutate({ id: issue.id, author: 'mobile', body }).catch(() => {})
+    void trpc.issues.addComment.mutate({ id: issue.id, body }).catch(() => {})
   }
 
   /**

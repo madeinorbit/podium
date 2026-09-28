@@ -195,7 +195,7 @@ export function issueCommands({
     // ---- activity ----
     postComment: (body: string, onPosted: (body: string) => void): void => {
       void run(async () => {
-        await trpc.issues.addComment.mutate({ id, author: 'me', body })
+        await trpc.issues.addComment.mutate({ id, body })
         onPosted(body)
       })
     },

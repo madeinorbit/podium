@@ -117,7 +117,7 @@ export function issuePageCommands({
      *  appends the local optimistic copy + clears the composer there). */
     postComment: (body: string, onPosted: (body: string) => void): void => {
       void run(async () => {
-        await trpc.issues.addComment.mutate({ id, author: 'me', body })
+        await trpc.issues.addComment.mutate({ id, body })
         onPosted(body)
       })
     },

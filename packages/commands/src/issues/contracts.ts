@@ -450,9 +450,10 @@ export const shareInput = z.object({
 
 export const unshareInput = shareInput
 
+// No `author` (POD-4751): the displayed author is derived from the caller on
+// the server. An older client that still sends one has it stripped, not honoured.
 export const addCommentInput = z.object({
   id: IssueIdField,
-  author: z.string(),
   body: z.string().min(1),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
@@ -1418,7 +1419,7 @@ export const issueAddCommentContract = {
     'parent',
     "A comment inherits its ISSUE's owner and grants — ADR 1's `issueComments` row inherits " +
       "`issueCore` — not the commenter's. Otherwise a shared issue would fragment into per-commenter " +
-      'ownership one reply at a time. The caller-supplied `author` is display text, not the owner.',
+      'ownership one reply at a time. The server-derived `author` is display text, not the owner.',
   ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
