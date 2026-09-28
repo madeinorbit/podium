@@ -151,6 +151,10 @@ test.afterEach(async () => {
 test('(a) a RUNNING claude session renders its on-disk transcript in the chat view', async ({
   page,
 }) => {
+  // Heavier than a toggle check: mission spawn, two panel switches, a hook
+  // bind and a full transcript render on a shared host. Give the flow room
+  // beyond the 30s default instead of treating setup pressure as failure.
+  test.setTimeout(90_000)
   await page.setViewportSize({ width: 1280, height: 900 })
 
   // Seed a small, deterministic transcript BEFORE the session exists, so the daemon
