@@ -35,6 +35,9 @@ export interface FakeGrokAcpServerOptions {
    *  production protocol separates the cancellation request from its fence;
    *  this option lets a test prove the driver does too. */
   deferCancellation?: boolean
+  /** Echo each prompt as a `user_message_chunk`, as Grok does (default). Off
+   *  models a harness that answers without recording the prompt first. */
+  echoPrompt?: boolean
 }
 
 export interface FakeGrokAcpServer {
@@ -230,10 +233,12 @@ export function startFakeGrokAcpServer(
                 'text' in prompt[0]
                   ? String(prompt[0].text)
                   : ''
-              notifyUpdate({
-                sessionUpdate: 'user_message_chunk',
-                content: { type: 'text', text },
-              })
+              if (options.echoPrompt !== false) {
+                notifyUpdate({
+                  sessionUpdate: 'user_message_chunk',
+                  content: { type: 'text', text },
+                })
+              }
               return
             }
             default:

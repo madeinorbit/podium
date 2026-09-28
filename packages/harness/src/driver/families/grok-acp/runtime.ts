@@ -11,7 +11,7 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { classifyGrokProviderFailure, translateGrokUpdatePayload } from '../../../adapters/grok/instrumentation.js'
 import { initialAgentState, reduceAgentState } from '../../../observer.js'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
@@ -173,6 +173,21 @@ interface BufferedToolResult {
   emitted: boolean
 }
 
+/**
+ * How long a sent prompt waits for Grok's echo before the driver records the
+ * text it sent instead (POD-4774). A backstop only: the echo is the first
+ * update after the prompt, and any later update decides the wait sooner.
+ */
+const GROK_USER_ECHO_WAIT_MS = 5_000
+
+type PendingUserItem = {
+  text: string
+  at: string
+  fallbackId: string
+  timer: ReturnType<typeof setTimeout>
+  settle: (ref: TranscriptItemRef | undefined) => void
+}
+
 interface DriverSession {
   sessionId: SessionId
   spec: SessionSpec
@@ -209,7 +224,9 @@ interface DriverSession {
   toolResults: Map<string, BufferedToolResult>
   userBuffer: { id: string; text: string; at: string } | undefined
   assistantBuffer: { id: string; text: string; at: string } | undefined
-  ignoreUserEcho: string | undefined
+  /** The prompt this driver just sent, waiting for Grok's echo of it to name
+   *  its transcript entry (POD-4774). See {@link flushUser}. */
+  pendingUserItem: PendingUserItem | undefined
   usage: UsageSnapshot
   disposed: boolean
   ingestChain: Promise<void>
@@ -390,18 +407,44 @@ export function createGrokAcpRuntime(
     )
   }
 
+  /**
+   * THE PROMPT'S TRANSCRIPT ENTRY IS GROK'S OWN ECHO OF IT (POD-4774).
+   *
+   * Grok echoes a live `session/prompt` as a `user_message_chunk` carrying its
+   * provider event id — measured in `__fixtures__/live-frames.jsonl`, where
+   * the echo is the first update after the prompt. The event id is the
+   * provider's causal identity for the update (see `ingestNotification`), so
+   * the item is built from the echo (`grok-user-<eventId>`) rather than from
+   * a driver counter. (Whether a `session/load` replays it under the same
+   * event id is not measured; the fake server mints fresh replay ids.)
+   * An echo is settled as soon as it reads as the prompt; otherwise the
+   * buffer is flushed by the first
+   * update that is not the prompt, which is where a pending send is decided:
+   * its echo matched, or Grok moved on without one and the driver records the
+   * prompt it sent, under its own id, ahead of the answer.
+   */
   function flushUser(
     session: DriverSession,
     provenance: ObservationProvenance,
     native?: NativeObservation,
   ): void {
     const buffer = session.userBuffer
-    if (!buffer) return
+    const pending = provenance === 'live' ? session.pendingUserItem : undefined
+    if (!buffer) {
+      if (pending) recordSentPrompt(session)
+      return
+    }
     session.userBuffer = undefined
     const text = buffer.text.trim()
-    if (!text) return
-    if (session.ignoreUserEcho && text === session.ignoreUserEcho.trim()) {
-      session.ignoreUserEcho = undefined
+    if (!text) {
+      if (pending) recordSentPrompt(session)
+      return
+    }
+    if (pending && text === pending.text.trim()) {
+      session.pendingUserItem = undefined
+      clearTimeout(pending.timer)
+      addItem(session, { id: buffer.id, role: 'user', text, ts: buffer.at }, buffer.at, provenance, native)
+      pending.settle({ id: buffer.id })
       return
     }
     addItem(
@@ -411,6 +454,17 @@ export function createGrokAcpRuntime(
       provenance,
       native,
     )
+  }
+
+  /** No echo named the pending prompt: record the text the driver sent, under
+   *  the id it minted for the turn, and name that. */
+  function recordSentPrompt(session: DriverSession): void {
+    const pending = session.pendingUserItem
+    if (!pending) return
+    session.pendingUserItem = undefined
+    clearTimeout(pending.timer)
+    addItem(session, { id: pending.fallbackId, role: 'user', text: pending.text, ts: pending.at }, pending.at, 'live')
+    pending.settle({ id: pending.fallbackId })
   }
 
   function flushAssistant(
@@ -512,6 +566,13 @@ export function createGrokAcpRuntime(
             text,
             at,
           }
+        }
+        // The echo of the prompt just sent is complete once it reads as that
+        // prompt: settle it now rather than holding the send until the answer
+        // starts (POD-4774).
+        const pending = provenance === 'live' ? session.pendingUserItem : undefined
+        if (pending && session.userBuffer!.text.trim() === pending.text.trim()) {
+          flushUser(session, provenance, native)
         }
         return
       }
@@ -923,7 +984,7 @@ export function createGrokAcpRuntime(
       toolResults: new Map(),
       userBuffer: undefined,
       assistantBuffer: undefined,
-      ignoreUserEcho: undefined,
+      pendingUserItem: undefined,
       usage: {},
       disposed: false,
       ingestChain: Promise.resolve(),
@@ -1231,7 +1292,7 @@ export function createGrokAcpRuntime(
     input: TurnInput,
     options: SendOptions,
     deliveredAs: 'when-ready' | 'queue' | 'interrupt' | 'at-boundary',
-  ): TurnReceipt {
+  ): { receipt: TurnReceipt; userItem: Promise<TranscriptItemRef | undefined> } {
     const at = iso()
     const promise = session.client.call<unknown>(GROK_ACP_METHODS.sessionPrompt, {
       sessionId: session.grokSessionId,
@@ -1243,13 +1304,25 @@ export function createGrokAcpRuntime(
     session.interruptRequestedEpoch = undefined
     session.lastTurnFailure = undefined
     session.busy = true
-    session.ignoreUserEcho = input.text
-    addItem(
-      session,
-      { id: `grok-user-turn-${epoch}`, role: 'user', text: input.text, ts: at },
+    // A prompt still pending from an earlier turn is decided before this one
+    // can claim the echo.
+    recordSentPrompt(session)
+    let settle!: (ref: TranscriptItemRef | undefined) => void
+    const userItem = new Promise<TranscriptItemRef | undefined>((resolve) => {
+      settle = resolve
+    })
+    const timer = setTimeout(() => recordSentPrompt(session), GROK_USER_ECHO_WAIT_MS)
+    timer.unref?.()
+    session.pendingUserItem = {
+      text: input.text,
       at,
-      'live',
-    )
+      fallbackId: `grok-user-turn-${epoch}`,
+      timer,
+      settle,
+    }
+    // The echo can land inside the call above, before there was a prompt to
+    // pair it with; it waits in the buffer.
+    if (session.userBuffer?.text.trim() === input.text.trim()) flushUser(session, 'live')
     foldState(session, { kind: 'prompt_submitted' }, at, 'live')
     emit(
       session,
@@ -1261,12 +1334,23 @@ export function createGrokAcpRuntime(
       (error) => finishPrompt(session, epoch, undefined, error),
     )
     return {
-      outcome: 'accepted',
-      turnEpoch: epoch,
-      deliveredAs,
-      provenBy: 'protocol-ack',
-      at,
+      receipt: {
+        outcome: 'accepted',
+        turnEpoch: epoch,
+        deliveredAs,
+        provenBy: 'protocol-ack',
+        at,
+      },
+      userItem,
     }
+  }
+
+  /** The accepted receipt, naming the entry its prompt became (POD-4774). */
+  async function withUserItem(started: ReturnType<typeof startPrompt>): Promise<TurnReceipt> {
+    const transcriptItem = await started.userItem
+    return started.receipt.outcome === 'accepted' && transcriptItem
+      ? { ...started.receipt, transcriptItem }
+      : started.receipt
   }
 
   /**
@@ -1326,6 +1410,13 @@ export function createGrokAcpRuntime(
   function endSession(session: DriverSession): void {
     session.disposed = true
     abandonQueue(session, 'teardown')
+    // A send waiting on its echo is answered: the session will name nothing more.
+    const pending = session.pendingUserItem
+    if (pending) {
+      session.pendingUserItem = undefined
+      clearTimeout(pending.timer)
+      pending.settle(undefined)
+    }
     /**
      * RELEASE ANYONE WAITING ON A SESSION THAT WILL NEVER ANSWER
      * (POD-2297 review, low 2).
@@ -1581,7 +1672,7 @@ export function createGrokAcpRuntime(
             const idle = await waitForIdle(session)
             if (session.disposed || !session.endpoint.alive()) return refused('not_running')
             if (!idle) return refused('busy', 'Grok did not confirm cancellation')
-            return startPrompt(session, input, options, 'interrupt')
+            return await withUserItem(startPrompt(session, input, options, 'interrupt'))
           }
           if (options.delivery === 'when-ready') {
             const idle = await waitForIdle(session)
@@ -1591,7 +1682,7 @@ export function createGrokAcpRuntime(
             if (session.disposed || !session.endpoint.alive()) return refused('not_running')
             if (!idle) return refused('busy', 'Grok turn did not finish')
             if (session.interactions.size > 0) return refused('needs_user')
-            return startPrompt(session, input, options, 'when-ready')
+            return await withUserItem(startPrompt(session, input, options, 'when-ready'))
           }
           session.queue.push({ input, options })
           return {
@@ -1601,7 +1692,7 @@ export function createGrokAcpRuntime(
             at: iso(),
           }
         }
-        return startPrompt(session, input, options, deliveredAs)
+        return await withUserItem(startPrompt(session, input, options, deliveredAs))
       },
 
       async stageAttachment() {
