@@ -304,16 +304,21 @@ html[data-podium-desktop="true"] body {
   align-items: center;
   gap: 4px;
 }
-/* The dynamic centre. Sized by its contents and allowed to shrink before the
-   instrument well does — a mode's controls may truncate, the machine readouts
-   must not. Empty in Work, so it collapses to nothing and takes its seam with
-   it (:empty below). */
+/* The dynamic centre. Sized by its contents and NEVER shrunk below them
+   (POD-4718): the slot's toolbar overflowing its box paints underneath the
+   instrument well — which sits later in the bar — so an overfull slot ends
+   with live controls under dead pixels and no click reaching them. The floor
+   is `min-width: auto`, the flex default: the slot keeps its content's width
+   and the deficit falls on the elastic gap and then on the well, whose
+   `overflow: hidden` clips inside its own box instead. A clipped meter is
+   degraded; a covered button is broken. Empty in Work, so it collapses to
+   nothing and takes its seam with it (:empty below). */
 .desktop-topbar-slot {
   display: flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 6px;
-  min-width: 0;
+  min-width: auto;
 }
 /* The elastic middle. Also the drag handle on the native title bar, which is
    why it is an element rather than `margin-left:auto` on the next child. */
@@ -395,10 +400,14 @@ html[data-podium-desktop="true"] body {
   filter: none;
 }
 /* A mode's controls inside the slot. Everything is 28px so the whole bar sits on
-   one optical line with the mode tabs and the instrument well. */
+   one optical line with the mode tabs and the instrument well. `min-width:
+   auto` pairs with the slot's own floor (POD-4718): the toolbar's
+   min-content — the search at its 96px minimum plus the unsqueezable
+   controls — is the narrowest the slot may go, so the controls can never
+   slide out from under their own box and under the well. */
 .topbar-tools {
   display: flex;
-  min-width: 0;
+  min-width: auto;
   align-items: center;
   gap: 6px;
 }
@@ -484,6 +493,46 @@ html[data-podium-desktop="true"] body {
     padding: 0 8px;
   }
 }
+/* CROWD RUNGS (POD-4718, remeasured). Correctness no longer depends on these:
+   the slot keeps its content's width (see `.desktop-topbar-slot`), so the
+   toolbar can never slide under the well at any width or host count. What the
+   rungs buy is the well staying WHOLE: a well with quota next to full tools
+   needs ~1900px, so without shedding the well clips inside its own box below
+   that. Both rungs reuse the shed order's treatments, firing only where the
+   bar would otherwise clip:
+   - 1600px: well pressure (quota label, hostname, agent inventory, quiet
+     numbers — ok-toned only, a crossed threshold is never shed) plus a
+     tighter search. Tools keep their labels, so 1440–1600px laptop screens
+     still read the full bar.
+   - 1400px: tool labels go (icons plus tooltips carry it, the design's own
+     fallback). 1280px boards fit with room for the search to breathe.
+   Marks and meters never go: the bar stays glanceable. Balanced density
+   already hides marks, values and agent detail, so for the default bar the
+   1600 rung costs words only. Past three hosts at 1280 the well still clips
+   its leftmost chip — bounded degradation inside its own box, never over the
+   slot. */
+@media (max-width: 1600px) {
+  .topbar-tools-search {
+    flex-basis: 150px;
+  }
+  .header-quota-label {
+    display: none;
+  }
+  .header-machine-name {
+    display: none;
+  }
+  .header-agent-readout {
+    display: none;
+  }
+  .header-value[data-tone="ok"] {
+    display: none;
+  }
+}
+@media (max-width: 1400px) {
+  .topbar-tool-label {
+    display: none;
+  }
+}
 html[data-podium-desktop="true"] .desktop-topbar,
 html[data-podium-desktop="true"] .desktop-topbar-logo {
   user-select: none;
@@ -541,7 +590,11 @@ html[data-podium-platform="macos"] .desktop-shell-row {
    Bounding them in a single ringed well with internal hairlines makes them one
    object with internal structure, which is how a machined instrument reads.
    The chips inside keep their own hover/pin states: the well is a container,
-   not a control. */
+   not a control.
+   THE SIDE THAT GIVES (POD-4718). When the bar is crowded the well — never
+   the slot — absorbs the deficit: `min-width: 0` plus `overflow: hidden`
+   clips the well inside its own box (leftmost chips first), so even a well
+   far wider than its room cannot paint over the slot's controls. */
 .header-host-indicators {
   display: flex;
   flex: 0 1 auto;

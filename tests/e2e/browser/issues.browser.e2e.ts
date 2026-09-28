@@ -102,8 +102,12 @@ test('proposed lane approves a card into Backlog through the real UI', async ({
   //    as a permanent three-button bar.
   await expect(card).toContainText(title)
   await card.hover()
-  await expect(card.getByTestId('proposal-actions')).toBeVisible()
-  await card.getByRole('button', { name: 'Approve', exact: true }).click()
+  // The actions live beside the card button (siblings under the card's outer
+  // wrapper), not inside `[data-issue-id]` — scope to the column. One proposal
+  // exists on a fresh harness, so the column holds exactly this one.
+  const actions = proposed.getByTestId('proposal-actions')
+  await expect(actions).toBeVisible()
+  await actions.getByRole('button', { name: 'Approve', exact: true }).click()
   await expect(card).toHaveCount(0, { timeout: 15_000 })
   await expect(column('Backlog').getByText(title, { exact: false })).toBeVisible({
     timeout: 15_000,
@@ -195,7 +199,7 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   await expect(dialog).toBeHidden({ timeout: 15_000 })
 
   // ...and the new card appears under Backlog (live via the issuesChanged broadcast).
-  // Scope to the actual column container (each is a fixed-width div.w-[280px]) rather
+  // Scope to the actual column container (each is a fixed-width column) rather
   // than any ancestor div with a matching heading, so "not in Backlog" is exact.
   // Scoped by the column's own test id (POD-591) rather than by its width
   // class: the board's column width is a design value that has already moved
@@ -277,7 +281,7 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   const backlogColumn = board
-    .locator('div.w-\\[280px\\]')
+    .getByTestId('issue-column')
     .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
     .first()
 
@@ -292,13 +296,15 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
   await startNow.uncheck()
 
   // ---- Set a property via a pill: bump priority P2 → P1 ----
-  const priorityPill = dialog.locator('button.rounded-full').filter({ hasText: 'P2' })
+  // Pills are squared-off menu triggers now (rounded-[7px], not rounded-full),
+  // so match the pill by its text rather than its shape.
+  const priorityPill = dialog.getByRole('button', { name: /P2/ })
   await priorityPill.click({ timeout: 10_000 })
   const menu = page.locator('[data-slot="dropdown-menu-content"]')
   await menu.locator('input').first().fill('P1')
   await menu.getByRole('menuitem').filter({ hasText: 'P1' }).click({ timeout: 10_000 })
   // The pill now reflects the choice, and the menu closed.
-  await expect(dialog.locator('button.rounded-full').filter({ hasText: 'P1' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /P1/ })).toBeVisible()
 
   // ---- Toggle "Create more" ON ----
   await dialog.getByRole('switch', { name: 'Create more' }).click({ timeout: 10_000 })
@@ -314,7 +320,7 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
   // Dialog is still open (Create more), the title reset, and the P1 pill persisted.
   await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
   await expect(dialog.getByLabel('Title')).toHaveValue('', { timeout: 10_000 })
-  await expect(dialog.locator('button.rounded-full').filter({ hasText: 'P1' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /P1/ })).toBeVisible()
 
   // ---- Create the second issue with Create more OFF → the OFF path closes ----
   await dialog.getByRole('switch', { name: 'Create more' }).click({ timeout: 10_000 })
@@ -335,7 +341,7 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
   ).toBeVisible({ timeout: 15_000 })
 })
 
-test('issues composer: selected agent persists to deferred issue start dropdown', async ({
+test('issues composer: deferred issue keeps the default agent, composer pick is dropped', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -350,22 +356,16 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
 
   const repoPill = dialog.getByRole('button', { name: 'podium' })
-  await expect(repoPill.locator('svg')).toHaveCount(1)
+  // Repo icon plus the menu chevron every composer pill carries.
+  await expect(repoPill.locator('svg')).toHaveCount(2)
   await repoPill.click({ timeout: 10_000 })
   const menu = page.locator('[data-slot="dropdown-menu-content"]:visible')
   await expect(menu.getByRole('menuitem').first()).toBeVisible({ timeout: 10_000 })
   await expect(menu.getByRole('menuitem', { name: 'New', exact: true })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
-  const branchPill = dialog.locator('button.rounded-full').filter({ hasText: '(default)' }).first()
-  await expect(branchPill.locator('svg')).toHaveCount(1)
-  await expect(branchPill).toContainText('(default)', { timeout: 10_000 })
-  await branchPill.click({ timeout: 10_000 })
-  await expect(menu.getByRole('menuitem', { name: 'New', exact: true })).toBeVisible({
-    timeout: 10_000,
-  })
-  await expect(menu.getByRole('menuitem').filter({ hasText: '(default)' })).toBeVisible()
-  await page.keyboard.press('Escape')
+  // Branch selection left the composer (no branch pill is rendered anymore),
+  // so there is no branch menu to open here — on to the agent picker.
 
   const agentPicker = dialog.getByRole('button', { name: 'Agent' })
   await expect(agentPicker).toContainText('Claude Code')
@@ -373,7 +373,8 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await agentPicker.click({ timeout: 10_000 })
   await expect(menu.getByRole('menuitem', { name: 'Claude Code', exact: true })).toBeVisible()
   await menu.getByRole('menuitem', { name: 'Cursor', exact: true }).click({ timeout: 10_000 })
-  await expect(dialog.getByRole('button', { name: 'Cursor' })).toBeVisible()
+  // The picker keeps its "Agent" accessible name; the pick shows as its text.
+  await expect(dialog.getByRole('button', { name: 'Agent' })).toContainText('Cursor')
 
   const title = `E2E agent default ${Date.now()}`
   await dialog.getByLabel('Title').fill(title)
@@ -387,7 +388,7 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await expect(dialog).toBeHidden({ timeout: 15_000 })
 
   const backlogColumn = board
-    .locator('div.w-\\[280px\\]')
+    .getByTestId('issue-column')
     .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
     .first()
   const card = backlogColumn.getByText(title, { exact: false })
@@ -398,15 +399,14 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await expect(issuePage).toBeVisible({ timeout: 10_000 })
   await expect(issuePage.getByText(title, { exact: false })).toBeVisible({ timeout: 10_000 })
 
-  await page.getByTestId('issue-aside').getByTitle('Choose start agent').click({ timeout: 10_000 })
-  const startMenu = page.locator('[data-slot="dropdown-menu-content"]')
+  // A deferred ticket carries no agent: the runs-on band folds away when the
+  // task is not starting and the submit omits the pick (NewIssueDialog), so
+  // the launch box offers the default — the old "Start with X (default)"
+  // split menu this test used to read is gone with it.
   await expect(
-    startMenu.getByRole('menuitem', { name: 'Start with Cursor (default)' }),
-  ).toBeVisible()
-  await expect(
-    startMenu.getByRole('menuitem', { name: 'Start with Cursor', exact: true }),
-  ).toHaveCount(0)
-  await expect(startMenu.getByRole('menuitem', { name: 'Start with Codex' })).toBeVisible()
+    page.getByTestId('launch-box').getByRole('button', { name: 'Agent' }),
+    'a deferred issue starts bare on the default agent',
+  ).toContainText('Claude Code', { timeout: 10_000 })
 })
 
 test('issues board: flag an issue for human, badge appears live, then resolve', async ({
@@ -436,15 +436,15 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
   await expect(dialog).toBeHidden({ timeout: 15_000 })
 
   const backlogColumn = board
-    .locator('div.w-\\[280px\\]')
+    .getByTestId('issue-column')
     .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
     .first()
   const card = backlogColumn.getByText(title, { exact: false })
   await expect(card, 'the new issue card appears under Backlog').toBeVisible({ timeout: 15_000 })
 
-  // No needs-human indicator yet. The Linear card shows this as an icon with
-  // aria-label="Needs human" (the old "needs human" text badge is gone).
-  const needsHuman = backlogColumn.locator('[aria-label="Needs human"]')
+  // No needs-human indicator yet. The card shows it as a "needs you" state
+  // slot carrying title="Needs a human" (the aria-label icon is gone).
+  const needsHuman = backlogColumn.getByTitle('Needs a human')
   await expect(needsHuman).toHaveCount(0)
 
   // ---- Open the issue page and flag for human via the overflow menu ----
@@ -467,7 +467,7 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
   // the DOM once we're back) — the card now grows a needs-human icon live.
   await page.locator('button[title="Back"]').click({ timeout: 10_000 })
   await expect(
-    backlogColumn.locator('[aria-label="Needs human"]'),
+    backlogColumn.getByTitle('Needs a human'),
     'the card shows the needs-human indicator',
   ).toBeVisible({ timeout: 15_000 })
 
@@ -482,7 +482,7 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
   // Back on the board, the card's needs-human indicator has disappeared.
   await page.locator('button[title="Back"]').click({ timeout: 10_000 })
   await expect(
-    backlogColumn.locator('[aria-label="Needs human"]'),
+    backlogColumn.getByTitle('Needs a human'),
     'the needs-human indicator disappears after resolve',
   ).toHaveCount(0, { timeout: 15_000 })
 })
@@ -510,7 +510,7 @@ test('issue page: add a comment and it appears in the activity feed', async ({ p
   await expect(dialog).toBeHidden({ timeout: 15_000 })
 
   const backlogColumn = board
-    .locator('div.w-\\[280px\\]')
+    .getByTestId('issue-column')
     .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
     .first()
   const card = backlogColumn.getByText(title, { exact: false })
@@ -560,7 +560,7 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
   await expect(dialog).toBeHidden({ timeout: 15_000 })
 
   const backlogColumn = board
-    .locator('div.w-\\[280px\\]')
+    .getByTestId('issue-column')
     .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
     .first()
   const card = backlogColumn.getByText(parentTitle, { exact: false })
@@ -575,9 +575,10 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
   await expect(subIssues.getByRole('heading', { name: 'Sub-tasks' })).toBeVisible()
 
   // Reveal the inline input, type a child title, press Enter to create it.
-  await subIssues.getByRole('button', { name: /Add sub-issue/ }).click({ timeout: 10_000 })
+  // The section speaks "sub-task" now (POD-1163), not "sub-issue".
+  await subIssues.getByRole('button', { name: /Add sub-task/ }).click({ timeout: 10_000 })
   const childTitle = `E2E child ${Date.now()}`
-  const input = subIssues.getByLabel('Sub-issue title')
+  const input = subIssues.getByLabel('Sub-task title')
   await expect(input).toBeFocused({ timeout: 10_000 })
   await input.fill(childTitle)
   await input.press('Enter')
@@ -623,7 +624,10 @@ test('issues keyboard: j / j / Enter opens the second issue in board order', asy
   await expect.poll(async () => cards.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
 
   // Blur any focused control so the window key handler is active (guard skips inputs).
-  await board.getByRole('heading', { name: 'Tasks', exact: true }).click()
+  // The board dropped its restating H1 with POD-365, so there is no "Tasks"
+  // heading anymore — the Backlog column heading is the same kind of target
+  // (plain chrome with no click handler) for moving focus out of inputs.
+  await board.getByRole('heading', { name: 'Backlog', exact: true }).click()
 
   // First `j` focuses the first card, the second `j` the second (ring-2 class).
   await page.keyboard.press('j')
@@ -674,7 +678,10 @@ test('issues keyboard: x / x selects two issues, bulk stage change moves both', 
   const id1 = await cards.nth(1).getAttribute('data-issue-id')
   expect(id0 && id1 && id0 !== id1).toBeTruthy()
 
-  await board.getByRole('heading', { name: 'Tasks', exact: true }).click()
+  // The board dropped its restating H1 with POD-365, so there is no "Tasks"
+  // heading anymore — the Backlog column heading is the same kind of target
+  // (plain chrome with no click handler) for moving focus out of inputs.
+  await board.getByRole('heading', { name: 'Backlog', exact: true }).click()
 
   // Focus + select the first two cards: j x j x.
   await page.keyboard.press('j')
@@ -686,15 +693,23 @@ test('issues keyboard: x / x selects two issues, bulk stage change moves both', 
   const bulkBar = page.getByText('2 selected')
   await expect(bulkBar, 'the bulk bar shows two selected').toBeVisible({ timeout: 10_000 })
 
-  // Bulk stage change → Done via the bar's Stage PropertyMenu.
-  await page.getByRole('button', { name: 'Stage', exact: true }).click({ timeout: 10_000 })
+  // Bulk stage change → Done via the bar's Status PropertyMenu (POD-1074
+  // renamed the bar's Stage trigger to Status).
+  await page.getByRole('button', { name: 'Status', exact: true }).click({ timeout: 10_000 })
   const menu = page.locator('[data-slot="dropdown-menu-content"]')
   await menu.locator('input').first().fill('Done')
   await menu.getByRole('menuitem').filter({ hasText: 'Done' }).click({ timeout: 10_000 })
 
+  // Marking Done records a close, so the close guard (POD-1126) asks for
+  // confirmation — confirm it before asserting the move.
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: /Close \d+ tasks/ })
+    .click({ timeout: 10_000 })
+
   // Both selected issues now live under the Done column (live via the broadcast).
   const doneColumn = board
-    .locator('div.w-\\[280px\\]')
+    .getByTestId('issue-column')
     .filter({ has: page.getByRole('heading', { name: 'Done', exact: true }) })
     .first()
   await expect(
@@ -724,7 +739,9 @@ test('issues display: the Display menu opens (no crash), switches to List, and b
   // Regression check for the Menu.GroupLabel-outside-Group crash: before the fix,
   // clicking Display threw Base UI error #31 and the app error boundary replaced the
   // whole UI, so the menu never opened. Assert the "List" layout radio is visible.
-  await board.getByRole('button', { name: 'Display', exact: true }).click({ timeout: 10_000 })
+  // The Display trigger lives in the command bar's slot (POD-365 portal), not
+  // inside the board section — scope to the page.
+  await page.getByRole('button', { name: 'Display', exact: true }).click({ timeout: 10_000 })
   const menu = page.locator('[data-slot="dropdown-menu-content"]')
   const listRadio = menu.getByRole('menuitemradio').filter({ hasText: 'List' })
   await expect(listRadio, 'the Display menu opened without crashing').toBeVisible({
@@ -747,7 +764,7 @@ test('issues display: the Display menu opens (no crash), switches to List, and b
   // The reopened menu animates in and its radio item can transiently re-mount, so
   // clicking once mid-animation sometimes no-ops. Poll: (re)open, click Board, and
   // stop once the layout actually switched back (the list is unmounted).
-  const displayBtn = board.getByRole('button', { name: 'Display', exact: true })
+  const displayBtn = page.getByRole('button', { name: 'Display', exact: true })
   await expect(async () => {
     if ((await menu.count()) === 0) await displayBtn.click({ timeout: 5_000 })
     const boardRadio = menu.getByRole('menuitemradio').filter({ hasText: 'Board' })
