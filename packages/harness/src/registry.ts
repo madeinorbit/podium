@@ -17,6 +17,7 @@ import {
   declinedReasonIsValid,
   canonicalDriverId,
   type DriverFamily,
+  type DriverId,
   type HarnessCapabilities,
   type HarnessCredentials,
   type HarnessEnvironment,
@@ -434,6 +435,17 @@ export function harnessResumeKind(kind: HarnessAgent): string
 export function harnessResumeKind(kind: AgentKind | string): string | undefined
 export function harnessResumeKind(kind: AgentKind | string): string | undefined {
   return manifestFor(kind)?.resumeKind
+}
+
+/**
+ * This harness's terminal driver id (POD-4737). Every manifest declares its
+ * terminal driver (required, never Declared — the permanent interactive tier),
+ * so this answers for every shipped harness; unknown kinds and shell answer
+ * `undefined` and the caller degrades. The daemon's inventory projection reads
+ * this instead of restating one row per harness.
+ */
+export function harnessTerminalDriverId(kind: AgentKind | string): DriverId | undefined {
+  return manifestFor(kind)?.runtime.terminal.driverId
 }
 
 /** The native-record mapper declared by this CLI's manifest. SQLite-backed,

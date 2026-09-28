@@ -13,17 +13,13 @@ const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>
 vi.mock('@podium/harness', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/harness')>()),
   probeAllModels: (opts: unknown) => probeModels(opts),
-}))
-vi.mock('@podium/harness/driver/host', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@podium/harness/driver/host')>()),
-  gateCodexVersion: vi.fn((version: string) =>
-    version === 'codex-cli 0.101.0' ? null : { code: 'unsupported' },
-  ),
-  gateGrokVersion: vi.fn((version: string) =>
-    version === 'grok 0.3.0' ? null : { code: 'unsupported' },
-  ),
-  gateOpencodeVersion: vi.fn((version: string) =>
-    version === '1.2.3' ? null : { code: 'unsupported' },
+  // The fixture versions below are older than the real policies admit; the
+  // mock admits exactly those strings so the tests pin the projection shape
+  // (which rows appear) rather than the policies' floors.
+  gateHarnessVersion: vi.fn((_policy: unknown, output: string) =>
+    output === 'codex-cli 0.101.0' || output === 'grok 0.3.0' || output === '1.2.3'
+      ? 'verified'
+      : 'too-old',
   ),
 }))
 vi.mock('../runtime/version-probe', async (importOriginal) => ({
@@ -34,7 +30,12 @@ vi.mock('../runtime/version-probe', async (importOriginal) => ({
   opencode2VersionProbeForExecutable: vi.fn(async () => ({ drivable: true })),
 }))
 
-import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/harness/driver/host'
+import {
+  CODEX_VERSION_POLICY,
+  gateHarnessVersion,
+  GROK_ACP_VERSION_POLICY,
+  OPENCODE_VERSION_POLICY,
+} from '@podium/harness'
 import {
   codexAppServerVersionProbe,
   grokAcpVersionProbe,
@@ -194,9 +195,9 @@ describe('daemon inventory reporting (#222)', () => {
 
     await reportInventory(ctx)
 
-    expect(gateCodexVersion).toHaveBeenCalledWith('codex-cli 0.101.0')
-    expect(gateGrokVersion).toHaveBeenCalledWith('grok 0.3.0')
-    expect(gateOpencodeVersion).toHaveBeenCalledWith('1.2.3')
+    expect(gateHarnessVersion).toHaveBeenCalledWith(CODEX_VERSION_POLICY, 'codex-cli 0.101.0')
+    expect(gateHarnessVersion).toHaveBeenCalledWith(GROK_ACP_VERSION_POLICY, 'grok 0.3.0')
+    expect(gateHarnessVersion).toHaveBeenCalledWith(OPENCODE_VERSION_POLICY, '1.2.3')
     expect(codexAppServerVersionProbe).not.toHaveBeenCalled()
     expect(grokAcpVersionProbe).not.toHaveBeenCalled()
     expect(opencodeVersionProbe).not.toHaveBeenCalled()
