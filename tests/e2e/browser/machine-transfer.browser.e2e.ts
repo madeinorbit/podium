@@ -36,8 +36,9 @@ async function openMachines(page: Page): Promise<void> {
   await page
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
+  // POD-365: the settings sheet is role=dialog, not region.
   await page
-    .getByRole('region', { name: 'Settings' })
+    .getByRole('dialog', { name: 'Settings' })
     .getByRole('button', { name: 'Machines', exact: true })
     .click()
 }

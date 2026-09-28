@@ -48,11 +48,13 @@ test('enabled experimental chrome drives each real surface', async ({ page }) =>
   await expect(automations).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('region', { name: 'Automations' })).toBeVisible()
 
+  // POD-318 moved Settings into the top bar; POD-365 made it an inset sheet
+  // (role=dialog) whose rail marks the current tab with aria-current="page".
   await page
-    .getByRole('complementary')
+    .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click()
-  const settings = page.getByRole('region', { name: 'Settings' })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
   const notifications = settings.getByRole('button', {
     name: 'Notifications',
@@ -60,5 +62,5 @@ test('enabled experimental chrome drives each real surface', async ({ page }) =>
   })
   await expect(notifications).toBeVisible({ timeout: 30_000 })
   await notifications.click()
-  await expect(notifications).toHaveAttribute('aria-current', 'true')
+  await expect(notifications).toHaveAttribute('aria-current', 'page')
 })

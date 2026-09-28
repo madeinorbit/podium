@@ -57,9 +57,11 @@ test('Telegram setup button shows code link and fills chat id after polling', as
     timeout: 20_000,
   })
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 15_000 })
-  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
+  // POD-318 moved Settings out of the aside into the top bar; POD-365 made it
+  // an inset sheet (role=dialog, not region).
+  await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
 
-  const settings = page.getByRole('region', { name: 'Settings' })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
   await settings.getByRole('button', { name: 'Notifications' }).click()
   await settings.getByPlaceholder('empty = off', { exact: true }).fill('123456:secret')

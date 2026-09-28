@@ -1,23 +1,23 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
 import { makeTrpc } from '../../../apps/web/src/app/trpc'
+import { nativeAccountId } from '../../../packages/runtime/src/settings'
 import { RELAY } from './_harness'
 
 test.skip(
   ({ isMobile }) => isMobile,
-  'desktop test (Settings nav button lives in the <aside> Sidebar)',
+  'desktop test (Settings nav button lives in the top bar)',
 )
 
 async function seedSettings(): Promise<void> {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.set.mutate({
-    workLlm: {
-      kind: 'api',
-      provider: 'codex',
-      model: 'gpt-5.5',
-      harnessAgent: 'codex',
-      harnessModel: 'auto',
+  // settings.set (whole-blob write) is retired; the legacy workLlm this seeded
+  // migrates onto roles.background, so write the migrated shape instead.
+  await trpc.settings.updatePersonal.mutate({
+    values: {
+      'roles.background.accountId': nativeAccountId('codex'),
+      'roles.background.model': 'gpt-5.5',
     },
-  } as never)
+  })
 }
 
 async function openShell(page: Page): Promise<void> {
@@ -29,8 +29,10 @@ async function openShell(page: Page): Promise<void> {
 }
 
 async function openLoginPasswordSection(page: Page): Promise<Locator> {
-  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('region', { name: 'Settings' })
+  // POD-318 moved Settings out of the aside into the top bar; POD-365 made it
+  // an inset sheet (role=dialog, not region).
+  await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 10_000 })
   await settings.getByRole('button', { name: 'Security' }).click()
   return settings
