@@ -234,6 +234,16 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
 test('an uploaded image turn reconciles its optimistic bubble with the normalized transcript echo', async ({
   page,
 }) => {
+  // The workspace entry (gotoWorkspace) drives the OPEN sidebar. Below
+  // SIDEBARS_FOLD_BELOW (1600, POD-1980) the sidebar auto-folds and the entry
+  // has no rows to click — a setup wall, not a transcript verdict. This spec
+  // owns the transcript, not the fold, so it runs wide enough to keep the
+  // sidebar open.
+  // Measured: setup (workspace entry, session spawn, hook bind, first render)
+  // takes ~9-27s on the loaded host, and newSession's attach loop alone owns
+  // 20s — the 30s default has no headroom left, so this owns 60s.
+  test.setTimeout(60_000)
+  await page.setViewportSize({ width: 1700, height: 900 })
   const transcriptId = '22222222-2222-4222-8222-222222222222'
   const transcriptPath = join(BUCKET, `${transcriptId}.jsonl`)
   const marker = 'ATTACHMENT_RECONCILE_ECHO merge these artifacts'
@@ -243,8 +253,11 @@ test('an uploaded image turn reconciles its optimistic bubble with the normalize
 
   await openApp(page)
   await newSession(page, 'Claude')
+  // Panel-deck selector (same as case (a)): since the split-pane deck the
+  // panels are absolutely-positioned rectangles carrying data-panel-resident,
+  // not flex children of .flex.min-h-0.
   const activeId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   expect(activeId).not.toBeNull()
@@ -310,9 +323,10 @@ test('operator prompts stick in place, push one another, and respect the appeara
   // This case now drives tool disclosure, prompt disclosure, sticky geometry,
   // reduced motion and the settings toggle in one real session. Give the flow
   // headroom on the shared host instead of treating setup pressure as a product
-  // timeout.
+  // timeout. Wide (see the image case above): the workspace entry needs the
+  // open sidebar, which auto-folds below 1600px (POD-1980).
   test.setTimeout(90_000)
-  await page.setViewportSize({ width: 1280, height: 700 })
+  await page.setViewportSize({ width: 1700, height: 700 })
 
   const t = '2026-06-20T11:00:00.000Z'
   const firstAnswer = Array.from(
@@ -340,8 +354,9 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
 
   await openApp(page)
   await newSession(page, 'Claude')
+  // Panel-deck selector (same as case (a)): see the image case above.
   const activeId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   expect(activeId).not.toBeNull()
@@ -372,18 +387,31 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   const secondPrompt = scroller
     .locator('.transcript-row')
     .filter({ hasText: 'STICKY_SECOND_PROMPT push the first away' })
-  const deliveredMail = scroller
-    .locator('.transcript-row')
-    .filter({ hasText: 'DELIVERED_AGENT_MAIL must not replace the operator prompt' })
   await expect(firstPrompt).toBeAttached({ timeout: 15_000 })
   await expect(secondPrompt).toBeAttached()
   await expect(firstPrompt).toHaveAttribute('data-operator-prompt', 'true')
   await expect(secondPrompt).toHaveAttribute('data-operator-prompt', 'true')
-  await expect(firstPrompt.locator('[data-sticky-prompt-backdrop]')).toHaveCount(1)
+  // The pin left the column (POD-993 round 2): a row that may ride the shelf
+  // carries data-pinnable, and the shelf itself is the only overlay — there is
+  // no per-row backdrop and no duplicate prompt surface any more.
+  await expect(firstPrompt).toHaveAttribute('data-pinnable', 'true')
+  await expect(secondPrompt).toHaveAttribute('data-pinnable', 'true')
+  // Delivered mail arrives folded: one envelope group, marked internal, never
+  // an operator prompt — unfolding reveals the note without promoting it.
+  const deliveredMail = scroller.locator('[data-testid="message-envelope"]')
+  await expect(deliveredMail).toHaveCount(1)
   await expect(deliveredMail).not.toHaveAttribute('data-operator-prompt', 'true')
   await expect(deliveredMail).toHaveAttribute('data-internal-message', 'true')
-  await expect(deliveredMail).toContainText('Mail')
-  await expect(page.locator('[data-testid="sticky-user-message"]')).toHaveCount(0)
+  await expect(deliveredMail).toContainText('1 note from Podium')
+  const mailToggle = deliveredMail.getByTestId('message-envelope-toggle')
+  await expect(mailToggle).toHaveAttribute('aria-label', 'Unfold these notes')
+  await mailToggle.click()
+  await expect(deliveredMail).toContainText(
+    'DELIVERED_AGENT_MAIL must not replace the operator prompt',
+  )
+  await expect(deliveredMail).not.toHaveAttribute('data-operator-prompt', 'true')
+  await mailToggle.click()
+  await expect(mailToggle).toHaveAttribute('aria-label', 'Unfold these notes')
 
   // A real click unfolds and refolds the settled tool run. The batch stays one
   // transcript/minimap row while its detail is disclosed in place.
@@ -402,28 +430,19 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await workLineToggle.click()
   await expect(workLine).toHaveAttribute('data-open', 'false')
 
-  // The operator shelf clamps long context to two lines and keeps its disclosure
-  // control reachable. Exercise both directions before sticky geometry checks.
-  const promptToggle = secondPrompt.getByTestId('prompt-expand-toggle')
-  await expect(promptToggle).toHaveText('Read more')
-  await promptToggle.click()
-  await expect(promptToggle).toHaveText('Show less')
-  await expect(secondPrompt.locator('.transcript-you-clamp')).not.toHaveAttribute(
-    'data-clamped',
-    'true',
-  )
-  await promptToggle.click()
-  await expect(promptToggle).toHaveText('Read more')
-  await expect(secondPrompt.locator('.transcript-you-clamp')).toHaveAttribute(
-    'data-clamped',
-    'true',
-  )
-
-  // Start above the first prompt, then scroll its real row into the sticky
-  // boundary. There is no duplicate overlay: the same DOM row stops at the top.
+  // THE SHELF (POD-993 round 2). The pin is a shelf over the feed, not a row
+  // stuck in it: a brief that scrolls off the top parks on the shelf, and the
+  // next brief takes over once it has left too — one shelf, never a duplicate
+  // overlay. The shelf clamps a long brief to three lines and keeps its
+  // disclosure control reachable; both directions are exercised below.
+  const shelf = page.getByTestId('pinned-brief')
+  // Start at the very top: no brief has left yet, so there is no shelf. Park
+  // via a move that always fires — a set-to-0 when already at 0 is a silent
+  // no-op that would leave the shelf showing its load-time brief.
   await scroller.evaluate((el) => {
-    el.scrollTop = 0
+    el.scrollTop = 2
   })
+  await expect(shelf).toHaveCount(0)
   const geometry = await scroller.evaluate((el) => {
     const prompts = Array.from(el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'))
     const first = prompts.find((row) => row.textContent?.includes('STICKY_FIRST_PROMPT'))
@@ -433,114 +452,45 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
       firstTop: first.offsetTop,
       firstHeight: first.offsetHeight,
       secondTop: second.offsetTop,
+      secondHeight: second.offsetHeight,
     }
   })
-  await scroller.evaluate((el, top) => {
-    el.scrollTop = top
-  }, geometry.firstTop + 24)
-  await expect
-    .poll(async () => {
-      return scroller.evaluate((el) => {
-        const prompt = el.querySelector<HTMLElement>('[data-operator-prompt="true"]')
-        if (!prompt) return false
-        const promptTop = prompt.getBoundingClientRect().top
-        const bodyTop =
-          prompt.querySelector<HTMLElement>(':scope > .transcript-body')?.getBoundingClientRect()
-            .top ?? Number.POSITIVE_INFINITY
-        const viewportTop = el.getBoundingClientRect().top
-        const stickyTop =
-          viewportTop +
-          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
-          (Number.parseFloat(getComputedStyle(prompt).top) || 0)
-        const visibleInset = bodyTop - viewportTop
-        return Math.abs(promptTop - stickyTop) <= 2 && visibleInset >= 6 && visibleInset <= 10
-      })
-    })
-    .toBe(true)
-  // The stuck surface bleeds to both transcript edges while its content stays
-  // on the shared 960px reading measure.
-  expect(
-    await scroller.evaluate((el) => {
-      const prompt = el.querySelector<HTMLElement>(
-        '[data-operator-prompt="true"][data-stuck="true"]',
-      )
-      const backdrop = prompt?.querySelector<HTMLElement>('[data-sticky-prompt-backdrop]')
-      if (!prompt || !backdrop) return false
-      const scrollerRect = el.getBoundingClientRect()
-      const promptRect = prompt.getBoundingClientRect()
-      const backdropRect = backdrop.getBoundingClientRect()
-      return (
-        backdropRect.left <= scrollerRect.left &&
-        backdropRect.right >= scrollerRect.right &&
-        backdropRect.width > promptRect.width
-      )
-    }),
-  ).toBe(true)
-
-  // As the next operator turn arrives, it physically pushes the first row out;
-  // their edges meet during the handoff instead of the cards overlapping.
-  await scroller.evaluate((el, { secondTop, firstHeight }) => {
-    el.scrollTop = secondTop - firstHeight / 2
+  // Scroll the first brief fully off the top: the shelf carries it, and it is
+  // the only brief surface on screen.
+  await scroller.evaluate((el, { firstTop, firstHeight }) => {
+    el.scrollTop = firstTop + firstHeight + 8
   }, geometry)
-  await expect
-    .poll(async () => {
-      return scroller.evaluate((el) => {
-        const prompts = Array.from(
-          el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
-        )
-        const first = prompts.find((row) => row.textContent?.includes('STICKY_FIRST_PROMPT'))
-        const second = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
-        if (!first || !second) return false
-        const firstBody = first.querySelector<HTMLElement>(':scope > .transcript-body')
-        const secondBody = second.querySelector<HTMLElement>(':scope > .transcript-body')
-        if (!firstBody || !secondBody) return false
-        const firstRect = firstBody.getBoundingClientRect()
-        const secondRect = secondBody.getBoundingClientRect()
-        const stickyTop =
-          el.getBoundingClientRect().top +
-          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
-          (Number.parseFloat(getComputedStyle(first).top) || 0)
-        return (
-          firstRect.top < stickyTop &&
-          secondRect.top > stickyTop &&
-          Math.abs(firstRect.bottom - secondRect.top) <= 2
-        )
-      })
-    })
-    .toBe(true)
-  await scroller.evaluate((el, top) => {
-    el.scrollTop = top + 12
-  }, geometry.secondTop)
-  await expect
-    .poll(async () => {
-      return scroller.evaluate((el) => {
-        const prompts = Array.from(
-          el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
-        )
-        const prompt = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
-        if (!prompt) return false
-        const promptTop = prompt.getBoundingClientRect().top
-        const bodyTop =
-          prompt.querySelector<HTMLElement>(':scope > .transcript-body')?.getBoundingClientRect()
-            .top ?? Number.POSITIVE_INFINITY
-        const viewportTop = el.getBoundingClientRect().top
-        const stickyTop =
-          viewportTop +
-          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
-          (Number.parseFloat(getComputedStyle(prompt).top) || 0)
-        return Math.abs(promptTop - stickyTop) <= 2 && bodyTop - viewportTop <= 10
-      })
-    })
-    .toBe(true)
+  await expect(shelf.filter({ hasText: 'STICKY_FIRST_PROMPT keep this visible' })).toBeVisible()
+  await expect(shelf).toHaveCount(1)
+  // As the next operator turn leaves too, it pushes the first one off the
+  // shelf — the handoff.
+  await scroller.evaluate((el, { secondTop, secondHeight }) => {
+    el.scrollTop = secondTop + secondHeight + 8
+  }, geometry)
+  await expect(
+    shelf.filter({ hasText: 'STICKY_SECOND_PROMPT push the first away' }),
+  ).toBeVisible()
+  await expect(shelf).toHaveCount(1)
   await page.screenshot({
     path: join(EVIDENCE_DIR, 'transcript-chat-sticky-context.png'),
     fullPage: false,
   })
 
-  // The calm state transition is removed under reduced-motion; the scroll
-  // tracking itself remains direct and unanimated in every mode.
+  // The second brief is deliberately long, so the shelf offers its control.
+  // Exercise both directions on the shelf's own toggle.
+  const promptToggle = shelf.getByTestId('prompt-expand-toggle')
+  await expect(promptToggle).not.toHaveAttribute('data-idle', 'true')
+  await expect(promptToggle).toHaveText('Show full')
+  await promptToggle.click()
+  await expect(promptToggle).toHaveText('Show less')
+  await expect(shelf.locator('.brief-shelf')).toHaveAttribute('data-open', 'true')
+  await promptToggle.click()
+  await expect(promptToggle).toHaveText('Show full')
+
+  // The shelf's entrance is removed under reduced-motion; its tracking itself
+  // remains direct and unanimated in every mode.
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(secondPrompt).toHaveCSS('transition-property', 'none')
+  await expect(promptToggle).toHaveCSS('transition-property', 'none')
 
   // The default-on behavior can be disabled in the real Appearance surface.
   // Navigate straight to the tab under test: opening the unrelated top-bar
@@ -562,10 +512,13 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await expect(settings).toBeHidden()
   await gotoWorkspace(page)
   await expect(firstPrompt).toBeAttached({ timeout: 15_000 })
-  await expect(firstPrompt).not.toHaveClass(/\bsticky\b/)
+  // With the preference off there is no shelf: the same scroll that parked the
+  // first brief above leaves nothing behind, and the row itself scrolls away
+  // like any other.
   await scroller.evaluate((el, top) => {
     el.scrollTop = top + 24
   }, geometry.firstTop)
+  await expect(shelf).toHaveCount(0)
   await expect
     .poll(async () => {
       const [prompt, viewport] = await Promise.all([
@@ -581,15 +534,20 @@ test('(c) scroll-to-top pages older history off disk with no gaps or duplicates'
   page,
 }) => {
   // Heavier than the others: a 1400-item transcript + many scroll-to-top paging
-  // passes (each does a disk read + prepend). Give it room beyond the 30s default.
-  test.setTimeout(120_000)
-  await page.setViewportSize({ width: 1280, height: 900 })
+  // passes (each does a disk read + worker recompute + hundreds of new rows).
+  // Wide (see the image case above): the workspace entry needs the open
+  // sidebar, which auto-folds below 1600px (POD-1980). Measured on the loaded
+  // host: a back-page lands in seconds quiet, ~60-90s loaded — three pages to
+  // reach ordinal 50, so the poll below owns 300s and the test 480s.
+  test.setTimeout(480_000)
+  await page.setViewportSize({ width: 1700, height: 900 })
 
-  // Build a transcript LONGER than the initial read window (INITIAL_LIMIT = 1000
-  // items) so the first read returns hasMore:true and scroll-to-top must fetch an
-  // older page off disk via the cursor anchor. Each user turn carries a unique,
-  // monotonically-increasing marker so we can detect any gap or duplicate after
-  // paging. 700 user+answer pairs = 1400 items (> 1000).
+  // Build a transcript LONGER than the initial read window (INITIAL_LIMIT = 200
+  // items since POD-1631) so the first read returns hasMore:true and scroll-to-top
+  // must fetch older pages off disk via the cursor anchor. Each user turn carries
+  // a unique, monotonically-increasing marker so we can detect any gap or
+  // duplicate after paging. 700 user+answer pairs = 1400 items, three 400-item
+  // back-pages past the initial window.
   const PAIRS = 700
   const lines: string[] = []
   const base = Date.parse('2026-06-20T00:00:00.000Z')
@@ -606,8 +564,9 @@ test('(c) scroll-to-top pages older history off disk with no gaps or duplicates'
 
   await openApp(page)
   await newSession(page, 'Claude')
+  // Panel-deck selector (same as case (a)): see the image case above.
   const activeId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   expect(activeId).not.toBeNull()
@@ -620,11 +579,13 @@ test('(c) scroll-to-top pages older history off disk with no gaps or duplicates'
   // (The first prompt also becomes the session title in sidebar buttons, so we key
   // off the transcript markdown text, not a bare page-wide getByText.) Only count
   // VISIBLE .chat-md (offsetParent !== null) so the keep-mounted hidden panels from
-  // earlier tests in this file never contribute.
+  // earlier tests in this file never contribute — and never the shelf's own copy:
+  // `.brief-shelf-text` is also `.chat-md`, so a parked brief would double-count
+  // its marker against the row still holding it.
   const renderedOrdinals = (): Promise<number[]> =>
     page.evaluate(() => {
       const out: number[] = []
-      for (const el of Array.from(document.querySelectorAll('.chat-md'))) {
+      for (const el of Array.from(document.querySelectorAll('.chat-md:not(.brief-shelf-text)'))) {
         if ((el as HTMLElement).offsetParent === null) continue
         const m = el.textContent?.match(/MARK-(\d{4}) prompt number/)
         if (m) out.push(Number(m[1]))
@@ -669,24 +630,44 @@ test('(c) scroll-to-top pages older history off disk with no gaps or duplicates'
   // Scope the scroller to the VISIBLE chat panel — the keep-mounted hidden panels
   // from earlier tests also have an overflow-y-auto scroller, and scrolling a hidden
   // one does nothing (this was a real flake: `.first()` grabbed a hidden scroller).
+  // The park ALTERNATES between 0 and 2: a set-to-0 when already at 0 fires no
+  // scroll event, so a prepend that leaves scrollTop at 0 would silence every
+  // later pass. Alternating always moves, so every pass reaches the onScroll
+  // trigger regardless of what the prepend restore left behind.
   const scroller = page
     .locator('div.overflow-y-auto')
     .filter({ has: page.locator('.transcript-row') })
     .locator('visible=true')
     .first()
+  await scroller.evaluate((el) => {
+    el.scrollTop = 0
+  })
+  let iters = 0
   await expect
     .poll(
       async () => {
         // Scroll the visible scroller to the top; the onScroll handler reveals more
         // local rows then autoloads + prepends an older disk page.
-        await scroller.evaluate((el) => {
-          el.scrollTop = 0
-        })
-        // Give the window-grow / disk-fetch + prepend a beat to settle.
-        await page.waitForTimeout(300)
-        return (await renderedOrdinals()).includes(50)
+        await scroller.evaluate((el, i) => {
+          el.scrollTop = i % 2 === 0 ? 0 : 2
+        }, iters)
+        // A back-page costs tens of seconds on the loaded host (disk + worker
+        // recompute + hundreds of new rows); a 1s cadence polls the outcome
+        // without taxing the very render it waits for. Progress is logged, so a
+        // stall says which page it stopped after.
+        await page.waitForTimeout(1000)
+        const ords = await renderedOrdinals()
+        iters += 1
+        if (iters % 30 === 0) {
+          console.log(
+            `(c) paging progress: iter=${iters} rendered=${ords.length} lo=${ords.length ? Math.min(...ords) : '-'}`,
+          )
+        }
+        return ords.includes(50)
       },
-      { timeout: 60_000 },
+      // Measurement budget (see above): ~60-90s per 400-item back-page on the
+      // loaded host, three pages to reach ordinal 50.
+      { timeout: 300_000 },
     )
     .toBe(true)
 
@@ -726,7 +707,11 @@ test('(c) scroll-to-top pages older history off disk with no gaps or duplicates'
 test('(re-seed) the transcript re-loads on a fresh ChatView mount (chat→native→chat)', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
+  // Wide (see the image case above): the workspace entry needs the open
+  // sidebar, which auto-folds below 1600px (POD-1980). Same measured setup
+  // cost as the image case: 60s.
+  test.setTimeout(60_000)
+  await page.setViewportSize({ width: 1700, height: 900 })
 
   const t = '2026-06-21T09:00:00.000Z'
   const transcriptId = '33333333-3333-4333-8333-333333333333'
@@ -738,8 +723,9 @@ test('(re-seed) the transcript re-loads on a fresh ChatView mount (chat→native
 
   await openApp(page)
   await newSession(page, 'Claude')
+  // Panel-deck selector (same as case (a)): see the image case above.
   const activeId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   expect(activeId).not.toBeNull()
@@ -777,7 +763,11 @@ test('(re-seed) the transcript re-loads on a fresh ChatView mount (chat→native
 test('search deepens the loaded window so a match older than the initial read is still found (POD-1631)', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
+  // Wide (see the image case above): the workspace entry needs the open
+  // sidebar, which auto-folds below 1600px (POD-1980). Same measured setup
+  // cost as the image case (newSession overflowed the 30s default once): 60s.
+  test.setTimeout(60_000)
+  await page.setViewportSize({ width: 1700, height: 900 })
 
   // POD-1631 cut the initial read from 1000 items to 200 (p50 69ms → 21ms) because
   // a screen shows a fraction of either. Matching, however, runs over LOADED blocks
@@ -803,8 +793,9 @@ test('search deepens the loaded window so a match older than the initial read is
 
   await openApp(page)
   await newSession(page, 'Claude')
+  // Panel-deck selector (same as case (a)): see the image case above.
   const activeId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   expect(activeId).not.toBeNull()
@@ -818,7 +809,14 @@ test('search deepens the loaded window so a match older than the initial read is
     page.locator('.chat-md').locator('visible=true').filter({ hasText: 'filler answer 499' }),
   ).toBeVisible({ timeout: 15_000 })
 
-  const searchBox = page.getByPlaceholder('Search transcript…').locator('visible=true')
+  // Find is a mode entered from the rail (POD-413 moved it out of the permanent
+  // header, and the placeholder moved with it) — open it before typing. Scope
+  // to the visible panel: earlier tests' panels stay mounted but hidden.
+  await page
+    .getByRole('button', { name: 'Find in transcript' })
+    .locator('visible=true')
+    .click()
+  const searchBox = page.getByPlaceholder('Find in transcript…').locator('visible=true')
   // A term present ONLY in the newest window matches immediately — the counter works
   // and the shallow window is genuinely loaded.
   await searchBox.fill('filler answer 499')
