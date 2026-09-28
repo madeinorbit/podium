@@ -814,7 +814,7 @@ export class HandPool {
    * every known issue (the one sanctioned walk, over `knownIssueIds`) and
    * roots the present and keeping rows (visible implies present, so no
    * placement chain runs) with their ancestors and formal subtrees — the
-   * only rows a derivation can read. Cold rows answer their live values
+   * only rows a visible derivation can read. Cold rows answer their live values
    * (peeked, never loaded): a cold row kept visible by its lane still
    * roots, exactly as its live parts would answer. Held rows re-verify by
    * the same rule (held outsiders leave); a hidden row is also rooted when
@@ -830,21 +830,41 @@ export class HandPool {
    * which keeps filings and member cells a fresh bootstrap never builds.
    * The update path (`updateClosure`, `ensureIssues`) keeps the live
    * worklist: there the held chains are current, and the induction holds.
+   *
+   * POD-4707 send-back (H3 seed 1 snapshot 1: i1093/i1182/i1691/i2141): the
+   * visible closure is not enough. A hidden formal parent related to no
+   * visible row — hidden itself, ancestor of no visible row, owner of none —
+   * is outside it, so its formal children stay unfiled and its progress
+   * reads solo while the direct rebuild composes over its bucket. But any
+   * resident row's view can be read (`view()` is React's getSnapshot and
+   * must stay a pure read: no read-path filing), and the review probe reads
+   * every resident's. So every KNOWN formal parent roots as well — bucket
+   * probe only, no row read, residency-independent so the lazy and
+   * all-resident arms file the same closure — with its ancestors and formal
+   * subtree. What it adds over the visible closure is exactly hidden
+   * parents and their hidden subtrees; top-level hidden leaves stay out.
+   * Returns both closures: filings follow `formal`, member cells follow
+   * `visible` (a hidden resident holds no member cell — eager construction
+   * held one per resident issue).
    */
-  private replaceClosure(): Set<string> {
+  private replaceClosure(): { visible: Set<string>; formal: Set<string> } {
     const { partsOf, rowOf } = this.plainScope()
     const held = (_id: string): boolean => false
     const roots: string[] = []
+    const formalRoots: string[] = []
     for (const id of knownIssueIds(this)) {
       const parts = partsOf(id)
       if (parts.present || parts.keeps) {
         roots.push(id)
         continue
       }
+      if (this.engine.members('issue', id, 'children').size > 0) formalRoots.push(id)
       const parent = this.engine.forward('issue', id, 'parent')
       if (parent !== null && held(parent)) roots.push(id)
     }
-    return this.expandRoots(roots, partsOf, rowOf, held)
+    const visible = this.expandRoots(roots, partsOf, rowOf, held)
+    const formal = this.expandRoots([...roots, ...formalRoots], partsOf, rowOf, held)
+    return { visible, formal }
   }
 
   /**
@@ -922,6 +942,10 @@ export class HandPool {
    * member cells would linger (the order ignores them — an unplaced member
    * never moves — but they and the rank reads they pull keep heap a fresh
    * bootstrap never builds).
+   *
+   * POD-4707 send-back: at a `replace` the caller passes the visible
+   * closure, not the formal one — hidden formal parents hold filings (so
+   * their progress composes) but no member cell.
    */
   private admitClosure(closure: ReadonlySet<string>): void {
     this.worklist.admit(closure, (id) => this.tables.issue.has(id))
@@ -1266,11 +1290,11 @@ export class HandPool {
     // an update files the closure of what it touched and unfiles what
     // left. The drain then runs the new and moved filings.
     if (fullSync) {
-      const closure = this.replaceClosure()
-      this.rollup.syncReplace(closure, knownIssueIds(this))
-      this.admitClosure(closure)
+      const { visible, formal } = this.replaceClosure()
+      this.rollup.syncReplace(formal, knownIssueIds(this))
+      this.admitClosure(visible)
       for (const id of this.worklist.heldMemberIds()) {
-        if (!closure.has(id)) {
+        if (!formal.has(id)) {
           this.worklist.forgetIssue(id)
           this.groups.forgetIssue(id)
         }
