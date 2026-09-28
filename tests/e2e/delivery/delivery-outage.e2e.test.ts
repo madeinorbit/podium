@@ -92,14 +92,22 @@ const KNOWN: Record<string, Known> = {
   // re-forward after the server restart carries `deliveryRecovery` (inbox.ts
   // `attempts > 0`) and the daemon fails any recovery row it does not know
   // without typing it (delivery-queue.ts `deliveryRecovery ⇒ failed`).
+  // Since POD-4775 the daemon labels that failure `unconfirmed` and the server
+  // records the row `unknown` rather than failed — honest, but outside this
+  // scenario's declared window until the journal can tell "never typed".
   'server-crash': {
-    must: ['lost'],
+    must: [['lost', 'unknown-outside-window']],
     may: SCREEN_ECHO,
     until: 'POD-4777 (daemon delivery journal replaces the recovery ⇒ failed rule)',
   },
   // A new daemon receives the waiting row as a recovery row and fails it
   // untyped — or, on some runs, never settles it at all.
-  'daemon-crash-queued': { must: [['lost', 'stuck']], may: SCREEN_ECHO, until: 'POD-4777' },
+  // Since POD-4775 that failure is recorded `unknown` (see server-crash).
+  'daemon-crash-queued': {
+    must: [['lost', 'stuck', 'unknown-outside-window']],
+    may: SCREEN_ECHO,
+    until: 'POD-4777',
+  },
   // Typed before the kill: the new daemon fails the recovery row although the
   // agent has it (or leaves it dispatched). `unknown` — the allowed answer here
   // — has no producer yet. The follow-up message sent once the session is live
@@ -126,8 +134,14 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4777',
   },
-  // Same refusal as daemon-crash-before, for every send made during the cut.
-  'link-cut-seconds': { must: ['lost'], may: SCREEN_ECHO, until: 'POD-4775' },
+  // POD-4775 removed the refusal: sends made during the cut are stored and
+  // typed after it. What remains is the delivery report lost with the link —
+  // typed, still `dispatched` — the link-degraded finding.
+  'link-cut-seconds': {
+    must: ['stuck'],
+    may: SCREEN_ECHO,
+    until: 'POD-4777 (status reports by id, outside the runtime-event gate)',
+  },
   // One delivery report lost on a slow link: the message stays `dispatched`
   // although it was typed — the report is not resent by id outside the
   // activity stream's gate.
@@ -153,10 +167,12 @@ const KNOWN: Record<string, Known> = {
   },
   // Proven in the children's logs: reports produced during the cut replay
   // after the reconnect and the runtime-event gate rejects them as
-  // `stale-observer-generation`; the rows end failed though every message was
-  // typed. (No frame storm on this base: the storm check stays armed.)
+  // `stale-observer-generation`. The re-forwards during the cut time out, and
+  // since POD-4775 a timed-out forward is `unknown`, not failed: the rows end
+  // `unknown` though every message was typed. (No frame storm on this base:
+  // the storm check stays armed.)
   'link-cut-minutes-storm': {
-    must: ['status-lies'],
+    must: ['unknown-outside-window'],
     may: ['stuck', ...SCREEN_ECHO],
     until: 'POD-4777 (status reports by id, outside the runtime-event gate)',
   },
