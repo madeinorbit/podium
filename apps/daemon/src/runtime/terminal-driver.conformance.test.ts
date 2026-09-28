@@ -438,8 +438,6 @@ function makeWorld(options: WorldOptions): {
             },
             writeBytes: () => {},
             resize: () => {},
-            redraw: () => {},
-            geometry: () => ({ cols: 80, rows: 24 }),
             dispose: () => {},
           } as unknown as DurableAttachment,
           new TerminalScreen({ cols: 80, rows: 24 }),

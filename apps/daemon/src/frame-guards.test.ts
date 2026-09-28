@@ -169,8 +169,6 @@ it('isolates a quarantined session from unrelated control frames and binary inpu
     write: () => {},
     writeBytes: write,
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {},
   } as never)
   ctx.composerEngine = { onInputByte: vi.fn() } as never

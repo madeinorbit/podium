@@ -31,8 +31,6 @@ const fakeSpawn = (opts: { cmd: string; args?: string[] }) => {
     onExit: () => () => {},
     write: () => {},
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {},
   }
 }

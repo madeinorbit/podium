@@ -69,8 +69,6 @@ function fakeAttachment(pid: number, adopted: boolean): FakeAttachment {
     write: (b64: string) => fake.written.push(Buffer.from(b64, 'base64').toString()),
     writeBytes: (bytes: Uint8Array) => fake.written.push(new TextDecoder().decode(bytes)),
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {
       fake.disposed = true
       frames.clear()
@@ -97,8 +95,6 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
       return {
         attachment: reattached.attachment,
         cmd: `podium-host attach /tmp/${LABEL}.sock`,
-        redrawOnReattach: false,
-        readGeometry: undefined,
       }
     }),
   }

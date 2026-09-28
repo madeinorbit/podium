@@ -37,8 +37,6 @@ const fakeSpawn = (opts: SpawnOptions) => {
     onExit: () => () => {},
     write: () => {},
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: opts.cols, rows: opts.rows }),
     dispose,
   }
 }
@@ -307,8 +305,6 @@ it.each([undefined, 'generic-pty', 'claude-pty'] as const)(
       write: () => {},
       writeBytes: () => {},
       resize: () => {},
-      redraw: vi.fn(),
-      geometry: () => ({ cols: 80, rows: 24 }),
       dispose,
     } as never)
     sessionHandlers.reattach(ctx, { ...msg, ...(requestedDriverId ? { requestedDriverId } : {}) })
@@ -333,8 +329,6 @@ it('reports and reaps a reconnect whose handle cannot be constructed', async () 
       write: () => {},
       writeBytes: () => {},
       resize: () => {},
-      redraw: vi.fn(),
-      geometry: () => ({ cols: 80, rows: 24 }),
       dispose,
     } as never)
   sessionHandlers.reattach(ctx, msg)
@@ -358,8 +352,6 @@ it.each(['codex-app-server', 'codex-pty', 'unknown-driver'])(
       write: () => {},
       writeBytes: () => {},
       resize: () => {},
-      redraw: vi.fn(),
-      geometry: () => ({ cols: 80, rows: 24 }),
       dispose,
     } as never)
   sessionHandlers.reattach(ctx, { ...reconnectMessage(), requestedDriverId: driver })

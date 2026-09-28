@@ -35,8 +35,6 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     release: vi.fn(async () => {}),
     viewers: vi.fn(),
     input: vi.fn(() => false),
-    resize: vi.fn(() => false),
-    redraw: vi.fn(() => false),
     reclaimable: vi.fn(() => 0),
     reclaimUnwatched: vi.fn(async () => 0),
   }
@@ -133,11 +131,9 @@ describe('server-family native client control', () => {
     expect(clientTerminals.release).not.toHaveBeenCalled()
   })
 
-  it('routes terminal input, geometry, and redraw without a PTY bridge', () => {
+  it('routes terminal input without a PTY bridge', () => {
     const { ctx, clientTerminals } = world()
     clientTerminals.input.mockReturnValue(true)
-    clientTerminals.resize.mockReturnValue(true)
-    clientTerminals.redraw.mockReturnValue(true)
 
     sessionHandlers.input(ctx, {
       type: 'input',
@@ -145,47 +141,19 @@ describe('server-family native client control', () => {
       data: 'aGVsbG8=',
       inputOrigin: 'human',
     })
+
+    expect(clientTerminals.input).toHaveBeenCalledWith(SESSION, Buffer.from('hello'))
+  })
+
+  it('an ask for a server-family session with no client TUI open is dropped, and reports nothing (POD-4723)', () => {
+    // A client's size is its host's statement (the size event), never the ask:
+    // with no Terminal there is nothing to ask, and nothing is held.
+    const { ctx, sent } = world()
+
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 91, rows: 33 })
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
 
-    expect(clientTerminals.input).toHaveBeenCalledWith(SESSION, Buffer.from('hello'))
-    expect(clientTerminals.resize).toHaveBeenCalledWith(SESSION, 91, 33)
-    expect(clientTerminals.redraw).toHaveBeenCalledWith(SESSION, true)
-    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
-  })
-
-  it('REPORTS the grid a client terminal applied (POD-3239 B7)', () => {
-    // A server-family session has no pty bridge, but its size is still the
-    // server's W — and after B6 the daemon's report is the only thing that may
-    // move it, so a resize this path swallows silently would freeze the grid for
-    // every viewer of an opencode-server session.
-    const { ctx, clientTerminals, sent } = world()
-    clientTerminals.resize.mockReturnValue(true)
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 91, rows: 33 })
-
-    expect(clientTerminals.resize).toHaveBeenCalledWith(SESSION, 91, 33)
-    expect(sent).toEqual([
-      {
-        type: 'geometryApplied',
-        sessionId: SESSION,
-        geometry: { cols: 91, rows: 33 },
-        cause: 'request',
-      },
-    ])
-    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
-  })
-
-  it('does NOT report a resize no client terminal took — it holds it instead', () => {
-    // The arming counterfactual for the test above: `resize` answering false
-    // means nothing applied anything, so there is no applied grid to report.
-    const { ctx, clientTerminals, sent } = world()
-    clientTerminals.resize.mockReturnValue(false)
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 91, rows: 33 })
-
     expect(sent).toEqual([])
-    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 91, rows: 33 })
   })
 
   it('drops stale client-terminal input after Chat releases Native', () => {

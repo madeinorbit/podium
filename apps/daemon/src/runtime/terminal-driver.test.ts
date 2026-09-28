@@ -92,8 +92,6 @@ function fakeTerminal(onWrite?: (dataBase64: string) => void): Terminal {
     },
     writeBytes: () => {},
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {},
   } as unknown as DurableAttachment
   return Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {
@@ -285,8 +283,6 @@ function makeWorld(
           },
           writeBytes: () => {},
           resize: () => {},
-          redraw: () => {},
-          geometry: () => ({ cols: 80, rows: 24 }),
           dispose: () => {},
         } as unknown as DurableAttachment
         bridge = Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {

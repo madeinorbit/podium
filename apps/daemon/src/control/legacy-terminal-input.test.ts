@@ -18,8 +18,6 @@ function world(contracted: boolean, bridged: boolean) {
     write: () => {},
     writeBytes,
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {},
   } as unknown as DurableAttachment
   const input = vi.fn(() => true)

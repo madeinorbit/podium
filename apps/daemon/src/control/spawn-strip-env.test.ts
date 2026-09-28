@@ -58,8 +58,6 @@ const fakeSpawn = (opts: SpawnOptions) => {
     onExit: () => () => {},
     write: () => {},
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: opts.cols, rows: opts.rows }),
     dispose: () => {},
   }
 }

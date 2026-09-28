@@ -43,8 +43,6 @@ function fakeAttachment(): DurableAttachment {
     write: () => {},
     writeBytes: () => {},
     resize: () => {},
-    redraw: () => {},
-    redrawWhenReady: () => {},
     dispose: () => {},
   } as unknown as DurableAttachment
 }

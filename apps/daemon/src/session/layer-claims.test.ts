@@ -59,8 +59,6 @@ describe('the attach CLIENT exiting is NOT the AGENT exiting', () => {
       write: () => {},
       writeBytes: () => {},
       resize: () => {},
-      redraw: () => {},
-      geometry: () => ({ cols: 80, rows: 24 }),
       dispose: () => {},
       exit: (code: number) => onExit?.(code),
     } as unknown as DurableAttachment & { exit(code: number): void }
@@ -88,7 +86,7 @@ describe('the attach CLIENT exiting is NOT the AGENT exiting', () => {
       send: (msg: DaemonMessage) => void sent.push(msg),
     } as unknown as DaemonContext
     const client = attachment()
-    wireBridge(ctx, SESSION, client, 'codex', 'podium-s-layer-claims', { cols: 80, rows: 24 })
+    wireBridge(ctx, SESSION, client, 'codex', 'podium-s-layer-claims')
     return { ctx, sent, has, client }
   }
 

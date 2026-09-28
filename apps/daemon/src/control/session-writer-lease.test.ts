@@ -53,8 +53,6 @@ function fakeAttachment(): DurableAttachment {
     write: () => {},
     writeBytes: () => {},
     resize: () => {},
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {},
   } as unknown as DurableAttachment
 }
@@ -78,8 +76,6 @@ function world(): World {
     steal: vi.fn(async () => ({
       attachment: fakeAttachment(),
       cmd: `podium-host attach /tmp/${LABEL}.sock`,
-      redrawOnReattach: false,
-      readGeometry: undefined,
     })),
   }
   const durable = {
@@ -183,9 +179,8 @@ describe('park drops the Terminal and keeps the process', () => {
     const { ctx } = world()
     const owned = ctx.sessions.ensure(SESSION)
     owned.label = LABEL
-    // A live surface, a held viewer ask, and a replay cursor.
+    // A live surface and a replay cursor.
     attachTestTerminal(ctx, SESSION, fakeAttachment())
-    owned.pendingResize = { cols: 100, rows: 30 }
     owned.seqReader = () => 41n
     const screen = owned.screen()
     expect(owned.attached).toBe(true)
@@ -194,10 +189,9 @@ describe('park drops the Terminal and keeps the process', () => {
 
     expect(owned.attached).toBe(false)
     expect(owned.terminal).toBeUndefined()
-    // The PROCESS side survives the park: label, screen, held resize, cursor.
+    // The PROCESS side survives the park: label, screen, cursor.
     expect(owned.label).toBe(LABEL)
     expect(owned.peekScreen()).toBe(screen)
-    expect(owned.pendingResize).toEqual({ cols: 100, rows: 30 })
     expect(owned.seqReader?.()).toBe(41n)
   })
 })
