@@ -66,8 +66,7 @@ import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { opencodeTranscript } from '../../../adapters/opencode/transcript.js'
-import { transcriptSourceFromGrammar } from '../../../store/store.js'
-import { declaredValue } from '../../../transcript-types.js'
+import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import {
   gateHarnessVersion,
   harnessVersionDiagnostic,
@@ -90,7 +89,6 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { bindingRecordsOf, EngineBindUnrecoverable } from '../engine-supervision.js'
-import { DriverRefusalError } from '../../errors.js'
 
 const log = createLogger('harness:opencode-engine-host')
 
@@ -877,13 +875,10 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
      * THE STORE READ OVER THE SQLITE DATABASE — the host half of the injected
      * `readHistory` port the driver answers `transcript.history` through.
      *
-     * The same shape as the codex host's `readHistory` and the terminal host's:
-     * resolve the session's transcript source from the opencode adapter's
-     * grammar — the sqlite database named by the resume value (the `ses_…` id
-     * the driver passes), falling back to the shared store when no isolated
-     * database names it — and slice it with Store cursors. A session with no
-     * messages yet reads as an empty page, never an error: the slice layer
-     * returns empty for a missing session or a missing database.
+     * ONE shared implementation (`../engine-history.js`): the sqlite database
+     * named by the resume value (the `ses_…` id the driver passes), falling
+     * back to the shared store when no isolated database names it. A session
+     * with no messages yet reads as an empty page, never an error.
      */
     async readHistory(
       session: {
@@ -897,34 +892,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         direction?: RuntimeHistoryRange['direction']
       },
     ): Promise<RuntimeHistoryPage> {
-      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
-      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
-        throw new DriverRefusalError(
-          { reason: 'invalid_value', detail: 'foreign history cursor' },
-          'transcript.history',
-        )
-      }
-      const grammar = declaredValue(opencodeTranscript)
-      if (!grammar) return { items: [], hasMore: false }
-      const source = await transcriptSourceFromGrammar(grammar, {
-        podiumSessionId: session.sessionId,
-        cwd: session.cwd,
-        ...(session.resume?.value ? { resumeValue: session.resume.value } : {}),
-        ...(session.pathHint ? { pathHint: session.pathHint } : {}),
-        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
-      })
-      const slice = await source.readSlice({
-        ...(range.from ? { anchor: range.from.pathHint } : {}),
-        direction: range.direction ?? 'before',
-        limit: range.limit,
-      })
-      const cursor = (anchor: string) => ({ segmentId, pathHint: anchor, components: {} })
-      return {
-        items: slice.items,
-        ...(slice.head ? { head: cursor(slice.head) } : {}),
-        ...(slice.tail ? { tail: cursor(slice.tail) } : {}),
-        hasMore: slice.hasMore,
-      }
+      return readEngineHistoryFromGrammar(opencodeTranscript, session, range, deps.homeDir)
     },
 
     /**

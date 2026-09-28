@@ -30,9 +30,7 @@ import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { grokSessionPaths } from '../../../adapters/grok/instrumentation.js'
 import { grokTranscript } from '../../../adapters/grok/transcript.js'
-import { transcriptSourceFromGrammar } from '../../../store/store.js'
-import { declaredValue } from '../../../transcript-types.js'
-import { DriverRefusalError } from '../../errors.js'
+import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import {
   GROK_ACP_VERSION_POLICY,
   gateHarnessVersion,
@@ -498,15 +496,12 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
      * injected `readHistory` port the driver answers `transcript.history`
      * through.
      *
-     * The same shape as the codex host's `readHistory` and the terminal
-     * host's: resolve the session's transcript source from the grok
-     * adapter's grammar — the `chat_history.jsonl` under
-     * `~/.grok/sessions/<cwd>/<id>/`, located from the workdir and the
-     * native session id (the resume value), with the bucket sweep covering
-     * a cwd that moved since creation — and slice it with Store cursors. A
-     * session that has not run its first turn yet has no file, which reads
-     * as an empty page, never an error: the slice layer returns empty for
-     * a missing chain or a missing file.
+     * ONE shared implementation (`../engine-history.js`): the
+     * `chat_history.jsonl` under `~/.grok/sessions/<cwd>/<id>/`, located
+     * from the workdir and the native session id (the resume value), with
+     * the bucket sweep covering a cwd that moved since creation. A session
+     * that has not run its first turn yet has no file, which reads as an
+     * empty page, never an error.
      */
     async readHistory(
       session: {
@@ -520,34 +515,7 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
         direction?: RuntimeHistoryRange['direction']
       },
     ): Promise<RuntimeHistoryPage> {
-      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
-      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
-        throw new DriverRefusalError(
-          { reason: 'invalid_value', detail: 'foreign history cursor' },
-          'transcript.history',
-        )
-      }
-      const grammar = declaredValue(grokTranscript)
-      if (!grammar) return { items: [], hasMore: false }
-      const source = await transcriptSourceFromGrammar(grammar, {
-        podiumSessionId: session.sessionId,
-        cwd: session.cwd,
-        ...(session.resume?.value ? { resumeValue: session.resume.value } : {}),
-        ...(session.pathHint ? { pathHint: session.pathHint } : {}),
-        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
-      })
-      const slice = await source.readSlice({
-        ...(range.from ? { anchor: range.from.pathHint } : {}),
-        direction: range.direction ?? 'before',
-        limit: range.limit,
-      })
-      const cursor = (anchor: string) => ({ segmentId, pathHint: anchor, components: {} })
-      return {
-        items: slice.items,
-        ...(slice.head ? { head: cursor(slice.head) } : {}),
-        ...(slice.tail ? { tail: cursor(slice.tail) } : {}),
-        hasMore: slice.hasMore,
-      }
+      return readEngineHistoryFromGrammar(grokTranscript, session, range, deps.homeDir)
     },
   }
 }
