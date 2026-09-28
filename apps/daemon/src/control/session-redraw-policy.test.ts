@@ -1,11 +1,12 @@
 /**
- * MODE-AWARE REDRAW — daemon half (POD-3918 P1b).
+ * MODE-AWARE REDRAW — daemon half (POD-3918 P1b, rewritten by POD-4723).
  *
- * The headed path (`clientTerminals.redraw` returning true) used to return
- * before the replay branch below it, so it never followed any policy at all.
- * Both paths now execute the same decision: alternate screens never replay
- * stale bytes, a different viewer size is applied BEFORE the repaint, and a
- * same-size alternate reopens from the headless model serialisation.
+ * A redraw repaints the VIEWER and never the program (design rev 3,
+ * "Repaint"): alternate screens reopen from the headless model, a normal
+ * screen with replay debt replays the host ring, and neither path resizes or
+ * signals the child. The one exception is the user's own redraw button
+ * (`hard`), which reaches the program as a single Ctrl-L. The headed pty and
+ * a native client TUI take the same path: both are the session's one Terminal.
  */
 
 import { asSessionId } from '@podium/model'
@@ -19,14 +20,13 @@ import { sessionScreenFor, trackSessionOutput, trackSessionSize } from '../sessi
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 const ENTER_ALT = '\x1b[?1049h'
 const MODEL_SIZE = { cols: 80, rows: 24 }
-const VIEWER_SIZE = { cols: 40, rows: 24 }
 
 function world(opts: { headed: boolean }): {
   ctx: DaemonContext
-  bridge: { resize: ReturnType<typeof vi.fn>; redraw: ReturnType<typeof vi.fn>; replay: ReturnType<typeof vi.fn> }
-  clientTerminals: {
+  bridge: {
     resize: ReturnType<typeof vi.fn>
-    redraw: ReturnType<typeof vi.fn>
+    writeBytes: ReturnType<typeof vi.fn>
+    replay: ReturnType<typeof vi.fn>
   }
   enqueued: Uint8Array[]
 } {
@@ -39,18 +39,12 @@ function world(opts: { headed: boolean }): {
     write: vi.fn(() => {}),
     writeBytes: vi.fn(() => {}),
     resize: vi.fn(() => {}),
-    redraw: vi.fn(() => {}),
     replay: vi.fn(async () => {}),
-    geometry: () => ({ cols: 80, rows: 24 }),
     dispose: vi.fn(() => {}),
   } as unknown as DurableAttachment & {
     resize: ReturnType<typeof vi.fn>
-    redraw: ReturnType<typeof vi.fn>
+    writeBytes: ReturnType<typeof vi.fn>
     replay: ReturnType<typeof vi.fn>
-  }
-  const clientTerminals = {
-    resize: vi.fn(() => true),
-    redraw: vi.fn(() => true),
   }
   const ctx = {
     sessions: testSessions(),
@@ -63,10 +57,9 @@ function world(opts: { headed: boolean }): {
     },
     observers: {},
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
-    ...(opts.headed ? { clientTerminals } : {}),
   } as unknown as DaemonContext
   attachTestTerminal(ctx, SESSION, bridge, opts.headed ? 'client' : 'headed')
-  return { ctx, bridge, clientTerminals, enqueued }
+  return { ctx, bridge, enqueued }
 }
 
 async function seedAlt(ctx: DaemonContext): Promise<void> {
@@ -88,78 +81,49 @@ async function seedNormal(ctx: DaemonContext): Promise<void> {
 const textOf = (enqueued: Uint8Array[]): string =>
   Buffer.concat(enqueued.map((b) => Buffer.from(b))).toString('latin1')
 
-describe('mode-aware redraw (bridge path)', () => {
-  beforeEach(() => vi.clearAllMocks())
+describe.each([
+  ['a headed pty', false],
+  ['a native client TUI', true],
+])('a redraw on %s never touches the program', (_name, headed) => {
+  let w: ReturnType<typeof world>
 
-  it('alternate at the SAME size reconstitutes from the model, then goes live', async () => {
-    const { ctx, bridge, enqueued } = world({ headed: false })
-    await seedAlt(ctx)
-    sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
-    expect(bridge.replay).not.toHaveBeenCalled()
-    expect(bridge.resize).not.toHaveBeenCalled()
-    expect(textOf(enqueued)).toContain('Agent TUI frame')
-    // The snapshot is the first frame; the nudge keeps the live producer flowing.
-    expect(bridge.redraw).toHaveBeenCalledTimes(1)
+  beforeEach(() => {
+    w = world({ headed })
   })
 
-  it('alternate at a DIFFERENT viewer size applies the size BEFORE repainting', async () => {
-    const { ctx, bridge, enqueued } = world({ headed: false })
-    await seedAlt(ctx)
-    ctx.sessions.ensure(SESSION).pendingResize = { ...VIEWER_SIZE }
-    sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
-    expect(bridge.replay).not.toHaveBeenCalled()
-    expect(bridge.resize).toHaveBeenCalledWith(VIEWER_SIZE.cols, VIEWER_SIZE.rows)
-    expect(bridge.redraw).toHaveBeenCalledTimes(1)
-    expect(bridge.resize.mock.invocationCallOrder[0]).toBeLessThan(
-      bridge.redraw.mock.invocationCallOrder[0]!,
-    )
-    // The stale-size model is only a placeholder until the repaint lands.
-    expect(textOf(enqueued)).toContain('Agent TUI frame')
+  const untouched = (): void => {
+    expect(w.bridge.resize).not.toHaveBeenCalled()
+    expect(w.bridge.writeBytes).not.toHaveBeenCalled()
+  }
+
+  it('alternate reconstitutes from the model and goes live', async () => {
+    await seedAlt(w.ctx)
+    sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
+    expect(textOf(w.enqueued)).toContain('Agent TUI frame')
+    expect(w.bridge.replay).not.toHaveBeenCalled()
+    untouched()
   })
 
-  it('normal + replay debt still replays the host ring tail (restart-approximate)', async () => {
-    const { ctx, bridge } = world({ headed: false })
-    await seedNormal(ctx)
-    sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
-    expect(bridge.replay).toHaveBeenCalledWith(256 * 1024)
+  it('normal + replay debt replays the host ring tail (restart-approximate)', async () => {
+    await seedNormal(w.ctx)
+    sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
+    expect(w.bridge.replay).toHaveBeenCalledTimes(1)
+    untouched()
   })
 
-  it('normal with no debt just repaints', async () => {
-    const { ctx, bridge } = world({ headed: false })
-    await seedNormal(ctx)
-    sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION })
-    expect(bridge.replay).not.toHaveBeenCalled()
-    expect(bridge.redraw).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('mode-aware redraw (headed path follows the same policy: audit item 6)', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it('headed alternate at a DIFFERENT viewer size resizes through the client terminal BEFORE redrawing', async () => {
-    const { ctx, clientTerminals, enqueued } = world({ headed: true })
-    await seedAlt(ctx)
-    ctx.sessions.ensure(SESSION).pendingResize = { ...VIEWER_SIZE }
-    sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
-    expect(clientTerminals.resize).toHaveBeenCalledWith(
-      SESSION,
-      VIEWER_SIZE.cols,
-      VIEWER_SIZE.rows,
-    )
-    expect(clientTerminals.redraw).toHaveBeenCalledTimes(1)
-    expect(clientTerminals.resize.mock.invocationCallOrder[0]).toBeLessThan(
-      clientTerminals.redraw.mock.invocationCallOrder[0]!,
-    )
-    expect(textOf(enqueued)).toContain('Agent TUI frame')
+  it('normal with no debt sends nothing at all', async () => {
+    await seedNormal(w.ctx)
+    sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION })
+    expect(w.enqueued).toEqual([])
+    expect(w.bridge.replay).not.toHaveBeenCalled()
+    untouched()
   })
 
-  it('headed alternate at the SAME size reconstitutes without touching the program size', async () => {
-    const { ctx, clientTerminals, enqueued } = world({ headed: true })
-    await seedAlt(ctx)
-    sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
-    expect(clientTerminals.resize).not.toHaveBeenCalled()
-    expect(textOf(enqueued)).toContain('Agent TUI frame')
-    // Same decision as the bridge path: snapshot first, then the live nudge.
-    expect(clientTerminals.redraw).toHaveBeenCalledTimes(1)
+  it('the user\'s hard redraw reaches the program as exactly one Ctrl-L, and never resizes it', async () => {
+    await seedNormal(w.ctx)
+    sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, hard: true })
+    expect(w.bridge.writeBytes).toHaveBeenCalledTimes(1)
+    expect(Array.from(w.bridge.writeBytes.mock.calls[0]?.[0] as Uint8Array)).toEqual([0x0c])
+    expect(w.bridge.resize).not.toHaveBeenCalled()
   })
 })

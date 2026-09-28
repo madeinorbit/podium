@@ -1,39 +1,44 @@
 /**
- * T2 (POD-3239 SPEC-1 acceptance) — the daemon applies, then reports.
+ * T2 (POD-3239 SPEC-1 acceptance, moved to the size event by POD-4723) — the
+ * daemon flushes, then reports.
  *
  * WHAT THIS PROVES, EXACTLY: the half of the ordering the DAEMON owns. With the
- * output scheduler holding bytes for this session, a resize flushes those bytes
- * and only then emits `geometryApplied` — so a viewer can never receive the new
- * grid and afterwards be handed output the daemon was already sitting on at the
- * old one.
- *
- * WHAT IT DOES NOT PROVE: that the pty is at the new size when the report goes
- * out. For an abduco session the resize reaches the session pty asynchronously
- * (attach-pty TIOCSWINSZ → SIGWINCH → MSG_RESIZE → master), and the master may
- * forward bytes it had already read after applying it. That residual is accepted
- * on purpose — see MODEL.md "Accepted residuals" — and 0b's C14 harness
- * (`packages/pty/src/abduco-winsize.integration.test.ts`) is what exercises it.
+ * output scheduler holding bytes for this session, the size event (the host's
+ * RESIZED) flushes those bytes and only then emits `geometryApplied` — so a
+ * viewer can never receive the new grid and afterwards be handed output the
+ * daemon was already sitting on at the old one. The flush belongs to the size
+ * event, not the ask: DATA that preceded RESIZED on the host socket was drawn
+ * at the old grid, and the ask no longer reports anything at all.
  */
 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'
-import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
-import { sessionHandlers } from './session'
-import { attachTestTerminal, testSessions } from '../session/testing.js'
+import { sessionHandlers, wireBridge } from './session'
+import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('s-report')
 
-function fakeSession(): DurableAttachment & { resizes: Array<[number, number]> } {
-  const resizes: Array<[number, number]> = []
+/** A host-shaped attachment: the test plays the host's RESIZED. */
+function fakeHost(): DurableAttachment & {
+  asks: Array<[number, number]>
+  state: (cols: number, rows: number) => void
+} {
+  const asks: Array<[number, number]> = []
+  const sizeCbs = new Set<(g: { cols: number; rows: number }) => void>()
+  let size = { cols: 80, rows: 24 }
   return {
-    resizes,
+    asks,
+    state: (cols, rows) => {
+      size = { cols, rows }
+      for (const cb of [...sizeCbs]) cb(size)
+    },
     pid: 4321,
     onFrame: () => () => {},
     onTitle: () => () => {},
@@ -41,12 +46,16 @@ function fakeSession(): DurableAttachment & { resizes: Array<[number, number]> }
     write: () => {},
     writeBytes: () => {},
     resize: (cols: number, rows: number) => {
-      resizes.push([cols, rows])
+      asks.push([cols, rows])
+      return Promise.resolve()
     },
-    redraw: () => {},
-    geometry: () => ({ cols: 80, rows: 24 }),
+    size: () => size,
+    onSize: (cb) => {
+      sizeCbs.add(cb)
+      return () => sizeCbs.delete(cb)
+    },
     dispose: () => {},
-  } as unknown as DurableAttachment & { resizes: Array<[number, number]> }
+  }
 }
 
 /**
@@ -72,7 +81,7 @@ function harness(over: Partial<DaemonContext> = {}): {
     scheduleImmediate: () => {},
   })
   const ctx = {
-    backend: 'none',
+    backend: 'host',
     settingsDir: join(tmpdir(), 'podium-geometry-report'),
     sessions: testSessions(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
@@ -90,121 +99,43 @@ function harness(over: Partial<DaemonContext> = {}): {
   return { ctx, sent, timeline }
 }
 
-describe('T2: with the scheduler holding bytes, the geometry report follows the daemon-held output', () => {
-  it('flushes what it was holding, dispatches the resize, then reports — in that order', () => {
+describe('T2: with the scheduler holding bytes, the size event reports after the daemon-held output', () => {
+  it('the ask flushes nothing and reports nothing; the size event flushes, then reports', () => {
     const { ctx, timeline } = harness()
-    const session = fakeSession()
-    attachTestTerminal(ctx, SESSION, session)
+    const host = fakeHost()
+    wireBridge(ctx, SESSION, host, 'claude-code', 'podium-s-report')
+    timeline.length = 0 // the WELCOME statement at wire-up
     // P2 = attached but not focused: the tier that actually coalesces.
     ctx.outputScheduler.setPriority(SESSION, 2)
 
     ctx.outputScheduler.enqueue(SESSION, new Uint8Array([1, 2]))
     ctx.outputScheduler.enqueue(SESSION, new Uint8Array([3]))
-    // ARMED: nothing has left yet, so the order below is the handler's doing.
-    expect(timeline).toEqual([])
-
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 120, rows: 40 })
+    // ARMED: the ask moved nothing, so the order below is the size event's doing.
+    expect(timeline).toEqual([])
+    expect(host.asks).toEqual([[120, 40]])
 
+    host.state(120, 40)
     expect(timeline).toEqual(['output:1,2,3', 'report:120x40'])
-    expect(session.resizes).toEqual([[120, 40]])
   })
 
-  it('reports SYNCHRONOUSLY, so output produced after the resize cannot overtake it', () => {
+  it('reports SYNCHRONOUSLY within the size event, so later output cannot overtake it', () => {
     const { ctx, timeline } = harness()
-    const session = fakeSession()
-    attachTestTerminal(ctx, SESSION, session)
+    const host = fakeHost()
+    wireBridge(ctx, SESSION, host, 'claude-code', 'podium-s-report')
+    timeline.length = 0
     ctx.outputScheduler.setPriority(SESSION, 2)
 
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 100, rows: 30 })
-    // The handler has returned and the report is already out; the next frame
-    // this session produces is unambiguously post-resize output.
+    host.state(100, 30)
     ctx.outputScheduler.enqueue(SESSION, new Uint8Array([7]))
     ctx.outputScheduler.flushNow(SESSION)
 
     expect(timeline).toEqual(['report:100x30', 'output:7'])
   })
 
-  it('a session with no bridge and no client terminal HOLDS and reports nothing', () => {
+  it('a session with no terminal drops the ask and reports nothing', () => {
     const { ctx, sent } = harness()
-
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 132, rows: 43 })
-
-    // There is no applied grid to report — `wireBridge` applies this at bind and
-    // `bind` carries the effective geometry, which is that session's report.
-    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 132, rows: 43 })
     expect(sent.filter((m) => m.type === 'geometryApplied')).toEqual([])
-  })
-
-  it('a driver-owned session takes the resize through clientTerminals and reports too', () => {
-    const taken: Array<[number, number]> = []
-    const { ctx, timeline } = harness({
-      clientTerminals: {
-        resize: (_id: SessionId, cols: number, rows: number) => {
-          taken.push([cols, rows])
-          return true
-        },
-      },
-    } as unknown as Partial<DaemonContext>)
-    ctx.outputScheduler.setPriority(SESSION, 2)
-    ctx.outputScheduler.enqueue(SESSION, new Uint8Array([5]))
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 90, rows: 28 })
-
-    // Its frames travel through the same scheduler and its W has to move for the
-    // same reason, so it gets the same flush-then-report treatment — and it
-    // still never touches pendingResizes (0b C7's narrowing).
-    expect(taken).toEqual([[90, 28]])
-    expect(timeline).toEqual(['output:5', 'report:90x28'])
-    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
-  })
-})
-
-/**
- * WHAT THE REPORT IS READ FROM (POD-3290).
- *
- * The frame above is no longer built from the request; it is built from this
- * daemon's applied-size record, written by the arm that dispatched the resize.
- * These pin the write, so "the report says what was applied" is a fact about
- * the record and not a coincidence of the two numbers being equal.
- */
-describe('the resize handler records what it dispatched, and only that', () => {
-  it('records the grid a bridged session was dispatched', () => {
-    const { ctx } = harness()
-    attachTestTerminal(ctx, SESSION, fakeSession())
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 120, rows: 40 })
-
-    expect(appliedGeometryFor(ctx).applied(SESSION)).toEqual({ cols: 120, rows: 40 })
-  })
-
-  it('records the grid a CLIENT TERMINAL took, by the other arm', () => {
-    const { ctx } = harness({
-      clientTerminals: { resize: () => true },
-    } as unknown as Partial<DaemonContext>)
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 90, rows: 28 })
-
-    expect(appliedGeometryFor(ctx).applied(SESSION)).toEqual({ cols: 90, rows: 28 })
-  })
-
-  it('records NOTHING for a held request — a request is not an apply', () => {
-    const { ctx } = harness()
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 132, rows: 43 })
-
-    // The pty this belongs to does not exist yet. `wireBridge` dispatches it at
-    // bind and records it there; until then there is nothing true to say.
-    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 132, rows: 43 })
-    expect(appliedGeometryFor(ctx).applied(SESSION)).toBeUndefined()
-  })
-
-  it('holds the LAST grid dispatched, which is what a later bind would report', () => {
-    const { ctx } = harness()
-    attachTestTerminal(ctx, SESSION, fakeSession())
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 100, rows: 30 })
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 200, rows: 60 })
-
-    expect(appliedGeometryFor(ctx).applied(SESSION)).toEqual({ cols: 200, rows: 60 })
   })
 })

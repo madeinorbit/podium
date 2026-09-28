@@ -1,22 +1,22 @@
 /**
- * A HEADED (SERVER-FAMILY) SESSION IS BORN AT THE VIEWER'S SIZE, AND SAYS SO —
- * POD-3809, stage 7 of POD-3190, end to end inside the daemon.
+ * A HEADED (SERVER-FAMILY) SESSION'S CLIENT TUI STATES ITS SIZE THROUGH THE
+ * HOST — POD-3809, rewritten for POD-4723 (design rev 3), end to end inside the
+ * daemon.
  *
- * THE BUG THIS PINS. A server-family session has no pty bridge, so the viewer's
- * first ask arrives before there is anything to resize: the handler parks it in
- * `pendingResizes`. The client terminal was then opened at the harness default
- * (120x40) and the held request dispatched to it afterwards — and NEITHER of
- * those two applies told the server. So the server's W stayed at the row's
- * 80x24, the browser (whose buffer only moves on a report) rendered 80x24, and
- * the view snapped to the right grid seconds later when some LATER ask happened
- * to land while the terminal existed. That is the "small top-left quadrant for a
- * couple of seconds".
+ * THE BUG POD-3809 PINNED. The client terminal was born at some size and
+ * nothing told the server, so the view rendered the row's 80x24 until a later
+ * ask. Under rev 3 the host's WELCOME states the size the client really has,
+ * and the size event reports it — so the birth is reported without anyone
+ * remembering to.
  *
- * WHAT IT ASSERTS, IN ONE RUN OF THE REAL CODE: the real `resize` handler, the
- * real `reconcileNativeClientTerminal`, and the real client-terminal host with
- * only its process ports injected. Both halves are checked — the applied-size
- * RECORD (what the daemon believes) and the FRAMES the server received (what it
- * was told) — because the bug was precisely the two disagreeing.
+ * WHAT REV 3 CHANGED HERE. An ask that arrives before the client exists is
+ * dropped, not held: the server re-drives it. A later ask moves nothing until
+ * the client's host answers, and the report is the KERNEL's answer. The client
+ * is born at the session's last-known size (its model's), not at an ask.
+ *
+ * WHAT IT RUNS: the real `resize` handler, the real
+ * `reconcileNativeClientTerminal`, and the real client-terminal host with only
+ * its process ports injected.
  */
 
 import { tmpdir } from 'node:os'
@@ -26,17 +26,17 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { createOpencodeClientTerminals } from '../runtime/opencode-attach'
+import { sessionModelSize, trackSessionSize } from '../session-screens'
 import type { ClientProcessOwner } from '../session/clients.js'
-import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
-import { reconcileNativeClientTerminal, sessionHandlers } from './session'
+import { onSessionSize, reconcileNativeClientTerminal, sessionHandlers, sessionSize } from './session'
 import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 
-/** What the viewer asked for, and nothing near a default: 120x40 or 80x24 here
- *  would let a fabricated size pass for a reported one. */
-const ASKED = { cols: 203, rows: 51 } as const
+/** Sizes nowhere near a default: 120x40 or 80x24 here would let a fabricated
+ *  size pass for a reported one. */
+const LAST_KNOWN = { cols: 203, rows: 51 } as const
 
 const target = {
   kind: 'opencode',
@@ -45,10 +45,23 @@ const target = {
   workdir: '/home/agent/work',
 } as const
 
-function fakeClient(ack?: { cols: number; rows: number }): DurableAttachment & { sizes: Array<[number, number]> } {
+type Size = { cols: number; rows: number }
+
+/** A host-backed client: WELCOME states the size it was born at, and the test
+ *  plays the host's RESIZED. */
+function fakeClient(
+  welcome: Size,
+  refuse: boolean,
+): DurableAttachment & { sizes: Array<[number, number]>; state: (size: Size) => void } {
   const sizes: Array<[number, number]> = []
+  let size = welcome
+  const sizeCbs = new Set<(g: Size) => void>()
   return {
     sizes,
+    state: (g) => {
+      size = g
+      for (const cb of [...sizeCbs]) cb(g)
+    },
     pid: 4242,
     onFrame: (_cb: (f: AgentFrame) => void) => () => {},
     onTitle: () => () => {},
@@ -57,24 +70,16 @@ function fakeClient(ack?: { cols: number; rows: number }): DurableAttachment & {
     writeBytes: () => {},
     resize: (cols: number, rows: number) => {
       sizes.push([cols, rows])
+      return refuse ? Promise.reject(new Error('podium-host: not the writer')) : Promise.resolve()
     },
-    // A host-backed client acknowledges with what the kernel now reports, which
-    // is not always what was asked for. Absent (as here by default) the caller
-    // falls back to the requested size — the abduco behaviour this suite's older
-    // rows pin.
-    ...(ack
-      ? {
-          resizeAcknowledged: async (cols: number, rows: number) => {
-            sizes.push([cols, rows])
-            return { ...ack }
-          },
-        }
-      : {}),
-    redraw: () => {},
-    redrawWhenReady: () => {},
-    geometry: () => ({ cols: 0, rows: 0 }),
+    size: () => size,
+    onSize: (cb) => {
+      sizeCbs.add(cb)
+      return () => sizeCbs.delete(cb)
+    },
+    replay: async () => {},
     dispose: () => {},
-  } as unknown as DurableAttachment & { sizes: Array<[number, number]> }
+  } as DurableAttachment & { sizes: Array<[number, number]>; state: (size: Size) => void }
 }
 
 interface Harness {
@@ -85,13 +90,11 @@ interface Harness {
   clients: ReturnType<typeof fakeClient>[]
   /** The viewer opened Native: arm the request and let the reconcile run. */
   openNative(): Promise<void>
-  /** Drain the fire-and-forget acknowledgement round-trip the resize paths take. */
+  /** Drain the fire-and-forget ask the resize path takes. */
   drain(): Promise<void>
 }
 
-function harness(
-  over: { reportGeometry?: boolean; ackSize?: { cols: number; rows: number }; defaultBirth?: boolean } = {},
-): Harness {
+function harness(over: { reportGeometry?: boolean; refuse?: boolean } = {}): Harness {
   const sent: DaemonMessage[] = []
   const born: Array<[number, number]> = []
   const clients: ReturnType<typeof fakeClient>[] = []
@@ -107,8 +110,8 @@ function harness(
     primeInjector: { reset: () => {} },
     send: (msg: DaemonMessage) => {
       // THE SUPPRESSION SWITCH THAT ARMS THIS SUITE. With the report dropped the
-      // daemon still applies exactly as before — record, spawn size, everything
-      // — and only the wire goes quiet, which is precisely the shape of the bug.
+      // daemon still does everything else exactly as before, and only the wire
+      // goes quiet — which is precisely the shape of the POD-3809 bug.
       if (over.reportGeometry === false && msg.type === 'geometryApplied') return
       sent.push(msg)
     },
@@ -121,23 +124,16 @@ function harness(
     clients: {
       spawnClient: async (o) => {
         born.push([o.cols ?? 0, o.rows ?? 0])
-        const client = fakeClient(over.ackSize)
+        const client = fakeClient({ cols: o.cols ?? 0, rows: o.rows ?? 0 }, over.refuse === true)
         clients.push(client)
         return client as unknown as Awaited<ReturnType<ClientProcessOwner['spawnClient']>>
       },
       reclaimClient: async () => {},
       hasClientMaster: () => false,
     },
-    appliedGeometry: appliedGeometryFor(ctx),
-    // Without the birth port the terminal opens at the harness default, so the
-    // held request is still outstanding when the reconcile runs and takes the
-    // dispatch arm below — the one this issue's first test drives.
-    ...(over.defaultBirth
-      ? {}
-      : {
-          birthGeometry: (sessionId) =>
-            ctx.sessions.get(sessionId)?.pendingResize ?? appliedGeometryFor(ctx).applied(sessionId),
-        }),
+    // Wired exactly as `host-runtime.ts` wires them (POD-4723).
+    sizeEvent: (sessionId, size) => onSessionSize(ctx, sessionId, size),
+    birthGeometry: (sessionId) => sessionModelSize(ctx, sessionId),
     frames: () => {},
     releaseStream: () => {},
     sessions: ctx.sessions,
@@ -185,125 +181,69 @@ function reports(sent: DaemonMessage[]): Array<{ cols: number; rows: number }> {
   return sent.flatMap((m) => (m.type === 'geometryApplied' ? [m.geometry] : []))
 }
 
-describe('an ask that arrives before the terminal exists', () => {
-  it('is HELD and reports nothing — there is no applied grid yet', () => {
-    const { ctx, sent } = harness()
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
-
-    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual(ASKED)
-    // A held request is not an applied grid, and reporting one would be the lie
-    // stage 5 removed. Silence here is correct; silence AFTER the attach is not.
-    expect(reports(sent)).toEqual([])
-  })
-
-  it('opens the client terminal AT the asked size and reports it exactly once', async () => {
+describe('an ask that arrives before the client exists', () => {
+  it('is DROPPED: nothing held, nothing reported, nothing dispatched later', async () => {
     const h = harness()
+    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, cols: 96, rows: 27 })
+    expect(reports(h.sent)).toEqual([])
 
-    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
+    await h.openNative()
+    await h.drain()
+    // The client that opens later is never moved by an ask it did not see.
+    expect(h.clients[0]?.sizes).toEqual([])
+  })
+})
+
+describe('the client is born at the last-known size, and its WELCOME is the report', () => {
+  it('opens at the model size and reports it exactly once', async () => {
+    const h = harness()
+    trackSessionSize(h.ctx, SESSION, LAST_KNOWN.cols, LAST_KNOWN.rows)
+
     await h.openNative()
 
-    // BORN RIGHT, not corrected. The process was created at the viewer's grid,
-    // so the very first frame it paints is the right shape — no 120x40 pass.
-    expect(h.born).toEqual([[ASKED.cols, ASKED.rows]])
-    // …and nothing resized it afterwards, which is what stops the extra SIGWINCH
-    // and the TUI repaint that came with it.
+    expect(h.born).toEqual([[LAST_KNOWN.cols, LAST_KNOWN.rows]])
     expect(h.clients[0]?.sizes).toEqual([])
-
-    // WHAT THE DAEMON BELIEVES.
-    expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ASKED)
-    // WHAT THE SERVER WAS TOLD — the half that used to be missing entirely.
-    // EXACTLY ONE: the birth reports, and the native reconcile then finds the
-    // record already at the held size and retires the request instead of
-    // dispatching it again.
-    expect(reports(h.sent)).toEqual([ASKED])
-    expect(h.sent.filter((m) => m.type === 'geometryApplied')).toEqual([
-      { type: 'geometryApplied', sessionId: SESSION, geometry: ASKED, cause: 'request' },
-    ])
-
-    // The request is consumed, not left to fire on the next reconcile.
-    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
+    expect(reports(h.sent)).toEqual([LAST_KNOWN])
+    expect(sessionSize(h.ctx, SESSION)).toEqual(LAST_KNOWN)
   })
 
   it('ARMED: with the report suppressed the daemon looks identical and the server hears nothing', async () => {
-    // The pre-POD-3809 daemon, reproduced by dropping only the frame. Everything
-    // the assertions above check about the daemon's own state still holds — which
-    // is exactly why the bug survived review: the daemon was right and silent.
     const h = harness({ reportGeometry: false })
+    trackSessionSize(h.ctx, SESSION, LAST_KNOWN.cols, LAST_KNOWN.rows)
 
-    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
     await h.openNative()
 
-    expect(h.born).toEqual([[ASKED.cols, ASKED.rows]])
-    expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ASKED)
-    // …and the assertion the test above makes now FAILS. The server's W would
-    // never move, and the viewer would keep rendering the row's 80x24.
+    expect(h.born).toEqual([[LAST_KNOWN.cols, LAST_KNOWN.rows]])
     expect(reports(h.sent)).toEqual([])
   })
 })
 
-describe('a later ask, once the client terminal exists', () => {
-  it('goes down the client-terminal arm and reports the new grid', async () => {
+describe('a later ask, once the client exists', () => {
+  it('reaches the client once and is reported only when its host answers — at the kernel size', async () => {
     const h = harness()
-    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
+    trackSessionSize(h.ctx, SESSION, LAST_KNOWN.cols, LAST_KNOWN.rows)
     await h.openNative()
 
     sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, cols: 96, rows: 27 })
-
-    // Dispatched to the real client this time — there is one now — and reported
-    // by the same operation that recorded it.
+    await h.drain()
     expect(h.clients[0]?.sizes).toEqual([[96, 27]])
-    expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual({ cols: 96, rows: 27 })
-    expect(reports(h.sent)).toEqual([ASKED, { cols: 96, rows: 27 }])
-    // Nothing is held: it was applied, so it is not a pending request.
-    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
-  })
-})
+    // The ask reported nothing.
+    expect(reports(h.sent)).toEqual([LAST_KNOWN])
 
-/**
- * AUDIT ITEM 4 (POD-3914): the applied-size record for a client terminal holds
- * the ACKNOWLEDGED size, not the requested one.
- *
- * The host acknowledges every resize with what the kernel now reports, which is
- * not always what was asked for (a clamp, a race with another writer). Both
- * dispatch sites used to write the REQUESTED values: the record, and the report
- * built from it, stated a size the terminal was never at.
- */
-describe('audit item 4: the record holds the acknowledged size', () => {
-  /** What the viewer asked for, and what the kernel reported instead. */
-  const ACKED = { cols: 200, rows: 50 } as const
-
-  it('a held request dispatched at attach records what the host acknowledged', async () => {
-    // Born at the default, so the held request is still outstanding when the
-    // reconcile runs and takes the dispatch arm.
-    const h = harness({ defaultBirth: true, ackSize: ACKED })
-
-    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
-    await h.openNative()
-    await h.drain()
-
-    // The terminal was born at the default and the request went down to it…
-    expect(h.born).toEqual([[120, 40]])
-    expect(h.clients[0]?.sizes).toEqual([[ASKED.cols, ASKED.rows]])
-    // …but the record holds what the host acknowledged, and the server was
-    // told that size — never the requested one.
-    expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
-    expect(reports(h.sent)).toEqual([{ cols: 120, rows: 40 }, ACKED])
-    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
+    // The host answers with what the kernel took, which need not be the ask.
+    h.clients[0]?.state({ cols: 95, rows: 27 })
+    expect(reports(h.sent)).toEqual([LAST_KNOWN, { cols: 95, rows: 27 }])
+    expect(sessionModelSize(h.ctx, SESSION)).toEqual({ cols: 95, rows: 27 })
   })
 
-  it('a later ask records what the host acknowledged', async () => {
-    const h = harness({ ackSize: ACKED })
-    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
+  it('a refused ask reports nothing and moves nothing', async () => {
+    const h = harness({ refuse: true })
+    trackSessionSize(h.ctx, SESSION, LAST_KNOWN.cols, LAST_KNOWN.rows)
     await h.openNative()
-    await h.drain()
 
     sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, cols: 96, rows: 27 })
     await h.drain()
-
-    expect(h.clients[0]?.sizes).toEqual([[96, 27]])
-    expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
-    expect(reports(h.sent)).toEqual([ASKED, ACKED])
-    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
+    expect(reports(h.sent)).toEqual([LAST_KNOWN])
+    expect(sessionSize(h.ctx, SESSION)).toEqual(LAST_KNOWN)
   })
 })

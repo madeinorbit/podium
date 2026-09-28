@@ -1,133 +1,20 @@
 /**
  * SIZING PLAN ASSUMPTION TESTS — daemon half (POD-3235, spec artifact SPEC-0b.md rev 2).
  *
- * The daemon-side facts the terminal-sizing plan (POD-3190) relies on: how a
- * resize that arrives before a bridge is handled, what `bridge.resize()` gives
- * back, how long the output scheduler may hold bytes, and the post-bind repaint
- * nudge. Stage 1 (POD-3239 B7) has now inserted the flush + `geometryApplied`
- * report into this path; everything the claims pin is unchanged around it, and
- * T2 below is the new ordering guarantee.
+ * The daemon-side facts the terminal-sizing plan (POD-3190) relies on. C7 —
+ * a pre-bridge resize held and applied at wireBridge — pinned a design that
+ * design rev 3 deleted (POD-4723: an ask with no terminal is dropped, and the
+ * size is the host's own statement); its replacement lives in
+ * `session-geometry.test.ts`. C8, how long the output scheduler may hold
+ * bytes, still stands.
  */
 
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
-import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'
-import type { DaemonContext } from './context'
-import { sessionHandlers, wireBridge } from './session'
-import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('s-sizing')
-
-function fakeSession(): DurableAttachment & { resizes: Array<[number, number]>; redraws: number } {
-  const resizes: Array<[number, number]> = []
-  const self = {
-    resizes,
-    redraws: 0,
-    pid: 4321,
-    onFrame: () => () => {},
-    onTitle: () => () => {},
-    onExit: () => () => {},
-    write: () => {},
-    writeBytes: () => {},
-    resize: (cols: number, rows: number) => {
-      resizes.push([cols, rows])
-    },
-    redraw: () => {
-      self.redraws += 1
-    },
-    geometry: () => ({ cols: 80, rows: 24 }),
-    dispose: () => {},
-  }
-  return self as unknown as DurableAttachment & { resizes: Array<[number, number]>; redraws: number }
-}
-
-function daemonContext(over: Partial<DaemonContext> = {}): DaemonContext {
-  return {
-    backend: 'none',
-    settingsDir: join(tmpdir(), 'podium-sizing-claims'),
-    sessions: testSessions(),
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
-    outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
-    observers: { clearSession: () => {} },
-    sessionCwdTracker: { clear: () => {} },
-    primeInjector: { reset: () => {} },
-    send: () => {},
-    ...over,
-  } as unknown as DaemonContext
-}
-
-// ---------------------------------------------------------------------------
-// C7
-// ---------------------------------------------------------------------------
-
-describe('C7: a pre-bridge resize is held (last-wins) and applied by wireBridge, which returns the effective geometry', () => {
-  it('holds, last-wins, applies at bind, and reports the applied grid — not the spawn grid', () => {
-    const ctx = daemonContext()
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 100, rows: 40 })
-    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 100, rows: 40 })
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 132, rows: 43 })
-    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 132, rows: 43 }) // last wins
-
-    const session = fakeSession()
-    const geometry = wireBridge(ctx, SESSION, session, 'codex', 'podium-s-sizing', {
-      cols: 80,
-      rows: 24,
-    })
-
-    expect(session.resizes).toEqual([[132, 43]])
-    expect(geometry).toEqual({ cols: 132, rows: 43 })
-    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
-  })
-
-  it('with no pending resize, wireBridge reports the geometry it was given', () => {
-    const ctx = daemonContext()
-    const session = fakeSession()
-    expect(
-      wireBridge(ctx, SESSION, session, 'codex', 'podium-s-sizing', { cols: 80, rows: 24 }),
-    ).toEqual({ cols: 80, rows: 24 })
-    expect(session.resizes).toEqual([])
-  })
-
-  it('CORRECTION to the claim: a clientTerminals session takes the resize INSTEAD of pendingResizes', () => {
-    // SPEC-0b C14 states the pre-bridge path as "held in pendingResizes". The
-    // real branch tries the driver-owned client terminals first and only holds
-    // the request when that returns false — a session driven by
-    // e.g. opencode-server never reaches pendingResizes at all.
-    const taken: Array<[number, number]> = []
-    const ctx = daemonContext({
-      clientTerminals: {
-        resize: (_id: SessionId, cols: number, rows: number) => {
-          taken.push([cols, rows])
-          return true
-        },
-      },
-    } as unknown as Partial<DaemonContext>)
-
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 132, rows: 43 })
-
-    expect(taken).toEqual([[132, 43]])
-    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
-  })
-
-  it('bridge.resize() returns nothing — the daemon learns no applied geometry from it', () => {
-    const ctx = daemonContext()
-    const session = fakeSession()
-    wireBridge(ctx, SESSION, session, 'codex', 'podium-s-sizing', { cols: 80, rows: 24 })
-
-    // The handler cannot report an applied grid because the seam has no return
-    // value; SPEC-1 B7 has to emit `geometryApplied` itself for that reason.
-    expect(session.resize(132, 43)).toBeUndefined()
-    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 120, rows: 40 })
-    expect(session.resizes).toEqual([
-      [132, 43],
-      [120, 40],
-    ])
-  })
-})
 
 // ---------------------------------------------------------------------------
 // C8

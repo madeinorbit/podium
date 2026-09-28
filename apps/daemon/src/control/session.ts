@@ -2753,6 +2753,10 @@ export const sessionHandlers: Pick<
     const owned = ctx.sessions.get(msg.sessionId)
     const terminal = owned?.terminal?.live ? owned.terminal : undefined
     if (msg.hard && terminal) terminal.write(CTRL_L)
+    // A page with no server replay, for a native client TUI that is not open
+    // yet: owe it the host ring, which the client's start path replays once it
+    // is subscribed (`opencode-attach.ts`). Still the ring, never the program.
+    if (msg.replayRequired && !terminal && owned?.client) owned.client.replayRequired = true
     const screen = sessionScreenFor(ctx, msg.sessionId)?.screen
     const decision = decideReopenScreen({
       mode: screen?.mode ?? 'normal',

@@ -17,8 +17,13 @@
  *
  * WHAT CHANGED AT STAGE 4 (POD-3276): last-known no longer reaches the attach as
  * a `cols`/`rows` it could apply — only as `fallbackGeometry`, read on the one
- * path where there is no `-N` abduco build and the attach announces a size after
- * all. That path applies a size, so it is the one reattach whose bind reports one.
+ * path where there is no `-N` abduco build.
+ *
+ * WHAT CHANGED WITH POD-4723 (design rev 3): the bind carries the CONNECTION's
+ * size — what the host's WELCOME read back from the kernel — and nothing else;
+ * abduco cannot read its size back, so its bind is bare even after a downgrade.
+ * There is no held resize to dispatch at bind, and the reattach never nudges
+ * the program: no redraw, no resize, no Ctrl-L.
  */
 
 import { tmpdir } from 'node:os'
@@ -34,29 +39,28 @@ const SESSION = asSessionId('s-sizing-reattach')
 
 const stub = vi.hoisted(() => {
   const state = {
-    redraws: 0,
+    /** Bytes written to the program: a repaint nudge would show up here. */
+    writes: 0,
     resizes: [] as Array<[number, number]>,
     attachedAt: [] as unknown[],
-    /** Set to simulate an attach that DOWNGRADED and announced a size after all. */
-    appliedGeometry: undefined as { cols: number; rows: number } | undefined,
+    /** Set to stand in for a backend that reads the kernel size back (the host). */
+    size: undefined as { cols: number; rows: number } | undefined,
   }
   const session = {
-    get appliedGeometry() {
-      return state.appliedGeometry
-    },
     pid: 4321,
     onFrame: () => () => {},
     onTitle: () => () => {},
     onExit: () => () => {},
-    write: () => {},
-    writeBytes: () => {},
+    write: () => {
+      state.writes += 1
+    },
+    writeBytes: () => {
+      state.writes += 1
+    },
     resize: (cols: number, rows: number) => {
       state.resizes.push([cols, rows])
     },
-    redraw: () => {
-      state.redraws += 1
-    },
-    geometry: () => ({ cols: 80, rows: 24 }),
+    size: () => state.size,
     dispose: () => {},
   }
   return { state, session }
@@ -90,10 +94,9 @@ vi.mock('@podium/process/durable', async (importOriginal) => {
 // imports. Stubbing the door alone leaves the real locate() probing the real
 // filesystem, finding nothing at the fake socket path and failing the reattach
 // (POD-4008). The same leaf stubs here let locate() hit the stubbed socket
-// path, the real adapter then adds sizeNeutral/fallbackGeometry itself on its
-// way down to the stubbed attachAbducoAgent, and redrawOnReattach stays the
-// adapter's own `true` — which is why the stub lives at the LEAF, not at
-// adapter.attach.
+// path, and the real adapter then adds sizeNeutral/fallbackGeometry itself on
+// its way down to the stubbed attachAbducoAgent — which is why the stub lives
+// at the LEAF, not at adapter.attach.
 vi.mock('@podium/process/abduco', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/process/durable')>()
   return {
@@ -119,10 +122,10 @@ type BindFrame = { type: 'bind'; geometry?: { cols: number; rows: number } }
 
 /** The module-scope stub is shared across tests; each one starts from zero. */
 function reset(): void {
-  stub.state.redraws = 0
+  stub.state.writes = 0
   stub.state.resizes.length = 0
   stub.state.attachedAt.length = 0
-  stub.state.appliedGeometry = undefined
+  stub.state.size = undefined
 }
 
 function reattachMessage() {
@@ -183,8 +186,8 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
   return ctx
 }
 
-describe('C16: the daemon nudges the reattached session once more after bind', () => {
-  it('binds with NO geometry, then calls redraw() on the attached session', async () => {
+describe('C16 (rev 3): a reattach binds the connection size and never touches the program', () => {
+  it('binds BARE on a backend that cannot read its size back, and never nudges', async () => {
     reset()
     const sent: Array<{ type: string; resizesBefore: number }> = []
     const ctx = ctxFor(sent)
@@ -196,23 +199,14 @@ describe('C16: the daemon nudges the reattached session once more after bind', (
 
     const bind = sent.find((m) => m.type === 'bind') as BindFrame | undefined
     expect(bind).toBeDefined()
-    // THE WHOLE POINT (POD-3279). This attach applied no size to anything, so the
-    // bind states nothing about the grid. `toHaveProperty` rather than a
-    // `toBeUndefined` on the value: the field must be ABSENT from the frame, not
-    // present and empty — an explicit `geometry: undefined` would encode to the
-    // same bytes here but would be a different statement in the type.
+    // `toHaveProperty` rather than a `toBeUndefined` on the value: the field
+    // must be ABSENT from the frame, not present and empty.
     expect(bind).not.toHaveProperty('geometry')
-    // And nothing was resized on the way: the daemon held no pending resize, so
-    // there was nothing to apply and nothing to report.
+    // Nothing reached the program: no resize, no redraw nudge, no Ctrl-L.
     expect(stub.state.resizes).toEqual([])
-
-    // attachAbducoAgent's own repaintOnAttach fires before the bridge is wired,
-    // so that first nudge can be lost — hence exactly one more, here, after bind.
-    expect(stub.state.redraws).toBe(1)
-    // The attach is SIZE-NEUTRAL (stage 2), which is exactly why the bind above
-    // can report nothing. Last-known reaches it only as `fallbackGeometry`, read
-    // on no path but the `-N`-less downgrade — it is NOT a `cols`/`rows` the
-    // attach could apply (stage 4, POD-3276).
+    expect(stub.state.writes).toBe(0)
+    // The attach is SIZE-NEUTRAL: last-known reaches it only as
+    // `fallbackGeometry`, never as a `cols`/`rows` it could apply.
     expect(stub.state.attachedAt).toHaveLength(1)
     expect(stub.state.attachedAt[0]).toMatchObject({
       sizeNeutral: true,
@@ -222,49 +216,33 @@ describe('C16: the daemon nudges the reattached session once more after bind', (
     expect(stub.state.attachedAt[0]).not.toHaveProperty('rows')
   })
 
-  it('reports the size a DOWNGRADED attach announced, on a host with no -N build', async () => {
+  it('binds the size the connection read back, and reports it once as the size event', async () => {
     reset()
-    // Standing in for `resolveAttachBin` finding no podium abduco: the attach
-    // falls back to one that DOES announce a size, applies `fallbackGeometry`,
-    // and says so. That is a size the daemon applied, so rule 1 rev 4 lets the
-    // bind report it — the one case where a reattach bind is not bare.
-    stub.state.appliedGeometry = { cols: 132, rows: 43 }
-    const sent: Array<{ type: string; resizesBefore: number }> = []
+    stub.state.size = { cols: 120, rows: 37 }
+    const sent: Array<{ type: string; resizesBefore: number; geometry?: unknown }> = []
     const ctx = ctxFor(sent)
 
     await sessionHandlers.reattach(ctx, reattachMessage())
     await new Promise((r) => setTimeout(r, 0))
 
     const bind = sent.find((m) => m.type === 'bind') as BindFrame | undefined
-    expect(bind?.geometry).toEqual({ cols: 132, rows: 43 })
-    // ARMED: with no downgrade the same path reports nothing (the test above).
+    // The kernel's size — never the server's last-known (132x43) handed back.
+    expect(bind?.geometry).toEqual({ cols: 120, rows: 37 })
+    expect(sent.filter((m) => m.type === 'geometryApplied')).toHaveLength(1)
     expect(stub.state.resizes).toEqual([])
   })
 
-  it('binds at a HELD resize, dispatched to the pty before the bind goes out', async () => {
+  it('an ask that arrived before the reattach was dropped: nothing is dispatched at bind', async () => {
     reset()
     const sent: Array<{ type: string; resizesBefore: number }> = []
     const ctx = ctxFor(sent)
-    // A viewer asked for a size while this session had no bridge — the daemon
-    // parked it. Binding is where it gets applied, so binding is where the daemon
-    // has something true to report.
-    ctx.sessions.ensure(SESSION).pendingResize = { cols: 200, rows: 60 }
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 200, rows: 60 })
 
     await sessionHandlers.reattach(ctx, reattachMessage())
     await new Promise((r) => setTimeout(r, 0))
 
-    const bind = sent.find((m) => m.type === 'bind') as
-      | (BindFrame & { resizesBefore: number })
-      | undefined
-    expect(bind).toBeDefined()
-    expect(bind?.geometry).toEqual({ cols: 200, rows: 60 })
-    // Reported because APPLIED, and applied FIRST: the pty took the resize before
-    // the server was told about it, so the report can never describe a size the
-    // child has not been given.
-    expect(stub.state.resizes).toEqual([[200, 60]])
-    expect(bind?.resizesBefore).toBe(1)
-    // The held resize is consumed, not left to fire again on the next bind.
-    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
+    expect(sent.some((m) => m.type === 'bind')).toBe(true)
+    expect(stub.state.resizes).toEqual([])
   })
 })
 
@@ -281,10 +259,10 @@ describe('terminal recovery ownership', () => {
     expect(sent.find((m) => m.type === 'bind')).toMatchObject({
       driverId: 'generic-pty',
     })
-    expect(stub.state.redraws).toBe(1)
+    expect(stub.state.writes).toBe(0)
   })
 
-  it('reuses a surviving bridge and forwards the observation checkpoint before redraw', async () => {
+  it('reuses a surviving bridge, forwards the observation checkpoint, and does not redraw', async () => {
     reset()
     const sent: Array<{ type: string; resizesBefore: number }> = []
     const ctx = ctxFor(sent)
@@ -302,7 +280,9 @@ describe('terminal recovery ownership', () => {
     await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
     expect(init).toHaveBeenCalledWith(msg, stub.session, expect.anything(), { seedOnFrame: false })
     expect(stub.state.attachedAt).toHaveLength(0)
-    expect(stub.state.redraws).toBe(1)
+    // No link-B redraw (POD-4723): nothing reaches the surviving program.
+    expect(stub.state.writes).toBe(0)
+    expect(stub.state.resizes).toEqual([])
     expect((await ctx.agentRuntime!.handleFor(SESSION)!.snapshot()).observerGeneration).toBe(8)
   })
 
@@ -319,7 +299,7 @@ describe('terminal recovery ownership', () => {
     // Shells bind driverless by structure: no driverId on the frame, and the
     // agent runtime was never consulted (it is undefined here by construction).
     expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('driverId')
-    expect(stub.state.redraws).toBe(1)
+    expect(stub.state.resizes).toEqual([])
   })
 
   it('refuses a reattach for a kind with no manifest instead of binding it driverless', async () => {
@@ -349,7 +329,7 @@ describe('terminal recovery ownership', () => {
       await vi.waitFor(() => expect(sent.some((m) => m.type === 'reattachFailed')).toBe(true))
       expect(sent.some((m) => m.type === 'bind')).toBe(false)
       expect(ctx.agentRuntime?.handleFor(SESSION)).toBeUndefined()
-      expect(stub.state.redraws).toBe(0)
+      expect(stub.state.writes).toBe(0)
     }
   })
 })

@@ -24,11 +24,9 @@ import {
 import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifestFor } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
 import { createDurable, scopeUnitName } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AppliedGeometryRecord } from '../control/applied-geometry'
 import type { DaemonContext } from '../control/context'
 import { rememberDurableSeq } from '../control/session'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
@@ -78,29 +76,32 @@ const target = {
   workdir: '/home/agent/work',
 } as const
 
-/** A stand-in for the abduco client PTY: records what was wired to it. */
+/**
+ * A stand-in for the client PTY: records what was wired to it. `size` stands in
+ * for the host's WELCOME (the kernel size it read back); absent, the backend
+ * cannot say (abduco). `replayFrame` is what the host ring hands back on a
+ * replay — the only repaint a client ever gets from the daemon (POD-4723).
+ */
 function fakeClient(
-  redrawFrame?: string,
+  replayFrame?: string,
   subscribeFrame?: string,
-  attachReady = true,
+  size?: { cols: number; rows: number },
 ): DurableAttachment & {
   emit(data: string): void
   disposed: boolean
   writes: string[]
   sizes: { cols: number; rows: number }[]
-  redraws: number
-  markAttachReady(): void
+  replays: number
 } {
   const frameCbs: ((f: AgentFrame) => void)[] = []
   let seq = 0
-  let pendingReadyRedraw = false
 
   const client = {
     pid: 4242,
     disposed: false,
     writes: [] as string[],
     sizes: [] as { cols: number; rows: number }[],
-    redraws: 0,
+    replays: 0,
     onFrame(cb: (f: AgentFrame) => void) {
       frameCbs.push(cb)
       if (subscribeFrame) client.emit(subscribeFrame)
@@ -121,20 +122,10 @@ function fakeClient(
     resize(cols: number, rows: number) {
       client.sizes.push({ cols, rows })
     },
-    redraw() {
-      client.redraws += 1
-      if (redrawFrame) client.emit(redrawFrame)
-    },
-    geometry: () => ({ cols: 120, rows: 40 }),
-    redrawWhenReady() {
-      if (attachReady) client.redraw()
-      else pendingReadyRedraw = true
-    },
-    markAttachReady() {
-      attachReady = true
-      if (!pendingReadyRedraw) return
-      pendingReadyRedraw = false
-      client.redraw()
+    ...(size ? { size: () => ({ ...size }), onSize: () => () => {} } : {}),
+    async replay(_tailBytes: number) {
+      client.replays += 1
+      if (replayFrame) client.emit(replayFrame)
     },
     dispose() {
       client.disposed = true
@@ -156,10 +147,11 @@ interface HarnessOptions {
   adopted?: boolean
   /**
    * What the adopted session's backend reports as its live size — the host's
-   * WELCOME frame on a real host attach. Absent (the abduco case) the size is
-   * unknowable and nothing is recorded.
+   * WELCOME frame on a real host attach.
    */
   adoptedGeometry?: { cols: number; rows: number }
+  /** The client's backend cannot read its size back (abduco): no WELCOME. */
+  unsized?: boolean
   /**
    * The client terminal's host connection resume point, when the backend has
    * one. A live object the test holds: mutating `lastSeq` moves the point the
@@ -170,16 +162,15 @@ interface HarnessOptions {
   /** Where the daemon keeps the resume point — wired to the real
    *  `rememberDurableSeq` exactly as `host-runtime.ts` wires it. */
   rememberDurableSeq?: (sessionId: SessionId, session: DurableAttachment) => void
-  redrawFrame?: string
+  replayFrame?: string
   subscribeFrame?: string
   /** Browser/replay history already owned by a master that survived the daemon. */
   priorFrames?: { streamId: string; data: Uint8Array }[]
   spawnError?: Error
-  /** The daemon's applied-size record (POD-3290), when a test cares what this
-   *  attach wrote into it. */
-  appliedGeometry?: AppliedGeometryRecord
+  /** The daemon's size event (POD-4723), when a test cares what was stated. */
+  sizeEvent?: (sessionId: SessionId, size: { cols: number; rows: number }) => void
   /** The daemon's answer to "what size should this session's client open at?"
-   *  (POD-3809) — the held viewport request, else the last applied grid. */
+   *  (POD-3809) — the session's last-known size. */
   birthGeometry?: (sessionId: SessionId) => { cols: number; rows: number } | undefined
   /** The session registry the facade writes. Defaults to a fresh one. */
   sessions?: SessionRegistry
@@ -226,7 +217,14 @@ function harness(opts: HarnessOptions = {}) {
         ...(o.stripEnv ? { stripEnv: o.stripEnv } : {}),
       })
       if (opts.spawnError) throw opts.spawnError
-      const client = fakeClient(opts.redrawFrame, opts.subscribeFrame)
+      // The host's WELCOME: the adopted master's own size, or the size it was
+      // just created at.
+      const welcome = opts.unsized
+        ? undefined
+        : opts.adopted
+          ? opts.adoptedGeometry
+          : { cols: o.cols ?? 0, rows: o.rows ?? 0 }
+      const client = fakeClient(opts.replayFrame, opts.subscribeFrame, welcome)
       state.clients.push(client)
       const withConnection = opts.connectionSeq ? { connection: opts.connectionSeq } : {}
       return opts.adopted
@@ -234,7 +232,6 @@ function harness(opts: HarnessOptions = {}) {
             ...client,
             adopted: true,
             ...withConnection,
-            ...(opts.adoptedGeometry ? { appliedGeometry: { ...opts.adoptedGeometry } } : {}),
           }
         : { ...client, ...withConnection }
     },
@@ -246,7 +243,7 @@ function harness(opts: HarnessOptions = {}) {
   const terminals = createOpencodeClientTerminals({
     sessions,
     clients,
-    ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
+    ...(opts.sizeEvent ? { sizeEvent: opts.sizeEvent } : {}),
     ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
     ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
@@ -465,7 +462,9 @@ describe('the client terminal a server-family attach produces', () => {
     const initialPaint = '\x1b[2Jopencode ready'
     const priorHistory = 'older scrollback'
     const { terminals, state } = harness({
-      redrawFrame: initialPaint,
+      // A fresh TUI paints itself as soon as it runs; an adopted one has
+      // nothing new to say until something happens.
+      ...(adopted ? {} : { subscribeFrame: initialPaint }),
       // `hasMaster` seeds `adopt()`, which holds no session and must still probe
       // by label. `adopted` is what the spawn reports, and it is what the reset
       // is decided on.
@@ -502,9 +501,9 @@ describe('the client terminal a server-family attach produces', () => {
       expect(decoded.at(-1)).toBe(initialPaint)
     }
     expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
-    // Mutation tooth: an unconditional attach-time redraw appends the TUI's
-    // viewport-clearing repaint and destroys the surviving Native content.
-    expect(state.clients[0]?.redraws).toBe(adopted ? 0 : 1)
+    // Mutation tooth: an unconditional attach-time replay appends bytes the
+    // server log already holds and duplicates the surviving Native content.
+    expect(state.clients[0]?.replays).toBe(0)
   })
 
   /**
@@ -517,49 +516,46 @@ describe('the client terminal a server-family attach produces', () => {
    * written while the fixture drove the same port the discriminator read: the
    * fake was always self-consistent, so the divergence had nowhere to appear.
    */
-  it('acknowledges one browser replay redraw after daemon adoption without repainting', async () => {
+  it('an adoption touches nothing: no replay, no write, no resize (POD-4723)', async () => {
     const priorHistory = 'older scrollback'
     const { terminals, state } = harness({
-      redrawFrame: '\x1b[2Jcodex ready',
+      replayFrame: '\x1b[2Jcodex ready',
       hasMaster: () => true,
       adopted: true,
+      adoptedGeometry: { cols: 137, rows: 43 },
       priorFrames: [{ streamId: SESSION, data: Buffer.from(priorHistory, 'latin1') }],
     })
 
     terminals.adopt(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
-    // SessionTerminal performs this nudge after replaying retained bytes to a
-    // newly attached browser. Adoption must ACK it without a TUI repaint.
-    expect(terminals.redraw(SESSION)).toBe(true)
-    expect(state.clients[0]?.redraws).toBe(0)
-
+    expect(state.clients[0]?.replays).toBe(0)
+    expect(state.clients[0]?.writes).toEqual([])
+    expect(state.clients[0]?.sizes).toEqual([])
     const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
-    expect(decoded.filter((data) => data.includes('\x1b[3J'))).toEqual([])
     expect(decoded).toEqual(['older scrollback'])
-
-    // Deleting the fence fails above; leaving it armed forever fails this later
-    // explicit redraw.
-    expect(terminals.redraw(SESSION)).toBe(true)
-    expect(state.clients[0]?.redraws).toBe(1)
   })
 
-  it('repaints an adopted client when a new page has no server replay', async () => {
+  it('replays the host ring for an adopted client whose page has no server replay', async () => {
     const recovered = '\x1b[2Jseed marker from surviving TUI'
-    const { terminals, state } = harness({
-      redrawFrame: recovered,
+    const { terminals, state, sessions } = harness({
+      replayFrame: recovered,
       hasMaster: () => true,
       adopted: true,
     })
 
     terminals.adopt(SESSION)
-    // Mutation tooth: the current adoption fence consumes this request and the
-    // fresh page remains blank. The request may precede RuntimeDriver.attach,
-    // so the obligation must also survive creation of the adopted client handle.
-    expect(terminals.redraw(SESSION, true)).toBe(true)
+    // The daemon's redraw handler owes the page a replay (it arrived with
+    // `replayRequired` before the client existed) — see `sessionHandlers.redraw`.
+    const policy = sessions.get(SESSION)?.client
+    expect(policy).toBeDefined()
+    if (policy) policy.replayRequired = true
     expect(state.clients).toHaveLength(0)
 
     await terminals.attach({ sessionId: SESSION, target })
-    expect(state.clients[0]?.redraws).toBe(1)
+    // The ring, never the program: no write, no resize.
+    expect(state.clients[0]?.replays).toBe(1)
+    expect(state.clients[0]?.writes).toEqual([])
+    expect(state.clients[0]?.sizes).toEqual([])
     expect(state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))).toEqual([
       recovered,
     ])
@@ -569,7 +565,7 @@ describe('the client terminal a server-family attach produces', () => {
     const priorHistory = 'exact pre-park Native marker'
     const replacementPaint = '\x1b[2Jreplacement opencode ready'
     const { terminals, state } = harness({
-      redrawFrame: replacementPaint,
+      subscribeFrame: replacementPaint,
       hasMaster: () => true,
       adopted: false,
     })
@@ -613,7 +609,7 @@ describe('the client terminal a server-family attach produces', () => {
     // generation with no anchor, painting its whole interface below the last
     // one — the duplicated-interface report this issue was opened for.
     const { terminals, state } = harness({
-      redrawFrame: '\x1b[2Jcodex ready',
+      subscribeFrame: '\x1b[2Jcodex ready',
       hasMaster: () => true,
       adopted: false,
     })
@@ -625,15 +621,14 @@ describe('the client terminal a server-family attach produces', () => {
     expect(decoded[0]).toContain('\x1b[3J')
   })
 
-  it('routes browser input, geometry, and redraw back to the attached TUI', async () => {
-    const { terminals, state } = harness()
+  it('routes browser input to the attached TUI, and the ask through its Terminal', async () => {
+    const { terminals, state, sessions } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(true)
-    expect(terminals.resize(SESSION, 101, 37)).toBe(true)
-    expect(terminals.redraw(SESSION)).toBe(true)
+    // The daemon's resize handler asks the session's one Terminal (POD-4723).
+    void sessions.get(SESSION)?.terminal?.resize(101, 37)
     expect(state.clients[0]?.writes).toEqual(['hello'])
     expect(state.clients[0]?.sizes).toEqual([{ cols: 101, rows: 37 }])
-    expect(state.clients[0]?.redraws).toBe(2)
     expect(terminals.input(asSessionId('not-attached'), Buffer.from('x'))).toBe(false)
   })
 
@@ -1018,18 +1013,17 @@ describe('warm-parking', () => {
   })
 
   it('leaves a parked client with no writer at all, which is the lease obligation', async () => {
-    const { terminals } = harness()
+    const { terminals, sessions } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.release(SESSION)
 
-    // Not "refuses to type": there is nothing to type into. Same answer for the
-    // other two directions, so nothing can drive a parked TUI.
+    // Not "refuses to type": there is nothing to type into, and no Terminal for
+    // an ask to reach, so nothing can drive a parked TUI.
     expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(false)
-    expect(terminals.resize(SESSION, 101, 37)).toBe(false)
-    expect(terminals.redraw(SESSION)).toBe(false)
+    expect(sessions.get(SESSION)?.terminal).toBeUndefined()
   })
 
-  it('repaints the same generation after Chat activity escaped the parked relay', async () => {
+  it('replays the same generation after Chat activity escaped the parked relay', async () => {
     // The second spawn adopts, because the park left the master running. An
     // adopted generation must not be reset: `[3J` would delete the surviving
     // TUI's history from the browser and the replay log both.
@@ -1044,8 +1038,6 @@ describe('warm-parking', () => {
           spawns.push(o.label)
           const client = fakeClient(
             spawns.length === 1 ? undefined : '\x1b[2Jseed marker learned while parked',
-            undefined,
-            spawns.length === 1,
           )
           clients.push(client)
           // A park leaves the master holding the label, so the NEXT spawn finds it.
@@ -1060,9 +1052,10 @@ describe('warm-parking', () => {
     await terminals.release(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
     // Mutation tooth: treating every adoption as fully represented by server
-    // replay suppresses this redraw and loses provider output produced in Chat.
-    expect(clients[1]?.redraws).toBe(0)
-    clients[1]?.markAttachReady()
+    // replay skips this ring replay and loses provider output produced in Chat.
+    // The ring, never the program: nothing was written to the TUI.
+    expect(clients[1]?.replays).toBe(1)
+    await new Promise((r) => setTimeout(r, 0))
 
     expect(frames.some((frame) => Buffer.from(frame.data).includes('seed marker'))).toBe(true)
 
@@ -1671,123 +1664,66 @@ describe('the session’s lifecycle owns its attachment', () => {
 })
 
 /**
- * THE ONE APPLY SITE OUTSIDE `control/session.ts` (POD-3290).
- *
- * Opening a client terminal is the daemon really putting a session at a size,
- * and nothing outside this module can see it happen — so this is where that
- * fact enters the applied-size record every daemon size report reads from.
+ * A CLIENT TERMINAL STATES ITS SIZE THROUGH ITS HOST (POD-3809, rewritten by
+ * POD-4723). The host's WELCOME — the kernel size, read back — goes to the
+ * daemon's size event, which reports it. Nothing is recorded or reported from
+ * the size the client was ASKED to open at, and a backend that cannot read its
+ * size back states nothing.
  */
-describe('opening a client terminal is what records an applied size', () => {
-  it('records the size it OPENED the client at', async () => {
-    const appliedGeometry = new AppliedGeometryRecord({ send: () => {} })
-    const { terminals } = harness({ appliedGeometry })
-    // ARMED: nothing is recorded until the attach actually spawns.
-    expect(appliedGeometry.applied(SESSION)).toBeUndefined()
+describe('a client terminal states its size through the size event', () => {
+  function stated(): {
+    sizes: Array<{ cols: number; rows: number }>
+    sizeEvent: (sessionId: SessionId, size: { cols: number; rows: number }) => void
+  } {
+    const sizes: Array<{ cols: number; rows: number }> = []
+    return { sizes, sizeEvent: (_id, size) => sizes.push({ ...size }) }
+  }
 
-    await terminals.attach({ sessionId: SESSION, target })
-
-    // `DEFAULT_GEOMETRY` — the readable birth size a client is created at. It is
-    // in the record because it was APPLIED, which is what separates it from the
-    // identical-looking 120x40 the server-family binds used to invent.
-    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 120, rows: 40 })
-  })
-
-  it('is BORN at the size the daemon answers with, not at the default', async () => {
-    // The viewer's ask reached a session with no terminal, so the daemon is
-    // holding it. Opening the client at 120x40 and resizing a beat later is
-    // exactly the "small top-left quadrant for a couple of seconds" this issue
-    // is about (POD-3809): the first frame is the wrong size by construction.
-    const sent: DaemonMessage[] = []
-    const appliedGeometry = new AppliedGeometryRecord({ send: (msg) => sent.push(msg) })
-    const { terminals, state } = harness({
-      appliedGeometry,
-      birthGeometry: () => ({ cols: 203, rows: 51 }),
-    })
+  it('is BORN at the size the daemon answers with, and states it once', async () => {
+    const { sizes, sizeEvent } = stated()
+    const { terminals, state } = harness({ sizeEvent, birthGeometry: () => ({ cols: 203, rows: 51 }) })
+    // ARMED: nothing is stated until the attach actually spawns.
+    expect(sizes).toEqual([])
 
     await terminals.attach({ sessionId: SESSION, target })
 
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
     expect({ cols: spawn.cols, rows: spawn.rows }).toEqual({ cols: 203, rows: 51 })
-    // And the size it was born at is REPORTED, which is the half that was
-    // missing: the record and the wire say the same thing, in one operation.
-    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 203, rows: 51 })
-    expect(sent).toEqual([
-      {
-        type: 'geometryApplied',
-        sessionId: SESSION,
-        geometry: { cols: 203, rows: 51 },
-        cause: 'request',
-      },
-    ])
+    expect(sizes).toEqual([{ cols: 203, rows: 51 }])
   })
 
-  it('reports the LAST-RESORT default too, when the daemon knows no size', async () => {
-    // The case most likely to be forgotten, and the one the old code got wrong:
-    // a birth at `DEFAULT_GEOMETRY` is still the daemon putting the session at a
-    // grid, so it is still a report.
-    const sent: DaemonMessage[] = []
-    const appliedGeometry = new AppliedGeometryRecord({ send: (msg) => sent.push(msg) })
-    const { terminals, state } = harness({ appliedGeometry, birthGeometry: () => undefined })
+  it('falls back to the default birth size when the daemon knows none, and states that', async () => {
+    const { sizes, sizeEvent } = stated()
+    const { terminals, state } = harness({ sizeEvent, birthGeometry: () => undefined })
 
     await terminals.attach({ sessionId: SESSION, target })
 
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
     expect({ cols: spawn.cols, rows: spawn.rows }).toEqual({ cols: 120, rows: 40 })
-    expect(sent).toMatchObject([{ type: 'geometryApplied', geometry: { cols: 120, rows: 40 } }])
+    expect(sizes).toEqual([{ cols: 120, rows: 40 }])
   })
 
-  it('records NOTHING when it adopted a master that was already running', async () => {
-    const appliedGeometry = new AppliedGeometryRecord({ send: () => {} })
-    const { terminals } = harness({ appliedGeometry, adopted: true })
-
-    await terminals.attach({ sessionId: SESSION, target })
-
-    // An adopted master survived this daemon at a size of its own. Recording the
-    // birth geometry here would invent a size for a terminal nobody sized.
-    expect(appliedGeometry.applied(SESSION)).toBeUndefined()
-  })
-
-  /**
-   * AUDIT ITEM 5 (POD-3914): an adopted client terminal reports its real size.
-   *
-   * The guard above was written for abduco, where a surviving master's size is
-   * unknowable. On the host it is knowable — the WELCOME frame carries the
-   * kernel's size for the running program — so a daemon restart no longer
-   * leaves the session's W stale until the first ask.
-   */
-  it('audit item 5: an adopted host terminal reports its WELCOME size', async () => {
-    const sent: DaemonMessage[] = []
-    const appliedGeometry = new AppliedGeometryRecord({ send: (msg) => sent.push(msg) })
+  it('an adopted host terminal states its WELCOME size, not the birth size', async () => {
+    const { sizes, sizeEvent } = stated()
     const { terminals } = harness({
-      appliedGeometry,
+      sizeEvent,
       adopted: true,
       adoptedGeometry: { cols: 137, rows: 43 },
+      birthGeometry: () => ({ cols: 203, rows: 51 }),
     })
 
     await terminals.attach({ sessionId: SESSION, target })
 
-    // Recorded AND reported: the server's W becomes current from this frame,
-    // with no dispatch — the terminal is already at this size.
-    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 137, rows: 43 })
-    expect(sent).toEqual([
-      {
-        type: 'geometryApplied',
-        sessionId: SESSION,
-        geometry: { cols: 137, rows: 43 },
-        cause: 'request',
-      },
-    ])
+    expect(sizes).toEqual([{ cols: 137, rows: 43 }])
   })
 
-  it('forgets the size when the terminal it belonged to is closed', async () => {
-    const appliedGeometry = new AppliedGeometryRecord({ send: () => {} })
-    const { terminals } = harness({ appliedGeometry })
+  it('a backend that cannot read its size back states nothing', async () => {
+    const { sizes, sizeEvent } = stated()
+    const { terminals } = harness({ sizeEvent, unsized: true })
+
     await terminals.attach({ sessionId: SESSION, target })
-    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 120, rows: 40 })
 
-    await terminals.close(SESSION)
-
-    expect(appliedGeometry.applied(SESSION)).toBeUndefined()
+    expect(sizes).toEqual([])
   })
 })
 
