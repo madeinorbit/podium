@@ -58,6 +58,8 @@ export * from './entities/repo'
 // everything that is a fact ABOUT a machine inherits that machine's scoping
 // (docs/multi-user-readiness.md §3.1.1/§3.1.4) — see the file header.
 export * from './entities/machine'
+// The message delivery lifecycle, declared as a forward-only machine (POD-4765).
+export * from './entities/message-delivery'
 export * from './entities/session'
 export * from './entities/transcript'
 // Folding quota SAMPLES into window INSTANCES. Lives beside the wires because
@@ -66,6 +68,8 @@ export * from './entities/transcript'
 // same window?", and the whole ledger rests on that answer.
 export * from './quota-history-fold'
 export * from './shipping'
+// The declared state-machine helper every persisted lifecycle builds on (POD-4765).
+export * from './state-machine'
 export * from './shipwright'
 // The wire-INPUT aliases: the unbranded side of the branded-id boundary, so a
 // producer of plain strings has a name for where it stands (POD-361; POD-362 /

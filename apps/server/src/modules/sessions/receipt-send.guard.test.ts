@@ -250,7 +250,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
         text: 'describe it',
         attachments: [attachment],
       }),
-    ).toEqual({ ok: true })
+    ).toEqual({ ok: true, receiptPending: true })
     expect(live.forwardedAttachments).toEqual([[attachment]])
 
     const receipts: string[] = []
@@ -439,9 +439,10 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
 
   it('forwards only the live deliveries, and only those', async () => {
     const { s, forwarded, enqueued } = sender(true)
-    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'a' })).toEqual({ ok: true })
+    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'a' })).toEqual({ ok: true, receiptPending: true })
     expect(await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })).toEqual({
       ok: true,
+      receiptPending: true,
     })
 
     expect(forwarded).toEqual(['when-ready', 'interrupt'])
@@ -502,6 +503,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // No reconciler: must not throw, and must not leave a rejection unobserved.
     expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({
       ok: true,
+      receiptPending: true,
     })
 
     await s.send('now', { sessionId: asSessionId('s1'), text: 'watched' }, (receipt) => {

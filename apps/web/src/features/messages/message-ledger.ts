@@ -1,5 +1,10 @@
-import type { ThreadId } from '@podium/model'
-import { deadLetterDeliveryLine } from '@podium/model'
+import {
+  deadLetterDeliveryLine,
+  isMessageOnItsWay,
+  isMessagePending,
+  type MessageDeliveryStatus,
+  type ThreadId,
+} from '@podium/model'
 /**
  * Message-ledger view model (#237) [spec:SP-34d7 web]: pure helpers over the
  * `messages.ledger` wire — the anti-"mail broke down mysteriously" surface.
@@ -19,7 +24,10 @@ export interface LedgerMessage {
   lifecycle: string
   body: string
   createdAt: string
+  /** Legacy vocabulary, kept on the wire for older clients; not read here. */
   status: string
+  /** Where delivery stands, forward-only (`MessageDelivery` in @podium/model). */
+  deliveryStatus: MessageDeliveryStatus
   /** Current 1-based position in the recipient session FIFO at read time. */
   queuePosition?: number
   ackedBy: string | null
@@ -69,27 +77,35 @@ export type LedgerStatusTone = 'queued' | 'ok' | 'dead'
  * failure, never a vanished target. */
 export { deadLetterDeliveryLine }
 
-/** Chip tone for a delivery status: queued = pending amber; delivered/read = ok
- *  (the agent has it, pushed or pulled [POD-834]); expired/cancelled/dead_letter
- *  = dead. */
-export function ledgerStatusTone(status: string): LedgerStatusTone {
-  if (status === 'delivered' || status === 'read') return 'ok'
-  if (status === 'queued') return 'queued'
+/** Chip tone for a delivery status: still pending (held, on its way, or lost
+ *  track of) = amber; confirmed = ok (the agent has it, pushed or pulled
+ *  [POD-834]); failed/expired/cancelled = dead. */
+export function ledgerStatusTone(status: MessageDeliveryStatus): LedgerStatusTone {
+  if (status === 'confirmed') return 'ok'
+  if (isMessagePending(status)) return 'queued'
   return 'dead'
 }
 
 /** One-line delivery story: "delivered to s1 · acked" / "read by s1" /
- *  "queued (expires …)" / "dead-lettered" / "expired undelivered" [POD-834]. */
+ *  "queued (expires …)" / "handed to s1" / "dead-lettered" / "expired
+ *  undelivered" [POD-834]. */
 export function deliveryLine(m: LedgerMessage): string {
-  if (m.status === 'delivered') {
-    const to = m.deliveredTo ? ` to ${m.deliveredTo}` : ''
-    return `delivered${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
-  }
-  if (m.status === 'read') {
+  const acked = m.ackedBy ? ` · acked by ${m.ackedBy}` : ''
+  if (m.deliveryStatus === 'confirmed' && m.readAt) {
     const to = m.deliveredTo ? ` by ${m.deliveredTo}` : ''
-    return `read${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
+    return `read${to}${acked}`
   }
-  if (m.status === 'queued') {
+  if (m.deliveryStatus === 'confirmed') {
+    const to = m.deliveredTo ? ` to ${m.deliveredTo}` : ''
+    return `delivered${to}${acked}`
+  }
+  if (m.deliveryStatus === 'unknown') return 'not confirmed · it may or may not have arrived'
+  if (isMessageOnItsWay(m.deliveryStatus)) {
+    const to = m.deliveredTo ? ` to ${m.deliveredTo}` : ''
+    const stage = m.deliveryStatus === 'typed' ? 'typed' : 'handed on'
+    return `${stage}${to} · not yet confirmed`
+  }
+  if (m.deliveryStatus === 'stored') {
     const position =
       typeof m.queuePosition === 'number' &&
       Number.isInteger(m.queuePosition) &&
@@ -100,7 +116,7 @@ export function deliveryLine(m: LedgerMessage): string {
   }
   // A dead letter says WHY when the daemon told us why [POD-2132, POD-2202]: the
   // drain gave up, so this row is terminal rather than waiting on anything.
-  if (m.status === 'dead_letter') return deadLetterDeliveryLine(m.deliveryDeferredReason)
-  if (m.status === 'expired') return 'expired undelivered'
-  return m.status
+  if (m.deliveryStatus === 'failed') return deadLetterDeliveryLine(m.deliveryDeferredReason)
+  if (m.deliveryStatus === 'expired') return 'expired undelivered'
+  return m.deliveryStatus
 }

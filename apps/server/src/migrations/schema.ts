@@ -95,6 +95,7 @@ import type {
   DeliveryReceiptId,
   IssueId,
   MachineId,
+  MessageDeliveryStatus,
   MutationId,
   RepoId,
   SessionId,
@@ -2118,7 +2119,15 @@ export const messages = sqliteTable(
     attachmentsJson: text('attachments_json'),
     expiresAt: text('expires_at'),
     createdAt: text('created_at').notNull(),
-    status: text().default('queued').notNull(),
+    // THE LEGACY DELIVERY COLUMN, kept only as a mirror of `delivery_status` so
+    // a one-release rollback reads rows it understands (expand-only, POD-4765).
+    // Written in the same statement as every `delivery_status` move and read by
+    // nothing current; the contract step drops it.
+    legacyStatus: text('status').default('queued').notNull(),
+    // The delivery lifecycle [POD-4765]: `MessageDelivery` in @podium/model is
+    // the table of allowed moves, and every write goes through the store's
+    // guarded move. Only moves forward.
+    deliveryStatus: text('delivery_status').$type<MessageDeliveryStatus>().default('stored').notNull(),
     deliveredAt: text('delivered_at'),
     deliveredTo: text('delivered_to').$type<SessionId>(),
     ackedBy: text('acked_by'),
@@ -2152,18 +2161,18 @@ export const messages = sqliteTable(
     // drags every message body through the scan.
     index('idx_messages_from_session').on(table.fromSession),
     index('idx_messages_thread').on(table.threadId),
-    index('idx_messages_recipient').on(table.toKind, table.toId, table.status),
+    index('idx_messages_recipient').on(table.toKind, table.toId, table.legacyStatus),
     index('idx_messages_recipient_order').on(
       table.toKind,
       table.toId,
-      table.status,
+      table.legacyStatus,
       table.createdAt,
       table.id,
     ),
-    index('idx_messages_queue_order').on(table.status, table.createdAt, table.id),
-    index('idx_messages_expiry_explicit').on(table.status, table.expiresAt, table.id),
+    index('idx_messages_queue_order').on(table.legacyStatus, table.createdAt, table.id),
+    index('idx_messages_expiry_explicit').on(table.legacyStatus, table.expiresAt, table.id),
     index('idx_messages_expiry_implicit').on(
-      table.status,
+      table.legacyStatus,
       table.lifecycle,
       table.expiresAt,
       table.createdAt,
@@ -2177,6 +2186,38 @@ export const messages = sqliteTable(
     check(
       'messages_check_10',
       sql`status IN ('queued','delivered','read','dead_letter','expired','cancelled')`,
+    ),
+    // A LITERAL, because this file may not value-import @podium/model (see the
+    // header). `message-delivery-status.test.ts` holds it equal to
+    // `MESSAGE_DELIVERY_STATUSES`, so the machine's states are what the CHECK
+    // admits.
+    check(
+      'messages_delivery_status',
+      sql`delivery_status IN ('stored','dispatched','reached-machine','typing','typed','confirmed','cancelled','failed','expired','unknown')`,
+    ),
+    // The delivery-status twins of the legacy recipient/queue-order indexes.
+    index('idx_messages_recipient_delivery').on(
+      table.toKind,
+      table.toId,
+      table.deliveryStatus,
+      table.createdAt,
+      table.id,
+    ),
+    index('idx_messages_delivery_order').on(table.deliveryStatus, table.createdAt, table.id),
+    // The janitor's expiry scans, over the rows the server still holds: a row
+    // handed on cannot expire (POD-4765), so it must not sit at the head of
+    // every page either.
+    index('idx_messages_delivery_expiry_explicit').on(
+      table.deliveryStatus,
+      table.expiresAt,
+      table.id,
+    ),
+    index('idx_messages_delivery_expiry_implicit').on(
+      table.deliveryStatus,
+      table.lifecycle,
+      table.expiresAt,
+      table.createdAt,
+      table.id,
     ),
   ],
 )

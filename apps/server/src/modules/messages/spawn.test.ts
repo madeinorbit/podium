@@ -187,7 +187,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'get going', lifecycle: 'wake' },
     )
     // Enqueued to the fresh agent's boot queue; queued until it drains + echoes.
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.disposition).toBe('spawning')
     expect(r.message.deliveredTo).toBe('child1')
     expect(queued).toHaveLength(1)

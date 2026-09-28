@@ -30,7 +30,7 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
     body: 'hello',
     expiresAt: null,
     createdAt: '2026-07-13T00:00:00.000Z',
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     ackedBy: null,

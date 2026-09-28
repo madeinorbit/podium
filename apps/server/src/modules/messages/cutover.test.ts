@@ -561,7 +561,7 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
       },
     )) as { id: string; disposition: string }
     expect(accepted.disposition).toBe('held')
-    expect((await h.svc.message(accepted.id))?.status).toBe('queued')
+    expect((await h.svc.message(accepted.id))?.deliveryStatus).toBe('stored')
 
     // The target leaves the delegating human's visibility BETWEEN accept and
     // drain — the one mutation this scenario is about.
@@ -570,7 +570,7 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     await h.svc.sweep()
 
     // Never applied…
-    expect((await h.svc.message(accepted.id))?.status).toBe('dead_letter')
+    expect((await h.svc.message(accepted.id))?.deliveryStatus).toBe('failed')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget')).toEqual([])
     // …and never silently dropped (ADR 3 D9). The reason is the one an id that
     // does not exist gives, so the queue is not an existence oracle one step
@@ -598,7 +598,7 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     await h.svc.sweep()
 
-    expect((await h.svc.message(accepted.id))?.status).not.toBe('dead_letter')
+    expect((await h.svc.message(accepted.id))?.deliveryStatus).not.toBe('failed')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
   })
 })

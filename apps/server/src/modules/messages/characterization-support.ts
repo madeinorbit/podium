@@ -318,7 +318,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     // able to assert the bytes did not change while the evidence did — if these
     // two seams recorded differently, "same decisions, new evidence" would be
     // unfalsifiable.
-    const legacy = record(legacyOf[via])(input)
+    const legacy = await record(legacyOf[via])(input)
     const onContract = receiptOpts?.onContract?.includes(input.sessionId) ?? true
     if (!onContract || !onReceipt) return legacy
     const receipt: TurnReceipt = receiptOpts?.answer?.(via, input) ?? {
@@ -337,7 +337,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       fired.push(fire)
       await fire()
     }
-    return legacy
+    // As the real seam says: a direct send's receipt is still to come, while
+    // the durable queue completes here (POD-4765).
+    return via === 'queue' ? legacy : { ...legacy, receiptPending: true as const }
   }
 
   const svc = new MessageDeliveryService({

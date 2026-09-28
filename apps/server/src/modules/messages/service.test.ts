@@ -26,6 +26,7 @@ import type { IssueService } from '../issues/service'
 import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
 import { INLINE_BODY_MAX, sanitizeBody, TURN_CLOSE_RULE } from './render'
+import { seedMessage } from '../../test-support/seed-message'
 import {
   HOP_LIMIT,
   MessageDeliveryService,
@@ -377,7 +378,7 @@ function queuedRow(id: string): MessageRow {
     body: 'hello',
     expiresAt: null,
     createdAt: 't0',
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     readAt: null,
@@ -411,17 +412,17 @@ describe('MessagesRepository (store CRUD)', () => {
         },
       ],
     }
-    await store.messages.addMessage(m)
+    await seedMessage(store.messages, m)
     expect(await store.messages.getMessage('msg_1')).toEqual(m)
     expect(await store.messages.listMessagesFor({ kind: 'issue', id: 'iss_a' })).toEqual([m])
     expect(await store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
     expect(await store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
 
-    expect(await store.messages.markDelivered('msg_1', 's1', 't1')).toBe(true)
+    expect((await store.messages.markDelivered('msg_1', 's1', 't1')).kind).toBe('applied')
     // duplicate delivery attempt is a no-op
-    expect(await store.messages.markDelivered('msg_1', 's2', 't2')).toBe(false)
+    expect((await store.messages.markDelivered('msg_1', 's2', 't2')).kind).toBe('already-there')
     const delivered = (await store.messages.getMessage('msg_1'))!
-    expect(delivered).toMatchObject({ status: 'delivered', deliveredAt: 't1', deliveredTo: 's1' })
+    expect(delivered).toMatchObject({ deliveryStatus: 'confirmed', deliveredAt: 't1', deliveredTo: 's1' })
     expect(await store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(0)
 
     expect(await store.messages.markAcked('msg_1', 'msg_ack')).toBe(true)
@@ -431,20 +432,18 @@ describe('MessagesRepository (store CRUD)', () => {
 
   it('an abandoned drain writes a TERMINAL row, and the second report changes nothing', async () => {
     const store = await openTestStore(':memory:')
-    await store.messages.addMessage(queuedRow('msg_abandoned'))
+    await seedMessage(store.messages, queuedRow('msg_abandoned'))
     expect(await store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
 
-    expect(
-      await store.messages.markDeliveryAbandoned(
+    expect((await store.messages.markDeliveryAbandoned(
         'msg_abandoned',
         asSessionId('s1'),
         't-abandoned',
         'never-live',
-      ),
-    ).toBe(true)
+      )).kind).toBe('applied')
     // Read the row back: `queued` is gone, and the reason sits beside the status.
     expect(await store.messages.getMessage('msg_abandoned')).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deadLetteredAt: 't-abandoned',
       deliveryDeferredAt: 't-abandoned',
       deliveryDeferredReason: 'never-live',
@@ -456,17 +455,15 @@ describe('MessagesRepository (store CRUD)', () => {
 
     // Reports repeat; the status guard is what makes the second one a no-op — the
     // first stamp is not overwritten by the later one.
-    expect(
-      await store.messages.markDeliveryAbandoned('msg_abandoned', asSessionId('s2'), 'later', 'teardown'),
-    ).toBe(false)
+    expect((await store.messages.markDeliveryAbandoned('msg_abandoned', asSessionId('s2'), 'later', 'teardown')).kind).toBe('already-there')
     expect(await store.messages.getMessage('msg_abandoned')).toMatchObject({
       deadLetteredAt: 't-abandoned',
       deliveryDeferredReason: 'never-live',
       deliveredTo: 's1',
     })
     // And nothing can quietly walk a terminal row back to delivered.
-    expect(await store.messages.markInjected('msg_abandoned', asSessionId('s1'), 't-inject')).toBe(false)
-    expect(await store.messages.markDelivered('msg_abandoned', 's1', 't-late')).toBe(false)
+    expect((await store.messages.markDispatched('msg_abandoned', asSessionId('s1'), 't-inject')).kind).toBe('refused')
+    expect((await store.messages.markDelivered('msg_abandoned', 's1', 't-late')).kind).toBe('refused')
   })
 })
 
@@ -687,10 +684,10 @@ describe('MessageDeliveryService.send', () => {
     expect(sent).toHaveLength(0)
     // Honest [spec:SP-cb9f]: handed on, not yet confirmed → 'queued'.
     expect(r.disposition).toBe('queued')
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.deliveredTo).toBe('s1')
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
 
     // Busy live agents → the most recently active one gets it at once; its
     // daemon decides when it lands [POD-4661].
@@ -711,16 +708,16 @@ describe('MessageDeliveryService.send', () => {
       { kind: 'superagent' },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'x', urgency: 'next-turn' },
     )
-    expect(r2.message.status).toBe('queued')
+    expect(r2.message.deliveryStatus).toBe('dispatched')
     expect(r2.disposition).toBe('queued')
     expect(h2.queued.map((q) => q.sessionId)).toEqual(['sNew'])
     await echo(h2.svc, asSessionId('sNew'), r2.message.id)
-    expect((await h2.store.messages.getMessage(r2.message.id))!.status).toBe('delivered')
+    expect((await h2.store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('confirmed')
 
     // No live member → stays queued (durable; prime/stop-hook surfaces it).
     const h3 = await harness([])
     const r3 = await h3.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
-    expect(r3.message.status).toBe('queued')
+    expect(r3.message.deliveryStatus).toBe('stored')
     expect(await h3.store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(1)
   })
 
@@ -957,7 +954,7 @@ describe('MessageDeliveryService.send', () => {
         // Parked coordinator: fyi is HELD (lifecycle wait) for that role —
         // no wake/spawn on every note. Row stays queued with no peer recipient.
         expect(r.message.deliveredTo).toBeNull()
-        expect(r.message.status).toBe('queued')
+        expect(r.message.deliveryStatus).toBe('stored')
         expect(sent).toHaveLength(0)
         expect(queued).toHaveLength(0)
       }
@@ -1028,14 +1025,14 @@ describe('MessageDeliveryService.send', () => {
       { kind: 'agent', issueId: SENDER_ISSUE.id },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green', urgency: 'fyi' },
     )
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored')
     expect(r.message.deliveredTo).toBeNull()
 
     await svc.onSessionIdle(session({ sessionId: 'sWorker', agentState: IDLE, issueId: ISSUE.id }))
     expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
     expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).not.toBe('sWorker')
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
   })
 
   it('records queued→injected→delivered on the ledger and emits an event per transition', async () => {
@@ -1045,11 +1042,11 @@ describe('MessageDeliveryService.send', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'mail' },
     )
     // Pushed but unconfirmed: queued + injected, NOT delivered (POD-495 defect B fix).
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.injectedAt).not.toBeNull()
     // The transcript echo is what confirms delivered.
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     const events = (await store.events
       .listEventsSince(0, { kinds: ['message.queued', 'message.injected', 'message.delivered'] }))
       .filter((e) => e.subject === r.message.id)
@@ -1058,7 +1055,7 @@ describe('MessageDeliveryService.send', () => {
       'message.injected',
       'message.delivered',
     ])
-    expect(events[2]!.payload).toMatchObject({ status: 'delivered', deliveredTo: 's1' })
+    expect(events[2]!.payload).toMatchObject({ deliveryStatus: 'confirmed', deliveredTo: 's1' })
   })
 
   for (const failedKind of ['message.queued', 'message.injected', 'message.delivered']) {
@@ -1079,7 +1076,7 @@ describe('MessageDeliveryService.send', () => {
         expect(queued).toHaveLength(1)
         expect(result.message.injectedAt).not.toBeNull()
         await echo(svc, asSessionId('s1'), result.message.id)
-        expect((await store.messages.getMessage(result.message.id))!.status).toBe('delivered')
+        expect((await store.messages.getMessage(result.message.id))!.deliveryStatus).toBe('confirmed')
         const reports = logs.records.filter((record) => record.msg === 'message transition recording failed')
         expect(reports).toHaveLength(1)
         expect(reports[0]).toMatchObject({
@@ -1106,7 +1103,7 @@ describe('MessageDeliveryService.send', () => {
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'operator' }, body: 'help' },
     )
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored')
     expect(await store.messages.countPending({ kind: 'operator' })).toBe(1)
   })
 })
@@ -1119,14 +1116,14 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
       { to: { kind: 'issue', id: ISSUE.id }, body: 'typed but never confirmed' },
     )
     // Pushed to s1, awaiting its echo: injected, unconfirmed.
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.injectedAt).not.toBeNull()
     // A later dead-letter — s1 is still alive — must say the delivery failed,
     // not that the target vanished (POD-4604 run 13: a message cut off
     // mid-turn read "target gone").
     await svc.rejectQueuedInput(r.message.id, 'session no longer exists')
     const row = (await store.messages.getMessage(r.message.id))!
-    expect(row.status).toBe('dead_letter')
+    expect(row.deliveryStatus).toBe('failed')
     expect(row.deliveryDeferredReason).toBe('delivery-failed')
     expect(row.deliveryDeferredAt).not.toBeNull()
   })
@@ -1141,7 +1138,7 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
     expect(r.message.injectedAt).toBeNull()
     await svc.rejectQueuedInput(r.message.id, 'issue no longer exists')
     const row = (await store.messages.getMessage(r.message.id))!
-    expect(row.status).toBe('dead_letter')
+    expect(row.deliveryStatus).toBe('failed')
     expect(row.deliveryDeferredReason).toBeNull()
   })
 
@@ -1221,7 +1218,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(0)
     // Ledger-only: consumed (never queued), so no stop-hook / sweep re-surfaces it.
-    expect(r.message.status).toBe('delivered')
+    expect(r.message.deliveryStatus).toBe('confirmed')
     expect(r.message.deliveredTo).toBeNull()
     expect(await store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     // …and the legacy mirror is marked read so mailPending stops nagging too.
@@ -1248,10 +1245,10 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     // Pushed to s2, awaiting its echo (not the sender's own echo) [POD-834]; the
     // honest send disposition is therefore 'queued' until that echo [spec:SP-cb9f].
     expect(r.disposition).toBe('queued')
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.deliveredTo).toBe('s2')
     await echo(svc, asSessionId('s2'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('a busy issue never hands its own member\'s note back to the sender', async () => {
@@ -1273,7 +1270,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     expect(queued.map((q) => q.sessionId)).toEqual(['s2'])
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s2')
     await echo(svc, asSessionId('s2'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('an agent addressing its own session id is ledger-only, never echoed', async () => {
@@ -1284,7 +1281,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     )
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(0)
-    expect(r.message.status).toBe('delivered')
+    expect(r.message.deliveryStatus).toBe('confirmed')
     expect(r.message.deliveredTo).toBeNull()
     expect(await store.messages.countPending({ kind: 'session', id: asSessionId('s1') })).toBe(0)
   })
@@ -1307,10 +1304,10 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       // so the SEND returns 'queued', and the daemon's settlement, the echo or the
       // turn boundary confirms it later.
       expect(r.disposition).toBe('queued')
-      expect(r.message.status).toBe('queued')
+      expect(r.message.deliveryStatus).toBe('dispatched')
       expect(r.message.injectedAt).not.toBeNull()
       await echo(svc, asSessionId('s1'), r.message.id)
-      expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+      expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     }
   })
 
@@ -1405,7 +1402,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     // Injected via ESC now, but honestly 'queued' until the echo/boundary confirms
     // it [spec:SP-cb9f]; the blocking gate is what waits for the upgrade to delivered.
     expect(r.disposition).toBe('queued')
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.clampedFrom).toBeNull()
   })
 
@@ -1422,7 +1419,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(queued).toHaveLength(0)
     // Honest [spec:SP-cb9f]: ESC-injected into the harness, not yet echoed → 'queued'.
     expect(r.disposition).toBe('queued')
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
   })
 
   it('starting target (no daemon bound yet): next-turn rides the durable boot queue', async () => {
@@ -1444,10 +1441,10 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(1)
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.deliveredTo).toBe('s1')
     await svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
-    expect((await svc.message(r.message.id))?.status).toBe('delivered')
+    expect((await svc.message(r.message.id))?.deliveryStatus).toBe('confirmed')
   })
 
   it('parked target + wait: stays queued (durable)', async () => {
@@ -1465,7 +1462,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(0)
-    expect(r.message).toMatchObject({ status: 'queued' })
+    expect(r.message).toMatchObject({ deliveryStatus: 'stored' })
   })
 
   it.each([
@@ -1507,12 +1504,12 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect(queued).toHaveLength(1)
     // Enqueued to resurrect; queued until it wakes, types, and echoes.
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.deliveredTo).toBe('s1')
     await svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s1')
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('a queued operator message stays retractable until the PTY drain applies it', async () => {
@@ -1530,13 +1527,13 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       },
     )
 
-    expect((await store.messages.getMessage(sent.message.id))?.status).toBe('queued')
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('dispatched')
     queuedSourceIds.add(sent.message.id)
     await svc.onSessionIdle(session({ sessionId: asSessionId('s1'), agentState: IDLE }))
-    expect((await store.messages.getMessage(sent.message.id))?.status).toBe('queued')
-    expect((await svc.cancel(sent.message.id)).status).toBe('cancelled')
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('dispatched')
+    expect((await svc.cancel(sent.message.id)).deliveryStatus).toBe('cancelled')
     await svc.onQueuedInputApplied(sent.message.id, asSessionId('s1'))
-    expect((await store.messages.getMessage(sent.message.id))?.status).toBe('cancelled')
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('cancelled')
   })
 
   it('cancels the named held operator chat message for an interrupted session', async () => {
@@ -1562,8 +1559,8 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect((await svc.cancelPendingOperatorMessage(target.sessionId, held.message.id))?.id).toBe(
       held.message.id,
     )
-    expect((await store.messages.getMessage(held.message.id))?.status).toBe('cancelled')
-    expect((await store.messages.getMessage(first.message.id))?.status).toBe('queued')
+    expect((await store.messages.getMessage(held.message.id))?.deliveryStatus).toBe('cancelled')
+    expect((await store.messages.getMessage(first.message.id))?.deliveryStatus).toBe('dispatched')
   })
 
   it('native interrupt fallback cancels the newest held operator chat message', async () => {
@@ -1579,8 +1576,8 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
 
     expect((await svc.cancelPendingOperatorMessage(target.sessionId))?.id).toBe(latest.message.id)
-    expect((await store.messages.getMessage(latest.message.id))?.status).toBe('cancelled')
-    expect((await store.messages.getMessage(first.message.id))?.status).toBe('queued')
+    expect((await store.messages.getMessage(latest.message.id))?.deliveryStatus).toBe('cancelled')
+    expect((await store.messages.getMessage(first.message.id))?.deliveryStatus).toBe('dispatched')
   })
 
   it('unknown session target dead-letters, never silently queues [POD-834]', async () => {
@@ -1589,7 +1586,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(r.ok).toBe(false)
     expect(r.disposition).toBe('dead_letter')
     expect(r.reason).toContain('session no longer exists')
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('dead_letter')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('failed')
     // The transition names WHY [POD-3226]: 67 of 82 dead-letter events on the
     // live ledger carried no reason, so the trail stopped exactly where the
     // question started.
@@ -1610,7 +1607,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect(queued[0]!.sessionId).toBe('sNew')
     // Resurrected via the durable queue; queued until it wakes and drains.
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
   })
 })
 
@@ -1625,7 +1622,7 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
     )
     expect(interrupted).toHaveLength(0)
     expect(queued).toHaveLength(1) // clamped to next-turn → the durable queue
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.urgency).toBe('next-turn')
     const clamp = JSON.parse(r.message.clampedFrom!)
     expect(clamp.urgency).toBe('interrupt')
@@ -1664,7 +1661,7 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
     )
     expect(r.message.urgency).toBe('next-turn')
     expect(r.message.lifecycle).toBe('wait')
-    expect(r.message.status).toBe('queued') // wait on a parked target
+    expect(r.message.deliveryStatus).toBe('stored') // wait on a parked target
     expect(JSON.parse(r.message.clampedFrom!)).toMatchObject({
       urgency: 'interrupt',
       lifecycle: 'wake',
@@ -1703,14 +1700,14 @@ describe('containment brakes [spec:SP-34d7]', () => {
       body: 'a',
       lifecycle: 'wake',
     })
-    expect(r1.message).toMatchObject({ lifecycle: 'wake', status: 'queued' })
+    expect(r1.message).toMatchObject({ lifecycle: 'wake', deliveryStatus: 'dispatched' })
     clock += 60_000
     const r2 = await svc.send(from, {
       to: { kind: 'session', id: asSessionId('s1') },
       body: 'b',
       lifecycle: 'wake',
     })
-    expect(r2.message).toMatchObject({ lifecycle: 'wait', status: 'queued' })
+    expect(r2.message).toMatchObject({ lifecycle: 'wait', deliveryStatus: 'stored' })
     expect(JSON.parse(r2.message.clampedFrom!).reasons.join()).toContain('cooldown')
     // Past the window the wake fires again.
     clock += WAKE_COOLDOWN_MS
@@ -1719,7 +1716,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
       body: 'c',
       lifecycle: 'wake',
     })
-    expect(r3.message).toMatchObject({ lifecycle: 'wake', status: 'queued' })
+    expect(r3.message).toMatchObject({ lifecycle: 'wake', deliveryStatus: 'dispatched' })
   })
 
   it('spawn budget: 3 message-triggered spawns per issue per day, then needs-attention', async () => {
@@ -1738,7 +1735,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
         { to: { kind: 'issue', id: ISSUE.id }, body: `m${i}`, lifecycle: 'wake' },
       )
       // Spawned + queued to the fresh agent's boot queue (drains + echoes later).
-      expect(r.message.status).toBe('queued')
+      expect(r.message.deliveryStatus).toBe('dispatched')
       expect(r.disposition).toBe('spawning')
     }
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY)
@@ -1747,7 +1744,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'over', lifecycle: 'wake' },
     )
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY) // no fourth spawn
-    expect(over.message.status).toBe('queued')
+    expect(over.message.deliveryStatus).toBe('stored')
     expect(attention.some((a) => a.messageId === over.message.id)).toBe(true)
     const events = await store.events.listEventsSince(0, { kinds: ['message.spawn_budget_exhausted'] })
     expect(events.some((e) => e.subject === over.message.id)).toBe(true)
@@ -1764,7 +1761,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
       { kind: 'operator' },
       { to: { kind: 'session', id: asSessionId('s1') }, body: 'x', lifecycle: 'wake' },
     )
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored')
     expect(attention).toHaveLength(1)
     const events = await store.events.listEventsSince(0, { kinds: ['message.needs_attention'] })
     expect(events.some((e) => e.subject === r.message.id)).toBe(true)
@@ -1777,7 +1774,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     ]
     const { svc, store, attention } = await harness(sessions)
     // A hop-5 message triggers s1's current turn...
-    await store.messages.addMessage({
+    await seedMessage(store.messages, {
       id: asIssueId('msg_deep'),
       threadId: asThreadId('msg_deep'),
       inReplyTo: null,
@@ -1792,7 +1789,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
       body: 'deep',
       expiresAt: null,
       createdAt: 't',
-      status: 'queued',
+      deliveryStatus: 'stored',
       deliveredAt: null,
       deliveredTo: null,
       ackedBy: null,
@@ -1803,7 +1800,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     await svc.onSessionEligibilityChanged(asSessionId('s1'), sessions[0]!)
     await svc.flushDeliveryTriggers()
     // Pushed toward s1's turn (sets the hop context); queued until confirmed.
-    expect((await store.messages.getMessage('msg_deep'))!.status).toBe('queued')
+    expect((await store.messages.getMessage('msg_deep'))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage('msg_deep'))!.injectedAt).not.toBeNull()
     // ...so what s1 sends within that turn is hop 6 → wake clamps to wait.
     const r = await svc.send(
@@ -1812,7 +1809,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     )
     expect(r.message.hop).toBe(HOP_LIMIT + 1)
     expect(r.message.lifecycle).toBe('wait')
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored')
     expect(JSON.parse(r.message.clampedFrom!).reasons.join()).toContain('hop limit')
     expect(attention.some((a) => a.messageId === r.message.id)).toBe(true)
     // The NEXT turn (idle again) clears the hop context: hop resets to 0.
@@ -1837,15 +1834,15 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
       { kind: 'superagent' },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'two' },
     )
-    expect(r1.message.status).toBe('queued')
-    expect(r2.message.status).toBe('queued')
+    expect(r1.message.deliveryStatus).toBe('stored')
+    expect(r2.message.deliveryStatus).toBe('stored')
     const s = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id })
     live.push(s)
     await svc.onSessionEligibilityChanged(asSessionId('s1'), s)
     await svc.flushDeliveryTriggers()
     expect(queued.map((q) => q.text.includes('one') || q.text.includes('two'))).toEqual([true, true])
     // fyi issue mail stays the PULL path: queued (handed on) until the inbox read.
-    expect((await store.messages.getMessage(r1.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage(r1.message.id))!.injectedAt).not.toBeNull()
     // A further eligibility change must NOT re-nudge (the POD-279 storm).
     await svc.onSessionEligibilityChanged(asSessionId('s1'), s)
@@ -1853,8 +1850,8 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
     expect(queued).toHaveLength(2)
     // Reading the inbox is what confirms them (read = the pull-path delivery).
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
-    expect((await store.messages.getMessage(r1.message.id))!.status).toBe('read')
-    expect((await store.messages.getMessage(r2.message.id))!.status).toBe('read')
+    expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('confirmed')
+    expect((await store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('an oversized issue-addressed body delivers as a pointer, never inline', async () => {
@@ -1891,10 +1888,10 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
       { kind: 'superagent' },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'x', expiresAt: '2026-07-13T01:00:00.000Z' },
     )
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored')
     clock = '2026-07-13T02:00:00.000Z'
     await svc.sweep()
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
     const events = await store.events.listEventsSince(0, { kinds: ['message.expired'] })
     expect(events.some((e) => e.subject === r.message.id)).toBe(false)
   })
@@ -1911,13 +1908,13 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
         lifecycle: 'wait',
       },
     )
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored')
     sessions[0] = session({ sessionId: asSessionId('s1') }) // came back live
     await svc.sweep()
     expect(queued).toHaveLength(1)
     // The sweep pushed it; the echo confirms delivered.
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   // POD-817: the sweep ran listSessions() (full toMeta of EVERY session) once
@@ -1936,7 +1933,7 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
         { kind: 'superagent' },
         { to: { kind: 'issue', id: ISSUE.id }, body: `x${i}`, lifecycle: 'wait' },
       )
-      expect(r.message.status).toBe('queued')
+      expect(r.message.deliveryStatus).toBe('stored')
     }
     listCalls.n = 0
     narrowCalls.byIssue = 0
@@ -2025,8 +2022,8 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
     )
     clock = '2026-07-21T00:00:00.000Z' // old is now 8d, young 3d
     await svc.sweep()
-    expect((await store.messages.getMessage(old.message.id))!.status).toBe('queued')
-    expect((await store.messages.getMessage(young.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(old.message.id))!.deliveryStatus).toBe('stored')
+    expect((await store.messages.getMessage(young.message.id))!.deliveryStatus).toBe('stored')
     const events = await store.events.listEventsSince(0, { kinds: ['message.expired'] })
     expect(events.some((e) => e.subject === old.message.id)).toBe(false)
     // The candidate remains readable for its principal while janitor work is delayed.
@@ -2048,7 +2045,7 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
     )
     clock = '2026-07-21T00:00:00.000Z' // 8d old, but explicitly expires in August
     await svc.sweep()
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
   })
 })
 
@@ -2074,7 +2071,7 @@ describe('acks', () => {
         urgency: 'next-turn',
       },
     )
-    expect(orig.message.status).toBe('queued') // pushed, awaiting echo
+    expect(orig.message.deliveryStatus).toBe('dispatched') // pushed, awaiting echo
     const ack = await svc.send(
       { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
@@ -2135,7 +2132,7 @@ describe('acks', () => {
     // Sender session gone → the sender's issue.
     sessions.splice(1, 1)
     const orig2 = (await store.messages.getMessage(orig.message.id))!
-    await store.messages.addMessage({ ...orig2, id: 'msg_o2', ackedBy: null })
+    await seedMessage(store.messages, { ...orig2, id: 'msg_o2', ackedBy: null })
     const r2 = await svc.sendReply(
       { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
@@ -2179,7 +2176,7 @@ describe('acks', () => {
       body: 'pre-#237 mail',
       expiresAt: null,
       createdAt: 't0',
-      status: 'delivered',
+      deliveryStatus: 'confirmed',
       deliveredAt: 't1',
       deliveredTo: asSessionId('s1'),
       ackedBy: null,
@@ -2187,7 +2184,7 @@ describe('acks', () => {
       clampedFrom: null,
       remindedAt: null,
     }
-    await store.messages.addMessage(migrated)
+    await seedMessage(store.messages, migrated)
     // Must not throw (previously: raw SQLite FOREIGN KEY constraint failed) and
     // must land in the SENDER's issue, resolved to the real id.
     const r = await svc.sendReply(
@@ -2198,7 +2195,7 @@ describe('acks', () => {
     expect(r.legacy).toMatchObject({ issueId: ISSUE.id }) // mirror row holds the real id
 
     // An UNRESOLVABLE legacy sender degrades to an operator row, never an error.
-    await store.messages.addMessage({ ...migrated, id: 'msg_ghost', fromIssue: asIssueId('issue:#404') })
+    await seedMessage(store.messages, { ...migrated, id: 'msg_ghost', fromIssue: asIssueId('issue:#404') })
     const r2 = await svc.sendReply(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('s1') },
       { inReplyTo: 'msg_ghost', body: 'who were you?' },
@@ -2687,7 +2684,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const first = (await systemNotices(store))[0]!
     expect(first).toMatchObject({ factKey: 'settle:s1', factTarget: 's1' })
     await svc.readInbox([{ kind: 'session', id: asSessionId('sX') }], { consume: asSessionId('sX') })
-    expect((await store.messages.getMessage(first.id))!.status).toBe('read')
+    expect((await store.messages.getMessage(first.id))!.deliveryStatus).toBe('confirmed')
     expect(await arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
 
     await request('second')
@@ -2715,7 +2712,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     expect(await store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(1)
     expect(await store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(1)
 
-    expect((await svc.dismiss(notice.message.id, 's1')).status).toBe('read')
+    expect((await svc.dismiss(notice.message.id, 's1')).deliveryStatus).toBe('confirmed')
     expect(await store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     expect(await store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
     expect(await arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
@@ -2727,14 +2724,14 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'plain dismiss' },
     )
-    await expect(svc.dismiss(dismissed.message.id, 's1')).resolves.toMatchObject({ status: 'read' })
+    await expect(svc.dismiss(dismissed.message.id, 's1')).resolves.toMatchObject({ deliveryStatus: 'confirmed' })
     await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'plain read' },
     )
     await expect(
       svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') }),
-    ).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ status: 'read' })]))
+    ).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ deliveryStatus: 'confirmed' })]))
   })
 })
 
@@ -2745,12 +2742,12 @@ describe('readInbox (podium mail inbox)', () => {
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'hello' },
     )
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
     // Opening the inbox is the PULL-path confirmation: read, distinct from a
     // pushed `delivered` [POD-834 §04d].
     const rows = await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
-    expect(rows[0]!.status).toBe('read')
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('read')
+    expect(rows[0]!.deliveryStatus).toBe('confirmed')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s1')
     // legacy mirror row consumed too (no more stop-hook nag on either surface)
     expect(await store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
@@ -2760,7 +2757,7 @@ describe('readInbox (podium mail inbox)', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'again' },
     )
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], {})
-    expect((await store.messages.getMessage(r2.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('stored')
   })
 
   it("a peer's consuming read leaves the other members of the issue still pending [POD-1379]", async () => {
@@ -2771,7 +2768,7 @@ describe('readInbox (podium mail inbox)', () => {
     )
     // s1 opens the SHARED issue mailbox — the mutating path.
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('read')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('s1'))).toBe(0)
     // …and s2, who never saw it, still has it. The old issue-wide ledger
     // destroyed its unread status here.
@@ -2882,7 +2879,7 @@ describe('sweep cooldown key for session-addressed wakes', () => {
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: asSessionId('s1') }, body: 'wake', lifecycle: 'wake' },
     )
-    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveryStatus).toBe('stored')
     expect(spawnAttempts).toHaveLength(1)
     expect(attention).toHaveLength(1)
     // Five sweeps inside the 10min window: cooldown key now matches recordWake
@@ -2907,7 +2904,7 @@ describe('inline delivery consumes the legacy issue_messages mirror', () => {
     )
     // The echo confirms delivered, and delivered is what consumes the mirror.
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     expect(await store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
   })
 })
@@ -2926,7 +2923,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
       body: 'a',
       lifecycle: 'wake',
     })
-    expect(r1.message).toMatchObject({ lifecycle: 'wake', status: 'queued' })
+    expect(r1.message).toMatchObject({ lifecycle: 'wake', deliveryStatus: 'dispatched' })
     // "Restart": new service over the same store, one minute later.
     clock += 60_000
     const h2 = await harness(sessions, { now, store: h1.store })
@@ -2935,7 +2932,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
       body: 'b',
       lifecycle: 'wake',
     })
-    expect(r2.message).toMatchObject({ lifecycle: 'wait', status: 'queued' })
+    expect(r2.message).toMatchObject({ lifecycle: 'wait', deliveryStatus: 'stored' })
     expect(JSON.parse(r2.message.clampedFrom!).reasons.join()).toContain('cooldown')
     // Past the window the wake fires again on the restarted service.
     clock += WAKE_COOLDOWN_MS
@@ -2960,7 +2957,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
         { kind: 'operator' },
         { to: { kind: 'issue', id: ISSUE.id }, body: `m${i}`, lifecycle: 'wake' },
       )
-      expect(r.message.status).toBe('queued')
+      expect(r.message.deliveryStatus).toBe('dispatched')
     }
     // "Restart": the 4th spawn today is still denied.
     clock += 60_000
@@ -2980,7 +2977,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'over', lifecycle: 'wake' },
     )
     expect(spawnsAfter).toHaveLength(0)
-    expect(over.message.status).toBe('queued')
+    expect(over.message.deliveryStatus).toBe('stored')
     expect(over.reason).toBe('spawn budget exhausted')
   })
 })
@@ -3107,7 +3104,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     // Handed on at once [POD-4661], and NOT falsely marked delivered.
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(1)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage(r.message.id))!.deliveredAt).toBeNull()
   })
 
@@ -3126,7 +3123,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     // The sender is TOLD it is held — not a silent success.
     expect(r.ok).toBe(true)
     expect(r.disposition).toBe('held')
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
     // The issue's NEXT session appears (an eligibility change) → it delivers.
     const s = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id })
     live.push(s)
@@ -3134,7 +3131,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     await svc.flushDeliveryTriggers()
     expect(queued).toHaveLength(1)
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('a gone session dead-letters at send (error), never silent-queued-forever', async () => {
@@ -3145,7 +3142,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     )
     expect(r.ok).toBe(false)
     expect(r.disposition).toBe('dead_letter')
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('dead_letter')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('failed')
   })
 
   it('an archived issue dead-letters and tells the sender once (sweep-discovered)', async () => {
@@ -3161,7 +3158,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     expect(r.disposition).toBe('held')
     archivedIds.add(ISSUE.id) // the target issue is archived out from under it
     await svc.sweep()
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('dead_letter')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('failed')
     // The sender (session sX) gets exactly one steward notice about the failure.
     const notices = (await store.messages
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
@@ -3183,12 +3180,12 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
       },
     )
     // Pushed to the PTY, but the ledger does NOT yet claim the agent has it.
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage(r.message.id))!.injectedAt).not.toBeNull()
     // The message's own id echoing back as a user turn is the proof.
     await echo(svc, asSessionId('s1'), r.message.id)
     const confirmed = (await store.messages.getMessage(r.message.id))!
-    expect(confirmed.status).toBe('delivered')
+    expect(confirmed.deliveryStatus).toBe('confirmed')
     expect(confirmed.deliveredTo).toBe('s1')
   })
 
@@ -3205,13 +3202,13 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     await svc.onTranscriptDelta(asSessionId('s1'), [
       { role: 'assistant', text: `re: podium message ${r.message.id}` },
     ])
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // Nor an echo seen in a DIFFERENT session than the one we pushed to.
     await echo(svc, asSessionId('s2'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // The real session's user-turn echo confirms it.
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('a NEVER-injected held row is not flipped by a foreign transcript quoting its id [POD-834 review]', async () => {
@@ -3231,7 +3228,7 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     await svc.onTranscriptDelta(asSessionId('someOtherSession'), [
       { role: 'user', text: `look at [podium message ${r.message.id} · from x · to y]` },
     ])
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
     expect((await store.messages.getMessage(r.message.id))!.deliveredAt).toBeNull()
     // It still delivers legitimately once a session picks it up and echoes.
     const s = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id })
@@ -3239,7 +3236,7 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     await svc.onSessionEligibilityChanged(asSessionId('s1'), s)
     await svc.flushDeliveryTriggers()
     await echo(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s1')
   })
 
@@ -3253,14 +3250,14 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
       { to: { kind: 'session', id: asSessionId('s1') }, body: 'do X', urgency: 'next-turn' },
     )
     // Pushed to s1 but its echo never registered (empty-text paste, detached tail…).
-    expect((await store.messages.getMessage(orig.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(orig.message.id))!.deliveryStatus).toBe('dispatched')
     // s1 answers it — the ack is stronger proof of receipt than an echo.
     await svc.sendReply(
       { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: orig.message.id, body: 'done' },
     )
     // The original is now delivered, so the sweep will never re-inject it.
-    expect((await store.messages.getMessage(orig.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(orig.message.id))!.deliveryStatus).toBe('confirmed')
     sent.length = 0
     await svc.sweep()
     expect(sent).toHaveLength(0)
@@ -3283,14 +3280,14 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
       await svc.sweep()
     }
     expect(queued).toHaveLength(1)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     const kinds = (await store.events.listEventsSince(0))
       .filter((e) => e.subject === r.message.id)
       .map((e) => e.kind)
     expect(kinds).not.toContain('message.requeued')
     // The daemon's settlement confirms it.
     await applied(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
 })
@@ -3315,12 +3312,12 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     )
     expect(queued).toHaveLength(1)
     expect((await store.messages.getMessage(r.message.id))!.injectedAt).not.toBeNull()
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // The turn boundary CONFIRMS delivery with no text matching.
     clock += LONG_AFTER_MS + 1_000
     const idle = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id, agentState: IDLE })
     await svc.onSessionIdle(idle)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s1')
     expect(queued).toHaveLength(1) // never re-injected → no duplicate delivery
     await svc.sweep()
@@ -3349,15 +3346,15 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     await svc.onSessionEligibilityChanged(asSessionId('s1'), s)
     await svc.flushDeliveryTriggers()
     expect(queued).toHaveLength(2)
-    expect((await store.messages.getMessage(r1.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
     // A second turn boundary must NOT flip pointer rows delivered — they are the
     // PULL path, confirmed by an inbox read, never by a turn ending.
     await svc.onSessionIdle(s)
-    expect((await store.messages.getMessage(r1.message.id))!.status).toBe('queued')
-    expect((await store.messages.getMessage(r2.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
+    expect((await store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('dispatched')
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
-    expect((await store.messages.getMessage(r1.message.id))!.status).toBe('read')
-    expect((await store.messages.getMessage(r2.message.id))!.status).toBe('read')
+    expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('confirmed')
+    expect((await store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('an OVERSIZED issue row is pull-path too — no boundary confirm, no sweep re-nudge', async () => {
@@ -3390,16 +3387,16 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     await svc.flushDeliveryTriggers()
     expect(queued).toHaveLength(1)
     expect(queued[0]!.text).not.toContain('xxxx') // the body never entered the transcript
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // A turn boundary cannot confirm what was never shown; an inbox read can.
     clock += LONG_AFTER_MS + 1_000
     await svc.onSessionIdle(s)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // ... and the sweep must not nudge again past the echo window.
     await svc.sweep()
     expect(queued).toHaveLength(1)
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('read')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('an ERRORED turn does not confirm its injected rows, and nothing re-pushes them', async () => {
@@ -3420,15 +3417,15 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     const idle = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id, agentState: IDLE })
     live[0] = idle
     await svc.onSessionIdle(idle, { priorPhase: 'errored' })
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // No timer re-pushes it, however long it waits.
     clock += LONG_AFTER_MS + 1_000
     await svc.sweep()
     expect(queued).toHaveLength(1)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // A later CLEAN idle confirms it (the retry turn consumed it).
     await svc.onSessionIdle(idle)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('confirms only rows pushed to THIS session, never another session on the same issue', async () => {
@@ -3436,7 +3433,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     const s2 = session({ sessionId: asSessionId('s2'), issueId: ISSUE.id, cwd: '/wt/a' })
     const { svc, store } = await harness([s1, s2])
     // An issue-addressed row already pushed to s2 (injected, awaiting its echo).
-    await store.messages.addMessage({
+    await seedMessage(store.messages, {
       id: asIssueId('msg_s2'),
       threadId: asThreadId('msg_s2'),
       inReplyTo: null,
@@ -3451,7 +3448,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       body: 'for s2',
       expiresAt: null,
       createdAt: '2026-07-13T00:00:00.000Z',
-      status: 'queued',
+      deliveryStatus: 'stored',
       deliveredAt: null,
       deliveredTo: null,
       readAt: null,
@@ -3462,13 +3459,13 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       clampedFrom: null,
       remindedAt: null,
     })
-    await store.messages.markInjected('msg_s2', asSessionId('s2'), '2026-07-13T00:00:00.000Z')
+    await store.messages.markDispatched('msg_s2', asSessionId('s2'), '2026-07-13T00:00:00.000Z')
     // s1 reaches a turn boundary — must NOT confirm a row pushed to s2.
     await svc.onSessionIdle(s1)
-    expect((await store.messages.getMessage('msg_s2'))!.status).toBe('queued')
+    expect((await store.messages.getMessage('msg_s2'))!.deliveryStatus).toBe('dispatched')
     // s2's own boundary confirms it.
     await svc.onSessionIdle(s2)
-    expect((await store.messages.getMessage('msg_s2'))!.status).toBe('delivered')
+    expect((await store.messages.getMessage('msg_s2'))!.deliveryStatus).toBe('confirmed')
     expect((await store.messages.getMessage('msg_s2'))!.deliveredTo).toBe('s2')
   })
 
@@ -3489,9 +3486,9 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       { role: 'user', text: `[podium message ${a} · from x · to y] and [podium message ${b}]` },
       { role: 'user', text: `[podium message ${c} · from x · to y]` },
     ])
-    expect((await store.messages.getMessage(a))!.status).toBe('delivered')
-    expect((await store.messages.getMessage(b))!.status).toBe('delivered')
-    expect((await store.messages.getMessage(c))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(a))!.deliveryStatus).toBe('confirmed')
+    expect((await store.messages.getMessage(b))!.deliveryStatus).toBe('confirmed')
+    expect((await store.messages.getMessage(c))!.deliveryStatus).toBe('confirmed')
   })
 })
 
@@ -3513,10 +3510,10 @@ describe('best-effort acks/notifications [POD-853]', () => {
     await applied(svc, asSessionId('sX'), ack.message.id)
     // An ack is never itself acked and ack-confirms-original does not apply to it,
     // so chasing its echo is pure loop risk — injection IS its delivery.
-    expect((await store.messages.getMessage(ack.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(ack.message.id))!.deliveryStatus).toBe('confirmed')
     expect((await store.messages.getMessage(ack.message.id))!.deliveredTo).toBe('sX')
     // The original is still confirmed delivered by the ack (send-write side effect).
-    expect((await store.messages.getMessage(orig.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(orig.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('a best-effort ack to a busy recipient is delivered once the daemon takes it, and never re-injects', async () => {
@@ -3540,10 +3537,10 @@ describe('best-effort acks/notifications [POD-853]', () => {
     )
     // Busy recipient: the ack goes to its daemon at once [POD-4661]...
     expect(queued.map((q) => q.sessionId)).toEqual(['sX'])
-    expect((await store.messages.getMessage(ack.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(ack.message.id))!.deliveryStatus).toBe('dispatched')
     // ...and is delivered-once when the daemon takes it at sX's turn boundary.
     await applied(svc, asSessionId('sX'), ack.message.id)
-    expect((await store.messages.getMessage(ack.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(ack.message.id))!.deliveryStatus).toBe('confirmed')
     // Past the echo window the sweep must NEVER re-inject it (the unbounded loop).
     clock += LONG_AFTER_MS + 1_000
     queued.length = 0
@@ -3571,7 +3568,7 @@ describe('best-effort acks/notifications [POD-853]', () => {
     )
     expect(queued).toHaveLength(1)
     await applied(svc, asSessionId('s1'), note.message.id)
-    expect((await store.messages.getMessage(note.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(note.message.id))!.deliveryStatus).toBe('confirmed')
     // Past the echo window the sweep must not resurrect it.
     clock += LONG_AFTER_MS + 1_000
     queued.length = 0
@@ -3590,7 +3587,7 @@ describe('best-effort acks/notifications [POD-853]', () => {
       },
     )
     // Injected, but not yet confirmed — a plain message is not delivered on push.
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage(r.message.id))!.injectedAt).not.toBeNull()
   })
 
@@ -3608,7 +3605,7 @@ describe('best-effort acks/notifications [POD-853]', () => {
         urgency: 'next-turn',
       },
     )
-    expect((await store.messages.getMessage(sent.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(sent.message.id))!.deliveryStatus).toBe('dispatched')
 
     await svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id], 'never-live')
 
@@ -3616,7 +3613,7 @@ describe('best-effort acks/notifications [POD-853]', () => {
     // say `queued` forever, and a receipt that never changes is how a message
     // that was never typed passes for one that is merely waiting.
     expect(await store.messages.getMessage(sent.message.id)).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deadLetteredAt: '2026-07-13T00:00:00.000Z',
       deliveryDeferredAt: '2026-07-13T00:00:00.000Z',
       deliveryDeferredReason: 'never-live',
@@ -3647,7 +3644,7 @@ describe('composer-draft delivery guard [POD-865]', () => {
       expect(queued).toHaveLength(0)
       expect(interrupted).toHaveLength(0)
       expect(r.disposition).toBe('queued')
-      expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+      expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
     }
   })
 
@@ -3691,7 +3688,7 @@ describe('composer-draft delivery guard [POD-865]', () => {
     expect(queued[0]!.text).toBe('held')
     // Unwrapped operator body confirms when the daemon takes it.
     await applied(svc, asSessionId('s1'), r.message.id)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('delivered')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('the sweep also delivers once the draft clears', async () => {
@@ -4022,7 +4019,7 @@ function queuedDeliveryRow(
     body: id,
     expiresAt: null,
     createdAt,
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     readAt: null,
@@ -4043,7 +4040,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     try {
       const { store, svc, queued } = await harness([session({ sessionId: asSessionId('deliverable') })])
       for (let i = 0; i < 100; i += 1) {
-        await store.messages.addMessage(
+        await seedMessage(store.messages, 
           queuedDeliveryRow(
             `msg_operator_${String(i).padStart(3, '0')}`,
             { kind: 'operator', id: null },
@@ -4051,7 +4048,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
           ),
         )
       }
-      await store.messages.addMessage(
+      await seedMessage(store.messages, 
         queuedDeliveryRow(
           'msg_newer_deliverable',
           { kind: 'session', id: 'deliverable' },
@@ -4077,7 +4074,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     try {
       const { store, svc, queued } = await harness([session({ sessionId: asSessionId('s1') })])
       for (let i = 0; i < 201; i += 1) {
-        await store.messages.addMessage(
+        await seedMessage(store.messages, 
           queuedDeliveryRow(
             `msg_awaiting_${String(i).padStart(3, '0')}`,
             { kind: 'session', id: asSessionId('s1') },
@@ -4089,13 +4086,13 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
             },
           ),
         )
-        await store.messages.markInjected(
+        await store.messages.markDispatched(
           `msg_awaiting_${String(i).padStart(3, '0')}`,
           asSessionId('s1'),
           '2026-07-13T00:00:00.000Z',
         )
       }
-      await store.messages.addMessage(
+      await seedMessage(store.messages, 
         queuedDeliveryRow(
           'msg_after_awaiting',
           { kind: 'session', id: asSessionId('s1') },
@@ -4122,7 +4119,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     try {
       const { store, svc } = await harness([])
       for (let i = 0; i < 2001; i += 1) {
-        await store.messages.addMessage(
+        await seedMessage(store.messages, 
           queuedDeliveryRow(
             `msg_restart_${String(i).padStart(4, '0')}`,
             { kind: 'issue', id: `iss_missing_${String(i).padStart(4, '0')}` },
@@ -4135,7 +4132,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       await vi.runAllTimersAsync()
       await svc.flushDeliveryTriggers()
 
-      expect((await store.messages.getMessage('msg_restart_2000'))?.status).toBe('dead_letter')
+      expect((await store.messages.getMessage('msg_restart_2000'))?.deliveryStatus).toBe('failed')
       svc.dispose()
     } finally {
       vi.useRealTimers()
@@ -4160,20 +4157,20 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         queueText: async () => ({ ok: false, reason: 'offline' }),
       })
       for (let i = 0; i < 501; i += 1) {
-        await first.store.messages.addMessage(
+        await seedMessage(first.store.messages, 
           queuedDeliveryRow(
             `msg_unrelated_wake_${String(i).padStart(3, '0')}`,
             { kind: 'session', id: `unrelated_${i}` },
             `2026-07-12T23:59:59.${String(i).padStart(3, '0')}Z`,
             {
               lifecycle: 'wake',
-              status: 'delivered',
+              deliveryStatus: 'confirmed',
               deliveredAt: '2026-07-13T00:00:00.000Z',
             },
           ),
         )
       }
-      await first.store.messages.addMessage(
+      await seedMessage(first.store.messages, 
         queuedDeliveryRow(
           'msg_old_failed_wake',
           { kind: 'session', id: asSessionId('s1') },
@@ -4477,14 +4474,14 @@ describe('delivery trigger isolation and observability [POD-842]', () => {
         return { ok: true }
       },
     })
-    await store.messages.addMessage(
+    await seedMessage(store.messages, 
       queuedDeliveryRow(
         'msg_bad_startup',
         { kind: 'session', id: 'bad' },
         '2026-07-13T00:00:00.000Z',
       ),
     )
-    await store.messages.addMessage(
+    await seedMessage(store.messages, 
       queuedDeliveryRow(
         'msg_good_startup',
         { kind: 'session', id: 'good' },
@@ -4527,7 +4524,7 @@ describe('duplicate delivery of a queue-parked message [POD-1703]', () => {
       },
     )
     expect(queued).toHaveLength(1)
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
 
     // An operator body renders UNWRAPPED — no `[podium message <id>]` frame — so
     // ECHO_ID_RE can never match it and no echo will ever arrive. Pre-fix the
@@ -4544,7 +4541,7 @@ describe('duplicate delivery of a queue-parked message [POD-1703]', () => {
     ).toEqual([])
     // Still retractable — the point of leaving it `queued` rather than calling
     // the enqueue a delivery.
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
   })
 
   it('never re-pushes a row that is still sitting in the physical queue', async () => {
@@ -4611,7 +4608,7 @@ describe('duplicate delivery of a queue-parked message [POD-1703]', () => {
       .map((e) => e.kind)
     expect(kinds).toContain('message.needs_attention')
     // Refusing a wake must not DROP input — the row waits for an explicit resume.
-    expect((await store.messages.getMessage(r.message.id))!.status).toBe('queued')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
 
     // Deduped per (message, reason): the sweep repeats the refusal every pass.
     await svc.onWakeUnavailable(asSessionId('s1'), 'refused: revoked')
@@ -4661,7 +4658,7 @@ describe('MessageDeliveryService under the async store (POD-3806)', () => {
         { kind: 'operator' },
         { to: { kind: 'session', id: asSessionId('s1') }, body: 'x', lifecycle: 'wake' },
       )
-      expect(r.message.status).toBe('queued')
+      expect(r.message.deliveryStatus).toBe('stored')
       notifiedInsideTheSpan = attention.length
       // The statement the lock bug died on: same span, after the alarm fired.
       await store.issues.getIssue(asIssueId('iss_after'))
@@ -4685,7 +4682,7 @@ describe('MessageDeliveryService under the async store (POD-3806)', () => {
         { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
         { to: { kind: 'issue', id: ISSUE.id }, body: 'status to self' },
       )
-      expect(r.message.status).toBe('delivered')
+      expect(r.message.deliveryStatus).toBe('confirmed')
       await store.issues.getIssue(asIssueId('iss_after'))
     })
   })

@@ -102,6 +102,6 @@ describe('a headless follow-up sent through the web route (POD-4647)', () => {
     // queue decides when the agent sees it.
     await vi.waitFor(() => expect(s.handedToDaemon(text)).toHaveLength(1))
     const row = await s.store.messages.getMessage(sent.message.id)
-    expect(row).toMatchObject({ status: 'queued', injectedAt: expect.any(String) })
+    expect(row).toMatchObject({ deliveryStatus: 'dispatched', injectedAt: expect.any(String) })
   })
 })

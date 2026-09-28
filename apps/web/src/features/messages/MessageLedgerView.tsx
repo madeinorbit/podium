@@ -49,10 +49,10 @@ function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
         <span
           className={cn(
             'rounded-full px-1.5 shell-type-micro font-semibold uppercase tracking-wide',
-            STATUS_CHIP[ledgerStatusTone(m.status)],
+            STATUS_CHIP[ledgerStatusTone(m.deliveryStatus)],
           )}
         >
-          {m.status}
+          {m.deliveryStatus}
         </span>
         {m.ackedBy && (
           <span className="rounded-full bg-success/15 px-1.5 shell-type-micro font-semibold uppercase tracking-wide text-success">

@@ -176,7 +176,7 @@ describe('queued message retraction', () => {
       'trpc',
     )) as { status: string }
     expect(cancelled.status).toBe('cancelled')
-    expect((await h.svc.message(sent.id))?.status).toBe('cancelled')
+    expect((await h.svc.message(sent.id))?.deliveryStatus).toBe('cancelled')
   })
 })
 
@@ -388,7 +388,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
       },
     )) as { id: string; status: string }[]
     expect(rows.map((m) => m.status)).toEqual(['read'])
-    expect((await h.svc.message(rows[0]!.id))!).toMatchObject({ status: 'read', deliveredTo: 'sMe' })
+    expect((await h.svc.message(rows[0]!.id))!).toMatchObject({ deliveryStatus: 'confirmed', deliveredTo: 'sMe' })
   })
 
   it('returns a DESCENDANT issue’s box unfiltered but does NOT consume it (a peek is not a consume)', async () => {
@@ -416,7 +416,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
     // traffic once principals are people.
     expect(rows.map((m) => m.body)).toEqual(['not for the parent'])
     // And it is NOT consumed: still queued for its real recipient.
-    expect((await h.svc.message(foreign.message.id))!.status).toBe('queued')
+    expect((await h.svc.message(foreign.message.id))!.deliveryStatus).toBe('stored')
     expect(rows[0]!.status).toBe('queued')
   })
 
@@ -447,7 +447,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
     expect(rows.map((m) => m.body)).toEqual(['mine to see'])
     expect(rows[0]!.id).toBe(own.message.id)
     // A peek never consumes outside the caller's own box either.
-    expect((await h.svc.message(own.message.id))!.status).not.toBe('read')
+    expect((await h.svc.message(own.message.id))!.deliveryStatus).not.toBe('confirmed')
   })
 
   it('consumes the caller’s OWN principals on a bare inbox, and refuses a caller with no mailbox', async () => {
@@ -572,7 +572,7 @@ describe('read-surface and reply authz (A5)', () => {
       },
     )) as { status: string }
     expect(shown.status).toBe('queued')
-    expect((await h.svc.message(oid))!.status).toBe('queued')
+    expect((await h.svc.message(oid))!.deliveryStatus).toBe('dispatched')
 
     // The recipient may reply; so may the operator.
     expect(
@@ -657,7 +657,7 @@ describe('the operator principal class (A6)', () => {
     const before = h.pushes.length
     await h.svc.sweep()
     expect(h.pushes.length).toBeGreaterThan(before)
-    expect((await h.svc.message(queuedWake.message.id))!.status).toBe('queued')
+    expect((await h.svc.message(queuedWake.message.id))!.deliveryStatus).toBe('stored')
   })
 
   it('renders the labels as "the operator" on both sides', async () => {
@@ -699,10 +699,10 @@ describe('the operator principal class (A6)', () => {
     h.advance(WAKE_COOLDOWN_MS * 10)
     await h.svc.sweep()
     expect(h.pushes).toEqual([])
-    expect((await h.svc.message(r.message.id))!.status).toBe('queued')
+    expect((await h.svc.message(r.message.id))!.deliveryStatus).toBe('stored')
     // An inbox read does NOT consume an operator-addressed row either.
     await h.svc.readInbox([{ kind: 'operator' }], { consume: null })
-    expect((await h.svc.message(r.message.id))!.status).toBe('queued')
+    expect((await h.svc.message(r.message.id))!.deliveryStatus).toBe('stored')
   })
 
   it('falls back to kind operator in replyTarget for superagent, operator and system senders', async () => {
@@ -804,7 +804,7 @@ describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
       body: 'from the old world',
       expiresAt: null,
       createdAt: h.now(),
-      status: 'queued',
+      deliveryStatus: 'stored',
       deliveredAt: null,
       deliveredTo: null,
       ackedBy: null,

@@ -133,7 +133,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
     // queued, stamped injected, awaiting the echo. `unverified` describes the
     // EVIDENCE, and does not invent a new resting state for the message.
     const row = (await h.svc.message(r.id))!
-    expect(row.status).toBe('queued')
+    expect(row.deliveryStatus).toBe('dispatched')
     expect(row.injectedAt).toBeTruthy()
   })
 
@@ -163,13 +163,13 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
       to: `#${iss.seq}`,
       body: 'echo me',
     })) as { id: string }
-    expect((await h.svc.message(r.id))!.status).toBe('queued')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('dispatched')
 
     // `unverified` is unproven, not failed — so the ordinary confirmation path
     // is still open and still the thing that settles the row.
     await h.svc.onTranscriptDelta(target, [{ role: 'user', text: `[podium message ${r.id} · from x]` }])
     const delivered = (await h.svc.message(r.id))!
-    expect(delivered.status).toBe('delivered')
+    expect(delivered.deliveryStatus).toBe('confirmed')
     expect(
       (await h.events(['message.delivered'])).map(
         (e) => (e.payload as { confirmedVia: string }).confirmedVia,
@@ -215,13 +215,13 @@ describe('flag-on delivery: the window is open until the driver answers (R3)', (
     // The echo beats the driver's window closing — an ordinary race once sends
     // stop being instantaneous.
     await h.svc.onTranscriptDelta(target, [{ role: 'user', text: `[podium message ${r.id} · from x]` }])
-    expect((await h.svc.message(r.id))!.status).toBe('delivered')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('confirmed')
 
     await h.settleReceipts()
     // LATE EVIDENCE ABOUT A CLOSED QUESTION. The receipt is recorded for the
     // ledger's benefit, but a delivered row must never walk backwards because
     // the driver could not prove what the transcript already showed.
-    expect((await h.svc.message(r.id))!.status).toBe('delivered')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('confirmed')
   })
 })
 
@@ -285,7 +285,7 @@ describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
       },
     )
 
-    expect(await h.svc.message(sent.message.id)).toMatchObject({ status: 'dead_letter' })
+    expect(await h.svc.message(sent.message.id)).toMatchObject({ deliveryStatus: 'failed' })
     expect(h.pushes.filter((push) => push.sessionId === sender).map((push) => push.text)).toEqual([
       expect.stringContaining('this agent cannot accept file attachments'),
     ])

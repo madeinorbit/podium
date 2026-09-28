@@ -1,5 +1,6 @@
-import type { SessionId } from '@podium/model'
+import { isMessagePending, MessageDelivery, type SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
+import { moved } from '../../store/messages'
 import type { EventBus } from '../bus'
 import type { MessageDeliveryDeps, MessageDeliveryService } from './service'
 
@@ -25,7 +26,11 @@ export class QueuedMessageApply {
   async authorize(messageId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
-    if (message.status !== 'queued') return { ok: false, reason: `message is ${message.status}` }
+    // Typing it must still be a move the lifecycle allows: not ended, not already
+    // typed, not lost track of.
+    if (!MessageDelivery.canMove(message.deliveryStatus, 'typed')) {
+      return { ok: false, reason: `message is ${message.deliveryStatus}` }
+    }
     return await this.deps.authorize(message)
   }
 
@@ -43,9 +48,9 @@ export class QueuedMessageApply {
 
   async reject(messageId: string, reason: string): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
-    if (!message || message.status !== 'queued') return
+    if (!message || !isMessagePending(message.deliveryStatus)) return
     const at = this.deps.now()
-    // AN INJECTED-BUT-UNCONFIRMED ROW IS NOT A VANISHED TARGET [POD-4704]. The
+    // A HANDED-ON ROW IS NOT A VANISHED TARGET [POD-4704]. The
     // inbox settles a forwarded row as failed when the daemon never confirmed
     // it — typed but cut off mid-turn, never applied — and lands here, as does
     // a drain-time refusal of a row already queued behind it. Without a cause
@@ -53,11 +58,8 @@ export class QueuedMessageApply {
     // (POD-4604 run 13), so stamp `delivery-failed`: the delivery is what
     // failed, not the target. Rows never pushed keep no cause, and downstream
     // readers correctly read those as a vanished target.
-    if (!await this.deps.messages.markDeadLetter(
-      message.id,
-      at,
-      message.injectedAt != null ? 'delivery-failed' : undefined,
-    )) return
+    const cause = message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined
+    if (!moved(await this.deps.messages.markDeadLetter(message.id, at, cause))) return
     await this.deps.events.appendEvent({
       ts: at,
       kind: 'message.dead_letter',
@@ -68,7 +70,7 @@ export class QueuedMessageApply {
         fromKind: message.fromKind,
         toKind: message.toKind,
         ...(message.toId ? { toId: message.toId } : {}),
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         reason,
       },
     })

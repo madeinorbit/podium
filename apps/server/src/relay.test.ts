@@ -6651,7 +6651,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
           urgency: 'next-turn',
         },
       )
-      expect(sent.message.status).toBe('queued')
+      expect(sent.message.deliveryStatus).toBe('dispatched')
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       const [request] = durableSends(daemon, sessionId)
       expect(request).toMatchObject({
@@ -6673,7 +6673,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
         reportId: 'report-after-restart',
       })
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'queued',
+        deliveryStatus: 'dispatched',
       })
       expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
 
@@ -6728,7 +6728,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       // The spawn (version probe + handshake + thread mint) is still in
       // flight: the row rides the durable queue, visibly.
       const sent = await sendFirstPrompt(registry, sessionId)
-      expect(sent.message.status).toBe('queued')
+      expect(sent.message.deliveryStatus).toBe('dispatched')
 
       // The server does not wait for the agent (cfb9924a7 POD-4661): the row is
       // handed to the daemon's delivery queue, whose readiness wait is its own.
@@ -6750,7 +6750,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
         receipt: { outcome: 'queued', position: 1, deliveredAs: 'queue', at: '2026-01-01T00:00:00.000Z' },
       })
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'queued',
+        deliveryStatus: 'dispatched',
       })
       await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
@@ -6758,7 +6758,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       )
       await vi.waitFor(async () =>
         expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-          status: 'delivered',
+          deliveryStatus: 'confirmed',
         }),
       )
       expect(ptyInputsWith(daemon, 'first prompt')).toEqual([])
@@ -6796,7 +6796,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       // The row is still queued — the chat view keeps rendering its pending
       // bubble — and nothing ever typed PTY bytes at the bridgeless session.
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'queued',
+        deliveryStatus: 'dispatched',
       })
       expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       expect(ptyInputsWith(daemon, 'first prompt')).toEqual([])
@@ -7011,7 +7011,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         cwd: '/repo',
       })
       const sent = await sendPrompt(registry, sessionId)
-      expect(sent.message.status).toBe('queued')
+      expect(sent.message.deliveryStatus).toBe('dispatched')
 
       await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
@@ -7026,7 +7026,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       expect(durableSends(daemon, sessionId)[0]?.text).toContain('skewed prompt')
       // Custody was never acknowledged, so nothing may call it delivered.
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'queued',
+        deliveryStatus: 'dispatched',
       })
       expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
     } finally {
@@ -7062,7 +7062,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       await new Promise((resolve) => setTimeout(resolve, 250))
 
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'queued',
+        deliveryStatus: 'dispatched',
       })
       expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
@@ -7087,7 +7087,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         cwd: '/repo',
       })
       const sent = await sendPrompt(registry, sessionId)
-      expect(sent.message.status).toBe('queued')
+      expect(sent.message.deliveryStatus).toBe('dispatched')
 
       await registry.gateway.routeDaemonFrame(
         registry.sessionStore.hostMachineId,
@@ -7098,7 +7098,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
         expect(durableSends(daemon, sessionId)).toHaveLength(1)
       })
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'queued',
+        deliveryStatus: 'dispatched',
       })
       expect(ptyInputsWith(daemon, 'skewed prompt')).toEqual([])
     } finally {
@@ -7207,7 +7207,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         },
         { to: { kind: 'issue', id: issue.id }, body: 'deliver after bind' },
       )
-      expect(sent.message.status).toBe('queued')
+      expect(sent.message.deliveryStatus).toBe('dispatched')
       await vi.advanceTimersByTimeAsync(1_000)
       const handedOn = () => durableSendsWith(daemon, 'deliver after bind')
       expect(handedOn()).toHaveLength(1)

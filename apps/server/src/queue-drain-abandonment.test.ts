@@ -170,7 +170,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
         at: '2026-01-01T00:00:00.000Z',
       },
     })
-    expect((await store.messages.getMessage(sent.message.id))?.status).toBe('queued')
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('dispatched')
     return { sessionId, messageId: sent.message.id }
   }
 
@@ -197,14 +197,14 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     try {
       await vi.waitFor(() => expect(write).toHaveBeenCalled())
       expect(acksFor('delayed-report')).toHaveLength(0)
-      expect((await store.messages.getMessage(messageId))?.status).toBe('queued')
+      expect((await store.messages.getMessage(messageId))?.deliveryStatus).toBe('dispatched')
     } finally {
       release()
       await delivery
       write.mockRestore()
     }
     expect(acksFor('delayed-report')).toHaveLength(1)
-    expect((await store.messages.getMessage(messageId))?.status).toBe('dead_letter')
+    expect((await store.messages.getMessage(messageId))?.deliveryStatus).toBe('failed')
   })
 
   it.each([
@@ -227,7 +227,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
 
     // Read straight from the store, not from the service that wrote it.
     expect(await store.messages.getMessage(messageId)).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deliveryDeferredReason: reason,
       deliveredTo: sessionId,
     })
@@ -254,7 +254,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     // The first report is the one that stands: no second stamp, no rewritten
     // reason, and exactly one terminal transition on the ledger.
     expect(await store.messages.getMessage(messageId)).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deadLetteredAt: firstStamp,
       deliveryDeferredReason: 'never-live',
     })
@@ -285,7 +285,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     // READ THIS ONE HONESTLY: it is a negative, so unlike its neighbours it
     // still passes with the consumer wiring cut out entirely. It pins the
     // refusal, not the path. The cases above are what prove the path.
-    expect((await store.messages.getMessage(messageId))?.status).toBe('queued')
+    expect((await store.messages.getMessage(messageId))?.deliveryStatus).toBe('dispatched')
   })
 
   it('tells the sender what happened, in words about their message', async () => {

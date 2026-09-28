@@ -138,7 +138,7 @@ function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Messa
     body: input.id,
     expiresAt: null,
     createdAt: 't0',
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     readAt: null,
@@ -164,7 +164,8 @@ describe('world index committed facts', () => {
     await store.machines.upsertMachine(machine)
     await store.messages.addMessage(message({ id: 'one' }))
     await store.messages.addMessage(message({ id: 'two' }))
-    await store.messages.addMessage(message({ id: 'done', status: 'delivered' }))
+    await store.messages.addMessage(message({ id: 'done' }))
+    await store.messages.markDelivered('done', null, 't1')
     const loading = queryAttributionEnabled
       ? await statementBudget(() => WorldIndex.load(store))
       : null
@@ -496,7 +497,8 @@ describe('world index committed facts', () => {
     const index = await WorldIndex.load(store)
     const apply = vi.spyOn(index, 'apply')
     const writes: Array<[string, (id: string) => Promise<unknown>]> = [
-      ['markInjected', (id) => store.messages.markInjected(id, session, at)],
+      ['markDispatched', (id) => store.messages.markDispatched(id, session, at)],
+      ['markTyped', (id) => store.messages.markTyped(id, session, at)],
       ['markDelivered', (id) => store.messages.markDelivered(id, null, at)],
       ['markCancelled', (id) => store.messages.markCancelled(id)],
       ['markDeliveredByPull', (id) => store.messages.markDeliveredByPull(id, null, at)],
@@ -529,26 +531,29 @@ describe('world index committed facts', () => {
         await store.messages.countPending({ kind: 'issue', id: 'iss_target' }),
       )
     }
-    for (const initial of ['queued', 'delivered'] as const) {
-      for (const transition of ['requeue', 'refuse', 'read'] as const) {
-        const id = initial + transition
-        await store.messages.addMessage(message({ id, status: initial, deliveredTo: session }))
-        if (initial === 'queued') await store.messages.markInjected(id, session, at)
-        apply.mockClear()
-        if (transition === 'requeue') await store.messages.retractOptimisticDelivery(id, session)
-        else if (transition === 'refuse')
-          await store.messages.markSendRefused(id, session, at, 'teardown')
-        else await store.messages.markRead(id, null, at)
-        expect(apply).toHaveBeenCalledTimes(1)
-        expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(
-          await store.messages.countPending({ kind: 'issue', id: 'iss_target' }),
-        )
-      }
+    for (const transition of ['refuse', 'read'] as const) {
+      const id = `dispatched-${transition}`
+      await store.messages.addMessage(message({ id }))
+      await store.messages.markDispatched(id, session, at)
+      apply.mockClear()
+      if (transition === 'refuse') await store.messages.markSendRefused(id, session, at, 'teardown')
+      else await store.messages.markRead(id, null, at)
+      expect(apply).toHaveBeenCalledTimes(1)
+      expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(
+        await store.messages.countPending({ kind: 'issue', id: 'iss_target' }),
+      )
     }
     if (queryAttributionEnabled) {
-      const budget = await statementBudget(() => store.messages.markCancelled('absent'))
-      expect([...budget.byQuery.keys()].filter((sql) => /^select /i.test(sql))).toEqual([])
-      expect([...budget.byQuery.keys()].filter((sql) => /^update /i.test(sql))).toHaveLength(1)
+      // A move that applies is ONE statement: no before-image read. Only a move
+      // that did not apply reads the row once, by primary key, to say whether
+      // it was already there or refused.
+      await store.messages.addMessage(message({ id: 'budget' }))
+      const applied = await statementBudget(() => store.messages.markCancelled('budget'))
+      expect([...applied.byQuery.keys()].filter((sql) => /^select /i.test(sql))).toEqual([])
+      expect([...applied.byQuery.keys()].filter((sql) => /^update /i.test(sql))).toHaveLength(1)
+      const refused = await statementBudget(() => store.messages.markCancelled('absent'))
+      expect([...refused.byQuery.keys()].filter((sql) => /^select /i.test(sql))).toHaveLength(1)
+      expect([...refused.byQuery.keys()].filter((sql) => /^update /i.test(sql))).toHaveLength(1)
     }
   })
 })
@@ -596,7 +601,7 @@ describe('pending message counter properties', () => {
       } else if (operation === 3) {
         await store.messages.expireObserved({ id, createdAt: 't0', lifecycle: 'wait', expiresAt: null })
       } else {
-        await store.messages.retractOptimisticDelivery(id, session)
+        await store.messages.markDispatched(id, session, at)
       }
       await check()
       if (step % 25 === 0) {

@@ -29,8 +29,12 @@ import { z } from 'zod'
 // kind — but not for a NEW one: a v4 janitor's worktree-gc command fails a v3
 // server's `MaintenanceCommand` parse outright, which is a 400 rather than a
 // refusal with a reason. Same bump, same reason, as v2's session-auto-archive.
+// schema v5 (POD-4765): message expiry reads `messages.delivery_status` and its
+// expiry indexes, which exist only from that migration. A v5 janitor facing a
+// v4 server's database would fail every expiry read; the handshake refuses it
+// instead. The command shapes are unchanged, so the protocol version is too.
 export const MAINTENANCE_PROTOCOL_VERSION = 4
-export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v4'
+export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v5'
 export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
 /** Shared retention constants the janitor and server both honor. */

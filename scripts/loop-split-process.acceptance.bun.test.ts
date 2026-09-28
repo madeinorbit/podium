@@ -44,7 +44,7 @@ function dueMessage(id: string): MessageRow {
     body: 'due',
     expiresAt: '2026-07-01T00:00:00.000Z',
     createdAt: '2026-06-30T00:00:00.000Z',
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     ackedBy: null,
@@ -293,9 +293,9 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
         ])
         expect(first.child.pid).toBeGreaterThan(0)
         if (boundary === 'before-apply') {
-          expect((await harness.store.messages.getMessage(message.id))?.status).toBe('queued')
+          expect((await harness.store.messages.getMessage(message.id))?.deliveryStatus).toBe('stored')
         } else {
-          expect((await harness.store.messages.getMessage(message.id))?.status).toBe('expired')
+          expect((await harness.store.messages.getMessage(message.id))?.deliveryStatus).toBe('expired')
           expect(await expiredEventCount(harness.store, message.id)).toBe(1)
         }
         await kill(first.child, 'SIGKILL')
@@ -307,7 +307,7 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
         const recovered = spawnJanitor(dir, harness.dbPath, harness.serverUrl, recoveredStarted)
         try {
           await waitUntil(
-            async () => (await harness.store.messages.getMessage(message.id))?.status === 'expired',
+            async () => (await harness.store.messages.getMessage(message.id))?.deliveryStatus === 'expired',
             'janitor recovery apply',
           )
           await waitUntil(() => existsSync(recoveredStarted), 'recovered janitor start')
@@ -404,7 +404,7 @@ describe('real user-systemd recovery acceptance [spec:SP-c29e]', () => {
           throw new Error('janitor did not enter watchdog hang')
         }),
       ])
-      expect((await harness.store.messages.getMessage(message.id))?.status).toBe('expired')
+      expect((await harness.store.messages.getMessage(message.id))?.deliveryStatus).toBe('expired')
       await waitUntil(
         () => {
           const pid = Number(systemctl(unit, 'MainPID'))

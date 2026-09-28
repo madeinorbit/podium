@@ -11,9 +11,9 @@
  * `waitFor`, and impossible to notice.
  *
  * The three properties this file exists to hold down:
- *   - a refusal whose cause CLEARS ON ITS OWN puts the row back in the queue,
- *     un-pushed, and the machinery that was already going to retry it does. This
- *     path pushes nothing itself.
+ *   - a refusal whose cause CLEARS ON ITS OWN hands the row to the session's
+ *     durable queue, which types it when the session can take it. The status
+ *     stays `dispatched`: it never walks back (POD-4765).
  *   - a refusal whose cause does NOT clear goes terminal and tells the sender
  *     once, in the SAME words the drain-abandonment route uses for the same news.
  *   - a refusal still never moves a row the echo, a read or a cancellation
@@ -50,11 +50,13 @@ const SHOT = {
 }
 
 /** The issue's own case: an operator chat line into a live session. It is
- *  UNWRAPPED — no envelope, so no id can ever echo — which is exactly why
- *  `injectAndMark` marks it delivered outright and why a refusal afterwards has
- *  nobody else to correct it. */
+ *  UNWRAPPED — no envelope, so no id can ever echo — so only the driver's receipt
+ *  (or a turn boundary) can confirm it, and a refusal has nobody else to correct
+ *  it. The durable queue a clearing refusal hands the row to accepts it. */
 const chatHarness = async (answer: () => TurnReceipt, opts?: { defer?: boolean }) => {
-  const h = await mailHarness({ receipts: { defer: opts?.defer ?? true, answer } })
+  const h = await mailHarness({
+    receipts: { defer: opts?.defer ?? true, answer: (via) => (via === 'queue' ? QUEUED : answer()) },
+  })
   const iss = await h.createIssue({ title: 'target' })
   h.put({ sessionId: TARGET, issueId: iss.id, phase: 'idle' })
   return h
@@ -86,81 +88,87 @@ const transitions = async (
   id: string,
 ) => (await h.events([kind])).filter((e) => e.subject === id)
 
-describe('a refusal that will clear puts the row back in the queue (F1)', () => {
-  it('retracts the optimistic delivery of a chat line the driver refused as busy', async () => {
+describe('a refusal that will clear hands the row to the durable queue (F1)', () => {
+  it('queues a chat line the driver refused as busy, and never walks its status back', async () => {
     const h = await chatHarness(() =>
       refused('busy', 'a turn was still open when the ready window closed'),
     )
     const id = await chat(h, 'are you there?')
 
-    // THE OPTIMISTIC HALF, which is not itself the bug: the bytes are on their
-    // way and the operator's bubble says so.
-    expect(await h.svc.message(id)).toMatchObject({ status: 'delivered', deliveredTo: TARGET })
+    // HANDED ON, NOT DELIVERED. A receipt is coming, so the push is only
+    // dispatched until it answers — a confirmed row could never move again.
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'dispatched', deliveredTo: TARGET })
+    expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText'])
 
     await h.settleReceipts()
 
-    // THE DEFECT, CLOSED. `busy` means a turn was open — it ends on its own — so
-    // the honest correction is to undo the claim and let the row wait its turn.
-    // `injectedAt` cleared is what makes the retry machinery see an un-pushed row
-    // rather than one still inside its echo window.
-    expect(await h.svc.message(id)).toMatchObject({
-      status: 'queued',
-      deliveredAt: null,
-      injectedAt: null,
-      // The last place it was aimed SURVIVES. It is the only evidence of which
-      // session refused, and the sweep re-resolves the target rather than
-      // trusting it.
-      deliveredTo: TARGET,
-    })
+    // `busy` means a turn was open — it ends on its own — so the row goes to the
+    // session's durable queue, which types it when the session can take it. The
+    // status stays where it was: dispatched to the same session.
+    expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText', 'queueText'])
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'dispatched', deliveredTo: TARGET })
     expect(await transitions(h, 'message.requeued', id)).toHaveLength(1)
-  })
-
-  it('re-queues rather than re-pushing — the retry is the sweep, not this path', async () => {
-    let sends = 0
-    const h = await chatHarness(() => {
-      sends += 1
-      return sends === 1 ? refused('needs_user', 'a native prompt is open') : ACCEPTED
-    })
-    const id = await chat(h, 'answer me when you can')
-    const afterSend = h.pushes.length
-
-    await h.settleReceipts()
-    // NOTHING WAS SENT BY THE CORRECTION ITSELF. A refusal that pushed would be
-    // the retry storm the `unverified` policy forbids, wearing a different name.
-    expect(h.pushes).toHaveLength(afterSend)
-
-    // The ordinary backstop finds an un-pushed queued row and carries it, which
-    // is the whole reason re-queueing is a sufficient answer.
-    await h.svc.sweep()
-    await h.settleReceipts()
-    expect(h.pushes.length).toBe(afterSend + 1)
-    expect((await h.svc.message(id))!.status).toBe('delivered')
-  })
-
-  it('treats a held control lease the same way — the human lets go eventually', async () => {
-    const h = await chatHarness(() => refused('lease_held', 'held by a human-controller'))
-    const id = await chat(h, 'when you are free')
-
-    await h.settleReceipts()
-
-    expect((await h.svc.message(id))!.status).toBe('queued')
-    // A re-queue is NOT a dead-letter, so the sender is told nothing: the message
-    // is still on its way and a notice would be a lie in the other direction.
     expect(await notices(h)).toEqual([])
   })
 
-  it('clears the read receipt the optimistic delivery recorded', async () => {
+  it('treats needs_user and a held control lease the same way', async () => {
+    for (const reason of ['needs_user', 'lease_held'] as const) {
+      const h = await chatHarness(() => refused(reason))
+      const id = await chat(h, `when you are free (${reason})`)
+
+      await h.settleReceipts()
+
+      expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
+      expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText', 'queueText'])
+      // Queued is NOT failed, so the sender is told nothing: the message is
+      // still on its way and a notice would be a lie in the other direction.
+      expect(await notices(h)).toEqual([])
+    }
+  })
+
+  it('fails the row when the queue refuses it too, instead of stranding it', async () => {
+    const h = await mailHarness({
+      receipts: {
+        defer: true,
+        answer: (via) => (via === 'queue' ? refused('session_ended') : refused('busy')),
+      },
+    })
+    const iss = await h.createIssue({ title: 'target' })
+    h.put({ sessionId: TARGET, issueId: iss.id, phase: 'idle' })
+    const id = await chat(h, 'nowhere to wait')
+
+    await h.settleReceipts()
+    await h.settleReceipts()
+
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('failed')
+    expect(await transitions(h, 'message.dead_letter', id)).toHaveLength(1)
+    expect(await notices(h)).toHaveLength(1)
+  })
+
+  it('never records a reader receipt for a push that was only handed on', async () => {
     const h = await chatHarness(() => refused('busy'))
     const id = await chat(h, 'unread, actually')
 
-    // `markDelivered` records a per-reader receipt [POD-1379]. Left standing, it
-    // says this session saw a message it never got — the same lie one table over,
-    // and the one that hides the row from that session's own pending set.
-    expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(true)
+    // A per-reader receipt says this session saw it; a push the driver has not
+    // answered yet has not been seen by anyone [POD-1379].
+    expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(false)
+    await h.settleReceipts()
+    expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(false)
+  })
+})
+
+describe('the receipt, not the push, confirms a direct send (POD-4765)', () => {
+  it('confirms the chat line when the driver accepts it, once', async () => {
+    const h = await chatHarness(() => ACCEPTED)
+    const id = await chat(h, 'take it')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
     await h.settleReceipts()
+    await h.replayReceipts()
 
-    expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(false)
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'confirmed', deliveredTo: TARGET })
+    // A repeated acceptance is already there: one transition, not two.
+    expect(await transitions(h, 'message.delivered', id)).toHaveLength(1)
   })
 })
 
@@ -168,14 +176,14 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
   it('dead-letters a chat line the driver refused as not_running, and tells the sender', async () => {
     const h = await chatHarness(() => refused('not_running', 'the daemon dropped the handle'))
     const id = await chat(h, 'anyone home?')
-    expect((await h.svc.message(id))!.status).toBe('delivered')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
     await h.settleReceipts()
 
     // TERMINAL, with the same stamps the drain-abandonment route writes — one
     // undelivered turn reads the same way whichever route reported it.
     expect(await h.svc.message(id)).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deadLetteredAt: h.now(),
       deliveryDeferredAt: h.now(),
       deliveryDeferredReason: 'delivery-failed',
@@ -198,7 +206,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     await h.settleReceipts()
 
     expect(await h.svc.message(id)).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deliveryDeferredReason: 'teardown',
     })
     expect((await notices(h))[0]).toContain('torn down before it could be typed into')
@@ -215,7 +223,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     await h.settleReceipts()
 
     expect(await h.svc.message(id)).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deliveryDeferredReason: 'delivery-failed',
     })
     expect((await notices(h))[0]).toContain('failed to hand it to the agent')
@@ -234,23 +242,23 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
       body: 'here is the screenshot',
       attachments: [SHOT],
     })) as { id: string }
-    expect(await h.svc.message(r.id)).toMatchObject({ status: 'delivered', injectedAt: null })
+    expect(await h.svc.message(r.id)).toMatchObject({ deliveryStatus: 'dispatched' })
 
     await h.settleReceipts()
 
     expect(await h.svc.message(r.id)).toMatchObject({
-      status: 'dead_letter',
+      deliveryStatus: 'failed',
       deliveryDeferredReason: 'delivery-failed',
     })
     expect(await transitions(h, 'message.dead_letter', r.id)).toHaveLength(1)
     expect(await notices(h)).toHaveLength(1)
   })
 
-  it('leaves no refusal reason able to keep an optimistic delivery standing', async () => {
+  it('leaves no refusal reason able to strand a dispatched row', async () => {
     // THE GUARD FOR THE NEXT ARM. `staging_failed` was added to the protocol
     // after this table was written, and only the exhaustive Record caught it.
     // This is the runtime half of that: every reason the enum can carry must
-    // move the row OFF optimistic-delivered. `no_resume_ref` is the one
+    // either fail the row or hand it to the durable queue. `no_resume_ref` is the one
     // documented exception — it is answered synchronously by injectAndMark's own
     // spawn-on-wake branch, which is about to deliver the row this path would
     // otherwise kill. A future arm that belongs in that exception has to be
@@ -261,16 +269,17 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
       if (answeredElsewhere.includes(reason)) continue
       const h = await chatHarness(() => refused(reason))
       const id = await chat(h, `refuse me as ${reason}`)
-      // The optimism this issue is about: delivered before the driver answered.
-      expect(await h.svc.message(id)).toMatchObject({ status: 'delivered', injectedAt: null })
+      expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'dispatched' })
+      const before = h.pushes.length
 
       await h.settleReceipts()
 
       const after = (await h.svc.message(id))!
+      const queued = h.pushes.slice(before).some((p) => p.fn === 'queueText')
       expect(
-        after.status === 'delivered' && after.injectedAt === null,
-        `'${reason}' left the row optimistically delivered — it must re-queue or dead-letter`,
-      ).toBe(false)
+        after.deliveryStatus === 'failed' || (after.deliveryStatus === 'dispatched' && queued),
+        `'${reason}' stranded the row — it must fail or go to the durable queue`,
+      ).toBe(true)
     }
   })
 
@@ -306,14 +315,14 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     })) as { id: string }
 
     await h.svc.onTranscriptDelta(TARGET, [{ role: 'user', text: `[podium message ${r.id} · from x]` }])
-    expect((await h.svc.message(r.id))!.status).toBe('delivered')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('confirmed')
 
     await h.settleReceipts()
 
     // THE AGENT DEMONSTRABLY HAS IT. Its own transcript shows the envelope, and a
     // driver that could not prove what the transcript already showed must not
     // dead-letter it — that would be this issue's defect in the mirror.
-    expect((await h.svc.message(r.id))!.status).toBe('delivered')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('confirmed')
     expect(await notices(h)).toEqual([])
   })
 
@@ -334,15 +343,17 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     expect(await notices(h)).toHaveLength(1)
   })
 
-  it('makes exactly one re-queue when a clearing refusal repeats', async () => {
+  it('hands the row to the queue once when a clearing refusal repeats', async () => {
     const h = await chatHarness(() => refused('busy'))
     const id = await chat(h, 'again, then')
 
     await h.settleReceipts()
+    const afterFirst = h.pushes.length
     await h.replayReceipts()
 
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
     expect(await transitions(h, 'message.requeued', id)).toHaveLength(1)
+    expect(h.pushes).toHaveLength(afterFirst)
   })
 
   it('records a receipt that arrives BEFORE its caller recorded, but does not settle on it', async () => {
@@ -371,7 +382,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     ])
     // But the row is where the durable queue put it, still deliverable, because
     // the caller owns a synchronous answer.
-    expect((await h.svc.message(r.id))!.status).toBe('queued')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('dispatched')
     expect(await notices(h)).toEqual([])
   })
 
@@ -396,7 +407,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
       urgency: 'next-turn',
     })) as { id: string }
 
-    expect((await h.svc.message(r.id))!.status).toBe('dead_letter')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('failed')
     // No steward notice: the sender was already told, synchronously, by the
     // `ok: false` their own send returned. Two notices for one refusal is the
     // same disrespect as none, from the other side.
@@ -427,7 +438,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
       urgency: 'next-turn',
     })) as { id: string }
 
-    expect((await h.svc.message(r.id))!.status).toBe('queued')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('dispatched')
     expect(await notices(h)).toEqual([])
   })
 
@@ -445,10 +456,18 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // `unverified` means the keystrokes WERE delivered and acceptance could not be
     // proven. Correcting on it would turn the one honest outcome in the contract
     // into a duplicate turn — the exact reading this issue must not widen into.
-    expect((await h.svc.message(id))!.status).toBe('delivered')
+    // It stays handed on; a turn boundary or the transcript confirms it later.
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
     expect(await notices(h)).toEqual([])
   })
 })
+
+const QUEUED: TurnReceipt = {
+  outcome: 'queued',
+  position: 1,
+  deliveredAs: 'queue',
+  at: '2026-07-20T12:00:00.000Z',
+}
 
 const ACCEPTED: TurnReceipt = {
   outcome: 'accepted',

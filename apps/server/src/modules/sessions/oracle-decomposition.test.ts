@@ -352,7 +352,7 @@ describe('oracle: queued sends re-authorize at drain', () => {
       h.put({ sessionId: asSessionId('target-agent'), issueId: target.id, phase: 'idle' })
       await h.svc.sweep()
 
-      expect((await h.svc.message(sent.message.id))?.status).toBe('dead_letter')
+      expect((await h.svc.message(sent.message.id))?.deliveryStatus).toBe('failed')
       expect(h.pushes.filter((push) => push.sessionId === 'target-agent')).toEqual([])
       expect(
         (await h.svc.inbox([{ kind: 'session', id: 'sender-agent' }], { limit: 50 })).some((message) =>

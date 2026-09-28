@@ -31,8 +31,8 @@ describe('queued message completion', () => {
     const apply = new QueuedMessageApply({
       ...({} as ConstructorParameters<typeof QueuedMessageApply>[0]),
       messages: {
-        getMessage: async () => ({ id: 'm1', status: 'queued' }),
-        markDeadLetter: async () => true,
+        getMessage: async () => ({ id: 'm1', deliveryStatus: 'stored' }),
+        markDeadLetter: async () => ({ kind: 'applied' }),
       } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['messages'],
       events: { appendEvent: async () => { throw failure } } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['events'],
       bus: { emit } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['bus'],
@@ -67,7 +67,7 @@ describe('queued message completion', () => {
 })
 
 describe('reject stamps a cause for injected-but-unconfirmed rows [POD-4704]', () => {
-  function rejectHarness(row: { id: string; status: string; injectedAt: string | null }) {
+  function rejectHarness(row: { id: string; deliveryStatus: string; injectedAt: string | null }) {
     const deadLetters: { id: string; at: string; cause: unknown }[] = []
     const events: { kind: string; payload: unknown }[] = []
     const emitted: { name: string; payload: unknown }[] = []
@@ -77,7 +77,7 @@ describe('reject stamps a cause for injected-but-unconfirmed rows [POD-4704]', (
         getMessage: async () => row,
         markDeadLetter: async (id: string, at: string, cause?: unknown) => {
           deadLetters.push({ id, at, cause })
-          return true
+          return { kind: 'applied' }
         },
       } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['messages'],
       events: {
@@ -101,7 +101,7 @@ describe('reject stamps a cause for injected-but-unconfirmed rows [POD-4704]', (
     // the POD-4604 run 13 lie, so the dead letter carries the delivery cause.
     const { apply, deadLetters, events } = rejectHarness({
       id: 'm1',
-      status: 'queued',
+      deliveryStatus: 'dispatched',
       injectedAt: '2026-09-07T00:00:00Z',
     })
     await apply.reject('m1', 'daemon could not confirm delivery')
@@ -118,7 +118,7 @@ describe('reject stamps a cause for injected-but-unconfirmed rows [POD-4704]', (
   })
 
   it('leaves a never-pushed row causeless so a vanished target still reads as one', async () => {
-    const { apply, deadLetters } = rejectHarness({ id: 'm2', status: 'queued', injectedAt: null })
+    const { apply, deadLetters } = rejectHarness({ id: 'm2', deliveryStatus: 'stored', injectedAt: null })
     await apply.reject('m2', 'session no longer exists')
     expect(deadLetters).toEqual([{ id: 'm2', at: '2026-09-07T00:00:00Z', cause: undefined }])
   })

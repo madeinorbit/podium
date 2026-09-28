@@ -45,7 +45,7 @@ import { bindCommittedGrantReader } from './grant-reader'
  * Readers are committed snapshots: they must not be used for read-your-writes
  * inside an open mutation span. No hot-path reader is switched by this module.
  */
-import type { IssueId } from '@podium/model'
+import { type IssueId, isMessagePending } from '@podium/model'
 import type { SessionStore } from '../../store'
 import type { CommittedRowChange } from '../../store/committed-rows'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
@@ -191,7 +191,7 @@ export class WorldIndex {
         for (const row of change.rows) {
           const previous = this.queuedTargets.get(row.id)
           const next =
-            change.operation === 'upsert' && row.status === 'queued'
+            change.operation === 'upsert' && isMessagePending(row.deliveryStatus)
               ? key(row.toKind, row.toId)
               : undefined
           if (previous === next) continue

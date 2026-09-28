@@ -73,7 +73,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
       // An issue-addressed fyi is a PULL-path (pointer-mode) row: the push is
       // recorded, but only an inbox read confirms it — so it stays `queued`
       // with deliveredTo stamped, and deliveredAt stays null.
-      status: 'queued',
+      deliveryStatus: 'dispatched',
       deliveredAt: null,
       deliveredTo: 'sTarget',
       readAt: null,
@@ -99,7 +99,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
     // session's turn boundary.
     expect(r.disposition).toBe('held')
     expect(h.pushes).toEqual([])
-    expect((await h.svc.message(r.id))!.status).toBe('queued')
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('stored')
   })
 
   it('dead-letters a session-addressed row whose session is gone, and an archived issue', async () => {
@@ -114,7 +114,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
     )
     expect(r).toMatchObject({ ok: false, disposition: 'dead_letter' })
     expect(r.reason).toBe('dead-lettered: session no longer exists')
-    expect((await h.svc.message(r.message.id))!.status).toBe('dead_letter')
+    expect((await h.svc.message(r.message.id))!.deliveryStatus).toBe('failed')
 
     // A closed-and-archived issue is GONE — no future session primes on it, so
     // holding would be a black hole.
@@ -548,23 +548,23 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
     const id = r.message.id
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
     // An assistant turn quoting the id must never self-confirm.
     await h.svc.onTranscriptDelta(asSessionId('s1'), [
       { role: 'assistant', text: `podium message ${id}` },
     ])
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
     // Nor may a DIFFERENT session's transcript quoting the id confirm it (the
     // operator pasting it elsewhere) — that would strand the real target.
     await h.svc.onTranscriptDelta(asSessionId('sOther'), [{ role: 'user', text: `podium message ${id}` }])
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
     await h.svc.onTranscriptDelta(asSessionId('s1'), [
       { role: 'user', text: `[podium message ${id} · from x]` },
     ])
     const delivered = (await h.svc.message(id))!
-    expect(delivered.status).toBe('delivered')
+    expect(delivered.deliveryStatus).toBe('confirmed')
     expect(delivered.deliveredAt).toBe(h.now())
     expect(delivered.readAt).toBeNull()
     expect(
@@ -577,14 +577,14 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     const iss = await h.createIssue({ title: 'target' })
     const r = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body: 'x' })
     const id = r.message.id
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('stored')
 
     const rows = await h.svc.readInbox([{ kind: 'issue', id: iss.id }], {
       consume: asSessionId('sReader'),
     })
-    expect(rows.map((m) => m.status)).toEqual(['read'])
+    expect(rows.map((m) => m.deliveryStatus)).toEqual(['confirmed'])
     const read = (await h.svc.message(id))!
-    expect(read).toMatchObject({ status: 'read', readAt: h.now(), deliveredTo: 'sReader' })
+    expect(read).toMatchObject({ deliveryStatus: 'confirmed', readAt: h.now(), deliveredTo: 'sReader' })
     // The legacy issue_messages mirror is consumed in step, or the stop-hook's
     // legacy fallback keeps nagging "You have mail".
     expect(await h.store.issues.countUnreadIssueMessages(iss.id)).toBe(0)
@@ -604,16 +604,16 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
 
     expect(h.pushes).toHaveLength(1)
     s1!.agentState = phaseState('idle')
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
     // An ERRORED turn did not complete, so it must not confirm the injected row.
     await h.svc.onSessionIdle(s1!, { priorPhase: 'errored' })
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
     // A clean turn boundary IS the reliable backstop for a mid-turn injection
     // whose envelope never echoes as a clean user turn.
     await h.svc.onSessionIdle(s1!, { priorPhase: 'idle' })
-    expect((await h.svc.message(id))!.status).toBe('delivered')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('confirmed')
     expect(
       (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
     ).toEqual(['boundary'])
@@ -642,10 +642,10 @@ describe('characterization: duplicate delivery is impossible by timer (D7)', () 
     }
     expect(h.pushes).toHaveLength(1)
     expect(await kinds(h)).not.toContain('message.requeued')
-    expect((await h.svc.message(id))!.status).toBe('queued')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
     // The daemon's settlement is what confirms it.
     await h.svc.onQueuedInputApplied(id, asSessionId('s1'))
-    expect((await h.svc.message(id))!.status).toBe('delivered')
+    expect((await h.svc.message(id))!.deliveryStatus).toBe('confirmed')
   })
 
   it('never re-nudges a pointer row (no re-nudge storm), and the server batches nothing', async () => {
@@ -708,7 +708,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     const acked = (await h.svc.message(oid))!
     expect(acked.ackedBy).toBe(r.id)
     // A reply PROVES receipt — a stronger signal than a transcript echo.
-    expect(acked.status).toBe('delivered')
+    expect(acked.deliveryStatus).toBe('confirmed')
     expect(
       (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
     ).toContain('ack')
@@ -907,7 +907,7 @@ describe('characterization: self-delivery suppression (D10)', () => {
     expect(r).toMatchObject({ ok: true, queued: false, disposition: 'delivered' })
     expect(h.pushes).toEqual([])
     const row = (await h.svc.message(r.message.id))!
-    expect(row).toMatchObject({ status: 'delivered', deliveredTo: null })
+    expect(row).toMatchObject({ deliveryStatus: 'confirmed', deliveredTo: null })
     expect(await kinds(h)).toContain('message.self_suppressed')
   })
 
@@ -1013,7 +1013,7 @@ describe('characterization: sender-queryable status (D12)', () => {
       id: r.message.id,
       from: `issue:REP-${from.seq}`,
       to: 'session:sTo',
-      status: 'queued',
+      deliveryStatus: 'dispatched',
       deliveredTo: 'sTo',
       hop: 0,
       expectsResponse: false,

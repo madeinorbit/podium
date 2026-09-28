@@ -15,6 +15,11 @@ import {
   asSessionId,
   asUserId,
   type IssueId,
+  MESSAGE_ON_ITS_WAY,
+  MESSAGE_PENDING,
+  MessageDelivery,
+  type MessageDeliveryStatus,
+  type MoveOutcome,
   type SessionId,
 } from '@podium/model'
 import { type QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
@@ -27,17 +32,17 @@ import {
   gt,
   gte,
   inArray,
-  isNotNull,
   isNull,
   lt,
   lte,
   ne,
   notExists,
+  notInArray,
   or,
   type SQL,
   sql,
 } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/sqlite-core'
+import { alias, type SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core'
 import {
   messageReads,
   messages as messagesTable,
@@ -46,7 +51,8 @@ import {
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
-import type { MessageRow, MessageStatus, MessageToKind } from './types'
+import { moveStatus } from './guarded-move'
+import type { LegacyMessageStatus, MessageRow, MessageToKind } from './types'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). Here, below the renderer,
@@ -58,18 +64,57 @@ export const INLINE_BODY_MAX = 6_000
 const isPointerRow = (): SQL =>
   or(eq(messagesTable.urgency, 'fyi'), sql`length(${messagesTable.body}) > ${INLINE_BODY_MAX}`) as SQL
 
-/** Still worth a "you have mail" nag: not an INLINE row that is queued only
- *  because it was handed to `handedTo` (any session when omitted) and is on its
- *  way into that session's context as a turn [POD-4661]. Written branch by
- *  branch so a NULL column reads as "not handed on", never as "exclude". */
+/** Handed on toward a session and not confirmed, or handed on and lost track
+ *  of: either way the server has done its part and nothing re-pushes it. */
+const HANDED_ON: readonly MessageDeliveryStatus[] = [...MESSAGE_ON_ITS_WAY, 'unknown']
+
+/** Still worth a "you have mail" nag: not an INLINE row that was handed to
+ *  `handedTo` (any session when omitted) and is on its way into that session's
+ *  context as a turn [POD-4661]. Written branch by branch so a NULL column reads
+ *  as "not handed on", never as "exclude". */
 const notOnItsWay = (handedTo?: SessionId): SQL =>
   or(
-    ne(messagesTable.status, 'queued'),
-    isNull(messagesTable.injectedAt),
+    notInArray(messagesTable.deliveryStatus, [...HANDED_ON]),
     isNull(messagesTable.deliveredTo),
     ...(handedTo ? [ne(messagesTable.deliveredTo, handedTo)] : []),
     isPointerRow(),
   ) as SQL
+
+/** Not ended: held, on its way, or lost track of. */
+const pending = (): SQL => inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING])
+
+/**
+ * THE LEGACY `status` VALUE for a delivery status (POD-4765). Written beside
+ * every move so a one-release rollback reads rows it understands; decided on by
+ * nothing current. A confirmed row reads `read` once its read_at is stamped,
+ * as the old pull path wrote it.
+ */
+export function legacyMessageStatus(status: MessageDeliveryStatus, read: boolean): LegacyMessageStatus {
+  switch (status) {
+    case 'stored':
+    case 'dispatched':
+    case 'reached-machine':
+    case 'typing':
+    case 'typed':
+    case 'unknown':
+      return 'queued'
+    case 'confirmed':
+      return read ? 'read' : 'delivered'
+    case 'failed':
+      return 'dead_letter'
+    case 'expired':
+      return 'expired'
+    case 'cancelled':
+      return 'cancelled'
+  }
+}
+
+/** The columns a move may set besides the status pair the move owns. */
+type MoveSet = Omit<SQLiteUpdateSetSource<typeof messagesTable>, 'deliveryStatus' | 'legacyStatus' | 'id'>
+
+/** Did the move change the row? The one reading most callers need. */
+export const moved = (outcome: MoveOutcome<MessageDeliveryStatus>): boolean =>
+  outcome.kind === 'applied'
 
 /** RETAINED EXTERNAL/POLYMORPHIC BRAND CASTS: delivery receipt methods accept
  * reader ids as strings, while actor_id is decoded by actor_kind. All
@@ -150,7 +195,7 @@ function mapMessage(r: MessageSelect): MessageRow {
     ...(attachments ? { attachments } : {}),
     expiresAt: r.expiresAt ?? null,
     createdAt: r.createdAt,
-    status: r.status as MessageStatus,
+    deliveryStatus: r.deliveryStatus,
     deliveredAt: r.deliveredAt ?? null,
     deliveredTo: r.deliveredTo ?? null,
     readAt: r.readAt ?? null,
@@ -189,9 +234,12 @@ const DELIVERY_ORDER = [asc(messagesTable.createdAt), asc(messagesTable.id)] as 
 const boundedLimit = (limit: number | undefined, fallback: number, ceiling: number): number =>
   Math.min(ceiling, Math.max(1, limit ?? fallback))
 
-export type MessageQueueFact = Pick<typeof messagesTable.$inferSelect, 'id' | 'toKind' | 'toId' | 'status'>
+export type MessageQueueFact = Pick<typeof messagesTable.$inferSelect, 'id' | 'toKind' | 'toId' | 'deliveryStatus'>
 const MESSAGE_QUEUE_COLUMNS = {
-  id: messagesTable.id, toKind: messagesTable.toKind, toId: messagesTable.toId, status: messagesTable.status,
+  id: messagesTable.id,
+  toKind: messagesTable.toKind,
+  toId: messagesTable.toId,
+  deliveryStatus: messagesTable.deliveryStatus,
 }
 
 export class MessagesRepository {
@@ -221,7 +269,12 @@ export class MessagesRepository {
     return currentTransaction() ?? this.rootDb
   }
 
+  /** Store a new message. Every row starts `stored`: any later status is a move
+   *  through {@link MessagesRepository.move}, never an insert. */
   async addMessage(m: MessageRow): Promise<void> {
+    if (m.deliveryStatus !== 'stored') {
+      throw new Error(`message ${m.id} must be stored before it moves (got ${m.deliveryStatus})`)
+    }
     ;await this.committed.write(async () => (this.db
       .insert(messagesTable)
       .values({
@@ -252,7 +305,8 @@ export class MessagesRepository {
         attachmentsJson: m.attachments?.length ? JSON.stringify(m.attachments) : null,
         expiresAt: m.expiresAt,
         createdAt: m.createdAt,
-        status: m.status,
+        deliveryStatus: 'stored',
+        legacyStatus: legacyMessageStatus('stored', false),
         deliveredAt: m.deliveredAt,
         deliveredTo: m.deliveredTo,
         ackedBy: m.ackedBy,
@@ -270,7 +324,7 @@ export class MessagesRepository {
     const rows = await this.db.select({
       toKind: messagesTable.toKind, toId: messagesTable.toId,
       count: sql<number>`count(*)`, ids: sql<string>`json_group_array(${messagesTable.id})`,
-    }).from(messagesTable).where(eq(messagesTable.status, 'queued'))
+    }).from(messagesTable).where(pending())
       .groupBy(messagesTable.toKind, messagesTable.toId).all()
     return rows.map((row) => ({ ...row, ids: JSON.parse(row.ids) as string[] }))
   }
@@ -283,10 +337,9 @@ export class MessagesRepository {
   /** All messages addressed to a principal, oldest first. */
   async listMessagesFor(
     to: MessagePrincipalRef,
-    opts?: { status?: MessageStatus; limit?: number },
+    opts?: { limit?: number },
   ): Promise<MessageRow[]> {
     const where = addressedTo(to)
-    if (opts?.status) where.push(eq(messagesTable.status, opts.status))
     return (await this.db
       .select()
       .from(messagesTable)
@@ -305,14 +358,14 @@ export class MessagesRepository {
       .where(
         or(
           and(
-            eq(messagesTable.status, 'queued'),
+            pending(),
             or(
               and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, sessionId)),
               eq(messagesTable.deliveredTo, sessionId),
             ),
           ),
           and(
-            inArray(messagesTable.status, ['delivered', 'read']),
+            eq(messagesTable.deliveryStatus, 'confirmed'),
             eq(messagesTable.deliveredTo, sessionId),
             isNull(messagesTable.ackedBy),
             eq(messagesTable.expectsResponse, true),
@@ -360,8 +413,8 @@ export class MessagesRepository {
    * leave the queue as soon as they are confirmed, so a receipt's enqueue-time
    * position is not an honest reload-time position.
    *
-   * Rows can be waiting in either form used by the delivery service: addressed
-   * directly to the session, or already injected toward it (`delivered_to`).
+   * A row waits while it is `stored`: addressed directly to the session, or
+   * aimed at it by `delivered_to`. A handed-on row has left this queue.
    * The SQL ordering is the same `(created_at, id)` ordering used by the ledger
    * and its high-water cursors.
    */
@@ -370,11 +423,7 @@ export class MessagesRepository {
       and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, sessionId)),
       eq(messagesTable.deliveredTo, sessionId),
     )
-    const waiting = and(
-      eq(messagesTable.status, 'queued'),
-      isNull(messagesTable.injectedAt),
-      target,
-    )
+    const waiting = and(eq(messagesTable.deliveryStatus, 'stored'), target)
     const row = await this.db
       .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
       .from(messagesTable)
@@ -397,12 +446,12 @@ export class MessagesRepository {
     return Number(ahead?.n ?? 0)
   }
 
-  /** One bounded keyset page of queued rows for a principal. */
+  /** One bounded keyset page of pending rows for a principal. */
   async pendingForPage(
     to: MessagePrincipalRef,
     opts: { after?: MessagePageCursor; through?: MessagePageCursor; limit?: number } = {},
   ): Promise<MessageRow[]> {
-    const where = [...addressedTo(to), eq(messagesTable.status, 'queued')]
+    const where = [...addressedTo(to), pending()]
     if (opts.after) where.push(afterCursor(opts.after))
     if (opts.through) where.push(throughCursor(opts.through))
     return (await this.db
@@ -415,12 +464,12 @@ export class MessagesRepository {
       .map(mapMessage)
   }
 
-  /** Last queued row in stable delivery order; captures a finite scan snapshot. */
+  /** Last pending row in stable delivery order; captures a finite scan snapshot. */
   async pendingHighWater(to: MessagePrincipalRef): Promise<MessagePageCursor | null> {
     const row = await this.db
       .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
       .from(messagesTable)
-      .where(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
+      .where(and(...addressedTo(to), pending()))
       .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
       .limit(1)
       .get()
@@ -439,7 +488,7 @@ export class MessagesRepository {
           eq(messagesTable.toKind, 'session'),
           eq(messagesTable.toId, sessionId),
           eq(messagesTable.fromKind, 'operator'),
-          eq(messagesTable.status, 'queued'),
+          pending(),
         ),
       )
       .orderBy(desc(messagesTable.createdAt), desc(sql`rowid`))
@@ -450,13 +499,13 @@ export class MessagesRepository {
 
   /** Complete queued-sender projection for nag/inbox aggregates. */
   async listPendingSenders(to: MessagePrincipalRef): Promise<PendingMessageSender[]> {
-    return await this.distinctSenders(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
+    return await this.distinctSenders(and(...addressedTo(to), pending()))
   }
 
   /** Count and group one queued slice in one statement for the inbox nag. */
   async pendingSummary(to: MessagePrincipalRef): Promise<PendingMessageSummary> {
     return await this.pendingSummaryForPredicate(
-      and(...addressedTo(to), eq(messagesTable.status, 'queued'), notOnItsWay()),
+      and(...addressedTo(to), pending(), notOnItsWay()),
     )
   }
 
@@ -464,7 +513,7 @@ export class MessagesRepository {
     const row = await this.db
       .select({ n: count() })
       .from(messagesTable)
-      .where(eq(messagesTable.status, 'queued'))
+      .where(pending())
       .get()
     return Number(row?.n ?? 0)
   }
@@ -473,14 +522,14 @@ export class MessagesRepository {
     const row = await this.db
       .select({ n: count() })
       .from(messagesTable)
-      .where(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
+      .where(and(...addressedTo(to), pending()))
       .get()
     return Number(row?.n ?? 0)
   }
 
   // ---- PER-READER state [POD-1379] [spec:SP-b11e] ----
-  // `messages.status` is the DELIVERY ledger: one pipeline per message (queued →
-  // pushed → delivered/read → terminal), shared by every session on the issue.
+  // `delivery_status` is the DELIVERY ledger: one pipeline per message (stored →
+  // handed on → confirmed, or another end), shared by every session on the issue.
   // It cannot answer "has THIS session seen it", and an issue mailbox is read by
   // every agent working the issue — so consuming it on one agent's read
   // destroyed the unread status for all of them. `message_reads` is the
@@ -554,7 +603,7 @@ export class MessagesRepository {
    * non-terminal, the session did not send it, and the session has no receipt
    * or durable delivery stamp for it. The last clause bounds history: a session
    * is only responsible for mail that arrived while it existed — EXCEPT a
-   * still-`queued` row, which
+   * still-pending row, which
    * nobody has consumed, so it is exactly the held handoff a newly-arrived
    * session must be told about. A session row that is gone (tests, pre-substrate
    * ids) falls back to the message's own timestamp, i.e. counts.
@@ -563,7 +612,7 @@ export class MessagesRepository {
     return and(
       eq(messagesTable.toKind, 'issue'),
       eq(messagesTable.toId, issueId),
-      inArray(messagesTable.status, ['queued', 'delivered', 'read']),
+      inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING, 'confirmed']),
       or(isNull(messagesTable.fromSession), ne(messagesTable.fromSession, sessionId)),
       notExists(
         this.db
@@ -577,13 +626,13 @@ export class MessagesRepository {
           ),
       ),
       or(
-        eq(messagesTable.status, 'queued'),
+        pending(),
         isNull(messagesTable.deliveredTo),
         ne(messagesTable.deliveredTo, sessionId),
       ),
       notOnItsWay(sessionId),
       or(
-        eq(messagesTable.status, 'queued'),
+        pending(),
         gte(
           messagesTable.createdAt,
           sql`COALESCE((SELECT ${sessionsTable.createdAt} FROM ${sessionsTable} WHERE ${sessionsTable.id} = ${sessionId}), ${sql.identifier('messages')}.${sql.identifier('created_at')})`,
@@ -685,259 +734,265 @@ export class MessagesRepository {
     return row !== undefined
   }
 
-  /** Record a PUSH toward a live PTY without claiming the agent saw it [POD-834]:
-   *  stamps injected_at + delivered_to but keeps status='queued'. This replaces
-   *  the old "mark delivered on enqueue" lie — `delivered` is now reserved for a
-   *  confirmation (the daemon's settlement, an echo, a turn boundary). Guarded on
-   *  status='queued'. */
-  async markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({ injectedAt, deliveredTo })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    return r.changes === 1
+  /**
+   * THE ONE STATUS WRITE [POD-4765]. Every change to `delivery_status` is this
+   * guarded UPDATE: it applies only from a state {@link MessageDelivery} allows a
+   * move from, sets the legacy `status` mirror in the same statement, and says
+   * what happened — applied, already there (a repeat: nothing written, nothing
+   * to announce), or refused with where the row actually is. `where` narrows the
+   * row further (which push a report answers); `set` carries the stamps that
+   * travel with the move.
+   */
+  private async move(
+    id: string,
+    to: MessageDeliveryStatus,
+    opts: { set?: MoveSet; where?: readonly SQL[] } = {},
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    const readNow = opts.set?.readAt != null
+    return await moveStatus({
+      machine: MessageDelivery,
+      column: messagesTable.deliveryStatus,
+      to,
+      write: async (guard) =>
+        (
+          await this.committed.write(async () => this.db
+            .update(messagesTable)
+            .set({
+              ...opts.set,
+              deliveryStatus: to,
+              legacyStatus:
+                to === 'confirmed' && !readNow
+                  ? sql`CASE WHEN ${messagesTable.readAt} IS NULL THEN 'delivered' ELSE 'read' END`
+                  : legacyMessageStatus(to, readNow),
+            })
+            .where(and(eq(messagesTable.id, id), guard, ...(opts.where ?? [])))
+            .returning(MESSAGE_QUEUE_COLUMNS)
+            .all(), 'upsert')
+        ).changes,
+      read: async () =>
+        (await this.db
+          .select({ status: messagesTable.deliveryStatus })
+          .from(messagesTable)
+          .where(eq(messagesTable.id, id))
+          .get())?.status ?? null,
+    })
+  }
+
+  /** stored → dispatched: handed to `deliveredTo`'s delivery path (its durable
+   *  queue, or a direct push toward its machine) without claiming the agent has
+   *  it [POD-834]. The server never pushes a dispatched row again; the daemon's
+   *  settlement, a receipt, the transcript echo, a turn boundary or an inbox
+   *  read moves it on. */
+  async markDispatched(
+    id: string,
+    deliveredTo: SessionId | null,
+    at: string,
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'dispatched', { set: { injectedAt: at, deliveredTo } })
+  }
+
+  /** → typed: its bytes crossed into `deliveredTo`'s CLI, which may still park
+   *  them until the running turn ends (POD-1242). Only for the session it was
+   *  handed to, or an unaimed row. */
+  async markTyped(
+    id: string,
+    deliveredTo: SessionId,
+    at: string,
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'typed', {
+      set: {
+        deliveredTo,
+        injectedAt: sql`COALESCE(${messagesTable.injectedAt}, ${at})`,
+      },
+      where: [or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)) as SQL],
+    })
   }
 
   /**
-   * queued → dead_letter, because a driver queue gave up: the session never went
-   * live before its ready deadline (`never-live`), it was torn down with the turn
+   * → failed, because a driver queue gave up: the session never went live
+   * before its ready deadline (`never-live`), it was torn down with the turn
    * still undelivered (`teardown`), or a server-family driver took the turn off
    * its own queue and the send failed (`delivery-failed`) [POD-2132, POD-2202,
-   * POD-2297]. TERMINAL — this is the write
-   * that ends the stale `queued` receipt the sender was left holding, and after it
-   * the server never re-sends this row (`countPending` drops it, the sweep skips
-   * it, a blocked `waitFor` gets its answer).
+   * POD-2297]. After it the server never re-sends this row (`countPending` drops
+   * it, the sweep skips it, a blocked `waitFor` gets its answer).
    *
    * The `delivery_deferred_*` stamps record WHEN the driver reported giving up and
-   * WHICH report said so, next to the terminal status and `dead_lettered_at`.
+   * WHICH report said so, next to `dead_lettered_at`.
    *
-   * THE `status = 'queued'` GUARD IS THE DEDUPE. Abandonment reports are retryable
-   * and repeat across restarts, so the same turn id arrives more than once; the
-   * second one finds a row that is no longer queued and returns false, which is how
-   * the caller emits exactly one transition per turn.
+   * Abandonment reports are retryable and repeat across restarts; a repeat finds
+   * the row already `failed` and changes nothing, which is how the caller emits
+   * exactly one transition per turn.
    */
   async markDeliveryAbandoned(
     id: string,
     deliveredTo: SessionId,
     at: string,
     reason: QueueDrainAbandonedReason,
-  ): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({
-        status: 'dead_letter',
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'failed', {
+      set: {
         deadLetteredAt: at,
         deliveryDeferredAt: at,
         deliveryDeferredReason: reason,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${deliveredTo})`,
-      })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    return r.changes === 1
+      },
+    })
   }
 
   /**
-   * THE PUSH THIS ROW IS RESTING ON WAS REFUSED, SO THE ROW GOES BACK IN THE
-   * QUEUE [POD-2298].
-   *
-   * The optimistic half of the receipt migration is that a send toward a live
-   * driver records its ledger state IMMEDIATELY — `delivered` for a body that is
-   * confirmed on injection, `injected_at` for one still owed an echo — and the
-   * driver's receipt arrives afterwards to correct it. When that receipt is a
-   * refusal whose cause CLEARS ON ITS OWN (a turn was open, a person owes an
-   * answer, a human holds the lease), the correction is to undo the optimism and
-   * let the ordinary retry machinery run again: status back to `queued`,
-   * `delivered_at` and `injected_at` erased so the idle drain and the sweep both
-   * see an un-pushed row.
-   *
-   * `delivered_to` STAYS. It is the last place this row was aimed, the sweep
-   * re-reads it rather than trusting it, and clearing it would erase the only
-   * evidence of which session refused.
-   *
-   * THE READ RECEIPT GOES WITH THE DELIVERY. `markDelivered` records one, and a
-   * per-reader receipt saying this session saw a message it never got is the same
-   * lie one table over — it hides the row from that session's own pending set.
-   *
-   * {@link MessagesRepository.restingOnAPush} IS THE GUARD AND THE IDEMPOTENCY.
-   * A repeat finds the row already `queued` with no `injected_at`, matches
-   * nothing and changes nothing.
-   */
-  async retractOptimisticDelivery(id: string, deliveredTo: SessionId): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({ status: 'queued', deliveredAt: null, injectedAt: null })
-      .where(restingOnAPush(id, deliveredTo)).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    if (r.changes !== 1) return false
-    await this.db
-      .delete(messageReads)
-      .where(and(eq(messageReads.messageId, id), eq(messageReads.sessionId, deliveredTo)))
-      .run()
-    return true
-  }
-
-  /**
-   * queued|delivered → dead_letter, because the driver REFUSED the push this row
-   * was already resting on [POD-2298].
-   *
-   * The sibling of {@link markDeliveryAbandoned}, and it exists rather than
-   * widening it because that one is guarded `status = 'queued'` — the whole point
-   * here is a row that optimistic delivery already moved past `queued`, which
-   * that guard silently skips. Both write the same `delivery_deferred_*` stamps
-   * so one undelivered turn reads the same way whichever route reported it.
+   * → failed, because the driver REFUSED the push this row is on its way on and
+   * the refusal will not clear by waiting [POD-2298]. Guarded on the row still
+   * being handed to `deliveredTo`: a refusal answers that push, never a row that
+   * has since been confirmed, cancelled or aimed elsewhere.
    *
    * `reason` is deliberately the EXISTING abandonment vocabulary rather than the
    * refusal's own: the wire enum stays three arms wide (widening it is a
    * rolling-upgrade event, POD-2297) and the precise `RefusalReason` is already on
    * the `message.receipt` event emitted beside this write.
-   *
-   * Guarded through the same {@link restingOnAPush} predicate as
-   * {@link retractOptimisticDelivery}, for the same reason — a refusal corrects
-   * the push it answers, never a row that has since moved on.
    */
   async markSendRefused(
     id: string,
     deliveredTo: SessionId,
     at: string,
     reason: QueueDrainAbandonedReason,
-  ): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({
-        status: 'dead_letter',
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'failed', {
+      set: {
         deadLetteredAt: at,
         deliveryDeferredAt: at,
         deliveryDeferredReason: reason,
-      })
-      .where(restingOnAPush(id, deliveredTo)).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    return r.changes === 1
+      },
+      where: [
+        eq(messagesTable.deliveredTo, deliveredTo),
+        inArray(messagesTable.deliveryStatus, [...MESSAGE_ON_ITS_WAY]),
+      ],
+    })
   }
 
-  /** queued → delivered: the PUSH is CONFIRMED — the message's envelope appeared
-   *  as a turn in the target's transcript (transcript echo, [POD-834]). Only now
-   *  does the ledger claim the agent has it in context. Guarded on status so a
-   *  duplicate/late echo is a no-op (returns false). */
-  async markDelivered(id: string, deliveredTo: string | null, deliveredAt: string): Promise<boolean> {
+  /** → confirmed: the PUSH is CONFIRMED — the transcript echo, a clean turn
+   *  boundary, the driver's acceptance or settlement, an ack [POD-834]. A
+   *  duplicate or late confirmation is "already there" and changes nothing. */
+  async markDelivered(
+    id: string,
+    deliveredTo: string | null,
+    deliveredAt: string,
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     // EXTERNAL INPUT BRAND DECODE: transcript echo compatibility callers still
     // supply strings, so narrow once before writing the branded column.
     const brandedDeliveredTo = deliveredTo ? asSessionId(deliveredTo) : null
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({ status: 'delivered', deliveredAt, deliveredTo: brandedDeliveredTo })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+    const outcome = await this.move(id, 'confirmed', {
+      set: { deliveredAt, deliveredTo: brandedDeliveredTo },
+    })
     // The echo proves it is in THAT session's context [POD-1379] — receipt it,
     // or the per-reader nag keeps asking the session to read what it just saw.
     if (brandedDeliveredTo) await this.recordRead(id, brandedDeliveredTo, deliveredAt)
-    return r.changes === 1
+    return outcome
   }
 
-  /** queued → cancelled: the sender retracted work before it reached the
-   * recipient. The queued-input drain re-reads this status immediately before
-   * touching the PTY, so a cancelled row cannot be applied later. */
-  async markCancelled(id: string): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({ status: 'cancelled' })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    return r.changes === 1
+  /** → cancelled: the sender retracted work before it was typed. The
+   * queued-input drain re-reads this status immediately before touching the PTY,
+   * so a cancelled row cannot be applied later. */
+  async markCancelled(id: string): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'cancelled')
   }
 
-  /** queued → delivered via the PULL path (an issue-mailbox read/claim) [POD-1420].
-   *  Same ledger advance as `markDelivered`, with one difference that matters:
-   *  `delivered_to` is COALESCEd, never overwritten. `markInjected` stamps the
-   *  session a message was PUSHED to while leaving status `queued`, so a plain
-   *  overwrite here erased that target the moment the agent opened its inbox —
-   *  the row then read as "delivered to nobody" despite having been routed
-   *  correctly and landed in a transcript. That erase is why the delivery ledger
-   *  could not be trusted to answer "did this reach anyone?".
+  /** → confirmed via the PULL path (an issue-mailbox read/claim) [POD-1420].
+   *  `delivered_to` is COALESCEd, never overwritten: the push target stays the
+   *  answer to "where was this aimed".
    *
    *  A peer's pull never advances the ledger [POD-4680]: when the row was pushed
    *  to another session (`delivered_to` set, not the reader), the pull records
-   *  only the READER's receipt. Advancing would COALESCE-preserve the push
-   *  target while flipping status to `delivered`, so the ledger claims delivery
-   *  to a session that never read it and the pending predicate (which trusts
-   *  `delivered_to` for a non-queued row) clears that session's unread count.
-   *  Like the transcript-echo guard, confirm ONLY the push this reader answers:
+   *  only the READER's receipt. Confirm ONLY the push this reader answers:
    *  unpushed (name the reader) or pushed to this reader. */
-  async markDeliveredByPull(id: string, reader: string | null, deliveredAt: string): Promise<boolean> {
+  async markDeliveredByPull(
+    id: string,
+    reader: string | null,
+    deliveredAt: string,
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     const brandedReader = reader ? asSessionId(reader) : null
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({
-        status: 'delivered',
+    const outcome = await this.move(id, 'confirmed', {
+      set: {
         deliveredAt,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${reader})`,
-      })
-      .where(and(
-        eq(messagesTable.id, id),
-        eq(messagesTable.status, 'queued'),
-        ...(brandedReader
-          ? [or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, brandedReader)) as SQL]
-          : [isNull(messagesTable.deliveredTo) as SQL]),
-      )).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+      },
+      where: [
+        brandedReader
+          ? (or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, brandedReader)) as SQL)
+          : isNull(messagesTable.deliveredTo),
+      ],
+    })
     // The pull proves THIS reader has it, whoever the row was pushed to.
-    // Recorded even when the guarded UPDATE declines (a peer's pull of a row
+    // Recorded even when the guarded move declines (a peer's pull of a row
     // pushed to another session): the receipt is about THIS reader, not about
     // who moved the shared delivery ledger.
     if (brandedReader) await this.recordRead(id, brandedReader, deliveredAt)
-    return r.changes === 1
+    return outcome
   }
 
-  /** queued|delivered → read: the recipient opened its inbox and consumed it (the
-   *  PULL path, [POD-834]). Distinct from delivered (push): `read` proves the
-   *  agent pulled it. A delivered row can still be marked read if later pulled. */
-  async markRead(id: string, deliveredTo: string | null, readAt: string): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({
-        status: 'read',
+  /** The recipient opened its inbox and consumed it (the PULL path, [POD-834]).
+   *  An unconfirmed row → confirmed with `read_at`; an already-confirmed row
+   *  keeps its status and only gains `read_at` — a read is a stamp on a
+   *  delivered message, not a state after it. `firstRead` says whether THIS call
+   *  stamped the first read, which is what a caller announces. */
+  async markRead(
+    id: string,
+    deliveredTo: string | null,
+    readAt: string,
+  ): Promise<{ outcome: MoveOutcome<MessageDeliveryStatus>; firstRead: boolean }> {
+    const outcome = await this.move(id, 'confirmed', {
+      set: {
         readAt,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${deliveredTo})`,
-      })
-      .where(and(eq(messagesTable.id, id), inArray(messagesTable.status, ['queued', 'delivered']))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+      },
+    })
+    let firstRead = outcome.kind === 'applied'
+    if (outcome.kind === 'already-there') {
+      // A stamp, not a move: `delivery_status` is untouched. First read wins.
+      const stamped = await this.committed.write(async () => this.db
+        .update(messagesTable)
+        .set({ readAt, legacyStatus: legacyMessageStatus('confirmed', true) })
+        .where(and(eq(messagesTable.id, id), isNull(messagesTable.readAt)))
+        .returning(MESSAGE_QUEUE_COLUMNS)
+        .all(), 'upsert')
+      firstRead = stamped.changes === 1
+    }
     // The PULL proves this reader has it [POD-1379]. Recorded even when the
-    // guarded UPDATE lost (a peer consumed the shared row first): the receipt is
+    // guarded move lost (a peer consumed the shared row first): the receipt is
     // about THIS reader, not about who moved the shared delivery ledger.
     if (deliveredTo) await this.recordRead(id, asSessionId(deliveredTo), readAt)
-    return r.changes === 1
+    return { outcome, firstRead }
   }
 
-  /** queued → dead_letter: the target was gone before the message could land
-   *  (issue closed/archived, session deleted with nowhere to re-route) [POD-834].
-   *  Terminal; the sender is told once. Guarded on status='queued'.
+  /** → failed: the target was gone before the message could land (issue
+   *  closed/archived, session deleted with nowhere to re-route) [POD-834].
+   *  Terminal; the sender is told once.
    *
    *  `cause` RECORDS WHY, FOR THE ROWS WHERE "GONE" IS NOT THE ANSWER [POD-2574].
-   *  A dead letter with no cause reads, downstream, as a vanished target — which
-   *  is right for the callsites this was written for and wrong for a driver that
-   *  refused the send. Passing a cause stamps the same two columns
-   *  {@link markDeliveryAbandoned} uses, so both refusal paths — the late one the
-   *  daemon reports and the synchronous one answered inside the send — leave a row
-   *  a reader can tell apart from a target that disappeared. */
-  async markDeadLetter(id: string, at: string, cause?: QueueDrainAbandonedReason): Promise<boolean> {
-    // TWO DIFFERENT WRITES, not one with nulls: without a cause the two
-    // `delivery_deferred_*` columns are LEFT ALONE rather than cleared.
-    const r = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set(
-        cause
-          ? {
-              status: 'dead_letter',
-              deadLetteredAt: at,
-              deliveryDeferredAt: at,
-              deliveryDeferredReason: cause,
-            }
-          : { status: 'dead_letter', deadLetteredAt: at },
-      )
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    return r.changes === 1
+   *  Without a cause a failure reads, downstream, as a vanished target — right
+   *  for the callsites this was written for and wrong for a driver that refused
+   *  the send. Passing a cause stamps the same two columns
+   *  {@link markDeliveryAbandoned} uses. Without one they are LEFT ALONE rather
+   *  than cleared. */
+  async markDeadLetter(
+    id: string,
+    at: string,
+    cause?: QueueDrainAbandonedReason,
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'failed', {
+      set: cause
+        ? { deadLetteredAt: at, deliveryDeferredAt: at, deliveryDeferredReason: cause }
+        : { deadLetteredAt: at },
+    })
   }
 
-  /** Every queued (undelivered) row, oldest first — the slow sweep's retry set. */
+  /** Every pending row, oldest first — the slow sweep's retry set. */
   async listQueued(limit = 500): Promise<MessageRow[]> {
     return await this.listQueuedPage({ limit })
   }
 
-  /** One bounded keyset page of the global queued delivery set. */
+  /** One bounded keyset page of the global pending delivery set. */
   async listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): Promise<MessageRow[]> {
-    const where: SQL[] = [eq(messagesTable.status, 'queued')]
+    const where: SQL[] = [pending()]
     if (opts.after) where.push(afterCursor(opts.after))
     return (await this.db
       .select()
@@ -975,25 +1030,21 @@ export class MessagesRepository {
     createdAt: string
     lifecycle: MessageRow['lifecycle']
     expiresAt: string | null
-  }): Promise<boolean> {
-    const result = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({ status: 'expired' })
-      .where(
-        and(
-          eq(messagesTable.id, input.id),
-          eq(messagesTable.status, 'queued'),
-          eq(messagesTable.createdAt, input.createdAt),
-          eq(messagesTable.lifecycle, input.lifecycle),
-          // `IS`, NOT `=`. SQL `=` never matches null, and most rows have no
-          // expiry — emitting `=` here would silently stop expiring them while
-          // the non-null case kept working. `isNull` is the `IS ?` null arm.
-          input.expiresAt === null
-            ? isNull(messagesTable.expiresAt)
-            : eq(messagesTable.expiresAt, input.expiresAt),
-        ),
-      ).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
-    return result.changes === 1
+  }): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    // Only a row the server still holds can expire: once handed on, the machine
+    // may still type it, so a timer cannot say it will not arrive [POD-4765].
+    return await this.move(input.id, 'expired', {
+      where: [
+        eq(messagesTable.createdAt, input.createdAt),
+        eq(messagesTable.lifecycle, input.lifecycle),
+        // `IS`, NOT `=`. SQL `=` never matches null, and most rows have no
+        // expiry — emitting `=` here would silently stop expiring them while
+        // the non-null case kept working. `isNull` is the `IS ?` null arm.
+        input.expiresAt === null
+          ? isNull(messagesTable.expiresAt)
+          : eq(messagesTable.expiresAt, input.expiresAt),
+      ],
+    })
   }
 
   /** Stamp the ack message id onto the original (first ack wins). */
@@ -1017,7 +1068,7 @@ export class MessagesRepository {
       (await this.db
         .select()
         .from(messagesTable)
-        // The agent has it either way — pushed (delivered) or pulled (read).
+        // The agent has it either way — pushed or pulled; both confirm.
         .where(and(await this.unackedRequest(sessionId, now)))
         .orderBy(...DELIVERY_ORDER)
         .all())
@@ -1028,7 +1079,7 @@ export class MessagesRepository {
   /** The shared "still owes a reply" predicate of the two ack readers. */
   private async unackedRequest(sessionId: SessionId, now: string): Promise<SQL> {
     return and(
-      inArray(messagesTable.status, ['delivered', 'read']),
+      eq(messagesTable.deliveryStatus, 'confirmed'),
       eq(messagesTable.deliveredTo, sessionId),
       isNull(messagesTable.ackedBy),
       eq(messagesTable.expectsResponse, true),
@@ -1091,36 +1142,5 @@ function throughCursor(cursor: MessagePageCursor): SQL {
   return or(
     lt(messagesTable.createdAt, cursor.createdAt),
     and(eq(messagesTable.createdAt, cursor.createdAt), lte(messagesTable.id, cursor.id)),
-  ) as SQL
-}
-
-/**
- * IS THIS ROW STILL RESTING ON AN UNANSWERED PUSH TO `delivered_to`? The
- * predicate both refusal writers correct through, written once so they cannot
- * drift apart [POD-2298].
- *
- * Optimistic delivery leaves exactly two fingerprints, and they are what the two
- * arms name. `delivered` WITH NO `injected_at` is a body confirmed on injection
- * — an unwrapped operator chat line or a best-effort ack, which `injectAndMark`
- * marks delivered outright because no echo will ever come. `queued` WITH an
- * `injected_at` is an enveloped body whose bytes were dispatched and whose echo
- * is still owed.
- *
- * WHAT THE TWO ARMS TOGETHER EXCLUDE IS THE POINT. A row that is `delivered` AND
- * carries `injected_at` was confirmed by the transcript echo or the turn
- * boundary — the agent demonstrably has it — and a driver's refusal arriving
- * afterwards is late evidence about a question the transcript already answered.
- * Walking that row backwards would be the mirror image of the defect this
- * predicate exists to fix. `read`, `cancelled` and `dead_letter` are terminal or
- * retracted and match neither arm.
- */
-function restingOnAPush(id: string, deliveredTo: SessionId): SQL {
-  return and(
-    eq(messagesTable.id, id),
-    eq(messagesTable.deliveredTo, deliveredTo),
-    or(
-      and(eq(messagesTable.status, 'delivered'), isNull(messagesTable.injectedAt)),
-      and(eq(messagesTable.status, 'queued'), isNotNull(messagesTable.injectedAt)),
-    ),
   ) as SQL
 }

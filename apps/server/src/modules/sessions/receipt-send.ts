@@ -85,6 +85,11 @@ export interface ReceiptSendResult {
   reason?: string
   /** 1-based position in the server's durable FIFO when queued. */
   position?: number
+  /** True when a driver receipt WILL follow through `onReceipt` — the contract
+   *  path's direct send. Until it arrives the push is only handed on, so a
+   *  caller must not record it as delivered (POD-4765). Absent: no receipt is
+   *  coming (a legacy send, or one completed here). */
+  receiptPending?: true
 }
 
 /** The legacy verbs, as this seam needs them. Structurally satisfied by
@@ -330,10 +335,10 @@ export class ReceiptSender {
         )
       },
     )
-    // OPTIMISTIC, AND THE RECONCILIATION IS WHAT MAKES IT HONEST. The bytes are
-    // on their way; the receipt says whether they landed. This is the same claim
-    // `sendText` makes today, made by a path that will later correct itself.
-    return { ok: true }
+    // The bytes are on their way; the receipt says whether they landed, and
+    // `receiptPending` tells the caller to wait for it rather than record a
+    // delivery now.
+    return { ok: true, receiptPending: true }
   }
 
   /** Invoke immediately, but own completion separately from send admission.

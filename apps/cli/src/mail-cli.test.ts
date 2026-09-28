@@ -268,6 +268,26 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toMatch(/target was gone/)
   })
 
+  it('[POD-4765] mail status shows the delivery status when the server sends one', async () => {
+    const handedOn = await runMailCli(
+      ['status', 'msg_1'],
+      client({ status: { ...WIRE, status: 'queued', deliveryStatus: 'dispatched', deliveredTo: 's-abc' } }),
+    )
+    expect(handedOn).toContain('status: dispatched — handed to the target session — not yet confirmed')
+    const lost = await runMailCli(
+      ['status', 'msg_1'],
+      client({ status: { ...WIRE, status: 'queued', deliveryStatus: 'unknown' } }),
+    )
+    expect(lost).toContain('status: unknown — handed on, but it cannot be told whether it arrived')
+    const read = await runMailCli(
+      ['status', 'msg_1'],
+      client({
+        status: { ...WIRE, status: 'read', deliveryStatus: 'confirmed', readAt: 't2', deliveredTo: 's-abc' },
+      }),
+    )
+    expect(read).toContain('status: confirmed — the recipient opened its inbox and read it')
+  })
+
   it('inbox renders rows (and passes an --issue peek through)', async () => {
     const c = client()
     const out = await runMailCli(['inbox'], c)

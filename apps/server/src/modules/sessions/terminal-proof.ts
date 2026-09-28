@@ -68,7 +68,7 @@ export interface TerminalProofPorts {
   ): Promise<
     {
       id: string
-      status: string
+      deliveryStatus: string
       deliveredAt: string | null
       injectedAt?: string | null
       ackedBy: string | null
@@ -134,7 +134,7 @@ export class SessionTerminalProof {
     )
       .map((message) => ({
         id: message.id,
-        status: message.status,
+        deliveryStatus: message.deliveryStatus,
         deliveredAt: message.deliveredAt,
         injectedAt: message.injectedAt ?? null,
         ackedBy: message.ackedBy,

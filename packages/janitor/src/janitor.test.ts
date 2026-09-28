@@ -248,17 +248,32 @@ describe('JanitorService [spec:SP-c29e]', () => {
     try {
       db.exec(`CREATE TABLE messages (
         id TEXT PRIMARY KEY,
-        status TEXT NOT NULL,
+        delivery_status TEXT NOT NULL DEFAULT 'stored',
         lifecycle TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT
       );
-      CREATE INDEX idx_messages_expiry_explicit
-        ON messages(status, expires_at, id);
-      CREATE INDEX idx_messages_expiry_implicit
-        ON messages(status, lifecycle, expires_at, created_at, id);`)
-      const insert = db.prepare(
-        'INSERT INTO messages (id, status, lifecycle, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
+      CREATE INDEX idx_messages_delivery_expiry_explicit
+        ON messages(delivery_status, expires_at, id);
+      CREATE INDEX idx_messages_delivery_expiry_implicit
+        ON messages(delivery_status, lifecycle, expires_at, created_at, id);`)
+      const insertAs = db.prepare(
+        'INSERT INTO messages (id, delivery_status, lifecycle, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      // Every seeded row is one the server still holds unless it says otherwise.
+      const insert = {
+        run: (id: string, _legacy: string, lifecycle: string, createdAt: string, expiresAt: string | null) =>
+          insertAs.run(id, 'stored', lifecycle, createdAt, expiresAt),
+      }
+      // HANDED ON, and older than every due row: the machine may still type
+      // these, so they can never expire — and must not fill the head of a page.
+      insertAs.run('msg_dispatched_wait', 'dispatched', 'wait', '2026-06-01T00:00:00.000Z', null)
+      insertAs.run(
+        'msg_dispatched_explicit',
+        'dispatched',
+        'wake',
+        '2026-06-01T00:00:00.000Z',
+        '2026-06-02T00:00:00.000Z',
       )
       insert.run(
         'msg_explicit',
@@ -312,24 +327,24 @@ describe('JanitorService [spec:SP-c29e]', () => {
       })
       expect(bounded).toHaveLength(1)
       const queries = prepare.mock.calls.map(([sql]) => sql).join('\n')
-      expect(queries).toContain('INDEXED BY idx_messages_expiry_explicit')
-      expect(queries).toContain('INDEXED BY idx_messages_expiry_implicit')
+      expect(queries).toContain('INDEXED BY idx_messages_delivery_expiry_explicit')
+      expect(queries).toContain('INDEXED BY idx_messages_delivery_expiry_implicit')
       const planDetails = (sql: string, ...params: Array<string | number>): string =>
         (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Array<{ detail: string }>)
           .map((row) => row.detail)
           .join('\n')
       const implicitSql = prepare.mock.calls
         .map(([sql]) => sql)
-        .find((sql) => sql.includes('idx_messages_expiry_implicit'))
+        .find((sql) => sql.includes('idx_messages_delivery_expiry_implicit'))
       const explicitSql = prepare.mock.calls
         .map(([sql]) => sql)
-        .find((sql) => sql.includes('idx_messages_expiry_explicit'))
+        .find((sql) => sql.includes('idx_messages_delivery_expiry_explicit'))
       if (!implicitSql || !explicitSql) throw new Error('expected both indexed expiry queries')
       expect(planDetails(implicitSql, '2026-07-11T00:00:00.000Z', 25)).toContain(
-        'SEARCH messages USING COVERING INDEX idx_messages_expiry_implicit',
+        'SEARCH messages USING COVERING INDEX idx_messages_delivery_expiry_implicit',
       )
       expect(planDetails(explicitSql, '2026-07-18T00:00:00.000Z', 25)).toContain(
-        'SEARCH messages USING INDEX idx_messages_expiry_explicit',
+        'SEARCH messages USING INDEX idx_messages_delivery_expiry_explicit',
       )
     } finally {
       db.close()

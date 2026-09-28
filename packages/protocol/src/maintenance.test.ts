@@ -56,7 +56,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     // v4 (POD-564) is the other direction: a v4 janitor's `worktree-gc` command
     // does not PARSE at a v3 server, so without a bump the sweep would surface
     // as HTTP 400s instead of an orderly "upgrade me".
-    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v4')
+    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v5')
   })
 
   it('requires an exact compatibility claim before a lease can be issued', () => {

@@ -30,7 +30,7 @@ import type {
   AccountId,
   ThreadId,
 } from '@podium/model'
-import { spawnedByParentSessionId } from '@podium/model'
+import { type MessageDeliveryStatus, spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
 import { resolvePrincipalAsync, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
@@ -138,7 +138,12 @@ export interface MessageWire {
   lifecycle: string
   body: string
   createdAt: string
+  /** LEGACY: the pre-POD-4765 vocabulary (`queued`/`delivered`/`read`/
+   *  `dead_letter`/`expired`/`cancelled`), kept for clients that predate
+   *  `deliveryStatus`. New readers use `deliveryStatus`. */
   status: string
+  /** Where delivery stands, forward-only (`MessageDelivery` in @podium/model). */
+  deliveryStatus: MessageDeliveryStatus
   /** Current 1-based position in the recipient session FIFO, read at projection time. */
   queuePosition?: number
   ackedBy: string | null

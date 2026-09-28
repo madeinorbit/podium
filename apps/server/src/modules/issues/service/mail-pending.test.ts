@@ -6,6 +6,7 @@ import { createBunStoreExecutor } from '../../../store/executor'
 import { MessagesRepository } from '../../../store/messages'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { countContextAwarePendingMail } from './mail-pending'
+import { seedMessage } from '../../../test-support/seed-message'
 
 /**
  * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
@@ -53,7 +54,7 @@ function message(input: {
   id: string
   fromIssue: string | null
   fromSession: string | null
-  status?: MessageRow['status']
+  deliveryStatus?: MessageRow['deliveryStatus']
 }): MessageRow {
   return {
     id: asIssueId(input.id),
@@ -70,7 +71,7 @@ function message(input: {
     body: input.id,
     expiresAt: null,
     createdAt: 't0',
-    status: input.status ?? 'queued',
+    deliveryStatus: input.deliveryStatus ?? 'stored',
     deliveredAt: null,
     deliveredTo: null,
     readAt: null,
@@ -95,24 +96,24 @@ describe('countContextAwarePendingMail', () => {
       const counts = new Map<string, number>()
       const messages = new MessagesRepository(stageQueries(counting(db, counts)))
 
-      await store.messages.addMessage(
+      await seedMessage(store.messages, 
         message({ id: 'msg-peer-1', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      await store.messages.addMessage(
+      await seedMessage(store.messages, 
         message({ id: 'msg-peer-2', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      await store.messages.addMessage(
+      await seedMessage(store.messages, 
         message({ id: 'msg-session', fromIssue: null, fromSession: 'peer-session-2' }),
       )
-      await store.messages.addMessage(
+      await seedMessage(store.messages, 
         message({ id: 'msg-own', fromIssue: 'iss_reader', fromSession: 'reader-session' }),
       )
-      await store.messages.addMessage(
+      await seedMessage(store.messages, 
         message({
           id: 'msg-seen',
           fromIssue: 'iss_peer',
           fromSession: 'peer-session',
-          status: 'delivered',
+          deliveryStatus: 'confirmed',
         }),
       )
       await store.messages.recordRead('msg-seen', asSessionId('reader-session'), 't1')
@@ -179,12 +180,12 @@ describe('countContextAwarePendingMail', () => {
   it('trusts a durable delivery stamp when the reader receipt is missing', async () => {
     const store = await openTestStore(':memory:')
     try {
-      await store.messages.addMessage({
+      await seedMessage(store.messages, {
         ...message({
           id: 'msg-delivered-without-receipt',
           fromIssue: 'iss_peer',
           fromSession: 'peer-session',
-          status: 'delivered',
+          deliveryStatus: 'confirmed',
         }),
         deliveredAt: 't1',
         deliveredTo: asSessionId('reader-session'),

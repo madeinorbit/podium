@@ -31,10 +31,10 @@
  * This is the shape POD-320 established for `issues/service`.
  */
 
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, isMessagePending } from '@podium/model'
 import type { SessionId, SessionMeta, IssueId } from '@podium/model'
 import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '../../store'
-import type { MessagesRepository } from '../../store/messages'
+import { type MessagesRepository, moved } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type {
@@ -298,11 +298,11 @@ export class MessageMailbox {
 
   /**
    * Inbox read for `podium mail inbox`. When `consume` is set (the RECIPIENT is
-   * reading its own box) the returned rows are marked `read` — the PULL-path
-   * confirmation, distinct from a pushed `delivered` [POD-834 §04d] — with the
-   * legacy issue_messages mirror kept in step so the stop-hook/prime pending
-   * counts stop nagging on either surface. A row already pushed (delivered) is
-   * still promoted to read when the recipient opens it.
+   * reading its own box) the returned rows are read — the PULL-path
+   * confirmation [POD-834 §04d]: an unconfirmed row is confirmed, and every
+   * row gains its first `read_at` — with the legacy issue_messages mirror kept
+   * in step so the stop-hook/prime pending counts stop nagging on either
+   * surface.
    */
   async readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
@@ -319,8 +319,8 @@ export class MessageMailbox {
       // row whatever a peer on the same issue mailbox already did to the shared
       // delivery ledger — otherwise a message a peer consumed keeps nagging.
       if (opts.consume) await this.deps.messages.recordRead(m.id, opts.consume, at)
-      if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
-      if (!await this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
+      if (!readable(m) || m.toKind === 'operator') return m
+      if (!(await this.deps.messages.markRead(m.id, opts.consume ?? null, at)).firstRead) return m
       await this.retireNotificationFact(m, at)
       if (m.toKind === 'issue' && m.toId) {
         try {
@@ -329,7 +329,7 @@ export class MessageMailbox {
       }
       const read = {
         ...m,
-        status: 'read' as const,
+        deliveryStatus: 'confirmed' as const,
         readAt: at,
         deliveredTo: m.deliveredTo ?? opts.consume ?? null,
       }
@@ -339,15 +339,16 @@ export class MessageMailbox {
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox.
-   * Reuses `read`, the existing cleared terminal state [spec:SP-ba61]. */
+   * Reuses the read, the existing way a message is cleared [spec:SP-ba61]. */
   async dismiss(messageId: string, consume: string | null): Promise<MessageRow> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) throw new Error('unknown message ' + messageId)
     const at = this.deps.now()
     // Clearing it is seeing it, for this reader [POD-1379].
     if (consume) await this.deps.messages.recordRead(message.id, asSessionId(consume), at)
-    if (message.status === 'queued' || message.status === 'delivered') {
-      await this.deps.messages.markRead(message.id, consume, at)
+    let firstRead = false
+    if (readable(message)) {
+      firstRead = (await this.deps.messages.markRead(message.id, consume, at)).firstRead
       if (message.toKind === 'issue' && message.toId) {
         try {
           await this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
@@ -355,9 +356,7 @@ export class MessageMailbox {
       }
     }
     const dismissed = await this.deps.messages.getMessage(messageId) ?? message
-    if (dismissed.status === 'read' && message.status !== 'read') {
-      await this.deps.emitTransition(dismissed, 'message.read')
-    }
+    if (firstRead) await this.deps.emitTransition(dismissed, 'message.read')
     await this.retireNotificationFact(message, at)
     return dismissed
   }
@@ -368,12 +367,13 @@ export class MessageMailbox {
   async cancel(messageId: string): Promise<MessageRow> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) throw new Error('unknown message ' + messageId)
-    if (message.status !== 'queued' || !await this.deps.messages.markCancelled(message.id)) {
+    // The sentinel text is matched by the callers that treat a lost race as benign.
+    if (!moved(await this.deps.messages.markCancelled(message.id))) {
       throw new Error('message is no longer queued')
     }
     const cancelled = await this.deps.messages.getMessage(message.id) ?? {
       ...message,
-      status: 'cancelled' as const,
+      deliveryStatus: 'cancelled' as const,
     }
     await this.deps.cancelQueuedInput(message)
     await this.deps.emitTransition(cancelled, 'message.cancelled')
@@ -384,4 +384,13 @@ export class MessageMailbox {
     if (!message.factKey || !message.factTarget) return
     await this.deps.notificationArbiter.retire(message.factKey, message.factTarget, at)
   }
+}
+
+/** A read can still do something: confirm a pending row, or stamp the first
+ *  read on a confirmed one. */
+function readable(message: MessageRow): boolean {
+  return (
+    isMessagePending(message.deliveryStatus) ||
+    (message.deliveryStatus === 'confirmed' && !message.readAt)
+  )
 }

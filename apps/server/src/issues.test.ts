@@ -28,6 +28,7 @@ import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { seedMessage } from './test-support/seed-message'
 import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
@@ -5515,7 +5516,7 @@ describe('IssueService agent mail (#103)', () => {
       body: `body-${id}`,
       expiresAt: null,
       createdAt: '2026-06-30T00:00:00.000Z',
-      status,
+      deliveryStatus: status === 'queued' ? ('stored' as const) : ('confirmed' as const),
       deliveredAt: status === 'delivered' || status === 'read' ? '2026-06-30T00:00:01.000Z' : null,
       deliveredTo: status === 'delivered' || status === 'read' ? asSessionId('s1') : null,
       readAt: status === 'read' ? '2026-06-30T00:00:02.000Z' : null,
@@ -5547,7 +5548,7 @@ describe('IssueService agent mail (#103)', () => {
       claimedBy: null,
       claimedAt: null,
     })
-    await store.messages.addMessage(substrateRow(a.id, id, 'delivered'))
+    await seedMessage(store.messages, substrateRow(a.id, id, 'delivered'))
     // Substrate no longer pending; legacy still unread — old Math.max would nag.
     expect(await store.messages.countPending({ kind: 'issue', id: a.id })).toBe(0)
     expect(await store.issues.countUnreadIssueMessages(a.id)).toBe(1)
@@ -5570,7 +5571,7 @@ describe('IssueService agent mail (#103)', () => {
       claimedBy: null,
       claimedAt: null,
     })
-    await store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    await seedMessage(store.messages, substrateRow(a.id, id, 'queued'))
     expect(await svc.mailPending(a.id)).toMatchObject({ unread: 1 })
     expect(await svc.prime({ boundIssueId: a.id })).toContain('1 unread mail')
   })
@@ -5580,7 +5581,7 @@ describe('IssueService agent mail (#103)', () => {
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     for (let i = 0; i < 201; i += 1) {
       const id = `msg_queued_${String(i).padStart(3, '0')}`
-      await store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+      await seedMessage(store.messages, substrateRow(a.id, id, 'queued'))
     }
 
     expect((await svc.mailPending(a.id)).unread).toBe(201)
@@ -5590,12 +5591,12 @@ describe('IssueService agent mail (#103)', () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     for (let i = 0; i < 200; i += 1) {
-      await store.messages.addMessage({
+      await seedMessage(store.messages, {
         ...substrateRow(a.id, `msg_head_${String(i).padStart(3, '0')}`, 'queued'),
         fromIssue: asIssueId('iss_head_sender'),
       })
     }
-    await store.messages.addMessage({
+    await seedMessage(store.messages, {
       ...substrateRow(a.id, 'msg_tail_200', 'queued'),
       fromIssue: asIssueId('iss_tail_sender'),
       createdAt: '2026-06-30T00:00:01.000Z',
@@ -5628,7 +5629,7 @@ describe('IssueService agent mail (#103)', () => {
       claimedBy: null,
       claimedAt: null,
     })
-    await store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    await seedMessage(store.messages, substrateRow(a.id, id, 'queued'))
     expect((await svc.mailPending(a.id)).unread).toBe(1)
     // Slice 2 clear path: inbox pull consumes both surfaces.
     await svc.mailInbox(a.id)
@@ -5661,7 +5662,7 @@ describe('IssueService agent mail (#103)', () => {
       // and onto a per-(reader, message) row, which is what these cases pin.
       claimedAt: null,
     })
-    await store.messages.addMessage(row)
+    await seedMessage(store.messages, row)
     return row
   }
 
@@ -5713,7 +5714,7 @@ describe('IssueService agent mail (#103)', () => {
     await seedIssueMail(store, a.id, 'msg_pulled', { fromSession: asSessionId('sSender') })
     await svc.mailInbox(a.id, { sessionId: asSessionId('sReader') })
     expect(await store.messages.getMessage('msg_pulled')).toMatchObject({
-      status: 'delivered',
+      deliveryStatus: 'confirmed',
       deliveredTo: 'sReader',
     })
   })
@@ -5736,15 +5737,17 @@ describe('IssueService agent mail (#103)', () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_pushed', { fromSession: asSessionId('sSender') })
-    await store.messages.markInjected('msg_pushed', asSessionId('sPushed'), '2026-08-02T14:44:17.283Z')
+    await store.messages.markDispatched('msg_pushed', asSessionId('sPushed'), '2026-08-02T14:44:17.283Z')
     expect(await store.messages.getMessage('msg_pushed')).toMatchObject({
-      status: 'queued',
+      deliveryStatus: 'dispatched',
       deliveredTo: 'sPushed',
     })
-    // A peer opens the shared mailbox 23 seconds later.
+    // A peer opens the shared mailbox 23 seconds later. A peer's pull never
+    // advances a row handed to another session [POD-4680]: it stays on its way
+    // to sPushed, and the push target is never erased.
     await svc.mailInbox(a.id, { sessionId: asSessionId('sPeer') })
     expect(await store.messages.getMessage('msg_pushed')).toMatchObject({
-      status: 'delivered',
+      deliveryStatus: 'dispatched',
       deliveredTo: 'sPushed',
     })
     // …and the peer's OWN receipt is still recorded, so preserving the push

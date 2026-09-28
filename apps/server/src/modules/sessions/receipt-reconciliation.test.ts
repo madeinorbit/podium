@@ -53,7 +53,7 @@ describe('detached receipt reconciliation', () => {
       called = true
       return reconciliation.promise
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, receiptPending: true })
     expect(called).toBe(false)
     receipt.resolve(accepted)
     await new Promise<void>((resolve) => setImmediate(resolve))

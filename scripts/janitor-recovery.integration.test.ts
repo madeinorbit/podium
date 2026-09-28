@@ -65,7 +65,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
         body: 'due',
         expiresAt: '2026-07-01T00:00:00.000Z',
         createdAt: '2026-06-30T00:00:00.000Z',
-        status: 'queued',
+        deliveryStatus: 'stored',
         deliveredAt: null,
         deliveredTo: null,
         ackedBy: null,

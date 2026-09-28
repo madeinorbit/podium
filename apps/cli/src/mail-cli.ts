@@ -144,7 +144,10 @@ interface MessageWire {
   lifecycle: string
   body: string
   createdAt: string
+  /** Legacy vocabulary; the only status a server before POD-4765 sends. */
   status: string
+  /** Forward-only delivery status (POD-4765). Absent from older servers. */
+  deliveryStatus?: string
   ackedBy: string | null
   threadId: ThreadId
   inReplyTo: string | null
@@ -160,9 +163,13 @@ interface MessageWire {
   expectsResponse?: boolean
 }
 
+/** The status to show: the delivery status, or the legacy word from an older
+ *  server that does not send one. */
+const statusOf = (m: MessageWire): string => m.deliveryStatus ?? m.status
+
 function renderRow(m: MessageWire): string {
   const flags = [
-    m.status,
+    statusOf(m),
     m.kind !== 'message' ? m.kind : null,
     // Show an OPEN request (not once it is answered) so the reader knows to reply.
     m.expectsResponse && !m.ackedBy ? 'wants-reply' : null,
@@ -214,7 +221,24 @@ function renderLifecycle(m: MessageWire): string {
   // member) or a readerless operator/UI peek. Say that, rather than asserting an
   // agent has it while naming nobody.
   const anonymous = !m.deliveredTo
+  // One shared wording for every dead-letter cause [POD-4704].
+  const failed = deadLetterSenderGloss(m.deliveryDeferredReason)
   const gloss: Record<string, string> = {
+    stored: 'captured + waiting for the target (not yet in its context)',
+    dispatched: 'handed to the target session — not yet confirmed in its context',
+    'reached-machine': 'the target machine has it — not yet typed',
+    typing: 'being typed into the target session',
+    typed: 'typed into the target session — not yet confirmed it took it',
+    confirmed: m.readAt
+      ? anonymous
+        ? 'opened from an inbox, but NO recipient session was named'
+        : 'the recipient opened its inbox and read it'
+      : anonymous
+        ? 'recorded as consumed, but NO recipient session was named — nobody is known to have it'
+        : 'appeared in the target’s transcript — the agent has it',
+    failed,
+    unknown: 'handed on, but it cannot be told whether it arrived — check before resending',
+    // The legacy words an older server sends.
     queued: 'captured + waiting for the target (not yet in its context)',
     delivered: anonymous
       ? 'recorded as consumed, but NO recipient session was named — nobody is known to have it'
@@ -227,7 +251,7 @@ function renderLifecycle(m: MessageWire): string {
     // injected-but-unconfirmed dead letter (delivery-failed) is a delivery
     // failure, not a vanished target [POD-4704] — the shared gloss keeps the
     // CLI worded the same way as the web ledger and the steward notice.
-    dead_letter: deadLetterSenderGloss(m.deliveryDeferredReason),
+    dead_letter: failed,
     expired: 'sat undelivered past its TTL',
     cancelled: 'withdrawn',
   }
@@ -241,7 +265,7 @@ function renderLifecycle(m: MessageWire): string {
   ].filter(Boolean)
   return [
     `${m.id} ${m.from} -> ${m.to}`,
-    `  status: ${m.status} — ${gloss[m.status] ?? ''}`,
+    `  status: ${statusOf(m)} — ${gloss[statusOf(m)] ?? ''}`,
     `  captured=${m.createdAt}${stamps.length ? ` ${stamps.join(' ')}` : ''}`,
   ].join('\n')
 }

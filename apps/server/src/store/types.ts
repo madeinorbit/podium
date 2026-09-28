@@ -14,6 +14,7 @@ import type {
   MachinePresenceSource,
   MachineServiceAssignment,
   MachineServiceReport,
+  MessageDeliveryStatus,
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
@@ -89,7 +90,7 @@ export interface TerminalCandidateFacts {
   queuedInputCount: number
   pendingMessages: Array<{
     id: string
-    status: string
+    deliveryStatus: string
     deliveredAt: string | null
     injectedAt: string | null
     ackedBy: string | null
@@ -547,18 +548,12 @@ export type MessageToKind = 'issue' | 'session' | 'operator'
 export type MessageKind = 'message' | 'ack' | 'notification' | 'question'
 export type MessageUrgency = 'fyi' | 'next-turn' | 'interrupt'
 export type MessageLifecycle = 'wait' | 'wake'
-/** The message delivery lifecycle [spec:SP-34d7, POD-834] — an honest, sender-
- *  queryable position, NOT "did the CLI accept it":
- *   - `queued`      captured + durably waiting for a valid, reachable target;
- *   - `delivered`   its envelope appeared as a turn in the target's transcript
- *                   (PUSH confirmed by transcript echo) — the agent has it in context;
- *   - `read`        the recipient opened its inbox and consumed it (PULL confirmed);
- *   - `dead_letter` the target was gone before it could land (told the sender once);
- *   - `expired`     the queued TTL passed without delivery;
- *   - `cancelled`   withdrawn.
- *  `delivered` used to fire on mere enqueue — that lie (POD-495 defect B, 70 lost
- *  POD-279 messages) is what this redefinition kills. */
-export type MessageStatus =
+/** The LEGACY delivery vocabulary [spec:SP-34d7, POD-834], still written to
+ *  the `status` column as a mirror of `delivery_status` so a one-release rollback
+ *  reads rows it understands (POD-4765). Nothing current decides on it: the
+ *  store derives it and the wire repeats it for clients that predate
+ *  `deliveryStatus`. */
+export type LegacyMessageStatus =
   | 'queued'
   | 'delivered'
   | 'read'
@@ -599,22 +594,23 @@ export interface MessageRow {
   attachments?: readonly import('@podium/protocol/daemon').RuntimeAttachmentRef[]
   expiresAt: string | null
   createdAt: string
-  status: MessageStatus
+  /** Where delivery stands — `MessageDelivery` in @podium/model is the table of
+   *  allowed moves; it only moves forward [POD-4765]. */
+  deliveryStatus: MessageDeliveryStatus
   /** Current 1-based position while queued. Derived for read projections; never persisted. */
   queuePosition?: number
-  /** When status reached `delivered` — the transcript echo, NOT the enqueue. */
+  /** When it was confirmed — the echo, turn, receipt or read, NOT the enqueue. */
   deliveredAt: string | null
-  /** The session that actually received it (set on inject; confirmed at delivered). */
+  /** The session it was handed to (set on dispatch; kept when confirmed). */
   deliveredTo: SessionId | null
-  /** When status reached `read` — the recipient opened its inbox (PULL path). */
+  /** When the recipient read it from an inbox (PULL path). A read confirms a
+   *  message that was not confirmed yet; on a confirmed one it only stamps this. */
   readAt?: string | null
-  /** When the message was last dispatched toward a live PTY (bytes typed). An
-   *  INTERNAL cursor, not a sender-facing state: the row stays `queued` until an
-   *  echo confirms `delivered`. Drives auto-requeue — an injected row with no echo
-   *  within the window was a ghost push and is re-attempted [POD-834]. */
+  /** When it was handed on toward `deliveredTo`. A timestamp only: whether it is
+   *  on its way is `deliveryStatus`, never this column [POD-4765]. */
   injectedAt?: string | null
   /** When the daemon reported that its drain gave up on this turn [POD-2132,
-   * POD-2202]. The row is `dead_letter` by then — this stamp is the CAUSE beside
+   * POD-2202]. The row is `failed` by then — this stamp is the CAUSE beside
    * the status, not a softer state next to it. (The column keeps its original
    * `delivery_deferred_*` name from the migration that introduced it.) */
   deliveryDeferredAt?: string | null
@@ -622,8 +618,8 @@ export interface MessageRow {
    * became ready inside the deadline, it was torn down still holding the turn,
    * or a server-family driver's send for it failed outright (POD-2297). */
   deliveryDeferredReason?: QueueDrainAbandonedReason | null
-  /** When status reached `dead_letter` — the target was gone, or the drain that
-   * owned the turn gave up on it (see `deliveryDeferredReason`). */
+  /** When it `failed` — the target was gone, or the drain that owned the turn
+   * gave up on it (see `deliveryDeferredReason`). */
   deadLetteredAt?: string | null
   /** Ack message id (denormalized for the steward's suppression check). */
   ackedBy: string | null

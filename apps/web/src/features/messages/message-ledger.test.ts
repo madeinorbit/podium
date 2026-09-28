@@ -14,6 +14,7 @@ const base: LedgerMessage = {
   body: 'hi',
   createdAt: '2026-07-13T00:00:00.000Z',
   status: 'queued',
+  deliveryStatus: 'stored',
   ackedBy: null,
   deliveredAt: null,
   deliveredTo: null,
@@ -50,8 +51,11 @@ describe('clampSummary', () => {
 
 describe('status + delivery line', () => {
   it('tones', () => {
-    expect(ledgerStatusTone('queued')).toBe('queued')
-    expect(ledgerStatusTone('delivered')).toBe('ok')
+    expect(ledgerStatusTone('stored')).toBe('queued')
+    expect(ledgerStatusTone('dispatched')).toBe('queued')
+    expect(ledgerStatusTone('unknown')).toBe('queued')
+    expect(ledgerStatusTone('confirmed')).toBe('ok')
+    expect(ledgerStatusTone('failed')).toBe('dead')
     expect(ledgerStatusTone('expired')).toBe('dead')
     expect(ledgerStatusTone('cancelled')).toBe('dead')
   })
@@ -63,7 +67,7 @@ describe('status + delivery line', () => {
     expect(
       deliveryLine({
         ...base,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredReason: 'never-live',
       }),
@@ -71,13 +75,13 @@ describe('status + delivery line', () => {
     expect(
       deliveryLine({
         ...base,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredReason: 'teardown',
       }),
     ).toBe('not delivered · session torn down')
-    expect(deliveryLine({ ...base, status: 'dead_letter' })).toBe('dead-lettered · target gone')
-    expect(deliveryLine({ ...base, status: 'expired' })).toBe('expired undelivered')
+    expect(deliveryLine({ ...base, deliveryStatus: 'failed' })).toBe('dead-lettered · target gone')
+    expect(deliveryLine({ ...base, deliveryStatus: 'expired' })).toBe('expired undelivered')
     // AN ATTACHMENT THE DRIVER REFUSED IS NOT A VANISHED TARGET [POD-2574]. The
     // session behind this row is running and reachable; what failed is the send.
     // Before the server stamped a cause, this row arrived here with a null reason
@@ -88,7 +92,7 @@ describe('status + delivery line', () => {
     expect(
       deliveryLine({
         ...base,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deliveryDeferredAt: '2026-08-25T18:00:00.000Z',
         deliveryDeferredReason: 'delivery-failed',
       }),
@@ -101,7 +105,7 @@ describe('status + delivery line', () => {
     {
       const unconfirmed = deliveryLine({
         ...base,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deliveredTo: 's1',
         deliveryDeferredAt: '2026-09-13T18:00:00.000Z',
         deliveryDeferredReason: 'delivery-failed',
@@ -112,10 +116,23 @@ describe('status + delivery line', () => {
     expect(
       deliveryLine({
         ...base,
-        status: 'delivered',
+        deliveryStatus: 'confirmed',
         deliveredTo: 's1',
         ackedBy: 'msg_ack',
       }),
     ).toBe('delivered to s1 · acked by msg_ack')
+    expect(
+      deliveryLine({ ...base, deliveryStatus: 'confirmed', deliveredTo: 's1', readAt: 't2' }),
+    ).toBe('read by s1')
+    // Handed on is not delivered, and says so [POD-4765].
+    expect(deliveryLine({ ...base, deliveryStatus: 'dispatched', deliveredTo: 's1' })).toBe(
+      'handed on to s1 · not yet confirmed',
+    )
+    expect(deliveryLine({ ...base, deliveryStatus: 'typed', deliveredTo: 's1' })).toBe(
+      'typed to s1 · not yet confirmed',
+    )
+    expect(deliveryLine({ ...base, deliveryStatus: 'unknown' })).toBe(
+      'not confirmed · it may or may not have arrived',
+    )
   })
 })

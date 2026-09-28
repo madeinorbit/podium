@@ -48,7 +48,7 @@ const baseMessage = (over: Partial<MessageRow> = {}): MessageRow => ({
   body: 'hello',
   expiresAt: null,
   createdAt: '2026-07-01T00:00:00.000Z',
-  status: 'queued',
+  deliveryStatus: 'stored',
   deliveredAt: null,
   deliveredTo: null,
   ackedBy: null,
@@ -138,7 +138,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     }
 
     expect(await service.apply(command)).toMatchObject({ status: 'applied' })
-    expect((await store.messages.getMessage(message.id))?.status).toBe('expired')
+    expect((await store.messages.getMessage(message.id))?.deliveryStatus).toBe('expired')
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
     const events = (await store.events
       .listEventsSince(0))

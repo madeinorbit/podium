@@ -189,7 +189,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
           urgency: 'next-turn',
         },
       )
-      expect(sent.message.status).toBe('queued')
+      expect(sent.message.deliveryStatus).toBe('stored')
 
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       sockets[0]?.close()
@@ -201,7 +201,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
         reason: 'teardown',
       })
       expect(outbox.pending()).toHaveLength(1)
-      expect((await registry.sessionStore.messages.getMessage(sent.message.id))?.status).toBe('queued')
+      expect((await registry.sessionStore.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('stored')
 
       if (!retry) throw new Error('disconnect did not schedule reconnect')
       retry()
@@ -210,7 +210,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       await settled()
 
       expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deliveryDeferredReason: 'teardown',
       })
       expect(outbox.pending()).toEqual([])

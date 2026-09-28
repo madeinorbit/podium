@@ -131,7 +131,7 @@ async function seedTold(
     body: 'already told you directly',
     expiresAt: null,
     createdAt: opts.createdAt ?? new Date().toISOString(),
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     ackedBy: null,

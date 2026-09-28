@@ -35,7 +35,7 @@ function dueMessage(id: string): MessageRow {
     body: 'due',
     expiresAt: '2026-07-01T00:00:00.000Z',
     createdAt: '2026-06-30T00:00:00.000Z',
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     ackedBy: null,
@@ -104,7 +104,7 @@ describe.each([
     await expect(service.tick()).rejects.toThrow(/injected crash/)
     await expect(service.tick()).resolves.toBeUndefined()
 
-    expect((await store.messages.getMessage(message.id))?.status).toBe('expired')
+    expect((await store.messages.getMessage(message.id))?.deliveryStatus).toBe('expired')
     expect(await expiredEvents(store, message.id)).toBe(1)
     expect(service.metrics()).toMatchObject({
       queueDepth: 0,
@@ -191,7 +191,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
     try {
       await service.tick()
       expect(restarted).toBe(true)
-      expect((await store.messages.getMessage(message.id))?.status).toBe('expired')
+      expect((await store.messages.getMessage(message.id))?.deliveryStatus).toBe('expired')
       expect(await expiredEvents(store, message.id)).toBe(1)
       expect(service.metrics()).toMatchObject({
         queueDepth: 0,

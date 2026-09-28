@@ -191,7 +191,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
       { to: { kind: 'issue', id: target.id }, body: 'work please' },
     )
     expect(r.disposition).toBe('held')
-    expect((await h.svc.message(r.message.id))?.status).toBe('queued')
+    expect((await h.svc.message(r.message.id))?.deliveryStatus).toBe('stored')
 
     // Access is revoked BETWEEN accept and drain.
     revoked = true
@@ -200,7 +200,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
 
     const after = await h.svc.message(r.message.id)
     // REJECTED at apply: never applied…
-    expect(after?.status).toBe('dead_letter')
+    expect(after?.deliveryStatus).toBe('failed')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget')).toEqual([])
     // …and never silently dropped — the sender is told (ADR 3 D9).
     const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter((m) => m.body.includes(r.message.id))
@@ -253,7 +253,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     )
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     await h.svc.sweep()
-    expect((await h.svc.message(r.message.id))?.status).not.toBe('dead_letter')
+    expect((await h.svc.message(r.message.id))?.deliveryStatus).not.toBe('failed')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
   })
 })
@@ -303,7 +303,7 @@ describe('an ASYNC ceiling still refuses at apply — the promise is awaited, no
     const allowed = await send('legitimate')
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     await h.svc.sweep()
-    expect((await h.svc.message(allowed.message.id))?.status).not.toBe('dead_letter')
+    expect((await h.svc.message(allowed.message.id))?.deliveryStatus).not.toBe('failed')
     expect(await h.store.issues.getIssueMessage(allowed.message.id)).not.toBeNull()
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget').length).toBeGreaterThan(0)
 
@@ -314,7 +314,7 @@ describe('an ASYNC ceiling still refuses at apply — the promise is awaited, no
     const pushesBefore = h.pushes.filter((p) => p.sessionId === 'sTarget').length
     const denied = await send('beyond the ceiling')
     await h.svc.sweep()
-    expect((await h.svc.message(denied.message.id))?.status).toBe('dead_letter')
+    expect((await h.svc.message(denied.message.id))?.deliveryStatus).toBe('failed')
     expect(await h.store.issues.getIssueMessage(denied.message.id)).toBeNull()
     expect((await h.store.issues.listIssueMessages(target.id)).map((m) => m.body)).toEqual([
       'legitimate',
@@ -496,7 +496,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     })) as { answered: boolean; questionId: string }
 
     expect(r.answered).toBe(false)
-    expect((await h.svc.message(r.questionId))?.status).toBe('dead_letter')
+    expect((await h.svc.message(r.questionId))?.deliveryStatus).toBe('failed')
     expect(h.pushes).toEqual([])
     expect(h.wakeSpawns).toEqual([])
   })
@@ -562,7 +562,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     expect(r.ok).toBe(true)
     expect(r.disposition).toBe('queued')
     expect(h.pushes).toEqual([])
-    expect((await h.svc.message(r.id))?.status).toBe('queued')
+    expect((await h.svc.message(r.id))?.deliveryStatus).toBe('stored')
   })
 
   it('issue-addressed bare spawn-on-wake is gated on the ISSUE machine', async () => {

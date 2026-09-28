@@ -9,6 +9,7 @@ import type { Session } from './modules/sessions/session'
 import type { TerminalCandidateFacts } from './store/types'
 import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { seedMessage } from './test-support/seed-message'
 
 const registries: SessionRegistry[] = []
 const at = (second: number) => `2026-07-19T12:00:${String(second).padStart(2, '0')}.000Z`
@@ -457,7 +458,7 @@ describe('durable terminal hibernation proof', () => {
 
   it.each([
     ['queued input', (f: TerminalCandidateFacts) => { f.queuedInputCount = 1 }],
-    ['mail', (f: TerminalCandidateFacts) => { f.pendingMessages = [{ id: 'mail', status: 'queued', deliveredAt: null, injectedAt: null, ackedBy: null }] }],
+    ['mail', (f: TerminalCandidateFacts) => { f.pendingMessages = [{ id: 'mail', deliveryStatus: 'stored', deliveredAt: null, injectedAt: null, ackedBy: null }] }],
     ['auto continue', (f: TerminalCandidateFacts) => { f.autoContinueActive = true }],
     ['subagent count', (f: TerminalCandidateFacts) => { f.activeWork.nativeSubagentCount = 1 }],
     ['subagent identity with zero count', (f: TerminalCandidateFacts) => { f.activeWork.nativeSubagentIds = ['child'] }],
@@ -708,7 +709,7 @@ describe('durable terminal hibernation proof', () => {
     const h = await harness()
     for (let index = 0; index <= 500; index += 1) {
       const id = `mail-${String(index).padStart(3, '0')}`
-      await h.store.messages.addMessage({
+      await seedMessage(h.store.messages, {
         id,
         threadId: asThreadId(id),
         inReplyTo: null,
@@ -723,7 +724,7 @@ describe('durable terminal hibernation proof', () => {
         body: 'mail',
         expiresAt: null,
         createdAt: new Date(Date.UTC(2026, 6, 19, 12, 0, 0, index)).toISOString(),
-        status: index === 0 ? 'queued' : 'read',
+        deliveryStatus: index === 0 ? 'stored' : 'confirmed',
         deliveredAt: null,
         deliveredTo: null,
         ackedBy: null,
@@ -745,7 +746,7 @@ describe('durable terminal hibernation proof', () => {
       expectsResponse: boolean,
       expiresAt: string | null,
     ) =>
-      await h.store.messages.addMessage({
+      await seedMessage(h.store.messages, {
         id,
         threadId: asThreadId(id),
         inReplyTo: null,
@@ -760,7 +761,8 @@ describe('durable terminal hibernation proof', () => {
         body: id,
         expiresAt,
         createdAt: at(1),
-        status,
+        deliveryStatus: 'confirmed',
+        ...(status === 'read' ? { readAt: at(3) } : {}),
         deliveredAt: at(2),
         deliveredTo: h.sessionId,
         ackedBy: null,

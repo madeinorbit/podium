@@ -40,6 +40,7 @@ import {
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
+import { legacyMessageStatus } from '../../../store/messages'
 import { withReadScope } from '../../../store/executor/read-scope'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
@@ -384,7 +385,9 @@ export class MailAccess {
       lifecycle: m.lifecycle,
       body: m.body,
       createdAt: m.createdAt,
-      status: m.status,
+      // The legacy vocabulary for clients that predate `deliveryStatus`.
+      status: legacyMessageStatus(m.deliveryStatus, Boolean(m.readAt)),
+      deliveryStatus: m.deliveryStatus,
       ...(m.queuePosition !== undefined ? { queuePosition: m.queuePosition } : {}),
       ackedBy: m.ackedBy,
       deliveredAt: m.deliveredAt,

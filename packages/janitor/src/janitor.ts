@@ -635,7 +635,9 @@ export class MessageExpiryReader {
         candidates.push(
           MessageExpiryObservation.parse({
             messageId: row.id,
-            status: row.status,
+            // Only a row the server still holds can expire (POD-4765); the
+            // observation names it in the legacy vocabulary the protocol pins.
+            status: 'queued',
             lifecycle: row.lifecycle,
             createdAt: row.created_at,
             expiresAt: row.expires_at,
@@ -671,9 +673,9 @@ export class MessageExpiryReader {
     params.push(limit)
     return this.db
       .prepare(
-        `SELECT id, status, lifecycle, created_at, expires_at
-         FROM messages INDEXED BY idx_messages_expiry_implicit
-         WHERE status = 'queued' AND lifecycle = 'wait' AND expires_at IS NULL
+        `SELECT id, lifecycle, created_at, expires_at
+         FROM messages INDEXED BY idx_messages_delivery_expiry_implicit
+         WHERE delivery_status = 'stored' AND lifecycle = 'wait' AND expires_at IS NULL
            AND created_at <= ? ${after}
          ORDER BY created_at ASC, id ASC
          LIMIT ?`,
@@ -692,9 +694,9 @@ export class MessageExpiryReader {
     params.push(limit)
     return this.db
       .prepare(
-        `SELECT id, status, lifecycle, created_at, expires_at
-         FROM messages INDEXED BY idx_messages_expiry_explicit
-         WHERE status = 'queued' AND expires_at IS NOT NULL AND expires_at <= ? ${after}
+        `SELECT id, lifecycle, created_at, expires_at
+         FROM messages INDEXED BY idx_messages_delivery_expiry_explicit
+         WHERE delivery_status = 'stored' AND expires_at IS NOT NULL AND expires_at <= ? ${after}
          ORDER BY expires_at ASC, id ASC
          LIMIT ?`,
       )
