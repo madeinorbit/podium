@@ -250,7 +250,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     expect(handle1).not.toHaveProperty('engine')
     expect(handle1).not.toHaveProperty('journal')
     // The session owns both processes by durable label (A6).
-    expect(await engine.durable.has(engineLabel)).toBe(true)
+    expect(await scope1.engineAlive(engineLabel)).toBe(true)
     expect(clients.durable.hasMasterSync(clientLabel)).toBe(true)
 
     // -- The restart: daemon close destroys every holder (host-runtime.ts) --
@@ -266,7 +266,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     expect(entry1.driver).toBeUndefined()
     expect(entry1.engine).toBeUndefined()
     expect(entry1.client).toBeUndefined()
-    expect(await engine.durable.has(engineLabel)).toBe(true)
+    expect(await scope1.engineAlive(engineLabel)).toBe(true)
     expect(clients.durable.hasMasterSync(clientLabel)).toBe(true)
     expect(journal.store.read(SESSION)?.address).toBe(address1)
 
@@ -329,7 +329,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     expect(handle2).not.toHaveProperty('terminal')
     expect(handle2).not.toHaveProperty('engine')
     // The session still owns both processes by the same durable labels.
-    expect(await engine.durable.has(engineLabel)).toBe(true)
+    expect(await scope2.engineAlive(engineLabel)).toBe(true)
     expect(clientScope2.hasClientMaster(clientLabel)).toBe(true)
   })
 })
