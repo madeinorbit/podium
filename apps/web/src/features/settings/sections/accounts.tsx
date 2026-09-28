@@ -163,7 +163,7 @@ function NativeAccountRow({
         </div>
       </Row>
       {status && <p className="max-w-[62ch] pb-2.5 settings-prose">{status}</p>}
-      {account.harness === 'codex' && account.serverAi && (
+      {account.serverAi && (
         <p className="max-w-[62ch] pb-2.5 settings-prose">
           Server AI uses {account.serverAi.machineName}&rsquo;s login.
         </p>

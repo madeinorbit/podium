@@ -1,4 +1,4 @@
-import type { Inventory, MachineId, UserId } from '@podium/model'
+import type { HarnessAgent, Inventory, MachineId, UserId } from '@podium/model'
 import { userCommandPrincipal } from './command-principal'
 import { LlmConfigError } from './llm-error'
 import type { CodexTransport, LlmMessage, LlmTool } from './llm'
@@ -45,11 +45,17 @@ export interface CodexLoginMachineSource {
   readonly appVersion?: string | null
 }
 
-/** Project machine rows onto the picker's input: unrevoked rows with their
- *  Codex login state, online reachability and daemon version. */
+/** Project machine rows onto the picker's input: unrevoked rows with the
+ *  NAMED harness's login state, online reachability and daemon version.
+ *
+ *  The harness arrives as a value (the role's resolved harness, the row's
+ *  harness) — never a literal: vendor behaviour keyed on a harness name lives
+ *  in the harness package (POD-4414 §5), while the identifier itself may flow
+ *  anywhere. */
 export function codexLoginMachines(
   records: readonly CodexLoginMachineSource[],
   isOnline: (id: MachineId) => boolean,
+  harness: HarnessAgent,
 ): CodexLoginMachine[] {
   return records
     .filter((record) => !record.revokedAt)
@@ -57,7 +63,7 @@ export function codexLoginMachines(
       id: record.id,
       name: record.name,
       loginConnected: (record.inventory?.agents ?? []).some(
-        (agent) => agent.kind === 'codex' && agent.login.state === 'in',
+        (agent) => agent.kind === harness && agent.login.state === 'in',
       ),
       online: isOnline(record.id),
       appVersion: record.appVersion ?? null,
@@ -184,10 +190,10 @@ export interface CodexTransportDeps {
  */
 export function createCodexTransport(deps: CodexTransportDeps): CodexTransport {
   return {
-    complete: async (model, messages, tools, effort) => {
+    complete: async (model, messages, tools, effort, harness) => {
       const authorize = await deps.authorizerFor(await deps.ownerUserId())
       const picked = pickCodexMachine(
-        codexLoginMachines(await deps.listMachines(), deps.isOnline),
+        codexLoginMachines(await deps.listMachines(), deps.isOnline, harness),
         {
           defaultMachineId: await deps.defaultMachineId(),
           authorize,

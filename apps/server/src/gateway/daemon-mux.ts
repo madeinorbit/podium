@@ -210,6 +210,9 @@ const DISPATCH: Dispatcher = {
   quotaHistoryResult: toRpc,
   modelProbeResult: toRpc,
   devArtifactProbeResult: toRpc,
+  // SERVER-SIDE LLM OVER A CATALOG CODEX LOGIN (POD-4750) — a correlated
+  // reply like every other daemon verb: one correlator, told who answered.
+  codexCompleteResult: toRpc,
   imageUploadResult: toRpc,
   transcriptReadResult: toRpc,
   fileReadResult: toRpc,

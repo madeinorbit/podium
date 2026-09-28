@@ -1,4 +1,4 @@
-import { asMachineId, asUserId, Inventory } from '@podium/model'
+import { asMachineId, asUserId, type HarnessAgent, Inventory } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   codexAuthorizerFor,
@@ -19,6 +19,7 @@ function source(
     appVersion?: string | null
     revoked?: boolean
     name?: string
+    kind?: string
   } = {},
 ): CodexLoginMachineSource {
   return {
@@ -30,7 +31,7 @@ function source(
       arch: 'x64',
       agents: [
         {
-          kind: 'codex',
+          kind: opts.kind ?? 'codex',
           installed: true,
           login: { state: opts.login ?? 'in' },
         },
@@ -52,11 +53,22 @@ describe('codexLoginMachines', () => {
         source('c', { revoked: true }),
       ],
       (id) => String(id) === asMachineId('a'),
+      'codex' as HarnessAgent,
     )
     expect(out).toEqual([
       { id: asMachineId('a'), name: 'a', loginConnected: true, online: true, appVersion: 'v1' },
       { id: asMachineId('b'), name: 'b', loginConnected: false, online: false, appVersion: null },
     ])
+  })
+
+  it('matches the harness it is given, not a baked-in kind', () => {
+    const out = codexLoginMachines(
+      [source('a', { kind: 'claude-code' }), source('b', { kind: 'codex' })],
+      () => true,
+      'claude-code' as HarnessAgent,
+    )
+    expect(out.find((m) => String(m.id) === 'a')?.loginConnected).toBe(true)
+    expect(out.find((m) => String(m.id) === 'b')?.loginConnected).toBe(false)
   })
 })
 

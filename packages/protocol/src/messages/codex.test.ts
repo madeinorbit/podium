@@ -77,15 +77,15 @@ describe('codex frames (POD-4750)', () => {
   it('a newer request carrying an unknown extra field still parses (strips it)', () => {
     // Zod strips unknown keys by default: a future field rides without
     // breaking this build's parser.
-    const msg = {
+    const base = {
       type: 'codexCompleteRequest' as const,
       requestId: 'cc-3',
       model: 'gpt-5.5',
-      messages: [{ role: 'user', content: 'hi' }],
+      messages: [{ role: 'user' as const, content: 'hi' }],
       tools: [],
       effort: 'low' as const,
-      futureField: 'ignored',
     }
+    const msg = { ...base, futureField: 'ignored' }
     const parsed = parseControlMessage(encode(msg))
     expect(parsed.type).toBe('codexCompleteRequest')
     expect('futureField' in parsed).toBe(false)

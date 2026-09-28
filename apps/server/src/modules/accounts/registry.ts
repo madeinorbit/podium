@@ -20,7 +20,7 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
-import { asAccountId, asUserId, type MachineId, type UserId } from '@podium/model'
+import { asAccountId, asUserId, type HarnessAgent, type MachineId, type UserId } from '@podium/model'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
@@ -34,14 +34,20 @@ export interface AccountState {
   readonly nativeLogin: RegistryModules['nativeLogin']
   readonly callerUserId: UserId
   /**
-   * The viewer's usable Codex server-AI machine (POD-4750), or undefined when
-   * none is usable for them. Implemented by the service closure, which is the
-   * only side holding the users store for the scoped picker. Optional so
-   * existing test states stay valid; absent = the hub row omits "Server AI
-   * uses …" rather than inventing one.
+   * The viewer's usable server-AI login (POD-4750): which native login the
+   * server-side LLM would spend for the CALLER's background role, and on which
+   * machine — resolved once per list call. Implemented by the service closure,
+   * which is the only side holding the users store for the scoped picker. The
+   * harness returns as a value and rows match it by equality — never a
+   * literal — so this stays correct for any future native-backed API role, not
+   * just today's. Undefined when the role runs on no native login (or none is
+   * usable for the viewer): rows then omit "Server AI uses …" rather than
+   * inventing one. Optional so existing test states stay valid.
    */
   readonly resolveCodexServerAi?:
-    | (() => Promise<{ machineId: MachineId; machineName: string } | undefined>)
+    | (() => Promise<
+        { harness: HarnessAgent; machineId: MachineId; machineName: string } | undefined
+      >)
     | undefined
 }
 

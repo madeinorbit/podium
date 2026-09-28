@@ -47,6 +47,12 @@ export const ACCOUNT_QUERIES = {
         machines.map(async (machine) => state.machineService.harnessDescriptorsFor(machine.id) ?? []),
       )
     ).flat()
+    // Which native login this viewer's server AI would spend (POD-4750) — one
+    // call per list; rows below match its harness by equality. A refusal (no
+    // usable login for this viewer) leaves every row as the catalog describes it.
+    const serverAi = state.resolveCodexServerAi
+      ? await state.resolveCodexServerAi().catch(() => undefined)
+      : undefined
     return await Promise.all((await accountViews(
       async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
@@ -64,19 +70,16 @@ export const ACCOUNT_QUERIES = {
             machine.inventory?.agents.some((agent) => agent.kind === harness && agent.installed),
         )
         .map((machine) => ({ id: machine.id, name: machine.name }))
-      // Which machine's Codex login this viewer's server AI runs on (POD-4750).
-      // Same scoped picker as the one-shot transport; a refusal (no usable
-      // login for this viewer) leaves the row as the catalog describes it.
-      const serverAi =
-        harness === 'codex' && state.resolveCodexServerAi
-          ? await state.resolveCodexServerAi().catch(() => undefined)
-          : undefined
       return {
         ...account,
         loginRequired: account.status === 'not-configured' || state.nativeLogin.isRequired(harness),
         loginMachines,
         ...(attempt ? { loginAttempt: attempt } : {}),
-        ...(serverAi ? { serverAi } : {}),
+        // Which native login this viewer's server AI would spend (POD-4750):
+        // resolved once above; rows match the returned harness by equality.
+        ...(serverAi && harness === serverAi.harness
+          ? { serverAi: { machineId: serverAi.machineId, machineName: serverAi.machineName } }
+          : {}),
       }
     }))
   }),

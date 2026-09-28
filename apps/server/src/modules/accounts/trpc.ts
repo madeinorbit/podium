@@ -3,7 +3,8 @@
  * contracts, `list` from the query table.
  */
 
-import { asUserId } from '@podium/model'
+import { asUserId, type HarnessAgent, type MachineId } from '@podium/model'
+import { resolveRole } from '@podium/runtime'
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
 import { codexAuthorizerFor, codexLoginMachines, pickCodexMachine, serverVersionLabel } from '../../codex-machine'
 import { ACCOUNT_QUERIES } from './queries'
@@ -25,28 +26,38 @@ export const accountFamilyProcedures = (): AccountProcedures =>
       settings: state.modules.settings,
       nativeLogin: state.modules.nativeLogin,
       callerUserId: state.caller.userId,
-      // Which machine's Codex login THIS viewer's server AI would run on
-      // (POD-4750): the same scoped picker as the one-shot transport, so the
-      // hub row and the turn cannot disagree. Undefined when no login is
-      // usable for the viewer (or no user store is assembled) — the row then
-      // omits "Server AI uses …" rather than inventing one.
-      resolveCodexServerAi: async () => {
+      // Which native login THIS viewer's server AI would spend (POD-4750):
+      // the caller's background role decides the account, and only a role
+      // that runs on a native login (today: the ChatGPT Responses API) yields
+      // a marker. The machine then comes from the same scoped picker as the
+      // one-shot transport, so the hub row and the turn cannot disagree — and
+      // every identity here (role harness, account) flows as a value, never a
+      // literal (POD-4414 §5). Undefined when the role runs on no native login
+      // or none is usable for the viewer: rows omit the marker rather than
+      // inventing one.
+      resolveCodexServerAi: async (): Promise<
+        { harness: HarnessAgent; machineId: MachineId; machineName: string } | undefined
+      > => {
         if (!state.users) return undefined
         try {
+          const viewer = asUserId(state.caller.userId)
+          const role = resolveRole(await state.modules.settings.getSettingsFor(viewer), 'background')
+          if (role.execution !== 'api' || !role.accountId.startsWith('native:')) return undefined
+          const harness = role.harness
           const authorize = await codexAuthorizerFor(
             { users: state.users, machines: state.modules.machines },
-            asUserId(state.caller.userId),
+            viewer,
           )
           const listings = await state.modules.machines.listMachines()
           const picked = pickCodexMachine(
-            codexLoginMachines(listings, (id) => state.modules.machines.hasDaemon(id)),
+            codexLoginMachines(listings, (id) => state.modules.machines.hasDaemon(id), harness),
             {
               defaultMachineId: await state.modules.machines.defaultMachine().catch(() => undefined),
               authorize,
               serverVersion: serverVersionLabel(),
             },
           )
-          return { machineId: picked.machineId, machineName: picked.machineName }
+          return { harness, machineId: picked.machineId, machineName: picked.machineName }
         } catch {
           return undefined
         }

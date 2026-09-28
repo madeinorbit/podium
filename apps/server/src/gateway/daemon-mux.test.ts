@@ -301,7 +301,10 @@ describe('machine scope and the writer class', () => {
     // reply on top of what POD-3070 already absorbed.
     // 39 after direct server cutover adds the correlated serverEndpointResult reply.
     // The draft contract adds one correlated get/set reply.
-    expect(rpcFrames.length).toBe(41)
+    // 42 with the server-side Codex LLM reply (POD-4750) — the correlated
+    // codexCompleteResult answering a daemon-side Responses turn, settled by
+    // the same correlator for the same reason.
+    expect(rpcFrames.length).toBe(42)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

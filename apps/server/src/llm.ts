@@ -128,6 +128,11 @@ function codexEffort(backend: LlmBackend): 'low' | 'medium' | 'high' {
  * the composition root over the daemon RPC + the scoped machine picker: it
  * picks the machine, sends the turn, and returns ONLY the model's reply. The
  * token never leaves that machine and never crosses this interface.
+ *
+ * `harness` is the backend's resolved harness — a value that flowed from the
+ * role's account, selecting which login to spend. In production a `codex`
+ * provider always resolves to the codex harness (the roles read path pairs
+ * them); the picker matches on the value, never a literal.
  */
 export interface CodexTransport {
   complete(
@@ -135,6 +140,7 @@ export interface CodexTransport {
     messages: LlmMessage[],
     tools: LlmTool[],
     effort: 'low' | 'medium' | 'high',
+    harness: LlmBackend['harnessAgent'],
   ): Promise<LlmResponse>
 }
 
@@ -147,9 +153,10 @@ function codexClient(backend: LlmBackend, transport: CodexTransport | undefined)
   }
   const model = backend.model && backend.model !== 'auto' ? backend.model : 'gpt-5.5'
   const effort = codexEffort(backend)
+  const harness = backend.harnessAgent
   return {
     label: `codex · ${model} (ChatGPT subscription)`,
-    complete: async (m, t) => await transport.complete(model, m, t, effort),
+    complete: async (m, t) => await transport.complete(model, m, t, effort, harness),
   }
 }
 

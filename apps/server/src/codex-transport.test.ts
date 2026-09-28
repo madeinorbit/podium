@@ -35,11 +35,18 @@ interface Stub {
   online: string[]
   defaultId?: string
   allow: string[]
-  complete: (model: string) => Promise<{ ok: boolean; text?: string; toolCalls?: []; error?: string }>
+  complete: (
+    model: string,
+    messages?: unknown,
+    tools?: unknown,
+    effort?: unknown,
+    harness?: unknown,
+  ) => Promise<{ ok: boolean; text?: string; toolCalls?: []; error?: string }>
 }
 
 function stubTransport(stub: Stub) {
-  return createCodexTransport({
+  const calls: { machineId: string; model: string }[] = []
+  const transport = createCodexTransport({
     listMachines: async () => stub.records,
     isOnline: (id) => stub.online.includes(String(id)),
     defaultMachineId: async () => (stub.defaultId ? asMachineId(stub.defaultId) : undefined),
@@ -47,12 +54,16 @@ function stubTransport(stub: Stub) {
       stub.allow.includes(String(id)) ? undefined : 'you do not have access to use this machine',
     ownerUserId: async () => asUserId('owner-1'),
     serverVersion: VERSION,
-    codexComplete: async (_machineId, input) => await stub.complete(input.model),
+    codexComplete: async (machineId, input) => {
+      calls.push({ machineId: String(machineId), model: input.model })
+      return await stub.complete(input.model)
+    },
   })
+  return { transport, calls }
 }
 
 const codexBackend = (model = 'gpt-5.5', harnessEffort = 'auto') =>
-  LlmBackend.parse({ kind: 'api', provider: 'codex', model, harnessEffort })
+  LlmBackend.parse({ kind: 'api', provider: 'codex', model, harnessEffort, harnessAgent: 'codex' })
 
 describe('codex transport (POD-4750)', () => {
   let prevCodexHome: string | undefined
@@ -71,22 +82,19 @@ describe('codex transport (POD-4750)', () => {
   })
 
   it('a codex turn succeeds via the picked machine with no server-side login file', async () => {
-    const seen: { machineId: string; model: string; effort: string }[] = []
-    const transport = stubTransport({
+    const { transport, calls } = stubTransport({
       records: [record('desk')],
       online: ['desk'],
       defaultId: 'desk',
       allow: ['desk'],
-      complete: async (model) => {
-        seen.push({ machineId: 'desk', model, effort: 'medium' })
-        return { ok: true, text: 'hello from the daemon', toolCalls: [] }
-      },
+      complete: async () => ({ ok: true, text: 'hello from the daemon', toolCalls: [] }),
     })
     const client = llmClient(codexBackend(), undefined, fetch, { codexTransport: transport })
     expect(client.label).toBe('codex · gpt-5.5 (ChatGPT subscription)')
     const res = await client.complete([{ role: 'user', content: 'hi' }], [])
     expect(res).toEqual({ text: 'hello from the daemon', toolCalls: [] })
-    expect(seen).toEqual([{ machineId: 'desk', model: 'gpt-5.5', effort: 'medium' }])
+    // The backend's codex harness selected the codex login's machine.
+    expect(calls).toEqual([{ machineId: 'desk', model: 'gpt-5.5' }])
   })
 
   it('maps model default and effort like the old client did', async () => {
@@ -118,8 +126,31 @@ describe('codex transport (POD-4750)', () => {
     ])
   })
 
+  it('a backend naming another harness spends that login, not the codex one', async () => {
+    // The harness value — not a literal in product code — selects the login.
+    // A claude-harness backend against a codex-only fleet is unusable.
+    const { transport } = stubTransport({
+      records: [record('desk')],
+      online: ['desk'],
+      defaultId: 'desk',
+      allow: ['desk'],
+      complete: async () => ({ ok: true, text: 'must not happen', toolCalls: [] }),
+    })
+    const backend = LlmBackend.parse({
+      kind: 'api',
+      provider: 'codex',
+      model: 'gpt-5.5',
+      harnessEffort: 'auto',
+      harnessAgent: 'claude-code',
+    })
+    const client = llmClient(backend, undefined, fetch, { codexTransport: transport })
+    await expect(client.complete([{ role: 'user', content: 'hi' }], [])).rejects.toThrow(
+      LlmConfigError,
+    )
+  })
+
   it('a daemon refusal surfaces as LlmConfigError with the daemon text', async () => {
-    const transport = stubTransport({
+    const { transport } = stubTransport({
       records: [record('desk')],
       online: ['desk'],
       defaultId: 'desk',
@@ -137,7 +168,7 @@ describe('codex transport (POD-4750)', () => {
   })
 
   it('other providers are untouched by the transport', () => {
-    const transport = stubTransport({ records: [], online: [], allow: [], complete: async () => ({ ok: true, text: '', toolCalls: [] }) })
+    const { transport } = stubTransport({ records: [], online: [], allow: [], complete: async () => ({ ok: true, text: '', toolCalls: [] }) })
     expect(() => llmClient(LlmBackend.parse({ kind: 'api', provider: 'anthropic', model: 'm' }), undefined, fetch, { codexTransport: transport })).toThrow(
       /no API key configured/,
     )
@@ -146,7 +177,7 @@ describe('codex transport (POD-4750)', () => {
   })
 
   it('an unauthorized catalog login is never spent (generic error, no names)', async () => {
-    const transport = stubTransport({
+    const { transport } = stubTransport({
       records: [record('user-b-box')],
       online: ['user-b-box'],
       allow: [],

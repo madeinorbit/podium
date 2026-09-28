@@ -1,4 +1,4 @@
-import { asMachineId, asUserId, Inventory } from '@podium/model'
+import { asMachineId, asUserId, type HarnessAgent, Inventory } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { MachineRecord } from '../../store/types'
 import { ACCOUNT_QUERIES } from './queries'
@@ -58,15 +58,33 @@ function stateWith(resolver: AccountState['resolveCodexServerAi']): AccountState
   } as unknown as AccountState
 }
 
-describe('accounts list — Codex server-AI machine (POD-4750)', () => {
-  it('marks the native codex row with the viewer-usable machine', async () => {
+describe('accounts list — server-AI login marker (POD-4750)', () => {
+  it('marks the row whose harness the viewer background role runs on', async () => {
     const rows = await ACCOUNT_QUERIES.list.run(
-      stateWith(async () => ({ machineId: asMachineId('desk'), machineName: 'Desk' })),
+      stateWith(async () => ({
+        harness: 'codex' as HarnessAgent,
+        machineId: asMachineId('desk'),
+        machineName: 'Desk',
+      })),
       {},
     )
     const codex = rows.find((row) => row.id === 'native:codex')
     expect(codex).toBeDefined()
     expect(codex?.serverAi).toEqual({ machineId: asMachineId('desk'), machineName: 'Desk' })
+  })
+
+  it('marks no codex row when the role harness names a different login', async () => {
+    const rows = await ACCOUNT_QUERIES.list.run(
+      stateWith(async () => ({
+        harness: 'claude-code' as HarnessAgent,
+        machineId: asMachineId('desk'),
+        machineName: 'Desk',
+      })),
+      {},
+    )
+    const codex = rows.find((row) => row.id === 'native:codex')
+    expect(codex).toBeDefined()
+    expect(codex?.serverAi).toBeUndefined()
   })
 
   it('omits the marker when no login is usable for the viewer (no invention)', async () => {
