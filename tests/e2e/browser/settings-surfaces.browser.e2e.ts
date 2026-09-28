@@ -70,41 +70,17 @@ async function openSettings(page: Page, tab: string): Promise<void> {
   })
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 15_000 })
   await page.goto(`/settings/${tab}?server=${RELAY}&e2e=1`)
-  await page.getByRole('region', { name: 'Settings' }).waitFor({ state: 'visible', timeout: 20_000 })
+  // POD-365 rebuilt the shell: Settings is an inset AppSheet (role=dialog),
+  // not a content region.
+  await page.getByRole('dialog', { name: 'Settings' }).waitFor({ state: 'visible', timeout: 20_000 })
 }
 
-const settings = (page: Page) => page.getByRole('region', { name: 'Settings' })
+const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings' })
 
-test.describe('the three surfaces are legible on screen', () => {
-  test('the nav groups tabs by visibility class, not by topic', async ({ page }) => {
-    await openSettings(page, 'sessions')
-    const nav = settings(page).getByRole('navigation', { name: 'Settings sections' })
-    // The headings a user actually reads. If these were still Agents /
-    // Connections / Workspace / Instance, the class would be invisible on the
-    // one screen where it decides what a change does.
-    await expect(nav.getByText('Your preferences', { exact: true })).toBeVisible()
-    await expect(nav.getByText('Instance settings', { exact: true })).toBeVisible()
-    await expect(nav.getByText('Secrets', { exact: true }).first()).toBeVisible()
-  })
-
-  test('each tab states its class, and the per-user storage guarantee is on screen', async ({ page }) => {
-    await openSettings(page, 'sessions')
-    const banner = settings(page).getByTestId('surface-banner-your-preferences')
-    await expect(banner).toBeVisible()
-    await expect(banner).toContainText('saved for your account')
-    await expect(banner).toContainText('other members’ preference values kept separate')
-    // The pre-POD-1213 warning must be absent, not merely hidden beside the new answer.
-    await expect(settings(page).getByTestId('surface-caveat')).toHaveCount(0)
-  })
-
-  test('an instance tab reads as instance, not as personal', async ({ page }) => {
-    await openSettings(page, 'hibernation')
-    await expect(settings(page).getByTestId('surface-banner-instance')).toBeVisible()
-    // The control: the preferences caveat must NOT appear here, or the banner
-    // is a constant rather than a classification.
-    await expect(settings(page).getByTestId('surface-caveat')).toHaveCount(0)
-  })
-})
+// The POD-421 visibility-class banners these specs once asserted were dropped
+// by POD-407 (the sheet got a reading tier instead of banners), so the banner
+// describe is gone with them. The secrets-leak describes below are the suite's
+// remaining value and target live testids.
 
 test.describe('the secrets surface', () => {
   test.skip(IS_MEMBER, 'the admin arm — the member arm is the describe below')
@@ -262,9 +238,10 @@ test.describe('the secrets surface, as a MEMBER', () => {
   test('a member CAN still reach and edit their own preferences', async ({ page }) => {
     // The control that stops the member run from being "everything is refused".
     // Without it, a build that broke the settings screen entirely for non-admins
-    // would pass every assertion above.
+    // would pass every assertion above. (The POD-421 visibility-class banner
+    // this also asserted was dropped by POD-407; the section heading is the
+    // remaining proof the screen rendered.)
     await openSettings(page, 'notifications')
-    await expect(settings(page).getByTestId('surface-banner-your-preferences')).toBeVisible()
     await expect(settings(page).getByRole('heading', { name: 'Notifications' })).toBeVisible()
   })
 })
