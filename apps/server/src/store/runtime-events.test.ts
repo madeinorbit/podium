@@ -1059,6 +1059,8 @@ describe('durable runtime observation gate', () => {
   })
 
   it('accepts delivery outcomes and process exits after the final turn epoch is closed', async () => {
+    // The delivery report is applied off the activity log (POD-4796): it adds
+    // no event row, and the exit after it is still admitted.
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await bindContract(registry, store)
@@ -1098,7 +1100,7 @@ describe('durable runtime observation gate', () => {
         observerGeneration: 1, turnEpoch: 1,
       },
     })
-    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
 
     const exitAfterTurnCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'runtimeEvent',
@@ -1116,7 +1118,7 @@ describe('durable runtime observation gate', () => {
     })
     await exitAfterTurnCompletion
 
-    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(4)
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
     expect((await registry.modules.sessions.sessionById(sessionId))?.status).toBe('exited')
 
     // The relay's interaction cleanup is intentionally fire-and-forget. Let
@@ -1168,6 +1170,7 @@ describe('durable runtime observation gate', () => {
       write: async () => {},
       board: async () => {},
       now: () => 0,
+      delivery: async () => {},
     })
 
     await gate.replayBoardProjection()
@@ -1223,18 +1226,9 @@ describe('durable runtime observation gate', () => {
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(4)
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 7, closedTurnEpoch: 1 })
 
-    // And the stream is alive again: a delivery outcome at the re-seeded epoch
-    // reaches the projector rather than the floor.
-    await route('delivery', {
-      t: 'delivery',
-      rowId: 'row-1',
-      outcome: 'delivered',
-      at: at(5_000),
-      provenance: 'live',
-      cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
-      observerGeneration: 1,
-      turnEpoch: 7,
-    })
+    // And the stream is alive again: activity at the re-seeded epoch is
+    // committed rather than fenced.
+    await route('activity', stateEvent({ at: at(5_000), seq: 6, observerGeneration: 1, turnEpoch: 7 }))
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(5)
 
     // A stale replay of an older adoption is still ordered out, never a re-seed
@@ -1414,7 +1408,9 @@ describe('causal failure ownership', () => {
 })
 
 describe('durable delivery outcome projection', () => {
-  it('replays a row outcome after projection fails and advances only after settlement', async () => {
+  // A delivery report no longer enters the event log (POD-4796); this pins
+  // the drain for a row the previous build logged but never projected.
+  it('replays a logged row outcome after projection fails and advances only after settlement', async () => {
     const sessionId = asSessionId('delivery-replay')
     const event = {
       ...stateEvent({ at: '2026-09-09T00:00:00.000Z', seq: 1, observerGeneration: 1 }),
@@ -1441,6 +1437,152 @@ describe('durable delivery outcome projection', () => {
     await new RuntimeEventGate(ports).replayBoardProjection()
     expect(cursor).toBe(1)
     expect(settled).toEqual(['row-one'])
+  })
+})
+
+describe('a delivery report is a fact about one message (POD-4796)', () => {
+  // The daemon replays the reports its fsynced outbox still holds after a link
+  // cut or a restart, stamped with the generation, cursor and turn epoch they
+  // were minted under. None of those fences may drop one.
+  const report = (input: {
+    rowId: string
+    outcome?: 'delivered' | 'failed' | 'dropped'
+    observerGeneration: number
+    seq: number
+    turnEpoch: number
+    provenance?: RuntimeEvent['provenance']
+  }): Extract<RuntimeEvent, { t: 'delivery' }> => ({
+    t: 'delivery',
+    rowId: input.rowId,
+    outcome: input.outcome ?? 'delivered',
+    at: '2026-09-28T10:00:00.000Z',
+    provenance: input.provenance ?? 'live',
+    cursor: { segmentId: 'runtime-segment', components: { seq: input.seq } },
+    observerGeneration: input.observerGeneration,
+    turnEpoch: input.turnEpoch,
+  })
+
+  it('applies a report behind every activity fence, and never moves the checkpoint', async () => {
+    const sessionId = asSessionId('delivery-fences')
+    // Generation 2, cursor 50, turn 5 open and turn 4 closed.
+    const checkpoint = {
+      sessionId, observerGeneration: 2,
+      cursor: { segmentId: 'runtime-segment', components: { seq: 50 } },
+      turnEpoch: 5, closedTurnEpoch: 4, updatedAt: '2026-09-28T09:00:00.000Z',
+    }
+    const applied: Array<Extract<RuntimeEvent, { t: 'delivery' }>> = []
+    const appendEvent = vi.fn(async () => 1)
+    const saveRuntimeEventCheckpoint = vi.fn(async () => {})
+    const write = vi.fn(async () => {})
+    const recordRuntimeActivity = vi.fn(() => true)
+    const gate = new RuntimeEventGate({
+      events: {
+        runtimeEventCheckpoint: async () => checkpoint,
+        appendEvent, saveRuntimeEventCheckpoint,
+      } as unknown as RuntimeEventGatePorts['events'],
+      session: () => ({ sessionId, recordRuntimeActivity, recordOomKill: () => {} }),
+      persist: async () => {}, write, board: async () => {}, now: () => 0,
+      delivery: async (_sessionId, event) => { applied.push(event) },
+    })
+    const cases = {
+      'an older observer generation': report({ rowId: 'stale-generation', observerGeneration: 1, seq: 60, turnEpoch: 5 }),
+      'a generation jump': report({ rowId: 'generation-jump', observerGeneration: 4, seq: 60, turnEpoch: 5 }),
+      'an older cursor': report({ rowId: 'older-cursor', observerGeneration: 2, seq: 3, turnEpoch: 5 }),
+      'the same cursor again': report({ rowId: 'same-cursor', observerGeneration: 2, seq: 50, turnEpoch: 5 }),
+      'a closed turn': report({ rowId: 'closed-turn', observerGeneration: 2, seq: 60, turnEpoch: 4 }),
+      'an older turn': report({ rowId: 'older-turn', observerGeneration: 2, seq: 60, turnEpoch: 1 }),
+      'a turn not yet started here': report({ rowId: 'epoch-jump', observerGeneration: 2, seq: 60, turnEpoch: 9 }),
+      'a bootstrap replay': report({ rowId: 'bootstrap', observerGeneration: 2, seq: 60, turnEpoch: 5, provenance: 'bootstrap' }),
+    }
+    for (const [name, event] of Object.entries(cases)) {
+      expect(await gate.record(sessionId, event), name).toEqual({ kind: 'delivery-applied' })
+    }
+    expect(applied.map((event) => event.rowId)).toEqual(Object.values(cases).map((event) => event.rowId))
+    // Not activity: no event row, no checkpoint move, no recency.
+    expect(appendEvent).not.toHaveBeenCalled()
+    expect(saveRuntimeEventCheckpoint).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+    expect(recordRuntimeActivity).not.toHaveBeenCalled()
+  })
+
+  it('rejects a report for a session this server does not hold, and leaves a failed apply unacknowledged', async () => {
+    const sessionId = asSessionId('delivery-owner')
+    const gate = new RuntimeEventGate({
+      events: { runtimeEventCheckpoint: async () => null } as unknown as RuntimeEventGatePorts['events'],
+      session: () => undefined,
+      persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
+      delivery: async () => { throw new Error('must not apply') },
+    })
+    expect(await gate.record(sessionId, report({ rowId: 'x', observerGeneration: 1, seq: 1, turnEpoch: 0 })))
+      .toEqual({ kind: 'rejected', reason: 'unknown-session' })
+    const failing = new RuntimeEventGate({
+      events: { runtimeEventCheckpoint: async () => null } as unknown as RuntimeEventGatePorts['events'],
+      session: () => ({ sessionId, recordRuntimeActivity: () => true, recordOomKill: () => {} }),
+      persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
+      delivery: async () => { throw new Error('store unavailable') },
+    })
+    // Thrown, not acknowledged: the daemon's outbox resends it.
+    await expect(failing.record(sessionId, report({ rowId: 'x', observerGeneration: 1, seq: 1, turnEpoch: 0 })))
+      .rejects.toThrow('store unavailable')
+  })
+
+  it('settles a typed message from a report replayed after a reconnect, once, and acks every copy', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const commands: ControlMessage[] = []
+    try {
+      const sessionId = await bindContract(registry, store, (message) => commands.push(message))
+      registry.modules.sessions.state.setDraftSyncEnabled(true)
+      const route = (deliveryId: string, event: RuntimeEvent): Promise<void> =>
+        registry.gateway.routeDaemonFrame(store.hostMachineId, { type: 'runtimeEvent', deliveryId, sessionId, event })
+      const acks = (deliveryId: string) => commands.filter((message) =>
+        message.type === 'runtimeEventAck' && message.deliveryId === deliveryId)
+      const at = '2026-09-28T10:00:00.000Z'
+      // Generation 1 runs and closes turn 1; a reconnect replaces it with
+      // generation 2, whose bootstrap restores state.
+      await route('g1-start', stateEvent({ at, seq: 1, observerGeneration: 1, turnEpoch: 0, provenance: 'bootstrap', change: { kind: 'session_started' } }))
+      await route('g1-turn', turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'started' }))
+      await route('g1-done', turnEvent({ at, seq: 3, turnEpoch: 1, ev: 'completed' }))
+      await route('g2-bootstrap', stateEvent({
+        at, seq: 4, observerGeneration: 2, turnEpoch: 1, provenance: 'bootstrap',
+        change: { kind: 'state_snapshot', state: { phase: 'idle', since: at, nativeSubagentCount: 0 } },
+      }))
+      expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ observerGeneration: 2, closedTurnEpoch: 1 })
+      const checkpoint = await store.events.runtimeEventCheckpoint(sessionId)
+      const logged = (await store.events.listRuntimeEvents(sessionId)).length
+
+      await registry.modules.sessions.queueText({ sessionId, text: 'typed before the cut' })
+      const forwarded = await vi.waitFor(() => {
+        const request = commands.find((message): message is Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }> =>
+          message.type === 'runtimeDurableSendRequest' && message.text.includes('typed before the cut'))
+        if (!request) throw new Error('the message has not reached the driver yet')
+        return request
+      })
+      expect(await store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+
+      // The report the daemon minted under generation 1, in the closed turn,
+      // at a cursor the checkpoint has passed.
+      const replayed = report({ rowId: forwarded.rowId, observerGeneration: 1, seq: 2, turnEpoch: 1 })
+      await route('replay-1', replayed)
+      expect(acks('replay-1')).toEqual([expect.objectContaining({ outcome: 'committed' })])
+      expect(await store.sync.listQueuedMessages(sessionId)).toEqual([])
+
+      // Resent (the ack was lost): acknowledged again, changes nothing. A late
+      // contradicting report cannot move a settled message backwards either.
+      await route('replay-2', replayed)
+      await route('late-failure', { ...replayed, outcome: 'failed', reason: 'late' })
+      expect(acks('replay-2')).toEqual([expect.objectContaining({ outcome: 'committed' })])
+      expect(acks('late-failure')).toEqual([expect.objectContaining({ outcome: 'committed' })])
+      expect(registry.modules.sessions.state.draftText(sessionId) ?? '').toBe('')
+
+      // Off the activity timeline: nothing logged, the checkpoint unmoved.
+      expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(logged)
+      expect(await store.events.runtimeEventCheckpoint(sessionId)).toEqual(checkpoint)
+    } finally {
+      await new Promise((resolve) => setImmediate(resolve))
+      await registry.dispose()
+      await store.close()
+    }
   })
 })
 
@@ -1652,6 +1794,7 @@ it('retains the binding projection cursor when receipt persistence fails', async
       listRuntimeEventsAfter: async (after: number) => after < 1 ? [{ id: 1, sessionId, event }] : [],
     } as unknown as RuntimeEventGatePorts['events'],
     session: () => undefined, persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
+    delivery: async () => {},
     binding: async (_id, receipt) => {
       if (fail) throw new Error('binding persistence unavailable')
       projected.push(receipt.resume.value)

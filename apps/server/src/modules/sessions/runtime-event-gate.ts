@@ -33,6 +33,9 @@ export type RuntimeEventGateResult =
         | 'terminal-epoch-closed'
     }
   | { kind: 'fine-live-only' }
+  /** A delivery report, applied to its message by row id (POD-4796). It is
+   *  not part of the activity stream: no event row, no checkpoint move. */
+  | { kind: 'delivery-applied' }
 
 export interface RuntimeEventSessionProjection {
   readonly sessionId: SessionId
@@ -53,7 +56,15 @@ export interface RuntimeStateProjection {
 export interface RuntimeEventGatePorts {
   metadata?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'metadata' }>): Promise<void>
   binding?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'binding' }>): Promise<void>
-  delivery?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'delivery' }>): Promise<void>
+  /**
+   * A DELIVERY REPORT IS A FACT ABOUT ONE MESSAGE, NOT ACTIVITY (POD-4796).
+   *
+   * Applied by row id, forward-only, and required to be safe to repeat: the
+   * daemon resends a report from its fsynced outbox until it is acknowledged,
+   * and the acknowledgement is sent only after this resolves. A report naming
+   * a row this session no longer holds is a no-op.
+   */
+  delivery(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'delivery' }>): Promise<void>
   events: Pick<
     EventsRepository,
     | 'appendEvent'
@@ -304,6 +315,7 @@ export class RuntimeEventGate {
     if (isRuntimeFineEvent(event)) return { kind: 'fine-live-only' }
     const session = this.ports.session(sessionId)
     if (!session) return { kind: 'rejected', reason: 'unknown-session' }
+    if (event.t === 'delivery') return await this.applyDelivery(sessionId, event)
     if (!Number.isFinite(Date.parse(event.at))) {
       return { kind: 'rejected', reason: 'invalid-event-time' }
     }
@@ -403,6 +415,40 @@ export class RuntimeEventGate {
     }
     await this.scheduleBoardProjection()
     return { kind: 'accepted', eventId }
+  }
+
+  /**
+   * DELIVERY REPORTS BYPASS EVERY ACTIVITY FENCE (POD-4796, design doc §4 rule 4).
+   *
+   * The observer-generation, cursor and turn-epoch rules order an agent's
+   * activity timeline. A delivery report is not on that timeline: it says what
+   * became of one message, keyed by its row id, and the inbox applies it
+   * forward-only. After a link cut or a daemon restart the daemon replays the
+   * reports its outbox still holds under the generation and cursor they were
+   * minted with, and the fences rejected them — `stale-observer-generation`,
+   * `duplicate`, `turn-epoch-jump` — and the daemon retired each rejection as
+   * handled, so messages the agent HAD received ended failed or stuck
+   * dispatched. Ownership is the only check that applies, and the caller made
+   * it (the session exists and the reporting machine owns it).
+   *
+   * Nothing is appended to the event log, the checkpoint does not move and the
+   * session's recency is untouched. Durability is the daemon's outbox: a
+   * failure here throws, no acknowledgement goes back, and the report is
+   * resent.
+   */
+  private async applyDelivery(
+    sessionId: SessionId,
+    event: Extract<RuntimeEvent, { t: 'delivery' }>,
+  ): Promise<RuntimeEventGateResult> {
+    await this.ports.delivery(sessionId, event)
+    log.debug('delivery report applied', {
+      sessionId,
+      rowId: event.rowId,
+      outcome: event.outcome,
+      provenance: event.provenance,
+      observerGeneration: event.observerGeneration,
+    })
+    return { kind: 'delivery-applied' }
   }
 
   async hydrateReady(sessionIds: Iterable<SessionId>): Promise<void> {
@@ -553,7 +599,7 @@ export class RuntimeEventGate {
         return { kind: 'rejected', reason: 'turn-epoch-regressed' }
       }
     }
-    // Process and row delivery lifecycles are independent of the last turn. A child can die after
+    // Process lifecycles are independent of the last turn. A child can die after
     // its final turn has closed, and that exit must remain an admissible causal
     // event rather than being mistaken for a late turn update. Workspace and
     // browser auxiliaries join that set for the same reason: a commit observed
@@ -562,7 +608,6 @@ export class RuntimeEventGate {
       if (reopensClosedTurn(event)) return { kind: 'rejected', reason: 'terminal-epoch-closed' }
       if (
         event.t !== 'process' &&
-        event.t !== 'delivery' &&
         event.t !== 'binding' &&
         event.t !== 'draft' &&
         event.t !== 'metadata' &&
@@ -596,7 +641,9 @@ export class RuntimeEventGate {
     const { event, id: eventId, sessionId } = record
     if (event.t === 'metadata') await this.ports.metadata?.(sessionId, event)
     if (event.t === 'binding') await this.ports.binding?.(sessionId, event)
-    if (event.t === 'delivery') await this.ports.delivery?.(sessionId, event)
+    // Rows committed before POD-4796 took delivery reports off this log; a
+    // report the previous build logged but never projected still settles.
+    if (event.t === 'delivery') await this.ports.delivery(sessionId, event)
     if (event.t === 'workspace' && event.ev.ev === 'git-activity') {
       await this.ports.board({
         kind: 'gitActivity',
