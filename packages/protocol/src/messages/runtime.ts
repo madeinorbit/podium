@@ -1,6 +1,12 @@
 import { NativeBindingReceipt } from './native-binding'
 export { NativeBindingReceipt } from './native-binding'
-import { DriverFamilyWire, ResumeRef, SessionIdField, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import {
+  DriverFamilyWire,
+  ResumeRef,
+  SessionIdField,
+  TranscriptItem,
+  TranscriptItemRef,
+} from '@podium/model'
 import { z } from 'zod'
 import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
 import {
@@ -338,8 +344,22 @@ export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed'] as
 export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
 
 export const RuntimeEventBody = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('binding'), resume: ResumeRef, confidence: z.enum(['exact', 'heuristic']), bindingVersion: z.number().int().nonnegative(), ackRequested: z.boolean().optional(), receipt: NativeBindingReceipt.optional() }),
-  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional(), cause: z.string().optional(), transcriptItem: TranscriptItemRef.optional() }),
+  z.object({
+    t: z.literal('binding'),
+    resume: ResumeRef,
+    confidence: z.enum(['exact', 'heuristic']),
+    bindingVersion: z.number().int().nonnegative(),
+    ackRequested: z.boolean().optional(),
+    receipt: NativeBindingReceipt.optional(),
+  }),
+  z.object({
+    t: z.literal('delivery'),
+    rowId: z.string().min(1),
+    outcome: z.enum(['delivered', 'failed', 'dropped']),
+    reason: z.string().optional(),
+    cause: z.string().optional(),
+    transcriptItem: TranscriptItemRef.optional(),
+  }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
   z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),

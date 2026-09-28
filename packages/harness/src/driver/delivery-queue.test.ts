@@ -457,20 +457,26 @@ describe('the entry a delivered row became (POD-4774)', () => {
   const fixture = (receiptItem?: { id: string }) => {
     vi.useFakeTimers()
     let named: ((item: { id: string; cursor?: string }) => void) | undefined
-    const send = vi.fn(async (_input: { text: string }, options?: { onTranscriptItem?: typeof named }) => {
-      named = options?.onTranscriptItem
-      return {
-        outcome: 'accepted',
-        turnEpoch: 1,
-        deliveredAs: 'when-ready',
-        provenBy: 'protocol-ack',
-        ...(receiptItem ? { transcriptItem: receiptItem } : {}),
-        at: new Date().toISOString(),
-      }
-    })
+    const send = vi.fn(
+      async (_input: { text: string }, options?: { onTranscriptItem?: typeof named }) => {
+        named = options?.onTranscriptItem
+        return {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          ...(receiptItem ? { transcriptItem: receiptItem } : {}),
+          at: new Date().toISOString(),
+        }
+      },
+    )
     const emit = vi.fn()
     const handle = withDeliveryQueue(
-      { send, state: async () => ({ phase: 'idle' }), lease: { state: async () => null } } as unknown as AgentSessionHandle,
+      {
+        send,
+        state: async () => ({ phase: 'idle' }),
+        lease: { state: async () => null },
+      } as unknown as AgentSessionHandle,
       emit,
     )
     return { handle, emit, name: (item: { id: string; cursor?: string }) => named?.(item) }
@@ -492,7 +498,12 @@ describe('the entry a delivered row became (POD-4774)', () => {
     await vi.advanceTimersByTimeAsync(0)
     f.name({ id: 'entry-2', cursor: 'c-2' })
     f.name({ id: 'entry-other' })
-    const named = { t: 'delivery', rowId: 'row', outcome: 'delivered', transcriptItem: { id: 'entry-2', cursor: 'c-2' } }
+    const named = {
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-2', cursor: 'c-2' },
+    }
     expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
       { t: 'delivery', rowId: 'row', outcome: 'delivered' },
       named,
@@ -508,7 +519,12 @@ describe('the entry a delivered row became (POD-4774)', () => {
     expect(receipt.outcome).toBe('accepted')
     f.name({ id: 'entry-3' })
     expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
-      { t: 'delivery', rowId: 'msg_direct', outcome: 'delivered', transcriptItem: { id: 'entry-3' } },
+      {
+        t: 'delivery',
+        rowId: 'msg_direct',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-3' },
+      },
     ])
   })
 })

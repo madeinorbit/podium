@@ -1563,7 +1563,12 @@ export function createTerminalRuntime(
       // the send became — by the item's own id, never by its text (POD-4774).
       if (!correlation.accepts(item)) continue
       const transcriptItem = transcriptItemRefOf(item)
-      creditAcceptWaiter(session.echoWaiters, correlation, item, transcriptItem ? { transcriptItem } : {})
+      creditAcceptWaiter(
+        session.echoWaiters,
+        correlation,
+        item,
+        transcriptItem ? { transcriptItem } : {},
+      )
     }
   }
 

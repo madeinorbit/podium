@@ -57,7 +57,13 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
 
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import type {
+  AgentRuntimeState,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+  TranscriptItemRef,
+} from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
@@ -676,7 +682,8 @@ export function createCodexRuntime(
         }
         for (const item of threadItemToItems(note.params.item, at)) {
           emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
-          if (item.role === 'user' && note.params.turnId) noteUserItem(session, note.params.turnId, item)
+          if (item.role === 'user' && note.params.turnId)
+            noteUserItem(session, note.params.turnId, item)
         }
         break
       }

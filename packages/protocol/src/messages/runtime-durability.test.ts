@@ -93,13 +93,21 @@ describe('the entry a delivered row became (POD-4774)', () => {
       outcome: 'delivered',
       transcriptItem: { id: 'entry', cursor: 'cur' },
     })
-    expect(RuntimeEventMessage.parse({ type: 'runtimeEvent', sessionId: 'session', event: named }))
-      .toMatchObject({ event: { transcriptItem: { id: 'entry', cursor: 'cur' } } })
+    expect(
+      RuntimeEventMessage.parse({ type: 'runtimeEvent', sessionId: 'session', event: named }),
+    ).toMatchObject({ event: { transcriptItem: { id: 'entry', cursor: 'cur' } } })
   })
 
   it('refuses an empty entry id rather than carrying a nameless entry', () => {
-    const nameless = event({ t: 'delivery', rowId: 'msg_row', outcome: 'delivered', transcriptItem: { id: '' } })
-    expect(RuntimeEventMessage.safeParse({ type: 'runtimeEvent', sessionId: 'session', event: nameless }).success)
-      .toBe(false)
+    const nameless = event({
+      t: 'delivery',
+      rowId: 'msg_row',
+      outcome: 'delivered',
+      transcriptItem: { id: '' },
+    })
+    expect(
+      RuntimeEventMessage.safeParse({ type: 'runtimeEvent', sessionId: 'session', event: nameless })
+        .success,
+    ).toBe(false)
   })
 })

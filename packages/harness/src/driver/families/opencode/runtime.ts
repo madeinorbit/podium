@@ -41,7 +41,13 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
 
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import type {
+  AgentRuntimeState,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+  TranscriptItemRef,
+} from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
 import { transcriptEchoAcceptCorrelation } from '../../../accept-correlation.js'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'

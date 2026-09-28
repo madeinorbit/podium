@@ -3943,7 +3943,11 @@ describe('the history entry a delivered send became', () => {
   /** Claude fires `UserPromptSubmit` on submission and writes its transcript
    *  record a moment later: post `record` (a raw Claude JSONL record) that long
    *  after the hook, through the real recorder mapping. */
-  const recordAfterHook = (world: World, record: Record<string, unknown>, delayMs = 1_000): void => {
+  const recordAfterHook = (
+    world: World,
+    record: Record<string, unknown>,
+    delayMs = 1_000,
+  ): void => {
     const onHook = world.runtime.onHookPayload.bind(world.runtime)
     world.runtime.onHookPayload = (sessionId, payload) => {
       onHook(sessionId, payload)
@@ -3951,7 +3955,10 @@ describe('the history entry a delivered send became', () => {
         world.runtime.observe({
           type: 'transcriptDelta',
           sessionId,
-          items: claudeRecordToItems(record).map((item) => ({ ...item, cursor: `cursor-${item.id}` })),
+          items: claudeRecordToItems(record).map((item) => ({
+            ...item,
+            cursor: `cursor-${item.id}`,
+          })),
         })
       }, delayMs)
     }
@@ -4021,7 +4028,15 @@ describe('the history entry a delivered send became', () => {
     const receipt = await session.send(
       {
         text: 'look at this',
-        attachments: [{ id: 'a', path: '/uploads/s1/a.png', filename: 'a.png', mediaType: 'image/png', kind: 'image' }],
+        attachments: [
+          {
+            id: 'a',
+            path: '/uploads/s1/a.png',
+            filename: 'a.png',
+            mediaType: 'image/png',
+            kind: 'image',
+          },
+        ],
       },
       { origin: 'human', delivery: 'when-ready' },
     )
@@ -4072,14 +4087,19 @@ describe('the history entry a delivered send became', () => {
       message: { role: 'user', content: 'durable turn' },
     })
     expect(
-      (await session.send({ text: 'durable turn', rowId: 'msg_row' }, { origin: 'controller', delivery: 'when-ready' }))
-        .outcome,
+      (
+        await session.send(
+          { text: 'durable turn', rowId: 'msg_row' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
     ).toBe('queued')
     // Delivered on the hook; the entry rides that outcome when the record had
     // landed by then, or a second one when it lands after.
     await waitFor(() => deliveries(world).some((event) => event.transcriptItem !== undefined))
     expect(deliveries(world).length).toBeLessThanOrEqual(2)
-    for (const event of deliveries(world)) expect(event).toMatchObject({ rowId: 'msg_row', outcome: 'delivered' })
+    for (const event of deliveries(world))
+      expect(event).toMatchObject({ rowId: 'msg_row', outcome: 'delivered' })
     expect(deliveries(world).at(-1)).toMatchObject({
       t: 'delivery',
       rowId: 'msg_row',

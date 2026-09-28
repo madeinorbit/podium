@@ -521,7 +521,12 @@ export function createTerminalInjection(
           at: new Date(ports.now()).toISOString(),
         }
       }
-      if (proof.provenBy === 'hook' && !proof.transcriptItem && echoWatch && options.onTranscriptItem) {
+      if (
+        proof.provenBy === 'hook' &&
+        !proof.transcriptItem &&
+        echoWatch &&
+        options.onTranscriptItem
+      ) {
         nameLate(echoWatch, options.onTranscriptItem)
         lateEcho = echoWatch
       }

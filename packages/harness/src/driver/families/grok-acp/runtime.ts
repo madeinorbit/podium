@@ -11,7 +11,13 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { classifyGrokProviderFailure, translateGrokUpdatePayload } from '../../../adapters/grok/instrumentation.js'
 import { initialAgentState, reduceAgentState } from '../../../observer.js'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import type {
+  AgentRuntimeState,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+  TranscriptItemRef,
+} from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
@@ -443,7 +449,13 @@ export function createGrokAcpRuntime(
     if (pending && text === pending.text.trim()) {
       session.pendingUserItem = undefined
       clearTimeout(pending.timer)
-      addItem(session, { id: buffer.id, role: 'user', text, ts: buffer.at }, buffer.at, provenance, native)
+      addItem(
+        session,
+        { id: buffer.id, role: 'user', text, ts: buffer.at },
+        buffer.at,
+        provenance,
+        native,
+      )
       pending.settle({ id: buffer.id })
       return
     }
@@ -463,7 +475,12 @@ export function createGrokAcpRuntime(
     if (!pending) return
     session.pendingUserItem = undefined
     clearTimeout(pending.timer)
-    addItem(session, { id: pending.fallbackId, role: 'user', text: pending.text, ts: pending.at }, pending.at, 'live')
+    addItem(
+      session,
+      { id: pending.fallbackId, role: 'user', text: pending.text, ts: pending.at },
+      pending.at,
+      'live',
+    )
     pending.settle({ id: pending.fallbackId })
   }
 

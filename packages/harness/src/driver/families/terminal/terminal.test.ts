@@ -473,7 +473,9 @@ describe('row cancellation at the terminal submit boundary', () => {
     const { ports, written } = terminal({
       needsSubmitVerification: () => true,
       // Nothing echoes this row back: the point is the receipt an abort produces.
-      echoAccept: { watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }) },
+      echoAccept: {
+        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
+      },
     })
     const delivery = createTerminalInjection(ports).deliver('cancelled row', {
       origin: 'human', delivery: 'when-ready', signal: abort.signal,
@@ -501,7 +503,9 @@ describe('the receipt epoch (POD-4655)', () => {
       // been yet, and still has not been when the hook fires below.
       observedTurnEpoch: () => 1,
       hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
-      echoAccept: { watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }) },
+      echoAccept: {
+        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
+      },
     })
     const receipt = await createTerminalInjection(ports).deliver('second prompt', {
       origin: 'controller',
@@ -517,7 +521,9 @@ describe('durable prompt confirmation', () => {
     try {
       let phase = 'idle'
       let confirm!: (seen: AcceptSeen) => void
-      const accepted = new Promise<AcceptSeen>((resolve) => { confirm = resolve })
+      const accepted = new Promise<AcceptSeen>((resolve) => {
+        confirm = resolve
+      })
       const { ports, written } = terminal({
         phase: () => phase,
         needsSubmitVerification: () => true,
@@ -547,13 +553,19 @@ describe('the history entry a delivered send became (POD-4774)', () => {
   it('names the entry the proving echo recorded', async () => {
     const { ports } = terminal({
       hookAccept: undefined,
-      echoAccept: { watch: () => ({ accepted: Promise.resolve({ transcriptItem: item }), cancel: () => {} }) },
+      echoAccept: {
+        watch: () => ({ accepted: Promise.resolve({ transcriptItem: item }), cancel: () => {} }),
+      },
     })
     const receipt = await createTerminalInjection(ports).deliver('ship it', {
       origin: 'human',
       delivery: 'when-ready',
     })
-    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo', transcriptItem: item })
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'transcript-echo',
+      transcriptItem: item,
+    })
   })
 
   it('after a hook proof, names the entry late, when its echo lands', async () => {
@@ -567,8 +579,12 @@ describe('the history entry a delivered send became (POD-4774)', () => {
         hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
         echoAccept: {
           watch: () => ({
-            accepted: new Promise<AcceptSeen>((resolve) => { echo = resolve }),
-            cancel: () => { cancelled = true },
+            accepted: new Promise<AcceptSeen>((resolve) => {
+              echo = resolve
+            }),
+            cancel: () => {
+              cancelled = true
+            },
           }),
         },
       })
@@ -585,7 +601,9 @@ describe('the history entry a delivered send became (POD-4774)', () => {
       echo({ transcriptItem: item })
       await vi.advanceTimersByTimeAsync(0)
       expect(named).toEqual([item])
-    } finally { vi.useRealTimers() }
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('names nothing when the echo never lands inside the window, and stops watching', async () => {
@@ -599,8 +617,12 @@ describe('the history entry a delivered send became (POD-4774)', () => {
         hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
         echoAccept: {
           watch: () => ({
-            accepted: new Promise<AcceptSeen>((resolve) => { echo = resolve }),
-            cancel: () => { cancelled = true },
+            accepted: new Promise<AcceptSeen>((resolve) => {
+              echo = resolve
+            }),
+            cancel: () => {
+              cancelled = true
+            },
           }),
         },
       })
@@ -615,7 +637,8 @@ describe('the history entry a delivered send became (POD-4774)', () => {
       echo({ transcriptItem: item })
       await vi.advanceTimersByTimeAsync(0)
       expect(named).toEqual([])
-    } finally { vi.useRealTimers() }
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
-

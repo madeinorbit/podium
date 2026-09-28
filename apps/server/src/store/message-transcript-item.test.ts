@@ -61,7 +61,9 @@ describe('naming the entry a message became', () => {
   it('is read back on the record, beside a status it leaves alone', async () => {
     await messages.addMessage(row('msg_a'))
     await messages.markDelivered('msg_a', S1, 't1')
-    expect(await messages.nameTranscriptItem('msg_a', S1, { id: 'entry-1', cursor: 'cur-1' })).toBe(true)
+    expect(await messages.nameTranscriptItem('msg_a', S1, { id: 'entry-1', cursor: 'cur-1' })).toBe(
+      true,
+    )
     const record = await messages.getMessage('msg_a')
     expect(record?.transcriptItem).toEqual({ id: 'entry-1', cursor: 'cur-1' })
     expect(record?.deliveryStatus).toBe('confirmed')
@@ -85,7 +87,7 @@ describe('naming the entry a message became', () => {
     expect((await messages.getMessage('msg_c'))?.transcriptItem).toEqual({ id: 'entry-3' })
   })
 
-  it("is refused for a session the row was not handed to", async () => {
+  it('is refused for a session the row was not handed to', async () => {
     await messages.addMessage(row('msg_d'))
     await messages.markDelivered('msg_d', S1, 't1')
     expect(await messages.nameTranscriptItem('msg_d', S2, { id: 'entry-4' })).toBe(false)
@@ -98,6 +100,6 @@ describe('naming the entry a message became', () => {
 
   it('reads as unnamed until named', async () => {
     await messages.addMessage(row('msg_e'))
-    expect((await messages.getMessage('msg_e'))).not.toHaveProperty('transcriptItem')
+    expect(await messages.getMessage('msg_e')).not.toHaveProperty('transcriptItem')
   })
 })

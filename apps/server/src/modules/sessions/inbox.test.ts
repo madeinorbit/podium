@@ -119,7 +119,13 @@ function harness(
   const unconfirmed = vi.fn(
     async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {},
   )
-  const named = vi.fn(async (_input: { messageId: string; sessionId: SessionId; transcriptItem: { id: string } }) => {})
+  const named = vi.fn(
+    async (_input: {
+      messageId: string
+      sessionId: SessionId
+      transcriptItem: { id: string }
+    }) => {},
+  )
   const handleInput = vi.fn()
   // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
   // base64 spelling of the same call (terminal.ts). This fixture records the
@@ -2013,7 +2019,11 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       transcriptItem: { id: 'entry-late' },
     })
     expect(h.named.mock.calls.map(([input]) => input)).toEqual([
-      { messageId: 'msg_named_now', sessionId: SID, transcriptItem: { id: 'entry-now', cursor: 'cur-now' } },
+      {
+        messageId: 'msg_named_now',
+        sessionId: SID,
+        transcriptItem: { id: 'entry-now', cursor: 'cur-now' },
+      },
       { messageId: 'msg_named_late', sessionId: SID, transcriptItem: { id: 'entry-late' } },
     ])
     // The late naming settled nothing twice.

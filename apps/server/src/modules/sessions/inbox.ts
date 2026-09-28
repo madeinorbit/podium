@@ -242,7 +242,11 @@ export interface InboxAuthorizationPort {
   applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
   /** The agent's machine named the entry in its history that message became
    *  (POD-4774). A stamp on the message, independent of its status. */
-  named?(input: { messageId: string; sessionId: SessionId; transcriptItem: TranscriptItemRef }): Promise<void>
+  named?(input: {
+    messageId: string
+    sessionId: SessionId
+    transcriptItem: TranscriptItemRef
+  }): Promise<void>
   /** The bytes went into the CLI; the agent has not been seen to take them yet
    *  (POD-1242). Between this and {@link applied} the message is normally the
    *  harness's. An explicit interrupt is the one signal that returns ownership
@@ -1272,7 +1276,11 @@ export class SessionInbox {
     } else {
       const settlement = this.settleDeliveryOutcome(sessionId, event)
       this.settlingDeliveries.set(key, settlement)
-      try { await settlement } finally { this.settlingDeliveries.delete(key) }
+      try {
+        await settlement
+      } finally {
+        this.settlingDeliveries.delete(key)
+      }
     }
     // THE ENTRY IS NAMED BY ID, AFTER THE ROW SETTLES (POD-4774). A message's
     // row id IS its message id, so this reaches the message whether the row

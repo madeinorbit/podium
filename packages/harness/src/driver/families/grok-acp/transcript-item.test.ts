@@ -12,13 +12,22 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeEvent, SessionSpec } from '../../host.js'
-import { createGrokAcpRuntime, type GrokAcpJournalEntry, type GrokAcpRuntimeHost } from './runtime.js'
-import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import {
+  createGrokAcpRuntime,
+  type GrokAcpJournalEntry,
+  type GrokAcpRuntimeHost,
+} from './runtime.js'
+import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
 
 const spec = (): SessionSpec => ({
   harness: 'grok',
-  selection: { auth: 'subscription', platform: 'linux', available: ['grok-acp'], preference: 'grok-acp' },
+  selection: {
+    auth: 'subscription',
+    platform: 'linux',
+    available: ['grok-acp'],
+    preference: 'grok-acp',
+  },
   workdir: '/tmp/grok-transcript-item',
   model: {},
   instructions: { supported: false, reason: 'fixture' },
@@ -69,7 +78,10 @@ describe('the history entry a delivered Grok send became', () => {
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
-      const receipt = await handle.send({ id: 't1', text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+      const receipt = await handle.send(
+        { id: 't1', text: 'ship it' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
       if (receipt.outcome !== 'accepted') return
       const server = w.serverFor(handle.binding.sessionId)!
@@ -89,16 +101,27 @@ describe('the history entry a delivered Grok send became', () => {
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
-      const sent = handle.send({ id: 't1', text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+      const sent = handle.send(
+        { id: 't1', text: 'ship it' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       // The answer starts: the harness has moved on without recording the prompt.
       await Promise.resolve()
       w.serverFor(handle.binding.sessionId)!.streamAgentText(['on it'])
       const receipt = await sent
-      expect(receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'grok-user-turn-1' } })
+      expect(receipt).toMatchObject({
+        outcome: 'accepted',
+        transcriptItem: { id: 'grok-user-turn-1' },
+      })
       w.serverFor(handle.binding.sessionId)!.completeTurn()
       // Recorded once, ahead of the answer it prompted.
       await expect
-        .poll(async () => (await handle.transcript.history({ limit: 100 })).items.map((item) => [item.role, item.id]))
+        .poll(async () =>
+          (await handle.transcript.history({ limit: 100 })).items.map((item) => [
+            item.role,
+            item.id,
+          ]),
+        )
         .toEqual([
           ['user', 'grok-user-turn-1'],
           ['assistant', expect.any(String)],
@@ -114,7 +137,10 @@ describe('the history entry a delivered Grok send became', () => {
     try {
       const handle = await runtime.driver.create(spec())
       const before = await handle.snapshot()
-      await handle.send({ text: 'durable', rowId: 'msg_row' }, { origin: 'human', delivery: 'when-ready' })
+      await handle.send(
+        { text: 'durable', rowId: 'msg_row' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       const events: RuntimeEvent[] = []
       for await (const event of handle.events(before.cursor)) {
         events.push(event)

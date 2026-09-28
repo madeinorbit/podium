@@ -1581,7 +1581,10 @@ describe('the history entry a delivered send became', () => {
 
   it("names a durable row's entry once Codex records the turn's input", async () => {
     const w = await world()
-    await w.handle.send({ text: 'hello there', rowId: 'msg_row' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send(
+      { text: 'hello there', rowId: 'msg_row' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     await expect.poll(() => deliveries(w.events())).toHaveLength(1)
     // Accepted on the ack, before any record of the prompt exists.
     expect(deliveries(w.events())[0]).not.toHaveProperty('transcriptItem')
@@ -1598,19 +1601,31 @@ describe('the history entry a delivered send became', () => {
 
   it('names a direct send’s entry under its turn id', async () => {
     const w = await world()
-    const receipt = await w.handle.send({ id: 'msg_direct', text: 'direct' }, { origin: 'human', delivery: 'when-ready' })
+    const receipt = await w.handle.send(
+      { id: 'msg_direct', text: 'direct' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
     expect(receipt).not.toHaveProperty('transcriptItem')
     w.liveServer().emitUserMessage('direct', 'usr-codex-2')
     await expect
       .poll(() => deliveries(w.events()))
-      .toEqual([expect.objectContaining({ rowId: 'msg_direct', outcome: 'delivered', transcriptItem: { id: 'usr-codex-2' } })])
+      .toEqual([
+        expect.objectContaining({
+          rowId: 'msg_direct',
+          outcome: 'delivered',
+          transcriptItem: { id: 'usr-codex-2' },
+        }),
+      ])
     w.dispose()
   })
 
   it("does not take a later user item in the same turn for the turn's input", async () => {
     const w = await world()
-    await w.handle.send({ id: 'msg_first', text: 'first' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send(
+      { id: 'msg_first', text: 'first' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     w.liveServer().emitUserMessage('first', 'usr-first')
     // A steer's message lands in the same turn.
     w.liveServer().emitUserMessage('steered in', 'usr-steer')

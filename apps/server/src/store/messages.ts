@@ -923,18 +923,22 @@ export class MessagesRepository {
     deliveredTo: SessionId,
     item: TranscriptItemRef,
   ): Promise<boolean> {
-    const written = await this.committed.write(async () => this.db
-      .update(messagesTable)
-      .set({ transcriptItemId: item.id, transcriptItemCursor: item.cursor ?? null })
-      .where(
-        and(
-          eq(messagesTable.id, id),
-          isNull(messagesTable.transcriptItemId),
-          or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)),
-        ),
-      )
-      .returning(MESSAGE_QUEUE_COLUMNS)
-      .all(), 'upsert')
+    const written = await this.committed.write(
+      async () =>
+        this.db
+          .update(messagesTable)
+          .set({ transcriptItemId: item.id, transcriptItemCursor: item.cursor ?? null })
+          .where(
+            and(
+              eq(messagesTable.id, id),
+              isNull(messagesTable.transcriptItemId),
+              or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)),
+            ),
+          )
+          .returning(MESSAGE_QUEUE_COLUMNS)
+          .all(),
+      'upsert',
+    )
     return written.changes === 1
   }
 

@@ -11,9 +11,9 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle, RuntimeEvent, SessionSpec } from '../../host.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost, type OpencodeTestHost } from './test-support/host.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const spec = (): SessionSpec => ({
   harness: 'opencode',
@@ -50,10 +50,13 @@ function collect(handle: AgentSessionHandle): RuntimeEvent[] {
   return events
 }
 
-const deliveries = (events: RuntimeEvent[]) => events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+const deliveries = (events: RuntimeEvent[]) =>
+  events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
 const shownUser = (events: RuntimeEvent[]): TranscriptItem[] =>
   events.flatMap((event) =>
-    event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user' ? [event.item.item] : [],
+    event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user'
+      ? [event.item.item]
+      : [],
   )
 
 describe('the history entry a delivered opencode send became', () => {
@@ -63,7 +66,10 @@ describe('the history entry a delivered opencode send became', () => {
     try {
       const handle = await runtime.driver.create(spec())
       const events = collect(handle)
-      await handle.send({ text: 'look  at\nthis', rowId: 'msg_row' }, { origin: 'human', delivery: 'when-ready' })
+      await handle.send(
+        { text: 'look  at\nthis', rowId: 'msg_row' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       await expect.poll(() => deliveries(events).length).toBe(1)
       recordPrompt(host, handle, 'look at this')
       await expect.poll(() => deliveries(events).length).toBe(2)
@@ -85,7 +91,10 @@ describe('the history entry a delivered opencode send became', () => {
     try {
       const handle = await runtime.driver.create(spec())
       const events = collect(handle)
-      const receipt = await handle.send({ id: 'msg_direct', text: 'direct' }, { origin: 'human', delivery: 'when-ready' })
+      const receipt = await handle.send(
+        { id: 'msg_direct', text: 'direct' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
       recordPrompt(host, handle)
       await expect.poll(() => deliveries(events).length).toBe(1)
@@ -107,7 +116,10 @@ describe('the history entry a delivered opencode send became', () => {
     try {
       const handle = await runtime.driver.create(spec())
       const events = collect(handle)
-      await handle.send({ id: 'msg_other', text: 'the prompt' }, { origin: 'human', delivery: 'when-ready' })
+      await handle.send(
+        { id: 'msg_other', text: 'the prompt' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       recordPrompt(host, handle, 'the prompt, and something else')
       await expect.poll(() => shownUser(events).length).toBe(1)
       // Give a wrong credit the chance to surface before asserting there is none.

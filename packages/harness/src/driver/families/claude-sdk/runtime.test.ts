@@ -176,7 +176,12 @@ describe('the history entry a delivered send became (POD-4774)', () => {
         mintUserMessageUuid: () => `user-uuid-${++minted}`,
         startTurn(input): ClaudeSdkTurnHandle {
           started.push(input.userMessageUuid)
-          return { done: new Promise(() => {}), interrupt() {}, answerPermission() {}, dispose() {} }
+          return {
+            done: new Promise(() => {}),
+            interrupt() {},
+            answerPermission() {},
+            dispose() {},
+          }
         },
       },
     }
@@ -192,7 +197,10 @@ describe('the history entry a delivered send became (POD-4774)', () => {
     const { host, started } = namingHost()
     const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
-    const receipt = await handle.send({ id: 't1', text: 'ping' }, { origin: 'human', delivery: 'when-ready' })
+    const receipt = await handle.send(
+      { id: 't1', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     expect(started).toEqual(['user-uuid-1'])
     expect(receipt).toMatchObject({
       outcome: 'accepted',
@@ -213,7 +221,10 @@ describe('the history entry a delivered send became (POD-4774)', () => {
     const { host } = namingHost()
     const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
-    await handle.send({ text: 'durable ping', rowId: 'msg_row' }, { origin: 'human', delivery: 'when-ready' })
+    await handle.send(
+      { text: 'durable ping', rowId: 'msg_row' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     const events: RuntimeEvent[] = []
     for await (const event of handle.events('bootstrap')) {
       events.push(event)
