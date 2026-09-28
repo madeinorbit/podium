@@ -2072,24 +2072,22 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
   })
 
-  it('honors a server hold acquired while authorization is pending', async () => {
+  // Archive is the one refusal the server owns (POD-4775): it must still win
+  // when it lands mid-admission.
+  it('honors an archive that lands while authorization is pending', async () => {
     vi.useFakeTimers()
     let authorize!: (decision: { ok: true }) => void
     const permission = new Promise<{ ok: true }>((resolve) => { authorize = resolve })
     const h = harness({ contractReceipts: [], authorizeAtDrain: () => permission })
     await queueOne(h, 'held-during-admission')
-    h.setNativeView(true)
+    Object.assign(h.session, { archived: true })
     authorize({ ok: true })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toEqual([])
     expect(h.rows).toHaveLength(1)
-    h.setNativeView(false)
-    await h.inbox.drain(SID)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(h.contractCalls).toHaveLength(1)
   })
 
-  it('honors a native-view hold acquired after custody was reserved', async () => {
+  it('honors an archive that lands after custody was reserved', async () => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
     let release!: (rows: typeof h.rows) => void
@@ -2104,7 +2102,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await queueOne(h, 'held-after-reservation')
     await vi.advanceTimersByTimeAsync(0)
     expect(reserved).toBe(true)
-    h.setNativeView(true)
+    Object.assign(h.session, { archived: true })
     release([...h.rows])
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toEqual([])
