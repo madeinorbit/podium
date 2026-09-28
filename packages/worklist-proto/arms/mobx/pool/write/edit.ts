@@ -47,16 +47,19 @@
  * never a copy (the reads fence refuses a copy on first read and the copy
  * sweep fails on one held outside the wrapped tables). So this layer does NOT
  * write new row objects into the tables. It holds the pending display per row
- * in an observable map (`overlays`: the newest pending value per editable
- * field, mirrored from the log) and overlays it at the row-reader boundary:
- * `pool.inputs.issue`, `pool.visibleInputs.issueRow` / `progressFacts` /
- * `loadedIssue`. Each wrapper reads its overlay entry (tracked) and returns
- * the server row unchanged when there is none (identity-preserving, so an
- * idle layer adds no commit) or a transient `{...server, ...pending}` when
- * there is one (never stored, so the sweep never sees it; the derivation
- * subscribes to the overlay entry and the server slot, never the transient).
- * Title, stage and readAt are the only fields ever overlaid, and the overlay
- * value holds at most those three — never a full row copy.
+ * in the overlay (`PendingOverlay`, `overlay.ts`: the newest pending value
+ * per editable field, mirrored from the log), which the pool was constructed
+ * with (POD-4743). The pool's one reader (`MobxPool.row`) lays it over every
+ * row it serves: the server row unchanged when nothing is pending
+ * (identity-preserving, so an idle layer adds no commit), else a transient
+ * `{...server, ...pending}` (never stored, so the sweep never sees it; a
+ * reader subscribes to the overlay entry and the server slot, never the
+ * transient). Models, row views, visibility nodes, roll-ups and this
+ * module's own `currentDisplay` all read there, so they agree at every
+ * moment; nothing is patched at runtime. Title, stage and readAt are the only
+ * fields ever overlaid, and the overlay value holds at most those three —
+ * never a full row copy. The read cursor's pending value reaches the
+ * visibility parts through `MobxPool.readCursor`.
  *
  * SCOPE. Mc1 was edit + pending log + rewind. Mc2 adds echo/settle (W7),
  * overtake after receipt (W8), supersede (W9), TTL expiry (W10), bootstrap
@@ -65,7 +68,7 @@
  */
 
 import { asMutationId } from '@podium/model'
-import { observable, runInAction } from 'mobx'
+import { runInAction } from 'mobx'
 import type { RowSource } from '../../../../shared/src/arm'
 import {
   commandFor,
@@ -81,20 +84,10 @@ import {
 } from '../../../../shared/src/write-contract'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { MobxPool } from '../pool'
+import type { IssueOverlay, PendingOverlay } from './overlay'
 import { createPendingLog } from './pending'
 
-/** The editable fields of an issue row, as the overlay holds them. */
-type IssueOverlay = { title?: string; stage?: string; readAt?: string | null }
-
 const OVERLAY_FIELDS: readonly (keyof IssueOverlay)[] = ['title', 'stage', 'readAt']
-
-function overlayKey(kind: WritableKind, id: string): string {
-  return `${kind}:${id}`
-}
-
-function isIssueOverlay(value: unknown): value is IssueOverlay {
-  return typeof value === 'object' && value !== null
-}
 
 /** The newest pending value per field for (kind, id), oldest edit first. */
 function displayOf(log: PendingLog, kind: WritableKind, id: string): IssueOverlay | undefined {
@@ -160,31 +153,34 @@ export interface MobxWriteApi {
   ): () => void
   /** The pending log (tests: size, pendingFor). */
   readonly log: PendingLog
-  /** Detach the row-reader overlays (tests). */
+  /** Drop every pending display (the pool shows server truth) and the listeners. */
   dispose(): void
 }
 
+/**
+ * The write api over `pool`, mirroring its log into `overlay`: the seam the
+ * pool was constructed with (`new MobxPool(..., overlay)`), refused otherwise,
+ * since an overlay the pool does not read would paint nothing.
+ */
 export function createMobxWriteApi(
   pool: MobxPool,
+  overlay: PendingOverlay,
   transport: WriteTransport,
   opts: { log?: PendingLog } = {},
 ): MobxWriteApi {
+  if (pool.overlay !== overlay) {
+    throw new WriteContractError('the pool was not constructed with this write overlay')
+  }
   const log = opts.log ?? createPendingLog()
-  const overlays = observable.map<string, IssueOverlay>(undefined, {
-    deep: false,
-    name: 'write.overlays',
-  })
   const listeners = new Set<
     (rejection: Rejection & { readonly kind: WritableKind; readonly id: string }) => void
   >()
 
   const refreshOverlay = (kind: WritableKind, id: string): void => {
     if (kind !== 'issue') return
-    const key = overlayKey(kind, id)
     const display = displayOf(log, kind, id)
     if (display === undefined) {
-      if (overlays.has(key)) overlays.delete(key)
-      else return
+      if (!overlay.delete(id)) return
       // A dropped pending display can flip the row back: make sure a node
       // tracks it (held rows skip free).
       pool.ensureIssues([id])
@@ -193,80 +189,24 @@ export function createMobxWriteApi(
     // Skip an equal write (W4): a remote on a pending field recomputes the
     // same display, which must not notify (no commit) — structural equality
     // downstream would stop it anyway, but skipping avoids the derivation.
-    const current = overlays.get(key)
+    const current = overlay.pending(kind, id)
     if (current !== undefined && JSON.stringify(current) === JSON.stringify(display)) return
-    overlays.set(key, display)
+    overlay.set(id, display)
     // A new pending display can flip the row while no feed event names it:
     // only a derivation reads the overlay, so the row needs a node to
     // follow it (POD-4705; held rows skip free).
     pool.ensureIssues([id])
   }
 
-  const overlayOf = (id: string): IssueOverlay | undefined => overlays.get(overlayKey('issue', id))
+  /**
+   * The CURRENT display of issue `id` (older pending or server, W1.3): the
+   * pool's one reader, so a prior is exactly what every reader showed. A cold
+   * row is read by id, never queued.
+   */
+  const currentDisplay = (id: string): SliceIssue | undefined =>
+    pool.row('issue', id, 'peek') as SliceIssue | undefined
 
-  /** The server row with the pending display overlaid (transient, never stored). */
-  const withOverlay = (id: string, row: SliceIssue | undefined): SliceIssue | undefined => {
-    if (row === undefined) return undefined
-    const overlay = overlayOf(id)
-    if (overlay === undefined) return row
-    return { ...row, ...overlay }
-  }
-
-  // Overlay at the row-reader boundary. Each wrapper reads its overlay entry
-  // (tracked) and delegates to the server reader it replaced. With no pending
-  // edit the server object is returned unchanged, so identity-based commit
-  // counting holds and an idle layer is invisible. The `issueRead` wrapper is
-  // the cursor half of the same boundary: the visibility parts read the
-  // read-state lane through it, so a pending mark-read flips their verdicts
-  // exactly as the overlaid row flips the rebuild's.
-  const inputs = pool.inputs as { issue: (id: string) => SliceIssue | undefined }
-  const originalIssue = inputs.issue.bind(pool.inputs)
-  inputs.issue = (id: string) => withOverlay(id, originalIssue(id))
-
-  const visible = pool.visibleInputs as {
-    issueRow(id: string): SliceIssue | undefined
-    progressFacts(id: string): { stage: string; closedReason?: string | null } | undefined
-    loadedIssue(id: string): SliceIssue | symbol | undefined
-    issueRead(id: string): string | null | undefined
-  }
-  const originalIssueRow = visible.issueRow.bind(pool.visibleInputs)
-  visible.issueRow = (id: string) => withOverlay(id, originalIssueRow(id))
-
-  const originalProgressFacts = visible.progressFacts.bind(pool.visibleInputs)
-  visible.progressFacts = (id: string) => {
-    const facts = originalProgressFacts(id)
-    if (facts === undefined) return undefined
-    const overlay = overlayOf(id)
-    if (overlay === undefined) return facts
-    const next: Record<string, unknown> = { ...facts }
-    if (overlay.stage !== undefined) next['stage'] = overlay.stage
-    return next as { stage: string; closedReason?: string | null }
-  }
-
-  const originalLoadedIssue = visible.loadedIssue.bind(pool.visibleInputs)
-  visible.loadedIssue = (id: string) => {
-    const loaded = originalLoadedIssue(id)
-    if (!isIssueOverlay(loaded) || typeof loaded === 'symbol') return loaded
-    return withOverlay(id, loaded as SliceIssue)
-  }
-
-  // The read cursor with the pending display overlaid. The visibility parts
-  // (`unreadPartOf`, the decay branch of `flatPartOf`) read the cursor through
-  // `issueRead`, which the pool serves from its read-state lane (server
-  // truth only). A pending mark-read must flip those verdicts at once — the
-  // optimism-aware rebuild and the F4 oracle both see the pending cursor
-  // (overlaid row / reference display), so without this the live side keeps a
-  // decayed row hidden while both references show its reopened window. The
-  // pending value wins field-wise (an explicit null included); otherwise the
-  // lane answers, so a title-only edit changes nothing here.
-  const originalIssueRead = visible.issueRead.bind(pool.visibleInputs)
-  visible.issueRead = (id: string) => {
-    const overlay = overlayOf(id)
-    if (overlay !== undefined && overlay.readAt !== undefined) return overlay.readAt
-    return originalIssueRead(id)
-  }
-
-  /** Make a cold issue resident before editing it (W1.2), else throw. */
+  /** Make a cold issue resident before editing it (W1.2), then its display; else throw. */
   const ensureResident = (kind: WritableKind, id: string): SliceIssue => {
     if (kind !== 'issue') throw new WriteContractError(`no editable fields on ${String(kind)}`)
     const residency = pool.residency
@@ -276,13 +216,10 @@ export function createMobxWriteApi(
         pool.hydrate()
       }
     }
-    const server = originalIssue(id) ?? originalIssueRow(id)
-    if (server === undefined) throw new WriteContractError(`unknown issue ${id}`)
-    return server
+    const shown = currentDisplay(id)
+    if (shown === undefined) throw new WriteContractError(`unknown issue ${id}`)
+    return shown
   }
-
-  /** The CURRENT display for the patched fields (older pending or server, W1.3). */
-  const currentDisplay = (id: string, server: SliceIssue): SliceIssue => withOverlay(id, server) ?? server
 
   const api: MobxWriteApi = {
     log,
@@ -296,8 +233,7 @@ export function createMobxWriteApi(
       // the borrowed rows here matches the pool's own ingest, which reads its
       // fenced tables inside its action.
       runInAction(() => {
-        const server = ensureResident(kind, id)
-        const shown = currentDisplay(id, server)
+        const shown = ensureResident(kind, id)
         const prior: Record<string, unknown> = {}
         for (const field of Object.keys(patch as Record<string, unknown>)) {
           prior[field] = (shown as unknown as Record<string, unknown>)[field] ?? null
@@ -376,12 +312,11 @@ export function createMobxWriteApi(
             skipped += 1
             continue
           }
-          const server = feedRows.get(mapped.id)
-          if (server === undefined) {
+          const shown = feedRows.has(mapped.id) ? currentDisplay(mapped.id) : undefined
+          if (shown === undefined) {
             skipped += 1
             continue
           }
-          const shown = currentDisplay(mapped.id, server)
           const prior: Record<string, unknown> = {}
           for (const field of Object.keys(mapped.patch as Record<string, unknown>)) {
             prior[field] = (shown as unknown as Record<string, unknown>)[field] ?? null
@@ -408,7 +343,7 @@ export function createMobxWriteApi(
         // here (S5): the server row is already the echo.
         const seen = new Set<string>()
         for (const { kind, id } of touched) {
-          const key = overlayKey(kind, id)
+          const key = `${kind}:${id}`
           if (seen.has(key)) continue
           seen.add(key)
           if (log.pendingFor(kind, id).length === 0) continue
@@ -440,11 +375,7 @@ export function createMobxWriteApi(
     },
 
     dispose() {
-      inputs.issue = originalIssue
-      visible.issueRow = originalIssueRow
-      visible.progressFacts = originalProgressFacts
-      visible.loadedIssue = originalLoadedIssue
-      visible.issueRead = originalIssueRead
+      runInAction(() => overlay.clear())
       listeners.clear()
     },
   }

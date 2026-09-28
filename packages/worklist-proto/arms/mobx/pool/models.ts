@@ -3,10 +3,12 @@
  * lazily by the pool the first time a row is read (Linear's "observable on
  * first access"; audit §7). Ingest never builds a model.
  *
- * A MODEL HOLDS NO ROW. It reads its row from the pool's table on every
- * access (`row`), a tracked read of exactly that table slot, so a model
- * cannot go stale, needs no write-through, and a replaced or re-added row
- * reaches the same model. Dropping a removed row's model only frees memory.
+ * A MODEL HOLDS NO ROW. It reads its row through the pool's one reader on
+ * every access (`row`, `MobxPool.row`: the server row with pending edits
+ * overlaid, POD-4743), a tracked read of exactly that table slot and its
+ * overlay entry, so a model cannot go stale, needs no write-through, shows
+ * the same value as its row view, and a replaced or re-added row reaches the
+ * same model. Dropping a removed row's model only frees memory.
  *
  * FIELDS FROM THE SCHEMA. Every declared field of the entity
  * (`SCHEMA[entity].fields`) is a getter on the model's prototype, installed
@@ -29,6 +31,7 @@ import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import type { StoredRow } from './tables'
+import { LOADING, type Loaded } from './worklist/rollup'
 import {
   activityAtPartOf,
   buildRowView,
@@ -51,7 +54,8 @@ import {
 
 /** What a model reads from its pool. */
 export interface ModelHost {
-  readonly fenced: { readonly [E in EntityName]: { get(id: string): unknown } }
+  /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
+  row(entity: EntityName, id: string): Loaded<object>
   readonly inputs: ViewInputs
   readonly stats: ArmStats
 }
@@ -63,9 +67,10 @@ export class EntityModel {
     protected readonly host: ModelHost,
   ) {}
 
-  /** The borrowed row, read through the pool's (fenced, tracked) table. */
+  /** The row as the pool shows it (the one reader: fenced, tracked, pending edits overlaid). */
   get row(): StoredRow | undefined {
-    return this.host.fenced[this.entity].get(this.id) as StoredRow | undefined
+    const row = this.host.row(this.entity, this.id)
+    return row === LOADING ? undefined : (row as StoredRow | undefined)
   }
 }
 

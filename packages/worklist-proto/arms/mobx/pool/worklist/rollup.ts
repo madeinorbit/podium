@@ -47,7 +47,7 @@
  * - PROGRESS never loads. A formal child that is cold (under the declared
  *   rule `unlessShown`, exactly a closed child nothing can show) gives its
  *   unit facts through the cold-read path (`RollupInputs.progressFacts`:
- *   the pool's `coldRow`, a counted, fenced read by id through the feed,
+ *   the pool's `row` in `peek`, a counted, fenced read by id through the feed,
  *   tracked by residency's per-id atom), limited by type to the fields
  *   R-ROLL's progress reads (`ProgressFacts`: `stage`, `closedReason`), plus
  *   the `spinOffs` bucket's size and Mb1's cached session presence for

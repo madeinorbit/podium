@@ -28,7 +28,6 @@
  * candidate; this arm is the phase-c candidate on the `truth` feed.
  */
 
-import { runInAction } from 'mobx'
 import type {
   CheckableArm,
   CheckableArmHandle,
@@ -43,6 +42,7 @@ import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { type PoolLazyOptions } from '../pool'
 import { rebuildSnapshot } from '../rebuild'
 import { createMobxWriteApi, type MobxWriteApi } from './edit'
+import { PendingOverlay } from './overlay'
 
 export interface WritableMobxPoolHandle extends CheckableArmHandle {
   readonly pool: MobxPoolHandle['pool']
@@ -59,35 +59,18 @@ export function writableMobxPoolArm(
 ): CheckableArm {
   return {
     create(source: RowSource, locals: LocalsSource, reads?: ReadFence): WritableMobxPoolHandle {
-      const handle = mobxPoolArm.create(source, locals, reads, loader) as MobxPoolHandle
-      const write = createMobxWriteApi(handle.pool, transport)
+      // The overlay is the pool's from construction (POD-4743): its one
+      // reader lays the pending display over every row, and every node the
+      // seeding replace builds subscribes to its entry, so no reader is
+      // replaced and nothing has to be rebuilt once edits exist.
+      const overlay = new PendingOverlay()
+      const handle = mobxPoolArm.create(source, locals, reads, loader, overlay) as MobxPoolHandle
+      const write = createMobxWriteApi(handle.pool, overlay, transport)
       // W11: pending edits survive a principal-preserving rebuild — the
       // outbox entries are re-applied from the queue before anything reads,
       // over the feed's server rows (the oracle's reload rebuild reads the
       // same rows, so the two resolutions agree exactly).
       write.bootstrap(source)
-      // Re-establish node tracking AFTER the row-reader overlays are
-      // installed. The seeding replace built every visibility node before the
-      // wrappers existed, so their reactions subscribed to the table slots
-      // alone and never to the overlay map: an arm-side edit flipping a
-      // verdict (a mark-read reopening a decay window) would leave the live
-      // set stale while the rebuild, deriving from scratch over the overlaid
-      // rows, moves. Clearing the collection and replaying the current feed
-      // snapshot re-creates every node with the wrappers active; the tables
-      // hold the same borrowed objects, so ingest writes nothing and only
-      // the reactions re-run. Models, residency, selection and the clock are
-      // untouched (models read through the same wrappers dynamically).
-      runInAction(() => {
-        handle.pool.worklist.clear()
-        handle.pool.apply({
-          type: 'replace',
-          rows: [
-            ...source.snapshot('session'),
-            ...source.snapshot('issue'),
-            ...source.snapshot('worktree'),
-          ],
-        })
-      })
       const offRemote = source.subscribe((event) => {
         for (const row of event.rows) {
           if (row.kind !== 'issue' || row.value === undefined) continue

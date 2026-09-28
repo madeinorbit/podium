@@ -97,6 +97,13 @@ export interface ResidencyOptions {
   readonly now: () => number
   readonly windowMs?: number
   readonly schedule?: Schedule
+  /**
+   * Rows kept cold beside the schema's rule (tests: the not-in-memory path on
+   * a row the rule keeps resident, such as a visible one). Asked where the
+   * rule is, so such a row is cold until its first access loads it, like any
+   * other; a row in memory stays there.
+   */
+  readonly outOfMemory?: (entity: EntityName, id: string) => boolean
 }
 
 /** What residency did since the last `reset()`. */
@@ -132,6 +139,7 @@ export class Residency {
   private readonly load: LoadRow
   private readonly clock: () => number
   private readonly schedule: Schedule
+  private readonly outOfMemory: (entity: EntityName, id: string) => boolean
   /** Entities whose rows can keep an `unlessShown` row resident (the schema's `keptBy`). */
   private readonly keeperKinds: ReadonlySet<EntityName>
   /** `owner:id` → member id → how long it keeps the owner shown, for EVERY known member row. */
@@ -163,6 +171,7 @@ export class Residency {
     this.keeperKinds = keeperEntities(this.schema)
     this.windowMs = options.windowMs ?? LOAD_WINDOW_MS
     this.schedule = options.schedule ?? realSchedule
+    this.outOfMemory = options.outOfMemory ?? (() => false)
     const prefixTargets = new Set<EntityName>()
     for (const spec of Object.values(this.schema)) {
       for (const relation of Object.values(spec.relations)) {
@@ -342,7 +351,7 @@ export class Residency {
       this.warmDependents(target, entity, id, out)
       return
     }
-    if (this.coldRule(entity, value)) {
+    if (this.coldRule(entity, value) || this.outOfMemory(entity, id)) {
       this.keepCold(target, entity, id, value, out)
       return
     }
@@ -373,7 +382,7 @@ export class Residency {
       },
       keeps: (owner, key) => this.keeps.get(`${owner}:${key}`)?.values() ?? [],
     }
-    if (!hot && coldByRule(this.schema, entity, value, ctx)) {
+    if (!hot && (coldByRule(this.schema, entity, value, ctx) || this.outOfMemory(entity, id))) {
       this.keepCold(target, entity, id, value, out)
       return
     }
@@ -532,7 +541,7 @@ export class Residency {
       if (after !== null) index(byTarget, after, id)
     }
     // A relink is a new value too: a derivation that read the cold row by id
-    // (`MobxPool.coldRow`, POD-4569) must see it.
+    // (`MobxPool.row` in `peek`, POD-4569) must see it.
     this.atoms.get(`${entity}:${id}`)?.reportChanged()
   }
 

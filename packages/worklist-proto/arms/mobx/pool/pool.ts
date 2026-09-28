@@ -26,11 +26,17 @@
  * every queued row in ONE action (`hydrate`). `snapshot()` settles the loader
  * before it answers. Without `lazy` every row is resident (Ma1/Ma2 tests).
  *
- * READ PATH. Every table read goes through the reads fence
- * (`reads.wrapTables`), every relation read through `reads.wrapRelations`;
- * with the fence disabled both are the identity. Derivations run lazily: a
- * row view computes when a mounted row (or `snapshot()`) reads it and
- * suspends when nothing does (no `keepAlive`).
+ * READ PATH. Every row a model, view, visibility part, roll-up or group
+ * placement reads comes from ONE reader, `row(entity, id, absent)`
+ * (POD-4743): the server row with the write layer's pending edits overlaid
+ * (`RowOverlay`, the seam the write layer passes at construction), the server
+ * object itself when nothing is pending, and for a row not in memory the
+ * answer the caller names (`AbsentRead`: `LOADING` with its load queued,
+ * `LOADING` alone, or its current value by id through the feed). Every table
+ * read goes through the reads fence (`reads.wrapTables`), every relation read
+ * through `reads.wrapRelations`; with the fence disabled both are the
+ * identity. Derivations run lazily: a row view computes when a mounted row
+ * (or `snapshot()`) reads it and suspends when nothing does (no `keepAlive`).
  *
  * STATS (`README.md` has the definitions): `rowsDerived` counts row-view
  * body runs; `notifications` counts actions that changed pool state;
@@ -220,7 +226,38 @@ export interface PoolLazyOptions {
   readonly load: LoadRow
   readonly windowMs?: number
   readonly schedule?: Schedule
+  /**
+   * Rows kept out of memory beside the schema's cold rule, until first read
+   * (`ResidencyOptions.outOfMemory`). Tests use it to take the not-in-memory
+   * path on a row the rule keeps resident (a visible one).
+   */
+  readonly outOfMemory?: (entity: EntityName, id: string) => boolean
 }
+
+/**
+ * The write layer's pending edits, as the pool's reader applies them
+ * (POD-4743). The pool calls it; the write layer implements it and passes it
+ * at construction (`write/overlay.ts`), so no reader is ever replaced.
+ * TRACKED: `pending` reads the entry for `entity:id` (present or not), so a
+ * derivation that read the row re-runs when its pending display changes. It
+ * holds only the pending fields, never a row.
+ */
+export interface RowOverlay {
+  /** The newest pending value per edited field of `entity:id`, or undefined when nothing is pending. */
+  pending(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
+}
+
+/**
+ * What `MobxPool.row` answers for a row that is not in memory (a cold row):
+ * - `load`: `LOADING`, and the row is queued for the next load window (a
+ *   derivation's first access);
+ * - `mark`: `LOADING`, nothing queued (maintenance inside an action, which
+ *   must not arm the window);
+ * - `peek`: the row's current value, read by id through the feed and counted,
+ *   nothing queued (the visibility parts decide a cold row without loading it).
+ * Unknown rows answer undefined in every mode.
+ */
+export type AbsentRead = 'load' | 'mark' | 'peek'
 
 /** Where a row stands, for a reader that asked for it by id (tracked). */
 export type Residence = 'resident' | 'loading' | 'absent'
@@ -289,6 +326,8 @@ export class MobxPool {
   readonly stats: PoolStats
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
+  /** The write layer's pending edits (POD-4743); null without a write layer. */
+  readonly overlay: RowOverlay | null
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
   private selectedId: string | null
@@ -304,7 +343,9 @@ export class MobxPool {
     locals: SliceLocals,
     schema?: ModelSchema,
     lazy?: PoolLazyOptions,
+    overlay?: RowOverlay,
   ) {
+    this.overlay = overlay ?? null
     this.tables = createObservableTables()
     this.fenced = reads.wrapTables(this.tables)
     const fenced = this.fenced
@@ -319,6 +360,7 @@ export class MobxPool {
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
+            ...(lazy.outOfMemory === undefined ? {} : { outOfMemory: lazy.outOfMemory }),
           })
     this.residency = residency
     this.stats = createStats(residency)
@@ -446,17 +488,22 @@ export class MobxPool {
       ...(residency === null ? {} : { residency }),
     }
     this.selectedId = null
+    // Every row below comes from the one reader (`row`); none of these
+    // functions is replaced after construction (the write layer's pending
+    // edits arrive through `overlay`). A view reads rows in memory: a row that
+    // is not answers undefined, its load queued.
+    const inMemory = (row: Loaded<object>): object | undefined => (row === LOADING ? undefined : row)
     this.inputs = {
       relations: this.relations,
-      issue: (id) => fenced.issue.get(id) as SliceIssue | undefined,
-      session: (id) => fenced.session.get(id) as SliceSession | undefined,
+      issue: (id) => inMemory(this.row('issue', id)) as SliceIssue | undefined,
+      session: (id) => inMemory(this.row('session', id)) as SliceSession | undefined,
       // The member's cached value. A model already built is taken from the
       // identity memo without a presence read: it reads its own slot, so a
       // removed member answers null, and the bucket that listed it has moved.
       sessionActivity: (id) =>
         ((this.models.session.get(id) as SessionModel | undefined) ?? this.model('session', id))
           ?.activityMs ?? null,
-      repo: (id) => fenced.repo.get(id) as RepoRow | undefined,
+      repo: (id) => inMemory(this.row('repo', id)) as RepoRow | undefined,
       present: (entity, id) => fenced[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => this.issue(id),
@@ -488,19 +535,18 @@ export class MobxPool {
     }
     this.visibleInputs = {
       relations: this.relations,
-      issueRow: (id) =>
-        (fenced.issue.get(id) ?? this.coldRow('issue', id)) as SliceIssue | undefined,
-      sessionRow: (id) =>
-        (fenced.session.get(id) ?? this.coldRow('session', id)) as SliceSession | undefined,
+      // Hot or cold: a cold row is read by id through the feed, never loaded.
+      issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
+      sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       issue: (id) => this.worklist.issue(id),
       session: (id) => this.worklist.session(id),
       passed: (t) => this.clock.passed(t),
       reached: (t) => this.clock.reached(t),
-      loadedIssue: (id) => this.loaded('issue', id) as Loaded<SliceIssue>,
-      loadedSession: (id) => this.loaded('session', id) as Loaded<SliceSession>,
-      // Option A (POD-4571): progress reads a cold child through `coldRow`, never loading it.
-      progressFacts: (id) => this.visibleInputs.issueRow(id),
-      issueRead: (id) => this.readStates.get(id),
+      loadedIssue: (id) => this.row('issue', id) as Loaded<SliceIssue>,
+      loadedSession: (id) => this.row('session', id) as Loaded<SliceSession>,
+      // Option A (POD-4571): progress reads a cold child by id, never loading it.
+      progressFacts: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
+      issueRead: (id) => this.readCursor(id),
       nested: (id) => this.worklist.nested(id),
       formalChildren: (id) => this.worklist.formalChildren(id),
       // POD-4678 (item 1, plant/old): the mirror IS the relation — every id
@@ -571,8 +617,9 @@ export class MobxPool {
       worklist: false,
       groups: false,
       foldLatch: false,
-      coldRow: false,
-      loaded: false,
+      overlay: false,
+      row: false,
+      readCursor: false,
       knows: false,
       stats: false,
       models: false,
@@ -612,27 +659,50 @@ export class MobxPool {
   }
 
   /**
-   * TRACKED: a COLD row's current value, read by id through the feed and
-   * counted as a read (POD-4569): the visibility parts answer a closed
-   * issue without loading it. Tracked by residency's per-id atom, which
-   * reports every relink. Undefined when the row is not cold.
+   * TRACKED: THE row reader (POD-4743). Every row a model, view, visibility
+   * part, roll-up or placement reads comes from here, so they all see one
+   * value.
+   *
+   * In memory: the server row with the write layer's pending edits overlaid
+   * (`RowOverlay`), or the server object itself when nothing is pending (same
+   * identity, so an idle write layer adds no commit). The overlaid object is
+   * transient, never stored; a reader subscribes to the table slot and the
+   * overlay entry, never to it.
+   *
+   * Not in memory (cold, POD-4567): what `absent` names (`AbsentRead`). A
+   * cold row's value is read by id through the feed and counted as a read
+   * (POD-4569); it is tracked by residency's per-id atom, which reports every
+   * relink and the load. Unknown rows answer undefined. Never blocks.
    */
-  coldRow(entity: EntityName, id: string): object | undefined {
-    const residency = this.residency
-    if (residency === null || !residency.known(entity, id)) return undefined
-    this.reads.touch(entity, id, 'get')
-    return residency.read(entity, id)
+  row(entity: EntityName, id: string, absent: 'peek'): object | undefined
+  row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
+  row(entity: EntityName, id: string, absent: AbsentRead = 'load'): Loaded<object> {
+    let server = this.fenced[entity].get(id) as object | undefined
+    if (server === undefined) {
+      const residency = this.residency
+      if (residency === null) return undefined
+      if (absent === 'load') return residency.loading(entity, id) ? LOADING : undefined
+      if (!residency.known(entity, id)) return undefined
+      if (absent === 'mark') return LOADING
+      this.reads.touch(entity, id, 'get')
+      server = residency.read(entity, id)
+      if (server === undefined) return undefined
+    }
+    const pending = this.overlay?.pending(entity, id)
+    return pending === undefined ? server : { ...server, ...pending }
   }
 
   /**
-   * TRACKED: a RESIDENT row, or `LOADING` when the row is cold (the read
-   * queues its load, as `resident` does), or undefined. The roll-ups read
-   * rows only this way (Mb3): a cold row is a pending marker, never read.
+   * TRACKED: an issue's read cursor, pending mark-read first (the overlay's
+   * `readAt`, an explicit null included), else the read-state lane (POD-4686:
+   * server truth, per key, so a mark-read re-validates only its own row).
    */
-  loaded(entity: EntityName, id: string): Loaded<object> {
-    const row = this.fenced[entity].get(id)
-    if (row !== undefined) return row as object
-    return this.residency?.loading(entity, id) === true ? LOADING : undefined
+  readCursor(id: string): string | null | undefined {
+    const pending = this.overlay?.pending('issue', id)
+    if (pending !== undefined && pending['readAt'] !== undefined) {
+      return pending['readAt'] as string | null
+    }
+    return this.readStates.get(id)
   }
 
   /** Whether the pool knows the issue `id`, hot or cold (plain: maintenance, inside actions). */
@@ -723,16 +793,15 @@ export class MobxPool {
       // (the plain pass counts nothing; both arms resolved in favour of both).
       issueless: (from, id, relation) => this.graph.issueless(from, id, relation),
     }
-    // Row reads go through the live inputs (fenced, tracked, and — under
-    // the write arm — projecting pending edits through the row-reader
-    // overlays): the plain pass answers what the nodes would, including
+    // Row reads go through the one reader (fenced, and projecting pending
+    // edits): the plain pass answers what the nodes would, including
     // optimism. Bootstrap counts nothing, and per-change evaluation runs
     // only where a node may genuinely be built.
     const live = this.visibleInputs
     const plain: VisibleInputs = {
       relations: rawRelations,
-      issueRow: (id) => live.issueRow(id),
-      sessionRow: (id) => live.sessionRow(id),
+      issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
+      sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       // Exactly what a live derivation reads: a held row's parts (hot or
       // cold — a cold ancestor's node carries the nest walk past it), else
       // unknown for hot rows without a node. Cold unheld rows read as
@@ -746,19 +815,11 @@ export class MobxPool {
       passed: (t) => live.passed(t),
       reached: (t) => live.reached(t),
       // Maintenance reads, never derivation access: a cold row answers its
-      // pending marker WITHOUT queuing its load (the live `loaded` queues,
-      // which would arm the window from inside the pass). Roll-up paths are
-      // unread here anyway; the rule never reaches these.
-      loadedIssue: (id) => {
-        const row = this.tables.issue.get(id)
-        if (row !== undefined) return row as SliceIssue
-        return this.residency?.isCold('issue', id) === true ? LOADING : undefined
-      },
-      loadedSession: (id) => {
-        const row = this.tables.session.get(id)
-        if (row !== undefined) return row as SliceSession
-        return this.residency?.isCold('session', id) === true ? LOADING : undefined
-      },
+      // pending marker WITHOUT queuing its load (`mark`; the live reads queue,
+      // which would arm the window from inside the pass). A session's verdict
+      // reads its row here; the roll-up paths are unread.
+      loadedIssue: (id) => this.row('issue', id, 'mark') as Loaded<SliceIssue>,
+      loadedSession: (id) => this.row('session', id, 'mark') as Loaded<SliceSession>,
       progressFacts: (id) => live.progressFacts(id),
       nested: (id) => {
         if (knownIds === null) {
@@ -780,6 +841,11 @@ export class MobxPool {
    * table first, the feed by id second. A field read on it is free when the
    * row arrived on this action's event (the pool stores the event's own
    * object, already touched) and one cold feed read at most otherwise.
+   *
+   * The one read that bypasses `row` (POD-4743): the closure walk reads only
+   * the structural keys (`parentId`, the started-by owner), which no pending
+   * edit writes, and it is maintenance, so it must not count a fenced read
+   * per ancestor the way a derivation's read does.
    */
   private issueRowOf(id: string): SliceIssue | undefined {
     return (this.tables.issue.get(id) ?? this.residency?.read('issue', id)) as
@@ -1110,7 +1176,7 @@ export class MobxPool {
   /**
    * POD-4705 — ensure nodes for rows the write layer's pending display
    * touches (call inside an action): a queued (or settled) edit projects
-   * through the row-reader overlays, which only derivations read — a row
+   * through the reader's overlay, which only derivations read — a row
    * without a node would never follow its pending verdict. The row is
    * touched, so like any named row it earns its closure; held rows skip
    * free. Called from the overlay refresh, after the entry is mirrored.

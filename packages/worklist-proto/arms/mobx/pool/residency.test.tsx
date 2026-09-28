@@ -423,7 +423,7 @@ describe('the loader', () => {
     // A long-lived derivation reads the cold row by id (as a visibility node does).
     const titles: (string | undefined)[] = []
     const watch = autorun(() => {
-      titles.push((pool.coldRow('issue', closed.id) as { title?: string } | undefined)?.title)
+      titles.push((pool.row('issue', closed.id, 'peek') as { title?: string } | undefined)?.title)
     })
     try {
       // An untracked check between steps, inside an action, as the gate's
