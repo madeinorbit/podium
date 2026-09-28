@@ -1,7 +1,7 @@
 /**
  * THE TERMINAL — the surface over one process (POD-4434, layers §1b/§2).
  *
- * One attachment + one screen + the applied size, referring to (never owning)
+ * One attachment + one screen, referring to (never owning)
  * the process it shows. The Session owns the process (its durable label, kept
  * alive on the host across daemon restarts); the Terminal owns the live
  * attachment over it — the connection object whose disposal DETACHES, never
@@ -22,7 +22,7 @@
  */
 
 import type { Geometry } from '@podium/model'
-import { type DurableAttachment, withHardRepaint } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import type { TerminalScreen } from '@podium/process/screen'
 
 /**
@@ -39,30 +39,28 @@ export interface TerminalEvents {
   onFrame(data: Uint8Array): void
   onTitle?(title: string): void
   onExit?(code: number): void
+  /**
+   * THE SIZE EVENT (POD-4723, design rev 3): the kernel's size, as the host
+   * stated it (WELCOME, RESIZED). Fired once at attach with the size the
+   * connection already holds — WELCOME usually arrives before the Terminal
+   * exists — and then on every RESIZED. Never fired by an ask, and never on a
+   * backend that cannot read its size back.
+   */
+  onSize?(size: Geometry): void
 }
 
 /**
  * Which surface this Terminal is: the headed agent/shell pty, or the native
- * client TUI of a server-family session. Exactly one Terminal per session, and
- * the kind tells the resize/redraw/input handlers which arm a live surface
- * takes: a headed surface applies synchronously like a bridge always did, a
- * client surface acknowledges through the client-terminal host. The input
- * paths likewise only ever take a headed surface for automation bytes — a
- * client TUI accepts human keystrokes only.
+ * client TUI of a server-family session. Exactly one Terminal per session.
+ * Sizing does not branch on it (POD-4723: one ask, one size event for both);
+ * the input paths do — they only ever take a headed surface for automation
+ * bytes, since a client TUI accepts human keystrokes only.
  */
 export type TerminalKind = 'headed' | 'client'
 
 export interface TerminalOptions {
   /** Which surface this is. Defaults to the headed agent/shell pty. */
   kind?: TerminalKind
-  /**
-   * Reattaching a shell: `redraw()` defaults to the hard Ctrl-L repaint (idle
-   * shells ignore the SIGWINCH nudge). TUIs repaint on resize and must not get
-   * a stray ^L in their input — leave it off for them. An explicit
-   * `redraw({ hard })` always wins. This is the shell hard-repaint-on-reattach
-   * rule, as a Terminal option rather than a second attach path.
-   */
-  hardRepaint?: boolean
 }
 
 /**
@@ -70,16 +68,13 @@ export interface TerminalOptions {
  *
  * `screen` is the session's ONE TerminalScreen (owned by the Session, held
  * here while attached so observers and drivers read it through the Terminal).
- * `applied` mirrors the size this surface put the program at — the Terminal
- * never decides one, the apply sites record it here next to the record they
- * already write.
+ * It holds no size of its own: {@link size} reads the connection's, which only
+ * the host writes (POD-4723).
  */
 export class Terminal {
   readonly attachment: DurableAttachment
   readonly screen: TerminalScreen
   readonly kind: TerminalKind
-  /** The grid this surface put the program at, when it put it at one. */
-  applied: Geometry | undefined
 
   private readonly unwire: Array<() => void> = []
   private settled = false
@@ -110,6 +105,12 @@ export class Terminal {
         if (!this.settled) onExit(code)
       }))
     }
+    if (events.onSize && attachment.onSize) {
+      const onSize = events.onSize
+      this.unwire.push(attachment.onSize((size) => {
+        if (!this.settled) onSize(size)
+      }))
+    }
   }
 
   /**
@@ -123,8 +124,12 @@ export class Terminal {
     events: TerminalEvents,
     opts: TerminalOptions = {},
   ): Terminal {
-    const live = opts.hardRepaint ? withHardRepaint(attachment, true) : attachment
-    return new Terminal(live, screen, events, opts.kind ?? 'headed')
+    const terminal = new Terminal(attachment, screen, events, opts.kind ?? 'headed')
+    // The WELCOME a spawn or reattach awaited has already stated the size: say
+    // it once now, through the same event every later RESIZED takes.
+    const size = attachment.size?.()
+    if (size && events.onSize) events.onSize(size)
+    return terminal
   }
 
   get pid(): number {
@@ -135,9 +140,13 @@ export class Terminal {
     return this.attachment.adopted
   }
 
-  /** Kernel-reported size after the last acknowledgement, when the backend says. */
-  get readSize(): Geometry | undefined {
-    return this.attachment.appliedGeometry
+  /**
+   * The kernel's size as the host last stated it; `undefined` before WELCOME,
+   * after parking, and on a backend that cannot read it back (POD-4723).
+   */
+  size(): Geometry | undefined {
+    if (this.settled) return undefined
+    return this.attachment.size?.()
   }
 
   get live(): boolean {
@@ -155,39 +164,15 @@ export class Terminal {
     this.attachment.write(dataBase64)
   }
 
-  resize(cols: number, rows: number): void {
-    if (this.settled) return
-    this.attachment.resize(cols, rows)
-  }
-
   /**
-   * Resize and answer what the backend ACKNOWLEDGED. Answers NOW (a plain
-   * Geometry) where the backend offers no acknowledgement — the fire-and-forget
-   * resize IS the apply there. Answers LATER (a promise) where one can differ.
-   * `undefined` when the acknowledgement never arrived: the caller must hold
-   * the request, not record the ask.
+   * THE ASK: put the program at this size. It moves nothing here — the size
+   * event does. Rejects with the host's refusal (or a closed connection) so
+   * the caller can log it; does nothing when parked, and returns nothing on a
+   * backend with no acknowledgement.
    */
-  resizeAcknowledged(
-    cols: number,
-    rows: number,
-  ): Geometry | Promise<Geometry | undefined> | undefined {
-    if (this.settled) return undefined
-    if (!this.attachment.resizeAcknowledged) {
-      this.attachment.resize(cols, rows)
-      return { cols, rows }
-    }
-    return this.attachment.resizeAcknowledged(cols, rows)
-  }
-
-  redraw(opts?: { hard?: boolean }): void {
+  resize(cols: number, rows: number): Promise<void> | void {
     if (this.settled) return
-    this.attachment.redraw(opts)
-  }
-
-  /** Queue a repaint until the transport acknowledges attachment, where supported. */
-  redrawWhenReady(): void {
-    if (this.settled) return
-    this.attachment.redrawWhenReady?.()
+    return this.attachment.resize(cols, rows)
   }
 
   /** Host-only replay port for the joint-restart hole; false when unsupported. */

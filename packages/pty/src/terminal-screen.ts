@@ -72,8 +72,6 @@ export interface TerminalScreenOptions {
 }
 
 export interface TerminalScreenReopenOptions {
-  /** The grid the reopening viewer needs. */
-  viewerSize: Geometry | undefined
   /** Whether the bridge offers a host-ring `replay`. */
   ringReplayable: boolean
   /** The server kept nothing for the attaching page. */
@@ -225,16 +223,14 @@ export class TerminalScreen {
   }
 
   /**
-   * Which reopen strategy for a viewer at this size — the policy from
-   * POD-3918, owned here alongside the model it decides about. The caller
-   * still performs the dispatch (resize through the bridge, enqueue the
-   * snapshot, replay the ring): this answers WHAT, never HOW.
+   * How a reopening viewer is repainted — the policy owned here alongside the
+   * model it decides about. The caller performs it (enqueue the snapshot,
+   * replay the ring): this answers WHAT, never HOW. It never touches the
+   * program (POD-4723).
    */
   decideReopen(opts: TerminalScreenReopenOptions): ReopenDecision {
     return decideReopenScreen({
       mode: this.tracker.current,
-      modelSize: this.applied ? { ...this.applied } : undefined,
-      viewerSize: opts.viewerSize,
       modelAlive: !this.disposed,
       ringReplayable: opts.ringReplayable,
       replayRequired: opts.replayRequired,

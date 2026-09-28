@@ -1,7 +1,7 @@
 /**
  * THE DAEMON-SIDE SESSION MIRROR (POD-4434, layers §1b/§2): one object per
  * session that OWNS its durable process label(s), its Terminal if any, its
- * screen, its held resize and its replay cursor — replacing the per-session
+ * screen and its replay cursor — replacing the per-session
  * maps on DaemonContext (bridges, durableLabels, pendingResizes, the screen
  * registry).
  *
@@ -17,9 +17,9 @@
  *   handle index of their own. Each writer reads and releases the slot through
  *   its own view (`session/driver-slots.ts`), so one never answers for or
  *   clears another's handle.
- * - The applied-size RECORD (`AppliedGeometryRecord`) stays daemon-wide: the
- *   bind builder reads it, and the Terminal mirrors the same fact in
- *   `terminal.applied`. One fact, two readers, written at the same apply sites.
+ * - The session holds no size (POD-4723): the kernel's size lives on the host
+ *   connection its Terminal reads (`terminal.size()`), and an ask for a session
+ *   with no terminal is dropped, not held — the next bind re-drives it.
  * - The screen lives here (created on first use, surviving park/reattach,
  *   dropped when the terminal goes away) and the Terminal holds it while
  *   attached — so Draft Sync and the observers keep reading the ONE
@@ -33,7 +33,7 @@ import type {
   EngineBindUnrecoverable,
 } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
-import type { Geometry, SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
 import type { Terminal } from '../terminal/terminal.js'
@@ -167,8 +167,6 @@ export class DaemonSession {
    * shape would bill the whole client TUI as the agent's memory.
    */
   clientLabel: string | undefined = undefined
-  /** A viewer ask that arrived while no terminal could apply it (POD-628). */
-  pendingResize: Geometry | undefined = undefined
   /**
    * The host ring resume reader: the seq after the last output byte this
    * daemon saw. Set while a host attachment is live; `tail` when unknown.
@@ -352,7 +350,6 @@ export class DaemonSession {
   clear(): void {
     this.park()
     this.dropScreen()
-    this.pendingResize = undefined
     this.seqReader = undefined
     this.clientLabel = undefined
     this.client = undefined

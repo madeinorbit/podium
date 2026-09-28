@@ -660,6 +660,14 @@ export const RedrawMessage = z.object({
   /** The server has no retained bytes for the attaching page, so the runtime
    *  must produce a repaint even when its client terminal survived adoption. */
   replayRequired: z.boolean().optional(),
+  /**
+   * The user pressed redraw: the ONE repaint that may touch the program, as a
+   * Ctrl-L (POD-4723, design rev 3). Every other redraw repaints the viewer
+   * from the daemon's snapshot or the host ring and never signals the child.
+   * Optional so an older daemon still parses the frame; the daemon honours it
+   * from POD-4723, the server sends it from POD-4771.
+   */
+  hard: z.boolean().optional(),
 })
 
 // daemon -> server

@@ -22,7 +22,6 @@ import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
-import type { AppliedGeometryRecord } from './applied-geometry'
 
 /** What holds the agent's PTY across daemon restarts: our own podium-host, abduco,
  *  or `none` = bare Bun.Terminal. Canonical definition lives in
@@ -77,23 +76,13 @@ export interface DaemonContext {
   // -- per-session runtime state ---------------------------------------------
   /**
    * ONE object per session (POD-4434): its durable label(s), its Terminal if
-   * any, its screen, its held resize and its replay cursor. Replaces the
+   * any, its screen and its replay cursor. Replaces the
    * per-session maps this context used to carry (bridges, durableLabels,
    * pendingResizes, the screen registry). The durable door (`durable` above)
    * stays separate: it is the machine-wide way to REACH a process, while a
    * Session is what OWNS one.
    */
   sessions: SessionRegistry
-  /**
-   * THE ONE PLACE THIS DAEMON RECORDS WHAT SIZE IT ACTUALLY APPLIED (POD-3290).
-   *
-   * Every size a daemon reports — `bind`'s optional geometry and every
-   * `geometryApplied` frame — is read out of here, and nothing else may write
-   * one. Optional and created on first use through `appliedGeometryFor(ctx)`:
-   * per daemon, so a restart that reattaches a surviving master starts with an
-   * empty record and binds bare, which is the truth about what IT applied.
-   */
-  appliedGeometry?: AppliedGeometryRecord
   /** Draft Sync v2 (POD-859): read-only/inject composer engine for flagged sessions. */
   composerEngine: ComposerSyncEngine
   /** Coalesced, prioritized PTY frame relay. */
