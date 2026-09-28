@@ -4,9 +4,7 @@ import { ISSUE_STATUS_LABELS, type IssueStatus, type IssueWire, issueStatusOf } 
 export interface BoardFilter {
   text?: string
   priority?: number
-  type?: string
-  assignee?: string
-  label?: string
+  projectPaths?: string[]
   status?: 'open' | 'closed' | 'ready' | 'blocked' | 'deferred'
   stage?: IssueStatus
   archived?: boolean
@@ -21,9 +19,7 @@ export type BoardFilterIssue = Pick<
   | 'seq'
   | 'displayRef'
   | 'priority'
-  | 'type'
-  | 'assignee'
-  | 'labels'
+  | 'repoPath'
   | 'stage'
   | 'closedReason'
   | 'ready'
@@ -51,9 +47,7 @@ export function filterBoardIssues<T extends BoardFilterIssue>(
   return issues.filter((issue) => {
     if (issue.deletedAt ? !filter.deleted : issue.archived && !filter.archived) return false
     if (filter.priority != null && issue.priority !== filter.priority) return false
-    if (filter.type && issue.type !== filter.type) return false
-    if (filter.assignee && issue.assignee !== filter.assignee) return false
-    if (filter.label && !issue.labels.includes(filter.label)) return false
+    if (filter.projectPaths?.length && !filter.projectPaths.includes(issue.repoPath)) return false
     if (filter.stage && issueStatusOf(issue) !== filter.stage) return false
     const closed = issue.stage === 'done' || issue.closedReason != null
     if (filter.status === 'open' && closed) return false
@@ -76,9 +70,14 @@ export function filterChips(filter: BoardFilter): { key: keyof BoardFilter; labe
   const chips: { key: keyof BoardFilter; label: string }[] = []
   if (filter.priority != null)
     chips.push({ key: 'priority', label: `Priority: P${filter.priority}` })
-  if (filter.type) chips.push({ key: 'type', label: `Type: ${filter.type}` })
-  if (filter.assignee) chips.push({ key: 'assignee', label: `Assignee: ${filter.assignee}` })
-  if (filter.label) chips.push({ key: 'label', label: `Label: ${filter.label}` })
+  if (filter.projectPaths?.length)
+    chips.push({
+      key: 'projectPaths',
+      label:
+        filter.projectPaths.length === 1
+          ? `Project: ${filter.projectPaths[0]?.split('/').pop() || filter.projectPaths[0]}`
+          : `Projects: ${filter.projectPaths.length}`,
+    })
   if (filter.status) chips.push({ key: 'status', label: `State: ${filter.status}` })
   if (filter.stage)
     chips.push({ key: 'stage', label: `Status: ${ISSUE_STATUS_LABELS[filter.stage]}` })

@@ -19,8 +19,6 @@ export type { IssuesOrdering }
 export interface IssuesDisplay {
   layout: IssuesLayout
   ordering: IssuesOrdering
-  /** true = the old flat view (sub-issues at top level); false = nested (#85). */
-  flatten: boolean
   /** Show internal (audience: 'agent') issues at top level (issue-as-workspace).
    *  Default OFF — internal tasks only surface as children under their (visible,
    *  human-audience) parent. */
@@ -36,7 +34,6 @@ export const DEFAULT_DISPLAY: IssuesDisplay = {
   // work sits at the top of each stage column. `updated` also churned the
   // columns every time an agent touched an issue; priority + seq holds still.
   ordering: 'priority',
-  flatten: false,
   showAgentTasks: false,
   badges: { labels: true, type: true, estimate: true, due: true, sessions: true },
 }
@@ -56,7 +53,6 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
   return {
     layout: LAYOUTS.has(String(o.layout)) ? (o.layout as IssuesLayout) : DEFAULT_DISPLAY.layout,
     ordering: shared.ordering,
-    flatten: typeof o.flatten === 'boolean' ? o.flatten : DEFAULT_DISPLAY.flatten,
     showAgentTasks: shared.showAgentTasks,
     badges: {
       labels: badge('labels'),

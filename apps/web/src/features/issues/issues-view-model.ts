@@ -74,10 +74,8 @@ export function deriveIssuesViewModel({
     ...new Set(scope.map((issue) => issue.assignee).filter(Boolean)),
   ].sort() as string[]
   const labels = [...new Set(scope.flatMap((issue) => issue.labels))].sort()
-  const boardIssues = display.flatten ? active : partitionIssueTree(active).roots
-  const stageCounts = display.flatten
-    ? new Map<string, { stage: IssueStage; count: number }[]>()
-    : childStageCounts(scope)
+  const boardIssues = partitionIssueTree(active).roots
+  const stageCounts = childStageCounts(scope)
   const epicProgress = computeEpicProgressMap(
     nonArchived,
     boardIssues.map((issue) => issue.id),
@@ -89,7 +87,7 @@ export function deriveIssuesViewModel({
   const needsRows = isMobile || display.layout === 'list' || openIssueId !== null
   const rowGroups = needsRows
     ? issueRowsByStage(active, display.ordering, {
-        flatten: display.flatten,
+        flatten: false,
         expanded,
       })
     : []

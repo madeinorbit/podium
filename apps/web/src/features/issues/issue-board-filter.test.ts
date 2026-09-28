@@ -4,23 +4,28 @@ import { clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 
 describe('filterBoardIssues', () => {
   const xs = [
-    makeIssue({ id: 'a', title: 'Login bug', priority: 0, type: 'bug', labels: ['ui'] }),
+    makeIssue({ id: 'a', title: 'Login bug', priority: 0, repoPath: '/repos/alpha' }),
     makeIssue({
       id: 'b',
       title: 'Dark mode',
       priority: 2,
-      type: 'feature',
+      repoPath: '/repos/beta',
       stage: 'review',
       blocked: true,
       ready: false,
     }),
   ]
-  it('filters by text, priority, type, label, status', () => {
+  it('filters by text, priority, and state', () => {
     expect(filterBoardIssues(xs, { text: 'login' }).map((i) => i.id)).toEqual(['a'])
     expect(filterBoardIssues(xs, { priority: 0 }).map((i) => i.id)).toEqual(['a'])
-    expect(filterBoardIssues(xs, { type: 'feature' }).map((i) => i.id)).toEqual(['b'])
-    expect(filterBoardIssues(xs, { label: 'ui' }).map((i) => i.id)).toEqual(['a'])
     expect(filterBoardIssues(xs, { status: 'blocked' }).map((i) => i.id)).toEqual(['b'])
+  })
+  it('matches any selected project and combines with other filters', () => {
+    expect(filterBoardIssues(xs, { projectPaths: ['/repos/beta'] }).map((i) => i.id)).toEqual(['b'])
+    expect(
+      filterBoardIssues(xs, { projectPaths: ['/repos/alpha', '/repos/beta'] }).map((i) => i.id),
+    ).toEqual(['a', 'b'])
+    expect(filterBoardIssues(xs, { projectPaths: ['/repos/beta'], priority: 0 })).toEqual([])
   })
   it('matches the issue ref, however the user types it', () => {
     const ys = [
@@ -80,9 +85,8 @@ describe('filter chips', () => {
     const chips = filterChips({
       text: 'x',
       priority: 1,
-      type: 'bug',
+      projectPaths: ['/repos/alpha', '/repos/beta'],
       status: 'open',
-      label: 'ui',
       stage: 'review',
       archived: true,
       deleted: true,
@@ -90,20 +94,20 @@ describe('filter chips', () => {
     expect(chips.map((c) => c.key).sort()).toEqual([
       'archived',
       'deleted',
-      'label',
       'priority',
+      'projectPaths',
       'stage',
       'status',
-      'type',
     ])
     expect(chips.find((c) => c.key === 'priority')?.label).toBe('Priority: P1')
+    expect(chips.find((c) => c.key === 'projectPaths')?.label).toBe('Projects: 2')
     expect(chips.find((c) => c.key === 'stage')?.label).toBe('Status: Review')
     expect(chips.find((c) => c.key === 'archived')?.label).toBe('Archived')
     expect(chips.find((c) => c.key === 'deleted')?.label).toBe('Deleted')
   })
   it('clearChip removes exactly that dimension', () => {
-    const f = clearChip({ priority: 1, type: 'bug' }, 'priority')
+    const f = clearChip({ priority: 1, projectPaths: ['/repos/alpha'] }, 'priority')
     expect(f.priority).toBeUndefined()
-    expect(f.type).toBe('bug')
+    expect(f.projectPaths).toEqual(['/repos/alpha'])
   })
 })

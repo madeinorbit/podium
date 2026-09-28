@@ -10,6 +10,7 @@ import type { IssueUpdatePatch } from '@podium/commands'
 import {
   type IssueId,
   type IssueStage,
+  issueStatusControlLabel,
   issueStatusLabel,
   issueStatusMenuEntries,
   issueStatusOf,
@@ -527,6 +528,8 @@ export function IssueCompactControls({
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   const action = resolveTaskAction(issue, active)
   const closed = Boolean(issue.closedReason) || issue.archived
+  const statusLabel = issueStatusControlLabel(issue)
+  const statusDetail = issueStatusLabel(issue)
   // WHERE THIS WORK WILL LIVE, offered at the moment it starts (POD-679).
   // Only while it has not started: once an agent is on it, the same two moves
   // live in the context menu, where a correction belongs.
@@ -553,7 +556,7 @@ export function IssueCompactControls({
           className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
         >
           <StatusGlyph status={issue.stage} size={12} />
-          {issueStatusLabel(issue)}
+          {statusLabel}
         </Button>
       </div>
     )
@@ -718,10 +721,11 @@ export function IssueCompactControls({
                 variant="ghost"
                 size="sm"
                 aria-label="Status"
+                title={statusDetail !== statusLabel ? statusDetail : undefined}
                 className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
               >
                 <StatusGlyph status={issueStatusOf(issue)} size={12} />
-                {issueStatusLabel(issue)}
+                {statusLabel}
                 <ChevronDown size={13} className="size-[13px] text-text-faint" aria-hidden="true" />
               </Button>
             }

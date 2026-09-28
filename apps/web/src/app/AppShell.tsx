@@ -97,6 +97,7 @@ import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
+import { useResponsiveSidebars } from './use-responsive-sidebars'
 
 /**
  * EVERY LAZY SURFACE GOES THROUGH `throughRestarts` (POD-2762).
@@ -572,7 +573,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   // row and never ran again: a collapsed sidebar came back expanded on every
   // reload. Its WIDTH survived, which is what made the asymmetry legible —
   // that key is device-local and already in the cache at mount.
-  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedUiState(
+  const [savedSidebarCollapsed, saveSidebarCollapsed] = usePersistedUiState(
     SIDEBAR_COLLAPSED_KEY,
     readBooleanState,
     String,
@@ -599,11 +600,23 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   // replica has the row and never runs again. That is why opening the
   // Superagent, reloading, and finding the dock closed was reproducible
   // (POD-540 handoff patch 1e).
-  const [rightPanel, setRightPanelStored] = usePersistedUiState<RightPanelTab | null>(
+  const [rightPanel, saveRightPanel] = usePersistedUiState<RightPanelTab | null>(
     RIGHT_PANEL_KEY,
     readRightPanel,
     writeRightPanel,
   )
+  const {
+    compact,
+    sidebarCollapsed,
+    rightPanel: responsiveRightPanel,
+    setSidebarCollapsed,
+    setRightPanel: setRightPanelStored,
+  } = useResponsiveSidebars({
+    sidebarCollapsed: savedSidebarCollapsed,
+    rightPanel,
+    setSidebarCollapsed: saveSidebarCollapsed,
+    setRightPanel: saveRightPanel,
+  })
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
@@ -616,7 +629,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
       mergeQueue: mergeQueueEnabled,
       shipping: shippingEnabled,
     })
-  const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
+  const visibleRightPanel = panelAllowed(responsiveRightPanel) ? responsiveRightPanel : null
   // What the dock RENDERS, which outlives what the rail says is open: the panel
   // has to still be there to slide back out under the rail. The column tells us
   // when that exit is over, so the closed dock holds no live panel (POD-769).
@@ -733,6 +746,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
       : SIDEBAR_WIDTH_DEFAULT
   }
   const sidebarFold = useColumnFold({
+    resetKey: compact,
     foldedWidth: SIDEBAR_RAIL_WIDTH,
     openWidth: persistedSidebarWidth,
     onFold: setSidebarCollapsed,
@@ -743,7 +757,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     setSuperOpen(panel === 'superagent')
   }
   const lastRightPanel = useRef<RightPanelTab>('issue')
-  if (visibleRightPanel) lastRightPanel.current = visibleRightPanel
+  if (rightPanel && panelAllowed(rightPanel)) lastRightPanel.current = rightPanel
   const toggleLeftSidebar = (): void => sidebarFold.fold(!sidebarCollapsed)
   const toggleFlightDeck = (): void => {
     if (flightDeckCollapsed) expandFlightDeck()
@@ -760,6 +774,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   // Reacting to the initial value would slam a persisted `superagent` panel
   // shut on every load, because the store boots with superOpen=false.
   const lastSuperOpen = useRef(superOpen)
+  const restoringSuperOpen = useRef(rightPanel === 'superagent' && !superOpen)
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted panel.
   useEffect(() => {
     if (rightPanel === 'superagent') setSuperOpen(true)
@@ -806,9 +821,16 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     if (superOpen === lastSuperOpen.current) return
     lastSuperOpen.current = superOpen
     if (superOpen) {
+      // Restoring the store at boot is not an explicit request to reveal a
+      // panel that this window has automatically folded.
+      if (restoringSuperOpen.current) {
+        restoringSuperOpen.current = false
+        return
+      }
       setRightPanelStored('superagent')
       return
     }
+    restoringSuperOpen.current = false
     // superOpen going false only CLOSES the Superagent. Clearing the panel
     // unconditionally would fight `setRightPanel`, which drives superOpen false
     // whenever you pick a different panel: the click that opened Task would set

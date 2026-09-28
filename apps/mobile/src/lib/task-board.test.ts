@@ -300,13 +300,7 @@ describe('taskBoardSections', () => {
         ready: false,
       }),
     ]
-    const filters = [
-      { text: 'pod 1234' },
-      { priority: 0 },
-      { type: 'feature' },
-      { label: 'ui' },
-      { status: 'blocked' as const },
-    ]
+    const filters = [{ text: 'pod 1234' }, { priority: 0 }, { status: 'blocked' as const }]
     for (const filter of filters) {
       expect(rowIds(taskBoardSections(xs, { showDone: false, filter }))).toEqual(
         filterBoardIssues(xs, filter).map((candidate) => candidate.id),

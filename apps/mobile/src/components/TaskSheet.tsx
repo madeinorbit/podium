@@ -11,7 +11,7 @@ import {
   type IssueCloseReason,
   type IssuePanelArtifact,
   type IssueWire,
-  issueStatusLabel,
+  issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
@@ -238,7 +238,7 @@ function SheetHead({
           accessibilityLabel="Change stage"
           onPress={() => setStageOpen(true)}
         >
-          <Text style={styles.stagePillText}>{issueStatusLabel(issue)}</Text>
+          <Text style={styles.stagePillText}>{issueStatusControlLabel(issue)}</Text>
           <Icon as={ChevronDown} size={11} color={color.text} />
         </PressableScale>
         {/* `Answer` is a ROUTE, not a second answering surface: the agent that

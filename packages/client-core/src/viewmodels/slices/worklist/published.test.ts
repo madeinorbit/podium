@@ -114,6 +114,32 @@ describe('POD-331 published worklist slice — the clock is an INPUT, not an amb
   })
 })
 
+describe('published project order', () => {
+  it('re-derives when the personal project order changes', () => {
+    let store = {
+      ...storeAt(NOON, []),
+      repos: [
+        { path: '/a', kind: 'repository', branch: 'main', worktrees: [] },
+        { path: '/b', kind: 'repository', branch: 'main', worktrees: [] },
+      ],
+      sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+    } as unknown as Store
+    const publisher = createSlicePublisher<Store>(() => store)
+    expect(publisher.read(worklistSlice).projects.map((project) => project.key)).toEqual([
+      '/a',
+      '/b',
+    ])
+    store = {
+      ...store,
+      sidebarSettings: { repoSort: 'custom', repoOrder: ['/b', '/a'], groupByRepo: false },
+    }
+    expect(publisher.read(worklistSlice).projects.map((project) => project.key)).toEqual([
+      '/b',
+      '/a',
+    ])
+  })
+})
+
 // ---------------------------------------------------------------------------
 // POD-843/POD-929 — unread is derived from projection content + the issue-row
 // cursor + session activity, never from an IssueWire.unread paint.

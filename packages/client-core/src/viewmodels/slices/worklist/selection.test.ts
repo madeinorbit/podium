@@ -335,6 +335,20 @@ describe('POD-4420 S2 post-pass placement oracle', () => {
     expect(placeWorklistSelection(base, sel('b-live'))).toBe(base)
   })
 
+  it('keeps the saved project order when a selection regroups a project', () => {
+    // First-row order is a, b; the saved custom order puts b first.
+    const custom = worklistSlice.derive({
+      ...world(null),
+      sidebarSettings: { repoSort: 'custom', repoOrder: ['/repo-b', '/repo-a'], groupByRepo: false },
+    } as Store)
+    expect(custom.groups.map((group) => group.key)).toEqual(['/repo-b', '/repo-a'])
+    const placed = placeWorklistSelection(custom, sel('a-old'))
+    expect(placed.groups.map((group) => group.key)).toEqual(['/repo-b', '/repo-a'])
+    expect(laneOf(structure(placed), 'a-old')).toBe('open:/repo-a')
+    // The untouched project keeps its identity across the reorder-aware match.
+    expect(placed.groups[0]).toBe(custom.groups[0])
+  })
+
   it('isEqual keeps identical outputs quiet and never equates different ones', () => {
     const isEqual = worklistSlice.isEqual!
     expect(isEqual(base, base)).toBe(true)

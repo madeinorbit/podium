@@ -104,7 +104,7 @@ export function AddRepositoryButton({ className }: { className?: string }): JSX.
       )}
     >
       <FolderPlus size={13} aria-hidden="true" className="flex-none" />
-      {/* The words go first, and only below the column's own 280px — a
+      {/* The words go first, and only below the column's own 340px — a
           `@container worklist` rule in styles.css, so the width being read is
           the COLUMN's, which is the only width that matters to a control the
           operator drags the edge of. */}

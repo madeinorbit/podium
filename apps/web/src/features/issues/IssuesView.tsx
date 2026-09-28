@@ -4,7 +4,7 @@ import {
   type IssueStage,
   parseIssueStatusValue,
 } from '@podium/model/browser'
-import { ListTree, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -14,7 +14,6 @@ import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useNow } from '@/lib/useNow'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
-import { cn } from '@/lib/utils'
 import { BoardShortcutSheet } from './BoardShortcutSheet'
 import { boardKeyAction } from './board-shortcuts'
 import { IssueContextMenu } from './IssueContextMenu'
@@ -25,6 +24,7 @@ import {
   BulkBar,
   DisplayMenu,
   FilterMenu,
+  ProjectMenu,
   type PropMenuKind,
 } from './IssuesFilters'
 import { IssuesKanban } from './IssuesKanban'
@@ -119,20 +119,26 @@ export function IssuesView(): JSX.Element {
   // 674-row board model. Primitive dependencies keep this object stable during
   // the urgent render, so the derivation and memoized result tree both bail out.
   const deferredText = useDeferredValue(filter.text)
-  const { priority, type, assignee, label, status, stage, archived, deleted } = filter
+  const { priority, projectPaths, status, stage, archived, deleted } = filter
   const deferredFilter = useMemo<BoardFilter>(
     () => ({
       ...(deferredText !== undefined ? { text: deferredText } : {}),
       ...(priority !== undefined ? { priority } : {}),
-      ...(type !== undefined ? { type } : {}),
-      ...(assignee !== undefined ? { assignee } : {}),
-      ...(label !== undefined ? { label } : {}),
+      ...(projectPaths !== undefined ? { projectPaths } : {}),
       ...(status !== undefined ? { status } : {}),
       ...(stage !== undefined ? { stage } : {}),
       ...(archived !== undefined ? { archived } : {}),
       ...(deleted !== undefined ? { deleted } : {}),
     }),
-    [deferredText, priority, type, assignee, label, status, stage, archived, deleted],
+    [deferredText, priority, projectPaths, status, stage, archived, deleted],
+  )
+
+  const availableProjectPaths = useMemo(
+    () =>
+      [...new Set(issues.map((issue) => issue.repoPath).filter(Boolean))].sort((a, b) =>
+        (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
+      ),
+    [issues],
   )
 
   const view = useMemo(
@@ -390,26 +396,13 @@ export function IssuesView(): JSX.Element {
             aria-label="Search tasks"
             className="topbar-tools-search"
           />
-          <button
-            data-pressable
-            type="button"
-            className={cn('topbar-tool-toggle', display.flatten && 'topbar-tool-toggle-on')}
-            aria-pressed={display.flatten}
-            title={
-              display.flatten
-                ? 'Showing all tasks flat — click to nest sub-tasks under parents'
-                : 'Showing top-level tasks — click to flatten sub-tasks into the list'
+          <FilterMenu filter={filter} onChange={setFilter} />
+          <ProjectMenu
+            paths={availableProjectPaths}
+            selected={filter.projectPaths ?? []}
+            onChange={(paths) =>
+              setFilter({ ...filter, projectPaths: paths.length ? paths : undefined })
             }
-            onClick={() => updateDisplay({ flatten: !display.flatten })}
-          >
-            <ListTree size={13} aria-hidden="true" />
-            <span className="topbar-tool-label">Flatten</span>
-          </button>
-          <FilterMenu
-            filter={filter}
-            onChange={setFilter}
-            labels={view.labels}
-            assignees={view.assignees}
           />
           <DisplayMenu display={display} onChange={updateDisplay} showLayout={!isMobile} />
           <Button

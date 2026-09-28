@@ -219,8 +219,8 @@ describe('the utilities came up out of the footer', () => {
   it('puts Add repository on the filter line and leaves no strip at the foot', () => {
     const view = render(<SidebarUnified />)
     const add = screen.getByTestId('add-repository')
-    // Same row as the field it rides beside.
-    expect(add.parentElement?.querySelector('[data-testid="work-search"]')).toBeTruthy()
+    // Same row as the field it rides beside, whatever groups the trailing buttons.
+    expect(screen.getByTestId('work-search').parentElement?.contains(add)).toBe(true)
     // The words, and the glyph that survives a narrow column.
     expect(add.textContent).toContain('Add repository')
     expect(add.querySelector('svg')).toBeTruthy()

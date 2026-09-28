@@ -59,6 +59,7 @@ import {
   worklistSessionsEqual,
 } from './material'
 import { type SidebarSections, sidebarSections } from './nav'
+import { orderedSidebarProjects, orderProjectGroups, type SidebarProject } from './project-order'
 import type { UnifiedWorkRow } from './row-types'
 import { unifiedWorkList } from './rows'
 
@@ -84,6 +85,8 @@ export interface WorklistSlice {
    * separately can only ever agree by coincidence.
    */
   pinned: UnifiedWorkRow[]
+  /** Stable project order shared by the wide sidebar and the mobile worklist. */
+  projects: SidebarProject[]
   /**
    * THE PROJECT-GROUP STRUCTURE (POD-407) — the tree the sidebar renders: one
    * group per repo, each with its open rows and its snoozed and closed folds.
@@ -188,6 +191,7 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
   sourceEqual: (previous, next) => {
     if (previous === next) return true
     if (
+      previous.sidebarSettings !== next.sidebarSettings ||
       previous.coarseNow !== next.coarseNow ||
       !worklistReposEqual(previous.repos, next.repos) ||
       !worklistMachinesEqual(previous.machines, next.machines) ||
@@ -212,6 +216,7 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
       a.allWorktreePaths === b.allWorktreePaths &&
       a.work === b.work &&
       a.pinned === b.pinned &&
+      a.projects === b.projects &&
       a.groups === b.groups),
   derive: (store) => {
     const issues = issuesOf(store)
@@ -241,12 +246,19 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
     // POD-4420 S2: the baseline is UNSELECTED — selection never re-derives,
     // it is placed by `placeWorklistSelection` over this output.
     const { pinned, rest } = splitPinnedWork(work)
+    const rawGroups = groupUnifiedWorkRows(rest, null, false, store.coarseNow)
+    const projects = orderedSidebarProjects(
+      sections,
+      rawGroups,
+      store.sidebarSettings?.repoSort === 'custom' ? store.sidebarSettings.repoOrder : [],
+    )
     return {
       sections,
       allWorktreePaths,
       work,
       pinned,
-      groups: groupUnifiedWorkRows(rest, null, false, store.coarseNow),
+      projects,
+      groups: orderProjectGroups(rawGroups, projects),
       now: store.coarseNow,
     }
   },
@@ -312,7 +324,12 @@ export function placeWorklistSelection(
   // Untouched groups keep their identity, so readers holding them stay cold;
   // when every lane matches this returns the base identity itself.
   const { rest } = splitPinnedWork(base.work)
-  const regrouped = groupUnifiedWorkRows(rest, selectedIssueId, false, base.now)
+  // Selection only moves rows between lanes of one project, so the base's
+  // project order still applies; without it every group would shift position.
+  const regrouped = orderProjectGroups(
+    groupUnifiedWorkRows(rest, selectedIssueId, false, base.now),
+    base.projects,
+  )
   let unchanged =
     regrouped.length === base.groups.length &&
     regrouped.every((group, index) => base.groups[index]?.key === group.key)

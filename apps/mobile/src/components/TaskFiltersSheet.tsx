@@ -11,7 +11,7 @@ import { NativePicker, type NativePickerOption } from './action-sheet-native'
 
 const ANY = '__any__'
 
-type Facet = 'priority' | 'type' | 'assignee' | 'label' | 'status' | 'stage' | 'ordering'
+type Facet = 'priority' | 'status' | 'stage' | 'ordering'
 
 interface FacetConfig {
   label: string
@@ -25,9 +25,6 @@ export function TaskFiltersSheet({
   filter,
   ordering,
   showAgentTasks,
-  types,
-  assignees,
-  labels,
   onFilter,
   onOrdering,
   onShowAgentTasks,
@@ -37,9 +34,6 @@ export function TaskFiltersSheet({
   filter: BoardFilter
   ordering: IssuesOrdering
   showAgentTasks: boolean
-  types: readonly string[]
-  assignees: readonly string[]
-  labels: readonly string[]
   onFilter: (filter: BoardFilter) => void
   onOrdering: (ordering: IssuesOrdering) => void
   onShowAgentTasks: (show: boolean) => void
@@ -62,11 +56,6 @@ export function TaskFiltersSheet({
       ],
       apply: (value) => set('priority', value === ANY ? undefined : Number(value)),
     },
-    type: stringFacet('Type', filter.type, types, (value) => set('type', value)),
-    assignee: stringFacet('Assignee', filter.assignee, assignees, (value) =>
-      set('assignee', value),
-    ),
-    label: stringFacet('Label', filter.label, labels, (value) => set('label', value)),
     status: {
       label: 'State',
       value: filter.status ?? ANY,
@@ -200,23 +189,6 @@ export function TaskFiltersSheet({
       )}
     </BottomSheet>
   )
-}
-
-function stringFacet(
-  label: string,
-  value: string | undefined,
-  choices: readonly string[],
-  setValue: (value: string | undefined) => void,
-): FacetConfig {
-  return {
-    label,
-    value: value ?? ANY,
-    options: [
-      { value: ANY, label: `Any ${label.toLowerCase()}` },
-      ...choices.map((choice) => ({ value: choice, label: choice })),
-    ],
-    apply: (next) => setValue(next === ANY ? undefined : next),
-  }
 }
 
 function optionLabel(config: FacetConfig): string {

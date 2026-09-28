@@ -5,9 +5,8 @@ import {
   type IssueId,
   type IssueStage,
   issueStatusMenuEntries,
-  IssueType,
 } from '@podium/model/browser'
-import { Check, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Check, FolderGit2, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -207,20 +206,19 @@ const STATUS_OPTIONS: NonNullable<BoardFilter['status']>[] = [
 export function FilterMenu({
   filter,
   onChange,
-  labels,
-  assignees,
 }: {
   filter: BoardFilter
   onChange: (filter: BoardFilter) => void
-  labels: string[]
-  assignees: string[]
 }): JSX.Element {
   const set = (patch: Partial<BoardFilter>): void => onChange({ ...filter, ...patch })
   // Free-text search has its own field beside this trigger, so it is not one of
   // the facets this menu reports as engaged.
-  const filtering = Object.entries(filter).some(
-    ([key, value]) => key !== 'text' && value !== undefined && value !== false,
-  )
+  const filtering =
+    filter.priority !== undefined ||
+    filter.status !== undefined ||
+    filter.stage !== undefined ||
+    !!filter.archived ||
+    !!filter.deleted
   return (
     <DropdownMenu>
       {/* The command bar's grammar, not the generic outline button's: a ringed
@@ -251,16 +249,6 @@ export function FilterMenu({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>Type</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            {IssueType.options.map((type) => (
-              <DropdownMenuItem key={type} onClick={() => set({ type })}>
-                {type}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
         {/* Two axes, named apart (POD-1074). This one is the DERIVED state —
             open/closed and the queue predicates — and it used to be called
             "Status" while the list of actual statuses below it was called
@@ -286,34 +274,6 @@ export function FilterMenu({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>Assignee</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            {assignees.length === 0 ? (
-              <DropdownMenuItem disabled>No assignees</DropdownMenuItem>
-            ) : (
-              assignees.map((assignee) => (
-                <DropdownMenuItem key={assignee} onClick={() => set({ assignee })}>
-                  {assignee}
-                </DropdownMenuItem>
-              ))
-            )}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>Label</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            {labels.length === 0 ? (
-              <DropdownMenuItem disabled>No labels</DropdownMenuItem>
-            ) : (
-              labels.map((label) => (
-                <DropdownMenuItem key={label} onClick={() => set({ label })}>
-                  {label}
-                </DropdownMenuItem>
-              ))
-            )}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem
           checked={!!filter.archived}
@@ -327,6 +287,60 @@ export function FilterMenu({
         >
           Show deleted
         </DropdownMenuCheckboxItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+export function ProjectMenu({
+  paths,
+  selected,
+  onChange,
+}: {
+  paths: string[]
+  selected: string[]
+  onChange: (paths: string[]) => void
+}): JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            data-pressable
+            type="button"
+            className={cn('topbar-tool-toggle', selected.length > 0 && 'topbar-tool-toggle-on')}
+            aria-label="Filter by project"
+            title={selected.length ? `${selected.length} projects selected` : 'Filter by project'}
+          >
+            <FolderGit2 size={13} aria-hidden="true" />
+            <span className="topbar-tool-label">Project</span>
+          </button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuLabel>Projects</DropdownMenuLabel>
+        {paths.length === 0 ? (
+          <DropdownMenuItem disabled>No projects</DropdownMenuItem>
+        ) : (
+          paths.map((path) => (
+            <DropdownMenuCheckboxItem
+              key={path}
+              checked={selected.includes(path)}
+              title={path}
+              onCheckedChange={(checked) =>
+                onChange(checked ? [...selected, path] : selected.filter((value) => value !== path))
+              }
+            >
+              {path.split('/').pop() || path}
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
+        {selected.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onChange([])}>All projects</DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
