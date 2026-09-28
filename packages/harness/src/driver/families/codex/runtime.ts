@@ -1434,6 +1434,10 @@ export function createCodexRuntime(
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
           interactions: [...session.asks.values()].map((ask) => ask.interaction),
+          // The thread name the driver folds (POD-3992): snapshot carries it
+          // so the declared `title` capability has a verb behind it, and it
+          // survives the journal round-trip an adopt reads back.
+          ...(session.title ? { title: session.title } : {}),
           draft: session.draft,
           at: iso(),
         }
