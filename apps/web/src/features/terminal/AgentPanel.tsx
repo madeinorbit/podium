@@ -1529,27 +1529,33 @@ export function AgentPanel({
               row hugging the PTY's bottom edge — the composer itself is the
               CLI's own pixels, never re-drawn here. Only hints the CLI really
               honours are shown (Q2): Claude Code's shift+tab mode cycle and
-              `?` shortcut help; other agents get the rule alone. */}
-              {ready && (
-                <div
-                  data-testid="prompt-chrome"
-                  // Rides up with the PTY it hugs, but is never clipped: it is a
-                  // 20px strip, and clipping it by the lift would erase it.
-                  className={cn(
-                    'offer-lift-rise flex-none px-[13px] font-mono',
-                    effectiveMode === 'chat' && 'hidden',
-                  )}
-                  style={{ backgroundColor: termBg }}
-                >
-                  <div className="border-t issue-hairline-35" aria-hidden="true" />
-                  {session?.harnessPromptModeHints === true && (
-                    <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
-                      <span>(shift+tab to cycle modes)</span>
-                      <span className="ml-auto">? for shortcuts</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              `?` shortcut help; other agents get the rule alone.
+              LAID OUT FROM THE FIRST FRAME, PAINTED ONCE READY [POD-4721]. It
+              takes its height out of the terminal box, and the mount measures
+              that box to ask for the PTY's size before the attach completes.
+              Mounted on `ready`, it shrank the box AFTER the first ask, so every
+              cold reveal asked twice — two resizes, two blanks, two SIGWINCH
+              redraws. `invisible` keeps the startup screen clean without
+              moving the box. */}
+              <div
+                data-testid="prompt-chrome"
+                // Rides up with the PTY it hugs, but is never clipped: it is a
+                // 20px strip, and clipping it by the lift would erase it.
+                className={cn(
+                  'offer-lift-rise flex-none px-[13px] font-mono',
+                  !ready && 'invisible',
+                  effectiveMode === 'chat' && 'hidden',
+                )}
+                style={{ backgroundColor: termBg }}
+              >
+                <div className="border-t issue-hairline-35" aria-hidden="true" />
+                {session?.harnessPromptModeHints === true && (
+                  <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
+                    <span>(shift+tab to cycle modes)</span>
+                    <span className="ml-auto">? for shortcuts</span>
+                  </div>
+                )}
+              </div>
             </>
           )}
           {/* Agent action offer bar [spec:SP-c7f1] beneath the PTY — the native
