@@ -7,7 +7,7 @@ import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { DaemonReadiness } from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
-import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness'
+import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
 import { createLogger } from '@podium/logger'
 import {
   type AccountId,
