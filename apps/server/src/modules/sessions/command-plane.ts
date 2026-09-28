@@ -551,13 +551,10 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       if (ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
       return { ...UNADDRESSABLE_SEND }
     }
-    if (target.status === 'reconnecting') {
-      return {
-        ok: false,
-        reason: 'machine unreachable',
-        disposition: 'dead_letter',
-      }
-    }
+    // NO REFUSAL FOR A MACHINE THAT IS `reconnecting` (POD-4775). The server
+    // stores and forwards; it never decides on its view of the machine. The
+    // row waits in the session's durable queue and the next bind drains it —
+    // a dead-letter here lost every message sent during a link cut.
     if (target.archived) {
       return {
         ok: false,

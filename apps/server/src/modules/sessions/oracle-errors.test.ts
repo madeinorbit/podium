@@ -230,7 +230,10 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     expect(o.daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
-  it(`${MUST_NOT_CHANGE}: both send paths distinguish an unreachable machine from authorization refusal`, async () => {
+  // RE-PINNED BY POD-4775. Both paths used to dead-let the send ("machine
+  // unreachable"), which lost every message sent during a link cut. The server
+  // stores and forwards: the row waits in the durable queue for the next bind.
+  it(`${MUST_NOT_CHANGE}: both send paths store a send to an unreachable machine and type nothing`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     // AWAITED, because the bind's live flip is a queued session write. Since
@@ -257,16 +260,11 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })
     const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'anyone there' })
 
-    expect(sent).toEqual({
-      ok: false,
-      reason: 'machine unreachable',
-      disposition: 'dead_letter',
-    })
-    expect(woken).toEqual({
-      ok: false,
-      reason: 'machine unreachable',
-      disposition: 'dead_letter',
-    })
+    expect(sent).toMatchObject({ ok: true, queued: true, disposition: 'queued' })
+    expect(woken).toMatchObject({ ok: true, queued: true })
+    // Stored, not dead-lettered: the durable queue holds it for the next bind,
+    // and nothing crossed toward the machine meanwhile.
+    expect((await o.meta(sessionId)).queuedMessageCount).toBeGreaterThan(0)
     expect(o.daemon.filter((m) => m.type === 'input')).toEqual([])
   })
 
