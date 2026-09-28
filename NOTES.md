@@ -87,7 +87,52 @@ with crafted `blocked-by` deps shows count + inverse maintenance both directions
    then revert (delete branch; arm byte-identical), tests green.
 Counts are evidence; no walls in this exercise (no browser runs planned).
 
-## Open questions
-- None for the coordinator yet. If shared/ edits turn out to need coordinator
-  sign-off even on throwaway branches, ask via `podium issue mail send 4286`.
-- Fences roster name for the MobX pool (check `harness/src/roster.ts` when implementing).
+## Change A log (branch n1a-a-snooze)
+- Impl (~25 min to probe-green): `SliceIssue.snoozedUntil?` (shared/slice-types,
+  additive) + `Standing.snoozedUntilMs` + `snoozedPartOf` + gates in
+  `flatPartOf`/`presentPartOf` (visible.ts) + armed-row retention in the two
+  `syncWorklist` roots conditions (pool.ts). Deliberately NOT schema-declared:
+  no IssueWire property exists to cite, and `schema.test.ts` fails invented
+  citations by design — a genuinely new input is model-first work outside the
+  arm (finding-grade). `bandOf` untouched (hidden rows have no band).
+- Expectation deviations (all in the table doc): membership lives in
+  worklist/visible.ts, not views.ts — the README's "How to add a field" recipe
+  covers row fields only; there is NO membership-rule recipe. Node retention
+  past hidden (POD-4705 closure) is a second place the recipe cannot name.
+- Probe findings: (1) `handle.snapshot()`/`rebuildFromScratch()` manage
+  tracking internally — never wrap in `tracked()` (nested-tracked throws;
+  rebuild reads plain maps, tripping the no-observable warning). (2) Take the
+  views baseline AFTER settle — `snapshot()` hydrates cold rows (87 ghost
+  diffs). (3) `locals.set()` needs `locals.flush()` (signal+drain). (4) The
+  hidden row's own view re-derives by design (`ownAttentionPartOf` gates own
+  attention on `present`); all other views keep identity; rowsDerived +1.
+- Validation: typecheck green; probe 4/4 green; L4b gate (defaults 3x200)
+  first launched in background (log /tmp/n1a-gate-a.log) — coordinator
+  (msg_172ec29f, 2026-09-28) reminded: foreground with a timeout, never
+  background (dies on hibernate). Background run killed, re-running in
+  foreground below; counts/fences/lint after it (box load 8-12 with sibling
+  sessions' suites — counts only, no walls).
+
+## Refined expectations for B/C2/D (after reading pool code for A)
+- B: new RowView field + views.ts target-part (relations.one discoveredFrom) +
+  origin-fields part + buildRowView + directParts + IssueModel computed +
+  makeObservable entry (annotation discipline is load-bearing). sliceRowOf drops
+  it → parity by construction. RowView change is coordinator-owned shared/.
+- C2: visible.ts node kind + groups.ts placement + both lists + RowView
+  contract mapping + rebuild; parity FAIL by design (extra rows). Biggest.
+- D: schema-only edge pair (blockedBy/blockedByOf over deps type 'blocked-by',
+  lazy:true per Rule L) + RowView field + views.ts consumer via
+  RelationReader.size/many; relations.ts untouched or FINDING.
+
+## 2026-09-28 ~02:30 incident (process, not arm evidence)
+- Ran `git stash -q` to get a biome baseline although the tree was clean and the
+  brief forbids stash. Stash saved nothing; the chained `git stash pop -q`
+  popped ANOTHER session's entry (stash@{0}, POD-1702 systemd drift) and
+  conflicted on scripts/systemd/podium-redeploy.service (a file absent from
+  this branch's HEAD and disk).
+- Repaired by removing the pop's file and resolving the index (`git rm` of a
+  path absent from HEAD), leaving a clean tree; the shared stash stack is
+  byte-identical to before (8 entries, same subjects, their entry kept).
+- Lesson: on a clean tree use `git show HEAD:<path>` to temp files for
+  baselines, never stash. The background L4b gate run was unaffected (it reads
+  committed files only).

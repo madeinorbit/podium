@@ -1,0 +1,141 @@
+diff --git a/packages/worklist-proto/arms/mobx/pool/pool.ts b/packages/worklist-proto/arms/mobx/pool/pool.ts
+index f5865e758..3de764455 100644
+--- a/packages/worklist-proto/arms/mobx/pool/pool.ts
++++ b/packages/worklist-proto/arms/mobx/pool/pool.ts
+@@ -85,6 +85,7 @@ import {
+   directVisibility,
+   type IssueVisibility,
+   readAtOf,
++  snoozedPartOf,
+   standingOf,
+   VisibleCollection,
+   type VisibleCounters,
+@@ -1027,6 +1028,11 @@ export class MobxPool {
+         if (
+           parts.present ||
+           parts.keeps ||
++          // N1a change A (throwaway): an armed snooze can show the row with
++          // no further event, so it holds its node past hidden. Without
++          // this a snoozed leaf whose parent holds no node loses its
++          // deadline reaction at a replace and never wakes.
++          snoozedPartOf(this.visibleInputs, parts.standing) ||
+           (parent !== null && this.worklist.has(parent))
+         ) {
+           roots.push(id)
+@@ -1094,6 +1100,9 @@ export class MobxPool {
+       if (
+         parts.present ||
+         parts.keeps ||
++        // N1a change A (throwaway): as the replace path above — an armed
++        // snooze earns its node.
++        snoozedPartOf(this.visibleInputs, parts.standing) ||
+         (parent !== null && this.worklist.has(parent))
+       ) {
+         roots.push(id)
+diff --git a/packages/worklist-proto/arms/mobx/pool/worklist/visible.ts b/packages/worklist-proto/arms/mobx/pool/worklist/visible.ts
+index b43e9e266..a3e149250 100644
+--- a/packages/worklist-proto/arms/mobx/pool/worklist/visible.ts
++++ b/packages/worklist-proto/arms/mobx/pool/worklist/visible.ts
+@@ -213,6 +213,12 @@ export interface Standing {
+   readonly updatedMs: number | null
+   readonly deleted: boolean
+   readonly pinned: boolean
++  /**
++   * N1a change A (throwaway): the snooze deadline as epoch ms, null when the
++   * row carries none. Pure (no clock): the clock enters through
++   * `snoozedPartOf`, so non-carriers never subscribe to it.
++   */
++  readonly snoozedUntilMs: number | null
+   /**
+    * The declared `issue.parent` forward key (Mb3): the relation engine's own
+    * `relationRef` over this row (foreign key and `where`), so it costs this
+@@ -272,6 +278,7 @@ export function standingOf(issue: SliceIssue): Standing {
+     updatedMs: parseMs(issue.updatedAt),
+     deleted: issue.deletedAt != null,
+     pinned: issue.pinned === true,
++    snoozedUntilMs: parseMs(issue.snoozedUntil),
+     formalParent: relationRef('issue', 'parent', issue),
+   }
+ }
+@@ -624,6 +631,10 @@ export function unreadPartOf(input: VisibleInputs, id: string, self: IssueVisibi
+ export function flatPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
+   const standing = self.standing
+   if (standing === undefined || standing.excluded) return false
++  // N1a change A (throwaway): a snoozed row is hidden even when its sessions
++  // would keep it. Read after the structural gate, so an excluded row never
++  // subscribes to the deadline.
++  if (snoozedPartOf(input, standing)) return false
+   if (self.retained) return true
+   switch (standing.sessionless) {
+     case 'keep':
+@@ -658,13 +669,32 @@ export function keepsPartOf(self: IssueVisibility): boolean {
+ }
+ 
+ /** Has a row before nesting: flat, or a rescued live human ancestor (`rows.ts:121-158`). */
+-export function presentPartOf(self: IssueVisibility): boolean {
++export function presentPartOf(input: VisibleInputs, self: IssueVisibility): boolean {
++  // N1a change A (throwaway): a snoozed row never shows — not flat, and not
++  // rescued either. Descendants nest past it (the nest walk skips non-present
++  // rows). Its children's keep-signal still travels up through `keeps`.
++  if (snoozedPartOf(input, self.standing)) return false
+   if (self.flat) return true
+   const standing = self.standing
+   if (standing === undefined || standing.excluded || !standing.rescuable) return false
+   return self.keptBelow
+ }
+ 
++/**
++ * N1a change A (throwaway): armed while a future snooze deadline can still
++ * show the row with no further event. The lazy node closure
++ * (`pool.ts syncWorklist`, POD-4705) must keep such rows noded: a dropped
++ * node stops observing the deadline and the crossing tick would never wake
++ * the row. Same predicate as the hiding rule — snoozed now means armed.
++ */
++export function snoozedPartOf(
++  input: Pick<VisibleInputs, 'reached'>,
++  standing: Standing | undefined,
++): boolean {
++  const until = standing?.snoozedUntilMs ?? null
++  return until !== null && !input.reached(until)
++}
++
+ /**
+  * The nearest present ancestor by the raw `parentId`, through any known issue
+  * (`rows.ts:271-283`); else, for a parentless non-spin-off, the present
+@@ -798,7 +828,7 @@ export function directVisibility(
+       return once('keeps', () => keepsPartOf(parts))
+     },
+     get present() {
+-      return once('present', () => presentPartOf(parts))
++      return once('present', () => presentPartOf(input, parts))
+     },
+     get nestParent() {
+       return once('nestParent', () => nestParentPartOf(input, id, parts))
+@@ -1068,7 +1098,7 @@ export class IssueNode implements IssueVisibility {
+   }
+ 
+   get present(): boolean {
+-    return presentPartOf(this)
++    return presentPartOf(this.input, this)
+   }
+ 
+   get nestParent(): string | null {
+diff --git a/packages/worklist-proto/shared/src/slice-types.ts b/packages/worklist-proto/shared/src/slice-types.ts
+index b3fdfe527..412498760 100644
+--- a/packages/worklist-proto/shared/src/slice-types.ts
++++ b/packages/worklist-proto/shared/src/slice-types.ts
+@@ -44,6 +44,14 @@ export interface SliceIssue {
+   /** Persisted manual key, meaningful only against siblings (spec §3 R-ORDER). */
+   sortKey?: string | null
+   deferUntil?: string | null
++  /**
++   * N1a change A (throwaway): snooze deadline. While set and in the future
++   * against the coarse clock the row is hidden; the crossing tick re-admits
++   * it. A real landing would add this to IssueWire first and cite it from
++   * schema.ts (the citation check forces model-first ordering); the pool
++   * reads the borrowed row's property directly.
++   */
++  snoozedUntil?: string | null
+   /** Server-state dismissal into the closed fold (spec §3 R-GROUP). */
+   tuckedAt?: string | null
+   repoId?: string | null
