@@ -1,6 +1,6 @@
 import { NativeBindingReceipt } from './native-binding'
 export { NativeBindingReceipt } from './native-binding'
-import { DriverFamilyWire, ResumeRef, SessionIdField, TranscriptItem } from '@podium/model'
+import { DriverFamilyWire, ResumeRef, SessionIdField, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import { z } from 'zod'
 import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
 import {
@@ -152,6 +152,9 @@ export const TurnReceipt = z.discriminatedUnion('outcome', [
     turnEpoch: z.number().int().nonnegative(),
     deliveredAs: TurnDelivery,
     provenBy: SendProof,
+    /** The agent's transcript entry that IS this send, when the driver could
+     *  identify it (POD-4774). Absent means unidentified, never guessed. */
+    transcriptItem: TranscriptItemRef.optional(),
     at: z.string().datetime(),
   }),
   z.object({
@@ -324,12 +327,19 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
  * `failed` it always read, and a value a newer daemon adds reaches this server
  * as a string it ignores rather than a frame it rejects.
  */
+/*
+ * WHICH TRANSCRIPT ITEM A `delivered` ROW BECAME (POD-4774): `transcriptItem`
+ * on the delivery arm, set only on `delivered` and only when the daemon paired
+ * the typed text with the agent's own record of it. An optional object field,
+ * never a new arm, for the rolling-upgrade reason `cause` gives below: an older
+ * server strips it and settles the row as it always did.
+ */
 export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed'] as const
 export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
 
 export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({ t: z.literal('binding'), resume: ResumeRef, confidence: z.enum(['exact', 'heuristic']), bindingVersion: z.number().int().nonnegative(), ackRequested: z.boolean().optional(), receipt: NativeBindingReceipt.optional() }),
-  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional(), cause: z.string().optional() }),
+  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional(), cause: z.string().optional(), transcriptItem: TranscriptItemRef.optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
   z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),

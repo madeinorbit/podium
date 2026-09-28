@@ -2,7 +2,7 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { Declared } from '../manifest.js'
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItemRef } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 
 // ---------------------------------------------------------------------------
@@ -316,6 +316,16 @@ export type TurnReceipt =
        *  for terminal it is a causal hook where one exists (Claude's
        *  `UserPromptSubmit`) and submit-verification otherwise. */
       provenBy: SendProof
+      /**
+       * THE AGENT'S TRANSCRIPT ENTRY THAT IS THIS SEND (POD-4774), so every
+       * consumer matches the message to its history by id, never by text.
+       * Set only where the driver can name the item: the transcript echo that
+       * proved the send, or, after a hook proof, the echo that followed it
+       * inside a bounded wait. Absent means the item was not identified — a
+       * harness with no echo correlation, or an echo that never matched — and
+       * is never filled in by guessing.
+       */
+      transcriptItem?: TranscriptItemRef
       at: string
     }
   | {

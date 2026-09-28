@@ -156,3 +156,24 @@ export const TranscriptItem = z.object({
   durationMs: z.number().optional(),
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
+
+/**
+ * WHICH TRANSCRIPT ITEM A DELIVERED MESSAGE BECAME (POD-4774).
+ *
+ * The daemon already pairs a typed message with the agent's own record of it to
+ * prove delivery; this is that pairing, kept. Everything downstream matches a
+ * message to its transcript entry by this id and never by text. `id` and
+ * `cursor` are the item's own (see {@link TranscriptItem}); absent entirely
+ * when the harness gave no way to identify the item — never guessed.
+ */
+export const TranscriptItemRef = z.object({
+  id: z.string().min(1),
+  cursor: z.string().optional(),
+})
+export type TranscriptItemRef = z.infer<typeof TranscriptItemRef>
+
+/** The ref for an item, or undefined when it carries no usable id. */
+export function transcriptItemRefOf(item: Pick<TranscriptItem, 'id' | 'cursor'>): TranscriptItemRef | undefined {
+  if (!item.id) return undefined
+  return { id: item.id, ...(item.cursor ? { cursor: item.cursor } : {}) }
+}

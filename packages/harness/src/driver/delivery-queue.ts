@@ -1,3 +1,4 @@
+import type { TranscriptItemRef } from '@podium/model'
 import type { DeliveryFailureCause, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
@@ -79,6 +80,7 @@ export function withDeliveryQueue(
     outcome: 'delivered' | 'failed' | 'dropped',
     reason?: string,
     cause?: DeliveryFailureCause,
+    transcriptItem?: TranscriptItemRef,
   ) {
     if (finished.has(id)) return
     const event: Outcome = {
@@ -87,6 +89,7 @@ export function withDeliveryQueue(
       outcome,
       ...(reason ? { reason } : {}),
       ...(cause ? { cause } : {}),
+      ...(transcriptItem ? { transcriptItem } : {}),
     }
     finished.set(id, event)
     rows.delete(id)
@@ -191,7 +194,9 @@ export function withDeliveryQueue(
         }
         if (row.abort.signal.aborted) continue
         if (receipt.outcome === 'accepted') {
-          settle(id, 'delivered')
+          // The driver's pairing travels with the outcome, and a replay of it
+          // (`finished`) carries the same item (POD-4774).
+          settle(id, 'delivered', undefined, undefined, receipt.transcriptItem)
           continue
         }
         if (
@@ -266,7 +271,7 @@ export function withDeliveryQueue(
       // Preserve that proof and tell the server the row could not be retracted.
       const receipt = await row.inFlight?.catch(() => undefined)
       if (receipt?.outcome === 'accepted') {
-        settle(id, 'delivered')
+        settle(id, 'delivered', undefined, undefined, receipt.transcriptItem)
         return { reason: 'busy', detail: 'the row was already delivered' }
       }
       if (receipt && receipt.outcome !== 'refused') {
