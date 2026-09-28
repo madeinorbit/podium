@@ -113,7 +113,35 @@ Counts are evidence; no walls in this exercise (no browser runs planned).
   foreground below; counts/fences/lint after it (box load 8-12 with sibling
   sessions' suites — counts only, no walls).
 
-## Refined expectations for B/C2/D (after reading pool code for A)
+## Change B log (branch n1a-b-continuation)
+- Impl (~15 min, typecheck green first try): `RowView.continuation` (required,
+  shared/row-view.ts) + 2 shared test literals + oracle `continuationOf` (same
+  rule from legacy models, harness/src/oracle/row-views.ts) + `continuation`
+  in COPY_EXEMPT_FIELDS + mobx `continuationPartOf` (off the origin's
+  already-derived displayRef) + IssueParts/directParts/buildRowView/IssueModel
+  + makeObservable `continuation: computed` + hand-arm one-line
+  `continuation: null` STUB. Purely additive: 8 files +65/-0.
+- Expectation deviations: contract field fans out further than README's recipe
+  names — oracle projection, copy-sweep vocabulary, 2 shared test literals,
+  and the OTHER arm's assembly all break typecheck. The hand stub keeps the
+  package green while diverging semantically (no gate compares across arms).
+  The gate's oracle field list (`same`) does NOT cover the new field — fidelity
+  coverage for it needs a gate-list update (coordinator call, noted).
+- Probe findings: 172 visible spin-offs, all with resident origins, all carry
+  `continued · <ref>`; sliceRowOf drops the field (parity by construction);
+  origin repo move (WEB-6→POD-6) re-derives exactly the visible spin-offs +
+  the visible origin (rowsDerived == changed.length); an INVISIBLE origin's
+  move re-derives only the spin-offs (suspended computeds re-run on read, no
+  commit) — picked a visible origin after one probe misfire (assumed found[0]'s
+  origin visible; i2073 is resident but not visible).
+- Validation first-attempt PASS, no arm-code fix after any run: L4b gate 2/2
+  (incl. oracle row-fields test), counts 4/4, fences MobX pool 1/1, roster 1/1,
+  fence-lint 29/29, typecheck 8/8, probe 3/3 (deleted, transcribed).
+  Source files biome-clean.
+
+## Refined expectations for C2/D (after reading pool code for A/B; B's own
+expectations were confirmed almost exactly — plus oracle/vocabulary/hand-stub
+fan-out the recipe does not name)
 - B: new RowView field + views.ts target-part (relations.one discoveredFrom) +
   origin-fields part + buildRowView + directParts + IssueModel computed +
   makeObservable entry (annotation discipline is load-bearing). sliceRowOf drops
