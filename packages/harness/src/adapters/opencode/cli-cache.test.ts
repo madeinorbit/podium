@@ -11,7 +11,7 @@ vi.mock('node:fs', () => ({
 
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { isOpencodeCliAvailable, resolveOpencodeBin } from '../adapters/opencode/cli.js'
+import { isOpencodeCliAvailable, resolveOpencodeBin } from './cli.js'
 
 const fixtureHome = '/fixture/home'
 const fixtureEnv = Object.freeze({ HOME: fixtureHome, PATH: '/fixture/bin', PODIUM_NO_RELAY: '1' })
