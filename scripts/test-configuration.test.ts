@@ -1564,7 +1564,10 @@ describe('test lane configuration', () => {
       // `//name` entries are package.json's comment convention — prose about a lane, not
       // a command. Sweeping them for `vitest` reads a doc-string as an invocation.
       if (name.startsWith('//')) continue
-      for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*\bvitest\b[^&|]*)/g)) {
+      // `vitest` as a command or path segment (`vitest run`, `bunx vitest`,
+      // `node_modules/vitest/vitest.mjs`), never as part of a hyphenated file
+      // name: `bun scripts/check-vitest-env.ts` is a lint script, not a vitest run.
+      for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*(?<![\w-])vitest(?![\w-])[^&|]*)/g)) {
         const invocation = match[1]
         if (invocation === undefined) {
           throw new Error(`script "${name}": vitest invocation did not capture`)
