@@ -163,7 +163,9 @@ test('new sessions exposes and persists both Grok implementation models', async 
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const section = newSessionsSection(page)
-  const model = section.getByRole('button', { name: 'Model' })
+  // Two Model buttons now (the role picker plus "Model for subagents"); the
+  // role picker is first, as in the effort test above.
+  const model = section.getByRole('button', { name: 'Model' }).first()
   await model.click()
 
   await expect(page.getByRole('menuitem', { name: /^(grok-4\.5|Grok 4\.5)$/ })).toBeVisible()
@@ -239,9 +241,11 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
 
   const section = backgroundWorkSection(page)
   const account = section.getByRole('combobox').first()
-  await expect(account).toContainText('Codex (ChatGPT)')
+  // POD-4475: one descriptor label per harness ('Codex' + identity/machine
+  // suffixes) instead of 'Codex (ChatGPT)'.
+  await expect(account).toContainText(/^Codex/)
   await account.click()
-  await expect(page.getByRole('option', { name: /Codex \(ChatGPT\)/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /^Codex/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /Anthropic API/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /OpenAI API/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /OpenRouter API/ })).toBeVisible()
