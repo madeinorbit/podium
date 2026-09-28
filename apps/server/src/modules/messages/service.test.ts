@@ -1183,6 +1183,31 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
     expect(notices[0]!.body).toContain('issue no longer exists')
     expect(notices[0]!.body).not.toContain('delivery failed')
   })
+
+  it('[POD-4704] inbox-reject notice says delivery failed for a stamped unconfirmed row', async () => {
+    // The QueuedMessageApply path stamps delivery-failed then emits
+    // message.deadLettered; relay routes it to notifyQueuedInputRejected with
+    // the daemon's free-text reason. The notice must still say the delivery
+    // failed, never that the target vanished.
+    const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
+    const targetSession = session({ sessionId: asSessionId('s1'), cwd: '/wt/a' })
+    const { svc, store } = await harness([senderSession, targetSession])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'typed but never confirmed' },
+    )
+    expect(r.message.injectedAt).not.toBeNull()
+    // Stamp the cause the way QueuedMessageApply.reject does, without sending
+    // the sweep notice yet — then exercise the bus-notify path alone.
+    await store.messages.markDeadLetter(r.message.id, '2026-09-13T18:00:00.000Z', 'delivery-failed')
+    await svc.notifyQueuedInputRejected(r.message.id, 'session no longer exists')
+    const notices = (await store.messages
+      .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('delivery failed')
+    expect(notices[0]!.body).not.toContain('session no longer exists')
+  })
 })
 
 describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
