@@ -37,8 +37,8 @@
  * view's, M3 F1).
  *
  * Rules are re-expressed from the frozen slice spec
- * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule); round two's
- * `arms/mobx/rules.ts` transcribed the same sections and passed parity. No
+ * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule); the deleted
+ * round-two arm transcribed the same sections and passed parity. No
  * legacy view-model import.
  */
 

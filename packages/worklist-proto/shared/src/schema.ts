@@ -1103,8 +1103,8 @@ export function allRelations(
 /**
  * The declared resolver for `kind: 'prefix'`, spelled out because a prefix
  * relation is not a key join and every arm re-derived it (round two:
- * `arms/tanstack/collections.ts:195-203`, `arms/hand/indexes.ts`,
- * `arms/mobx/store.ts`).
+ * `arms/tanstack/collections.ts:195-203`, `arms/hand/indexes.ts`, and the
+ * deleted MobX arm).
  *
  * One trailing slash is stripped so `a` and `a/` name one root (`/` is kept —
  * it is a real root and `''` is not). A candidate root matches when it equals

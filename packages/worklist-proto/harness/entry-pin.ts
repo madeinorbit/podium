@@ -1,8 +1,8 @@
 /**
  * POD-4577 (Mc5) — pin a harness entry to its pool arm BY MODULE, not by
- * spelling. Grepping source text for the literal `arms/mobx/arm` misses a
- * relative import of the same file (`../../../mobx/arm` from
- * `arms/mobx/pool/native/list.tsx` resolves to it, and the text pin stays
+ * spelling. Grepping source text for the literal `arms/hand/arm` misses a
+ * relative import of the same file (`../../../hand/arm` from
+ * `arms/hand/pool/native/list.tsx` resolves to it, and the text pin stays
  * green). This helper walks the static import graph from an entry file,
  * resolving every relative specifier against its importer, and returns the
  * reachable files — so the pin fails on the module no matter how it is

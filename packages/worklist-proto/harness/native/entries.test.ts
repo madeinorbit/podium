@@ -8,7 +8,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { mobxArm } from '../../arms/mobx/arm'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { moduleGraphOf } from '../entry-pin'
 
@@ -30,8 +29,6 @@ describe('native entry mounts the round-three MobX pool', () => {
     expect(code, 'the pool arm value').toContain('mobxPoolArm')
     expect(code, 'the native list chunk').toContain('./native/list')
     expect(code, 'the native entry').toContain('mountNative')
-    expect(code, 'not the round-two arm module').not.toContain('arms/mobx/arm')
-    expect(code, 'not the round-two arm value').not.toContain('mobxArm')
   })
 
   it('pool native list is the windowed SectionList over pool models', () => {
@@ -41,24 +38,18 @@ describe('native entry mounts the round-three MobX pool', () => {
     expect(code, 'not the unenforcing boundary').not.toContain('CommitBoundary')
   })
 
-  it('the pool arm module reaches the native list, never the round-two arm', () => {
-    // By module, not by spelling: a relative import of the round-two arm
-    // (`../../../mobx/arm` from the native list) resolves to the same file
-    // the literal never names, and fails here.
+  it('the pool arm module reaches the native list', () => {
+    // By module, not by spelling (POD-4577: a text grep misses a relative
+    // import of the same file). Renderer-free: the graph walk reads source,
+    // it never executes arm code.
     const graph = moduleGraphOf(join(PACKAGE_DIR, 'arms/mobx/pool/arm.ts'))
     expect(graph, 'the native entry').toContain(join(PACKAGE_DIR, 'arms/mobx/pool/native/list.tsx'))
-    expect(
-      graph.filter((file) => file === join(PACKAGE_DIR, 'arms/mobx/arm.ts')),
-      'the round-two arm, however it is spelled',
-    ).toEqual([])
   })
 
-  it('the mounted arm is mobxPoolArm by identity, not the round-two arm', () => {
+  it('the mounted arm is mobxPoolArm by identity', () => {
     // The fence lane mounts the export of `arms/mobx/pool/arm` (same path,
-    // so the same module instance); this pins that export to a distinct
-    // object from the round-two arm's.
+    // so the same module instance).
     expect(mobxPoolArm, 'the pool arm export').toBeDefined()
     expect(typeof mobxPoolArm.create, 'mobxPoolArm.create').toBe('function')
-    expect(mobxPoolArm, 'not the round-two arm').not.toBe(mobxArm as unknown as typeof mobxPoolArm)
   })
 })

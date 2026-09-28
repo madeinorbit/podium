@@ -243,7 +243,7 @@ export function standingOf(issue: SliceIssue): Standing {
     human &&
     (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
   // `issueAwaitingMerge` reads branch and git state no slice row carries: never
-  // true here (`arms/mobx/rules.ts` `issueAwaitingMerge`, round two).
+  // true here (round two named it `issueAwaitingMerge`; deleted with that arm).
   const sessionless = activeHuman
     ? 'keep'
     : !finished

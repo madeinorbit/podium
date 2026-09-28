@@ -35,17 +35,13 @@ describe('browser entries mount the round-three pools', () => {
     expect(code, 'no parity allowance').not.toContain('MOBX_POOL_ALLOWANCES')
   })
 
-  it('mobx web entry resolves to the pool arm, never the round-two arm', () => {
+  it('mobx web entry resolves to the pool arm', () => {
     // By module, not by spelling (POD-4577: the native pin's text grep missed
     // a relative import of the same file). Renderer-free: the graph walk
     // reads source, it never executes arm code, so this also runs in lanes
     // without the native alias.
     const graph = moduleGraphOf(join(PACKAGE_DIR, 'harness/web/entries/mobx.ts'))
     expect(graph, 'the pool arm').toContain(join(PACKAGE_DIR, 'arms/mobx/pool/arm.ts'))
-    expect(
-      graph.filter((file) => file === join(PACKAGE_DIR, 'arms/mobx/arm.ts')),
-      'the round-two arm, however it is spelled',
-    ).toEqual([])
   })
 
   it('hand web entry resolves to the pool arm, never the round-two arm', () => {

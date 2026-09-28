@@ -7,7 +7,7 @@
  * `bun run typecheck -- --filter @podium/worklist-proto` fails. The positive
  * controls (plain function, `memo`, MobX `observer`) must keep compiling.
  * The two shapes planted in round two's K exercises (a row with a `store`
- * prop — `arms/mobx/react/list.tsx` `MobxRowView({ model, store })`) are the
+ * prop — the deleted round-two row took `{ model, store }`) are the
  * first negatives.
  *
  * RUN TIME. `RowShell` renders the component with exactly `{ row }`, counts
