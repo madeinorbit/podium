@@ -41,7 +41,9 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
 
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import { transcriptItemRefOf } from '@podium/model'
+import { transcriptEchoAcceptCorrelation } from '../../../accept-correlation.js'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
@@ -297,10 +299,33 @@ interface QueuedTurn {
   options: SendOptions
 }
 
+/**
+ * ONE SEND WAITING FOR OPENCODE'S RECORD OF ITS PROMPT (POD-4774).
+ *
+ * `prompt_async` answers 204 with no body — no message id, no part id — and
+ * the prompt's user text part arrives on the event stream around it. The
+ * part's id is opencode's own and is what history re-reads, so it is what the
+ * delivery names. Nothing identifies the part as this send's except its text,
+ * so the pairing is the transcript-echo correlation the terminal family uses:
+ * armed before the prompt goes out, one waiter credited per observation.
+ */
+interface UserEchoWaiter {
+  fingerprint: string
+  /** The entry, when it landed before the receipt went back. */
+  seen?: TranscriptItemRef
+  /** The late path, once the receipt went back without it. */
+  onItem?: (item: TranscriptItemRef) => void
+  /** The turn it belongs to; dropped when that turn is fenced. */
+  epoch?: number
+}
+
 interface DriverSession {
   sessionId: SessionId
   spec: SessionSpec
   endpoint: OpencodeServerEndpoint
+  userEchoWaiters: Set<UserEchoWaiter>
+  /** User parts already credited to a send (recent only). */
+  creditedUserItems: Set<string>
   client: OpencodeClient
   opencodeSessionId: OpencodeSessionId
   binding: SessionBinding
@@ -530,6 +555,7 @@ export function createOpencodeRuntime(
         if (!info) break
         for (const item of partToItems(session.opencodeSessionId, info, event.properties.part)) {
           emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
+          creditUserEcho(session, item)
         }
         break
       }
@@ -830,6 +856,59 @@ export function createOpencodeRuntime(
    * fence before emitting anything. `interrupt()` only asks opencode to stop
    * and waits for one of those provider confirmations.
    */
+  /** Credit at most one open send per recorded user part, by its text. */
+  function creditUserEcho(session: DriverSession, item: TranscriptItem): void {
+    if (session.userEchoWaiters.size === 0) return
+    const correlation = transcriptEchoAcceptCorrelation
+    if (!correlation.accepts(item)) return
+    const fingerprint = correlation.fingerprint(item)
+    const ref = transcriptItemRefOf(item)
+    if (fingerprint === null || !ref) return
+    // opencode re-publishes a part on every update: one part credits one send.
+    if (session.creditedUserItems.has(ref.id)) return
+    session.creditedUserItems.add(ref.id)
+    if (session.creditedUserItems.size > 64) {
+      const oldest = session.creditedUserItems.values().next()
+      if (!oldest.done) session.creditedUserItems.delete(oldest.value)
+    }
+    for (const waiter of session.userEchoWaiters) {
+      if (waiter.seen || waiter.fingerprint !== fingerprint) continue
+      if (waiter.onItem) {
+        session.userEchoWaiters.delete(waiter)
+        waiter.onItem(ref)
+      } else {
+        waiter.seen = ref
+      }
+      return
+    }
+  }
+
+  /** Arm a send's echo watch before its prompt can be recorded. */
+  function armUserEcho(session: DriverSession, text: string): UserEchoWaiter | undefined {
+    const fingerprint = transcriptEchoAcceptCorrelation.fingerprintText(text)
+    if (fingerprint === null) return undefined
+    const waiter: UserEchoWaiter = { fingerprint }
+    session.userEchoWaiters.add(waiter)
+    return waiter
+  }
+
+  /** The receipt's entry, or the late path for it; the waiter leaves either way
+   *  unless it now waits for the entry on behalf of `onItem`. */
+  function settleUserEcho(
+    session: DriverSession,
+    waiter: UserEchoWaiter | undefined,
+    onItem: SendOptions['onTranscriptItem'],
+  ): TranscriptItemRef | undefined {
+    if (!waiter) return undefined
+    if (waiter.seen || !onItem) {
+      session.userEchoWaiters.delete(waiter)
+      return waiter.seen
+    }
+    waiter.onItem = onItem
+    waiter.epoch = session.turnEpoch
+    return undefined
+  }
+
   function closeTurn(
     session: DriverSession,
     at: string,
@@ -837,6 +916,12 @@ export function createOpencodeRuntime(
   ): void {
     if (session.turnEpoch <= session.fencedTurnEpoch) return
     session.fencedTurnEpoch = session.turnEpoch
+    // A turn that ended without its prompt recorded names nothing.
+    for (const waiter of session.userEchoWaiters) {
+      if (waiter.epoch !== undefined && waiter.epoch <= session.fencedTurnEpoch) {
+        session.userEchoWaiters.delete(waiter)
+      }
+    }
     const interrupted = session.interruptPending
     session.busy = false
     session.interruptPending = false
@@ -1555,14 +1640,18 @@ export function createOpencodeRuntime(
          */
         if (session.disposed || session.serverGone) return refuse('not_running')
 
+        const echo = armUserEcho(session, input.text)
         try {
           await deliver(session, input, options.origin)
         } catch (err) {
+          if (echo) session.userEchoWaiters.delete(echo)
           return refuse('not_running', String(err))
         }
+        const transcriptItem = settleUserEcho(session, echo, options.onTranscriptItem)
         return {
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
+          ...(transcriptItem ? { transcriptItem } : {}),
           /**
            * WHAT ACTUALLY HAPPENED, not what was asked for.
            *
@@ -1988,6 +2077,8 @@ export function createOpencodeRuntime(
       interactions: new Map(),
       answered: new Set(),
       messages: new Map(),
+      userEchoWaiters: new Set(),
+      creditedUserItems: new Set(),
       queue: [],
       serverGone: false,
       lease: null,
