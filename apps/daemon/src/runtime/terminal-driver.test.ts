@@ -3933,7 +3933,10 @@ describe('the history entry a delivered send became', () => {
   const claudeRecordToItems = transcriptRecordMapperFor('claude-code')!
   const shownUserIds = (world: World): string[] =>
     world.frames.flatMap((frame) =>
-      frame.type === 'runtimeEvent' && frame.event.t === 'item' && frame.event.item.item.role === 'user'
+      frame.type === 'runtimeEvent' &&
+      frame.event.t === 'item' &&
+      frame.event.item.kind === 'complete' &&
+      frame.event.item.item.role === 'user'
         ? [frame.event.item.item.id]
         : [],
     )

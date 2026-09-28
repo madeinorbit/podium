@@ -291,3 +291,42 @@ describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
     ])
   })
 })
+
+describe('the entry a push became in the agent history (POD-4774)', () => {
+  it('stores the entry an accepted receipt named on the message record', async () => {
+    const h = await mailHarness({
+      receipts: {
+        answer: (via) => ({
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: via === 'interrupt' ? 'interrupt' : 'when-ready',
+          provenBy: 'transcript-echo',
+          transcriptItem: { id: 'entry-direct', cursor: 'cur-direct' },
+          at: new Date().toISOString(),
+        }),
+      },
+    })
+    const iss = await h.createIssue({ title: 'target' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
+    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+      to: `#${iss.seq}`,
+      body: 'stop and read this',
+      urgency: 'interrupt',
+    })) as { id: string; ok: boolean }
+    expect(r.ok).toBe(true)
+    const record = await h.store.messages.getMessage(r.id)
+    expect(record?.transcriptItem).toEqual({ id: 'entry-direct', cursor: 'cur-direct' })
+  })
+
+  it('stores nothing when the receipt named no entry', async () => {
+    const h = await mailHarness({ receipts: {} })
+    const iss = await h.createIssue({ title: 'target' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
+    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+      to: `#${iss.seq}`,
+      body: 'stop and read this',
+      urgency: 'interrupt',
+    })) as { id: string; ok: boolean }
+    expect(await h.store.messages.getMessage(r.id)).not.toHaveProperty('transcriptItem')
+  })
+})

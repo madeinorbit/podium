@@ -119,6 +119,7 @@ function harness(
   const unconfirmed = vi.fn(
     async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {},
   )
+  const named = vi.fn(async (_input: { messageId: string; sessionId: SessionId; transcriptItem: { id: string } }) => {})
   const handleInput = vi.fn()
   // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
   // base64 spelling of the same call (terminal.ts). This fixture records the
@@ -211,6 +212,7 @@ function harness(
       interrupted,
       interruptedPending,
       unconfirmed,
+      named,
       rejected: async (input) => { rejected.push(input) },
     },
     attention: {
@@ -325,6 +327,7 @@ function harness(
     interrupted,
     interruptedPending,
     unconfirmed,
+    named,
     handleInput,
     handleInputBytes,
     transcript,
@@ -1986,6 +1989,51 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).toHaveBeenCalledTimes(1)
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_1', sessionId: SID })
     expect(h.rows).toEqual([])
+    // Neither outcome named an entry, so nothing is named.
+    expect(h.named).not.toHaveBeenCalled()
+  })
+
+  it('names the entry a delivered row became, with the confirmation or after it (POD-4774)', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'msg_named_now', 'msg_named_now')
+    await queueOne(h, 'msg_named_late', 'msg_named_late')
+    await vi.advanceTimersByTimeAsync(1_000)
+    // Named with the confirmation.
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_named_now',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-now', cursor: 'cur-now' },
+    })
+    // Confirmed first; named by a second outcome once the harness recorded it.
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_named_late', outcome: 'delivered' })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_named_late',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-late' },
+    })
+    expect(h.named.mock.calls.map(([input]) => input)).toEqual([
+      { messageId: 'msg_named_now', sessionId: SID, transcriptItem: { id: 'entry-now', cursor: 'cur-now' } },
+      { messageId: 'msg_named_late', sessionId: SID, transcriptItem: { id: 'entry-late' } },
+    ])
+    // The late naming settled nothing twice.
+    expect(h.applied).toHaveBeenCalledTimes(2)
+    expect(h.rows).toEqual([])
+  })
+
+  it("names a direct send's entry under its turn id, with no row here (POD-4774)", async () => {
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_direct',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-direct' },
+    })
+    expect(h.named).toHaveBeenCalledWith({
+      messageId: 'msg_direct',
+      sessionId: SID,
+      transcriptItem: { id: 'entry-direct' },
+    })
+    expect(h.applied).not.toHaveBeenCalled()
   })
   it('keeps the row visibly queued when the contract refuses (not_running)', async () => {
     vi.useFakeTimers()

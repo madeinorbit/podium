@@ -873,6 +873,7 @@
         "src/store/maintenance.golden.test.ts",
         "src/store/maintenance.ts",
         "src/store/member-invites.test.ts",
+        "src/store/message-transcript-item.test.ts",
         "src/store/messages-golden.test.ts",
         "src/store/messages.ts",
         "src/store/messaging-topics.test.ts",
