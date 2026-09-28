@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { detectOpencodeLogin } from '../adapters/opencode/auth.js'
+import { detectOpencodeLogin } from './auth.js'
 
 async function authHome(auth: unknown): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), 'podium-opencode-auth-'))
