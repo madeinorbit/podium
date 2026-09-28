@@ -128,29 +128,6 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4775 (server stores and forwards, never decides on machine state) / POD-4777',
   },
-  // Typed and proven, report lost, daemon killed: the recovery row is failed
-  // although the agent has it — or, on some runs, never settled at all.
-  'daemon-crash-unreported': {
-    must: [['status-lies', 'stuck']],
-    may: SCREEN_ECHO,
-    until: 'POD-4777',
-  },
-  // POD-4775 removed the refusal: sends made during the cut are stored and
-  // typed after it. What remains is the delivery report lost with the link —
-  // typed, still `dispatched` — the link-degraded finding.
-  'link-cut-seconds': {
-    must: ['stuck'],
-    may: SCREEN_ECHO,
-    until: 'POD-4777 (status reports by id, outside the runtime-event gate)',
-  },
-  // One delivery report lost on a slow link: the message stays `dispatched`
-  // although it was typed — the report is not resent by id outside the
-  // activity stream's gate.
-  'link-degraded': {
-    must: ['stuck'],
-    may: ['status-lies', ...SCREEN_ECHO],
-    until: 'POD-4777 (status reports by id, outside the runtime-event gate)',
-  },
   // The server marks the row `cancelled` at once. Either the sender's bubble
   // never learns it (it stays "queued" while the other device shows nothing),
   // or — when the cancel loses the race to the daemon's queue — the message is
@@ -166,16 +143,16 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4776 (retract answered by the daemon)',
   },
-  // Proven in the children's logs: reports produced during the cut replay
-  // after the reconnect and the runtime-event gate rejects them as
-  // `stale-observer-generation`. The re-forwards during the cut time out, and
-  // since POD-4775 a timed-out forward is `unknown`, not failed: the rows end
-  // `unknown` though every message was typed. (No frame storm on this base:
-  // the storm check stays armed.)
+  // Since POD-4796 the reports replayed after the reconnect are applied (the
+  // gate rejected them as `stale-observer-generation`). What is left is the
+  // daemon's own verdict, traced in the gate's log: each message typed DURING
+  // the cut comes back from the driver unverified, so the daemon reports it
+  // unconfirmed and the row ends `unknown` though the agent has it. (No frame
+  // storm on this base: the storm check stays armed.)
   'link-cut-minutes-storm': {
     must: ['unknown-outside-window'],
     may: ['stuck', ...SCREEN_ECHO],
-    until: 'POD-4777 (status reports by id, outside the runtime-event gate)',
+    until: 'POD-4777 (the daemon settles a typed message by its journal, not by a live receipt)',
   },
 }
 
