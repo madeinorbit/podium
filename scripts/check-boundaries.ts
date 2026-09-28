@@ -105,8 +105,16 @@
  *     is the same mechanically visible condition as Stage A's: the ledger is
  *     empty.
  *
- * 19. A hand-written `sql` fragment used in a select projection may not carry an
- *     outer-table Column into its own FROM scope; use `sql.identifier`.
+  *  19. A hand-written `sql` fragment used in a select projection may not carry an
+  *     outer-table Column into its own FROM scope; use `sql.identifier`.
+  *
+  *  20. The TERMINAL OBJECTS family (POD-4437, closing issue of POD-4414): five
+  *     per-file rules pinning the six runtime objects (podium-host,
+  *     DurableProcess, Terminal, RuntimeDriver, Session, Viewer) to the places
+  *     the layers page says, with the import direction enforced so the
+  *     structure cannot drift back — `terminal-objects-process`,
+  *     `-terminal`, `-driver`, `-server` and `-primitives`, defined beside
+  *     `checkFile` below.
  *
  * Alongside these (and rule 12, `sync-browser-reach`, documented at its own
  * definition) sits the ARCHITECTURE MANIFEST (POD-296,
@@ -3045,6 +3053,393 @@ export function checkSequentialPromiseCombinator(file: string, source: string): 
   return violations
 }
 
+// ---------------------------------------------------------------------------
+// Terminal objects boundary (POD-4437, closing issue of POD-4414).
+//
+// The six runtime objects — podium-host, DurableProcess, Terminal,
+// RuntimeDriver, Session, Viewer — end the epic in the places the layers page
+// says (docs/plans/pod-4414-terminal-layers-in-code.html §2, as amended by
+// user decision 2026-09-28: REVIEW-4438 A1/A4/A5/A6/D, ADR 10 "Construction
+// and failure ownership"). The workspace-granular manifest already pins the
+// coarse direction (packages/pty consumers, harness deps, packages-never-apps);
+// these five per-file rules pin the FINER edges the manifest cannot see because
+// both ends sit inside one allowed workspace edge:
+//
+//  - terminal-objects-process:   packages/pty/src names no session/protocol/
+//                                daemon/driver identity (POD-3915 rule).
+//  - terminal-objects-terminal:  apps/daemon/src/terminal never takes the
+//                                durable door, a driver, or harness knowledge.
+//  - terminal-objects-driver:    driver families receive the EngineProcessOwner
+//                                port (or a Terminal); they hold no process
+//                                primitive, no host socket, no journal.
+//  - terminal-objects-server:    apps/server product code never imports daemon
+//                                or process code (tests decided below).
+//  - terminal-objects-primitives: no file outside packages/pty reaches a
+//                                process primitive except through the package.
+//
+// TEST-FILE DECISION (explicit, per the issue's coordinator note): contract
+// tests that drive daemon internals on purpose — e.g.
+// apps/server/src/store/terminal-answer-contract.test.ts, which pins the
+// server↔daemon seam by importing the daemon's runtime/host re-export — are
+// EXEMPT via isTestFile. They are the seam's characterization, not product
+// coupling, and the exemption is visible here rather than in an allowlist.
+//
+// TYPE-ONLY COUNTS everywhere below. A type import is erased at build but the
+// naming is still the coupling these rules pin: a SessionId type in the
+// process kernel, or a daemon type in a driver, is the session layer leaking
+// into a place that must stay harness-/daemon-agnostic.
+//
+// FENCE with POD-4737 (live): this section and its tests are POD-4437's; the
+// harness-literal scanner's path filter and scripts/harness-boundary-allowlist.ts
+// are POD-4737's. Touching those needs a mail to POD-4414 first.
+// ---------------------------------------------------------------------------
+
+export const TERMINAL_OBJECTS_PROCESS_RULE = 'terminal-objects-process'
+export const TERMINAL_OBJECTS_TERMINAL_RULE = 'terminal-objects-terminal'
+export const TERMINAL_OBJECTS_DRIVER_RULE = 'terminal-objects-driver'
+export const TERMINAL_OBJECTS_SERVER_RULE = 'terminal-objects-server'
+export const TERMINAL_OBJECTS_PRIMITIVES_RULE = 'terminal-objects-primitives'
+
+/** The process kernel's directory (package name `@podium/process`). */
+const PROCESS_SRC_DIR = 'packages/pty/src/'
+/** The daemon's Terminal surface. */
+const DAEMON_TERMINAL_DIR = 'apps/daemon/src/terminal/'
+/** Driver implementations (contract in `@podium/harness/driver`, construction
+ *  in `/driver/host`; families under `driver/families/`). */
+const DRIVER_DIR = 'packages/harness/src/driver/'
+/** The daemon-side session mirror that composes the objects. */
+const DAEMON_SESSION_DIR = 'apps/daemon/src/session/'
+/** Daemon-side driver wiring (NOT a driver: builds TerminalHostPorts). */
+const DAEMON_RUNTIME_DIR = 'apps/daemon/src/runtime/'
+
+/**
+ * Resolve a relative specifier against its importer to a repo-relative posix
+ * path, syntactically (no filesystem access). An unresolvable import is a type
+ * error, not this family's business, so resolution never fails — it normalises.
+ */
+function resolveTerminalObjectsRelative(fromFile: string, specifier: string): string | null {
+  if (!specifier.startsWith('.')) return null
+  const base = specifier.replace(/\.js$/, '')
+  const parts = [...fromFile.split('/').slice(0, -1), ...base.split('/')]
+  const out: string[] = []
+  for (const part of parts) {
+    if (part === '' || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return out.join('/')
+}
+
+/** Import CLAUSES naming one of `names` as a whole word (type-only counts). */
+function clauseNamesAny(clause: string, names: ReadonlySet<string>): string | null {
+  for (const m of clause.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)) {
+    const name = m[1]
+    if (name !== undefined && names.has(name)) return name
+  }
+  return null
+}
+
+/**
+ * Rule terminal-objects-process — the process kernel stays identity-free.
+ *
+ * `@podium/process/*` (packages/pty/src) names no SessionId, no protocol
+ * frame, no daemon context and no driver (POD-3915 rule, layers §2 row
+ * DurableProcess). The kernel is harness-agnostic by construction: the moment
+ * it can name a session it can special-case one, and the session layer exists
+ * precisely so nothing below it does.
+ */
+export function checkTerminalObjectsProcess(file: string, source: string): Violation[] {
+  if (!file.startsWith(PROCESS_SRC_DIR) || isTestFile(file)) return []
+  const violations: Violation[] = []
+  const FORBIDDEN_NAMES = new Set(['SessionId', 'DaemonContext'])
+  for (const ref of extractImports(source)) {
+    const spec = ref.specifier
+    if (spec === '@podium/protocol' || spec.startsWith('@podium/protocol/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_PROCESS_RULE,
+        message: `${file}: the process kernel imports '${spec}' — protocol frames belong to the layers above; the kernel names no frame (POD-3915, layers §2). Take the bytes, not the envelope.`,
+      })
+      continue
+    }
+    if (spec === '@podium/daemon' || spec.startsWith('@podium/daemon/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_PROCESS_RULE,
+        message: `${file}: the process kernel imports '${spec}' — daemon context flows down to the kernel, never up from it (POD-3915, layers §2).`,
+      })
+      continue
+    }
+    if (spec === '@podium/harness' || spec.startsWith('@podium/harness/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_PROCESS_RULE,
+        message: `${file}: the process kernel imports '${spec}' — drivers live above the kernel; the kernel names no driver (layers §2).`,
+      })
+      continue
+    }
+    const target = resolveTerminalObjectsRelative(file, spec)
+    if (target !== null && (target.startsWith('apps/daemon/') || target.startsWith('packages/harness/'))) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_PROCESS_RULE,
+        message: `${file}: the process kernel reaches '${spec}' (→ ${target}) — daemon and harness code live above the kernel (POD-3915, layers §2).`,
+      })
+    }
+  }
+  // Clauses are checked in a second pass so one violation per offending import,
+  // not per rule arm: the specifier arms above already reported their file.
+  for (const m of stripComments(source).matchAll(
+    /\b(?:import|export)\s+(?:type\s+)?(\{[^}]*\}|[A-Za-z_$][\w$]*)\s+from\s*['"]([^'"]+)['"]/g,
+  )) {
+    const clause = m[1] ?? ''
+    const specifier = m[2] ?? ''
+    const hit = clauseNamesAny(clause, FORBIDDEN_NAMES)
+    if (!hit) continue
+    // A specifier already reported above owns its violation; the name check
+    // adds only the cases the specifier arms cannot see (SessionId from
+    // @podium/model, which the kernel legitimately imports for other names).
+    if (
+      specifier === '@podium/protocol' ||
+      specifier.startsWith('@podium/protocol/') ||
+      specifier === '@podium/daemon' ||
+      specifier.startsWith('@podium/daemon/') ||
+      specifier === '@podium/harness' ||
+      specifier.startsWith('@podium/harness/')
+    ) {
+      continue
+    }
+    violations.push({
+      file,
+      specifier,
+      rule: TERMINAL_OBJECTS_PROCESS_RULE,
+      message: `${file}: imports '${hit}' from '${specifier}' — the process kernel names no session identity and no daemon context (POD-3915, layers §2). Push the identity out to the caller.`,
+    })
+  }
+  return violations
+}
+
+/**
+ * Rule terminal-objects-terminal — the Terminal is a surface, not a door.
+ *
+ * apps/daemon/src/terminal/** may import the attachment/screen face
+ * (`@podium/process/screen`), model vocabulary and protocol terminal frames.
+ * It must never import the durable door (`@podium/process/durable`), any
+ * driver, or harness manifests: a surface cannot open or reap a process and
+ * knows nothing about what the bytes mean (layers §1b Terminal row; the
+ * object's own header in terminal.ts states the same direction).
+ *
+ * NOT an allow-list on purpose: model-vocabulary types (Geometry) flow
+ * everywhere and node builtins are nobody's object, so the rule bans the
+ * object-violating edges rather than enumerating the innocent ones.
+ */
+export function checkTerminalObjectsTerminal(file: string, source: string): Violation[] {
+  if (!file.startsWith(DAEMON_TERMINAL_DIR) || isTestFile(file)) return []
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    const spec = ref.specifier
+    if (spec === '@podium/process/durable' || spec.startsWith('@podium/process/durable/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_TERMINAL_RULE,
+        message: `${file}: the Terminal imports '${spec}' — the durable door belongs to the Session; the Terminal only holds the attachment it is handed (layers §1b/§2, Terminal.attach is the one factory).`,
+      })
+      continue
+    }
+    if (spec === '@podium/harness' || spec.startsWith('@podium/harness/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_TERMINAL_RULE,
+        message: `${file}: the Terminal imports '${spec}' — a surface knows no driver and no harness manifest (layers §2 Terminal row).`,
+      })
+      continue
+    }
+    const target = resolveTerminalObjectsRelative(file, spec)
+    if (target !== null && (target.startsWith(DAEMON_RUNTIME_DIR) || target.startsWith(DRIVER_DIR))) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_TERMINAL_RULE,
+        message: `${file}: the Terminal reaches '${spec}' (→ ${target}) — driver wiring lives beside the Terminal, never inside it (layers §2 Terminal row).`,
+      })
+    }
+  }
+  return violations
+}
+
+/**
+ * Rule terminal-objects-driver — drivers ASK the session's engine port.
+ *
+ * A headless driver never holds a process primitive, a podium-host socket or
+ * the engine's socket path, and never writes the binding journal. It asks the
+ * session's engine port (EngineProcessOwner, implemented by
+ * apps/daemon/src/session/engines.ts SessionEngineScope) to start, re-attach
+ * or stop its engine (amended 2026-09-28, REVIEW-4438 A1). A headed driver
+ * receives the Terminal port at bind. Mechanically: no `@podium/process`
+ * import (the durable door), no reach into apps/daemon (the scope and the
+ * journal store live there), no child_process (the grep-count table pins 0).
+ *
+ * What this does NOT ban, said rather than left to be discovered (REVIEW-4438
+ * D): a driver family MAY own its own protocol listener — the OpenCode
+ * free-port probe, the terminal family's hook receiver — so `node:net` and
+ * `node:http` are nobody's violation. What no family may touch is
+ * podium-host's socket, which is reachable only through the banned door.
+ */
+export function checkTerminalObjectsDriver(file: string, source: string): Violation[] {
+  if (!file.startsWith(DRIVER_DIR) || isTestFile(file)) return []
+  // The contract entries are DESCRIPTION (the server imports them to project
+  // the contract onto the wire); the no-primitive rule binds the
+  // implementations — families, host construction, the runtime registries.
+  // Description files name no primitive by construction, so scoping them out
+  // keeps the rule on the code that could actually take one.
+  if (
+    file === 'packages/harness/src/driver/contract.ts' ||
+    file === 'packages/harness/src/driver/events.ts' ||
+    file === 'packages/harness/src/driver/runtime.ts' ||
+    file === 'packages/harness/src/driver/binding.ts' ||
+    file === 'packages/harness/src/driver/session-spec.ts'
+  ) {
+    return []
+  }
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    const spec = ref.specifier
+    if (spec === '@podium/process' || spec.startsWith('@podium/process/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_DRIVER_RULE,
+        message: `${file}: a driver imports '${spec}' — drivers never take the durable door; the session performs every start, re-attach and stop through the EngineProcessOwner port (ADR 10 "Construction and failure ownership", REVIEW-4438 A1).`,
+      })
+      continue
+    }
+    if (spec === '@podium/daemon' || spec.startsWith('@podium/daemon/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_DRIVER_RULE,
+        message: `${file}: a driver imports '${spec}' — the session's scope and binding-journal store live in the daemon; families take the EngineProcessOwner port, never the daemon module (REVIEW-4438 A1).`,
+      })
+      continue
+    }
+    if (spec === 'node:child_process' || spec === 'child_process') {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_DRIVER_RULE,
+        message: `${file}: a driver imports '${spec}' — drivers hold no process primitive; spawning is the session's act through the engine port (layers §2 RuntimeDriver row).`,
+      })
+      continue
+    }
+    const target = resolveTerminalObjectsRelative(file, spec)
+    if (target !== null && target.startsWith('apps/daemon/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_DRIVER_RULE,
+        message: `${file}: a driver reaches '${spec}' (→ ${target}) — daemon code (SessionEngineScope, the binding journal) is the session's side; families take the port (REVIEW-4438 A1).`,
+      })
+    }
+  }
+  return violations
+}
+
+/**
+ * Rule terminal-objects-server — the server decides, the daemon executes.
+ *
+ * apps/server product code never imports daemon or process code: no
+ * `@podium/process` (the durable door; note the directory/package split —
+ * packages/pty is the directory, `@podium/process` the specifier), no
+ * `@podium/daemon`, no relative reach into apps/daemon or packages/pty/src.
+ * Restarts of either side are independent events, which holds only while the
+ * server holds neither a process nor a socket (layers §1b ServerSession row).
+ * Harness knowledge stays with the harness-vendor-boundary rule (POD-4737's
+ * fence); this rule is the daemon/process half only.
+ */
+export function checkTerminalObjectsServer(file: string, source: string): Violation[] {
+  if (!file.startsWith('apps/server/') || !file.startsWith('apps/server/src/')) return []
+  if (isTestFile(file)) return []
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    const spec = ref.specifier
+    if (spec === '@podium/process' || spec.startsWith('@podium/process/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_SERVER_RULE,
+        message: `${file}: the server imports '${spec}' — the server holds no process; it decides lifetime policy and the daemon executes it (layers §1b ServerSession row).`,
+      })
+      continue
+    }
+    if (spec === '@podium/daemon' || spec.startsWith('@podium/daemon/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_SERVER_RULE,
+        message: `${file}: the server imports '${spec}' — the server talks to its daemon mirror through the seam (control + stream ports), never through daemon code (layers §3).`,
+      })
+      continue
+    }
+    const target = resolveTerminalObjectsRelative(file, spec)
+    if (target !== null && (target.startsWith('apps/daemon/') || target.startsWith('packages/pty/src/'))) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_SERVER_RULE,
+        message: `${file}: the server reaches '${spec}' (→ ${target}) — daemon and process code are the machine's side; the server side ends at the seam (layers §3).`,
+      })
+    }
+  }
+  return violations
+}
+
+/**
+ * Rule terminal-objects-primitives — nothing reaches a process primitive
+ * except through the package.
+ *
+ * No file outside packages/pty reaches a process primitive (pty backends,
+ * abduco, podium-host) by any route but the `@podium/process` package door —
+ * which the manifest's consumer restriction already holds to apps/daemon and
+ * the build tier. This rule closes the other route: a relative import that
+ * walks into packages/pty/src bypasses the package entirely, and a bare
+ * `node-pty` specifier skips both gates. scripts/ is exempt (L5 build tier
+ * composes everything: scripts/build-bun.ts vendors abduco and the host), and
+ * tests are exempt (integration scaffolding drives the real backend).
+ */
+export function checkTerminalObjectsPrimitives(file: string, source: string): Violation[] {
+  if (file.startsWith('scripts/') || workspaceOf(file) === 'scripts') return []
+  if (file.startsWith(PROCESS_SRC_DIR) || isTestFile(file)) return []
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    const spec = ref.specifier
+    if (spec === 'node-pty' || spec.startsWith('node-pty/')) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_PRIMITIVES_RULE,
+        message: `${file}: imports '${spec}' — pty backends live in @podium/process and are reached through its door by its consumers (layers §2). Nothing outside the process package names a backend directly.`,
+      })
+      continue
+    }
+    const target = resolveTerminalObjectsRelative(file, spec)
+    if (target !== null && target.startsWith(PROCESS_SRC_DIR)) {
+      violations.push({
+        file,
+        specifier: spec,
+        rule: TERMINAL_OBJECTS_PRIMITIVES_RULE,
+        message: `${file}: reaches '${spec}' (→ ${target}) — a relative walk into the process kernel bypasses the @podium/process package door and its consumer restriction (layers §2). Import the package subpath instead.`,
+      })
+    }
+  }
+  return violations
+}
+
 /** Hot paths may consume the read-only index and explicitly injected ports,
  * never import a repository. This participates in the whole-repo sweep. */
 export function checkWorldIndexBoundary(file: string, source: string): Violation[] {
@@ -3072,6 +3467,11 @@ export function checkFile(
 ): Violation[] {
   return [
     ...checkHarnessOwnAdapter(file, source, ownAdapterCtx),
+    ...checkTerminalObjectsProcess(file, source),
+    ...checkTerminalObjectsTerminal(file, source),
+    ...checkTerminalObjectsDriver(file, source),
+    ...checkTerminalObjectsServer(file, source),
+    ...checkTerminalObjectsPrimitives(file, source),
     ...checkWorldIndexBoundary(file, source),
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
