@@ -108,13 +108,14 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4777',
   },
-  // Typed before the kill: the new daemon fails the recovery row although the
-  // agent has it (or leaves it dispatched). `unknown` — the allowed answer here
-  // — has no producer yet. The follow-up message sent once the session is live
-  // again has also ended failed untyped (mechanism not yet proven).
+  // Typed before the kill. Since POD-4775 the new daemon's recovery failure is
+  // labelled `unconfirmed` and the server records the row `unknown` — the
+  // allowed answer here — which is what this scenario shows on most runs. On
+  // some runs the old race remains: the row left dispatched, or failed
+  // although the agent has it, or the follow-up message failed untyped.
   'daemon-crash-typing': {
-    must: [['status-lies', 'stuck']],
-    may: ['lost', ...SCREEN_ECHO],
+    must: [],
+    may: ['status-lies', 'stuck', 'lost', ...SCREEN_ECHO],
     until: 'POD-4777',
   },
   // command-plane.ts sendHandler: a session whose machine is `reconnecting`
