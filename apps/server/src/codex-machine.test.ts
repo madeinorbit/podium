@@ -104,15 +104,16 @@ describe('pickCodexMachine', () => {
 
   it('does NOT pick a connected login on a machine the user may not use', () => {
     // User B's box is logged in to Codex; the requesting user is granted only
-    // machine-a. The pick must land on machine-a — spending B's subscription
-    // silently is the failure this guards.
+    // zzz-mine. The pick must land on zzz-mine — spending B's subscription
+    // silently is the failure this guards. (aaa-b-box sorts FIRST, so without
+    // the authorization filter this test picks the wrong machine.)
     const authorize = (id: { toString(): string }) =>
-      String(id) === asMachineId('machine-a') ? undefined : 'you do not have access to use this machine'
-    const picked = pickCodexMachine([machine('machine-b'), machine('machine-a')], {
+      String(id) === asMachineId('zzz-mine') ? undefined : 'you do not have access to use this machine'
+    const picked = pickCodexMachine([machine('aaa-b-box'), machine('zzz-mine')], {
       authorize,
       serverVersion: VERSION,
     })
-    expect(picked).toEqual({ machineId: asMachineId('machine-a'), machineName: 'machine-a' })
+    expect(picked).toEqual({ machineId: asMachineId('zzz-mine'), machineName: 'zzz-mine' })
   })
 
   it('names nothing when the only connected logins belong to other users', () => {
