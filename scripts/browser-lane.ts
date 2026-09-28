@@ -11,7 +11,7 @@
  * Invoke via `bun run test:browser` or this file directly. From a live session
  * the full lane takes the shared `test:heavy` lease (POD-535).
  *
- * Four things live here that the Playwright config does not:
+ * Five things live here that the Playwright config does not:
  *
  * 1. THE BUILD (POD-535 / POD-1389). The test process imports `@podium/protocol`
  *    without `--conditions=@podium/source`, so it resolves to `dist`. The
@@ -43,6 +43,14 @@
  *    that collision is a separate shared resource. `--build-only` does not take
  *    the lease (callers often already hold it for a hand-run playwright half).
  *
+ * 5. THE PREFLIGHT [POD-4752]. Before building, the lane asks Playwright
+ *    whether each selected project's browser is supported and installed on
+ *    this host, and SKIPS projects whose browser can never run here (webkit
+ *    on ubuntu26.04 failed every test with `Playwright does not support
+ *    webkit`, drowning the real failures). A supported-but-not-installed
+ *    browser is a loud setup error, never a skip; anything unclassifiable
+ *    still runs, so the preflight can never hide a real failure.
+ *
  * Quarantine lives in ./browser-quarantine.ts — a list, printed every run, not a
  * `testIgnore` glob nobody can see.
  *
@@ -53,8 +61,8 @@
  *   bun scripts/browser-lane.ts --build-only   # hand-run prep only; prefer --suite
  */
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { existsSync, readdirSync } from 'node:fs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { QUARANTINE } from './browser-quarantine'
 import { runWithHeavyTestLease, shouldAcquireHeavyTestLease } from './test-heavy'
 
@@ -258,6 +266,250 @@ export function laneMaySucceed(input: {
   return { ok: true }
 }
 
+/**
+ * THE PREFLIGHT (5) [POD-4752]. Playwright's own answer per project browser:
+ *
+ * - `unsupported` — Playwright ships no binary for this host (its
+ *   `BrowserType.executablePath()` returns ''). The project can never go
+ *   green here, so the lane SKIPS it with one clear line instead of failing
+ *   every test in it.
+ * - `missing` — supported on this host but the browser is not installed. A
+ *   setup error to report loudly, never a skip: running a partial lane over
+ *   it would read as coverage.
+ * - `ready` / `unknown` — run. Anything the lane cannot classify must still
+ *   execute, so the preflight can never hide a project that IS supported
+ *   but fails.
+ *
+ * API used: the public `BrowserType.executablePath()` from `@playwright/test`
+ * (chromium/firefox/webkit). It is empty exactly when Playwright has no
+ * executable path for this host — the same condition that fails a run with
+ * `Playwright does not support <browser> on <host>`. No OS-name parsing in
+ * the lane. Project browsers come from the Playwright config's resolved
+ * `use.defaultBrowserType`, with the `<browser>-<form>` name prefix as
+ * fallback.
+ */
+export type BrowserSupport =
+  | { kind: 'ready' }
+  | { kind: 'unsupported'; reason: string }
+  | { kind: 'missing'; detail: string }
+  | { kind: 'unknown'; detail: string }
+
+export type BrowserSupportProbe = (browser: string) => BrowserSupport
+
+export type ConfiguredProject = { name: string; browser: string | null }
+
+/**
+ * Pure classifier behind probeBrowserSupport. `executablePath` is what
+ * Playwright's `BrowserType.executablePath()` returned ('' = no build for
+ * this host); `installed` is whether that path exists on disk.
+ */
+export function decideBrowserSupport(
+  browser: string,
+  executablePath: string,
+  installed: boolean,
+): BrowserSupport {
+  if (!executablePath) {
+    return {
+      kind: 'unsupported',
+      reason: `Playwright does not support ${browser} on this host`,
+    }
+  }
+  if (!installed) {
+    return {
+      kind: 'missing',
+      detail:
+        `browser "${browser}" is supported on this host but its executable is missing ` +
+        `(${executablePath}); install it with: bunx playwright install ${browser}`,
+    }
+  }
+  return { kind: 'ready' }
+}
+
+const KNOWN_BROWSERS = new Set(['chromium', 'firefox', 'webkit'])
+
+/**
+ * Project browser from the config's device type, else the `<browser>-<form>`
+ * name prefix. Null means undeterminable — the project runs anyway.
+ */
+export function browserForProject(name: string, defaultBrowserType?: string): string | null {
+  if (defaultBrowserType && KNOWN_BROWSERS.has(defaultBrowserType)) return defaultBrowserType
+  const prefix = name.split('-')[0] ?? ''
+  if (KNOWN_BROWSERS.has(prefix)) return prefix
+  return null
+}
+
+export type ProjectPreflight = {
+  runnable: string[]
+  skipped: { project: string; browser: string; reason: string }[]
+  missing: { project: string; browser: string; detail: string }[]
+}
+
+/**
+ * Partition the selected projects by probe answer. `selected` null means
+ * every configured project; names matching nothing configured pass through
+ * to runnable so Playwright itself rejects them (never silently dropped).
+ * Each distinct browser is probed exactly once.
+ */
+export function preflightProjects(
+  configured: readonly ConfiguredProject[],
+  selected: readonly string[] | null,
+  probe: BrowserSupportProbe,
+): ProjectPreflight {
+  const byName = new Map(configured.map((p) => [p.name, p]))
+  const names = selected ?? configured.map((p) => p.name)
+  const answers = new Map<string, BrowserSupport>()
+  const answerFor = (browser: string): BrowserSupport => {
+    const hit = answers.get(browser)
+    if (hit) return hit
+    const answer = probe(browser)
+    answers.set(browser, answer)
+    return answer
+  }
+  const runnable: string[] = []
+  const skipped: ProjectPreflight['skipped'] = []
+  const missing: ProjectPreflight['missing'] = []
+  for (const name of names) {
+    const project = byName.get(name)
+    if (!project || project.browser === null) {
+      runnable.push(name)
+      continue
+    }
+    const answer = answerFor(project.browser)
+    if (answer.kind === 'unsupported') {
+      skipped.push({ project: name, browser: project.browser, reason: answer.reason })
+    } else if (answer.kind === 'missing') {
+      missing.push({ project: name, browser: project.browser, detail: answer.detail })
+    } else {
+      // ready AND unknown run: an unclassifiable browser must never vanish.
+      runnable.push(name)
+    }
+  }
+  return { runnable, skipped, missing }
+}
+
+/**
+ * Read the `--project` selection out of args forwarded to Playwright.
+ * `--project=name` takes one name; the bare `--project` form is variadic, so
+ * every following non-flag token is a project name (which is also why the
+ * lane docs insist on the equals form).
+ */
+export function projectFilterFromForward(forward: readonly string[]): {
+  explicit: string[]
+  hasFilter: boolean
+} {
+  const explicit: string[] = []
+  let hasFilter = false
+  for (let i = 0; i < forward.length; i++) {
+    const arg = forward[i]
+    if (arg === undefined) continue
+    if (arg === '--project') {
+      hasFilter = true
+      let next = forward[i + 1]
+      while (next !== undefined && !next.startsWith('-')) {
+        explicit.push(next)
+        i++
+        next = forward[i + 1]
+      }
+      continue
+    }
+    if (arg.startsWith('--project=')) {
+      hasFilter = true
+      explicit.push(arg.slice('--project='.length))
+    }
+  }
+  return { explicit, hasFilter }
+}
+
+/**
+ * Drop every `--project` selection (equals and variadic space forms) so the
+ * lane can narrow the run to the preflight's runnable set.
+ */
+export function stripProjectFlags(forward: readonly string[]): string[] {
+  const kept: string[] = []
+  for (let i = 0; i < forward.length; i++) {
+    const arg = forward[i]
+    if (arg === undefined) continue
+    if (arg === '--project') {
+      let next = forward[i + 1]
+      while (next !== undefined && !next.startsWith('-')) {
+        i++
+        next = forward[i + 1]
+      }
+      continue
+    }
+    if (arg.startsWith('--project=')) continue
+    kept.push(arg)
+  }
+  return kept
+}
+
+type PlaywrightBrowserType = { executablePath: () => string }
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Ask Playwright whether `browser` can run on this host. Lazy-imports
+ * `@playwright/test` (already a root devDependency) so unit tests importing
+ * this module never load the runner; the decision itself stays in
+ * decideBrowserSupport, which takes fakes.
+ */
+export async function probeBrowserSupport(browser: string): Promise<BrowserSupport> {
+  let browserType: PlaywrightBrowserType | undefined
+  try {
+    const playwrightTest = (await import('@playwright/test')) as unknown as Record<
+      string,
+      PlaywrightBrowserType | undefined
+    >
+    browserType = playwrightTest[browser]
+  } catch (error) {
+    return { kind: 'unknown', detail: `could not load @playwright/test: ${messageOf(error)}` }
+  }
+  if (!browserType || typeof browserType.executablePath !== 'function') {
+    return { kind: 'unknown', detail: `no Playwright executable named "${browser}"` }
+  }
+  let executablePath: string
+  try {
+    executablePath = browserType.executablePath()
+  } catch (error) {
+    return {
+      kind: 'unknown',
+      detail: `could not resolve the ${browser} executable: ${messageOf(error)}`,
+    }
+  }
+  return decideBrowserSupport(browser, executablePath, existsSync(executablePath))
+}
+
+type PlaywrightConfigShape = {
+  projects?: readonly { name?: string; use?: { defaultBrowserType?: string } }[]
+}
+
+/**
+ * The configured projects with their browsers, straight from the Playwright
+ * config Playwright itself will run — never a hardcoded list. Imported
+ * lazily by file URL so the scripts typecheck does not absorb tests/e2e/*,
+ * and with PODIUM_E2E_RUN_ID restored afterwards: importing the config mints
+ * a run id as a side effect (ensureHarnessRunId), and the lane's children
+ * must keep minting their own.
+ */
+export async function loadConfiguredProjects(): Promise<ConfiguredProject[]> {
+  const configPath = fileURLToPath(new URL('../tests/e2e/playwright.config.ts', import.meta.url))
+  const savedRunId = process.env.PODIUM_E2E_RUN_ID
+  try {
+    const configUrl = pathToFileURL(configPath).href
+    const mod = (await import(configUrl)) as { default?: PlaywrightConfigShape }
+    const projects = mod.default?.projects ?? []
+    return projects.flatMap((p) => {
+      if (!p.name) return []
+      return [{ name: p.name, browser: browserForProject(p.name, p.use?.defaultBrowserType) }]
+    })
+  } finally {
+    if (savedRunId === undefined) delete process.env.PODIUM_E2E_RUN_ID
+    else process.env.PODIUM_E2E_RUN_ID = savedRunId
+  }
+}
+
 function printHelp(suites: readonly string[]): void {
   console.log(`browser lane — run Playwright suites under tests/e2e/browser/
 
@@ -286,12 +538,16 @@ Playwright args (forwarded unchanged) examples:
 Do not pipe this command through tail/grep/head without pipefail — the filter's
 exit status will mask Playwright's. Prefer redirecting to a file.
 
+Projects whose browser Playwright cannot run on this host are SKIPPED with one
+clear line each (and named in the census) instead of failing every test in
+them. A supported-but-not-installed browser is a loud setup error, never a skip.
+
 Discovered suites (${suites.length}):
 ${suites.map((s) => `  ${s.replace(/\.browser\.e2e\.ts$/, '')}`).join('\n')}
 `)
 }
 
-function runLane(args: LaneArgs): number {
+async function runLane(args: LaneArgs): Promise<number> {
   const suites = readdirSync(BROWSER_DIR)
     .filter((f) => f.endsWith('.browser.e2e.ts'))
     .sort()
@@ -346,16 +602,86 @@ function runLane(args: LaneArgs): number {
     return 1
   }
 
+  // THE PREFLIGHT (5): ask Playwright per project browser before paying for a
+  // build. Unsupported projects are skipped with one clear line each and the
+  // run is narrowed to the runnable set; a supported-but-not-installed
+  // browser aborts loudly before the build. When the config cannot be read at
+  // all, proceed unfiltered — the Playwright run itself will fail loudly.
+  const configured = await loadConfiguredProjects().catch((error) => {
+    console.log(
+      `browser lane preflight: could not read Playwright projects ` +
+        `(${messageOf(error)}) — running every project unfiltered.`,
+    )
+    return null
+  })
+  let effectiveForward = args.forward
+  let projectArgs: string[] = []
+  let skipped: ProjectPreflight['skipped'] = []
+  if (configured !== null) {
+    const { explicit, hasFilter } = projectFilterFromForward(args.forward)
+    const selected = hasFilter && explicit.length > 0 ? explicit : null
+    const wanted = selected ?? configured.map((p) => p.name)
+    const browsers = [
+      ...new Set(
+        wanted.flatMap((name) => {
+          const found = configured.find((p) => p.name === name)
+          return found && found.browser !== null ? [found.browser] : []
+        }),
+      ),
+    ]
+    const answers = new Map<string, BrowserSupport>()
+    for (const browser of browsers) answers.set(browser, await probeBrowserSupport(browser))
+    const unknown: BrowserSupport = {
+      kind: 'unknown',
+      detail: 'browser was not probed',
+    }
+    const preflight = preflightProjects(
+      configured,
+      selected,
+      (browser): BrowserSupport => answers.get(browser) ?? unknown,
+    )
+    skipped = preflight.skipped
+    if (skipped.length > 0) {
+      console.log('preflight: skipping projects Playwright cannot run on this host:')
+      for (const s of skipped) console.log(`  ${s.project} skipped: ${s.reason}`)
+    } else {
+      console.log(
+        `preflight: all ${preflight.runnable.length} selected project(s) supported on this host.`,
+      )
+    }
+    if (preflight.missing.length > 0) {
+      for (const m of preflight.missing) console.error(`browser lane: ${m.detail}`)
+      console.error(
+        `browser lane: ${preflight.missing.length} project(s) target a browser that is ` +
+          `supported on this host but not installed — refusing to run a partial lane.`,
+      )
+      return 1
+    }
+    if (preflight.runnable.length === 0) {
+      console.error(
+        'browser lane: every selected project is unsupported on this host — nothing to run.',
+      )
+      return 1
+    }
+    if (skipped.length > 0) {
+      // Narrow this run to the runnable set (equals form — never the variadic
+      // space form that swallows the next token as a project name).
+      effectiveForward = stripProjectFlags(args.forward)
+      projectArgs = preflight.runnable.map((p) => `--project=${p}`)
+      console.log(`preflight: running projects: ${preflight.runnable.join(', ')}`)
+    }
+  }
+
   const built = buildBrowserDeps()
   if (built !== 0) return built
 
   // One whole-set probe first (fast, no webServer); only bisect per file if it trips.
   console.log('probing that every selected suite imports…')
   const unloadable: string[] = []
-  const listProbe = playwright(['--list', ...candidates.map(filterFor)], true)
+  const listProbe = playwright(['--list', ...projectArgs, ...candidates.map(filterFor)], true)
   if (listProbe.status !== 0) {
     for (const suite of candidates) {
-      const probe = playwright(['--list', filterFor(suite)], true)
+      const probe = playwright(['--list', ...projectArgs, filterFor(suite)], true)
       if (probe.status !== 0) {
         const why = `${probe.stdout ?? ''}${probe.stderr ?? ''}`
           .split('\n')
@@ -372,7 +698,7 @@ function runLane(args: LaneArgs): number {
   // zero-test guard sees the count that will actually execute.
   let listedTests = parseListTotal(listOutput)
   if (unloadable.length > 0 && running.length > 0) {
-    const rerun = playwright(['--list', ...running.map(filterFor)], true)
+    const rerun = playwright(['--list', ...projectArgs, ...running.map(filterFor)], true)
     listedTests = parseListTotal(`${rerun.stdout ?? ''}${rerun.stderr ?? ''}`)
   } else if (unloadable.length > 0 && running.length === 0) {
     listedTests = 0
@@ -382,6 +708,7 @@ function runLane(args: LaneArgs): number {
     `\nrunning ${running.length} suites (${unloadable.length} errored on import, ` +
       `${QUARANTINE.length} quarantined` +
       (args.suiteSelectors.length > 0 ? `, ${args.suiteSelectors.length} --suite selector(s)` : '') +
+      (projectArgs.length > 0 ? `, ${projectArgs.length} project(s)` : '') +
       `)` +
       (listedTests !== null ? ` — ${listedTests} tests listed` : '') +
       `\n`,
@@ -400,7 +727,7 @@ function runLane(args: LaneArgs): number {
     return 1
   }
 
-  const result = playwright([...args.forward, ...running.map(filterFor)])
+  const result = playwright([...effectiveForward, ...projectArgs, ...running.map(filterFor)])
 
   console.log(`\n━━━ browser lane census ━━━`)
   console.log(`  suites found:        ${suites.length}`)
@@ -408,6 +735,10 @@ function runLane(args: LaneArgs): number {
     console.log(`  selected via --suite:${candidates.length}`)
   }
   console.log(`  quarantined:         ${QUARANTINE.length}`)
+  console.log(
+    `  skipped (unsupported on this host): ${skipped.length}` +
+      (skipped.length ? ` (${skipped.map((s) => s.project).join(', ')})` : ''),
+  )
   console.log(
     `  errored on import:   ${unloadable.length}${unloadable.length ? ` (${unloadable.join(', ')})` : ''}`,
   )
