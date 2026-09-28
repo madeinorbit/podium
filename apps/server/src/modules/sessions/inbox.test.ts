@@ -2011,13 +2011,16 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       outcome: 'delivered',
       transcriptItem: { id: 'entry-now', cursor: 'cur-now' },
     })
-    // Confirmed first; named by a second outcome once the harness recorded it.
-    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_named_late', outcome: 'delivered' })
-    await h.inbox.deliveryOutcome(SID, {
-      rowId: 'msg_named_late',
-      outcome: 'delivered',
-      transcriptItem: { id: 'entry-late' },
-    })
+    // Confirmed first; named by a second outcome once the harness recorded it —
+    // arriving while the first is still settling.
+    await Promise.all([
+      h.inbox.deliveryOutcome(SID, { rowId: 'msg_named_late', outcome: 'delivered' }),
+      h.inbox.deliveryOutcome(SID, {
+        rowId: 'msg_named_late',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-late' },
+      }),
+    ])
     expect(h.named.mock.calls.map(([input]) => input)).toEqual([
       {
         messageId: 'msg_named_now',
