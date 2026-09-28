@@ -88,16 +88,18 @@ Callers receive capability at the scope of their operation. The served descripto
 
 ## Construction and failure ownership
 
-**DECISION:** The Driver receives a Terminal or an engine address and owns nothing below itself. Launch, environment, and instrumentation are its sections. That coexists with ownership only through this explicit sequence, owned by `DaemonSession`:
+**DECISION:** The Driver receives a Terminal, or the session's engine port (`EngineProcessOwner`) and the attachment it hands back, and owns nothing below itself. Launch, environment, and instrumentation are its sections. That coexists with ownership only through this explicit sequence, owned by `DaemonSession`:
 
 | Step | Who acts | Reads | On failure, who cleans up |
 |---|---|---|---|
 | 1 prepare | Driver family (pure) | `launch`, `environment`, `instrumentation` | nothing to clean; spawn refused with reason |
-| 2 create or adopt process | `DaemonSession` via `DurableProcess` | prepared spec | `DaemonSession`: instrumentation installed but spawn failed → remove it; report `spawnError` |
-| 3 attach surface | `DaemonSession` builds Terminal over process (headed) or records engine address (headless) | — | process stays owned; failed attach reports, may retry; nothing killed |
+| 2 create or adopt process | `DaemonSession` via `DurableProcess` (headless: on the Driver's request through the engine port) | prepared spec | `DaemonSession`: instrumentation installed but spawn failed → remove it; report `spawnError` |
+| 3 attach surface | `DaemonSession` builds Terminal over process (headed) or records the engine on the session's entry and hands the Driver its attachment (headless) | — | process stays owned; failed attach reports, may retry; nothing killed |
 | 4 bind driver | `DaemonSession` hands Driver its typed sections + Terminal/address | `runtime`, `state` | unbuildable driver is `spawnError` (fresh) or `reattachFailed` (adopt); process kept for operator decision, never silently orphaned |
 | 5 observe | Driver | `state`, instrumentation decode | Driver reports degraded observation; session stays live |
-| 6 detach or terminate | `DaemonSession` per `ServerSession` policy | — | park = drop Terminal, keep process; kill = dispose process, then Terminal |
+| 6 detach or terminate | `DaemonSession` per `ServerSession` policy (headless: the Driver may request its engine's stop through the port) | — | park = drop Terminal, keep process; kill = dispose process, then Terminal |
+
+**Amended 2026-09-28 (REVIEW-4438 A1, A5, A6; user decision).** A headless Driver decides when its engine starts, re-attaches or stops, and the session performs it. Why: the engine's own protocol decides WHEN to start it, re-attach to it after a daemon restart, or stop it (for example, whether a surviving Codex, OpenCode or Claude engine can be re-attached after a daemon restart depends on that agent's protocol), so the family asks and the session acts. Moving those decisions into the session would put per-agent protocol knowledge in the session layer, which is exactly what the session must not contain. The ownership rule still holds because the session performs every start, re-attach and stop, keeps the engine record on the session's entry, and (since POD-4611) owns the engine's socket and journal; since POD-4610 the driver handle sits on the entry too. Native attach: the Driver asks for it and holds the engine's controller lease while a human types (a protocol fact); the session adds the process and the Terminal, which the Driver never sees. The session owns each process by its durable label; the live attachment sits in the Terminal while one is attached.
 
 Process survival is **not** session recovery. After an adopt, the Driver **MUST** restore or explicitly invalidate pending deliveries, protocol subscriptions, open interactions, and acceptance evidence. A surviving process with unrecoverable protocol state is reported as such, never presented as live.
 
