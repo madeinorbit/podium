@@ -483,6 +483,7 @@
         "@podium/sync": "workspace:*",
         "@types/node": "^24.0.0",
         "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
         "eslint": "9.39.2",
         "eslint-plugin-mobx": "0.0.14",
         "happy-dom": "^20.10.2",

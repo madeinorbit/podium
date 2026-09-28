@@ -12,6 +12,14 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import babelParser from '@babel/eslint-parser'
+import { createRequire } from 'node:module'
+
+// Resolved from this package, not by bare name: Babel resolves a bare plugin
+// name from its own install location, which Bun's isolated linker does not
+// give this package's devDependencies (it only worked where the shared store
+// happened to link the plugin nearby).
+const BABEL_SYNTAX_TS = createRequire(import.meta.url).resolve('@babel/plugin-syntax-typescript')
+
 
 // ---------------------------------------------------------------- the arm
 
@@ -641,7 +649,7 @@ const languageOptions = {
     babelOptions: {
       configFile: false,
       babelrc: false,
-      plugins: [['@babel/plugin-syntax-typescript', { isTSX: true, allExtensions: true }]],
+      plugins: [[BABEL_SYNTAX_TS, { isTSX: true, allExtensions: true }]],
     },
     ecmaVersion: 'latest',
     sourceType: 'module',
