@@ -107,12 +107,9 @@ test('Tray and command palette use the live issue-reference glyph', async ({
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
 
-  const trayCard = page.locator(`[data-testid="tray-card-review"][data-issue-seq="${issue.seq}"]`)
-  await expect(trayCard).toBeVisible({ timeout: 20_000 })
-  await expect(
-    trayCard.getByRole('img', { name: `Review task ${issue.displayRef}: ${title}` }),
-  ).toBeVisible()
-
+  // The tray half of this test is gone with the Tray itself (ca0370028
+  // deleted TrayCard.tsx and its tray-card-* testids): the palette and the
+  // status strip below are the remaining glyph surfaces.
   await page.keyboard.press('Control+k')
   const palette = page.getByRole('dialog', { name: 'Command palette' })
   await expect(palette).toBeVisible()
