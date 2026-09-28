@@ -931,10 +931,14 @@ export class SessionTerminal {
    * writing W itself or W would never move again.
    *
    * A request equal to W is not forwarded at all. That is what stops a reveal's
-   * always-send claim (rule 4) from costing a SIGWINCH.
+   * always-send claim (rule 4) from costing a SIGWINCH. While a request is in
+   * flight the comparison is against IT, not W (POD-4721): W does not move until
+   * the report lands, so a claim followed by the sole-renderer promotion used to
+   * send the same size twice — and a return to W before the report was dropped.
    */
   private driveGeometry(geometry: Geometry): void {
-    if (geometry.cols === this.geometry.cols && geometry.rows === this.geometry.rows) return
+    const target = this.drivenGeometry()
+    if (geometry.cols === target.cols && geometry.rows === target.rows) return
     this.init.toDaemon({
       type: 'resize',
       sessionId: this.init.sessionId,
@@ -981,6 +985,12 @@ export class SessionTerminal {
     }, GEOMETRY_REPORT_DEADLINE_MS)
     timer.unref?.()
     this.geometryWatchdog = { timer, requested, atMs }
+  }
+
+  /** The size the pty is heading to: the unanswered request if one is in
+   *  flight, else W. What a new request has to differ from to be news. */
+  private drivenGeometry(): Geometry {
+    return this.geometryWatchdog?.requested ?? this.geometry
   }
 
   /** A report arrived (or the request is moot): the ask was answered. */
@@ -1076,9 +1086,11 @@ export class SessionTerminal {
     }
 
     const viewport = claimedGeometry ?? client.viewports.get(this.init.sessionId)
+    // Against the size already asked for, as `driveGeometry` judges it: a
+    // repeat of an in-flight claim is not a size change, and must not redraw.
+    const driven = this.drivenGeometry()
     const geometryDiffers =
-      viewport !== undefined &&
-      (this.geometry.cols !== viewport.cols || this.geometry.rows !== viewport.rows)
+      viewport !== undefined && (driven.cols !== viewport.cols || driven.rows !== viewport.rows)
     const rendering = visible ?? client.viewVisible.has(this.init.sessionId)
     if (rendering && viewport) {
       this.driveGeometry(viewport)

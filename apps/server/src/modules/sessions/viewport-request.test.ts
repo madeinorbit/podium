@@ -331,6 +331,46 @@ describe('T3: the seq watermark is per (connection, session), and every rejectio
     expect(resizesTo(toDaemon)).toEqual([])
     expect(terminal.geometryRevision).toBe(revisionBefore)
   })
+
+  const redrawsIn = (toDaemon: ControlMessage[]) =>
+    toDaemon.filter((m) => m.type === 'redraw').length
+
+  it('ONE CLAIM, ONE RESIZE: the sole-renderer promotion after it re-asks nothing while the report is in flight (POD-4721)', () => {
+    // THE DAEMON'S DOUBLE APPLY. `inbox.handleViewportRequest` runs the claim
+    // and then `reconcileActiveRenderer`, which — the claimer now being the sole
+    // renderer — calls `requestControl` for it again with the same viewport. W
+    // has not moved yet (only the daemon's report moves it), so an equal-to-W
+    // check let the SAME size through twice: two `resize` frames 1 ms apart,
+    // two SIGWINCHes, and a second `redraw` on top.
+    const { terminal, toDaemon } = makeTerminal(true)
+    const client = controllerOf(terminal, 'c-reveal')
+    toDaemon.length = 0
+
+    terminal.handleViewportRequest(client.id, request({ claimControl: true, seq: 1 }))
+    terminal.requestControl(client.id) // what reconcileActiveRenderer does next
+
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 132, rows: 43 }])
+    expect(redrawsIn(toDaemon)).toBe(1)
+
+    // …and once the report lands, W is the size and the rule is the old one.
+    terminal.applyDaemonGeometry({ cols: 132, rows: 43 })
+    terminal.requestControl(client.id)
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 132, rows: 43 }])
+  })
+
+  it('a request BACK to W while another size is in flight is still forwarded', () => {
+    // The in-flight size, not W, is what the daemon will end up at. Comparing
+    // only against W dropped a return to it — A → B → A before B's report left
+    // the pty at B under a viewer that last asked for A.
+    const { terminal, toDaemon } = makeTerminal(true)
+    const client = controllerOf(terminal, 'c-back')
+    toDaemon.length = 0
+
+    terminal.handleViewportRequest(client.id, request({ geometry: { cols: 132, rows: 43 }, seq: 1 }))
+    terminal.handleViewportRequest(client.id, request({ geometry: { ...GEO }, seq: 2 }))
+
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 132, rows: 43 }, { ...GEO }])
+  })
 })
 
 // ---------------------------------------------------------------------------
