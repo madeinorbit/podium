@@ -64,11 +64,19 @@ export const ACCOUNT_QUERIES = {
             machine.inventory?.agents.some((agent) => agent.kind === harness && agent.installed),
         )
         .map((machine) => ({ id: machine.id, name: machine.name }))
+      // Which machine's Codex login this viewer's server AI runs on (POD-4750).
+      // Same scoped picker as the one-shot transport; a refusal (no usable
+      // login for this viewer) leaves the row as the catalog describes it.
+      const serverAi =
+        harness === 'codex' && state.resolveCodexServerAi
+          ? await state.resolveCodexServerAi().catch(() => undefined)
+          : undefined
       return {
         ...account,
         loginRequired: account.status === 'not-configured' || state.nativeLogin.isRequired(harness),
         loginMachines,
         ...(attempt ? { loginAttempt: attempt } : {}),
+        ...(serverAi ? { serverAi } : {}),
       }
     }))
   }),

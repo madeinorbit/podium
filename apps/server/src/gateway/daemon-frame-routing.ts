@@ -121,6 +121,7 @@ export const DAEMON_FRAME_PORTS = {
   quotaHistoryResult: ['rpc'],
   modelProbeResult: ['rpc'],
   devArtifactProbeResult: ['rpc'],
+  codexCompleteResult: ['rpc'],
   imageUploadResult: ['rpc'],
   transcriptReadResult: ['rpc'],
   fileReadResult: ['rpc'],

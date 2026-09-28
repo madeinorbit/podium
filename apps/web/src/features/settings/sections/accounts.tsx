@@ -163,11 +163,16 @@ function NativeAccountRow({
         </div>
       </Row>
       {status && <p className="max-w-[62ch] pb-2.5 settings-prose">{status}</p>}
+      {account.harness === 'codex' && account.serverAi && (
+        <p className="max-w-[62ch] pb-2.5 settings-prose">
+          Server AI uses {account.serverAi.machineName}&rsquo;s login.
+        </p>
+      )}
     </div>
   )
 }
 
-/** A carved panel grouping one class of accounts: a machine-voice mono label over
+ /** A carved panel grouping one class of accounts: a machine-voice mono label over
  *  a bordered Panel-Navy surface whose rows self-divide by hairline seams. Groups
  *  the two account classes far more strongly than the old loose text lines, while
  *  staying carved (tone + seam), never floated. */

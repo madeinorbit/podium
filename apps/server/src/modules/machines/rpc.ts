@@ -23,6 +23,9 @@ import type {
 import { asMachineId } from '@podium/model'
 import type {
   BrowseDirsResultMessage,
+  CodexCompleteResultMessage,
+  CodexLlmMessageWire,
+  CodexLlmToolWire,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
   DevArtifactProbeResultMessage,
@@ -258,6 +261,15 @@ const USAGE = daemonRequestKind<{
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
 const QUOTA_HISTORY = daemonRequestKind<{ samples: QuotaHistorySampleWire[] }>('qh')
 const MODEL_PROBE = daemonRequestKind<Record<string, ModelChoiceWire[]>>('mp')
+/**
+ * Server-side LLM over a catalog Codex login (POD-4750). The daemon's own
+ * HTTPS budget is 110 s; this broker deadline sits above it at 125 s, so a
+ * slow model arrives as the daemon's clear timeout error — and a reply that
+ * never comes (notably an older daemon that drops the unknown frame) lands on
+ * the "no reply … may be older" message below, never on "offline".
+ */
+const CODEX_COMPLETE_TIMEOUT_MS = 125_000
+const CODEX_COMPLETE = daemonRequestKind<Payload<CodexCompleteResultMessage>>('cc')
 const DEV_ARTIFACT_PROBE = daemonRequestKind<Payload<DevArtifactProbeResultMessage>>('up')
 const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
 const IMAGE_UPLOAD = daemonRequestKind<{ path: string; error?: string }>('iu')
@@ -364,6 +376,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(QUOTA_HISTORY, msg.requestId, machineId, { samples: msg.samples }),
   modelProbeResult: (broker, machineId, msg) =>
     void broker.settle(MODEL_PROBE, msg.requestId, machineId, msg.byAgent),
+  codexCompleteResult: (broker, machineId, msg) =>
+    void broker.settle(CODEX_COMPLETE, msg.requestId, machineId, payloadOf(msg)),
   devArtifactProbeResult: (broker, machineId, msg) =>
     void broker.settle(DEV_ARTIFACT_PROBE, msg.requestId, machineId, payloadOf(msg)),
   imageUploadResult: (broker, machineId, msg) =>
@@ -691,6 +705,44 @@ export class DaemonRpcService {
       20_000,
       () => ({}),
       (requestId) => ({ type: 'modelProbeRequest', requestId }),
+      machineId,
+    )
+  }
+
+  /**
+   * ONE SERVER-SIDE LLM TURN ON A NAMED MACHINE'S CODEX LOGIN (POD-4750).
+   *
+   * The daemon performs the Responses call with its CLI-maintained token and
+   * returns only the model's reply — the token never crosses this boundary.
+   * A timeout is NOT "offline": the machine was picked because it IS online,
+   * so a missing reply means its daemon never answered — most likely a daemon
+   * older than this frame — and the message says exactly that.
+   */
+  async codexComplete(
+    machineId: MachineId,
+    input: {
+      model: string
+      messages: CodexLlmMessageWire[]
+      tools: CodexLlmToolWire[]
+      effort: 'low' | 'medium' | 'high'
+    },
+  ): Promise<Payload<CodexCompleteResultMessage>> {
+    const name = await this.deps.machineName(machineId)
+    return await this.request(
+      CODEX_COMPLETE,
+      CODEX_COMPLETE_TIMEOUT_MS,
+      () => ({
+        ok: false as const,
+        error: `no reply from ${name}; its daemon may be older than this server — update Podium there, then retry.`,
+      }),
+      (requestId) => ({
+        type: 'codexCompleteRequest',
+        requestId,
+        model: input.model,
+        messages: input.messages,
+        tools: input.tools,
+        effort: input.effort,
+      }),
       machineId,
     )
   }

@@ -3,6 +3,7 @@ import { ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
+import { CodexCompleteResultMessage } from './codex'
 import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
 import {
   BrowseDirsResultMessage,
@@ -272,5 +273,9 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
   DaemonLogBatchMessage,
+  /** The outcome of a server-side LLM turn on this machine's Codex login
+   *  (POD-4750), appended at the END so the golden corpus's index-sampled
+   *  arms stay byte-identical. */
+  CodexCompleteResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

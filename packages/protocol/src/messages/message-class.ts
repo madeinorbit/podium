@@ -312,6 +312,10 @@ export const CONTROL_PLANE_CLASS = {
   // FLEET DAEMON LOG CAPTURE (POD-3156). A command, not a stream: it is one
   // frame that changes what the daemon does, and it carries no records.
   setDaemonLogLevel: 'control.command',
+  // SERVER-SIDE LLM OVER A CATALOG CODEX LOGIN (POD-4750). A correlated
+  // request/reply like every other daemon verb: a lost one is a failed RPC
+  // the caller already handles.
+  codexCompleteRequest: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -440,6 +444,10 @@ export const DAEMON_PLANE_CLASS = {
   // dropped and says how many on the next batch, so a transport that silently
   // shed frames would put a second, invisible drop point behind the counted one.
   daemonLogBatch: 'control.command',
+  // SERVER-SIDE LLM OVER A CATALOG CODEX LOGIN (POD-4750). The correlated
+  // reply to a codexCompleteRequest — the same class for the same reason as
+  // every other verb's reply.
+  codexCompleteResult: 'control.command',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

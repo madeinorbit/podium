@@ -31,6 +31,13 @@ export interface AccountView {
   /** Non-secret identity fingerprint used to distinguish multiple native logins. */
   identityFingerprint?: string
   status: 'connected' | 'not-configured' | 'unknown'
+  /**
+   * Native Codex only: the machine whose login the server AI runs on, resolved
+   * by the same scoped picker as the one-shot transport (POD-4750). Absent
+   * when no login is usable for the viewer — the row still lists every
+   * machine that reports the login via `machines`.
+   */
+  serverAi?: { machineId: MachineId; machineName: string }
   /** Managed only: where the credential actually lives. */
   credentialSource?: 'stored' | 'legacy'
   loginRequired?: boolean

@@ -79,6 +79,12 @@ import { PresenceRouting } from './gateway/presence-routing'
 import { driverFamilyForId } from './harness-manifest'
 import { checkIssueAccess } from './issue-authz'
 import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
+import {
+  codexAuthorizerFor,
+  createCodexTransport,
+  serverVersionLabel,
+} from './codex-machine'
+import { type CodexTransport, llmClient } from './llm'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
@@ -1513,21 +1519,15 @@ export class SessionRegistry {
       // The USER read is hoisted once per candidate scan (rule 18). The
       // returned machine checks read grants through NativeLoginService's
       // per-start lease, so one login answer uses one snapshot and the next
-      // start re-reads (rule 46).
-      authorizerFor: async (ownerUserId) => {
-        const user = await this.store.users.get(ownerUserId)
-        if (user?.role !== 'admin') return () => 'native provider login requires an admin account'
-        const principal = userCommandPrincipal(ownerUserId, user.role)
-        const ownership = await ownershipSnapshotFromMachines(machines)
-        return (machineId) => {
-          const access = checkMachineUse(principal, machineId, ownership)
-          return access === 'absent'
-            ? `unknown machine '${machineId}'`
-            : access === 'unauthorized'
-              ? 'you do not have access to start login on this machine'
-              : undefined
-        }
-      },
+      // start re-reads (rule 46). The rule itself is stated once in
+      // `codex-machine.ts` so login starts and Codex server-AI use cannot
+      // drift into two answers about who may use which machine.
+      authorizerFor: async (ownerUserId) =>
+        await codexAuthorizerFor(
+          { users: this.store.users, machines },
+          ownerUserId,
+          'start login',
+        ),
       cwdForMachine: async (machineId) => (await this.store.repos.listRepoPaths(machineId))[0] ?? '/',
     })
     this.bus.on('superagent.turnEnded', async (event) => {
@@ -1770,6 +1770,24 @@ export class SessionRegistry {
     // while the close silently dropped the promise.
     let stopClosedIssue: ((input: { issueId: IssueId }) => Promise<void>) | undefined
 
+    // Server-side LLM over a catalog Codex login (POD-4750): the transport a
+    // `codex`-provider client runs on. It picks the owning machine from the
+    // login catalog — scoped to the user whose settings name the backend (the
+    // first admin, the same identity the digest's settings are read for) —
+    // and that machine's daemon performs the Responses call, so the token
+    // never leaves its machine and never crosses this interface.
+    const codexTransport: CodexTransport = createCodexTransport({
+      listMachines: async () => await machines.listMachines(),
+      isOnline: (id) => machines.hasDaemon(id),
+      defaultMachineId: () => machines.defaultMachine().catch(() => undefined),
+      authorizerFor: async (owner) =>
+        await codexAuthorizerFor({ users: this.store.users, machines }, owner),
+      ownerUserId: () => firstAdminMemberId(this.store),
+      serverVersion: serverVersionLabel(),
+      codexComplete: async (machineId, input) =>
+        await rpc.codexComplete(machineId, input),
+    })
+
     const issues = IssueService.compose({
       worldIndex: this.worldIndex,
       store: this.store,
@@ -1805,6 +1823,10 @@ export class SessionRegistry {
       // `roles.coding` — a personal preference — beside instance-tier git
       // workflow policy. See the note on `NotifyService` above.
       getSettings: async () => await this.store.settings.getSettingsFor((await firstAdminMemberId(this.store))),
+      // Server-side LLM clients run on this factory so the `codex` provider
+      // resolves to the catalog transport above instead of a server-local
+      // login file (POD-4750). Other providers behave exactly as `llmClient`.
+      llm: ((backend, apiKey) => llmClient(backend, apiKey, fetch, { codexTransport })) as typeof llmClient,
       spawnSession: async (o) =>
         await sessionsSvc.createSession({
           requestTerminalDriver: true,

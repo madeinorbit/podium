@@ -20,7 +20,7 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
-import { asAccountId, asUserId, type UserId } from '@podium/model'
+import { asAccountId, asUserId, type MachineId, type UserId } from '@podium/model'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
@@ -33,6 +33,16 @@ export interface AccountState {
   readonly settings: RegistryModules['settings']
   readonly nativeLogin: RegistryModules['nativeLogin']
   readonly callerUserId: UserId
+  /**
+   * The viewer's usable Codex server-AI machine (POD-4750), or undefined when
+   * none is usable for them. Implemented by the service closure, which is the
+   * only side holding the users store for the scoped picker. Optional so
+   * existing test states stay valid; absent = the hub row omits "Server AI
+   * uses …" rather than inventing one.
+   */
+  readonly resolveCodexServerAi?:
+    | (() => Promise<{ machineId: MachineId; machineName: string } | undefined>)
+    | undefined
 }
 
 export type AccountHandler<In, Out> = (state: AccountState, input: In) => Out

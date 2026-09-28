@@ -1,5 +1,4 @@
 import type { LlmBackend, PodiumSettings } from '@podium/runtime'
-import { type CodexAuth, codexLoginPresent, resolveCodexAuth } from './codex-auth'
 import { LlmConfigError } from './llm-error'
 export { LlmConfigError } from './llm-error'
 
@@ -8,8 +7,8 @@ export { LlmConfigError } from './llm-error'
  * message/tool shape; three wire adapters:
  *   - OpenAI-compatible (OpenRouter, OpenAI) — /chat/completions
  *   - Anthropic — /v1/messages
- *   - Codex (ChatGPT subscription) — the Responses API, auth'd off the local
- *     `codex login` instead of an API key (see ./codex-auth)
+ *   - Codex (ChatGPT subscription) — the Responses API, run on the machine
+ *     that owns the catalog login (see `codexTransport` below, POD-4750)
  * No SDK dependency on purpose: a few fetch shapes are smaller than a framework,
  * and the superagent loop needs nothing fancier.
  */
@@ -84,13 +83,21 @@ export function llmClient(
    */
   apiKey: string | undefined,
   fetchImpl: FetchLike = fetch,
+  /**
+   * How a `codex` turn runs (POD-4750). The server holds no Codex login file,
+   * so the turn is performed by the daemon on the machine the login catalog
+   * names — the composition root builds this over the daemon RPC + the scoped
+   * machine picker (`codex-machine.ts`). Absent = fail closed: a codex backend
+   * with no transport is "not configured", never a local file read.
+   */
+  opts: { codexTransport?: CodexTransport } = {},
 ): LlmClient {
   if (backend.kind !== 'api') {
     throw new LlmConfigError(
       'harness-backed execution is chat-only and runs via the daemon — no tool client here',
     )
   }
-  if (backend.provider === 'codex') return codexClient(backend, fetchImpl)
+  if (backend.provider === 'codex') return codexClient(backend, opts.codexTransport)
   const key = apiKey
   if (!key) {
     throw new LlmConfigError(
@@ -116,189 +123,34 @@ function codexEffort(backend: LlmBackend): 'low' | 'medium' | 'high' {
   return e === 'low' || e === 'high' ? e : 'medium'
 }
 
-/** The `codex` provider needs no API key — it reuses the local ChatGPT login. */
-function codexClient(backend: LlmBackend, fetchImpl: FetchLike): LlmClient {
-  if (!codexLoginPresent()) {
-    throw new LlmConfigError("Codex isn't logged in on this server — run `codex login`.")
+/**
+ * One Codex turn on the catalog login's owning machine (POD-4750). Built by
+ * the composition root over the daemon RPC + the scoped machine picker: it
+ * picks the machine, sends the turn, and returns ONLY the model's reply. The
+ * token never leaves that machine and never crosses this interface.
+ */
+export interface CodexTransport {
+  complete(
+    model: string,
+    messages: LlmMessage[],
+    tools: LlmTool[],
+    effort: 'low' | 'medium' | 'high',
+  ): Promise<LlmResponse>
+}
+
+/** The `codex` provider needs no API key — it runs on the owning daemon's ChatGPT login. */
+function codexClient(backend: LlmBackend, transport: CodexTransport | undefined): LlmClient {
+  if (!transport) {
+    throw new LlmConfigError(
+      'Codex server AI needs a machine transport — no connected Codex login is available.',
+    )
   }
   const model = backend.model && backend.model !== 'auto' ? backend.model : 'gpt-5.5'
   const effort = codexEffort(backend)
   return {
     label: `codex · ${model} (ChatGPT subscription)`,
-    complete: async (m, t) => await codexCompleteWithAuth(fetchImpl, model, m, t, effort),
+    complete: async (m, t) => await transport.complete(model, m, t, effort),
   }
-}
-
-// ---- Codex backend (ChatGPT subscription, Responses API) ----
-
-const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses'
-
-/** Carries the HTTP status so the caller can refresh-and-retry on a 401. */
-export class CodexHttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message)
-  }
-}
-
-/** Resolve the token and call the backend; on a 401, re-read auth once in case a
- * concurrent codex session rotated the token (we never rotate it ourselves). */
-async function codexCompleteWithAuth(
-  fetchImpl: FetchLike,
-  model: string,
-  messages: LlmMessage[],
-  tools: LlmTool[],
-  effort: 'low' | 'medium' | 'high' = 'medium',
-): Promise<LlmResponse> {
-  let auth = await resolveCodexAuth(fetchImpl)
-  try {
-    return await codexComplete(fetchImpl, auth, model, messages, tools, effort)
-  } catch (err) {
-    if (err instanceof CodexHttpError && err.status === 401) {
-      auth = await resolveCodexAuth(fetchImpl, { rejectedAccessToken: auth.accessToken })
-      return await codexComplete(fetchImpl, auth, model, messages, tools, effort)
-    }
-    throw err
-  }
-}
-
-/** Map our chat-shaped history onto the Responses API's typed `input` items. */
-function toResponsesInput(messages: LlmMessage[]): { instructions: string; input: object[] } {
-  const instructions = messages
-    .filter((m) => m.role === 'system')
-    .map((m) => m.content)
-    .join('\n\n')
-  const input: object[] = []
-  for (const m of messages) {
-    if (m.role === 'system') continue
-    if (m.role === 'user') {
-      input.push({
-        type: 'message',
-        role: 'user',
-        content: [{ type: 'input_text', text: m.content }],
-      })
-    } else if (m.role === 'assistant') {
-      if (m.content) {
-        input.push({
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: m.content }],
-        })
-      }
-      for (const c of m.toolCalls ?? []) {
-        input.push({ type: 'function_call', call_id: c.id, name: c.name, arguments: c.arguments })
-      }
-    } else {
-      input.push({ type: 'function_call_output', call_id: m.toolCallId, output: m.content })
-    }
-  }
-  return { instructions, input }
-}
-
-export async function codexComplete(
-  fetchImpl: FetchLike,
-  auth: CodexAuth,
-  model: string,
-  messages: LlmMessage[],
-  tools: LlmTool[],
-  effort: 'low' | 'medium' | 'high' = 'medium',
-): Promise<LlmResponse> {
-  const { instructions, input } = toResponsesInput(messages)
-  const body = {
-    model,
-    ...(instructions ? { instructions } : {}),
-    input,
-    ...(tools.length > 0
-      ? {
-          tools: tools.map((t) => ({
-            type: 'function',
-            name: t.name,
-            description: t.description,
-            parameters: t.parameters,
-          })),
-          tool_choice: 'auto',
-          parallel_tool_calls: true,
-        }
-      : {}),
-    reasoning: { effort },
-    stream: true,
-    store: false,
-  }
-  const res = await fetchWithTimeout(fetchImpl, CODEX_RESPONSES_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'text/event-stream',
-      authorization: `Bearer ${auth.accessToken}`,
-      'chatgpt-account-id': auth.accountId,
-      'OpenAI-Beta': 'responses=experimental',
-      originator: 'codex_cli_rs',
-      session_id: randomId(),
-    },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    throw new CodexHttpError(res.status, `codex ${res.status}: ${truncate(await res.text(), 400)}`)
-  }
-  return parseResponsesSse(await res.text())
-}
-
-/**
- * The backend streams Server-Sent Events. We don't surface tokens incrementally
- * (the superagent renders a whole turn), so read the full stream and pull the
- * final, completed items: `message` items carry the text, `function_call` items
- * carry tool calls. Reasoning and partial-delta events are ignored.
- */
-function parseResponsesSse(raw: string): LlmResponse {
-  let text = ''
-  const toolCalls: ToolCall[] = []
-  let failure: string | undefined
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trimStart()
-    if (!trimmed.startsWith('data:')) continue
-    const payload = trimmed.slice(5).trim()
-    if (!payload || payload === '[DONE]') continue
-    let evt: {
-      type?: string
-      item?: {
-        type?: string
-        content?: { type?: string; text?: string }[]
-        call_id?: string
-        name?: string
-        arguments?: string
-      }
-      response?: { status?: string; error?: { message?: string } }
-    }
-    try {
-      evt = JSON.parse(payload)
-    } catch {
-      continue
-    }
-    if (evt.type === 'response.output_item.done' && evt.item) {
-      const item = evt.item
-      if (item.type === 'message') {
-        for (const part of item.content ?? []) {
-          if (part.type === 'output_text' && part.text) text += part.text
-        }
-      } else if (item.type === 'function_call' && item.name) {
-        toolCalls.push({
-          id: item.call_id ?? randomId(),
-          name: item.name,
-          arguments: item.arguments ?? '{}',
-        })
-      }
-    } else if (evt.type === 'response.failed' || evt.type === 'error') {
-      failure = evt.response?.error?.message ?? 'codex stream failed'
-    }
-  }
-  if (failure && !text && toolCalls.length === 0) throw new Error(failure)
-  return { text, toolCalls }
-}
-
-function randomId(): string {
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
 // ---- OpenAI-compatible (OpenRouter, OpenAI) ----

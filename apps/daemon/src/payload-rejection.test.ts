@@ -132,4 +132,46 @@ describe('payloadRejectionReply (POD-1464)', () => {
       ).toBeUndefined()
     })
   })
+
+  /**
+   * POD-4750 — the codex arm (future tolerance, not today's fleet).
+   *
+   * A daemon predating this arm drops a codexCompleteRequest outright and the
+   * server's deadline reports "no reply … may be older". This arm is for the
+   * NEXT widening: a daemon that HAS it but cannot read the frame answers on
+   * the frame the server waits for, with the update remedy.
+   */
+  describe('codexCompleteRequest (POD-4750)', () => {
+    it('answers with a failed turn result naming the version and the remedy', () => {
+      const prev = process.env.PODIUM_APP_VERSION
+      process.env.PODIUM_APP_VERSION = '0.4.1'
+      try {
+        const reply = payloadRejectionReply(
+          frame({
+            type: 'codexCompleteRequest',
+            requestId: 'cc-9',
+            model: 'gpt-5.5',
+            messages: [],
+            tools: [],
+            effort: 'medium',
+            futureField: 'unreadable-here',
+          }),
+          new Error('Unrecognized key(s) in object: futureField'),
+        )
+        expect(reply).toMatchObject({
+          type: 'codexCompleteResult',
+          requestId: 'cc-9',
+          ok: false,
+        })
+        const error = (reply as { error: string }).error
+        expect(error).toContain('podium 0.4.1')
+        expect(error).toMatch(/update podium on this machine/i)
+        // Credential-free by construction: the refusal names no token.
+        expect(error).not.toMatch(/Bearer|refresh/i)
+      } finally {
+        if (prev === undefined) delete process.env.PODIUM_APP_VERSION
+        else process.env.PODIUM_APP_VERSION = prev
+      }
+    })
+  })
 })

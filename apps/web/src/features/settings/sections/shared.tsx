@@ -105,6 +105,11 @@ export interface AccountView {
   machines?: string[]
   identityFingerprint?: string
   status: 'connected' | 'not-configured' | 'unknown'
+  /**
+   * Native Codex only (POD-4750): the machine whose login the viewer's server
+   * AI runs on. Absent when no login is usable for the viewer.
+   */
+  serverAi?: { machineId: MachineId; machineName: string }
   /** Managed only: 'stored' = the accounts table (Podium injects it, and can drop
    *  it again); 'legacy' = a pre-hub Settings → API keys value the server has no
    *  row for, so it cannot be disconnected from here. */
@@ -357,8 +362,8 @@ export function RoleBackendEditor({
       </>
     ) : accountId === 'native:codex' ? (
       <>
-        Uses your local ChatGPT login (<code>codex login</code> on the server) — no API key; it uses
-        your plan&apos;s included Codex capacity while limits allow.
+        Uses the ChatGPT login (<code>codex login</code>) on the machine the catalog names — no
+        API key; it uses your plan&apos;s included Codex capacity while limits allow.
       </>
     ) : isNative ? (
       <>

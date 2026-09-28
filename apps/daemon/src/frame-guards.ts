@@ -42,6 +42,11 @@ export function controlFrameByteLength(raw: RawData): number {
  *
  *   - `repoOpRequest`  → `repoOpResult`      (POD-1464, the observed case)
  *   - `approvalExecRequest` → `approvalExecResult` (POD-2223)
+ *   - `codexCompleteRequest` → `codexCompleteResult` (POD-4750: a newer server
+ *     asking an older daemon for a server-side LLM turn. Worth nothing to the
+ *     fleet already out there — a daemon predating this arm drops the frame and
+ *     the server's deadline reports "no reply … may be older" — and everything
+ *     to the NEXT widening.)
  *
  * The approval arm exists because the approval broker's op catalog GROWS. `ApprovalOp` is
  * a closed union with closed enums inside it, so every value a newer server adds — a new
@@ -92,6 +97,15 @@ export function payloadRejectionReply(rawText: string, err: unknown): DaemonMess
     // `exitCode: null` is the honest value: nothing was spawned, so there is no exit code
     // to report. The server folds `ok: false` into a `failed` row with this text.
     return { type: 'approvalExecResult', requestId, ok: false, exitCode: null, output }
+  }
+
+  if (type === 'codexCompleteRequest') {
+    return {
+      type: 'codexCompleteResult',
+      requestId,
+      ok: false,
+      error: `this daemon (podium ${version}) does not know server-side Codex turns — update podium on this machine, then ask again`,
+    }
   }
 
   return undefined

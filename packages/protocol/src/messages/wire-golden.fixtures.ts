@@ -1565,4 +1565,48 @@ export const WIRE_FIXTURES: WireFixture[] = [
       state: 'idle',
     },
   },
+  // ---- server-side LLM over a catalog Codex login (POD-4750): additive arms,
+  // appended, never regenerated over — every fixture above stays byte-identical.
+  {
+    name: 'frame.codexCompleteRequest',
+    schema: ControlMessage,
+    value: {
+      type: 'codexCompleteRequest',
+      requestId: 'cc-1',
+      model: 'gpt-5.5',
+      messages: [
+        { role: 'system', content: 'You are an orchestrator.' },
+        { role: 'user', content: 'status please' },
+        {
+          role: 'assistant',
+          content: 'checking',
+          toolCalls: [{ id: 'c1', name: 'git', arguments: '{}' }],
+        },
+        { role: 'tool', content: 'clean', toolCallId: 'c1', name: 'git' },
+      ],
+      tools: [{ name: 'git', description: 'run git', parameters: { type: 'object' } }],
+      effort: 'medium',
+    },
+  },
+  {
+    name: 'frame.codexCompleteResult',
+    schema: DaemonMessage,
+    value: {
+      type: 'codexCompleteResult',
+      requestId: 'cc-1',
+      ok: true,
+      text: 'all clean',
+      toolCalls: [],
+    },
+  },
+  {
+    name: 'frame.codexCompleteResult.failed',
+    schema: DaemonMessage,
+    value: {
+      type: 'codexCompleteResult',
+      requestId: 'cc-2',
+      ok: false,
+      error: 'Codex is not logged in on this machine — run `codex login`.',
+    },
+  },
 ]

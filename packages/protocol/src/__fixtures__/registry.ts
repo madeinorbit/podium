@@ -31,6 +31,7 @@ import * as approvals from '../messages/approvals'
 import * as automations from '../messages/automations'
 import * as browserOpen from '../messages/browser-open'
 import * as client from '../messages/client'
+import * as codex from '../messages/codex'
 import * as control from '../messages/control'
 import * as credentials from '../messages/credentials'
 import * as daemon from '../messages/daemon'
@@ -72,6 +73,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['automations', automations],
   ['browser-open', browserOpen],
   ['client', client],
+  ['codex', codex],
   ['control', control],
   ['credentials', credentials],
   ['daemon', daemon],

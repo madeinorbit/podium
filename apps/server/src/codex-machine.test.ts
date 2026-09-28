@@ -1,0 +1,169 @@
+import { asMachineId, asUserId, Inventory } from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import {
+  codexAuthorizerFor,
+  codexLoginMachines,
+  pickCodexMachine,
+  type CodexLoginMachine,
+  type CodexLoginMachineSource,
+} from './codex-machine'
+import { LlmConfigError } from './llm-error'
+
+const VERSION = 'test-server-version'
+
+function source(
+  id: string,
+  opts: {
+    login?: 'in' | 'out'
+    online?: boolean
+    appVersion?: string | null
+    revoked?: boolean
+    name?: string
+  } = {},
+): CodexLoginMachineSource {
+  return {
+    id: asMachineId(id),
+    name: opts.name ?? id,
+    revokedAt: opts.revoked ? '2026-09-28T00:00:00.000Z' : null,
+    inventory: Inventory.parse({
+      os: 'linux',
+      arch: 'x64',
+      agents: [
+        {
+          kind: 'codex',
+          installed: true,
+          login: { state: opts.login ?? 'in' },
+        },
+      ],
+    }),
+    appVersion: opts.appVersion ?? null,
+  }
+}
+
+const allowAll = () => undefined
+const denyAll = (id: unknown) => `no access to ${String(id)}`
+
+describe('codexLoginMachines', () => {
+  it('excludes revoked rows and projects login/online/version', () => {
+    const out = codexLoginMachines(
+      [
+        source('a', { login: 'in', appVersion: 'v1' }),
+        source('b', { login: 'out' }),
+        source('c', { revoked: true }),
+      ],
+      (id) => String(id) === asMachineId('a'),
+    )
+    expect(out).toEqual([
+      { id: asMachineId('a'), name: 'a', loginConnected: true, online: true, appVersion: 'v1' },
+      { id: asMachineId('b'), name: 'b', loginConnected: false, online: false, appVersion: null },
+    ])
+  })
+})
+
+describe('pickCodexMachine', () => {
+  const machine = (
+    id: string,
+    opts: { online?: boolean; appVersion?: string | null; name?: string } = {},
+  ): CodexLoginMachine => ({
+    id: asMachineId(id),
+    name: opts.name ?? id,
+    loginConnected: true,
+    online: opts.online ?? true,
+    appVersion: opts.appVersion ?? VERSION,
+  })
+
+  it('prefers the default machine when it holds a usable login', () => {
+    const picked = pickCodexMachine([machine('a'), machine('b')], {
+      defaultMachineId: asMachineId('b'),
+      authorize: allowAll,
+      serverVersion: VERSION,
+    })
+    expect(picked).toEqual({ machineId: asMachineId('b'), machineName: 'b' })
+  })
+
+  it('falls back deterministically by (name, id) when the default is unusable', () => {
+    const picked = pickCodexMachine([machine('b'), machine('a')], {
+      defaultMachineId: asMachineId('zzz'),
+      authorize: allowAll,
+      serverVersion: VERSION,
+    })
+    expect(picked.machineId).toBe(asMachineId('a'))
+  })
+
+  it('does NOT pick a connected login on a machine the user may not use', () => {
+    // User B's box is logged in to Codex; the requesting user is granted only
+    // machine-a. The pick must land on machine-a — spending B's subscription
+    // silently is the failure this guards.
+    const authorize = (id: { toString(): string }) =>
+      String(id) === asMachineId('machine-a') ? undefined : 'you do not have access to use this machine'
+    const picked = pickCodexMachine([machine('machine-b'), machine('machine-a')], {
+      authorize,
+      serverVersion: VERSION,
+    })
+    expect(picked).toEqual({ machineId: asMachineId('machine-a'), machineName: 'machine-a' })
+  })
+
+  it('names nothing when the only connected logins belong to other users', () => {
+    let message = ''
+    try {
+      pickCodexMachine([machine('user-b-box')], { authorize: denyAll, serverVersion: VERSION })
+    } catch (err) {
+      expect(err).toBeInstanceOf(LlmConfigError)
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/run `codex login`/)
+    // The other user's machine name must not leak to the unauthorized caller.
+    expect(message).not.toContain('user-b-box')
+  })
+
+  it('reports an offline picked machine by name (never a hang)', () => {
+    expect(() =>
+      pickCodexMachine([machine('desk', { online: false })], {
+        authorize: allowAll,
+        serverVersion: VERSION,
+      }),
+    ).toThrowError(/Codex login on desk is offline/)
+  })
+
+  it('refuses fast when the daemon predates the handler', () => {
+    expect(() =>
+      pickCodexMachine([machine('oldbox', { appVersion: '0.4.1' })], {
+        authorize: allowAll,
+        serverVersion: VERSION,
+      }),
+    ).toThrowError(/too old for Codex server AI/)
+  })
+
+  it('proceeds when the daemon never reported a version (deadline message covers age)', () => {
+    const picked = pickCodexMachine([machine('mystery', { appVersion: null })], {
+      authorize: allowAll,
+      serverVersion: VERSION,
+    })
+    expect(picked).toEqual({ machineId: asMachineId('mystery'), machineName: 'mystery' })
+  })
+})
+
+describe('codexAuthorizerFor', () => {
+  const machines = {
+    ownershipRows: async () => [{ id: asMachineId('m1'), name: 'm1', revokedAt: null, daemonAssigned: true, daemonAvailable: true }],
+    grantsForMachine: async () => [],
+  }
+
+  it('refuses a non-admin outright', async () => {
+    const authorize = await codexAuthorizerFor(
+      { users: { get: async () => ({ role: 'member' }) as never }, machines },
+      asUserId('u1'),
+      'use',
+    )
+    expect(authorize(asMachineId('m1'))).toMatch(/admin account/)
+  })
+
+  it('names the refused action (start login vs use share one rule)', async () => {
+    const admin = { get: async () => ({ role: 'admin' }) as never }
+    const forLogin = await codexAuthorizerFor({ users: admin, machines }, asUserId('u1'), 'start login')
+    const forUse = await codexAuthorizerFor({ users: admin, machines }, asUserId('u1'), 'use')
+    // No grants: an admin owns nothing here, so both refuse — with their own noun.
+    expect(forLogin(asMachineId('m1'))).toBe('you do not have access to start login on this machine')
+    expect(forUse(asMachineId('m1'))).toBe('you do not have access to use on this machine')
+  })
+})

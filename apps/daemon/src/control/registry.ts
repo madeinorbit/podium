@@ -5,6 +5,7 @@ import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'
+import { codexHandlers } from './codex'
 import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
@@ -122,6 +123,7 @@ const credentialHandlers: Pick<
 export const CONTROL_HANDLERS: ControlHandlers = {
   ...sessionHandlers,
   ...runtimeHandlers,
+  ...codexHandlers,
   ...discoveryHandlers,
   ...transcriptHandlers,
   ...fileHandlers,

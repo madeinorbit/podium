@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
+import { CodexCompleteRequestMessage } from './codex'
 import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
   BrowseDirsRequestMessage,
@@ -196,5 +197,9 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  so the golden corpus's arm-by-index sampling keeps every existing arm's
    *  index — see the RuntimeConfigureRequestMessage note above. */
   CloseClientTerminalMessage,
+  /** Server-side LLM over a catalog Codex login (POD-4750). Appended at the
+   *  END for the same index-stability reason — an older daemon that does not
+   *  know this frame is answered by the frame-guard's payload-rejection arm. */
+  CodexCompleteRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
