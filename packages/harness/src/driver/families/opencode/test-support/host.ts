@@ -108,6 +108,10 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
 
     ...(options.onQueueAbandoned ? { onQueueAbandoned: options.onQueueAbandoned } : {}),
 
+    async readHistory() {
+      return { items: [], hasMore: false as const }
+    },
+
     bindings: {
       recorded: (sessionId) => entries.get(sessionId),
       bound: (entry) => {

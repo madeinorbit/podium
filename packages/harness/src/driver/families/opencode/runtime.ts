@@ -1,4 +1,3 @@
-import { pageHistory } from '../../history'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * THE opencode SERVER DRIVER (POD-1761 W5 — the epic's goal; spec §2, §3, §6).
@@ -41,9 +40,13 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
 
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type {
+  QueueDrainAbandonedReason,
+  RuntimeHistoryPage,
+  RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -206,6 +209,28 @@ export interface OpencodeRuntimeHost {
     url: string
     mode: AttachRequest['mode']
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+
+  /**
+   * THE STORE READ OVER THE SQLITE DATABASE, and the ONLY history source.
+   *
+   * The same injected `readHistory` port the terminal, claude-sdk, headless
+   * and codex families answer `transcript.history` through: the host resolves
+   * the session's transcript source (the opencode sqlite database, via the
+   * opencode adapter's transcript grammar) and slices it with Store cursors.
+   * A session with no messages yet reads as an empty page, never an error.
+   */
+  readHistory(
+    session: {
+      sessionId: SessionId
+      agentKind: 'opencode'
+      cwd: string
+      resume?: ResumeRef
+      pathHint?: string
+    },
+    range: Omit<RuntimeHistoryRange, 'direction'> & {
+      direction?: RuntimeHistoryRange['direction']
+    },
+  ): Promise<RuntimeHistoryPage>
 
   /**
    * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
@@ -1693,15 +1718,32 @@ export function createOpencodeRuntime(
       },
 
       transcript: {
-        async history(range) {
-          const messages = await session.client.messages(session.opencodeSessionId)
-          const items: TranscriptItem[] = []
-          for (const message of messages) {
-            for (const part of message.parts) {
-              items.push(...partToItems(session.opencodeSessionId, message.info, part))
-            }
-          }
-          return pageHistory(items, session.opencodeSessionId, range)
+        /**
+         * HISTORY FROM DISK, never from the live process.
+         *
+         * The sqlite database is the conversation: opencode persists the full
+         * reply 25–100 ms after the stream ends, and `GET /session/{id}/message`
+         * returns exactly what the database holds — a disk read with HTTP and
+         * a process in front of it. So this delegates to the injected Store
+         * port over the sqlite database, like the terminal, claude-sdk,
+         * headless and codex families do over their own stores.
+         *
+         * A session with no messages yet reads as an empty page, not an error.
+         */
+        async history(
+          range: Omit<RuntimeHistoryRange, 'direction'> & {
+            direction?: RuntimeHistoryRange['direction']
+          },
+        ): Promise<RuntimeHistoryPage> {
+          return host.readHistory(
+            {
+              sessionId: session.sessionId,
+              agentKind: 'opencode',
+              cwd: session.spec.workdir,
+              ...(session.binding.resume ? { resume: session.binding.resume } : {}),
+            },
+            range,
+          )
         },
       },
 

@@ -31,7 +31,7 @@
  * `../../permitted-failures.ts`.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent } from '../../events.js'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
@@ -43,6 +43,8 @@ import { assertAttachHonoursOneControlLease } from '../../testing/conformance/su
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import { DriverRefusalError } from '../../errors.js'
+import { partToItems } from './map.js'
 import { createOpencodeClient, type OpencodeClient } from './client.js'
 import { SERVER_PERMITTED_FAILURES } from './permitted-failures.js'
 import {
@@ -226,6 +228,40 @@ function makeWorld(options: WorldOptions = {}): {
       return { streamId: `oc-attach-${input.sessionId}`, warmTtlMs: 300_000 }
     },
 
+    async readHistory(session, range) {
+      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
+      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
+      }
+      const opencodeId = session.resume?.value ?? opencodeIds.get(session.sessionId) ?? ''
+      const items = opencodeId ? storeItemsFor(opencodeId) : []
+      // Store cursors carry the anchor as an index string in `pathHint`.
+      const anchor = range.from?.pathHint ? Number.parseInt(range.from.pathHint, 10) : undefined
+      const direction = range.direction ?? 'before'
+      const limit = range.limit
+      let page: TranscriptItem[]
+      let start: number
+      let end: number
+      if (direction === 'after') {
+        start = anchor === undefined || Number.isNaN(anchor) ? 0 : anchor + 1
+        end = Math.min(items.length, start + limit)
+        page = items.slice(start, end)
+      } else {
+        end = anchor === undefined || Number.isNaN(anchor) ? items.length : anchor
+        start = Math.max(0, end - limit)
+        page = items.slice(start, end)
+      }
+      const cursor = (index: number) => ({ segmentId, pathHint: String(index), components: {} })
+      return {
+        items: page,
+        ...(page.length ? { head: cursor(start), tail: cursor(end - 1) } : {}),
+        hasMore: direction === 'after' ? end < items.length : start > 0,
+      }
+    },
+
     bindings,
     now: () => Date.UTC(2026, 7, 14) + seq * 1000,
     randomSecret: () => `fake-secret-${++seq}`,
@@ -242,6 +278,36 @@ function makeWorld(options: WorldOptions = {}): {
     const id = opencodeIds.get(sessionId)
     if (!id) throw new Error(`no opencode session id recorded for ${sessionId}`)
     return id
+  }
+
+  /**
+   * THE FAKE STORE READ, through the same mapper the Store uses.
+   *
+   * The fake keeps per-session messages (the on-disk conversation the real
+   * Store would parse from sqlite). History maps them with `partToItems` —
+   * the same live-shape mapping the driver's old `client.messages()` read
+   * used. What matters for the conformance property is the SOURCE: this reads
+   * the store map, never the live `GET /session/{id}/message` RPC, so a driver
+   * that regressed to the live call would still agree here — the armed proof
+   * for this family is the production sqlite test in `engine-host.test.ts`,
+   * where an empty `readHistory` turns the new assertions red.
+   */
+  const storeItemsFor = (opencodeSessionId: string): TranscriptItem[] => {
+    const session = store.get(opencodeSessionId)
+    if (!session) return []
+    const items: TranscriptItem[] = []
+    for (const message of session.messages) {
+      for (const part of message.parts) {
+        items.push(
+          ...partToItems(
+            opencodeSessionId,
+            message.info as never,
+            part as never,
+          ),
+        )
+      }
+    }
+    return items
   }
 
   /** Distinct message/part ids per streamed reply, so two turns in one property
@@ -464,6 +530,18 @@ function makeWorld(options: WorldOptions = {}): {
       // The cached result of a REAL credential-free request made at launch, to
       // this session's REAL listener. See `host.launch`.
       return { refused: secretRefused.get(sessionId) === true }
+    },
+
+    /**
+     * THE STORE'S OWN READ, straight off the fake store map — no driver, no
+     * RPC. The suite compares it against `transcript.history` after a turn;
+     * the two agree exactly when the driver delegates to the injected Store
+     * port.
+     */
+    async readStoreHistory(sessionId) {
+      const opencodeId = opencodeIds.get(sessionId)
+      if (!opencodeId) return []
+      return storeItemsFor(opencodeId)
     },
   }
 
