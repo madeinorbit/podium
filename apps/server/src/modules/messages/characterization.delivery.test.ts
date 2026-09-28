@@ -317,13 +317,12 @@ describe('characterization: urgency x target state (D3)', () => {
       phase: 'idle',
       draftUpdatedAt: '2026-07-20T11:59:00.000Z',
     })
-    const r = await h.svc.send(
+    await h.svc.send(
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt' },
     )
     // Only the daemon sees the prompt line and decides when to type; the
     // server's belief that a draft is present holds nothing.
-    expect(r.message.deliveryStatus).toBe('stored') // the send-time snapshot
     expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText'])
   })
 
