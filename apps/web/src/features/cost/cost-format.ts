@@ -37,7 +37,7 @@ import {
   formatCostRounded,
   formatCostWeightRatio,
 } from '@podium/client-core/viewmodels'
-import type { CostHarness } from '@podium/model/browser'
+import { COST_FULL_ATTRIBUTION_HARNESS, type CostHarness } from '@podium/model/browser'
 
 /**
  * "≈$226", "≈$4.80" — a magnitude, three significant figures, cents only under
@@ -110,10 +110,15 @@ export function floorLabel(
   uncostedSessionCount = 0,
 ): string {
   const parts: string[] = []
-  // A wholly-Claude task now reaches this label (its floor can come from the
-  // unread count alone) and "all Claude" would state a reason that is never
-  // true, so the harness clause is drawn only when a non-Claude harness ran.
-  const named = harnesses.some((h) => h !== 'claude-code') ? costHarnessLabel(harnesses) : ''
+  // A wholly fully-attributed task now reaches this label (its floor can come
+  // from the unread count alone) and naming that harness would state a reason
+  // that is never true, so the harness clause is drawn only when a harness
+  // without complete attribution ran (POD-4737: the model slice, not a
+  // literal — a seventh harness without full attribution is named, one with
+  // it is not).
+  const named = harnesses.some((h) => h !== COST_FULL_ATTRIBUTION_HARNESS)
+    ? costHarnessLabel(harnesses)
+    : ''
   if (named !== '') parts.push(named)
   if (uncostedSessionCount > 0)
     parts.push(`${uncostedSessionCount} session${uncostedSessionCount === 1 ? '' : 's'} unread`)
