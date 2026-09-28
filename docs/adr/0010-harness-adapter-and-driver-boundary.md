@@ -51,7 +51,7 @@ Three overlapping packages (`packages/transcript`, `packages/composer`, `package
 
 - `leak` — genuine residual reference; **MUST only shrink**.
 - `policy` — product preference, not harness fact (e.g. the superagent's harness order in `harness-defaults.ts`, which reflects what Podium has exercised and **MUST NOT** move into an adapter). Each `policy` entry **MUST** point at its owning policy module with a one-line reason.
-- Comments, fixtures, and historical migrations are **excluded** from the scan. Closed sets of harness names live **only** in the registry.
+- Comments, fixtures, and historical migrations are **excluded** from the scan. The closed set of harness names has **one** definition, `HarnessAgent` in `@podium/model` (see *The closed set lives in the model package* below); every subset is derived beside it, and the registry derives its manifest table over it. No other code restates the set.
 - Expression style is free behind the boundary: data and pure strategies are preferred where they simplify; a small harness-local strategy implementation is permitted where forcing declarations would build an interpreter. The invariant is *vendor behaviour stays behind the boundary*, not *one programming style*.
 
 **Rationale:** the external review's "no vendor identifier anywhere" reading is rejected — it would move legitimate application policy into adapters or reward name-scan gaming while the coupling survives. `leak`/`policy` keeps the gate mechanical without that perverse incentive.
@@ -62,7 +62,7 @@ Three overlapping packages (`packages/transcript`, `packages/composer`, `package
 
 | Entry | Contents | Who may import |
 |---|---|---|
-| root | `adapter.ts` (`Declared<T>`), `registry.ts` (one enumeration, totality check, closed set) | everyone |
+| root | `adapter.ts` (`Declared<T>`), `registry.ts` (one enumeration over the closed set from `@podium/model`, totality check) | everyone |
 | `/driver` | `contract.ts` — intent-level contract, no host code | server **may** import |
 | `/driver/host` | construction, adopt, attach | daemon only |
 | `/store` | reader, tailer, slice, cursor, identity, scanner, file-chain/mirror/stream sources (both sides); `sources/sqlite.ts` **host-only** | both sides per source |
@@ -70,7 +70,7 @@ Three overlapping packages (`packages/transcript`, `packages/composer`, `package
 | `/browser` | Descriptor projection (bundled fallback) | clients |
 
 - The contract entries (`/driver`, `/store`, root) **MUST** import no host code: no `child_process`, `net`, `http`, no `@podium/process`. An **import check enforces** it; the server may import them, clients may import `/browser` only.
-- A harness on existing mechanisms is one directory plus one registry line; the compiler lists every missing section. A genuinely new protocol or store kind adds an implementation **inside the harness package** and still changes no application consumer.
+- A harness on existing mechanisms is one directory, one registry line, and its name added to `HarnessAgent` in `@podium/model`; the compiler lists every missing section. A genuinely new protocol or store kind adds an implementation **inside the harness package** and still changes no application consumer.
 
 **Rationale:** the lint enforces direction, so one package gives a one-word answer to "where is the harness code" without splitting knowledge from its mechanisms.
 
@@ -125,6 +125,10 @@ ADR 8 D4.3 decided:
 > "**Rejected:** rename to `transcript-core`; move slice core into `model` (not a vocabulary entity); move pure mappers into `harness` (would force harness deps on browser-safe consumers of pure parse)."
 
 The third rejection — "move pure mappers into `harness`" — is **amended**: per-harness transcript grammars (the pure record→item mappers) **do** move into `adapters/<harness>/transcript.ts`, consumed through the Store mechanism. The reason lapsed with **POD-4095**: browser consumers no longer import harness host code — they read the served/bundled Descriptor projection through the `/browser` entry whose host-only imports are check-enforced — so the feared dependency is answered by construction rather than by keeping the mappers out. The remainder of D4.3 stands: no `transcript-core` rename, and the slice/page core is not moved into `model`.
+
+## The closed set lives in the model package
+
+**DECISION (user, 2026-09-28):** the closed list of harness names stays in `@podium/model` (`HarnessAgent`, `packages/model/src/entities/agent.ts`), not in `@podium/harness`. The model package's entity schemas validate harness names at runtime (for example the handoff record's `agentKind`, the cost, usage and portable-credential kinds), and `@podium/harness` already imports `@podium/model` throughout. Defining the list in the harness package would make the model import the harness back: a package cycle. So adding a harness touches its adapter directory, its registry line, **and** one entry in `HarnessAgent`. The earlier wording ("one directory plus one registry line"; "closed sets live only in the registry") overstated the design and is corrected above. A test fixture harness registers through `registerTestManifest` without joining the closed set; that is a test double, not the path a shipped harness takes.
 
 ## References
 

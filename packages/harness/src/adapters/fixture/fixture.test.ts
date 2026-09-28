@@ -17,7 +17,9 @@ import { fixtureChainPaths, fixtureSessionPath } from './transcript.js'
 
 /**
  * THE FIXTURE HARNESS, PROVING A SEVENTH MANIFEST LANDS CLEANLY (POD-4474,
- * spec §7: adapters/<name>/ plus one registry line).
+ * spec §7: adapters/<name>/ plus one registry line). A SHIPPED harness also
+ * adds its name to `HarnessAgent` in @podium/model, where the closed set lives
+ * (ADR 10); this test double registers through `registerTestManifest` instead.
  *
  * Every assertion below reads through the registered manifest — the same
  * `manifestFor` dispatch the daemon's control handlers land on — never the

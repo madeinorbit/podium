@@ -40,7 +40,7 @@ details{margin:8px 0 18px}summary{cursor:pointer;font-weight:500;color:var(--acc
 <p><strong>Every fact about a harness lives in exactly one place, and every use of a harness goes through one of three generic mechanisms, or the projection served to clients.</strong> Adding a harness on existing mechanisms means adding one directory. No vendor-specific behaviour lives outside that directory and the driver families, and a lint proves it.</p>
 <p>Measured by:</p>
 <ul>
-<li>A harness that uses existing driver families and store kinds is one directory under <code>adapters/</code> plus a registry entry; the compiler lists every missing section and no application code changes. A harness with a genuinely new protocol or store kind adds an implementation inside the harness package and still changes no application consumer.</li>
+<li>A harness that uses existing driver families and store kinds is one directory under <code>adapters/</code>, a registry entry, and its name in <code>HarnessAgent</code> (<code>@podium/model</code>, where the closed set lives to avoid a package cycle; ADR 10, decided 2026-09-28); the compiler lists every missing section and no application code changes. A harness with a genuinely new protocol or store kind adds an implementation inside the harness package and still changes no application consumer.</li>
 <li>The boundary lint passes with an empty allow-list for the daemon, the server, the web and mobile apps, and the shared packages.</li>
 <li>"How does Podium talk to a harness" has one answer readable from imports: the Driver. "How does Podium read a transcript" has one answer: the Store. The server's transcript lake and a live session read with the same code, and the same logical record receives the same identity whether read live, mirrored, relocated or replayed.</li>
 <li>The codebase is smaller: three packages dissolve into one, and eight daemon files that each knew one harness disappear.</li>
@@ -170,7 +170,7 @@ details{margin:8px 0 18px}summary{cursor:pointer;font-weight:500;color:var(--acc
 <p>One package. Everything about harnesses is in <code>@podium/harness</code>. Inside it, <code>adapters/</code> is what is true about each harness and the other directories are how Podium uses any harness. The entries carry the host, contract and browser splits. <code>packages/transcript</code>, <code>packages/composer</code> and <code>packages/agent-runtime</code> dissolve into it. <code>@podium/process</code> (the durable host, pty and screen) stays separate because it is not about harnesses.</p>
 <pre>packages/harness/src/
   adapter.ts                                the Adapter type; every section required; Declared&lt;T&gt; = supported | declined(reason)
-  registry.ts                               the one enumeration; totality check; the closed set lives here
+  registry.ts                               the one enumeration over the closed set (defined in @podium/model); totality check
   adapters/&lt;harness&gt;/                       KNOWLEDGE · one dir per harness · one file per section
     launch  environment  instrumentation  runtime  exec  state  handoff
     transcript  discovery  inventory  credentials  usage  install
@@ -275,7 +275,7 @@ apps/server/src/modules/memory/lake.ts      a Store over mirrored bytes, from @p
 <h2>7. Acceptance for the whole design</h2>
 <ul>
 <li>The boundary lint passes with an empty allow-list for <code>apps/daemon</code>, <code>apps/server</code>, <code>apps/web</code>, <code>apps/mobile</code>, <code>packages/client-core</code>, <code>packages/model</code>, <code>packages/protocol</code>, <code>packages/runtime</code>.</li>
-<li>Adding a harness on existing mechanisms touches <code>adapters/&lt;name&gt;/</code> and one registry line. A test adds a fixture harness this way with meaningful supported behaviour (not a column of declines) and every mechanism serves it through the real server-to-daemon route.</li>
+<li>Adding a harness on existing mechanisms touches <code>adapters/&lt;name&gt;/</code>, one registry line and one <code>HarnessAgent</code> entry in <code>@podium/model</code>. A test adds a fixture harness the same way, except that it registers through <code>registerTestManifest</code> instead of joining the closed set, with meaningful supported behaviour (not a column of declines) and every mechanism serves it through the real server-to-daemon route.</li>
 <li>The driver conformance suite runs every family. The Store golden tests run every declared grammar live and mirrored with identical ids, and cover truncation, archived incarnations, partial records, relocation and reconnect replay. The Inventory probe fixture runs per harness.</li>
 <li>Behavioural guarantees are exercised through the application-to-daemon route, not only against a driver: receipts, typed refusals, configure timing, attachment semantics, capability resolution at all three scopes.</li>
 <li>Recovery under failure is tested at the points that matter: restart or disconnect after delivery but before acknowledgement, during an open interaction, while a native terminal holds control, and during transcript mirroring; each asserts honest recovery or explicit uncertainty.</li>
