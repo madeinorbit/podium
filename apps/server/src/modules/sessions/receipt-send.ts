@@ -73,8 +73,6 @@ export interface ReceiptSendInput {
   principal?: InboxPrincipalReference
   sourceMessageId?: string
   mutationId?: MutationId
-  /** Only the existing recovery interaction may cross a terminal provider failure. */
-  allowErrored?: boolean
 }
 
 /** The legacy-shaped answer. IDENTICAL in both modes by design: it is what keeps
@@ -154,17 +152,10 @@ export interface ReceiptSenderPorts {
    * `now` may go straight to the driver.
    */
   queueNotEmpty(sessionId: SessionId): boolean
-  /**
-   * A native terminal view owns the human-controller lease. Sends received
-   * while it is declared must enter the server FIFO, so the synchronous answer
-   * can honestly say queued and the row survives a daemon restart.
-   */
-  nativeViewActive?(sessionId: SessionId): boolean
-
-  /** Human-facing refusal for deliberate archive intent. Never overridable. */
+  /** Human-facing refusal for deliberate archive intent — the one lifecycle
+   *  fact the server owns. What the agent is doing (errored, a native view
+   *  holding the lease, busy) is the driver's to answer (POD-4775). */
   archiveReason?(sessionId: SessionId): string | undefined
-  /** Human-facing refusal when the session is stopped on a non-retryable provider error. */
-  failureReason?(sessionId: SessionId): string | undefined
   /** The principal an unattributed turn is queued as. Supplied by the composition
    *  root so "who is system" is answered in one visible place. */
   systemPrincipal(): InboxPrincipalReference
@@ -211,13 +202,10 @@ export class ReceiptSender {
     input: ReceiptSendInput,
     onReceipt?: ReceiptReconciler,
   ): Promise<ReceiptSendResult> {
-    // Archive is a deliberate human boundary, not an errored run. Recovery may
-    // override the provider failure below, but it must never enqueue, forward,
-    // or report success for an archived session.
+    // Archive is a deliberate human boundary: never enqueue, forward, or report
+    // success for an archived session.
     const archiveReason = this.ports.archiveReason?.(input.sessionId)
     if (archiveReason) return { ok: false, reason: archiveReason }
-    const failureReason = this.ports.failureReason?.(input.sessionId)
-    if (failureReason && !input.allowErrored) return { ok: false, reason: failureReason }
 
     const invalidAttachment = input.attachments?.find(
       (attachment) => !attachmentMatchesSession(input.sessionId, attachment),
@@ -269,11 +257,8 @@ export class ReceiptSender {
     // the liveness check and overtake the row currently going out.
     const orderingHold =
       (via === 'now' || via === 'wake') && this.ports.queueNotEmpty(input.sessionId)
-    const nativeViewHold =
-      via !== 'queue' && this.ports.nativeViewActive?.(input.sessionId) === true
     if (
       via === 'queue' ||
-      nativeViewHold ||
       orderingHold ||
       (via === 'wake' && !this.ports.liveWithEmptyQueue(input.sessionId))
     ) {
@@ -392,7 +377,6 @@ export class ReceiptSender {
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
       principal: input.principal ?? this.ports.systemPrincipal(),
-      ...(input.allowErrored ? { allowErrored: true } : {}),
       // EVERYTHING THE LEGACY VERB CARRIED, CARRIED. A queued turn that lost its
       // `mutationId` makes every steward/automation retry a duplicate rather
       // than a no-op; one that lost its `sourceMessageId` is invisible to the

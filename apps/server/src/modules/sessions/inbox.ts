@@ -22,8 +22,6 @@ import type {
   UserId,
 } from '@podium/model'
 import {
-  agentErrorRecoveryInstruction,
-  formatAgentError,
   actorAgent,
   actorSystem,
   actorUser,
@@ -308,11 +306,6 @@ export interface SessionInboxDeps {
    * grant table. Production always injects it.
    */
   authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean>
-  /**
-   * Native terminal ownership parks sends in the durable FIFO until the view
-   * releases the human-controller lease.
-   */
-  nativeViewActive?(sessionId: SessionId): boolean
 
   /** Bind-reported contract delivery: true means the daemon built a driver handle
   * for this session and the contract is its only delivery. Shells and unbound
@@ -382,8 +375,6 @@ export interface InboxSendInput {
   inputOrigin?: ObservationInputOrigin
   principal?: InboxPrincipalReference
   sourceMessageId?: string
-  /** Only the existing recovery interaction may cross a terminal provider failure. */
-  allowErrored?: boolean
 }
 
 const initialPromptQueueId = (sessionId: SessionId): string =>
@@ -392,32 +383,13 @@ const initialPromptQueueId = (sessionId: SessionId): string =>
 const isInitialPromptRow = (sessionId: SessionId, row: QueuedInboxMessage): boolean =>
   row.id === initialPromptQueueId(sessionId)
 
-/** Archive records deliberate human intent, never a provider failure that a
- * recovery answer may override. Keep this gate separate from
- * {@link terminalSessionSendFailureReason}: combining them makes
- * `allowErrored` an archive bypass. */
+/** The one send refusal the server owns: an archived session is retired by a
+ * person. Everything about what the agent is doing — a stored `errored` phase,
+ * a native view holding the controller lease — is the daemon's to answer when
+ * it types (POD-4775): the server never holds a message on its view of the
+ * agent. */
 export function archivedSessionSendReason(session: Pick<Session, 'archived'>): string | undefined {
   return session.archived ? 'session is archived' : undefined
-}
-
-/** The terminal provider failure that the one recovery-answer flow may cross. */
-export function terminalSessionSendFailureReason(
-  session: Pick<Session, 'agentState'>,
-): string | undefined {
-  const state = session.agentState
-  if (state?.phase !== 'errored' || !state.error || state.error.retryable) return undefined
-  return formatAgentError(state.error) + '. ' + agentErrorRecoveryInstruction(state.error)
-}
-
-/** Refuse archive unconditionally; only provider failure is overridable. */
-function sessionSendRefusalReason(
-  session: Pick<Session, 'agentState' | 'archived'>,
-  allowErrored: boolean,
-): string | undefined {
-  return (
-    archivedSessionSendReason(session) ??
-    (allowErrored ? undefined : terminalSessionSendFailureReason(session))
-  )
 }
 
 export class SessionInbox {
@@ -426,8 +398,6 @@ export class SessionInbox {
   private sweepingQueuedInputs = false
   /** Generation fence for binds racing a shell drain. */
   private readonly drainGenerations = new Map<SessionId, number>()
-  /** Recovery answers may queue while a failed session is being woken. */
-  private readonly recoveryDrains = new Set<SessionId>()
   /** One durable attention event per queued row and failure episode. */
   private readonly reportedPromptFailures = new Set<string>()
   /** Set by {@link dispose}; read at every drain re-entry point. */
@@ -539,7 +509,7 @@ export class SessionInbox {
   }> {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
-      ? sessionSendRefusalReason(session, input.allowErrored === true)
+      ? archivedSessionSendReason(session)
       : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
@@ -574,7 +544,7 @@ export class SessionInbox {
       (session.status !== 'live' && session.status !== 'starting')
     )
       return { ok: false, reason: 'session changed during admission' }
-    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    const currentRefusal = archivedSessionSendReason(session)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
     this.sendShellText(session, input)
     return { ok: true }
@@ -587,7 +557,7 @@ export class SessionInbox {
   }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
+    const blockedReason = archivedSessionSendReason(session)
     if (blockedReason) return { ok: false, reason: blockedReason }
     if (session.status === 'live' && session.queuedMessageCount === 0)
       return await this.sendText(input)
@@ -599,7 +569,7 @@ export class SessionInbox {
   ): Promise<{ ok: boolean; queued?: boolean; reason?: string }> {
     const session = this.deps.getSession(input.sessionId)
     const blockedReason = session
-      ? sessionSendRefusalReason(session, input.allowErrored === true)
+      ? archivedSessionSendReason(session)
       : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
@@ -640,7 +610,7 @@ export class SessionInbox {
       (session.status !== 'live' && session.status !== 'starting')
     )
       return { ok: false, reason: 'session changed during admission' }
-    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    const currentRefusal = archivedSessionSendReason(session)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
     const abort = this.abortKeyFor(session)
     if (abort) {
@@ -903,7 +873,7 @@ export class SessionInbox {
   }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
+    const blockedReason = archivedSessionSendReason(session)
     if (blockedReason) return { ok: false, reason: blockedReason }
     const parked = session.status === 'hibernated' || session.status === 'exited'
     if (parked && session.agentKind !== 'shell' && !session.resume) {
@@ -935,7 +905,7 @@ export class SessionInbox {
     )
     if (this.deps.getSession(input.sessionId) !== session)
       return { ok: false, reason: 'session changed during admission' }
-    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    const currentRefusal = archivedSessionSendReason(session)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
     // ONE ID FROM THE SENDER TO THE DAEMON (POD-4763). A row that carries a
     // message is stored under THAT message's id, which is also the id the daemon
@@ -954,7 +924,6 @@ export class SessionInbox {
     })
     const inserted = await insertion
     if (inserted) {
-      if (input.allowErrored) this.recoveryDrains.add(input.sessionId)
       const persistence: Promise<void> = this.deps.write(
         session,
         (draft) => {
@@ -1024,9 +993,6 @@ export class SessionInbox {
     const remaining = await this.deps.queue.list(sessionId)
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
       draft.queuedMessageCount = remaining.length
-      // Read off the DRAFT [POD-3330]: this asks what the count will BE, and
-      // until the commit returns the live session still carries the old one.
-      if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
     })
     await persistence
     this.deps.broadcast()
@@ -1118,13 +1084,13 @@ export class SessionInbox {
         // Duplicate custody itself is the daemon's to absorb by row id
         // (POD-4687), never this gate's.
         (session.status === 'live' || (session.status === 'starting' && !session.transcriptAvailable)) &&
-        // Drain only calls this for agents, and the contract is their only
-        // delivery (POD-4427): there is no rollout gate and no second route.
-        this.deps.nativeViewActive?.(sessionId) !== true &&
-        !sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
+        // The server's own lifecycle fact only. Whether the agent can take
+        // input now (errored, a native view holding the lease, busy) is the
+        // driver's to answer when it types (POD-4775).
+        !archivedSessionSendReason(session)
       const rows = await this.deps.queue.list(sessionId)
       for (const row of rows) {
-        if (!current() || this.deps.nativeViewActive?.(sessionId)) return
+        if (!current()) return
         if (binding.ids.has(row.id)) continue
         if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
         const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })
@@ -1274,13 +1240,11 @@ export class SessionInbox {
     // they have no driver, and chat-to-shell types into the PTY the operator
     // is watching.
     if (session.agentKind !== 'shell') {
-      if (this.deps.nativeViewActive?.(sessionId) === true) return
       void this.forwardContractRows(session, opts?.justBound === true).catch((error) => {
         log.warn('contract admission failed', { sessionId, err: error })
       })
       return
     }
-    if (this.deps.nativeViewActive?.(sessionId) === true) return
     await this.forwardShellRows(session)
   }
 
@@ -1308,7 +1272,7 @@ export class SessionInbox {
       for (;;) {
         if (!isCurrent()) return
         if (session.status !== 'live' && session.status !== 'starting') return
-        const blockedReason = sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
+        const blockedReason = archivedSessionSendReason(session)
         const rows = await this.deps.queue.list(sessionId)
         const head = rows[0]
         if (!head) return
@@ -1359,7 +1323,6 @@ export class SessionInbox {
         const remaining = await this.deps.queue.list(sessionId)
         await this.deps.write(session, (draft) => {
           draft.queuedMessageCount = remaining.length
-          if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
         })
         this.deps.broadcast()
       }

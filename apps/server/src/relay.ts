@@ -3511,16 +3511,12 @@ export class SessionRegistry {
     })
     // Steward timer RETIRED [POD-925]: janitor owns steward-poll cadence.
     // this.steward.start()
-    // Turn-boundary confirmation (#237) [POD-853]: a turn ending (phase → idle)
-    // confirms what it consumed and clears the hop context. It delivers nothing —
-    // no send waits for the server to see an idle edge [POD-4661].
-    this.bus.on('session.stateChanged', async ({ sessionId, prev, next }) => {
+    // A turn ending (phase → idle) clears the hop context for the finished
+    // turn. It confirms and delivers nothing: only the daemon's settlement, a
+    // receipt, the echo or a read say a message arrived [POD-4661, POD-4775].
+    this.bus.on('session.stateChanged', ({ sessionId, prev, next }) => {
       if (next.phase !== 'idle' || prev?.phase === 'idle') return
-      const meta = await sessionsSvc.sessionById(sessionId)
-      // Pass the phase the turn left from: an errored turn (prev='errored') did
-      // not complete, so the turn-boundary backstop must not confirm its injected
-      // rows [POD-853].
-      if (meta) await messagesSvc.onSessionIdle(meta, { priorPhase: prev?.phase })
+      messagesSvc.onSessionIdle(sessionId)
     })
     // Transcript-echo confirmation (#834) [POD-834 §04d]: a message the substrate
     // typed into a PTY reappears as a user turn carrying its `[podium message

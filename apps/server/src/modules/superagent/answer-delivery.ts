@@ -38,7 +38,6 @@ export interface AnswerDeliveryDeps {
       sessionId: SessionId
       text: string
       principal: InboxPrincipalReference
-      allowErrored?: boolean
     }): Promise<{ ok: boolean; reason?: string }>
     /** The migrated send (POD-1761 W4, C4). Optional so the fixtures that wire
      *  `resumeAndSend` alone stay on the legacy path — which is the flag-off
@@ -49,7 +48,6 @@ export interface AnswerDeliveryDeps {
         sessionId: SessionId
         text: string
         principal: InboxPrincipalReference
-        allowErrored?: boolean
       },
     ): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
   }
@@ -77,8 +75,6 @@ export async function deliverAnswerToSession(
     answer: string
     principal: InboxPrincipalReference
     textFallback?: boolean
-    /** The existing interaction recovery answer may cross a terminal provider failure. */
-    allowErrored?: boolean
   },
 ): Promise<AnswerDeliveryResult> {
   const { sessionId, answer } = input
@@ -110,13 +106,11 @@ export async function deliverAnswerToSession(
           sessionId,
           text: answer,
           principal: input.principal,
-          ...(input.allowErrored ? { allowErrored: true } : {}),
         })
       : deps.sessions.resumeAndSend({
           sessionId,
           text: answer,
           principal: input.principal,
-          ...(input.allowErrored ? { allowErrored: true } : {}),
         }))
     return r.ok ? { ok: true, via: 'text' } : { ok: false, message: r.reason ?? 'send failed' }
   }

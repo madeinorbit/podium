@@ -457,11 +457,10 @@ export class MessagesRepository {
   /** One bounded keyset page of pending rows for a principal. */
   async pendingForPage(
     to: MessagePrincipalRef,
-    opts: { after?: MessagePageCursor; through?: MessagePageCursor; limit?: number } = {},
+    opts: { after?: MessagePageCursor; limit?: number } = {},
   ): Promise<MessageRow[]> {
     const where = [...addressedTo(to), pending()]
     if (opts.after) where.push(afterCursor(opts.after))
-    if (opts.through) where.push(throughCursor(opts.through))
     return (await this.db
       .select()
       .from(messagesTable)
@@ -470,18 +469,6 @@ export class MessagesRepository {
       .limit(boundedLimit(opts.limit, 200, 500))
       .all())
       .map(mapMessage)
-  }
-
-  /** Last pending row in stable delivery order; captures a finite scan snapshot. */
-  async pendingHighWater(to: MessagePrincipalRef): Promise<MessagePageCursor | null> {
-    const row = await this.db
-      .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
-      .from(messagesTable)
-      .where(and(...addressedTo(to), pending()))
-      .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
-      .limit(1)
-      .get()
-    return row ? { createdAt: row.createdAt, id: row.id } : null
   }
 
   /** Most recently inserted operator chat send still held for one session.
@@ -1141,14 +1128,5 @@ function afterCursor(cursor: MessagePageCursor): SQL {
   return or(
     gt(messagesTable.createdAt, cursor.createdAt),
     and(eq(messagesTable.createdAt, cursor.createdAt), gt(messagesTable.id, cursor.id)),
-  ) as SQL
-}
-
-/** `(created_at, id) <= cursor` — INCLUSIVE, which is what makes a high-water
- *  snapshot a finite scan rather than one that races new arrivals. */
-function throughCursor(cursor: MessagePageCursor): SQL {
-  return or(
-    lt(messagesTable.createdAt, cursor.createdAt),
-    and(eq(messagesTable.createdAt, cursor.createdAt), lte(messagesTable.id, cursor.id)),
   ) as SQL
 }

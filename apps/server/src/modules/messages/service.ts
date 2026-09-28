@@ -45,7 +45,6 @@ import {
   senderBrakeKey,
 } from '@podium/commands'
 import {
-  type AgentPhase,
   type Attribution,
   actorAgent,
   actorSystem,
@@ -108,7 +107,6 @@ import {
   cursorOf,
   DELIVERY_TARGET_PAGE_LIMIT,
   type DeliveryTarget,
-  deliveryTargetKey,
 } from './targets'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
@@ -270,15 +268,6 @@ export interface MessageDeliveryDeps {
     }>
     cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): Promise<boolean>
     hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): Promise<boolean>
-    /** Whether a composer draft is typed into the agent's own prompt line on
-     *  this deployment (draft injection, the `draft-sync` experiment). It is the
-     *  only condition under which a draft and the prompt line are the same text,
-     *  and therefore the only condition under which the composer-draft delivery
-     *  guard has anything to protect — see {@link draftHoldActive}. Read live, so
-     *  flipping the flag takes effect without a restart. Absent (partial
-     *  fixtures) = assume it does, the conservative answer for a guard that
-     *  exists to not corrupt someone's typing. */
-    draftInjectionActive?(): boolean
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
     interruptText(input: InboxDeliveryInput): Promise<{
       ok: boolean
@@ -1143,7 +1132,7 @@ export class MessageDeliveryService {
    * Resolve the recipient to a concrete session NOW (TOCTOU-safe — nothing was
    * decided at send time) and act per the delivery table. Undeliverable
    * messages stay `queued`; retriggers: eligibility changes (bind, resume,
-   * membership, draft clear), the daemon stop-hook (mailPending), and the slow
+   * membership), the daemon stop-hook (mailPending), and the slow
    * sweep(). None of them is the agent's phase [POD-4661].
    */
   /**
@@ -1293,26 +1282,10 @@ export class MessageDeliveryService {
           return await this.trySpawn(message, message.toId ? asIssueId(message.toId) : null)
         }
         // Issue is live but has NO session — HOLD for its next session. Delivered
-        // at that session's next turn boundary (onSessionIdle) / the sweep. The
+        // when a session binds to it (eligibility change) / the sweep. The
         // sender is TOLD it is held; it is not a silent drop [POD-834 §05].
         return { ok: true, queued: true, disposition: 'held' }
       }
-    }
-
-    // Composer-draft delivery guard [spec:SP-d716] [POD-865]: the human has a half-typed
-    // composer/native-prompt line on this session — injecting now merges the
-    // envelope into their input (and a trailing CR submits it). HOLD exactly
-    // like the busy-turn state, for EVERY urgency including interrupt:
-    // corrupting a human's live input is never acceptable. The row stays
-    // queued; onSessionIdle / the sweep deliver once the draft clears.
-    // `draftUpdatedAt` is the in-memory presence signal (set per keystroke,
-    // cleared the instant the draft empties or submits — fresher than the
-    // debounced session_drafts row), so presence ⇔ non-empty draft and the
-    // design's "updated within 10s" clause is subsumed: no timestamp survives
-    // a clear, and a non-empty draft holds regardless of age. It holds only where
-    // the draft really is the agent's prompt line (POD-1204) — see the guard.
-    if (this.draftHoldActive(target)) {
-      return { ok: true, queued: true, disposition: 'queued' }
     }
 
     // THE SERVER NEVER HOLDS A MESSAGE ON ITS VIEW OF THE AGENT [POD-4661].
@@ -1644,104 +1617,15 @@ export class MessageDeliveryService {
   // ---- retriggers ----
 
   /**
-   * A session's turn ended (phase → idle). Confirms delivery of anything the
-   * just-ended turn consumed (turn-boundary backstop) and clears the hop context
-   * for the finished turn. It DELIVERS nothing: nothing waits for this edge
-   * [POD-4661] — a send went to the daemon when it was made. `priorPhase` is the
-   * phase the session left to become idle; an `errored` turn did not complete, so
-   * it must not confirm.
+   * A session's turn ended (phase → idle): clear the hop context for the
+   * finished turn, so anything the session sends next starts a fresh chain
+   * (brake 3). That is all this edge does. It confirms nothing and delivers
+   * nothing [POD-4661, POD-4775]: the server's idle edge is its own lagging
+   * copy of the agent's phase, and only the daemon's settlement, a receipt, the
+   * transcript echo or an inbox read says a message arrived.
    */
-  async onSessionIdle(session: SessionMeta, opts?: { priorPhase?: AgentPhase }): Promise<void> {
-    const issueId = this.issueForSession(session)
-    const targets: DeliveryTarget[] = [{ kind: 'session', id: session.sessionId }]
-    if (issueId) targets.push({ kind: 'issue', id: issueId })
-    const boundaryThrough = new Map<string, MessagePageCursor>()
-    for (const target of targets) {
-      const highWater = await this.deps.messages.pendingHighWater(target)
-      if (highWater) boundaryThrough.set(deliveryTargetKey(target), highWater)
-    }
-    // Turn-boundary confirmation [POD-853]: the turn that just reached idle
-    // consumed every echo-mode row already pushed into THIS session's PTY — flip
-    // them delivered even though their envelope never echoed as a clean role=user
-    // turn. A mid-turn/busy injection is recorded isMeta:true / promptSource:
-    // system (both dropped by the transcript parser) or folded into a tool_result
-    // record, so ECHO_ID_RE never sees the id and the sweep would re-inject past
-    // the echo window = duplicate. The turn boundary is the RELIABLE backstop:
-    // no text matching, and it cannot duplicate. Transcript-echo stays the ~1s
-    // fast path. A row still waiting in the durable queue is skipped below, so a
-    // push that has not reached the agent is never confirmed. Pointer/pull-path rows are excluded (an
-    // inbox READ confirms those, not a turn boundary), and only rows pushed to
-    // THIS session (deliveredTo match) are confirmed — never a sibling session's
-    // in-flight push. An ERRORED turn (API 529 &c) did NOT complete — it may not
-    // have consumed its injected rows — and errored→idle still fires here, so gate
-    // the confirm on a clean turn: an errored turn leaves the rows where they are
-    // [coordinator caution POD-833].
-    if (opts?.priorPhase !== 'errored') {
-      for (const target of targets) {
-        const through = boundaryThrough.get(deliveryTargetKey(target))
-        if (!through) continue
-        let after: MessagePageCursor | undefined
-        while (true) {
-          const page = await this.deps.messages.pendingForPage(target, {
-            ...(after ? { after } : {}),
-            through,
-            limit: DELIVERY_TARGET_PAGE_LIMIT,
-          })
-          for (const message of page) {
-            if (!isMessageOnItsWay(message.deliveryStatus) || message.deliveredTo !== session.sessionId) {
-              continue
-            }
-            // A wake can report idle before SessionInbox's readiness loop has
-            // actually typed its durable row. Queue acceptance dispatches the
-            // row for retry suppression, so the physical PTY queue is
-            // the final discriminator: never let the startup idle edge confirm
-            // (and hide) text that is still waiting to cross that boundary.
-            if (await this.deps.sessions.hasQueuedMessage?.(session.sessionId, message.id))
-              continue
-            if (this.render.isPointer(message)) continue
-            await this.markDelivered(message, session.sessionId, 'boundary')
-          }
-          if (page.length < DELIVERY_TARGET_PAGE_LIMIT) break
-          after = cursorOf(page.at(-1)!)
-        }
-      }
-    }
-    // Clear the finished turn's hop context AFTER the confirm loop: markDelivered
-    // re-stamps turnHop (right for the echo path, which fires DURING the
-    // processing turn), but at a turn boundary that turn is over — anything the
-    // session sends next belongs to a fresh turn and must not inherit the hop.
-    this.turnHop.delete(session.sessionId)
-  }
-
-  /**
-   * Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the
-   * session's human has a non-empty composer/native-prompt draft
-   * (`draftUpdatedAt` present ⇔ non-empty text; cleared immediately on
-   * empty/submit). While true, nothing is injected into the session's PTY — any
-   * urgency, any transport.
-   *
-   * GATED ON THE DRAFT BEING ABLE TO REACH THE AGENT'S INPUT AT ALL (POD-1204).
-   *
-   * The hazard is concrete: bytes typed into a PTY whose prompt line already
-   * holds half a sentence merge into that sentence, and a trailing CR submits
-   * the pair. That can only happen where the draft and the prompt line are the
-   * same text — which is what draft INJECTION makes true. With injection off
-   * (the shipped default) a chat composer's draft lives in the browser and is
-   * never typed anywhere, the agent's prompt line is empty as far as anything
-   * here can know, and holding on it protected nothing while blocking real
-   * sends: the operator's own chat message rode this same path and sat queued
-   * behind the draft it had just submitted, indefinitely, whenever that draft's
-   * clear failed to land.
-   *
-   * A deployment that does not answer gets the hold. That is the conservative
-   * side of a guard whose job is to not corrupt a person's typing, and its
-   * failure mode is no longer permanent — POD-1204 also made a rolled-back draft
-   * document recoverable, so a hold now ends when the draft actually clears.
-   */
-  private draftHoldActive(target: SessionMeta): boolean {
-    if (target.draftUpdatedAt === undefined) return false
-    const injects = this.deps.sessions.draftInjectionActive
-    return injects === undefined ? true : injects()
+  onSessionIdle(sessionId: SessionId): void {
+    this.turnHop.delete(sessionId)
   }
 
   /** One recipient's live meta, through the narrow read when the composition

@@ -25,7 +25,6 @@ import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import {
-  driverFamilyForId,
   harnessDisplayName,
   harnessInterrupt,
 } from '../../harness-manifest'
@@ -44,7 +43,6 @@ import {
   inboxActorFromColumns,
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
-  terminalSessionSendFailureReason,
 } from './inbox'
 import { type IssueMailNudgeEvent, nudgeIssueMail } from './issue-mail-nudge'
 import { SessionLaunchConfig } from './launch-config'
@@ -218,17 +216,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     settingsViewer: () => bag.settingsViewer(),
     onWorktreesChanged: (repoPath, machineId) => bag.deps.onWorktreesChanged(repoPath, machineId),
   })
-  const serverDriven = (session: Session): boolean =>
-    session.hasBoundDriver === true && driverFamilyForId(session.driverId ?? '') !== 'terminal'
-  const nativeViewActive = (sessionId: SessionId): boolean => {
-    const session = bag.sessions.get(sessionId)
-    return (
-      session !== undefined &&
-      serverDriven(session) &&
-      session.terminal.activeNativeRenderers().length > 0
-    )
-  }
-
   bag.state = new SessionStateService({
     store,
     now: () => bag.now(),
@@ -507,7 +494,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => ownership.authorizeClientDrive(principal, sessionId),
-    nativeViewActive,
     // There is one route (POD-4427): agents go through the runtime gateway and
     // only plain-terminal shells keep the server's raw transport. The
     // contractDelivery predicate this replaced is deleted with the routing gate.
@@ -553,7 +539,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.setSessionDraft = (input: any, fromClientId: string) =>
     bag.state.setDraft(input, fromClientId)
   bag.draftRevision = (sessionId: SessionId) => bag.state.draftRevision(sessionId)
-  bag.draftInjectionActive = () => bag.state.draftSyncEnabled()
   bag.inbox = inbox
   bag.clientControl = new SessionClientControl({
     sessions: bag.sessions,
@@ -646,7 +631,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         // module confirms, cancels and sweep-guards a queued row by.
         ...(input.mutationId ? { mutationId: input.mutationId } : {}),
         ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
-        ...(input.allowErrored ? { allowErrored: true } : {}),
       })
       if (!queued.ok) {
         return {
@@ -923,14 +907,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const s = bag.sessions.get(sessionId)
       return (s?.queuedMessageCount ?? 0) > 0 || bag.inbox.isDraining(sessionId)
     },
-    nativeViewActive,
     archiveReason: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)
       return s ? archivedSessionSendReason(s) : undefined
-    },
-    failureReason: (sessionId: SessionId) => {
-      const s = bag.sessions.get(sessionId)
-      return s ? terminalSessionSendFailureReason(s) : undefined
     },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
@@ -1105,14 +1084,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
     // A server-family session has no PTY bridge, so its continue rides the
     // same receipt seam as every other send: 'now' goes when-ready through the
-    // driver, joining the durable queue only when older work is ahead of it,
-    // and allowErrored crosses the errored-phase gate this retry exists for.
+    // driver, joining the durable queue only when older work is ahead of it.
     sendContinueViaContract: (sessionId: SessionId) =>
       bag.receiptSender.send('now', {
         sessionId,
         text: 'continue',
         inputOrigin: 'auto_continue',
-        allowErrored: true,
       }),
     view: bag.view,
   })

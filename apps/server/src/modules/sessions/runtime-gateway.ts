@@ -89,8 +89,6 @@ export interface RuntimeDurableQueuePort {
      * re-pushed by the next sweep.
      */
     sourceMessageId?: string
-    /** Only the existing recovery interaction may cross a terminal provider failure. */
-    allowErrored?: boolean
   }): Promise<
     { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
   >
