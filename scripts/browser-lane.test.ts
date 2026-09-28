@@ -183,7 +183,7 @@ const allReadyProbe = (): BrowserSupport => ({ kind: 'ready' })
 
 describe('decideBrowserSupport', () => {
   it('reports unsupported when Playwright has no executable path for the browser on this host', () => {
-    const r = decideBrowserSupport('webkit', '', false)
+    const r = decideBrowserSupport('webkit', '')
     expect(r.kind).toBe('unsupported')
     if (r.kind === 'unsupported') {
       expect(r.reason).toContain('webkit')
@@ -191,19 +191,14 @@ describe('decideBrowserSupport', () => {
     }
   })
 
-  it('reports ready when the executable path exists on disk', () => {
-    expect(decideBrowserSupport('chromium', '/ browsers/chromium-1223/chrome', true)).toEqual({
+  it('reports ready for any non-empty path — install state is never the preflight’s call', () => {
+    // executablePath() names the FULL chromium binary, but headless runs launch
+    // the headless shell instead: checking that one path on disk false-negatives
+    // on hosts where the lane works fine. A missing binary must RUN here and let
+    // Playwright itself fail loudly.
+    expect(decideBrowserSupport('chromium', '/browsers/chromium-1223/chrome')).toEqual({
       kind: 'ready',
     })
-  })
-
-  it('reports a missing install — never unsupported — when supported but not on disk', () => {
-    const r = decideBrowserSupport('chromium', '/browsers/chromium-1223/chrome', false)
-    expect(r.kind).toBe('missing')
-    if (r.kind === 'missing') {
-      expect(r.detail).toContain('chromium')
-      expect(r.detail).toMatch(/install/i)
-    }
   })
 })
 
@@ -224,12 +219,20 @@ describe('preflightProjects', () => {
   it('skips every project on an unsupported browser with a per-project reason', () => {
     const r = preflightProjects(PROJECTS, null, flatblockProbe)
     expect(r.runnable).toEqual(['chromium-desktop', 'chromium-pixel'])
-    expect(r.missing).toEqual([])
-    expect(r.skipped.map((s) => s.project)).toEqual(['webkit-desktop', 'webkit-iphone'])
-    for (const s of r.skipped) {
-      expect(s.browser).toBe('webkit')
-      expect(s.reason).toContain('webkit')
-    }
+    // The skip list is the arming proof: both webkit projects named, each
+    // carrying the browser and Playwright's own reason.
+    expect(r.skipped).toEqual([
+      {
+        project: 'webkit-desktop',
+        browser: 'webkit',
+        reason: 'Playwright does not support webkit on this host',
+      },
+      {
+        project: 'webkit-iphone',
+        browser: 'webkit',
+        reason: 'Playwright does not support webkit on this host',
+      },
+    ])
   })
 
   it('keeps a supported project in the runnable set so it still runs', () => {
@@ -241,18 +244,17 @@ describe('preflightProjects', () => {
       'webkit-iphone',
     ])
     expect(r.skipped).toEqual([])
-    expect(r.missing).toEqual([])
   })
 
-  it('collects supported-but-not-installed browsers as missing, never as skipped', () => {
-    const r = preflightProjects(PROJECTS, null, (browser) =>
-      browser === 'chromium'
-        ? { kind: 'missing', detail: 'chromium is supported here but not installed' }
-        : { kind: 'ready' },
-    )
+  it('runs a supported browser even when its binary is not on disk (no refusal)', () => {
+    // Ludovico holds no chromium-1223 full binary, yet chromium runs pass all
+    // day on the headless shell. The preflight must not refuse the lane over
+    // install state — a genuinely missing binary is Playwright's own loud
+    // failure at launch time.
+    const r = preflightProjects(PROJECTS, null, allReadyProbe)
+    expect(r.runnable).toContain('chromium-desktop')
+    expect(r.runnable).toContain('chromium-pixel')
     expect(r.skipped).toEqual([])
-    expect(r.missing.map((m) => m.project)).toEqual(['chromium-desktop', 'chromium-pixel'])
-    expect(r.runnable).toEqual(['webkit-desktop', 'webkit-iphone'])
   })
 
   it('never skips what it cannot classify: unknown browsers and unknown names still run', () => {
@@ -266,7 +268,6 @@ describe('preflightProjects', () => {
       },
     )
     expect(r.skipped).toEqual([])
-    expect(r.missing).toEqual([])
     expect(r.runnable).toContain('mystery-project')
     // The undeterminable project is not even asked about.
     expect(seen).not.toContain('null')
