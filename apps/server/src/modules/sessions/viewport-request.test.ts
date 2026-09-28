@@ -366,7 +366,10 @@ describe('T3: the seq watermark is per (connection, session), and every rejectio
     const client = controllerOf(terminal, 'c-back')
     toDaemon.length = 0
 
-    terminal.handleViewportRequest(client.id, request({ geometry: { cols: 132, rows: 43 }, seq: 1 }))
+    terminal.handleViewportRequest(
+      client.id,
+      request({ geometry: { cols: 132, rows: 43 }, seq: 1 }),
+    )
     terminal.handleViewportRequest(client.id, request({ geometry: { ...GEO }, seq: 2 }))
 
     expect(resizesTo(toDaemon)).toEqual([{ cols: 132, rows: 43 }, { ...GEO }])
