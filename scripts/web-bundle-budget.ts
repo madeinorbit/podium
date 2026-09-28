@@ -229,6 +229,12 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/adapters/shared/composer.ts',
   'packages/harness/src/adapters/claude-code/composer.ts',
   'packages/harness/src/adapters/codex/composer.ts',
+  // Version floors (POD-4084): pure data + string parsing, zero imports,
+  // re-exported by src/browser.ts on purpose (see its boundary-checker note).
+  // In a browser chunk only via that declared entrypoint, whose full closure
+  // `audit:browser-reach` proves Node-free. Without this line every web build —
+  // and therefore every integration suite, which builds the clients first — fails.
+  'packages/harness/src/version-policy.ts',
 ] as const
 
 /**
