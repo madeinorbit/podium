@@ -152,6 +152,34 @@ rows with no ledger overlay**. If the kernel's overlay is in the feed, a remote
 value landing on a pending field is invisible (the feed repaints ours), and a
 rejection rewinds twice.
 
+Mc2 (POD-4574, ruling F4) fixes the gate expectation the same way: on pending
+rows the expected display is server truth plus the shared reference log —
+`write-contract.ts` rules alone over the feed's server rows, projected through
+the shared slice oracle (`shared/src/gen/write-oracle.ts` `WriteOracle`,
+shared with Hc2). The kernel's fold is never expected values. Kernel-fold
+differences (an applied overlay retired on moved-past-baseline while the
+contract holds, or a chained overlay held past a newer server value) count per
+check as `kernelDiffers`: a finding for the decision document, not a failure.
+The stale-hold allowance lives in the shared oracle with no condition on the
+arm, so an arm that copies the kernel's hold fails there.
+
+Mc2 (POD-4574, oracle-pipe skew ruling) fixes how the oracle observes: the
+reference oracle subscribes to the feed's delivery stream — remotes, receipts,
+echoes — and applies each event **in delivery order, at the same moment the
+arm's own subscription sees it** (`WriteOracle.watch`, installed before the
+step's apply starts). `onStep` (`feedStep` for intents, `refresh` for reloads)
+is comparison and intent-feeding only, never a later remote sync: W8's
+overtake reads `ackBase`, the value seen at receipt, so it is order-sensitive
+by design, and a later pipe is a different sequence that resolves opposite.
+Each check's result file keeps the ordered event list consumed per differing
+row, so a skew reads directly from the output.
+
+Reading a disposed `RowSource` throws (`snapshot()` and `row()` in shared
+`row-source.ts`, POD-4574) instead of serving whatever it last held. A stale
+arm reading stale rows matches nothing — which once looked like a 54-row
+rollup bug — so the refresh-step compare runs on the new arm after the swap,
+and every step keeps its oracle compare, refresh steps included.
+
 ## 3. The mapping for the slice's editable fields
 
 | Edit | App action today (`engine/actions.ts`) | Outbox kind → tRPC command | Partition / collapse (`OUTBOX_ROUTING`) | Echo recognised by | Refusal (`shouldParkDeadLetter`) | txId |
@@ -254,7 +282,7 @@ outbox entries in queue order*.
 
   It must not read the folded arrays or the `retired` event, and its own pitfall already says so.
 - **L3a (POD-4553), per-row feed.** Its brief overlays the ledger's pending rows onto each row. The phase-c arms need a mode **without** that overlay, delivering server truth (W12). Otherwise W8 cannot be observed.
-- **L4a (POD-4555), random changes.** The generator should interleave edits, receipts, rejections, supersedes, echoes (including echo-before-receipt), stale repeats, overtaking writes, TTL expiry and a reload mid-sequence. The rebuild oracle for the display is W4 over the log plus the server rows.
+- **L4a (POD-4555), random changes.** The generator should interleave edits, receipts, rejections, supersedes, echoes (including echo-before-receipt), stale repeats, overtaking writes, TTL expiry and a reload mid-sequence. The expected snapshot is the WHOLE display from server truth plus the reference log (`WriteOracle.expectedSnapshot`, fed by `feedStep`): the feed's server rows with the reference log's pending display overlaid per row, run through the shared slice oracle — membership, order, groups, decay windows and roll-ups follow the spec rules over the overlaid rows. The oracle consumes the delivery stream in order (W12); generated edits go through the arm via the shared `ArmEditAdapter` (`shared/src/gen/arm-edits.ts`, reused by Hc2).
 - **L6b (POD-4564), planted mistakes.** Candidate write-path mistakes, each killed by a test here: rewinding to the stale `prior` instead of the latest server value, settling on the receipt alone, and treating the stamp echo as exact.
 
 ## 6. Evidence
@@ -271,6 +299,7 @@ outbox entries in queue order*.
   - unreceipted edits expire.
 
   The stamp mutant first survived: after the receipt, the overtake rule gives the same answer. The test *a stamp echo before the receipt…* was added, and it now kills that mutant.
+- Mc2 gate-truth plants (`arms/mobx/pool/write/gate-truth.test.ts`, the executable proof for the F4 and stream-order rules above): rewind-to-current — a rejection restoring the edit-time row instead of current server truth (`plant (a)`); double-commit echo — an echo with equal values committing again (commit-count cell in `settle.test.tsx`); remote-overwrites-pending — a remote dropping the pending entry (`plant (c)`, fixed sequence and random run); duplicate receipt — a second `accepted` applied twice (commit-count cell in `settle.test.tsx`); late-observing oracle — remotes held until receipt, the old onStep-sync skew moved into an arm (`plant (iii)`, seeds 1@119, 2@139, 3@9). Each proven red alone and restored. The Mc2 truth gate is 20 seeds x 300 steps green with `kernelDiffers` tallied per seed as the legacy finding.
 - `bun run typecheck -- --filter @podium/worklist-proto` is green. It ran uncached and pins `KernelCommand` inputs to the kernel's `OutboxKinds`.
 
 ## 7. Open questions
