@@ -1,4 +1,3 @@
-import { pageHistory } from '../../history'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * THE codex app-server DRIVER (POD-1761 W6; spec §2, §3, §5, §6).
@@ -66,7 +65,11 @@ import type {
 } from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type {
+  QueueDrainAbandonedReason,
+  RuntimeHistoryPage,
+  RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -233,6 +236,31 @@ export interface CodexRuntimeHost {
    *  write a brand-new thread until its first turn or metadata mutation, while
    *  `codex resume <id>` requires that file. The host owns this disk fact. */
   rolloutExists?(path: string): Promise<boolean>
+
+  /**
+   * THE STORE READ OVER THE ROLLOUT FILE, and the ONLY history source.
+   *
+   * The same injected `readHistory` port the terminal, claude-sdk and headless
+   * families answer `transcript.history` through: the host resolves the
+   * session's transcript source (the rollout JSONL, via the codex adapter's
+   * transcript grammar) and slices it with Store cursors. The driver passes
+   * the `thread/start` rollout path as `pathHint`, which the Store already
+   * accepts — it names the exact file, so no cwd-derived discovery is needed.
+   * A missing file (a thread that has not run its first turn yet) reads as an
+   * empty page, never an error.
+   */
+  readHistory(
+    session: {
+      sessionId: SessionId
+      agentKind: 'codex'
+      cwd: string
+      resume?: ResumeRef
+      pathHint?: string
+    },
+    range: Omit<RuntimeHistoryRange, 'direction'> & {
+      direction?: RuntimeHistoryRange['direction']
+    },
+  ): Promise<RuntimeHistoryPage>
 
   /**
    * Report which credential Codex actually chose for a session.
@@ -1779,9 +1807,35 @@ export function createCodexRuntime(
       },
 
       transcript: {
-        async history(range) {
-          const items = await readThreadItems(session)
-          return pageHistory(items, session.threadId, range)
+        /**
+         * HISTORY FROM DISK, never from the live process.
+         *
+         * The rollout JSONL is the conversation: Codex persists the full reply
+         * 25–100 ms after the stream ends, and `thread/read` returns exactly
+         * what the file holds — a disk read with an RPC and a process in
+         * front of it. So this delegates to the injected Store port over the
+         * rollout file, with the `thread/start` path as `pathHint`, like the
+         * terminal, claude-sdk and headless families do over their own stores.
+         *
+         * The rollout file does not exist until the first turn: history before
+         * it is an empty page, not an error.
+         */
+        async history(
+          range: Omit<RuntimeHistoryRange, 'direction'> & {
+            direction?: RuntimeHistoryRange['direction']
+          },
+        ): Promise<RuntimeHistoryPage> {
+          if (!session.rolloutPath) return { items: [], hasMore: false }
+          return host.readHistory(
+            {
+              sessionId: session.sessionId,
+              agentKind: 'codex',
+              cwd: session.spec.workdir,
+              ...(session.binding.resume ? { resume: session.binding.resume } : {}),
+              pathHint: session.rolloutPath,
+            },
+            range,
+          )
         },
       },
 
@@ -2008,37 +2062,6 @@ export function createCodexRuntime(
       if (err instanceof CodexRpcError && err.turnPreconditionFailed) return
       // A failed interrupt is not a failed session; the fence simply never
       // arrives, which is what `interrupt()` returning nothing already means.
-    }
-  }
-
-  /** The thread's items, as transcript items. `thread/read` is the only history
-   *  read this driver makes, and it is made on demand rather than cached. */
-  async function readThreadItems(session: DriverSession): Promise<TranscriptItem[]> {
-    try {
-      const result = await session.client.call<{ thread?: { turns?: unknown[] } }>(
-        CODEX_METHODS.threadRead,
-        { threadId: session.threadId },
-      )
-      const turns = Array.isArray(result.thread?.turns) ? result.thread.turns : []
-      const items: TranscriptItem[] = []
-      for (const turn of turns) {
-        const turnItems =
-          typeof turn === 'object' &&
-          turn !== null &&
-          Array.isArray((turn as { items?: unknown }).items)
-            ? ((turn as { items: unknown[] }).items as Record<string, unknown>[])
-            : []
-        for (const item of turnItems) {
-          if (typeof item?.type !== 'string' || typeof item?.id !== 'string') continue
-          items.push(...threadItemToItems(item as never, undefined))
-        }
-      }
-      return items
-    } catch {
-      // A history read that fails returns nothing rather than throwing: the
-      // caller asked for a window of transcript, and an empty window is a
-      // recoverable answer where an exception would take down a chat render.
-      return []
     }
   }
 

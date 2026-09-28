@@ -1134,6 +1134,7 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-codex-session'),
+    readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       const transport = defaultServerTransport('codex') as CodexTransport
       return {

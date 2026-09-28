@@ -85,6 +85,7 @@ function world(options: { sendThrows?: boolean } = {}) {
     },
     now: () => Date.UTC(2026, 7, 14),
     mintSessionId: () => 'minted' as SessionId,
+    readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       launches += 1
       const stub = stubTransport()

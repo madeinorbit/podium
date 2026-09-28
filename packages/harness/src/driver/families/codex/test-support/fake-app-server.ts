@@ -235,8 +235,9 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   const rollouts = options.rollouts ?? new Map<string, Record<string, unknown>[]>()
   /** @see {@link FakeAppServerOptions.threads} */
   const threads = options.threads ?? new Set<string>()
-  /** Append one item to the thread's rollout — the on-disk record every later
-   *  `thread/read` and `export()` is built from. */
+  /** Append one item to the thread's rollout — the on-disk record the test
+   *  world's `readHistory` and `export()` are built from (`thread/read`
+   *  intentionally answers empty: history must come from the Store port). */
   const record = (item: Record<string, unknown>): void => {
     const threadId = server.threadId
     if (!threadId) return
@@ -643,11 +644,14 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         respond(id, {})
         return
       case 'thread/read': {
-        // ONE TURN CARRYING THE THREAD'S ITEMS, which is the shape
-        // `readThreadItems` walks. It answered `{ turns: [] }` unconditionally —
-        // see {@link FakeAppServerOptions.rollouts} for what that hid.
-        const items = rollouts.get(String(params.threadId ?? server.threadId ?? '')) ?? []
-        respond(id, { thread: { turns: [{ items }] } })
+        // INTENTIONALLY EMPTY: history moved to the Store port, so the driver
+        // must never call this for `transcript.history`. Answering the real
+        // rollout here would let a regressed driver pass the suite while
+        // reading the live process; answering empty makes that regression go
+        // red (history misses the witness the Store holds). The `rollouts`
+        // map is still what `export()` and the test world's `readHistory`
+        // read — the disk, not this RPC.
+        respond(id, { thread: { turns: [] } })
         return
       }
       case 'turn/start': {

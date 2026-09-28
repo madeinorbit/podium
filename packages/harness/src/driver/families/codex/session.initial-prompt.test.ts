@@ -54,6 +54,7 @@ describe('codex launch with an initial prompt', () => {
       },
       now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
       mintSessionId: () => 'minted' as SessionId,
+      readHistory: async () => ({ items: [], hasMore: false }),
       async launch(input) {
         const server = startFakeAppServer()
         servers.set(input.sessionId, server)
