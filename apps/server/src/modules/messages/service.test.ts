@@ -1144,6 +1144,45 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
     expect(row.status).toBe('dead_letter')
     expect(row.deliveryDeferredReason).toBeNull()
   })
+
+  it('[POD-4704] steward notice says delivery failed, never target gone, for an unconfirmed send', async () => {
+    // sX sends; s1 is the live target so the row is typed (injected) but
+    // never confirmed. A later dead-letter with the sweep's "session no
+    // longer exists" must tell sX the delivery failed — s1 is still alive.
+    const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
+    const targetSession = session({ sessionId: asSessionId('s1'), cwd: '/wt/a' })
+    const { svc, store } = await harness([senderSession, targetSession])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'typed but never confirmed' },
+    )
+    expect(r.message.injectedAt).not.toBeNull()
+    await svc.rejectQueuedInput(r.message.id, 'session no longer exists')
+    const notices = (await store.messages
+      .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('delivery failed')
+    expect(notices[0]!.body).not.toMatch(/target (was )?gone/)
+    expect(notices[0]!.body).not.toContain('session no longer exists')
+  })
+
+  it('[POD-4704] steward notice keeps target-gone wording for a never-pushed row', async () => {
+    const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
+    const { svc, store } = await harness([senderSession])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'held, never pushed' },
+    )
+    expect(r.message.injectedAt).toBeNull()
+    await svc.rejectQueuedInput(r.message.id, 'issue no longer exists')
+    const notices = (await store.messages
+      .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('issue no longer exists')
+    expect(notices[0]!.body).not.toContain('delivery failed')
+  })
 })
 
 describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {

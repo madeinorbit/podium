@@ -27,7 +27,13 @@
 
 import type { WorldIndexReader } from '../world-index'
 import { createLogger } from '@podium/logger'
-import { asThreadId, isSpawnedBy, type IssueId, type MachineId } from '@podium/model'
+import {
+  asThreadId,
+  deadLetterSenderGloss,
+  isSpawnedBy,
+  type IssueId,
+  type MachineId,
+} from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   exemptFromBrakes,
@@ -2235,7 +2241,21 @@ export class MessageDeliveryService {
         // on a live instance said nothing about the cause.
         { reason },
       )
-      if (opts?.notifySender) await this.notifyDeadLetter(message, reason)
+      // AN INJECTED-BUT-UNCONFIRMED NOTICE IS NOT A VANISHED TARGET [POD-4704].
+      // When the cause was inferred from the row having been typed
+      // (injectedAt set, no explicit opts.cause), the free-text reason is the
+      // sweep's "session no longer exists" about a session that is alive
+      // (POD-4604 run 13). The steward notice must say the delivery failed,
+      // never that the target vanished — the shared gloss keeps it worded one
+      // way with the CLI and the web ledger. An explicit cause keeps its own
+      // accurate detail (e.g. attachment refusal).
+      if (opts?.notifySender) {
+        const inferredUnconfirmed = opts?.cause === undefined && cause === 'delivery-failed'
+        await this.notifyDeadLetter(
+          message,
+          inferredUnconfirmed ? deadLetterSenderGloss('delivery-failed') : reason,
+        )
+      }
     }
     return { ok: false, reason: `dead-lettered: ${reason}`, disposition: 'dead_letter' }
   }
@@ -2349,7 +2369,18 @@ export class MessageDeliveryService {
 
   async notifyQueuedInputRejected(messageId: string, reason: string): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
-    if (message?.status === 'dead_letter') await this.notifyDeadLetter(message, reason)
+    if (message?.status !== 'dead_letter') return
+    // The inbox settles a forwarded row as failed when the daemon never
+    // confirmed it [POD-4704]: typed but cut off mid-turn, stamped
+    // delivery-failed by QueuedMessageApply, while the free-text reason still
+    // says "session no longer exists" about a session that is alive. The
+    // steward notice must say the delivery failed, never that the target
+    // vanished — the same shared gloss the sweep path uses.
+    const unconfirmed = message.deliveryDeferredReason === 'delivery-failed'
+    await this.notifyDeadLetter(
+      message,
+      unconfirmed ? deadLetterSenderGloss('delivery-failed') : reason,
+    )
   }
 
   async rejectQueuedInput(messageId: string, reason: string): Promise<void> {
