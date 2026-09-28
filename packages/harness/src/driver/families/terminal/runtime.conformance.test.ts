@@ -52,20 +52,49 @@ import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
-import type { DurableAttachment } from '@podium/process/screen'
-import { TerminalScreen } from '@podium/process/screen'
-import { Terminal } from '../terminal/terminal.js'
+import {
+  harnessInterrupt,
+  harnessNeedsSubmitVerification,
+  harnessUsesRawFirstTurn,
+  manifestFor,
+} from '../../../registry.js'
+import { declaredValue } from '../../../transcript-types.js'
 import {
   createTerminalRuntime,
   type TerminalHarnessProfile,
   type TerminalRuntime,
-  type TerminalRuntimeHost,
-} from './terminal-driver'
-import { terminalProfileFor } from './registry'
-import { testSessions } from '../session/testing.js'
+} from './runtime.js'
+import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
+import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+
+/**
+ * Local mirror of the daemon's `terminalProfileFor`
+ * (apps/daemon/src/runtime/registry.ts), resolved from the harness manifest so
+ * this test does not reach back into apps/daemon.
+ */
+function testProfileFor(harness: AgentKind): TerminalHarnessProfile | undefined {
+  const manifest = manifestFor(harness)
+  if (!manifest) return undefined
+  const terminal = manifest.runtime.terminal
+  const interrupt = harnessInterrupt(harness)
+  return {
+    driverId: terminal.driverId,
+    instrumentationRequired: declaredValue(manifest.instrumentation) !== undefined,
+    sendProof: terminal.sendProof,
+    composerReadiness: manifest.capabilities.composerReadiness,
+    acceptCorrelation: terminal.acceptCorrelation,
+    lifecycleFromState: terminal.lifecycleFromState === true,
+    needsSubmitVerification: harnessNeedsSubmitVerification(harness),
+    usesRawFirstTurn: harnessUsesRawFirstTurn(harness),
+    archivable: declaredValue(manifest.handoffTranscript) !== undefined,
+    reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
+    interruptBytes: interrupt.bytes,
+    interruptQuitsWhenIdle: interrupt.quitsWhenIdle,
+  }
+}
 
 function shippedProfile(harness: AgentKind): TerminalHarnessProfile {
-  const profile = terminalProfileFor(harness)
+  const profile = testProfileFor(harness)
   if (!profile) throw new Error(`missing manifest terminal profile for ${harness}`)
   return profile
 }
@@ -127,7 +156,7 @@ function makeWorld(options: WorldOptions): {
   const submissionWaiters = new Set<() => void>()
   const turnEpochs = new Map<SessionId, number>()
   const completedEpochs = new Map<SessionId, number>()
-  const bridgeOf = new Map<SessionId, Terminal>()
+  const bridgeOf = new Map<SessionId, TerminalTransport>()
   const pendingPaste = new Map<SessionId, string>()
   /** Deliveries of the caller's TEXT, counted at the PTY. A bracketed paste is
    *  one delivery; the CR and the bounded verification nudges that follow it are
@@ -213,7 +242,6 @@ function makeWorld(options: WorldOptions): {
     runtime?.observe({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
   }
 
-  const labelFor = (sessionId: SessionId): string => `podium-${sessionId}`
   const iso = (): string => new Date(clock).toISOString()
 
   /**
@@ -313,7 +341,7 @@ function makeWorld(options: WorldOptions): {
     }
   }
 
-  const host: TerminalRuntimeHost = {
+  const host: TerminalHostPorts = {
     installInstrumentation: async () => ({ args: [] }),
     stageAttachment: async ({ source }) => {
       const id = 'attachment-' + ++nextId
@@ -330,16 +358,13 @@ function makeWorld(options: WorldOptions): {
       // every property is stated against the CONTRACT surface, which is the whole
       // reason one corpus can run against every family.
     },
-    bridge: (sessionId) => bridgeOf.get(sessionId),
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
-    durableLabel: labelFor,
-    scopeUnit: () => undefined,
-    durableHostAlive: async (label) => alive.get(label) === true,
+    processAlive: async (sessionId) => alive.get(sessionId) === true,
     recover: async (msg, ready) => {
-      if (!alive.get(msg.durableLabel)) throw new Error('session not found')
-      ready()
+      if (!alive.get(msg.sessionId)) throw new Error('session not found')
+      ready(bridgeOf.get(msg.sessionId))
       runtime?.observe({
         type: 'bind',
         sessionId: msg.sessionId,
@@ -348,14 +373,13 @@ function makeWorld(options: WorldOptions): {
         agentKind: msg.agentKind,
       })
     },
-    stopSession: async ({ sessionId, durableLabel }) => {
-      alive.set(durableLabel, false)
+    stopSession: async ({ sessionId }) => {
+      alive.set(sessionId, false)
       bridgeOf.delete(sessionId)
       return true
     },
     launch: async (msg) => {
-      const label = labelFor(msg.sessionId)
-      alive.set(label, true)
+      alive.set(msg.sessionId, true)
       // A RESUMED launch is handed the conversation it is reopening; a fresh one
       // will mint its own when the first turn is written. Either way the ref the
       // harness reports later is THIS one — a fixture that invented a new value
@@ -396,15 +420,7 @@ function makeWorld(options: WorldOptions): {
         // is not going to be the author of.
         if (msg.resume) postResumeRef(msg.sessionId)
       })
-      bridgeOf.set(
-        msg.sessionId,
-        Terminal.attach(
-          {
-            pid: 4242,
-            onFrame: () => () => {},
-            onTitle: () => () => {},
-            onExit: () => () => {},
-            write: (dataBase64: string) => {
+      const write = (dataBase64: string) => {
           const text = Buffer.from(dataBase64, 'base64').toString('utf8')
           const paste = pastedText(text)
           if (paste !== undefined) {
@@ -435,15 +451,10 @@ function makeWorld(options: WorldOptions): {
           if (suppressEcho.delete(msg.sessionId)) return
           turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
           echoUserTurn(msg.sessionId, pasted)
-            },
-            writeBytes: () => {},
-            resize: () => {},
-            dispose: () => {},
-          } as unknown as DurableAttachment,
-          new TerminalScreen({ cols: 80, rows: 24 }),
-          { onFrame: () => {} },
-        ),
-      )
+      }
+      // The fake surface the host hands at bind (POD-4785): the write logic
+      // above is verbatim the old `attachment.write`, now as `writeBase64`.
+      bridgeOf.set(msg.sessionId, { live: true, writeBase64: write })
     },
     readHistory: async (session, range) => pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
     archiveTranscript: async ({ resumeValue }) => {
@@ -459,7 +470,7 @@ function makeWorld(options: WorldOptions): {
         relativeDir: 'fixture/sessions',
       }
     },
-    readFileBytes: async (path) => {
+    readArchiveBytes: async (path) => {
       /**
        * THE SESSION'S OWN TRANSCRIPT, byte for byte — not a constant naming the
        * path (POD-2703, review 1). The constant made every export assertion
@@ -603,7 +614,16 @@ function makeWorld(options: WorldOptions): {
       createDriver: () => {
         // A fresh registry per driver: the corpus rebuilds the runtime across
         // cases the way a restarted daemon rebuilds its entries (POD-4512).
-        runtime = createTerminalRuntime(host, undefined, testSessions())
+        const slots = createMemoryDriverSlots()
+        runtime = createTerminalRuntime(host, undefined, slots)
+        // The daemon wires a fresh Terminal at bind; this fixture hands the
+        // launch-created surface the same way, on every bind path.
+        const slotsSet = slots.set.bind(slots)
+        slots.set = (sessionId, handle) => {
+          slotsSet(sessionId, handle)
+          const transport = bridgeOf.get(sessionId)
+          if (transport !== undefined) runtime?.setTerminal(sessionId, transport)
+        }
         return { driver: runtime.driverFor(harness, profile), control, evidence }
       },
       reset: () => {
@@ -672,7 +692,7 @@ describe('shipped terminal profile coverage', () => {
   it('covers every manifest, with cursor representing the identical pi shape', () => {
     expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...SHIPPED_ARMS, 'pi'].sort())
     expect(shippedProfile('pi')).toEqual(shippedProfile('cursor'))
-    expect(terminalProfileFor('shell')).toBeUndefined()
+    expect(testProfileFor('shell')).toBeUndefined()
   })
   it('keeps the adversarial shape distinct from every shipped profile', () => {
     for (const harness of [...SHIPPED_ARMS, 'pi'] as const) {

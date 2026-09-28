@@ -170,7 +170,7 @@ import { createSessionClientScope } from './session/clients.js'
 import type { DaemonOpencodeRuntime } from '@podium/harness/driver/host'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
-import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
+import { createTerminalRuntime, type TerminalRuntime } from '@podium/harness/driver/host'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sessionModelSize, terminalScreenFor, trackSessionOutput } from './session-screens'
@@ -1166,7 +1166,7 @@ export async function createDaemonHostRuntime(args: {
     boundaryContext: mailContext.pendingContext,
     onInterruptRequested: (sessionId: SessionId) => observers.onInterruptRequested(sessionId),
   }
-  terminalRuntime = createTerminalRuntime(contractHost, primeSource, ctx.sessions)
+  terminalRuntime = createTerminalRuntime(contractHost, primeSource, driverSlotsOver(ctx.sessions))
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   // Engine-family facts (POD-4494, spec §4.1/§5): this composition root reads
   // the registry ONCE per harness and hands each family exactly the sections
@@ -1264,7 +1264,7 @@ export async function createDaemonHostRuntime(args: {
     transcript: {
       readHistory: contractHost.readHistory,
       archiveTranscript: contractHost.archiveTranscript,
-      readFileBytes: contractHost.readFileBytes,
+      readFileBytes: (path) => contractHost.readArchiveBytes(path),
     },
   })
   /**

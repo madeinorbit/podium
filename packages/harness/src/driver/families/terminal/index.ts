@@ -1,22 +1,12 @@
 /**
- * `drivers/terminal` — the APP-INDEPENDENT half of the terminal driver
- * (POD-1761 W3).
+ * `drivers/terminal` — the terminal family's RuntimeDriver (POD-1761 W3,
+ * moved into the harness package in POD-4785).
  *
- * THE SPLIT, AND WHY IT IS WHERE IT IS. `packages/harness/src/driver` may not import
- * daemon app code (nothing at L2 may import an app), and the terminal driver's
- * concrete implementation is composed almost entirely of daemon internals —
- * `control/session.ts`'s spawn path, `session-observers.ts`'s fan-out,
- * `binding-store.ts`, `handoff-package.ts`, composer-sync. So:
- *
- *   - HERE: the receipt state machine, the envelope assembly, the capability
- *     declaration, the exemption table — everything that is a fact about the
- *     FAMILY rather than about this daemon.
- *   - `apps/daemon/src/runtime/terminal-driver.ts`: the `RuntimeDriver` itself,
- *     composing the above with real daemon ports.
- *
- * The line is not bureaucratic: the pieces here are exactly the pieces a second
- * terminal host (a cloud runner, a test harness) would need unchanged, and the
- * pieces there are exactly the ones it would have to supply itself.
+ * THE WHOLE DRIVER LIVES HERE. The receipt state machine, envelope assembly,
+ * capability declaration, exemption table, injection machine, instrumentation,
+ * mail boundary — and the RuntimeDriver itself (`./runtime.js`), composed
+ * with daemon capabilities through `TerminalHostPorts` (`./host-ports.js`).
+ * The daemon keeps only wiring (`apps/daemon/src/runtime/host.ts`).
  */
 
 export {
@@ -71,3 +61,29 @@ export {
   TERMINAL_EXEMPTION_NAMES,
   TERMINAL_PERMITTED_FAILURES,
 } from './permitted-failures.js'
+export {
+  type TerminalHostPorts,
+  type TerminalDriverReport,
+  type TerminalReattachControl,
+  type TerminalSpawnControl,
+  type TerminalTransport,
+  type TerminalMailBoundaryContext,
+} from './host-ports.js'
+export {
+  type MailBoundaryContext,
+  MAIL_BOUNDARY_OPTIONS,
+  createMailContinuation,
+  respondToMailBoundary,
+} from './mail-boundary.js'
+export {
+  EVENT_LOG_LIMIT,
+  type TerminalHarnessProfile,
+  type TerminalRuntime,
+  type TerminalRuntimeControl,
+  type TerminalSessionRegistration,
+  type TerminalStateObservation,
+  TerminalRecoveryRefusal,
+  createTerminalRuntime,
+  stateEventForObservation,
+  turnEventForObservation,
+} from './runtime.js'

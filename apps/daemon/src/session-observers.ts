@@ -1,4 +1,4 @@
-import type { TerminalStateObservation } from './runtime/terminal-driver'
+import type { TerminalStateObservation } from '@podium/harness/driver/host'
 import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,

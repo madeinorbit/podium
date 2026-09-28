@@ -1,16 +1,17 @@
 import { DriverRefusalError } from '@podium/harness/driver/host'
 /**
- * THE DAEMON, AS THE TERMINAL DRIVER'S HOST (POD-1761 W3).
+ * THE DAEMON, AS THE TERMINAL DRIVER'S HOST (POD-1761 W3, moved to harness in
+ * POD-4785).
  *
- * `TerminalRuntimeHost` names the fifteen things a driver needs; this file is
- * where each one is satisfied by the daemon facility that already does it. It is
- * deliberately nothing but wiring — every line below should read as "the driver
- * asks for X, and X is over there". If a body here grows logic, that logic
- * belongs in the facility it is standing in front of.
+ * `TerminalHostPorts` names what the driver needs; this file is where each one
+ * is satisfied by the daemon facility that already does it. It is deliberately
+ * nothing but wiring — every line below should read as "the driver asks for X,
+ * and X is over there". If a body here grows logic, that logic belongs in the
+ * facility it is standing in front of.
  *
  * Reading it top to bottom is the fastest way to see that the driver adds no
- * mechanism: bridges, observers, binding labels, the transcript source layer,
- * the handoff transcript locator, the memory breakdown, the survival table's
+ * mechanism: the handed Terminal, observers, the transcript source layer, the
+ * handoff transcript locator, the memory breakdown, the survival table's
  * teardown and the spawn path. All of it predates this epic.
  */
 
@@ -29,6 +30,7 @@ import { instanceRuntimeSocketRoot } from '@podium/runtime/abduco-socket'
 import { resolveInstanceId } from '@podium/runtime/instance'
 import WebSocket from 'ws'
 import type { AgentKind, SessionId } from '@podium/model'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { serverChildEnv } from '../control/session-env'
 import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
 import type { AcceptedDriverId } from '@podium/harness'
@@ -38,9 +40,32 @@ import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
 import { reportHarnessProbe } from '../harness-version-reporting'
-import type { TerminalRuntimeHost } from './terminal-driver'
+import type {
+  TerminalHostPorts,
+  TerminalTransport,
+} from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import { terminalInstrumentationSectionsFor } from './registry'
+import { driverTiming } from './driver-timing'
+import type { Terminal } from '../terminal/terminal.js'
+
+/**
+ * Adapt one daemon Terminal to the driver's narrow transport port.
+ *
+ * pid is deliberately absent: answer ownership uses object identity plus the
+ * observer generation/bindingVersion fences, and resource/binding identity is
+ * resolved per session by the host. A parked surface reports live=false and
+ * drops writes, exactly as Terminal does.
+ */
+export function adaptTerminal(terminal: Terminal | undefined): TerminalTransport | undefined {
+  if (!terminal) return undefined
+  return {
+    get live() {
+      return terminal.live
+    },
+    writeBase64: (dataBase64) => terminal.writeBase64(dataBase64),
+  }
+}
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -52,23 +77,27 @@ import { terminalInstrumentationSectionsFor } from './registry'
  */
 export function daemonRuntimeHost(
   ctx: DaemonContext,
-  send: TerminalRuntimeHost['send'],
+  send: TerminalHostPorts['send'],
   stageAttachment: AttachmentStager = stageRuntimeAttachment,
-): TerminalRuntimeHost {
+): TerminalHostPorts {
   return {
     send,
     stageAttachment,
-    bridge: (sessionId) => ctx.sessions.get(sessionId)?.terminal,
     trackedState: (sessionId) => ctx.observers.trackedState(sessionId),
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
     setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),
-    durableLabel: (sessionId) => ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId),
-    // Absent on macOS, and honestly so: there is no transient scope there, and a
-    // fabricated unit name would make `health()` report a cgroup nothing owns.
-    scopeUnit: (label) => (process.platform === 'linux' ? scopeUnitName(label) : undefined),
-    durableHostAlive: async (label) => (await durableProcessFor(ctx)?.has(label)) ?? false,
-    recover: (msg, ready) => recoverTerminalHost(ctx, msg, ready),
-    stopSession: (input) => stopSessionProcess(ctx, input),
+    processAlive: async (sessionId) => {
+      const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
+      return (await durableProcessFor(ctx)?.has(label)) ?? false
+    },
+    recover: (msg, ready) =>
+      recoverTerminalHost(ctx, msg, () =>
+        ready(adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal)),
+      ),
+    stopSession: ({ sessionId }) => {
+      const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
+      return stopSessionProcess(ctx, { sessionId, durableLabel: label })
+    },
     installInstrumentation: (sessionId, spec) =>
       installTerminalInstrumentation({
         sessionId,
@@ -106,14 +135,26 @@ export function daemonRuntimeHost(
         resumeValue: input.resumeValue,
         home: ctx.homeDir ?? process.env.HOME ?? '',
       }),
-    readFileBytes: async (path) => new Uint8Array(await readFile(path)),
-    resources: (subject) =>
+    readArchiveBytes: async (path) => new Uint8Array(await readFile(path)),
+    resources: (sessionId) => {
+      const entry = ctx.sessions.get(sessionId)
+      const label = entry?.label ?? ctx.durableLabelFor(sessionId)
+      // Absent on macOS, and honestly so: there is no transient scope there, and a
+      // fabricated unit name would make `health()` report a cgroup nothing owns.
+      const scopeUnit = process.platform === 'linux' ? scopeUnitName(label) : undefined
+      const pid = entry?.terminal?.pid
       // THE MACHINE'S ONE CGROUP OBSERVER (POD-2413), which already falls back
       // to the `/proc` attribution the `memoryBreakdownRequest` frame answers
       // with when a session has no scope to read. A daemon composed without one
       // reports nothing rather than a zero: "we never looked" and "this session
       // uses no memory and was never OOM-killed" are different statements.
-      ctx.scopeMonitor?.resources(subject),
+      return ctx.scopeMonitor?.resources({
+        sessionId,
+        label,
+        ...(pid !== undefined ? { pid } : {}),
+        ...(scopeUnit ? { scopeUnit } : {}),
+      })
+    },
     now: () => Date.now(),
     setTimer: (fn, delayMs) => {
       const handle = setTimeout(fn, delayMs)
@@ -123,8 +164,13 @@ export function daemonRuntimeHost(
       return handle
     },
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    traceRuntimeEvent: (binding, event) => driverTiming.runtimeEvent(binding, event),
+    // Abandonment leaves on the same wrapped wire the driver reports on. The
+    // driver's own send port is narrowed to its three report frames, so this
+    // daemon-side send carries its own (full-wire) type via a local cast —
+    // the frame never re-enters the driver's observation tap.
     onDrainAbandoned: ({ sessionId, turns, reason }) =>
-      send({
+      (send as (msg: DaemonMessage) => void)({
         type: 'runtimeQueueDrainAbandoned',
         reportId: randomUUID(),
         sessionId,

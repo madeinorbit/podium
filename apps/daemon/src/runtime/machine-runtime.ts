@@ -37,7 +37,8 @@ import type {
   TerminalHarnessProfile,
   TerminalRuntime,
   TerminalSessionRegistration,
-} from './terminal-driver'
+  TerminalTransport,
+} from '@podium/harness/driver/host'
 import { createRuntimeWatchLifecycle } from './watch'
 
 export interface JournalledServerProcess {
@@ -96,6 +97,10 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
     registration: TerminalSessionRegistration,
     profile: TerminalHarnessProfile,
   ): Promise<AgentSessionHandle>
+  /** Refresh the driver's handed Terminal after the entry's surface is replaced
+   *  (reattach, steal). The entry holds one Terminal by structure; this pushes
+   *  the current one so the driver never looks it up per write. */
+  setTerminal(sessionId: SessionId, terminal: TerminalTransport | undefined): void
   clearTerminal(sessionId: SessionId): void
   /**
    * A kernel OOM kill the scope monitor observed, stated by whichever driver
@@ -378,6 +383,9 @@ export function createDaemonMachineRuntime(input: {
       // leaving a refcount on a driver nobody can reach any more.
       watches.forget(sessionId)
       input.terminal.clear(sessionId)
+    },
+    setTerminal(sessionId, terminal) {
+      input.terminal.setTerminal(sessionId, terminal)
     },
     setWatchLevel(sessionId, level) {
       watches.want(sessionId, level)

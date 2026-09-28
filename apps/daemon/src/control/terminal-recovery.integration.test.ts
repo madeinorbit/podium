@@ -8,7 +8,8 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { expect, it } from 'vitest'
 import { daemonRuntimeHost } from '../runtime/host'
 import { terminalProfileFor } from '../runtime/registry'
-import { createTerminalRuntime } from '../runtime/terminal-driver'
+import { createTerminalRuntime } from '@podium/harness/driver/host'
+import { driverSlotsOver } from '../session/driver-slots.js'
 import { forgetSessionScreen, snapshotLines } from '../session-screens'
 import type { DaemonContext } from './context'
 import { testSessions } from '../session/testing.js'
@@ -79,7 +80,7 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
       send: (msg: DaemonMessage) => sent.push(msg),
     } as unknown as DaemonContext
     const host = daemonRuntimeHost(ctx, ctx.send)
-    const runtime = createTerminalRuntime(host, undefined, ctx.sessions)
+    const runtime = createTerminalRuntime(host, undefined, driverSlotsOver(ctx.sessions))
     const send = ctx.send
     ctx.send = (msg) => {
       runtime.observe(msg)

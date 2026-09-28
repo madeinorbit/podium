@@ -21,7 +21,7 @@ import { createClaudeSdkSessionRuntime } from '@podium/harness/driver/host'
 import type { DaemonContext } from '../control/context'
 import { sessionHandlers } from '../control/session'
 import { createDaemonMachineRuntime } from './machine-runtime'
-import type { TerminalRuntimeHost } from './terminal-driver'
+import type { TerminalHostPorts } from '@podium/harness/driver/host'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
 
@@ -43,13 +43,13 @@ const WITNESS: TranscriptItem[] = [
   },
 ]
 
-function host(reads: Array<{ resumeValue: string; limit: number }>): TerminalRuntimeHost {
+function host(reads: Array<{ resumeValue: string; limit: number }>): TerminalHostPorts {
   return {
     readHistory: async (session: { resume?: { value?: string } }, range: { limit: number }) => {
       reads.push({ resumeValue: session.resume?.value ?? '', limit: range.limit })
       return pageHistory(WITNESS, session.resume?.value ?? '', range)
     },
-  } as unknown as TerminalRuntimeHost
+  } as unknown as TerminalHostPorts
 }
 
 function serverRuntime(id: string, harness: string) {

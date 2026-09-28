@@ -1,4 +1,4 @@
-import type { TerminalStateObservation } from './runtime/terminal-driver'
+import type { TerminalStateObservation } from '@podium/harness/driver/host'
 import { readFileSync } from 'node:fs'
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

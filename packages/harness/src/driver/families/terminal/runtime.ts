@@ -67,6 +67,7 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type {
   AcceptPort,
+  AcceptSeen,
   ActingPrincipal,
   AgentSessionHandle,
   AttachEndpoint,
@@ -130,7 +131,7 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asSessionId, transcriptItemRefOf } from '@podium/model'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 
@@ -208,6 +209,9 @@ interface LoggedEvent {
   event: RuntimeEvent
 }
 
+/** One open accept watch: the prompt text it credits, and how to tell it. */
+type AcceptWaiter = { text: string; resolve: (seen: AcceptSeen) => void }
+
 interface DriverSession {
   resumeConfidence?: 'exact' | 'heuristic'
   identityGeneration?: number
@@ -252,10 +256,10 @@ interface DriverSession {
   transcriptVersions: Map<string, string>
   injection: TerminalInjectionMachine
   /** Open waiters for a causal accept, keyed by the prompt text they watch. */
-  hookWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
+  hookWaiters: Set<AcceptWaiter>
   /** Open waiters for a transcript echo, keyed by the prompt text they watch.
    *  Same shape and same reason as `hookWaiters` — see `creditEchoWaiters`. */
-  echoWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
+  echoWaiters: Set<AcceptWaiter>
   /**
    * Whether ANY `UserPromptSubmit` hook payload has reached this session.
    *
@@ -1406,7 +1410,8 @@ export function createTerminalRuntime(
     // The channel answered even if its content cannot identify an open send.
     // Preserve that distinction for the absent-instrumentation warning.
     session.hookSeen = true
-    creditAcceptWaiter(session.hookWaiters, correlation, payload)
+    // A hook names no history entry; the echo that follows it does (POD-4774).
+    creditAcceptWaiter(session.hookWaiters, correlation, payload, {})
   }
 
   /**
@@ -1419,6 +1424,7 @@ export function createTerminalRuntime(
     waiters: DriverSession['hookWaiters'],
     correlation: TerminalAcceptCorrelation<Observation>,
     observation: Observation,
+    seen: AcceptSeen,
   ): void {
     if (waiters.size === 0) return
     const fingerprint = correlation.fingerprint(observation)
@@ -1429,7 +1435,7 @@ export function createTerminalRuntime(
     for (const waiter of [...waiters]) {
       if (correlation.fingerprintText(waiter.text) !== fingerprint) continue
       waiters.delete(waiter)
-      waiter.resolve(true)
+      waiter.resolve(seen)
       return
     }
   }
@@ -1439,17 +1445,26 @@ export function createTerminalRuntime(
     if (!correlation || session.echoWaiters.size === 0) return
     for (const item of items) {
       // The manifest adapter excludes non-prompts, including interrupt markers.
-      if (correlation.accepts(item)) creditAcceptWaiter(session.echoWaiters, correlation, item)
+      // The echo IS the harness's record of the prompt, so it names the entry
+      // the send became — by the item's own id, never by its text (POD-4774).
+      if (!correlation.accepts(item)) continue
+      const transcriptItem = transcriptItemRefOf(item)
+      creditAcceptWaiter(
+        session.echoWaiters,
+        correlation,
+        item,
+        transcriptItem ? { transcriptItem } : {},
+      )
     }
   }
 
   const acceptFor = (waiters: DriverSession['hookWaiters']): AcceptPort => ({
     watch(text: string) {
-      let settle: ((ok: boolean) => void) | undefined
-      const accepted = new Promise<boolean>((resolve) => {
+      let settle: ((seen: AcceptSeen) => void) | undefined
+      const accepted = new Promise<AcceptSeen>((resolve) => {
         settle = resolve
       })
-      const waiter = { text, resolve: (ok: boolean) => settle?.(ok) }
+      const waiter: AcceptWaiter = { text, resolve: (seen) => settle?.(seen) }
       waiters.add(waiter)
       return {
         accepted,
@@ -1819,8 +1834,12 @@ export function createTerminalRuntime(
           // message string is not something a caller may branch on.
           throw new DriverRefusalError({ reason: 'no_resume_ref' }, 'terminal driver export')
         }
-        const located = await host.archiveTranscript(session.sessionId)
-        const bytes = await host.readArchiveBytes(session.sessionId, located.path)
+        const located = await host.archiveTranscript({
+          agentKind: session.agentKind,
+          cwd: session.cwd,
+          resumeValue: session.resume.value,
+        })
+        const bytes = await host.readArchiveBytes(located.path)
         const name = located.path.split('/').pop() ?? `${session.sessionId}.jsonl`
         return {
           harness: session.agentKind,
@@ -1941,36 +1960,16 @@ export function createTerminalRuntime(
         // later reported lost as "target gone" (POD-4604 run 13) — so a send
         // that finds the agent computing never types mid-turn.
         //
-        // WHO HOLDS IT DEPENDS ON WHO OWNS THE ROW. A durable
-        // `deliveryAttempt` retry already has a ledger row behind it: refusing
-        // `busy` lets the outer durable queue (and the server FIFO behind it)
-        // wait for the turn end instead of nesting queues. A DIRECT send has
-        // no row and nothing waiting on an event, so a refusal would push the
-        // retry onto the server — a server-side retry keyed on agent state,
-        // which the server must never do (POD-4661). The daemon holds it
-        // instead: the send joins the same outer delivery FIFO under the
-        // server's turn id, typed when the turn ends, in arrival order with
-        // the durable rows.
-        //
-        // THE REPLY DOES NOT WAIT FOR THE TURN. The server's RPC gives up at
-        // 12 s, and any turn longer than that would read as a false
-        // `unverified` while the daemon typed the message later — so the
-        // hold answers `queued` AT ONCE (daemon custody, inside the window)
-        // and the turn's TYPING settles it the way direct sends always
-        // settle: transcript echo for enveloped mail, the optimistic
-        // injection mark for operator sends. Only a NEVER-TYPED loss is
-        // reported later, by turn id through abandonment. `interrupt` stays
-        // exempt (cutting in is its job) and `needs_user` is still refused
-        // inside `deliver`.
+        // The answer is `busy`, whoever asked. The server's sends are all
+        // durable rows (POD-4795): the delivery queue that retries this
+        // attempt waits for the turn end itself, and holds the row under its
+        // id across that wait. `interrupt` is exempt (cutting in is its job)
+        // and `needs_user` is still refused inside `deliver`.
         if (
           requested === 'when-ready' &&
           ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '')
         ) {
-          if (options.deliveryAttempt) return { outcome: 'refused', refusal: refuse('busy') }
-          return handle.send(
-            { ...input, rowId: input.id ?? `direct:${randomUUID()}` },
-            { ...options, daemonHeld: true },
-          )
+          return { outcome: 'refused', refusal: refuse('busy') }
         }
 
         if (requested === 'interrupt') {
@@ -1987,6 +1986,7 @@ export function createTerminalRuntime(
               origin: options.origin,
               delivery: 'interrupt',
               afterEsc: true,
+              ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
             }),
           )
         }
@@ -1998,6 +1998,7 @@ export function createTerminalRuntime(
             signal: options.signal,
             durable: options.deliveryAttempt,
             initialPrompt: input.initialPrompt,
+            ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
           }),
         )
       },
@@ -2270,19 +2271,6 @@ export function createTerminalRuntime(
       (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'),
       deliveryReady,
       () => !session.disposed,
-      // A daemon-held direct send (POD-4700) that will never be typed is a
-      // loss with a receipt outstanding: log it unconditionally like the
-      // injection queue's abandonment, then forward by turn id so the server
-      // dead-letters it. Success needs no report — it settles by echo.
-      ({ turns, reason }) => {
-        log.warn('held turns were never delivered', {
-          sessionId: session.sessionId,
-          reason,
-          turns: turns.length,
-          turnIds: turns.map((turn) => turn.id),
-        })
-        host.onDrainAbandoned?.({ sessionId: session.sessionId, turns, reason })
-      },
     )
   }
 

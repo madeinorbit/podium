@@ -51,6 +51,8 @@ import type {
 } from './injection.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type { AgentRuntimeState } from '@podium/model'
+import type { SessionBinding } from '../../binding.js'
+import type { RuntimeEvent } from '../../events.js'
 
 export type TerminalSpawnControl = Extract<ControlMessage, { type: 'spawn' }>
 export type TerminalReattachControl = Extract<ControlMessage, { type: 'reattach' }>
@@ -152,15 +154,19 @@ export interface TerminalHostPorts {
     },
   ): Promise<RuntimeHistoryPage>
   /** Locate the harness-native transcript for an archive, or throw with the
-   *  harness's own reason when it declares none. Keyed by session: the daemon
-   *  resolves agentKind/cwd/resume from its own row rather than trusting the
-   *  driver's copy. */
-  archiveTranscript(sessionId: SessionId): Promise<{ path: string; relativeDir?: string }>
-  /** Read the session's handoff transcript bytes for export. Scoped to the
-   *  archive path the host just located — the ONLY read through this port is
-   *  the export path above, confined the way control/transcripts.ts guards its
-   *  reads. No unscoped path reads. */
-  readArchiveBytes(sessionId: SessionId, path: string): Promise<Uint8Array>
+   *  harness's own reason when it declares none. The driver passes its own
+   *  agentKind/cwd/resume (the daemon entry does not store them, and the
+   *  claude family reuses this locator with fact-only inputs — so sessionId
+   *  keying is not implementable here; scoping lives in the locator itself). */
+  archiveTranscript(input: {
+    agentKind: AgentKind
+    cwd: string
+    resumeValue: string
+  }): Promise<{ path: string; relativeDir?: string }>
+  /** Read the handoff transcript bytes for export. Scoped by purpose: the ONLY
+   *  read through this port is the export path just located above, confined
+   *  the way control/transcripts.ts guards its reads. No unscoped path reads. */
+  readArchiveBytes(path: string): Promise<Uint8Array>
   /** Resource truth for this session — memory, tasks and the kernel's own
    *  OOM-kill counter, from the daemon's one cgroup observer. Keyed by session:
    *  the daemon resolves label, scope unit and pid itself. Undefined where
@@ -215,5 +221,5 @@ export interface TerminalHostPorts {
    * `driverTiming.runtimeEvent`; tests leave it absent. Optional so the family
    * never imports the daemon's timing module.
    */
-  traceRuntimeEvent?(binding: { sessionId: SessionId }, event: unknown): void
+  traceRuntimeEvent?(binding: SessionBinding, event: RuntimeEvent): void
 }
