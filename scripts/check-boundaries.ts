@@ -108,13 +108,19 @@
   *  19. A hand-written `sql` fragment used in a select projection may not carry an
   *     outer-table Column into its own FROM scope; use `sql.identifier`.
   *
-  *  20. The TERMINAL OBJECTS family (POD-4437, closing issue of POD-4414): five
-  *     per-file rules pinning the six runtime objects (podium-host,
-  *     DurableProcess, Terminal, RuntimeDriver, Session, Viewer) to the places
-  *     the layers page says, with the import direction enforced so the
-  *     structure cannot drift back — `terminal-objects-process`,
-  *     `-terminal`, `-driver`, `-server` and `-primitives`, defined beside
-  *     `checkFile` below.
+ *  20. The TERMINAL OBJECTS family (POD-4437, closing issue of POD-4414): five
+ *     per-file rules pinning the six runtime objects (podium-host,
+ *     DurableProcess, Terminal, RuntimeDriver, Session, Viewer) to the places
+ *     the layers page says, with the import direction enforced so the
+ *     structure cannot drift back — `terminal-objects-process`,
+ *     `-terminal`, `-driver`, `-server` and `-primitives`, defined beside
+ *     `checkFile` below.
+ *
+ *  21. HISTORY FROM DISK (POD-4784, ADR 10 Decision B): a driver family's
+ *     `transcript.history` never reads its protocol client — history is
+ *     at-rest data over `transcriptSourceFromGrammar`, the protocol stream
+ *     carries deltas only. Defined beside `checkFile` below as
+ *     `history-from-disk`.
  *
  * Alongside these (and rule 12, `sync-browser-reach`, documented at its own
  * definition) sits the ARCHITECTURE MANIFEST (POD-296,
@@ -3464,6 +3470,162 @@ export function checkTerminalObjectsPrimitives(file: string, source: string): Vi
   return violations
 }
 
+/**
+ * Rule history-from-disk — agent history is read from disk, never from the
+ * live protocol (POD-4784, ADR 10 Decision B).
+ *
+ * History is at-rest data: no family answers transcript.history from a
+ * protocol call or from process memory; the protocol stream carries deltas
+ * only. Mechanically: a `history` implementation inside a `transcript: { … }`
+ * object under `packages/harness/src/driver/families/` must never read its
+ * protocol client — no `session.client`, no `makeClient`-built client, no
+ * `fetch(`, no JSON-RPC `.call(`, no transport write, and none of the
+ * per-protocol history-shaped literals (`thread/read`, `/message`,
+ * `session/load`). The Store read (`host.readHistory`,
+ * `host.readTranscript`, `deps.transcript.readHistory`, or the shared
+ * `readEngineHistoryFromGrammar` over `transcriptSourceFromGrammar`) is the
+ * one port every family receives.
+ *
+ * SCOPE is the function BODY, not the file: the same runtime files
+ * legitimately drive their protocol clients everywhere else (turns,
+ * interrupts, health, export), so an import-level ban would refuse the
+ * driver itself. Only the history body is held.
+ *
+ * WHAT THIS DOES NOT SEE, said rather than left to be discovered: a history
+ * implementation that delegates by NAME (`transcript: { history }` with the
+ * function defined elsewhere) carries no body to inspect and is skipped — the
+ * families all inline theirs, so an outline would be the novelty worth a
+ * review look anyway. Comment-stripped, like every other source-shape rule
+ * here, so that DOCUMENTING the prohibition — which the history bodies do at
+ * length (`thread/read` returns exactly what the file holds) — cannot trip
+ * the lint enforcing it.
+ */
+export const HISTORY_FROM_DISK_RULE = 'history-from-disk'
+
+/** Protocol-client signals forbidden inside a driver's history body. */
+const HISTORY_PROTOCOL_CLIENT_PATTERNS: readonly { label: string; re: RegExp }[] = [
+  { label: 'session.client', re: /\bsession\s*\.\s*client\b/ },
+  { label: 'client', re: /\bclient\b/ },
+  { label: 'makeClient', re: /\bmakeClient\b/ },
+  { label: 'createClient', re: /\bcreate\w*Client\s*\(/ },
+  { label: 'fetch(', re: /\bfetch\s*\(/ },
+  { label: '.call(', re: /\.\s*call\s*\(/ },
+  { label: 'transport', re: /\btransport\b/ },
+  { label: 'thread/read', re: /thread\/read/ },
+  { label: 'threadRead', re: /\bthreadRead\b/ },
+  { label: '/message', re: /\/message\b/ },
+  { label: 'session/load', re: /session\/load/ },
+  { label: 'CODEX_METHODS', re: /\bCODEX_METHODS\b/ },
+  { label: 'GROK_ACP_METHODS', re: /\bGROK_ACP_METHODS\b/ },
+]
+
+function isHistoryFromDiskExcluded(file: string): boolean {
+  if (isTestFile(file)) return true
+  if (
+    file.includes('__fixtures__/') ||
+    /(?:^|\/)fixtures\//.test(file) ||
+    file.endsWith('.fixtures.ts')
+  ) {
+    return true
+  }
+  return false
+}
+
+export function checkHistoryFromDisk(file: string, source: string): Violation[] {
+  if (!file.startsWith(HARNESS_FAMILIES_DIR) || isHistoryFromDiskExcluded(file)) return []
+  if (!source.includes('transcript') || !source.includes('history')) return []
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const violations: Violation[] = []
+  const checkHistoryBody = (historyNode: ts.Node, bodyText: string): void => {
+    const code = stripComments(bodyText)
+    for (const { label, re } of HISTORY_PROTOCOL_CLIENT_PATTERNS) {
+      if (!re.test(code)) continue
+      const line = sourceFile.getLineAndCharacterOfPosition(historyNode.getStart(sourceFile)).line + 1
+      violations.push({
+        file,
+        specifier: label,
+        rule: HISTORY_FROM_DISK_RULE,
+        message: `${file}:${line}: transcript.history reads '${label}' — history is at-rest data: no family answers transcript.history from a protocol call or from process memory; the protocol stream carries deltas only (ADR 10 Decision B, POD-4784). Delegate to the injected Store port (host.readHistory) over transcriptSourceFromGrammar instead.`,
+      })
+      return
+    }
+  }
+  const checkTranscriptObject = (members: ts.NodeArray<ts.Node>): void => {
+    for (const member of members) {
+      let historyNode: ts.Node | undefined
+      let body: ts.Node | undefined
+      if (
+        (ts.isMethodDeclaration(member) || ts.isGetAccessorDeclaration(member)) &&
+        member.name !== undefined &&
+        ts.isIdentifier(member.name) &&
+        member.name.text === 'history'
+      ) {
+        historyNode = member
+        body = member.body
+      } else if (
+        ts.isPropertyAssignment(member) &&
+        ts.isIdentifier(member.name) &&
+        member.name.text === 'history'
+      ) {
+        const init = member.initializer
+        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+          historyNode = member
+          body = init.body
+        }
+      } else if (
+        ts.isPropertyDeclaration(member) &&
+        member.name !== undefined &&
+        ts.isIdentifier(member.name) &&
+        member.name.text === 'history' &&
+        member.initializer !== undefined &&
+        (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
+      ) {
+        historyNode = member
+        body = member.initializer.body
+      }
+      if (historyNode === undefined || body === undefined) continue
+      checkHistoryBody(historyNode, body.getText(sourceFile))
+    }
+  }
+  const visit = (node: ts.Node): void => {
+    const transcriptMembers = (init: ts.Expression): ts.NodeArray<ts.Node> | undefined => {
+      const current = ts.isParenthesizedExpression(init) ? init.expression : init
+      return ts.isObjectLiteralExpression(current) ? current.properties : undefined
+    }
+    if (
+      ts.isPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'transcript'
+    ) {
+      const members = transcriptMembers(node.initializer)
+      if (members) checkTranscriptObject(members)
+    } else if (
+      ts.isMethodDeclaration(node) &&
+      node.name !== undefined &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'transcript' &&
+      node.body
+    ) {
+      // A `transcript()` method returning an object — not a shape the families
+      // use today, but the same hold applies if one ever arrives.
+      const ret = node.body.statements.find(ts.isReturnStatement)?.expression
+      if (ret) {
+        const members = transcriptMembers(ret)
+        if (members) checkTranscriptObject(members)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return violations
+}
+
 /** Hot paths may consume the read-only index and explicitly injected ports,
  * never import a repository. This participates in the whole-repo sweep. */
 export function checkWorldIndexBoundary(file: string, source: string): Violation[] {
@@ -3496,6 +3658,7 @@ export function checkFile(
     ...checkTerminalObjectsDriver(file, source),
     ...checkTerminalObjectsServer(file, source),
     ...checkTerminalObjectsPrimitives(file, source),
+    ...checkHistoryFromDisk(file, source),
     ...checkWorldIndexBoundary(file, source),
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
