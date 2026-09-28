@@ -131,10 +131,15 @@ export interface HarnessBoundaryAllowlistEntry {
  *  the emptied version-reporting (3) + inbox (1) entries and lowered
  *  control/session 2 → 1 (admission executable key stays): leak 214 → 209,
  *  total 250 → 245. All five harness-branching violations gone.
+ *  POD-4737 (phone defaults + demo fixtures) read the named default harness
+ *  (mobile agent-models' issueDefaultAgentKind, the registry's first row) and
+ *  took demo variety by registry position: deleted the emptied demoData (9) +
+ *  ConfiguredIssueLaunchSheet (1) + NewIssueScreen (1) entries: leak 209 →
+ *  198, total 245 → 234.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 209
+export const HARNESS_BASELINE_LEAK_COUNT = 198
 export const HARNESS_BASELINE_POLICY_COUNT = 36
-export const HARNESS_BASELINE_TOTAL = 245
+export const HARNESS_BASELINE_TOTAL = 234
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -145,9 +150,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 4, category: 'leak', reason: 'daemon headless host/driver names a harness; move into driver families (1.5)', issue: 'POD-4414/1.5' },
   { file: 'apps/mobile/harness/agent-mark-entry.tsx', count: 13, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/mobile/harness/backend-rail-entry.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/mobile/src/client/demoData.ts', count: 9, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/mobile/src/components/ConfiguredIssueLaunchSheet.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/mobile/src/screens/NewIssueScreen.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/gateway/daemon-socket.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/llm.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/modules/messages/characterization-support.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
