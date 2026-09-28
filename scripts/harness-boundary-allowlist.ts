@@ -164,10 +164,13 @@ export interface HarnessBoundaryAllowlistEntry {
  *  client-core usage.ts bucketProvider stays: model-id prefixes are model
  *  namespace (the excluded ApiProvider-collision class), not harness
  *  identity — same reason the price rows are uncounted.
+ *  POD-4737 (freed fence): the issues NewIssueDialog placeholder default
+ *  reads DEFAULT_HARNESS_AGENT: deleted the entry (1): leak 167 → 166,
+ *  total 202 → 201. chat/** and HostIndicators carry no entries.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 167
+export const HARNESS_BASELINE_LEAK_COUNT = 166
 export const HARNESS_BASELINE_POLICY_COUNT = 35
-export const HARNESS_BASELINE_TOTAL = 202
+export const HARNESS_BASELINE_TOTAL = 201
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -198,7 +201,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/web/harness/setup-store.ts', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/sidebar-store.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/usage-tasks-fixture.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/issues/NewIssueDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/workflows/ExecutionProfiles.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/lib/agent-tone.ts', count: 1, category: 'leak', reason: 'bundled brand-component key for harnesses this build knows (4.1 amendment: bundled CODE stays)', issue: 'POD-4414/4.1' },
   { file: 'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
