@@ -664,6 +664,37 @@ the no-op page's (`ece60d30`) for the same staging, so the control page's
 grown state is not the others'. This predates the scan staging (the first
 Mb4 run recorded 735 too).
 
+**Rescope grown-state heal (POD-4715; the OPEN item above, resolved).** Root
+cause: the 735 is real current-app behaviour, filed as production bug
+POD-4722 — not a staging difference. On a kernel rescope install the replica
+facade notifies synchronously in subscription order: the replica binding
+first, the issue-view cache second. The binding's publication synchronously
+re-derives the mounted control list's snapshot check inside the cascade,
+BEFORE the view cache invalidates, so models build against stale 1x views,
+the grown-only rows are skipped, and the partial list is pinned under the
+grown store. Every later derive on that page reads 735 rows. The pools never
+derive inside the cascade (they read the row feed), so their first legacy
+derive lands after invalidation and reads the true 1,464. Shrinking back to
+1x self-corrects (the stale views still cover the smaller set), so only
+growth poisons — which is why only the grown state diverged. The control
+stays the unmodified app; nothing outside `packages/worklist-proto` changed.
+The instrument heals instead: `harness/web/entrylib.ts` `rescope()` runs the
+same untimed step on EVERY page (noop, control, mobx, hand) after each timed
+install window and before `midParity`, `grownRows` and the driver's
+after-step reads — a discovery refresh answering the already-staged repos
+plus a settle, publishing a fresh store snapshot with no row changes so the
+next derive rebuilds from refreshed views. Untimed; the install windows are
+untouched. Rescope carries no wall budget, and the budgeted heap growth must
+reflect a correct round trip, which the stale control never makes. The
+control's timed grow wall stays the real app's behaviour, INCLUDING the stale
+cheap derive: in every table it is flagged "stale derive (POD-4722)" and is
+not comparable to the arms' grow walls. The driver (`harness/browser/run.ts`)
+FAILS a rescope run unless the page's `grownRows` equal the grown truth
+(1,464 at 1x; the floor draws its frozen boot snapshot by design and must
+hold the 1x truth of 732). Regression cover:
+`harness/src/legacy-control/rescope-grown.test.tsx` (healed: 1,464 rows and
+the pristine oracle; unhealed: pins 735 as POD-4722's evidence).
+
 **The lifecycle budgets, on these numbers:** coldBootstrap `actionMs` p50
 ≤ 222.2 ms; principalSwitch ≤ 473.4 ms; coldBootstrap retained heap ≤ 24.82
 MB; heap growth ≤ 0.984 after a switch and ≤ 1.233 after a rescope. They are

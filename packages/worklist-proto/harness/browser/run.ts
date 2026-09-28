@@ -70,13 +70,15 @@ import { createServer, type Server } from 'node:http'
 import { hostname, loadavg, uptime } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { chromium, type Page } from '@playwright/test'
+import { FIXTURE_SEED } from '../../shared/src/scenarios'
+import { buildCorpus } from '../src/fixture/index'
+import { expectedSnapshot } from '../src/oracle/index'
 import type {
   ProtoLifecycleResult,
   ProtoOracleCheck,
   ProtoParity,
   ProtoScenarioResult,
-} from '../web/entrylib'
-import {
+} from '../web/entrylib'import {
   checkMaxLoad,
   describePlan,
   failedPathFor,
@@ -120,6 +122,26 @@ const SWITCH_PRINCIPAL = 'operator-2'
 function rescopeScale(scale: Scale): 2 | 4 {
   if (scale === 4) throw new Error('rescope grows to 2x the page corpus: run it at --scale 1 or 2')
   return scale === 1 ? 2 : 4
+}
+
+/**
+ * POD-4715 — the grown state's true visible rows at `scale`: the fixture
+ * oracle over the grown corpus. Every rescope record must hold exactly this
+ * many grown rows (the floor draws its frozen boot snapshot by design, so it
+ * holds the 1x truth instead); anything else FAILS the run, because a control
+ * doing half the grown work understates the ratio the arms are held to.
+ * Computed once per invocation (a corpus build plus one legacy derivation).
+ */
+const truthRowsByScale = new Map<number, number>()
+function truthRows(scale: 1 | 2 | 4): number {
+  const hit = truthRowsByScale.get(scale)
+  if (hit !== undefined) return hit
+  const corpus = buildCorpus(scale, FIXTURE_SEED)
+  const rows = Object.keys(
+    expectedSnapshot(corpus, { selectedIssueId: null, coarseNow: corpus.fixedNow }).rowsById,
+  ).length
+  truthRowsByScale.set(scale, rows)
+  return rows
 }
 
 interface OpenPage {
@@ -464,6 +486,18 @@ async function main(): Promise<number> {
           await page.evaluate((s) => window.__proto.prepareRescope(s), to)
           heapBefore = await heap()
           result = await page.evaluate((s) => window.__proto.rescope(s), to)
+          // POD-4715: every page must reach the same grown state. The arms
+          // and the control hold the grown truth; the floor draws its frozen
+          // boot snapshot by design and holds the 1x truth. Anything else
+          // FAILS the run (a missing or half grown state understates the
+          // ratio the arms are held to).
+          const wantGrownRows = args.arm === 'noop' ? truthRows(args.scale) : truthRows(to)
+          const gotGrownRows = (result.phases as { grownRows?: unknown }).grownRows
+          if (gotGrownRows !== wantGrownRows) {
+            fail(
+              `rescope grown rows ${String(gotGrownRows)} !== ${wantGrownRows} on ${args.arm} (POD-4715: every page must reach the same grown state)`,
+            )
+          }
         }
         const heapAfter = await heap()
         output.corpus ??= await page.evaluate(() => window.__proto.corpus)
