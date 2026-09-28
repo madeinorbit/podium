@@ -153,10 +153,15 @@ export interface HarnessBoundaryAllowlistEntry {
  *  version comes from a separate binary probe rather than the harness
  *  version: leak 193 → 171, total 228 → 206. The pi terminal row is now
  *  reported (its manifest declares generic-pty like the rest).
+ *  POD-4737 (short-mark descriptor field) stated one arbitrary two-letter
+ *  mark per adapter descriptor, served it on the wire (optional, like
+ *  provider) and read it through the one markOf rule with per-field
+ *  served-over-bundled merge: deleted the emptied quota (1) +
+ *  quota-history (1) short-mark entries: leak 171 → 169, total 206 → 204.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 171
+export const HARNESS_BASELINE_LEAK_COUNT = 169
 export const HARNESS_BASELINE_POLICY_COUNT = 35
-export const HARNESS_BASELINE_TOTAL = 206
+export const HARNESS_BASELINE_TOTAL = 204
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -199,8 +204,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/harness/src/driver/headless-interrupt.ts', count: 2, category: 'policy', reason: 'driver FAMILY names (codex/opencode/claude-sdk), not harness names — stays', policy: 'packages/harness/src/driver/headless-interrupt.ts' },
   { file: 'packages/client-core/src/replica/legacy-snapshot.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/replica/replica.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/client-core/src/viewmodels/quota-history.ts', count: 1, category: 'leak', reason: 'two-letter ledger mark table; labels read off descriptors (POD-4737)', issue: 'POD-4414/3.3' },
-  { file: 'packages/client-core/src/viewmodels/quota.ts', count: 1, category: 'leak', reason: 'two-letter meter mark table; labels read off descriptors (POD-4737)', issue: 'POD-4414/3.3' },
   { file: 'packages/client-core/src/viewmodels/usage.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/commands/src/cloud/contracts.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/harness/src/browser.ts', count: 2, category: 'policy', reason: 'browser-safe no-tools table + bundled composer rules stay in browser entry; tested against manifests', policy: 'packages/harness/src/browser.ts' },

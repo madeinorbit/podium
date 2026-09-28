@@ -14,6 +14,7 @@ export const claudeCodeDescriptor: HarnessDescriptorData = {
   kind: 'claude-code',
   provider: 'anthropic',
   label: 'Claude Code',
+  mark: 'CC',
   shortLabel: 'Claude',
   icon: {
     id: 'claude-code',

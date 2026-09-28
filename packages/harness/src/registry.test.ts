@@ -779,6 +779,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         provider: 'fictional',
         label: 'Fictional CLI',
         shortLabel: 'Fictional',
+        mark: 'FI',
         icon: { id: 'fictional', viewBox: '0 0 24 24', d: 'M4 4h16v16H4z' },
         brand: null,
         login: { command: null, installHint: null, signedOutHint: null },

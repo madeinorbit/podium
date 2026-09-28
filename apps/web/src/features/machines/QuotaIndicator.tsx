@@ -232,7 +232,7 @@ export function QuotaIndicator({
                     data-harness={group.agent}
                   >
                     <QuotaHarnessIcon agent={group.agent} descriptors={descriptors} />
-                    <span className="header-mark">{agentShortLabel(group.agent)}</span>
+                    <span className="header-mark">{agentShortLabel(group.agent, descriptors)}</span>
                     {/* The fallback rail exists only for a pool that reports
                         model-scoped buckets — a single-quota harness renders
                         exactly the meter it always has. */}

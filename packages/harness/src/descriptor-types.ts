@@ -71,6 +71,14 @@ export interface HarnessDescriptorData {
   provider: string
   label: string
   shortLabel: string
+  /**
+   * Two-letter compact mark for constrained meters (POD-4737): the header
+   * pool chips and ledger strips that cannot fit a label. Stated per
+   * harness because the spellings are arbitrary ('CX', not 'CO') — a generic
+   * initialism cannot derive them — and served on the wire like every other
+   * presentation fact, with the same initials fallback for older frames.
+   */
+  mark: string
   icon: HarnessIconData
   /** Null = neutral chip (inherits the surrounding tone). */
   brand: HarnessBrandTone | null

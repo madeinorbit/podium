@@ -21,6 +21,7 @@
  */
 
 import type { AgentKind, QuotaWindowHistoryWire } from '@podium/model'
+import { markOf } from '@podium/harness/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { harnessDescriptorFor } from './harness-labels'
 
@@ -114,13 +115,14 @@ function agentLedgerLabel(agent: string, served?: readonly HarnessDescriptorWire
   return harnessDescriptorFor(agent, served)?.label ?? agent
 }
 
-const AGENT_MARK: Record<string, string> = {
-  'claude-code': 'CC',
-  codex: 'CX',
-  grok: 'GR',
-  opencode: 'OC',
-  cursor: 'CU',
-  shell: 'SH',
+/**
+ * Two-character ledger mark (POD-4737): the adapter's descriptor mark through
+ * the one markOf rule. 'shell' keeps its neutral mark; unheard-of kinds get
+ * the generic initialism.
+ */
+function agentLedgerMark(agent: string, served?: readonly HarnessDescriptorWire[]): string {
+  if (agent === 'shell') return 'SH'
+  return markOf(agent, harnessDescriptorFor(agent, served)?.mark)
 }
 
 const MONTH_DAY = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
@@ -336,7 +338,7 @@ export function quotaLedger(
     strips.push({
       key,
       agent: first.agent,
-      mark: AGENT_MARK[first.agent] ?? first.agent.slice(0, 2).toUpperCase(),
+      mark: agentLedgerMark(first.agent, served),
       agentLabel: agentLedgerLabel(first.agent, served),
       // Closed windows only: a running one is still growing, so its length so far
       // is not the length it will turn out to have had.

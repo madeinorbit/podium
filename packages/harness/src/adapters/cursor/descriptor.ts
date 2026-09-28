@@ -19,6 +19,7 @@ export const cursorDescriptor: HarnessDescriptorData = {
   kind: 'cursor',
   provider: 'cursor',
   label: 'Cursor',
+  mark: 'CU',
   shortLabel: 'Cursor',
   icon: {
     id: 'cursor',

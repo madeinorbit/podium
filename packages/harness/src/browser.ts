@@ -182,16 +182,44 @@ export function providerOf(descriptor: {
 }
 
 /**
+ * The ONE mark fallback rule (POD-4737, the {@link providerOf} shape): the
+ * stated mark when present, else the generic initialism. The mark spellings
+ * are arbitrary per harness ('CX', not 'CO'), so the generic is a fallback
+ * for older frames and unheard-of kinds — never the source for a harness
+ * this build knows, whose row states its mark.
+ */
+export function markOf(kind: string, mark?: string | null | undefined): string {
+  const stated = mark?.trim()
+  if (stated) return stated
+  return kind
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
+}
+
+/**
  * Merge served descriptors over the bundled fallback. Served wins by kind;
  * report-only kinds (a NEWER harness) are appended in report order. Pure and
  * total: an empty report renders the bundled set, and unknown entries never
  * throw — see {@link parseServedDescriptors}.
+ *
+ * Served wins PER FIELD, not per row (POD-4737): a frame predating an
+ * optional presentation field (provider, mark) inherits this build's copy
+ * instead of dropping it, while every field the frame states wins —
+ * including availability, which only served rows carry. Explicit nulls
+ * still overwrite; only absent fields fall back.
  */
 export function resolveDescriptors(
   served: readonly HarnessDescriptorWire[],
 ): HarnessDescriptorWire[] {
   const byKind = new Map(BUNDLED_DESCRIPTORS.map((data) => [data.kind, data]))
-  for (const descriptor of served) byKind.set(descriptor.kind, descriptor)
+  for (const descriptor of served) {
+    const prev = byKind.get(descriptor.kind)
+    byKind.set(descriptor.kind, prev ? { ...prev, ...descriptor } : descriptor)
+  }
   return [...byKind.values()]
 }
 
@@ -240,6 +268,10 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
     // descriptor. A frame predating the field still renders — see
     // {@link providerOf}, the one fallback rule.
     const provider = providerOf({ kind, provider: asString(entry.provider) })
+    // Optional on the wire (like provider): an older frame simply omits it
+    // and every reader resolves through markOf. Emitted only when stated, so
+    // golden fixtures without the field keep parsing byte-identically.
+    const mark = asString(entry.mark)
     const models = Array.isArray(catalog?.models)
       ? catalog.models.flatMap((model) => {
           if (!isRecord(model)) return []
@@ -270,6 +302,7 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
       provider,
       label,
       shortLabel: asString(entry.shortLabel) ?? label,
+      ...(mark !== undefined ? { mark } : {}),
       icon: { id: iconId, viewBox: iconViewBox, d: iconD },
       ...(brandBg && brandFg ? { brand: { bg: brandBg, fg: brandFg } } : {}),
       capabilities: {

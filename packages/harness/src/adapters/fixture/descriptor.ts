@@ -14,6 +14,7 @@ export const fixtureDescriptor: HarnessDescriptorData = {
   kind: 'fixture' as BuiltinHarnessKind,
   provider: 'fixture',
   label: 'Fixture',
+  mark: 'FX',
   shortLabel: 'Fixture',
   icon: {
     id: 'fixture',
