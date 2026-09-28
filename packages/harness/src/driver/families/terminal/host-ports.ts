@@ -18,8 +18,18 @@
  * handoff point: `register`/`recoverWithId` capture the Terminal the host
  * hands at bind, `setTerminal` refreshes it on reattach (and on steal/park),
  * and no per-write `bridge(sessionId)` lookup remains. The transport itself
- * is the narrow `TerminalTransport` below — pid plus base64 writes — never
- * the daemon's Terminal class.
+ * is the narrow `TerminalTransport` below — base64 writes plus liveness —
+ * never the daemon's Terminal class.
+ *
+ * PROCESS FACTS ARE KEYED BY SESSION (REVIEW-4438 A1/A6, POD-4414 review
+ * 2026-09-28). The session owns the process by its durable label; the driver
+ * never resolves labels, scope units or pids itself. It asks per session and
+ * the daemon resolves: `processAlive(sessionId)`, `resources(sessionId)`,
+ * `stopSession({sessionId})`. Answer ownership compares Terminal object
+ * identity plus observer generation/bindingVersion — a replaced Terminal is a
+ * new object, so no pid comparison is needed (the write paths that used pid
+ * were answer ownership, binding pid and health resources pid; all three now
+ * go through object identity or host-resolved ports).
  */
 
 import type { AgentKind, ResumeRef, SessionId } from '@podium/model'
@@ -46,15 +56,31 @@ export type TerminalSpawnControl = Extract<ControlMessage, { type: 'spawn' }>
 export type TerminalReattachControl = Extract<ControlMessage, { type: 'reattach' }>
 
 /**
+ * THE FRAMES THIS DRIVER MAY EMIT.
+ *
+ * Narrowed from the whole daemon wire (POD-4414 review 1): grepping
+ * terminal-driver.ts shows `host.send` carries only `runtimeEvent`,
+ * `runtimeFineEvent` (the outbound-frame tap), and `machineDiagnostic` (the
+ * instrumentation-degradation report). Nothing else may go out through this
+ * port — spawn results, credentials and transfer frames are not this
+ * driver's to send.
+ */
+export type TerminalDriverReport = Extract<
+  DaemonMessage,
+  { type: 'runtimeEvent' | 'runtimeFineEvent' | 'machineDiagnostic' }
+>
+
+/**
  * THE LIVE TERMINAL, as the driver needs it.
  *
- * pid identifies the process for answer-ownership checks and the binding;
  * writeBase64 carries injection bytes and menu keystrokes; live reports
  * whether the surface is still attached (parked surfaces drop writes).
- * The daemon adapts its Terminal class to this shape at the boundary.
+ * No pid: answer ownership uses Terminal object identity (a replaced surface
+ * is a new object) plus the observer generation/bindingVersion fences, and
+ * resource/binding identity is resolved by the host per session. The daemon
+ * adapts its Terminal class to this shape at the boundary.
  */
 export interface TerminalTransport {
-  readonly pid: number
   readonly live: boolean
   writeBase64(dataBase64: string): void
 }
@@ -74,23 +100,20 @@ export type TerminalMailBoundaryContext = (
  */
 export interface TerminalHostPorts {
   boundaryContext?: TerminalMailBoundaryContext
-  /** Outbound daemon frames. The driver's only path to the server. */
-  send(msg: DaemonMessage): void
+  /** The driver's outbound reports: runtime events plus the instrumentation
+   *  degradation diagnostic. Narrowed from the whole daemon wire — see
+   *  `TerminalDriverReport` for the grep. */
+  send(msg: TerminalDriverReport): void
   stageAttachment: AttachmentStager
   /** The observers' current folded state for a session. */
   trackedState(sessionId: SessionId): AgentRuntimeState | undefined
   /** Whether composer sync is running (Draft Sync v2) for this session. */
   draftSyncing(sessionId: SessionId): boolean
   setDraftTarget(sessionId: SessionId, text: string): boolean
-  /** The durable host label. THIS is the process identity: exactly one abduco or
-   *  abduco master owns it, and `adopt()` matches on it without a prefix. */
-  durableLabel(sessionId: SessionId): string
-  /** The transient systemd scope bounding the label's process tree, where the
-   *  platform has one. Absent is honest on macOS. */
-  scopeUnit(label: string): string | undefined
-  /** Does a durable master still hold this label? The ONLY thing that makes an
-   *  adopt exact rather than hopeful. */
-  durableHostAlive(label: string): Promise<boolean>
+  /** Does this session's durable process still live? The ONLY thing that makes
+   *  an adopt exact rather than hopeful. Keyed by session: the daemon resolves
+   *  the entry's durable label itself, so the driver never holds labels. */
+  processAlive(sessionId: SessionId): Promise<boolean>
   /** Rebuild/reuse the exact process bridge, observer lease, screen and composer.
    * Call ready after composition, before publishing bind or replaying redraw.
    * The host hands the freshly wired Terminal to ready, so the driver's
@@ -99,11 +122,17 @@ export interface TerminalHostPorts {
     msg: TerminalReattachControl,
     ready: (terminal: TerminalTransport | undefined) => void,
   ): Promise<void>
-  /** The daemon half of the survival table — dispose the bridge, reap the host. */
-  stopSession(input: { sessionId: SessionId; durableLabel: string }): Promise<boolean>
+  /** The daemon half of the survival table — dispose the bridge, reap the host.
+   * Keyed by session: the daemon resolves the entry's durable label itself. */
+  stopSession(input: { sessionId: SessionId }): Promise<boolean>
   /** The existing spawn path. `create()`/`resume()` go through it rather than
    *  around it, which is what keeps a contract-driven session byte-identical to
-   *  a server-spawned one. */
+   *  a server-spawned one.
+   *
+   *  KEPT AS A PORT (POD-4414 review 3): install needs daemon-only state —
+   *  the settings/home directories the per-session hook files are written
+   *  under, the harness version-probe report sink, and the registry's
+   *  instrumentation sections. None of those lives in this package. */
   installInstrumentation(
     sessionId: SessionId,
     spec: SessionSpec,
@@ -123,22 +152,20 @@ export interface TerminalHostPorts {
     },
   ): Promise<RuntimeHistoryPage>
   /** Locate the harness-native transcript for an archive, or throw with the
-   *  harness's own reason when it declares none. */
-  archiveTranscript(input: {
-    agentKind: AgentKind
-    cwd: string
-    resumeValue: string
-  }): Promise<{ path: string; relativeDir?: string }>
-  readFileBytes(path: string): Promise<Uint8Array>
-  /** Resource truth for a session's scope — memory, tasks and the kernel's own
-   *  OOM-kill counter, from the daemon's one cgroup observer. Undefined where
+   *  harness's own reason when it declares none. Keyed by session: the daemon
+   *  resolves agentKind/cwd/resume from its own row rather than trusting the
+   *  driver's copy. */
+  archiveTranscript(sessionId: SessionId): Promise<{ path: string; relativeDir?: string }>
+  /** Read the session's handoff transcript bytes for export. Scoped to the
+   *  archive path the host just located — the ONLY read through this port is
+   *  the export path above, confined the way control/transcripts.ts guards its
+   *  reads. No unscoped path reads. */
+  readArchiveBytes(sessionId: SessionId, path: string): Promise<Uint8Array>
+  /** Resource truth for this session — memory, tasks and the kernel's own
+   *  OOM-kill counter, from the daemon's one cgroup observer. Keyed by session:
+   *  the daemon resolves label, scope unit and pid itself. Undefined where
    *  there is neither a cgroup nor a readable /proc — honest, not zero. */
-  resources(input: {
-    sessionId: SessionId
-    label: string
-    pid?: number
-    scopeUnit?: string
-  }): ScopeResources | undefined
+  resources(sessionId: SessionId): ScopeResources | undefined
   now(): number
   setTimer(fn: () => void, delayMs: number): TimerHandle
   clearTimer(handle: TimerHandle): void
