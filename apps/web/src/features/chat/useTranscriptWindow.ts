@@ -271,8 +271,21 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // The controller owns cache hydration, read-then-subscribe, reset recovery,
   // reconnect refresh, paging, and stale-result rejection. This hook adds only
   // browser presentation work: worker shaping, visibility and activity probes.
+  //
+  // The rendered graph survives a same-controller restart (a warm tab switch
+  // that only flips `active`/`deferInitialRead`): dropping it would blank a
+  // healthy transcript on every re-activation whenever the re-read resolves
+  // the same rows, because the compute request is keyed on the held item array
+  // and an identical array never recomputes (POD-4719). Only a new controller —
+  // a session switch — needs a blank slate, and its first compute runs on
+  // mount anyway.
+  const resetControllerRef = useRef(transcriptController)
   useEffect(() => {
-    setComputed(null)
+    const freshController = resetControllerRef.current !== transcriptController
+    resetControllerRef.current = transcriptController
+    if (freshController) {
+      setComputed(null)
+    }
     setDeepeningSearch(false)
     setRenderCount(RENDER_WINDOW)
     setPagedBack(false)
@@ -314,7 +327,13 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     const becameActive = active && !prevActive.current
     prevLive.current = nowLive
     prevActive.current = active
-    if (!initialLoaded) return // the read-then-subscribe effect owns the first load
+    // A re-activation supersedes even a still-pending first read (its result
+    // is stale by definition — it predates this activation — and the
+    // controller's read serial discards whichever loses). Without this, a slow
+    // first read would hold the whole re-read/heal machinery closed until it
+    // resolved (POD-4719). Anything else still waits for the first load, which
+    // the read-then-subscribe effect above owns.
+    if (!initialLoaded && !becameActive) return // the read-then-subscribe effect owns the first load
     // [POD-725] Warm-switch fast path: a pure re-activation (not a resume waking the
     // session, which can fork a new transcript file) whose held window is healthy —
     // non-empty and its live subscription unbroken since the last read — reuses the
