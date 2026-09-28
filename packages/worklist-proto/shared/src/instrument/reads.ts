@@ -34,6 +34,16 @@
  * reading the same row five times is a constant factor, not a scaling
  * failure. The raw access counts are kept alongside for diagnosis.
  *
+ * ROWS READ (POD-4746). `ReadStats.data` counts only the rows whose DATA the
+ * arm read: a field of a borrowed row (door 1, any path to it: a table, the
+ * MobX pool's one row reader, a closure), a per-row read of the feed
+ * (`RowSource.row`), or a harness adapter's `touch(…, 'field')` (the legacy
+ * control's store). It leaves out ids yielded by a table walk or a relation
+ * and presence probes: those are element walks, which the scale check counts
+ * from outside (`harness/src/work-meter.ts`), not rows read. It is the rows
+ * cell of that check; doors 2 and 3 and `touch` stay only while arm code
+ * still calls them (POD-4759 removes those calls).
+ *
  * TIMING RUNS. Proxies cost real time in the browser. `createReadFence({
  * enabled: false })` makes every wrapper the identity (the arm receives the
  * raw objects) and makes `stats()` THROW, so a count run that forgot to enable
@@ -52,8 +62,9 @@
  * fenced tables are never touched) and fails on any object that carries a fed
  * row's key plus two or more of that row's own field values outside the
  * row-view vocabulary (`COPY_EXEMPT_FIELDS`). It also fails when the walk
- * reaches none of the wrapped tables: then it cannot see the arm's state, and
- * silence would be a pass by blindness.
+ * reaches neither a wrapped table nor a stored borrowed row: then it cannot
+ * see the arm's state, and silence would be a pass by blindness. (POD-4746:
+ * a borrowed row reached is enough, so the sweep needs no door in arm code.)
  *
  * WHAT THE SWEEP CANNOT SEE: state held only in a closure, a `#private` class
  * field, or a WeakMap/WeakSet. The lint fence (`harness/lint/`) forbids
@@ -65,12 +76,20 @@ import type { RowSource } from '../arm'
 import { type EntityName, SCHEMA } from '../schema'
 import type { RowRecord, RowSourceEvent } from '../stats'
 
-/** How a row was reached. Raw counts per door, for diagnosis. */
-export type ReadVia = 'get' | 'iterate' | 'relation' | 'field'
+/** How a row was reached. Raw counts per door, for diagnosis. `feed`: a per-row read of the feed. */
+export type ReadVia = 'get' | 'iterate' | 'relation' | 'field' | 'feed'
+
+/** The doors that read a row's data (`ReadStats.data`), not only its id. */
+const DATA_DOORS: ReadonlySet<ReadVia> = new Set<ReadVia>(['field', 'feed'])
 
 export interface ReadStats {
-  /** Distinct `entity:id` rows read since the last reset. THE fenced number. */
+  /** Distinct `entity:id` rows read since the last reset, through any door. */
   rows: number
+  /**
+   * Distinct rows whose DATA was read (a borrowed row's field, a per-row feed
+   * read, an adapter's `field` touch): the scale check's rows cell (POD-4746).
+   */
+  data: number
   /** Distinct rows per entity (or legacy table name). */
   byEntity: Record<string, number>
   /** Raw access counts per door (not distinct). */
@@ -123,6 +142,14 @@ export interface WrapTablesOptions {
    * legacy adapter caches per store snapshot — see `fenced-store.ts`).
    */
   reuse?: boolean
+  /**
+   * POD-4746 — an element read from this table is a read of that row's data
+   * (`ReadStats.data`), not only of its id. For a harness adapter over raw
+   * rows (the legacy control's store), whose rows are read in place rather
+   * than through borrowed rows. Default false: an arm's table walk yields ids
+   * and borrowed rows, whose fields count when read.
+   */
+  data?: boolean
 }
 
 export interface ReadFence {
@@ -158,6 +185,8 @@ export interface CopySweep {
   objects: number
   /** Wrapped tables (raw or fenced view) the walk reached. */
   tables: number
+  /** Borrowed rows the walk reached (the arm's stored rows; never walked into). */
+  rows: number
 }
 
 /**
@@ -236,8 +265,13 @@ function isIndex(prop: PropertyKey): prop is string {
 export function createReadFence(options: { enabled: boolean }): ReadFence {
   const { enabled } = options
   const seen = new Set<string>()
+  // Rows whose data was read, as a plain record: the fence's own bookkeeping
+  // adds no Map or Set write beyond `seen` (tests that count plain-structure
+  // writes from outside see those).
+  let dataSeen: Record<string, true> = Object.create(null)
+  let dataRows = 0
   const byEntity: Record<string, number> = {}
-  const accesses: Record<ReadVia, number> = { get: 0, iterate: 0, relation: 0, field: 0 }
+  const accesses: Record<ReadVia, number> = { get: 0, iterate: 0, relation: 0, field: 0, feed: 0 }
   const sample: string[] = []
 
   // One proxy per raw object, so identity comparisons (memos keyed by array or
@@ -259,9 +293,13 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     throw new Error(message)
   }
 
-  function touch(entity: string, id: string, via: ReadVia): void {
+  function touch(entity: string, id: string, via: ReadVia, data = DATA_DOORS.has(via)): void {
     accesses[via] += 1
     const key = `${entity}:${id}`
+    if (data && dataSeen[key] !== true) {
+      dataSeen[key] = true
+      dataRows += 1
+    }
     if (seen.has(key)) return
     seen.add(key)
     byEntity[entity] = (byEntity[entity] ?? 0) + 1
@@ -323,12 +361,17 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     )
   }
 
-  function wrapMap(entity: string, raw: ReadonlyMap<string, unknown>, required: boolean): object {
+  function wrapMap(
+    entity: string,
+    raw: ReadonlyMap<string, unknown>,
+    required: boolean,
+    data: boolean,
+  ): object {
     const target = raw as ReadonlyMap<string, unknown>
     const counted = (via: ReadVia) =>
       function* entriesOf(): Generator<[string, unknown]> {
         for (const [id, value] of target.entries()) {
-          touch(entity, id, via)
+          touch(entity, id, via, data)
           checkBorrowed(entity, id, value, required)
           yield [id, value]
         }
@@ -336,7 +379,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     const iterateEntries = counted('iterate')
     const view = {
       get(id: string): unknown {
-        touch(entity, id, 'get')
+        touch(entity, id, 'get', data)
         const value = target.get(id)
         checkBorrowed(entity, id, value, required)
         return value
@@ -389,6 +432,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     raw: readonly unknown[],
     required: boolean,
     keyOf: (row: unknown, index: number) => string,
+    data: boolean,
   ): object {
     // Array methods (`map`, `filter`, `find`, `for…of`) read through [[Get]]
     // on the receiver, so counting index reads counts every element they visit.
@@ -399,7 +443,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           const value = Reflect.get(target, prop, receiver)
           if (index < target.length) {
             const id = keyOf(value, index)
-            touch(entity, id, 'iterate')
+            touch(entity, id, 'iterate', data)
             checkBorrowed(entity, id, value, required)
           }
           return value
@@ -416,12 +460,13 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
 
   function wrapTable(entity: string, raw: ReadTable, options: WrapTablesOptions): object {
     const required = options.borrowed ?? true
-    if (options.reuse === false) {
-      return Array.isArray(raw)
-        ? wrapArray(entity, raw, required, options.keyOf ?? defaultKeyOf(entity))
-        : wrapMap(entity, raw as ReadonlyMap<string, unknown>, required)
-    }
-    const cacheKey = `${entity}|${required ? 'b' : 'r'}`
+    const data = options.data ?? false
+    const build = (): object =>
+      Array.isArray(raw)
+        ? wrapArray(entity, raw, required, options.keyOf ?? defaultKeyOf(entity), data)
+        : wrapMap(entity, raw as ReadonlyMap<string, unknown>, required, data)
+    if (options.reuse === false) return build()
+    const cacheKey = `${entity}|${required ? 'b' : 'r'}|${data ? 'd' : 'i'}`
     let perRaw = tableByRaw.get(raw)
     if (perRaw === undefined) {
       perRaw = new Map()
@@ -429,9 +474,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     }
     const cached = perRaw.get(cacheKey)
     if (cached !== undefined) return cached
-    const wrapped = Array.isArray(raw)
-      ? wrapArray(entity, raw, required, options.keyOf ?? defaultKeyOf(entity))
-      : wrapMap(entity, raw as ReadonlyMap<string, unknown>, required)
+    const wrapped = build()
     perRaw.set(cacheKey, wrapped)
     return wrapped
   }
@@ -468,6 +511,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     const seenObjects = new Set<object>()
     const queue: object[] = [root]
     let tables = 0
+    let rows = 0
     const copies: string[] = []
     const Node = (globalThis as { Node?: new () => object }).Node
     const push = (value: unknown): void => {
@@ -477,7 +521,11 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     while (queue.length > 0) {
       const current = queue.pop() as object
       if (seenObjects.has(current)) continue
-      if (borrowed.has(current)) continue
+      if (borrowed.has(current)) {
+        rows += 1
+        seenObjects.add(current)
+        continue
+      }
       if (fencedViews.has(current) || tableByRaw.has(current)) {
         tables += 1
         seenObjects.add(current)
@@ -518,13 +566,13 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           `The pool stores the borrowed row object; derived objects carry only row-view fields.`,
       )
     }
-    if (tables === 0) {
+    if (tables === 0 && rows === 0) {
       violate(
-        `[copies] the sweep reached none of the arm's wrapped tables from the handle, so it cannot see the ` +
-          `arm's state; expose the pool on the handle (e.g. \`handle.pool\`)`,
+        `[copies] the sweep reached none of the arm's wrapped tables or stored rows from the handle, so it ` +
+          `cannot see the arm's state; expose the pool on the handle (e.g. \`handle.pool\`)`,
       )
     }
-    return { objects: seenObjects.size, tables }
+    return { objects: seenObjects.size - rows, tables, rows }
   }
 
   const fence: ReadFence = {
@@ -542,7 +590,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           ? {}
           : {
               row(kind: 'issue' | 'session', id: string) {
-                touch(kind, id, 'get')
+                touch(kind, id, 'feed')
                 return borrowRecord({ kind, id, value: row(kind, id) }).value
               },
             }),
@@ -626,6 +674,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
       }
       return {
         rows: seen.size,
+        data: dataRows,
         byEntity: { ...byEntity },
         accesses: { ...accesses },
         sample: [...sample],
@@ -633,11 +682,14 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     },
     reset(): void {
       seen.clear()
+      dataSeen = Object.create(null)
+      dataRows = 0
       for (const key of Object.keys(byEntity)) delete byEntity[key]
       accesses.get = 0
       accesses.iterate = 0
       accesses.relation = 0
       accesses.field = 0
+      accesses.feed = 0
       sample.length = 0
     },
   }

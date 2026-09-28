@@ -26,16 +26,9 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import { act, useEffect, useState, type ReactElement } from 'react'
+import { act, type ReactElement, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
-import {
-  CommitLogContext,
-  createCommitLog,
-  withCommitLog,
-  withCommitLogAsync,
-  type CommitLog,
-} from '../../shared/src/row-shell'
 import {
   createReadFence,
   DISABLED_READ_FENCE,
@@ -43,9 +36,17 @@ import {
   type ReadStats,
 } from '../../shared/src/instrument/reads'
 import type { LocalsSourceHandle } from '../../shared/src/locals-source'
+import {
+  type CommitLog,
+  CommitLogContext,
+  createCommitLog,
+  withCommitLog,
+  withCommitLogAsync,
+} from '../../shared/src/row-shell'
 import type { LocalsKey, SliceSnapshot } from '../../shared/src/slice-types'
-import type { RowViews } from './oracle/row-views'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
+import type { RowViews } from './oracle/row-views'
+import { measureWork } from './work-meter'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -58,8 +59,17 @@ export interface MountedArm {
   reads: ReadFence
   /** The locals channel the arm was created with (POD-4608); null for a bare element mount. */
   locals: LocalsSourceHandle | null
+  /**
+   * POD-4746 — count each scenario's work from outside the arm
+   * (`CountResult.work`); `'trace'` also names the call sites (slow,
+   * diagnosis only). False: no work cell.
+   */
+  work: WorkMode
   unmount(): void
 }
+
+/** Whether a mount counts work per change (POD-4746), and whether it traces call sites. */
+export type WorkMode = boolean | 'trace'
 
 function MountPoint({ handle }: { handle: ArmHandle }): ReactElement {
   const [el, setEl] = useState<HTMLDivElement | null>(null)
@@ -97,14 +107,18 @@ export function mountArmForCounts(
   arm: Arm,
   source: RowSource,
   locals: LocalsSourceHandle,
-  options: { reads?: ReadFence } = {},
+  options: { reads?: ReadFence; work?: WorkMode } = {},
 ): MountedArm {
   const log = createCommitLog()
   const reads = options.reads ?? createReadFence({ enabled: true })
+  const work = options.work ?? false
+  if (work !== false && !reads.enabled) {
+    throw new Error('[work] a work count needs the read fence enabled: its rows cell is the fence')
+  }
   const handle = arm.create(reads.wrapSource(source), locals.source, reads)
   const mounted = mountElementForCounts(handle, <MountPoint handle={handle} />, log, reads)
   locals.stats.reset()
-  return { ...mounted, locals }
+  return { ...mounted, locals, work }
 }
 
 /**
@@ -138,6 +152,7 @@ export function mountElementForCounts(
     log,
     reads,
     locals: null,
+    work: false,
     unmount(): void {
       act(() => {
         root.unmount()
@@ -163,7 +178,9 @@ export async function mountNativeForCounts(
   document.body.appendChild(container)
   const root = createRoot(container)
   await act(async () => {
-    root.render(<CommitLogContext.Provider value={log}>{handle.mountNative()}</CommitLogContext.Provider>)
+    root.render(
+      <CommitLogContext.Provider value={log}>{handle.mountNative()}</CommitLogContext.Provider>,
+    )
   })
   log.reset()
   handle.stats.reset()
@@ -173,6 +190,7 @@ export async function mountNativeForCounts(
     log,
     reads,
     locals: null,
+    work: false,
     unmount(): void {
       act(() => {
         root.unmount()
@@ -263,10 +281,31 @@ export interface CountStats {
   notifications: number
 }
 
+/**
+ * POD-4746 — the work one change did, counted from outside the arm: the scale
+ * check's cell (`scale-check.ts`).
+ */
+export interface WorkCell {
+  /** Distinct rows whose data the arm read (`ReadStats.data`). */
+  rows: number
+  /** Derivation bodies run (`work-meter.ts`). */
+  derivations: number
+  /** Distinct collection elements iterated (`work-meter.ts`). */
+  elements: number
+  /** `elements` by the derivation kind that walked them (`WorkCounts.elementsBy`). */
+  elementsBy: Record<string, number>
+  /** Element visits, repeats included (`WorkCounts.visits`): diagnosis, not judged. */
+  visits: number
+}
+
 export interface CountResult {
   scenario: string
   methodology: string
   rowsCommitted: number
+  /** POD-4746 — the change's work, or null when the mount does not count work. */
+  work: WorkCell | null
+  /** With a tracing mount: elements per call site, largest first (at most 12). */
+  workSites: [string, number][] | null
   /**
    * Distinct entity rows the arm read to handle this change (POD-4557), or
    * `null` when the mount's fence was disabled. Read BEFORE the harness calls
@@ -288,6 +327,10 @@ export interface CountResult {
   drawnRows: string[] | null
   /** Of `drawnRows`, the ones that remounted instead of committing. */
   remountedRows: string[]
+  /** POD-4746 — rows the oracle shows after the change and not before. Sorted. */
+  oracleEnteredRows: string[]
+  /** POD-4746 — rows the oracle showed before the change and not after. Sorted. */
+  oracleLeftRows: string[]
   /** Visible rows in the arm snapshot after the scenario (the isolation denominator). */
   visibleRows: number
   stats: CountStats
@@ -333,7 +376,7 @@ function changedViews(
   before: RowViews,
   after: RowViews,
   log: CommitLog,
-): { changed: string[]; drawn: string[]; remounted: string[] } {
+): { changed: string[]; drawn: string[]; remounted: string[]; entered: string[]; left: string[] } {
   const changed: string[] = []
   const drawn: string[] = []
   const remounted: string[] = []
@@ -348,7 +391,17 @@ function changedViews(
   // entering or leaving) still counts as drawn: the arm drew a row the oracle
   // says did not change, which is an over-commit.
   for (const id of remounted) if (both.has(id)) drawn.push(id)
-  return { changed: changed.sort(), drawn: [...new Set(drawn)].sort(), remounted: remounted.sort() }
+  return {
+    changed: changed.sort(),
+    drawn: [...new Set(drawn)].sort(),
+    remounted: remounted.sort(),
+    entered: Object.keys(after)
+      .filter((id) => !(id in before))
+      .sort(),
+    left: Object.keys(before)
+      .filter((id) => !(id in after))
+      .sort(),
+  }
 }
 
 /**
@@ -366,34 +419,59 @@ export async function runCountScenario(
   mounted.log.reset()
   if (mounted.reads.enabled) mounted.reads.reset()
   mounted.locals?.stats.reset()
-  await withCommitLogAsync(mounted.log, async () => {
+  const step = async (): Promise<void> => {
     await act(async () => {
       await input.apply()
       // Flush coalesced microtask publications (the row source drains on a
       // microtask; arm subscriptions may chain one more) before reading.
       await new Promise<void>((resolve) => setTimeout(resolve, 0))
     })
+  }
+  let measured: Awaited<ReturnType<typeof measureWork<void>>> | null = null
+  await withCommitLogAsync(mounted.log, async () => {
+    // POD-4746: the whole step, React's flush included, is the arm's side;
+    // the input marks the engine's and the feed's parts (`fence-scenarios.ts`).
+    if (mounted.work === false) await step()
+    else measured = await measureWork(step, { trace: mounted.work === 'trace' })
   })
   // Reads first: `snapshot()` below walks the arm's whole output and must not
   // be charged to the change.
   const reads = mounted.reads.enabled ? mounted.reads.stats() : null
+  const counted = measured as Awaited<ReturnType<typeof measureWork<void>>> | null
   const snapshot = mounted.handle.snapshot()
   const expected = input.expected()
   const parity = isDeepStrictEqual(snapshot, expected)
   const commitsByRow: Record<string, number> = {}
   for (const [id, count] of mounted.log.counts) commitsByRow[id] = count
   const stats = mounted.handle.stats
-  const exact = viewsBefore === null || input.views === undefined ? null : changedViews(viewsBefore, input.views(), mounted.log)
+  const exact =
+    viewsBefore === null || input.views === undefined
+      ? null
+      : changedViews(viewsBefore, input.views(), mounted.log)
   return {
     scenario: input.scenario,
     methodology: input.methodology,
     rowsCommitted: mounted.log.total(),
+    work:
+      counted === null || reads === null
+        ? null
+        : {
+            rows: reads.data,
+            derivations: counted.work.derivations,
+            elements: counted.work.elements,
+            elementsBy: counted.work.elementsBy,
+            visits: counted.work.visits,
+          },
+    workSites:
+      counted?.sites == null ? null : [...counted.sites].sort((a, b) => b[1] - a[1]).slice(0, 12),
     readsPerChange: reads === null ? null : reads.rows,
     reads,
     commitsByRow,
     oracleChangedRows: exact?.changed ?? null,
     drawnRows: exact?.drawn ?? null,
     remountedRows: exact?.remounted ?? [],
+    oracleEnteredRows: exact?.entered ?? [],
+    oracleLeftRows: exact?.left ?? [],
     visibleRows: Object.keys(snapshot.rowsById).length,
     stats: {
       rowsDerived: stats.rowsDerived,
@@ -471,7 +549,8 @@ export function assertCommits(result: CountResult): void {
   const over = result.drawnRows.filter((id) => !changed.has(id))
   const under = result.oracleChangedRows.filter((id) => !drawn.has(id))
   if (over.length === 0 && under.length === 0) return
-  const list = (ids: string[]) => `${ids.slice(0, 8).join(',')}${ids.length > 8 ? `,…(${ids.length})` : ''}`
+  const list = (ids: string[]) =>
+    `${ids.slice(0, 8).join(',')}${ids.length > 8 ? `,…(${ids.length})` : ''}`
   throw new Error(
     `[commits] ${result.scenario} (${result.methodology}): drew ${drawn.size} rows, the oracle changed ${changed.size}. ` +
       `over=[${list(over)}] under=[${list(under)}] remounted=[${list(result.remountedRows)}] ` +
@@ -482,11 +561,17 @@ export function assertCommits(result: CountResult): void {
 // ------------------------------------------------------------ reads budgets
 
 /**
- * POD-4557 — rows an arm may READ to handle one change, per scenario. Fixed
- * here, BEFORE any round-three arm is measured (pitfall g: no budget is
- * re-read on another dimension afterwards). Rationale per line in
- * `docs/plans/pod-4441-harness.md` ("Reads per change"). #1–#5 are L5a's;
- * POD-4609 fixed #6–#10 the same way, before any Phase M arm ran them.
+ * RETIRED (POD-4746): the shared fence no longer asserts these. The work a
+ * change does is judged by the scale check (`scale-check.ts`,
+ * `work-per-change.test.tsx`): the same change at 1x and 4x, bounded by the
+ * changed items' neighbourhood, with nothing typed in. These fixed budgets
+ * forced product code to fit the test; they stay only for the arm-level tests
+ * that still assert them through the arms' own counting doors, which POD-4759
+ * removes together.
+ *
+ * POD-4557 — rows an arm may READ to handle one change, per scenario.
+ * Rationale per line in `docs/plans/pod-4441-harness.md` ("Reads per
+ * change", historical). #1–#5 are L5a's; POD-4609 fixed #6–#10.
  */
 export const READ_BUDGETS = {
   /** #1: the changed session, and at most its issue and one relation hop. */

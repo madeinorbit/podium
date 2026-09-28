@@ -1,5 +1,48 @@
 # worklist-proto — package notes
 
+## POD-4746 — the work-per-change check · 2026-09-28
+
+What landed: `harness/src/work-meter.ts` (work counted from outside the arm),
+`neighbourhood.ts`, `scale-check.ts`, `work-per-change.test.tsx`;
+`ReadStats.data` and the copy sweep's stored-row sight in
+`shared/src/instrument/reads.ts`; the fence steps count work and carry the
+neighbourhood (`fence-scenarios.ts`, `count-harness.tsx`). Deleted:
+`reads-budgets.test.tsx`. Doc: `docs/plans/pod-4441-harness.md`, "Work per
+change"; cells, plants and old-vs-new: `docs/measurements/POD-4746.md`.
+
+### Decisions
+
+- **Distinct elements, like distinct rows.** A first cut counted every visit:
+  the MobX pool's #2 grew 386 → 438 for a 4x target whose family is larger
+  (26 children against 18), six roll-up passes each growing by 8, over a
+  neighbourhood of 37. Repeated passes over what changed are a constant
+  factor; counting each element once per change keeps them inside the bound
+  and leaves a corpus walk growing by three times its 1x size. `visits` keeps
+  the raw count for diagnosis.
+- **React is not the arm's side.** With React's flush counted, every step
+  grew by ~240,000 visits at 4x: React DEV's host-context validation
+  (`updatedAncestorInfoDev`'s `indexOf`) on every sibling React visits under a
+  redrawn row, because the count lane draws every row. An `observer`'s
+  invalidation now runs outside the arm (it schedules React), and every MobX
+  derivation body runs inside it; a plain component body is React's.
+- **The window is not the arm.** The arm's side is entered only where the
+  harness calls the arm (feed and locals listeners, `settleLoads`, the
+  control's derive) and in MobX bodies, via `AsyncLocalStorage`, so the
+  engine's timers and the feed's drain never count.
+- **A section moving among the sections moves its rows.** #5's target heads
+  its group: the group order changes while the row keeps its neighbours.
+- **The copy sweep sees an arm through its stored borrowed rows**, so it
+  needs no `wrapTables` in arm code once POD-4759 removes it.
+
+### Open
+
+- The MobX pool's two real violations are named allowances: POD-4792 (the
+  web list flattens every visible row per placement change) and POD-4757 (the
+  visible order and the groups re-sort whole on a membership change).
+- `READ_BUDGETS`, `assertReads` and `FenceScenario.readsBudget` stay only for
+  arm-level tests that assert them through the arms' doors; POD-4759 removes
+  both (list appended to its brief).
+
 ## POD-4561 (L5e) — lifecycle walls in the browser · 2026-09-23
 
 What landed: `docs/plans/pod-4441-harness.md`, "Lifecycle walls". Code:

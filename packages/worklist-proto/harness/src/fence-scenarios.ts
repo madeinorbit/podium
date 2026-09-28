@@ -38,11 +38,25 @@
  * The feeds count the arm's per-row reads (`FenceFeeds.rowReads`), so an arm
  * that loads rows without the hooks is refused too: the hook cannot be
  * skipped by leaving it out.
+ *
+ * WORK PER CHANGE (POD-4746). A mount made with `work` counts each step's
+ * work from outside the arm (`work-meter.ts`: derivations run, elements
+ * iterated; the fence's `data`: rows read), and the step carries the changed
+ * items' neighbourhood (`neighbourhood.ts`) read off the store and the
+ * oracle's order before and after. The scale check (`scale-check.ts`) runs
+ * every step at 1x and 4x and compares. The feeds mark the sides: the write
+ * and the feed's own drain run outside the arm; the feed hands control back
+ * to the arm where it calls a listener.
+ *
+ * The per-scenario reads budgets (`readsBudget`) are RETIRED from the fence
+ * (POD-4746): the scale check replaces them. The field stays only for the
+ * arm-level tests that still assert it through the arms' own counting doors;
+ * POD-4759 removes those doors and those assertions together.
  */
 
 import { isDeepStrictEqual } from 'node:util'
 import { act } from 'react'
-import type { ArmHandle, LazyArmHandle, RowSource } from '../../shared/src/arm'
+import type { ArmHandle, LazyArmHandle, LocalsSource, RowSource } from '../../shared/src/arm'
 import type { LocalsSourceHandle } from '../../shared/src/locals-source'
 import {
   createRowSource,
@@ -72,8 +86,8 @@ import type { SliceLocals } from '../../shared/src/slice-types'
 import {
   ancestorCount,
   burstReadBudget,
-  clockTickReadBudget,
   type CountResult,
+  clockTickReadBudget,
   evictKeeperReadBudget,
   type MountedArm,
   newIssueReadBudget,
@@ -84,7 +98,9 @@ import {
   runCountScenario,
 } from './count-harness'
 import { createEngineLocals, localsOfEngine } from './engine-locals'
+import { type Neighbourhood, type NeighbourhoodState, neighbourhoodOf } from './neighbourhood'
 import { rowViewsFromStore, snapshotFromStore } from './oracle/index'
+import { insideArm, outsideArm } from './work-meter'
 
 export interface FenceScenario {
   scenario: string
@@ -93,8 +109,9 @@ export interface FenceScenario {
   /** The write, settled. */
   write(ctx: ScenarioEngine): Promise<unknown>
   /**
-   * The reads budget for this change (#1–#5 L5a, POD-4557; #6–#10 POD-4609),
-   * computed from the targets BEFORE the write. Every scenario has one.
+   * RETIRED from the fence (POD-4746; see the module note). The reads budget
+   * for this change (#1–#5 L5a, POD-4557; #6–#10 POD-4609), computed from the
+   * targets BEFORE the write, for the arm-level tests POD-4759 migrates.
    */
   readsBudget(ctx: ScenarioEngine): number
   /**
@@ -125,6 +142,11 @@ export interface FenceFeeds {
    * lazy, and `runFenceStep` then requires its load hooks.
    */
   rowReads(): number
+  /**
+   * POD-4746 — the rows (`kind:id`) the row feed's events named since the
+   * last call, then forgets them: a step's changed items.
+   */
+  takeNamed(): string[]
   dispose(): void
 }
 
@@ -133,20 +155,40 @@ const FEEDS_OF_FLUSH = new WeakMap<() => void, FenceFeeds>()
 
 export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceFeeds {
   const raw = createRowSource(ctx.engine, ctx.replica, { mode })
-  const locals = createEngineLocals(ctx.engine)
+  const rawLocals = createEngineLocals(ctx.engine)
   let rowReads = 0
+  let named = new Set<string>()
   const row = raw.source.row?.bind(raw.source)
+  // The feed's own work runs outside the arm; each listener call is the arm's
+  // (`work-meter.ts`). No-ops when no work is being measured.
   const source: RowSource = {
-    snapshot: (kind) => raw.source.snapshot(kind),
-    subscribe: (listener) => raw.source.subscribe(listener),
+    snapshot: (kind) => outsideArm(() => raw.source.snapshot(kind)),
+    subscribe: (listener) =>
+      raw.source.subscribe((event) => {
+        for (const record of event.rows) named.add(`${record.kind}:${record.id}`)
+        insideArm(() => listener(event))
+      }),
     ...(row === undefined
       ? {}
       : {
           row(kind: 'issue' | 'session', id: string) {
             rowReads += 1
-            return row(kind, id)
+            return outsideArm(() => row(kind, id))
           },
         }),
+  }
+  const localsSource: LocalsSource = {
+    get: () => rawLocals.source.get(),
+    subscribe: (listener) =>
+      rawLocals.source.subscribe((changed) => insideArm(() => listener(changed))),
+  }
+  const locals: LocalsSourceHandle = {
+    source: localsSource,
+    get stats() {
+      return rawLocals.stats
+    },
+    flush: () => rawLocals.flush(),
+    dispose: () => rawLocals.dispose(),
   }
   const rows: RowSourceHandle = {
     source,
@@ -164,6 +206,11 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceF
       locals.flush()
     },
     rowReads: () => rowReads,
+    takeNamed(): string[] {
+      const taken = [...named].sort()
+      named = new Set()
+      return taken
+    },
     dispose(): void {
       rows.dispose()
       locals.dispose()
@@ -317,7 +364,23 @@ export const FENCE_SCENARIOS: readonly FenceScenario[] = [
 /** One fenced step: the count result plus the budget that applied. */
 export interface FenceStep {
   result: CountResult
+  /** RETIRED from the fence (POD-4746): see `FenceScenario.readsBudget`. */
   readsBudget: number
+  /**
+   * POD-4746 — the changed items' neighbourhood (`neighbourhood.ts`), when the
+   * mount measures work (`result.work`); null otherwise.
+   */
+  neighbourhood: Neighbourhood | null
+}
+
+/** One side of a step for the neighbourhood: the store and the oracle's order. */
+function neighbourhoodState(ctx: ScenarioEngine): NeighbourhoodState {
+  const store = ctx.engine.getSnapshot()
+  return {
+    issues: store.issueProjections,
+    sessions: store.sessions,
+    order: snapshotFromStore(store, engineLocals(ctx)).order,
+  }
 }
 
 /**
@@ -407,14 +470,20 @@ export async function runFenceStep(
     })
   }
   let settledAt = feeds.rowReads()
+  const stateBefore = mounted.work === false ? null : neighbourhoodState(ctx)
+  feeds.takeNamed()
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
     methodology: entry.methodology,
     apply: async () => {
-      await entry.write(ctx)
-      flush()
-      // A handle that turns lazy inside the step is asked here too.
-      await loadHooks(mounted.handle, feeds, step)?.settleLoads()
+      // The write is the engine's work, the drain the feed's (its listener
+      // calls are the arm's): neither counts as the arm's (POD-4746).
+      await outsideArm(() => entry.write(ctx))
+      outsideArm(() => flush())
+      // A handle that turns lazy inside the step is asked here too. Its
+      // loads are the arm's work.
+      const hooks = loadHooks(mounted.handle, feeds, step)
+      if (hooks !== null) await insideArm(() => hooks.settleLoads())
       settledAt = feeds.rowReads()
     },
     expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
@@ -445,5 +514,14 @@ export async function runFenceStep(
         `[${pending.join(', ')}], expected [${allowed.join(', ')}]`,
     )
   }
-  return { result, readsBudget }
+  const named = feeds.takeNamed()
+  const neighbourhood =
+    stateBefore === null
+      ? null
+      : neighbourhoodOf(stateBefore, neighbourhoodState(ctx), named, [
+          ...(result.oracleChangedRows ?? []),
+          ...result.oracleEnteredRows,
+          ...result.oracleLeftRows,
+        ])
+  return { result, readsBudget, neighbourhood }
 }

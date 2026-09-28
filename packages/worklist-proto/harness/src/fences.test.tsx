@@ -7,8 +7,10 @@
  *   Its changed sets must be non-empty where the scenario changes a visible
  *   row, so a pass is not 0 == 0.
  * - Every ROUND-THREE arm (`roster.ts`) must pass, on every scenario: the
- *   exact-commit fence, parity, the reads budget (every step has one), and
- *   the copy sweep (no row held outside the wrapped tables). An arm's
+ *   exact-commit fence, parity, and the copy sweep (no row held outside the
+ *   wrapped tables). The work a change does is the scale check's
+ *   (`work-per-change.test.tsx`, POD-4746), which replaced the per-scenario
+ *   reads budgets; the reads cell is still recorded here. An arm's
  *   exception to one fence is a NAMED allowance on its roster entry
  *   (`RosterAllowances`: the issue that removes it), applied here only,
  *   recorded per step in the results cell, and failing the suite when no
@@ -24,7 +26,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { diffSnapshots } from '../../shared/src/gen/check'
 import { startScenarioEngine } from '../../shared/src/scenarios'
-import { assertCommits, assertReads, mountArmForCounts } from './count-harness'
+import { assertCommits, mountArmForCounts } from './count-harness'
 import {
   engineLocals,
   FENCE_SCENARIOS,
@@ -49,7 +51,7 @@ const ARMS_DIR = join(PACKAGE_DIR, 'arms')
 function writeResults(name: string, steps: FenceStep[], allowed?: readonly AllowanceCell[]): void {
   const dir = join(PACKAGE_DIR, 'harness', 'browser', 'results')
   mkdirSync(dir, { recursive: true })
-  const cells = steps.map(({ result, readsBudget }, index) => ({
+  const cells = steps.map(({ result }, index) => ({
     methodology: result.methodology,
     scenario: result.scenario,
     oracleChanged: result.oracleChangedRows,
@@ -59,7 +61,6 @@ function writeResults(name: string, steps: FenceStep[], allowed?: readonly Allow
     rowsCommitted: result.rowsCommitted,
     visibleRows: result.visibleRows,
     readsPerChange: result.readsPerChange,
-    readsBudget,
     stats: result.stats,
     parity: result.parity,
     ...(allowed === undefined ? {} : { allowed: allowed[index] }),
@@ -92,9 +93,9 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
       })
       console.info(`[fences] reference changed/drawn per scenario: ${summary(steps)}`)
       // POD-4609: the reference arm reads the engine store, never the feed or a
-      // fenced table, so it cannot carry a reads YES — it would meet any budget
-      // blind. Pinned so the claim is re-examined if that ever changes; the
-      // reads YES is `reads-budgets.test.tsx`'s shape arm.
+      // fenced table, so it cannot carry a reads YES — it would pass blind.
+      // Pinned so the claim is re-examined if that ever changes. The work
+      // check's YES and NO are `work-per-change.test.tsx`'s (POD-4746).
       expect(steps.map((step) => step.result.readsPerChange)).toEqual(steps.map(() => 0))
       writeResults('fences-reference-1x.json', steps)
       expect(steps.map((step) => step.result.methodology)).toEqual(
@@ -144,13 +145,11 @@ interface AllowanceCell {
   parity: string | null
   /** Rows accepted undrawn by the commit allowance. */
   undrawn: string[]
-  /** Extra reads granted beyond the step's budget. */
-  reads: number
 }
 
 for (const entry of ROUND_THREE_ARMS) {
   describe(`fences: ${entry.name}`, () => {
-    it('passes the exact-commit fence, parity, the reads budgets and the copy sweep on every scenario', async () => {
+    it('passes the exact-commit fence, parity and the copy sweep on every scenario', async () => {
       const ctx = await startScenarioEngine(1)
       const feeds = openFenceFeeds(ctx, entry.mode)
       const mounted = mountArmForCounts(entry.armFor(ctx), feeds.rows.source, feeds.locals)
@@ -159,13 +158,11 @@ for (const entry of ROUND_THREE_ARMS) {
       try {
         const steps: FenceStep[] = []
         for (const scenario of FENCE_SCENARIOS) {
-          // Counted BEFORE the write: the allowance never learns what the step read.
-          const extraReads = allow.reads?.before(ctx, mounted.handle, scenario) ?? 0
           const viewsBefore = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
           const step = await runFenceStep(mounted, ctx, feeds.flush, scenario)
-          const { result, readsBudget } = step
+          const { result } = step
           const at = `${result.methodology} ${result.scenario}`
-          const cell: AllowanceCell = { parity: null, undrawn: [], reads: extraReads }
+          const cell: AllowanceCell = { parity: null, undrawn: [] }
           if (!result.parity) {
             if (allow.parity === undefined) {
               expect(result.parity, `${at}: ${result.parityDiff ?? ''}`).toBe(true)
@@ -186,7 +183,6 @@ for (const entry of ROUND_THREE_ARMS) {
             const viewsAfter = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
             cell.undrawn = allow.undrawn.accept(result, viewsBefore, viewsAfter)
           }
-          assertReads(result, { readsPerChange: readsBudget + extraReads })
           mounted.reads.assertNoCopies(mounted.handle)
           steps.push(step)
           allowed.push(cell)
@@ -204,15 +200,6 @@ for (const entry of ROUND_THREE_ARMS) {
           expect(
             allowed.some((cell) => cell.undrawn.length > 0),
             `${allow.undrawn.issue}'s commit allowance was never applied: delete it`,
-          ).toBe(true)
-        }
-        if (allow.reads !== undefined) {
-          expect(
-            steps.some(
-              ({ result, readsBudget }, index) =>
-                (result.readsPerChange ?? 0) > readsBudget && allowed[index]!.reads > 0,
-            ),
-            `${allow.reads.issue}'s reads allowance was never needed: delete it`,
           ).toBe(true)
         }
       } finally {

@@ -31,14 +31,26 @@ apply; the Stage 0 control (`POD-4286-stage0-baseline.md`) is what the arms must
 | Unrelated change (a heartbeat anywhere) | zero rows committed, zero derivations, publish ≤ 2 ms | worklist untouched since B5, ~280 subscriber checks |
 | Any single hot-path event | ≤ 8 ms main-thread, p95, at live corpus | 2 derives per click before Stage 0, 1 after |
 | Row click, input to paint, inside the slice | ≤ 16 ms p95 at live corpus, ≤ 32 ms at 4× corpus | 407 ms p50 for the whole app switch (includes transcript load and layout) |
-| Cost follows the change, not the corpus | per-event cost slope across 1×, 2×, 4× corpus ≤ 1.2 (near flat) | whole-world derive: slope ≈ 1.0 per corpus multiple (linear in N) |
+| Cost follows the change, not the corpus | the work-per-change check: every scenario #1–#10 at 1× and 4× corpus; rows read, derivations run and distinct elements walked grow by at most the changed item's own neighbourhood (family, and the groups a moved row leaves and enters), computed from the corpus (revised 2026-09-28, below) | whole-world derive: every count grows ×4 with the corpus |
 | Bootstrap at live corpus | ≤ 1.1× control; principal switch ≤ 2× control | control measured in Stage 0 |
 | Memory | retained heap ≤ 1.1× control at live corpus, no growth after rescope | — |
 | Bundle | ≤ +60 KB gzip on web, no native-incompatible dependency | — |
 
-Performance is a gate every arm must pass, and the growth slope is the performance
-differentiator among arms that pass: an arm whose per-event cost stays flat from 1× to 4×
-corpus has headroom the frontend will need; one whose cost grows with N has rebuilt the problem.
+Performance is a gate every arm must pass: an arm whose per-event work stays flat from 1× to 4×
+corpus has headroom the frontend will need; one whose work grows with N has rebuilt the problem.
+
+**Revised 2026-09-28 (POD-4746; operator decision I1 in
+`docs/decisions/pod-4545-round-three-mobx-linear-review.md`).** G3's wall-clock slope budget
+(≤ 1.2 from 1× to 4×) and the fixed per-scenario reads micro-budgets (e.g. 3 rows for a phase
+change) are replaced by one check: the same change at 1× and 4× must do the same work, or more
+by at most the changed item's own neighbourhood, with the bound computed from the corpus for that
+change's targets and nothing typed in (`docs/plans/pod-4441-harness.md`, "Work per change").
+Work is counted from outside the arm: rows read, derivation bodies run, collection elements
+walked. The micro-budgets forced product code to fit the test (duplicate filings, split caches
+that avoided counted reads) while missing the real risk; the slope budget judged walls against
+an arbitrary ratio. Walls stay a measurement. Memory and cold-start growth are POD-4747's growth
+test (history ×10 flat, active work ×4 at most linear), which replaces the ratio budgets on
+bootstrap and heap.
 
 ## 2. What is actually slow today
 
@@ -302,7 +314,8 @@ Those are where the three approaches differ; without them the comparison is book
 - **Browser, not happy-dom.** Chromium via CDP, production build, input-to-paint for the click,
   long-task accounting, heap endpoints. happy-dom for counts in CI.
 - **Three corpus sizes.** The live-shaped fixture at 1×, 2× and 4× (4,867 / 9,734 / 19,468
-  issues) so the growth slope in §1a is measured, not argued.
+  issues) so growth with the corpus (§1a, the work-per-change check at 1× and 4×) is measured,
+  not argued.
 - **Counts first, walls second.** Rows committed, computed re-evaluations, reactions run, index
   bucket updates; walls interleaved with arm order rotated and load recorded, under the bench
   lease.
@@ -328,11 +341,11 @@ Those are where the three approaches differ; without them the comparison is book
 | 12 | Cold bootstrap at live corpus | full, once | full, once | ≤ 1.1× control; heap ≤ 1.1× |
 | 13 | Rescope growth then back | full, once each | full | no leak after disposal |
 
-| 14 | Growth: scenarios 1, 2, 3 and 5 repeated at 2× and 4× corpus | same as at 1× | same | slope ≤ 1.2 |
+| 14 | Growth: scenarios 1–10 repeated at 4× corpus | same as at 1×, or more by at most the changed item's neighbourhood | same | the work-per-change check (counts); walls measured, not gated |
 | 15 | Coexistence: arm screen mounted beside the legacy sidebar on one kernel | arm counts unchanged from 1–3; legacy counts unchanged from the control | — | no cross-wake |
 
-Scenarios 1–3 are milestone 1 and the kill gate. Scenario 14 is the performance differentiator
-(§1a). Every wall is measured in Chromium against the live-shaped fixture, interleaved, load
+Scenarios 1–3 are milestone 1 and the kill gate. Scenario 14 is the work-per-change check
+(§1a, revised 2026-09-28). Every wall is measured in Chromium against the live-shaped fixture, interleaved, load
 recorded, under the bench lease; counts are asserted in CI on happy-dom.
 
 ### 5.9 The foot-gun exercise, which is the point
@@ -401,13 +414,14 @@ failure is reported first.
 1. **Safety gate.** The arm turns every mistake in §5.9 into a thrown error, a failing test or a
    failing lint. A mistake that stays silent disqualifies the arm unless a check can be added
    inside the arm within the milestone.
-2. **Performance gate.** Every budget in §1a at live corpus, in the browser; the growth slope
-   at 2× and 4×.
+2. **Performance gate.** Every budget in §1a at live corpus, in the browser; the
+   work-per-change check at 1× and 4× (counts, CI); POD-4747's growth test for memory and cold
+   start.
 3. **Fidelity gate.** Parity oracle green on all scenarios; lifecycle scenarios 11–13 green.
 
 Ranking among arms that pass all three: the change exercise (places to remember, lines,
-whether a newcomer got it right first time) decides; the growth slope breaks a tie; bundle and
-heap break the next. The document reports every gate result for every arm, including the ones
+whether a newcomer got it right first time) decides; per-change walls at 4× break a tie; bundle
+and heap break the next. The document reports every gate result for every arm, including the ones
 that failed, so the losing arms' costs are named as accurately as the winner's.
 
 ### 6.3 Coexistence and the screen coverage map

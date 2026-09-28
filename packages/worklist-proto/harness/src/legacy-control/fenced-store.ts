@@ -71,7 +71,12 @@ function rowKey(row: unknown, index: number): string {
 
 function countedArray(fence: ReadFence, entity: string, rows: unknown, reuse = true): unknown {
   if (!Array.isArray(rows)) return rows
-  return fence.wrapTables({ [entity]: rows as readonly unknown[] }, { borrowed: false, keyOf: rowKey, reuse })[entity]
+  // `data`: the control reads these raw rows in place, so an element read is a
+  // row read (POD-4746, `ReadStats.data`).
+  return fence.wrapTables(
+    { [entity]: rows as readonly unknown[] },
+    { borrowed: false, keyOf: rowKey, reuse, data: true },
+  )[entity]
 }
 
 const storesByFence = new WeakMap<ReadFence, WeakMap<object, object>>()
@@ -103,7 +108,7 @@ function fencedReplica(fence: ReadFence, replica: object): object {
       if (prop === 'row') {
         return (kind: string, id: string) => {
           const entity = REPLICA_TABLES[kind]
-          if (entity !== undefined) fence.touch(entity, id, 'get')
+          if (entity !== undefined) fence.touch(entity, id, 'field')
           return (value as (kind: string, id: string) => unknown).call(target, kind, id)
         }
       }

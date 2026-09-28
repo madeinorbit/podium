@@ -284,6 +284,51 @@ describe('relation door', () => {
   })
 })
 
+describe('rows read: data, not ids (POD-4746)', () => {
+  it('counts a borrowed row once its fields are read, however the arm reached it', () => {
+    const fence = createReadFence({ enabled: true })
+    const sessions = borrowedSessions(fence, 4)
+    const { session } = fence.wrapTables({ session: sessions })
+    // Ids and presence only: a walk of keys, a get whose value is not read, a has.
+    void [...session.keys()]
+    const held = session.get('s1') as { issueId: string }
+    void session.has('s2')
+    expect(fence.stats().data).toBe(0)
+    expect(fence.stats().rows).toBe(4)
+    // A field read counts the row, through the table or not.
+    void held.issueId
+    void (sessions.get('s3') as { issueId: string }).issueId
+    expect(fence.stats().data).toBe(2)
+  })
+
+  it('counts a per-row feed read, and not a relation id', () => {
+    const fence = createReadFence({ enabled: true })
+    const rows = [sessionRow('s0')]
+    const source = fence.wrapSource({
+      ...staticSource(rows),
+      row: (_kind, id) => rows.find((row) => row.id === id)?.value,
+    })
+    source.row?.('session', 's0')
+    expect(fence.stats().data).toBe(1)
+    const relations = fence.wrapRelations({
+      one: () => 'i1',
+      many: () => ['s7', 's8'],
+      size: () => 2,
+      issueless: () => [],
+    } satisfies RelationReader)
+    void [...relations.many('issue', 'i1', 'sessions')]
+    expect(fence.stats().data).toBe(1)
+  })
+
+  it('counts an adapter table read in place as data when declared (the legacy control)', () => {
+    const fence = createReadFence({ enabled: true })
+    const raw = [{ id: 'i1' }, { id: 'i2' }]
+    const { issue } = fence.wrapTables({ issue: raw }, { borrowed: false, data: true })
+    void issue.map((row) => row)
+    expect(fence.stats().data).toBe(2)
+  })
+})
+
 describe('per change', () => {
   it('reset starts the next change from zero', () => {
     const fence = createReadFence({ enabled: true })
@@ -293,8 +338,9 @@ describe('per change', () => {
     fence.reset()
     expect(fence.stats()).toEqual({
       rows: 0,
+      data: 0,
       byEntity: {},
-      accesses: { get: 0, iterate: 0, relation: 0, field: 0 },
+      accesses: { get: 0, iterate: 0, relation: 0, field: 0, feed: 0 },
       sample: [],
     })
     session.get('s3')
@@ -306,7 +352,12 @@ describe('disabled (timing runs)', () => {
   it('is the identity on every door, and stats() THROWS rather than report zero', () => {
     const raw = new Map<string, unknown>([['s0', { sessionId: 's0' }]])
     const source = staticSource([sessionRow('s0')])
-    const reader: RelationReader = { one: () => null, many: () => [], size: () => 0, issueless: () => [] }
+    const reader: RelationReader = {
+      one: () => null,
+      many: () => [],
+      size: () => 0,
+      issueless: () => [],
+    }
     expect(DISABLED_READ_FENCE.wrapTables({ session: raw }).session).toBe(raw)
     expect(DISABLED_READ_FENCE.wrapSource(source)).toBe(source)
     expect(DISABLED_READ_FENCE.wrapRelations(reader)).toBe(reader)
@@ -361,11 +412,23 @@ describe('copy sweep', () => {
     expect(() => fence.assertNoCopies({ tables, models: [model] })).toThrow(/sessionId=s2/)
   })
 
-  it('fails when the walk reaches no wrapped table: silence would be blindness', () => {
+  it('fails when the walk reaches no wrapped table and no stored row: silence would be blindness', () => {
     const fence = createReadFence({ enabled: true })
     pool(fence)
     expect(() => fence.assertNoCopies({ unrelated: new Map() })).toThrow(
-      /reached none of the arm's wrapped tables/,
+      /reached none of the arm's wrapped tables or stored rows/,
+    )
+  })
+
+  it('sees an arm that stores borrowed rows in its own maps, with no wrapped table (POD-4746)', () => {
+    const fence = createReadFence({ enabled: true })
+    const sessions = borrowedSessions(fence, 3)
+    const sweep = fence.assertNoCopies({ pool: { rows: new Map(sessions) } })
+    expect(sweep).toEqual(expect.objectContaining({ tables: 0, rows: 3 }))
+    // … and still finds a copy beside them.
+    const copies = { copy: { ...(sessions.get('s1') as object) } }
+    expect(() => fence.assertNoCopies({ pool: { rows: new Map(sessions) }, copies })).toThrow(
+      /sessionId=s1/,
     )
   })
 

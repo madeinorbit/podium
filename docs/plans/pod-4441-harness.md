@@ -13,8 +13,11 @@ so the detector is proven before any arm is trusted.
 | Path | What |
 |---|---|
 | `shared/src/row-shell.tsx` | Required per-row wrapper: `RowShell`, `CommitLogContext`, `createCommitLog`, ambient `withCommitLog` / `withCommitLogAsync`, `currentCommitLog` |
-| `shared/src/instrument/reads.ts` | Reads-per-change fence (POD-4557): `createReadFence`, `wrapTables`, `RelationReader`, `DISABLED_READ_FENCE` |
-| `harness/src/count-harness.tsx` | CI counting: `mountArmForCounts`, `mountElementForCounts`, `mountNativeForCounts`, `createReplaySource`, `runCountScenario`, `assertIsolation`, `assertReads`, `READ_BUDGETS` |
+| `shared/src/instrument/reads.ts` | Reads-per-change fence (POD-4557): `createReadFence`, `wrapTables`, `RelationReader`, `DISABLED_READ_FENCE`; `ReadStats.data` (rows whose data was read) and the copy sweep |
+| `harness/src/count-harness.tsx` | CI counting: `mountArmForCounts` (`{ work: true }` counts work per change), `mountElementForCounts`, `mountNativeForCounts`, `createReplaySource`, `runCountScenario` (`CountResult.work`), `assertIsolation`, `assertCommits`; `assertReads` / `READ_BUDGETS` RETIRED (POD-4746) |
+| `harness/src/work-meter.ts` | Work counted from outside the arm (POD-4746): derivations run, distinct elements walked, the arm's side (`insideArm` / `outsideArm`) |
+| `harness/src/neighbourhood.ts` | The changed items' neighbourhood, read off the store and the oracle's order (POD-4746) |
+| `harness/src/scale-check.ts`, `work-per-change.test.tsx` | THE work-per-change check: every fence scenario at 1x and 4x (POD-4746); the MobX pool's YES, the legacy control's NO |
 | `harness/src/reads-probe.test.tsx` | The reads fence end to end, both directions (probe arms, real engine) |
 | `shared/src/scenarios.ts` | THE scenario library (POD-4550): boot (`startScenarioEngine`, `startEngineOnCorpus`), rule-picked targets (`pickTargets`), every write (`write*` settled / `apply*` synchronous), the thirteen scenarios. Count runs, web entries and native lanes all use it |
 | `harness/src/fixture/` | The ONE corpus: `buildCorpus(scale, seed)` |
@@ -265,18 +268,20 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 | Goal | Budget | Asserted where |
 |---|---|---|
 | Idle client | zero derivation work except on the clock tick | count harness (`notifications` on settle-only runs) |
-| Unrelated heartbeat | 0 rows committed, 0 derivations, ≤ 3 rows read, publish `actionMs` p95 ≤ floor p95 + 2 ms at 1x (restated, see "Instrument floor") | counts in CI (`assertIsolation` + `rollupsDerived` + `assertReads`); publish wall in Chromium (`summarize.ts`) |
+| Unrelated heartbeat | 0 rows committed, 0 derivations, publish `actionMs` p95 ≤ floor p95 + 2 ms at 1x (restated, see "Instrument floor"); its work flat from 1x to 4x (the work-per-change check) | counts in CI (`assertIsolation` + `rollupsDerived`, `work-per-change.test.tsx`); publish wall in Chromium (`summarize.ts`) |
 | Any other hot-path event (rename, stage move, clock, visible heartbeat) | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
 | Row click, engine selection write to the arm's commit (POD-4559; was the pointer event) | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
-| Cost follows the change, not the corpus | (arm p50 − floor p50) at 4x over the same at 1x ≤ 1.2, per scenario; the 1x excess taken as at least 1 ms (restated, see "Instrument floor") | `summarize.ts` slope table; counts must match at all three scales. A low read count is not proof of constant work (see "Instrument floor") |
+| Cost follows the change, not the corpus | **The work-per-change check (POD-4746)**: every fence scenario at 1x and 4x; rows read, derivations run and distinct elements walked may grow by at most the changed items' neighbourhood at 4x, computed from the corpus (see "Work per change"). Replaces G3's wall slope (≤ 1.2) and the per-scenario reads budgets | `work-per-change.test.tsx` in CI; `summarize.ts` still prints the wall slope as a measurement, not a gate |
 | Bootstrap / principal switch | `actionMs` p50 ≤ 1.1x / ≤ 2x the control's, at 1x (POD-4561) | driver `coldBootstrap`/`principalSwitch` on held pages; `summarize.ts` lifecycle verdicts (see "Lifecycle walls") |
 | Memory | coldBootstrap `heapAfter` p50 ≤ 1.1x the control's; principalSwitch and rescope `heapAfter/heapBefore` p50 ≤ the control's + 0.05; no object of the old principal alive after the switch's forced GC (POD-4561) | same; the survivor check fails the run |
 | Bundle | ≤ +60 KB gzip on web, no native-incompatible dep | entry chunk sizes in build output; native lane mount |
 
 Per-scenario row budgets are methodology §5.8 (#1: 0 rows; #2: 1 + ancestors;
 #3: 2; #4: 1; #5–#7: affected + order; #10: bounded; #11–#13: full once).
-Counts are asserted in CI; walls in Chromium. The growth slope (§1a, scenario
-#14) is the performance differentiator among arms that pass.
+Counts are asserted in CI; walls in Chromium. Growth with the data (§1a,
+scenario #14) is the work-per-change check's, on counts (POD-4746); memory and
+cold start growth are POD-4747's growth test. The wall slope is reported, not
+gated.
 
 ## Instrument floor (POD-4558)
 
@@ -482,9 +487,10 @@ rows on every hot-path change (0 on the no-op page) — see the floor run.
 
 **A low read count is not proof of constant work.** The reads fence counts
 ENTITY rows; an arm that walks its own per-row caches on every change reads
-few entity rows while its wall time grows with the corpus. The `actionMs`
-slope across 1x/2x/4x, per scenario (`summarize.ts`), is the empirical catch
-for that case; read the two together.
+few entity rows while its wall time grows with the corpus. The work-per-change
+check (POD-4746, "Work per change") now counts those walks too, from outside
+the arm (distinct elements iterated, derivations run), and compares 1x with
+4x; the `actionMs` slope stays a measurement beside it.
 
 **Scenario targets are drawn rows** ("Timings"). The proof, both ways
 (`results/proof/`, SHA and table below):
@@ -717,7 +723,87 @@ parity (hand: `i1026` phase queued vs waiting; mobx: `i3117` missing), on the
 base pages too, so their lifecycle runs fail and they are not in this matrix.
 The round-three arms run the same command beside the control when they land.
 
+## Work per change (POD-4746)
+
+THE check that the work a change does does not grow with the amount of data.
+It replaces the fixed per-scenario reads budgets below (POD-4557/POD-4609) and
+G3's wall-clock slope budget: those budgets were tiny constants that forced
+product code to fit the test (duplicate filings and split caches that avoided
+counted reads) while missing the real risk. Operator decision I1,
+`docs/decisions/pod-4545-round-three-mobx-linear-review.md`.
+
+**The check** (`scale-check.ts`, run by `work-per-change.test.tsx`). Every
+fence scenario (#1–#10, `FENCE_SCENARIOS`) runs on a 1x engine and on a 4x
+engine, in order, with parity asserted at both. For each scenario and each
+count:
+
+    count at 4x − count at 1x ≤ the changed items' neighbourhood at 4x
+
+**The counts**, all from outside the arm:
+
+- **rows**: distinct rows whose DATA the arm read (`ReadStats.data`): a field
+  of a borrowed row from the feed, however the arm reached it (for the MobX
+  pool, every row its one reader, `MobxPool.row`, hands out is a borrowed row
+  or an overlay spread of one), a per-row feed read, or a harness adapter's
+  in-place read (the legacy control's store). Ids yielded by a table walk or
+  a relation are not rows read: they are elements.
+- **derivations**: MobX computed bodies recomputed and reaction bodies run
+  (`observer` renders included), by patching `ComputedValue.computeValue_`
+  and `Reaction.track` (`work-meter.ts`).
+- **elements**: DISTINCT elements the arm iterated: Array/Set/Map iteration
+  and `forEach`, the Array callback methods, whole-array methods (`indexOf`,
+  `includes`, `sort`, `join`, `slice`, `concat`, …), `Object.keys/values/
+  entries`; MobX's observable collections and its observer fan-out count
+  through the native ones. Distinct like rows: a family walked by a roll-up,
+  a sort and a filter counts once, because repeated passes are a constant
+  factor. A Map entry is its key; a primitive other than a string is its
+  position. `elementsBy` splits them by the derivation that walked them, to
+  name a failure's source.
+
+**Whose work** (`work-meter.ts`). The patches are process-wide; an
+`AsyncLocalStorage` side follows the code through awaits and timers. The
+scenario write, the feed's drain, React's reconciliation, happy-dom's DOM and
+the harness's oracle run outside the arm; the feed's listener calls, a lazy
+arm's `settleLoads`, an adapter's derive and every MobX derivation body run
+as the arm. React is excluded because the count lane draws every row
+(happy-dom has no layout), so React visits every sibling of a redrawn row,
+which the browser's window bounds; the exact-commit fence holds what React
+redraws.
+
+**The neighbourhood** (`neighbourhood.ts`), read off the store and the oracle's
+order before and after the write, never typed in: the rows the step's feed
+events name plus the rows whose view the oracle changed, entered or left;
+for each such issue (a session stands for its issue) its chain and each
+level's children and sessions; and for each one that MOVED in the list
+(entered, left, changed section or neighbour, or its section moved among the
+sections) every row of the sections it left and entered. A family roll-up or
+a scan of the lane a row lands in stays inside it; a walk of the issue table,
+a re-sort of the whole list or a copy of a corpus-sized bucket grows by three
+times its 1x size and does not.
+
+**Known violations are named allowances** (`roster.ts` `allowances.work`): per
+issue that fixes them, the scenarios and counts; the suite fails when an
+allowed count passes, so a fix takes its allowance with it.
+
+**Evidence, cells and plants**: `docs/measurements/POD-4746.md` (MobX and
+control, old vs new; three planted defects red; the MobX pool's two real
+violations, POD-4792 and POD-4757).
+
+**What it cannot see**: an index loop over a plain array, and a walk inside a
+closure-held native structure the patches do not reach (a typed array, a
+string). A full walk written that way still reads rows, which the rows count
+sees; a walk over ids only does not. That stays a review item, like the copy
+sweep's blind spots.
+
 ## Reads per change (POD-4557)
+
+> **Budgets RETIRED (POD-4746, 2026-09-28).** The shared fence no longer
+> asserts the per-scenario budgets below; "Work per change" above replaced
+> them. The feed door and the copy sweep stay (the sweep now also sees an arm
+> through the borrowed rows it stores, so it needs no door in arm code); the
+> table and relation doors and `READ_BUDGETS` stay only while arm-level tests
+> still assert them, until POD-4759 removes both. The rest of this section is
+> the historical derivation.
 
 Rows committed says how much the screen redrew; it cannot see an arm that
 walks the whole corpus to decide which one row to redraw. The reads fence
@@ -901,7 +987,7 @@ reference arm reads the engine store, never the feed or a fenced table: its
 reads cell is 0 on every step (pinned in `fences.test.tsx`). It would meet
 any budget blind, so it is the wrong arm for this fence (by design: it is
 exempt and not a candidate), not evidence that the budgets are right.
-`harness/src/reads-budgets.test.tsx` carries the YES instead: a probe arm
+`harness/src/reads-budgets.test.tsx` (deleted with the budgets by POD-4746) carried the YES instead: a probe arm
 that stores the borrowed rows, reads them only through `wrapTables` and
 `wrapRelations`, and on each event does exactly the reads the derivations
 name — the named rows, the chains it climbs through `issue.parent`, the
@@ -978,8 +1064,10 @@ walk fails it.
 bun run test:file -- packages/worklist-proto/shared/src/instrument/reads.test.ts \
   packages/worklist-proto/harness/src/count-harness.test.ts \
   packages/worklist-proto/harness/src/reads-probe.test.tsx \
-  packages/worklist-proto/harness/src/reads-budgets.test.tsx \
-  packages/worklist-proto/harness/src/legacy-control/control.test.tsx
+  packages/worklist-proto/harness/src/legacy-control/control.test.tsx \
+  packages/worklist-proto/harness/src/work-meter.test.ts \
+  packages/worklist-proto/harness/src/neighbourhood.test.ts \
+  packages/worklist-proto/harness/src/work-per-change.test.tsx
 ```
 
 ## Exact commits, the copy sweep and the lint fence (POD-4563)

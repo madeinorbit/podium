@@ -10,17 +10,18 @@
  * - Parity passes exactly: the control projects the same legacy slice the
  *   oracle projects.
  * - POD-4557: the same heartbeat READS the whole corpus — every session and
- *   every issue row, through the fenced store (`fenced-store.ts`) — and
- *   `assertReads` (budget 3) throws. The reads cell must equal the corpus,
- *   not merely exceed 3: a fence that counted one table would still exceed 3.
+ *   every issue row, through the fenced store (`fenced-store.ts`). The reads
+ *   cell must equal the corpus: a fence that counted one table would miss it.
+ *   (POD-4746: that the reads grow with the corpus is the scale check's NO,
+ *   `work-per-change.test.tsx`; the per-scenario budgets are retired.)
  * - POD-4563: the same heartbeat changes no row view (the row-view oracle), so
  *   the exact-commit fence's changed set is empty and every row the control
  *   redraws is an over-commit: `assertCommits` throws.
  *
  * - POD-4609: every #6–#10 step reads the whole corpus too, both clock ticks
- *   included, and exceeds its budget.
+ *   included.
  *
- * NEVER weaken this test (no raised budget, no `skip`, no filtering the
+ * NEVER weaken this test (no `skip`, no filtering the
  * heartbeat to a visible session). If it goes green without a control change,
  * the detector is blind — treat that as the emergency, not the relief. If it
  * goes red on the parity half, the control no longer renders what the app
@@ -28,32 +29,30 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
+import { fixedLocals } from '../../../shared/src/locals-source'
 import { createRowSource } from '../../../shared/src/row-source'
-import type { SliceLocals } from '../../../shared/src/slice-types'
 import {
-  assertCommits,
-  assertIsolation,
-  assertReads,
-  mountArmForCounts,
-  phaseChangeReadBudget,
-  READ_BUDGETS,
-  runCountScenario,
-  type CountResult,
-} from '../count-harness'
-import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../fence-scenarios'
-import { rowViewsFromStore, snapshotFromStore } from '../oracle/index'
-import {
+  type ScenarioEngine,
   startScenarioEngine,
   writeHeartbeat,
   writePhaseChange,
   writeSelectionClick,
   writeStageMove,
   writeTitleRename,
-  type ScenarioEngine,
 } from '../../../shared/src/scenarios'
-import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
+import type { SliceLocals } from '../../../shared/src/slice-types'
+import {
+  assertCommits,
+  assertIsolation,
+  assertReads,
+  type CountResult,
+  mountArmForCounts,
+  runCountScenario,
+} from '../count-harness'
+import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../fence-scenarios'
+import { rowViewsFromStore, snapshotFromStore } from '../oracle/index'
 import { legacyControlArmFor } from './arm'
-import { fixedLocals } from '../../../shared/src/locals-source'
 
 describe('legacy control (armed)', () => {
   it('FAILS isolation on unrelatedHeartbeat and passes parity exactly', async () => {
@@ -63,7 +62,11 @@ describe('legacy control (armed)', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
+    const mounted = mountArmForCounts(
+      legacyControlArmFor(ctx.engine),
+      source.source,
+      fixedLocals(locals),
+    )
     try {
       // Parity on mount, before any action: the control shows what the app shows.
       const atMount = mounted.handle.snapshot()
@@ -126,10 +129,9 @@ describe('legacy control (armed)', () => {
       expect(result.reads?.byEntity['session']).toBe(store.sessions.length)
       expect(result.reads?.byEntity['issue']).toBe(issueIds.size)
       expect(result.readsPerChange).toBeGreaterThanOrEqual(issueIds.size + store.sessions.length)
-      // THE ARMED READS ASSERTION: the control FAILS the #1 reads budget.
-      expect(() => assertReads(result, { readsPerChange: READ_BUDGETS.unrelatedHeartbeat })).toThrow(
-        /unrelatedHeartbeat \(#1\): read \d+ rows, budget 3/,
-      )
+      // POD-4746: they are reads of the rows' data (the rows cell of the scale
+      // check), not only of their ids.
+      expect(result.reads?.data).toBeGreaterThanOrEqual(issueIds.size + store.sessions.length)
     } finally {
       mounted.unmount()
       source.dispose()
@@ -147,7 +149,10 @@ describe('legacy control (armed)', () => {
     async function heartbeatWith(reads: ReadFence | undefined): Promise<CountResult> {
       const ctx = await startScenarioEngine(1)
       const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-      const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
+      const locals: SliceLocals = {
+        selectedIssueId: null,
+        coarseNow: ctx.engine.getSnapshot().coarseNow,
+      }
       const mounted = mountArmForCounts(
         legacyControlArmFor(ctx.engine),
         source.source,
@@ -184,19 +189,29 @@ describe('legacy control (armed)', () => {
 
   /**
    * POD-4557 — what the current store reads per change, scenarios #1–#5, for
-   * the budget table in `docs/plans/pod-4441-harness.md`. One engine, the
-   * scenarios in sequence, as the scenario writes intend. The legacy derive
-   * is whole-world, so every scenario that publishes reads the corpus — the
-   * click too, because it carries the eager mark-read row. The assertion is
-   * that each one EXCEEDS its round-three budget (the fence can say NO on
-   * every scenario, not only the heartbeat).
+   * the old budget table in `docs/plans/pod-4441-harness.md`. One engine,
+   * the scenarios in sequence, as the scenario writes intend. The legacy
+   * derive is whole-world, so every scenario that publishes reads the corpus
+   * — the click too, because it carries the eager mark-read row (the fence
+   * sees the whole world on every scenario, not only the heartbeat).
    */
   it('reads the whole corpus on every scenario #1–#5', async () => {
     const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-    const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
-    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
-    const run = (scenario: string, methodology: string, write: (ctx: ScenarioEngine) => Promise<unknown>) =>
+    const locals: SliceLocals = {
+      selectedIssueId: null,
+      coarseNow: ctx.engine.getSnapshot().coarseNow,
+    }
+    const mounted = mountArmForCounts(
+      legacyControlArmFor(ctx.engine),
+      source.source,
+      fixedLocals(locals),
+    )
+    const run = (
+      scenario: string,
+      methodology: string,
+      write: (ctx: ScenarioEngine) => Promise<unknown>,
+    ) =>
       runCountScenario(mounted, {
         scenario,
         methodology,
@@ -215,7 +230,8 @@ describe('legacy control (armed)', () => {
         await run('stageMoveAcrossGroups', '#5', writeStageMove),
       ]
       const store = ctx.engine.getSnapshot()
-      const corpus = new Set(store.issueProjections.map((issue) => issue.id)).size + store.sessions.length
+      const corpus =
+        new Set(store.issueProjections.map((issue) => issue.id)).size + store.sessions.length
       for (const result of results) {
         console.info(
           `[control reads] ${result.methodology} ${result.scenario}: read ${result.readsPerChange} ` +
@@ -223,18 +239,7 @@ describe('legacy control (armed)', () => {
             `byEntity=${JSON.stringify(result.reads?.byEntity)}`,
         )
       }
-      const [heartbeat, phase, click, rename, stage] = results
-      for (const [result, budget] of [
-        [heartbeat!, READ_BUDGETS.unrelatedHeartbeat],
-        // Generous on purpose: 8 levels is deeper than any chain in the corpus.
-        [phase!, phaseChangeReadBudget(7)],
-        [click!, READ_BUDGETS.selectionClick],
-        [rename!, READ_BUDGETS.visibleTitleRename],
-        [stage!, READ_BUDGETS.stageMoveNeighbourhood],
-      ] as const) {
-        expect(result.readsPerChange).toBeGreaterThanOrEqual(corpus)
-        expect(() => assertReads(result, { readsPerChange: budget })).toThrow(/read \d+ rows, budget/)
-      }
+      for (const result of results) expect(result.readsPerChange).toBeGreaterThanOrEqual(corpus)
     } finally {
       mounted.unmount()
       source.dispose()
@@ -243,13 +248,12 @@ describe('legacy control (armed)', () => {
   }, 60_000)
 
   /**
-   * POD-4609 — the NO for the #6–#10 budgets: every fence scenario in order
-   * (`fence-scenarios.ts`, the list every arm runs), each with the budget the
-   * scenario computes from its targets. The control reads the whole corpus on
-   * every one of them — both clock ticks included, which publish the store
-   * although the row feed emits nothing — so each budget can say NO.
+   * POD-4609 — every fence scenario in order (`fence-scenarios.ts`, the list
+   * every arm runs): the control reads the whole corpus on each of #6–#10,
+   * both clock ticks included, which publish the store although the row feed
+   * emits nothing.
    */
-  it('reads the whole corpus on every scenario #6–#10 and exceeds every budget', async () => {
+  it('reads the whole corpus on every scenario #6–#10', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(
@@ -278,18 +282,12 @@ describe('legacy control (armed)', () => {
         '#9c',
         '#10',
       ])
-      for (const { result, readsBudget } of mine) {
+      for (const { result } of mine) {
         console.info(
           `[control reads] ${result.methodology} ${result.scenario}: read ${result.readsPerChange} ` +
-            `budget ${readsBudget} (corpus ${corpus}) byEntity=${JSON.stringify(result.reads?.byEntity)}`,
+            `(corpus ${corpus}) byEntity=${JSON.stringify(result.reads?.byEntity)}`,
         )
-        expect(readsBudget).toBeLessThan(corpus)
         expect(result.readsPerChange).toBeGreaterThanOrEqual(corpus)
-        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
-          new RegExp(
-            `${result.scenario} \\(${result.methodology}\\): read \\d+ rows, budget ${readsBudget}`,
-          ),
-        )
       }
     } finally {
       mounted.unmount()

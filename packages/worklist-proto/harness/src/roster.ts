@@ -2,9 +2,9 @@
  * POD-4563 (L6a) — the round-three arms every fence runs on.
  *
  * One entry per candidate arm. `fences.test.tsx` runs each through every
- * scenario in `fence-scenarios.ts` with the exact-commit fence, the reads
- * budgets, parity and the copy sweep; the lint fence (`harness/lint/`) covers
- * the same folders. The two lists cannot drift: an `arms/<folder>/fence.json`
+ * scenario in `fence-scenarios.ts` with the exact-commit fence, parity and
+ * the copy sweep, and `work-per-change.test.tsx` through the scale check
+ * (POD-4746); the lint fence (`harness/lint/`) covers the same folders. The two lists cannot drift: an `arms/<folder>/fence.json`
  * with no entry here, or an entry here with no manifest, fails the suite.
  *
  * Adding an arm (Ma1/Ha1): create `arms/<folder>/fence.json` (see
@@ -30,12 +30,7 @@ import type { SliceSnapshot } from '../../shared/src/slice-types'
 import type { CountResult } from './count-harness'
 import type { FixtureCorpus } from './fixture/index'
 import type { RowViews } from './oracle/index'
-
-/** The step an allowance is asked about. */
-export interface AllowanceStep {
-  readonly scenario: string
-  readonly methodology: string
-}
+import type { WorkKind } from './scale-check'
 
 /**
  * One arm's named exceptions. Every member names the issue that removes it
@@ -43,13 +38,15 @@ export interface AllowanceStep {
  */
 export interface RosterAllowances {
   /**
-   * Extra reads a step may take beyond its budget, computed from the arm
-   * BEFORE the step's write (never from what the step read).
+   * POD-4746 — known violations of the work-per-change check
+   * (`work-per-change.test.tsx`): per issue that fixes them, the scenarios
+   * and counts that grow with the data. The check still reports them; an
+   * allowed count that passes fails the suite.
    */
-  readonly reads?: {
+  readonly work?: readonly {
     readonly issue: string
-    before(ctx: ScenarioEngine, handle: ArmHandle, step: AllowanceStep): number
-  }
+    readonly steps: readonly { readonly methodology: string; readonly kind: WorkKind }[]
+  }[]
   /**
    * Rows the oracle changed that may stay undrawn. Called only when the
    * exact-commit fence failed; returns the rows it accepts and THROWS when
@@ -97,5 +94,25 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     folder: 'mobx',
     mode: 'overlaid',
     armFor: () => mobxPoolArm,
+    allowances: {
+      work: [
+        {
+          // The list rebuilds its whole item array on every placement change.
+          issue: 'POD-4792',
+          steps: ['#5', '#6a', '#6b', '#6c', '#6d', '#8b'].map((methodology) => ({
+            methodology,
+            kind: 'elements' as const,
+          })),
+        },
+        {
+          // The visible order and the groups re-sort whole on a membership change.
+          issue: 'POD-4757',
+          steps: ['#6a', '#6b', '#6c', '#6d', '#8b'].map((methodology) => ({
+            methodology,
+            kind: 'elements' as const,
+          })),
+        },
+      ],
+    },
   },
 ]

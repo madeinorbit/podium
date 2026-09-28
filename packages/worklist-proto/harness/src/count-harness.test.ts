@@ -62,8 +62,9 @@ const withReads = (readsPerChange: number | null) =>
         ? null
         : {
             rows: readsPerChange,
+            data: 0,
             byEntity: { session: readsPerChange },
-            accesses: { get: 0, iterate: readsPerChange, relation: 0, field: 0 },
+            accesses: { get: 0, iterate: readsPerChange, relation: 0, field: 0, feed: 0 },
             sample: ['session:s0'],
           },
     commitsByRow: {},
@@ -140,7 +141,9 @@ it('assertCommits passes when the drawn rows equal the changed rows', () => {
 })
 
 it('assertCommits throws on an over-commit, naming the row', () => {
-  expect(() => assertCommits(withCommits(['a'], ['a', 'x']))).toThrow(/assertCommits-guard.*over=\[x\] under=\[\]/)
+  expect(() => assertCommits(withCommits(['a'], ['a', 'x']))).toThrow(
+    /assertCommits-guard.*over=\[x\] under=\[\]/,
+  )
 })
 
 it('assertCommits throws on an under-commit (a changed row that did not redraw)', () => {

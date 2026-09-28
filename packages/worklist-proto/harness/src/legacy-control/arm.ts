@@ -42,6 +42,7 @@ import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shel
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import { rebuiltSnapshotFromStore, snapshotFromStore } from '../oracle/index'
+import { insideArm } from '../work-meter'
 import { fencedLegacyStore } from './fenced-store'
 import { type ControlSliceDef, LegacyControlList } from './list'
 
@@ -115,7 +116,9 @@ export function legacyControlArmFor(engine: LegacyControlEngine): CheckableArm {
         sourceEqual: worklistSlice.sourceEqual,
         isEqual: worklistSlice.isEqual,
         derive: (store: Store<PodiumClientApi>): WorklistSlice => {
-          const slice = worklistSlice.derive(fencedLegacyStore(reads, store))
+          // The control's work (POD-4746): wherever the publisher derives
+          // from (an engine notification, a render), the derive is the arm's.
+          const slice = insideArm(() => worklistSlice.derive(fencedLegacyStore(reads, store)))
           stats.rowsDerived += slice.work.length + slice.pinned.length
           stats.rollupsDerived += 1
           return slice
