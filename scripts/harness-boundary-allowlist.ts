@@ -158,10 +158,16 @@ export interface HarnessBoundaryAllowlistEntry {
  *  provider) and read it through the one markOf rule with per-field
  *  served-over-bundled merge: deleted the emptied quota (1) +
  *  quota-history (1) short-mark entries: leak 171 → 169, total 206 → 204.
+ *  POD-4737 (cost gate) read the completeness gate off the model slice
+ *  (COST_FULL_ATTRIBUTION_HARNESS): deleted the emptied cost-format (1) +
+ *  UsageTasks (1) entries: leak 169 → 167, total 204 → 202.
+ *  client-core usage.ts bucketProvider stays: model-id prefixes are model
+ *  namespace (the excluded ApiProvider-collision class), not harness
+ *  identity — same reason the price rows are uncounted.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 169
+export const HARNESS_BASELINE_LEAK_COUNT = 167
 export const HARNESS_BASELINE_POLICY_COUNT = 35
-export const HARNESS_BASELINE_TOTAL = 204
+export const HARNESS_BASELINE_TOTAL = 202
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -192,9 +198,7 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/web/harness/setup-store.ts', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/sidebar-store.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/usage-tasks-fixture.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/cost/cost-format.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/issues/NewIssueDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/usage/UsageTasks.tsx', count: 1, category: 'leak', reason: 'cost-completeness gate (non-Claude harness hedge); labels read off descriptors (POD-4737)', issue: 'POD-4414' },
   { file: 'apps/web/src/features/workflows/ExecutionProfiles.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/lib/agent-tone.ts', count: 1, category: 'leak', reason: 'bundled brand-component key for harnesses this build knows (4.1 amendment: bundled CODE stays)', issue: 'POD-4414/4.1' },
   { file: 'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },

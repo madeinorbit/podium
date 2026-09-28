@@ -9,7 +9,7 @@ import {
   type TaskCostRowView,
 } from '@podium/client-core/viewmodels'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import type { CostHarness, IssueStage } from '@podium/model/browser'
+import { COST_FULL_ATTRIBUTION_HARNESS, type CostHarness, type IssueStage } from '@podium/model/browser'
 import { type JSX, useMemo, useState } from 'react'
 import { descriptorForKind } from '@/lib/agent-tone'
 import { issueRefLabel } from '@/lib/issue-labels'
@@ -133,7 +133,11 @@ function floorReason(
   uncostedSessionCount: number,
   served?: readonly HarnessDescriptorWire[],
 ): string {
-  const named = harnesses.filter((h) => h !== 'claude-code').map((h) => harnessLabel(h, served))
+  // Only harnesses without complete attribution are named (POD-4737: the
+  // model slice, never a literal).
+  const named = harnesses
+    .filter((h) => h !== COST_FULL_ATTRIBUTION_HARNESS)
+    .map((h) => harnessLabel(h, served))
   const reasons: string[] = []
   if (named.length > 0) {
     const list =
