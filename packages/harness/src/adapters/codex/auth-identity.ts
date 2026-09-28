@@ -1,5 +1,15 @@
-import { createHash } from 'node:crypto'
-import type { LoginIdentity } from './manifest.js'
+/**
+ * Codex auth.json readers — the Inventory credentials section's pure file
+ * knowledge (POD-4414 §4.4, POD-4738).
+ *
+ * KNOWLEDGE, not mechanism: which fields carry the token pair, how the JWT
+ * clock reads, what counts as a login, and how two copies order. Moved from
+ * `src/codex-auth-identity.ts` (plus the Codex validator from
+ * `src/credential-freshness.ts`) so the Codex file format has one home. The
+ * neutral fingerprint lives in `../shared/login-identity.js`.
+ */
+import type { LoginIdentity } from '../../manifest.js'
+import { fingerprintForLoginIdentity } from '../shared/login-identity.js'
 
 interface CodexAuthFile {
   tokens?: {
@@ -50,9 +60,18 @@ function numberClaim(value: Record<string, unknown> | undefined, key: string): n
   return undefined
 }
 
-/** Hash an account id or email. The result is safe to replicate to clients. */
-export function fingerprintForLoginIdentity(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
+/** A Codex auth file is usable when both halves of its refresh lineage exist. */
+export function hasValidCodexCredential(contents: string): boolean {
+  let file: { tokens?: unknown }
+  try {
+    const parsed: unknown = JSON.parse(contents)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+    file = parsed as { tokens?: unknown }
+  } catch {
+    return false
+  }
+  const tokens = asRecord(file.tokens)
+  return text(tokens?.['access_token']) !== undefined && text(tokens?.['refresh_token']) !== undefined
 }
 
 /**

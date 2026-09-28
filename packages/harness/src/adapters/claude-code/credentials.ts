@@ -9,12 +9,12 @@
  * 4). The inventory mechanism resolves, reads, writes and guards through
  * these declarations without naming the harness.
  */
-import { fingerprintForLoginIdentity } from '../../codex-auth-identity.js'
+import { fingerprintForLoginIdentity } from '../shared/login-identity.js'
 import {
   compareClaudeCredentialFreshness,
   hasValidClaudeCredential,
   readClaudeCredentialFreshness,
-} from '../../credential-freshness.js'
+} from './credential-freshness.js'
 import { supported, type HarnessCredentials } from '../../manifest.js'
 import { ClaudeKeychainCredentialStore } from './keychain-credential-store.js'
 import type { ClaudeStorageLockFactory } from './keychain-lock.js'

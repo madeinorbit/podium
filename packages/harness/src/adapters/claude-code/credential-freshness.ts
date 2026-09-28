@@ -1,3 +1,11 @@
+/**
+ * Claude credential file readers — the Inventory credentials section's pure
+ * file knowledge (POD-4414 §4.4, POD-4738).
+ *
+ * KNOWLEDGE, not mechanism: what counts as a valid native Claude login and
+ * how two copies order. Moved from `src/credential-freshness.ts` so the
+ * Claude file format has one home.
+ */
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -23,12 +31,6 @@ function parseObject(contents: string): Record<string, unknown> | undefined {
   } catch {
     return undefined
   }
-}
-
-/** A Codex auth file is usable when both halves of its refresh lineage exist. */
-export function hasValidCodexCredential(contents: string): boolean {
-  const tokens = record(parseObject(contents)?.tokens)
-  return nonEmptyString(tokens?.access_token) && nonEmptyString(tokens?.refresh_token)
 }
 
 /** Claude's native OAuth file carries its login under claudeAiOauth. */

@@ -1,4 +1,9 @@
-import type { HarnessLogin } from './manifest.js'
+/**
+ * Codex credential-absence grace — the Inventory credentials section's
+ * rotation guard (POD-4738, moved from `src/codex-credential-absence-grace.ts`
+ * so the Codex rotation knowledge has one home).
+ */
+import type { HarnessLogin } from '../../manifest.js'
 
 /** Codex replaces auth.json in place while refreshing a login. */
 export const CODEX_CREDENTIAL_ABSENCE_GRACE_MS = 5_000

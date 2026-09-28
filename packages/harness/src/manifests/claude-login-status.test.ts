@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
+import { fingerprintForLoginIdentity } from '../adapters/shared/login-identity.js'
 import type { LoginCommandResult } from '../manifest.js'
 import { classifyClaudeLoginStatus } from './claude-login-status.js'
 

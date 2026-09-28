@@ -3,11 +3,11 @@ import { platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { fingerprintForLoginIdentity } from '../adapters/shared/login-identity.js'
 import {
-  fingerprintForLoginIdentity,
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
-} from '../codex-auth-identity.js'
+} from '../adapters/codex/auth-identity.js'
 import { harnessLoginReadEnv } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 import {

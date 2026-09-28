@@ -10,10 +10,10 @@
  */
 import {
   compareCodexAuthFreshness,
+  hasValidCodexCredential,
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
-} from '../../codex-auth-identity.js'
-import { hasValidCodexCredential } from '../../credential-freshness.js'
+} from './auth-identity.js'
 import { supported, unsupported, type HarnessCredentials } from '../../manifest.js'
 
 export const codexCredentials: HarnessCredentials = {

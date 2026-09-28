@@ -7,7 +7,7 @@
  * propagation set is Claude and Codex only), so freshness is unprovable by
  * declaration — exactly as the old file backend behaved.
  */
-import { fingerprintForLoginIdentity } from '../../codex-auth-identity.js'
+import { fingerprintForLoginIdentity } from '../shared/login-identity.js'
 import { unsupported, type HarnessCredentials } from '../../manifest.js'
 
 interface GrokAuthRecord {

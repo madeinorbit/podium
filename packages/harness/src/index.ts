@@ -41,9 +41,10 @@ export type {
   HarnessLoginCopy,
   StaticModelEntry,
 } from './descriptor-types.js'
-export * from './codex-auth-identity.js'
-export * from './codex-credential-absence-grace.js'
-export * from './credential-freshness.js'
+export * from './adapters/claude-code/credential-freshness.js'
+export * from './adapters/codex/auth-identity.js'
+export * from './adapters/codex/credential-absence-grace.js'
+export * from './adapters/shared/login-identity.js'
 export * from './cursor/cli.js'
 export * from './cursor/paths.js'
 export * from './discovery/index.js'

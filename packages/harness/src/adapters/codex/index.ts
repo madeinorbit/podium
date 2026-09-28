@@ -12,8 +12,8 @@ import { withStateChannel } from '../../agent-state/types.js'
 import {
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
-} from '../../codex-auth-identity.js'
-import { CodexCredentialAbsenceGrace } from '../../codex-credential-absence-grace.js'
+} from './auth-identity.js'
+import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
 import { createCodexConversationProvider } from '../../discovery/providers/codex.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {

@@ -1,4 +1,4 @@
-import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
+import { fingerprintForLoginIdentity } from '../adapters/shared/login-identity.js'
 import type { LoginCommandDecision, LoginCommandResult } from '../manifest.js'
 
 const OUTPUT_LIMIT_ERROR = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'

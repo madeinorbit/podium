@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCodexAuthContents, codexAccessTokenExpiryMs } from '../../codex-auth-identity.js'
+import { parseCodexAuthContents, codexAccessTokenExpiryMs } from './auth-identity.js'
 import { credentialFileReader, declaredValue } from '../../manifest.js'
 import { codexCredentials } from './credentials.js'
 

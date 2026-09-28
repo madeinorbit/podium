@@ -120,8 +120,8 @@ export {
 // error types.
 export {
   codexAccessTokenExpiryMs,
+  hasValidCodexCredential,
   parseCodexAuthContents,
-} from './codex-auth-identity.js'
-export { hasValidCodexCredential } from './credential-freshness.js'
+} from './adapters/codex/auth-identity.js'
 
 export { isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from './session-title'
