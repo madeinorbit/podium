@@ -59,6 +59,26 @@ describe('agentLabel / statusNote', () => {
     expect(statusNote({ status: 'ok' })).toBe('')
   })
 
+  it('reads two-letter marks off descriptors, served first (POD-4737)', () => {
+    expect(agentShortLabel('pi')).toBe('PI')
+    expect(agentShortLabel('shell')).toBe('SH')
+    const served: HarnessDescriptorWire[] = [
+      {
+        schemaVersion: 1,
+        kind: 'codex',
+        provider: 'openai',
+        label: 'Codex',
+        shortLabel: 'Codex',
+        mark: 'C2',
+        icon: { id: 'codex', viewBox: '0 0 1 1', d: 'M0 0h1v1H0z' },
+        capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
+        catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+      },
+    ]
+    expect(agentShortLabel('codex', served)).toBe('C2')
+    expect(agentShortLabel('codex')).toBe('CX')
+  })
+
   /**
    * Served descriptors win over the bundled copy by kind (POD-4737): a
    * machine running a newer daemon renames a harness and every label follows

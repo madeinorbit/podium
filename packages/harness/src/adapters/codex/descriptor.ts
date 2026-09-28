@@ -14,6 +14,7 @@ export const codexDescriptor: HarnessDescriptorData = {
   kind: 'codex',
   provider: 'openai',
   label: 'Codex',
+  mark: 'CX',
   shortLabel: 'Codex',
   icon: {
     id: 'codex',

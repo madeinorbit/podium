@@ -120,6 +120,15 @@ export const HarnessDescriptorWire = z.object({
   provider: z.string().min(1).optional(),
   label: z.string().min(1),
   shortLabel: z.string().min(1),
+  /**
+   * Two-letter compact mark for constrained meters (POD-4737). Optional on
+   * the wire (like `provider` above, POD-4542): a daemon predating the field
+   * still parses, and every reader resolves a missing value through the one
+   * `markOf` rule in `@podium/harness/browser` — the generic initialism —
+   * rather than a second table. The served builder and the bundled snapshot
+   * keep emitting it always.
+   */
+  mark: z.string().min(1).optional(),
   icon: HarnessDescriptorIconWire,
   /** Null = neutral chip (inherits the surrounding tone). */
   brand: HarnessDescriptorBrandWire.nullish(),

@@ -87,6 +87,7 @@ function assembleDescriptor(manifest: AgentManifest): HarnessDescriptorWire {
     provider: data.provider,
     label: data.label,
     shortLabel: data.shortLabel,
+    mark: data.mark,
     icon: { ...data.icon },
     ...(data.brand ? { brand: { ...data.brand } } : {}),
     capabilities: {

@@ -14,6 +14,7 @@ export const grokDescriptor: HarnessDescriptorData = {
   kind: 'grok',
   provider: 'xai',
   label: 'Grok',
+  mark: 'GR',
   shortLabel: 'Grok',
   icon: {
     id: 'grok',

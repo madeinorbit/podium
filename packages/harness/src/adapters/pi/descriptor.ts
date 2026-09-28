@@ -17,6 +17,7 @@ export const piDescriptor: HarnessDescriptorData = {
   kind: 'pi',
   provider: 'pi',
   label: 'Pi',
+  mark: 'PI',
   shortLabel: 'Pi',
   icon: {
     id: 'pi',

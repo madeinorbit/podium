@@ -17,6 +17,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "provider": "anthropic",
       "label": "Claude Code",
       "shortLabel": "Claude",
+      "mark": "CC",
       "icon": {
         "id": "claude-code",
         "viewBox": "0 0 24 24",
@@ -77,6 +78,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "provider": "openai",
       "label": "Codex",
       "shortLabel": "Codex",
+      "mark": "CX",
       "icon": {
         "id": "codex",
         "viewBox": "0 0 256 260",
@@ -160,6 +162,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "provider": "xai",
       "label": "Grok",
       "shortLabel": "Grok",
+      "mark": "GR",
       "icon": {
         "id": "grok",
         "viewBox": "0 0 24 24",
@@ -201,6 +204,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "provider": "opencode",
       "label": "OpenCode",
       "shortLabel": "OpenCode",
+      "mark": "OC",
       "icon": {
         "id": "opencode",
         "viewBox": "0 0 24 24",
@@ -250,6 +254,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "provider": "cursor",
       "label": "Cursor",
       "shortLabel": "Cursor",
+      "mark": "CU",
       "icon": {
         "id": "cursor",
         "viewBox": "0 0 24 24",
@@ -288,6 +293,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
       "provider": "pi",
       "label": "Pi",
       "shortLabel": "Pi",
+      "mark": "PI",
       "icon": {
         "id": "pi",
         "viewBox": "0 0 24 24",

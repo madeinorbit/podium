@@ -14,7 +14,15 @@
 
 import { BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { composerRulesFor, HARNESS_NO_TOOLS, harnessSupportsNoTools } from './browser.js'
+import {
+  BUNDLED_DESCRIPTORS,
+  composerRulesFor,
+  HARNESS_NO_TOOLS,
+  harnessSupportsNoTools,
+  markOf,
+  parseServedDescriptors,
+  resolveDescriptors,
+} from './browser.js'
 import { declaredValue } from './manifest.js'
 import { AGENT_MANIFESTS } from './registry.js'
 
@@ -86,5 +94,55 @@ describe('@podium/harness/browser — the bundled composer rules', () => {
     // Inherited object properties must not answer for a harness.
     expect(composerRulesFor('toString')).toBe(undefined)
     expect(composerRulesFor('constructor')).toBe(undefined)
+  })
+})
+
+describe('@podium/harness/browser — the descriptor mark (POD-4737)', () => {
+  it('states one arbitrary mark per harness in the bundled rows', () => {
+    // Literals allowed: tests sit outside the vendor-boundary lint, and these
+    // rows are what the meter assertions elsewhere pin against.
+    const marks = Object.fromEntries(BUNDLED_DESCRIPTORS.map((d) => [d.kind, d.mark]))
+    expect(marks).toMatchObject({
+      'claude-code': 'CC',
+      codex: 'CX',
+      grok: 'GR',
+      opencode: 'OC',
+      cursor: 'CU',
+      pi: 'PI',
+    })
+  })
+
+  it('resolves the stated mark, else the generic initialism', () => {
+    expect(markOf('codex', 'CX')).toBe('CX')
+    expect(markOf('codex', 'C2')).toBe('C2')
+    // The generic cannot derive the arbitrary spellings — 'CX', not 'CO'.
+    expect(markOf('codex')).toBe('C')
+    expect(markOf('claude-code')).toBe('CC')
+    expect(markOf('some-future-harness')).toBe('SF')
+    expect(markOf('codex', '  ')).toBe('C')
+  })
+
+  it('parses the mark when stated and omits it when absent', () => {
+    const frame = { kind: 'codex', label: 'Codex' }
+    expect(parseServedDescriptors([{ ...frame, mark: 'C2' }])[0]).toHaveProperty('mark', 'C2')
+    expect(parseServedDescriptors([frame])[0]).not.toHaveProperty('mark')
+  })
+
+  it('merges served per field: stated fields win, absent ones inherit bundled', () => {
+    // An older daemon's row (no mark) keeps this build's mark but takes the
+    // served availability; a stated mark wins over bundled.
+    const merged = resolveDescriptors(
+      parseServedDescriptors([
+        { kind: 'codex', label: 'Codex', available: { installed: true, loggedIn: true } },
+      ]),
+    )
+    expect(merged.find((d) => d.kind === 'codex')).toMatchObject({
+      mark: 'CX',
+      available: { installed: true, loggedIn: true },
+    })
+    const overridden = resolveDescriptors(
+      parseServedDescriptors([{ kind: 'codex', label: 'Codex', mark: 'C2' }]),
+    )
+    expect(overridden.find((d) => d.kind === 'codex')).toMatchObject({ mark: 'C2' })
   })
 })

@@ -19,6 +19,7 @@ export const opencodeDescriptor: HarnessDescriptorData = {
   kind: 'opencode',
   provider: 'opencode',
   label: 'OpenCode',
+  mark: 'OC',
   shortLabel: 'OpenCode',
   icon: {
     id: 'opencode',

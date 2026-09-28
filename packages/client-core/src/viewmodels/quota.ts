@@ -11,6 +11,7 @@
  * Platform-neutral: no DOM, no storage, no styling vocabulary.
  */
 import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
+import { markOf } from '@podium/harness/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { harnessDescriptorFor } from './harness-labels'
 
@@ -66,26 +67,19 @@ export function agentLabel(
   return harnessDescriptorFor(agent, served)?.label ?? agent
 }
 
-/** Two-character provider mark for scoped meters in the constrained top bar. */
-const AGENT_SHORT_LABELS: Record<string, string> = {
-  'claude-code': 'CC',
-  codex: 'CX',
-  grok: 'GR',
-  opencode: 'OC',
-  cursor: 'CU',
-  shell: 'SH',
-}
-export function agentShortLabel(agent: AgentKind): string {
-  return (
-    AGENT_SHORT_LABELS[agent] ??
-    agent
-      .split(/[^a-z0-9]+/i)
-      .filter(Boolean)
-      .map((part) => part[0])
-      .join('')
-      .slice(0, 2)
-      .toUpperCase()
-  )
+/**
+ * Two-character mark for scoped meters in the constrained top bar (POD-4737):
+ * the adapter's descriptor mark, resolved served-over-bundled. 'shell' keeps
+ * its neutral mark (not a harness); unheard-of kinds get the generic
+ * initialism through the one markOf rule. `served` is what the caller holds
+ * (see `./harness-labels.ts`).
+ */
+export function agentShortLabel(
+  agent: AgentKind,
+  served?: readonly HarnessDescriptorWire[],
+): string {
+  if (agent === 'shell') return 'SH'
+  return markOf(agent, harnessDescriptorFor(agent, served)?.mark)
 }
 
 export function statusNote(a: Pick<AgentQuotaWire, 'status' | 'error'>): string {
