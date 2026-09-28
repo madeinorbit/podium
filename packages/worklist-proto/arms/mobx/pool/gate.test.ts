@@ -87,13 +87,13 @@
  *   reach the reader (H3's `chain`: a changed cell at level >= 2 does not dirty
  *   its readers).
  *
- * FIDELITY. The fields Ma1 derives from the row, one hop and the locals, and
- * the roll-ups Mb3 derives (`phase`, progress, `working`, `asking`,
- * `workingSince`, and `closed` / `dismissed` with their "nothing waiting"
- * conjunct), are compared with the oracle's row views (`rowViewsFromStore`)
- * for every visible row. So is `activityAt` (POD-4674, POD-4679): the retained
- * seats' stamps, else `updatedAt` (`rows.ts:98-116`), raised by the latest
- * seat nested below (`rows.ts:336-339`).
+ * FIDELITY (POD-4714). Every `RowView` field (`ROW_VIEW_FIELDS`,
+ * `shared/src/row-view.ts`) is compared with the oracle's row views
+ * (`rowViewsFromStore`) for every visible row, except the `ORACLE_EXEMPT`
+ * list below, each entry with its reason (`title` draft variance,
+ * `originTick` title variance with ref + null-ness still held, `loading` with
+ * no oracle counterpart checked as undefined). A new contract field is
+ * compared by default: the exhaustiveness test fails until it is.
  */
 
 import { reaction, runInAction, untracked } from 'mobx'
@@ -114,7 +114,7 @@ import {
   diffSnapshots,
   diffViews,
 } from '../../../shared/src/gen/check'
-import type { RowView } from '../../../shared/src/row-view'
+import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
@@ -605,6 +605,46 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
 })
 
 describe('row fields against the oracle', () => {
+  /**
+   * POD-4714 — RowView fields not compared field-for-field with the oracle,
+   * each with its one-line reason. Every other field of ROW_VIEW_FIELDS is
+   * compared with `toEqual` below; adding a field to RowView without comparing
+   * it (and without adding it here) fails the exhaustiveness test.
+   */
+  const ORACLE_EXEMPT: Partial<Record<keyof RowView, string>> = {
+    // Drafts wear the first member's label; legacy uses replica order plus the
+    // session's name, pools use lowest id plus kind only (displayTitleOf).
+    title: 'draft titles need a member session the pools order differently and name without session names',
+    // The full tick carries the origin's draft-varying title; null-ness and
+    // the ref compare exactly below, the rest inherits the title variance.
+    originTick: 'origin tick title inherits the draft-title variance; ref + null-ness compare exactly',
+    // Not an oracle field (sliceRowOf drops it); resident rows must never
+    // load, checked as undefined below.
+    loading: 'no oracle counterpart; resident rows are never loading',
+  }
+  // Every non-exempt contract field, derived from the row contract so a new
+  // field is compared by default.
+  const same: (keyof RowView)[] = ROW_VIEW_FIELDS.filter(
+    (field): field is keyof RowView => ORACLE_EXEMPT[field] === undefined,
+  )
+
+  it('every RowView field is compared or exempt with a reason', () => {
+    for (const [field, reason] of Object.entries(ORACLE_EXEMPT)) {
+      expect(ROW_VIEW_FIELDS.includes(field as keyof RowView), `exempt ${field} is a RowView field`).toBe(
+        true,
+      )
+      expect(reason.trim().length, `exempt ${field} has a reason`).toBeGreaterThan(0)
+    }
+    expect(new Set(same).size).toBe(same.length)
+    expect(new Set([...same, ...Object.keys(ORACLE_EXEMPT)]).size).toBe(ROW_VIEW_FIELDS.length)
+    for (const field of ROW_VIEW_FIELDS) {
+      expect(
+        same.includes(field) || Object.hasOwn(ORACLE_EXEMPT, field),
+        `${field} is compared or exempt`,
+      ).toBe(true)
+    }
+  })
+
   it('matches the oracle on every visible row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -622,31 +662,6 @@ describe('row fields against the oracle', () => {
       const actual = tracked(() =>
         Object.fromEntries(ids.map((id) => [id, handle.pool.issue(id)?.view])),
       )
-      const same: (keyof RowView)[] = [
-        'id',
-        'displayRef',
-        'band',
-        'repoKey',
-        'selected',
-        'pinned',
-        'sortKey',
-        'createdAt',
-        'seq',
-        'foldAt',
-        // Mb3's roll-ups (POD-4571).
-        'phase',
-        'progressDone',
-        'progressTotal',
-        'working',
-        'asking',
-        'workingSince',
-        'closed',
-        'dismissed',
-        // POD-4674/POD-4679: the retained seats' stamps, else updatedAt
-        // (`rows.ts:98-116`), raised by the latest seat nested below
-        // (`rows.ts:336-339`).
-        'activityAt',
-      ]
       let closedByOracle = 0
       // POD-4671 fixed: no gap, every row's seat-fed fields compare.
       const snapshot = handle.pool.snapshot()

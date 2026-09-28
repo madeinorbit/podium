@@ -83,13 +83,13 @@
  * chunks), and `POD_POOL_GATE_STEPS=<n>` sets the length (`README.md`,
  * "Gates").
  *
- * FIDELITY. The fields a1 derives from the row, one hop and the locals are
- * compared with the oracle's row views (`rowViewsFromStore`) for every
- * visible row. `closed` is compared exactly (Hb3 wires the "nothing waiting"
- * conjunct), except the POD-4671 orphan row, whose ask the pool never seats.
- * A draft's title is compared only where it needs no member session: which
- * member the legacy runtime shows first is its replica order, which no pool
- * has (the pool shows the lowest session id, `views.ts`).
+ * FIDELITY (POD-4714). Every `RowView` field (`ROW_VIEW_FIELDS`,
+ * `shared/src/row-view.ts`) is compared with the oracle's row views
+ * (`rowViewsFromStore`) for every visible row, except the `ORACLE_EXEMPT`
+ * list below, each entry with its reason (`title` draft variance,
+ * `originTick` title variance with ref + null-ness still held, `loading` with
+ * no oracle counterpart checked as undefined). A new contract field is
+ * compared by default: the exhaustiveness test fails until it is.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -103,7 +103,7 @@ import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
 import { checkArm, describeSequence, diffSnapshots, diffViews } from '../../../shared/src/gen/check'
-import type { RowView } from '../../../shared/src/row-view'
+import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
@@ -604,7 +604,47 @@ async function activityDiffs(arm: CheckableArm): Promise<{ rows: number; diffs: 
   }
 }
 
-describe('own-row and one-hop fields against the oracle', () => {
+describe('row fields against the oracle', () => {
+  /**
+   * POD-4714 — RowView fields not compared field-for-field with the oracle,
+   * each with its one-line reason. Every other field of ROW_VIEW_FIELDS is
+   * compared with `toEqual` below; adding a field to RowView without comparing
+   * it (and without adding it here) fails the exhaustiveness test.
+   */
+  const ORACLE_EXEMPT: Partial<Record<keyof RowView, string>> = {
+    // Drafts wear the first member's label; legacy uses replica order plus the
+    // session's name, pools use lowest id plus kind only (displayTitleOf).
+    title: 'draft titles need a member session the pools order differently and name without session names',
+    // The full tick carries the origin's draft-varying title; null-ness and
+    // the ref compare exactly below, the rest inherits the title variance.
+    originTick: 'origin tick title inherits the draft-title variance; ref + null-ness compare exactly',
+    // Not an oracle field (sliceRowOf drops it); resident rows must never
+    // load, checked as undefined below.
+    loading: 'no oracle counterpart; resident rows are never loading',
+  }
+  // Every non-exempt contract field, derived from the row contract so a new
+  // field is compared by default.
+  const same: (keyof RowView)[] = ROW_VIEW_FIELDS.filter(
+    (field): field is keyof RowView => ORACLE_EXEMPT[field] === undefined,
+  )
+
+  it('every RowView field is compared or exempt with a reason', () => {
+    for (const [field, reason] of Object.entries(ORACLE_EXEMPT)) {
+      expect(ROW_VIEW_FIELDS.includes(field as keyof RowView), `exempt ${field} is a RowView field`).toBe(
+        true,
+      )
+      expect(reason.trim().length, `exempt ${field} has a reason`).toBeGreaterThan(0)
+    }
+    expect(new Set(same).size).toBe(same.length)
+    expect(new Set([...same, ...Object.keys(ORACLE_EXEMPT)]).size).toBe(ROW_VIEW_FIELDS.length)
+    for (const field of ROW_VIEW_FIELDS) {
+      expect(
+        same.includes(field) || Object.hasOwn(ORACLE_EXEMPT, field),
+        `${field} is compared or exempt`,
+      ).toBe(true)
+    }
+  })
+
   it('matches the oracle on every visible row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -617,18 +657,6 @@ describe('own-row and one-hop fields against the oracle', () => {
       // asks for them, and the settled snapshot loads them and what they read.
       for (const id of ids) handle.pool.resident('issue', id)
       handle.pool.snapshot()
-      const same: (keyof RowView)[] = [
-        'id',
-        'displayRef',
-        'band',
-        'repoKey',
-        'selected',
-        'pinned',
-        'sortKey',
-        'createdAt',
-        'seq',
-        'foldAt',
-      ]
       let closedByOracle = 0
       for (const id of ids) {
         const want = expected[id]!
@@ -636,18 +664,18 @@ describe('own-row and one-hop fields against the oracle', () => {
         expect(got, id).toBeDefined()
         for (const field of same) expect(got![field], `${id}.${field}`).toEqual(want[field])
         if (!got!.title.startsWith('New ')) expect(got!.title, `${id}.title`).toBe(want.title)
-        if (want.closed) {
-          closedByOracle += 1
-          expect(got!.closed, `${id}.closed`).toBe(true)
-        }
-        // Hb3 wires the waiting conjunct, so `closed` is exact (POD-4671 fixed).
-        expect(got!.closed, `${id}.closed`).toBe(want.closed)
+        if (want.closed) closedByOracle += 1
+        expect(got!.loading, `${id}.loading`).toBeUndefined()
         if (want.originTick === null) expect(got!.originTick, `${id}.originTick`).toBeNull()
         else expect(got!.originTick?.ref, `${id}.originTick`).toBe(want.originTick.ref)
       }
       expect(closedByOracle).toBeGreaterThan(0)
       expect(ids.filter((id) => expected[id]!.originTick !== null).length).toBeGreaterThan(0)
       expect(new Set(ids.map((id) => expected[id]!.band)).size).toBeGreaterThan(1)
+      // Every roll-up value the fixture can show is exercised.
+      expect(new Set(ids.map((id) => expected[id]!.phase)).size).toBe(4)
+      expect(ids.some((id) => expected[id]!.asking && expected[id]!.working)).toBe(true)
+      expect(ids.some((id) => expected[id]!.progressTotal > 1)).toBe(true)
     } finally {
       handle.dispose()
       feeds.dispose()

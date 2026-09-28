@@ -254,8 +254,49 @@ export interface RowView extends Readonly<SliceRow> {
    * reference arm, round two). Not an oracle field: `sliceRowOf` drops it.
    * Inputs: residency of the lazy relations' targets.
    */
-  readonly loading?: true
+   readonly loading?: true
 }
+
+/**
+ * POD-4714 — every field of `RowView`, in declaration order. Gates derive
+ * their oracle-compared set from this (minus their explicit exemption list),
+ * so a new contract field is compared by default: adding it to `RowView`
+ * without listing it here fails typecheck below, and listing it here without
+ * a gate comparing it (or exempting it with a reason) fails that gate's
+ * exhaustiveness test.
+ */
+export const ROW_VIEW_FIELDS = [
+  'id',
+  'displayRef',
+  'title',
+  'phase',
+  'progressDone',
+  'progressTotal',
+  'working',
+  'asking',
+  'band',
+  'repoKey',
+  'closed',
+  'selected',
+  'originTick',
+  'activityAt',
+  'workingSince',
+  'pinned',
+  'sortKey',
+  'createdAt',
+  'seq',
+  'foldAt',
+  'dismissed',
+  'loading',
+] as const satisfies readonly (keyof RowView)[]
+
+export type RowViewField = (typeof ROW_VIEW_FIELDS)[number]
+
+// Adding a field to RowView without listing it above fails typecheck here.
+type _RowViewFieldsExhaustive = Exclude<keyof RowView, RowViewField> extends never ? true : never
+const _rowViewFieldsExhaustive: _RowViewFieldsExhaustive = true
+type _RowViewFieldsNoExtras = Exclude<RowViewField, keyof RowView> extends never ? true : never
+const _rowViewFieldsNoExtras: _RowViewFieldsNoExtras = true
 
 // -----------------------------------------------------------------------------
 // Seats: which graph members count toward a row (read side)
