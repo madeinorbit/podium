@@ -24,17 +24,11 @@
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { diffSnapshots } from '../../../shared/src/gen/check'
-import { startScenarioEngine, type ScenarioEngine } from '../../../shared/src/scenarios'
+import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import { openFenceFeeds } from '../fence-scenarios'
 import { expectedSnapshot, oracleSnapshot } from '../oracle/index'
-import {
-  currentScope,
-  fireRescope,
-  scopeOfCorpus,
-  stageRows,
-  stageScans,
-} from '../rescope'
+import { currentScope, fireRescope, scopeOfCorpus, stageRows, stageScans } from '../rescope'
 import { legacyControlArmFor } from './arm'
 
 /** JSON with object keys sorted at every level (mirrors entrylib's canonical). */
