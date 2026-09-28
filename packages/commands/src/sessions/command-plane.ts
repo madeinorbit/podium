@@ -25,16 +25,17 @@
  *    substitutes for the other, which is why the verb is a second axis on the
  *    policy and not `resource: 'machine'`.
  *  - `offline: 'online-only'` follows from the verb by D18.3 — a queued
- *    execution command is a rights snapshot with a delayed fuse. With ONE
- *    documented exception; see `resumeAndSend`.
+ *    execution command is a rights snapshot with a delayed fuse. With TWO
+ *    documented exceptions, the chat sends; see `resumeAndSend` and `sendText`.
  *
- * ## The exception, and why the oracle beat the brief
+ * ## The exceptions, and why the oracle beat the brief
  *
  * POD-381's brief says the command class is "never offline-enqueued". The
  * client oracle disagrees, and it is tagged must-not-change:
  * `packages/client-core/src/engine/outbox-coverage.oracle.test.ts` pins
- * `sessions.resumeAndSend` INSIDE the covered set and `sessions.sendText`
- * outside it ("live chat must fail fast rather than silently queue").
+ * `sessions.resumeAndSend` INSIDE the covered set — and, since POD-4762,
+ * `sessions.sendText` beside it: every chat send goes through the outbox under
+ * a give-up window of minutes (see `sendText`'s decision).
  *
  * The oracle is also right on the merits rather than merely older. D18.3's
  * hazard is a queued command minting a NEW process on hardware whose grant was
@@ -45,6 +46,10 @@
  * class. And flipping it to `direct-only` would poison-drop entries a user
  * authored offline, which D9 invariant 1 forbids. Reported to the coordinator
  * as a brief error rather than resolved silently in either direction.
+ *
+ * `sendText` is the same argument with a tighter bound: it types into an
+ * EXISTING session, under the message id the composer minted, and its outbox
+ * entry gives up after minutes rather than days.
  */
 
 import {
@@ -330,14 +335,15 @@ const sendText: CommandDef = {
   policy: executes,
   visibility: PERSONAL,
   exposure: AGENT,
-  offline: 'online-only',
+  // The second offline-eligible member of this class (POD-4762); see its decision.
+  offline: 'eligible',
   redaction: {
     fields: [],
     note: 'the body is user-authored content already durable in the ledger and the transcript; redacting it here would hide it from the receipt that dedupes it',
   },
   conflict: 'cmd',
   decision:
-    'DIRECT-ONLY, matching the outbox oracle: live chat must fail fast rather than silently queue. Routes AROUND controller gating on purpose — a chat send is an explicit user act, not a competing keyboard — and this contract does not change that: the gate it adds is `use` on the machine, never the controller. Identity on controllerId and take-control policy stay POD-1081’s.',
+    'OUTBOXED, UNDER A GIVE-UP WINDOW OF MINUTES (POD-4762, user decision 2026-09-28). It used to be direct-only — "live chat must fail fast rather than silently queue" — and that left a live-session message held only in memory: lost on reload, never retried when only its answer was lost, and re-sent under a NEW id by the retry button, which is a second message. Every chat send now goes through the client outbox keyed by the message id the composer minted, so one mechanism keeps it on the device, retries it with growing pauses under that id (the authority answers a repeat with its first answer), and gives up visibly — "not sent — retry" — after `CHAT_SEND_MAX_AGE_MS` (client-core wiring), minutes, not days. The fail-fast intent survives as that window: a message never arrives hours late into a conversation that moved on, and the user’s retry re-issues the SAME entry. Offline queueing is a later change of that number, not of this class. D18.3’s hazard is a queued command minting a NEW process on revoked hardware; this types into an EXISTING session and is re-authorized live at apply like every other outboxed write. Routes AROUND controller gating on purpose — a chat send is an explicit user act, not a competing keyboard — and this contract does not change that: the gate it adds is `use` on the machine, never the controller. Identity on controllerId and take-control policy stay POD-1081’s.',
 }
 
 const resumeAndSend: CommandDef = {

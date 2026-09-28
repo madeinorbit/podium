@@ -15,7 +15,7 @@
  * matters, and a receipt horizon on the other side of the wire.
  */
 
-import { actorUser, asMutationId, asSessionId, asUserId, type MutationId } from '@podium/model'
+import { actorUser, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { InMemoryReplicaStore } from '../replica/memory-store'
 import type { OptimisticOverlayPort } from '../replica/overlay'
@@ -53,6 +53,7 @@ const DAY = 24 * 60 * 60 * 1000
 
 const CLOSE: OutboxCommand = { name: 'issues.close', version: 1, delivery: 'offline-eligible' }
 const LOCK: OutboxCommand = { name: 'locks.acquire', version: 1, delivery: 'offline-eligible' }
+const CHAT: OutboxCommand = { name: 'sessions.sendText', version: 1, delivery: 'offline-eligible' }
 
 const ADA: OutboxAttribution = {
   actor: actorUser(asUserId('u-ada')),
@@ -101,6 +102,7 @@ async function harness(
     idPrefix?: string
     maxAgeMs?: number
     commandMaxAgeMs?: Readonly<Record<string, number>>
+    parkedYieldsPartition?: ReadonlySet<string>
   } = {},
 ): Promise<Harness> {
   const store = init.store ?? new InMemoryOutboxStore()
@@ -114,6 +116,7 @@ async function harness(
     now: clock.now,
     maxAgeMs: init.maxAgeMs ?? OUTBOX_MAX_AGE_MS,
     ...(init.commandMaxAgeMs ? { commandMaxAgeMs: init.commandMaxAgeMs } : {}),
+    ...(init.parkedYieldsPartition ? { parkedYieldsPartition: init.parkedYieldsPartition } : {}),
     newMutationId: sequentialMutationIds(init.idPrefix ?? 'm'),
     onStoreUnreadable: (error) => {
       throw error
@@ -221,6 +224,80 @@ describe('D12 — a blocked aggregate never stalls another, and never stalls ano
 })
 
 // ───────────────────────────────────────────────────────────────────────────────
+describe('POD-4762 — a parked entry of a yielding command stops holding its partition', () => {
+  const chat = (text: string): EnqueueRequest => ({
+    command: CHAT,
+    input: { sessionId: 's1', text },
+    attribution: ADA,
+    partitionKey: 'chat:s1',
+  })
+
+  it('drains the next message past one the authority refused, in order among the rest', async () => {
+    const { outbox, authority } = await harness(
+      (envelope) =>
+        (envelope.input as { text: string }).text === 'refused' ? poison : applied,
+      { parkedYieldsPartition: new Set([CHAT.name]) },
+    )
+    const refused = await outbox.enqueue(chat('refused'))
+    const next = await outbox.enqueue(chat('next'))
+    const last = await outbox.enqueue(chat('last'))
+    await outbox.drain()
+
+    expect(stateOf(outbox, refused.mutationId)).toBe('dead-letter')
+    expect(stateOf(outbox, next.mutationId)).toBe('applied')
+    expect(stateOf(outbox, last.mutationId)).toBe('applied')
+    expect(authority.envelopes.map((e) => (e.input as { text: string }).text)).toEqual([
+      'refused',
+      'next',
+      'last',
+    ])
+  })
+
+  it('lets the next message go past one that aged out while the authority was away', async () => {
+    let online = false
+    const { outbox, clock } = await harness(() => (online ? applied : unreachable), {
+      commandMaxAgeMs: { [CHAT.name]: 60_000 },
+      parkedYieldsPartition: new Set([CHAT.name]),
+    })
+    const old = await outbox.enqueue(chat('old'))
+    await outbox.drain()
+    clock.advance(45_000)
+    const fresh = await outbox.enqueue(chat('fresh'))
+    clock.advance(20_000)
+
+    online = true
+    await outbox.drain()
+
+    // The drain ages the head out on the spot and carries on in the same pass.
+    expect(stateOf(outbox, old.mutationId)).toBe('dead-letter')
+    expect(stateOf(outbox, fresh.mutationId)).toBe('applied')
+  })
+
+  it('keeps D12 for every other command: a parked write still holds its partition', async () => {
+    const { outbox } = await harness(
+      (envelope) =>
+        (envelope.input as { text: string }).text === 'refused' ? poison : applied,
+      { parkedYieldsPartition: new Set(['some.other']) },
+    )
+    await outbox.enqueue(chat('refused'))
+    const next = await outbox.enqueue(chat('next'))
+    await outbox.drain()
+
+    expect(stateOf(outbox, next.mutationId)).toBe('queued')
+  })
+
+  it('still holds the partition behind an entry that is only IN FLIGHT', async () => {
+    const { outbox } = await harness(() => accepted, {
+      parkedYieldsPartition: new Set([CHAT.name]),
+    })
+    await outbox.enqueue(chat('first'))
+    const second = await outbox.enqueue(chat('second'))
+    await outbox.drain()
+
+    expect(stateOf(outbox, second.mutationId)).toBe('queued')
+  })
+})
+
 describe('D10 — an entry that can never succeed dead-letters without wedging its partition', () => {
   it('dead-letters an AUTHORIZATION denial on the first attempt, burning no retries and no age', async () => {
     // The multi-user case: a share was revoked, and D8 resolves the delegation
@@ -459,6 +536,83 @@ describe('D10 — the age limit, and a per-command override that may only shorte
     expect(outbox.deadLetters().map((d) => d.command.name)).toEqual(['locks.acquire'])
   })
 
+  it('re-issues a shortened command that gave up under its SAME id (POD-4762)', async () => {
+    // Attempt one lands at the Authority and only the answer is lost; the entry
+    // then gives up. The user's retry must reach the Authority as the SAME
+    // intent, so its receipt answers instead of a second apply.
+    let online = false
+    const { outbox, clock, authority } = await harness(() => (online ? applied : unreachable), {
+      commandMaxAgeMs: { 'locks.acquire': 60_000 },
+    })
+    const lock = await outbox.enqueue({
+      command: LOCK,
+      input: { resource: 'test-lane' },
+      attribution: ADA,
+      partitionKey: 'lock:test-lane',
+    })
+    await outbox.drain()
+    clock.advance(60_001)
+    await outbox.sweepExpired()
+    expect(outbox.deadLetters()[0]?.recovery.retry).toBe('reissue')
+
+    const reissued = await outbox.retry(lock.mutationId, { reissue: true })
+    expect(reissued.mutationId).toBe(lock.mutationId)
+    expect(reissued.state).toBe('queued')
+    // The id's horizon still runs from the press; only the give-up window is new.
+    expect(reissued.queuedAt).toBe(lock.queuedAt)
+    expect(reissued.reissuedAt).toBe(clock.now())
+
+    online = true
+    await outbox.drain()
+    expect(stateOf(outbox, lock.mutationId)).toBe('applied')
+    expect(new Set(authority.envelopes.map((e) => e.mutationId))).toEqual(
+      new Set([lock.mutationId]),
+    )
+  })
+
+  it('gives a same-id re-issue a fresh give-up period, but never past the base horizon', async () => {
+    const { outbox, clock } = await harness(() => unreachable, {
+      maxAgeMs: 10 * 60_000,
+      commandMaxAgeMs: { 'locks.acquire': 60_000 },
+    })
+    const lock = await outbox.enqueue({
+      command: LOCK,
+      input: { resource: 'test-lane' },
+      attribution: ADA,
+      partitionKey: 'lock:test-lane',
+    })
+    expect(outbox.nextExpiryAt()).toBe(lock.queuedAt + 60_000)
+
+    clock.advance(60_001)
+    await outbox.sweepExpired()
+    await outbox.retry(lock.mutationId, { reissue: true })
+    // A fresh minute from the re-issue — the window, not the id, was renewed.
+    expect(outbox.nextExpiryAt()).toBe(clock.now() + 60_000)
+    clock.advance(59_000)
+    expect(await outbox.sweepExpired()).toEqual([])
+    clock.advance(1_001)
+    expect(await outbox.sweepExpired()).toEqual([lock.mutationId])
+
+    // Nine and a half minutes after the press a whole minute no longer fits in
+    // the ten-minute base horizon: a receipt for the old id is no longer
+    // certain at the moment the retry could land, so the id is renewed.
+    clock.advance(7 * 60_000 + 28_000)
+    const renewed = await outbox.retry(lock.mutationId, { reissue: true })
+    expect(renewed.mutationId).not.toBe(lock.mutationId)
+    expect(outbox.find(lock.mutationId)).toBeUndefined()
+  })
+
+  it('names no expiry when nothing is waiting to be sent', async () => {
+    const { outbox } = await harness(() => applied, {
+      commandMaxAgeMs: { 'locks.acquire': 60_000 },
+    })
+    expect(outbox.nextExpiryAt()).toBeUndefined()
+    await outbox.enqueue(close('POD-1'))
+    expect(outbox.nextExpiryAt()).toBeDefined()
+    await outbox.drain()
+    expect(outbox.nextExpiryAt()).toBeUndefined()
+  })
+
   it('refuses a LENGTHENING override at open, rather than clamping it silently', async () => {
     await expect(
       harness(() => applied, { commandMaxAgeMs: { 'issues.close': OUTBOX_MAX_AGE_MS + 1 } }),
@@ -482,7 +636,12 @@ describe('D11.5 — the client that comes back after forty days', () => {
     // Forty days offline: past the fourteen-day age limit, and past the point
     // where the Authority may still hold a receipt for these ids.
     clock.advance(40 * DAY)
-    const { outbox, authority, events } = await harness(() => applied, { store, clock })
+    // The re-issues below mint from this instance, so give it ids of its own.
+    const { outbox, authority, events } = await harness(() => applied, {
+      store,
+      clock,
+      idPrefix: 'fresh-',
+    })
 
     // Nothing was sent. That refusal is the whole mechanism: past the dedupe
     // horizon a replay is a FRESH command, and `sessions.sendText` double-types
@@ -503,11 +662,12 @@ describe('D11.5 — the client that comes back after forty days', () => {
     // Recovery is a REBASE onto a new identity (D11.4): the old id may still carry
     // a receipt, so re-issuing under it could return the stored result instead of
     // running the re-authored intent.
-    expect(parked[0]?.recovery.retry).toBe('new-mutation-id')
+    expect(parked[0]?.recovery.retry).toBe('reissue')
     await expect(outbox.retry(first.mutationId, { rightsFixed: true })).rejects.toThrow(
-      /requires new-mutation-id/,
+      /requires reissue/,
     )
-    const reissued = await outbox.retry(first.mutationId, { mutationId: asMutationId('fresh-1') })
+    // Past the base horizon the queue mints the new id itself.
+    const reissued = await outbox.retry(first.mutationId, { reissue: true })
     expect(reissued.mutationId).toBe('fresh-1')
     expect(reissued.queuedAt).toBe(clock.now())
     expect(reissued.input).toEqual({ issueId: 'POD-1', comment: 'closing POD-1' })
@@ -540,7 +700,7 @@ describe('D11.5 — the client that comes back after forty days', () => {
         if (issueId === 'NEVER-EXISTED') return notFound
         return applied
       },
-      { store, clock },
+      { store, clock, idPrefix: 'fresh-' },
     )
 
     // Fact one — age: all three expired, none was sent.
@@ -548,15 +708,9 @@ describe('D11.5 — the client that comes back after forty days', () => {
     expect(authority.envelopes).toEqual([])
 
     // Fact two — the user re-authors, and only NOW does the revocation surface.
-    const freshShared = await outbox.retry(shared.mutationId, {
-      mutationId: asMutationId('fresh-shared'),
-    })
-    const freshMine = await outbox.retry(mine.mutationId, {
-      mutationId: asMutationId('fresh-mine'),
-    })
-    const freshGhost = await outbox.retry(ghost.mutationId, {
-      mutationId: asMutationId('fresh-ghost'),
-    })
+    const freshShared = await outbox.retry(shared.mutationId, { reissue: true })
+    const freshMine = await outbox.retry(mine.mutationId, { reissue: true })
+    const freshGhost = await outbox.retry(ghost.mutationId, { reissue: true })
     await outbox.drain()
 
     expect(stateOf(outbox, freshMine.mutationId)).toBe('applied')

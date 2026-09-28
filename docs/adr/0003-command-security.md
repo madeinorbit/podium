@@ -382,6 +382,16 @@ This ADR does **not** restate "30 days" as an independent decision. It
      guard; copying is drift.
 4. **Never re-mint `mutationId` while a receipt might still exist.** After
    `expired` / `cancelled`, a user re-issue **must** mint a new id.
+   *Refined by POD-4762 (2026-09-28):* for an `expired` entry the Outbox, not the
+   caller, picks the re-issue's id. A per-command SHORT age (a chat send gives up
+   after minutes) is a give-up window, not the id's horizon: while a whole fresh
+   window still fits inside the base age measured from the original `queuedAt`,
+   the re-issue keeps the SAME id — the id still reaches the Authority inside
+   the receipt window by this decision's inequality, so the Authority either
+   answers the stored result (the first attempt did land) or applies it once.
+   Past that, a new id is minted exactly as above. Under the base age alone the
+   window is the whole horizon, so every command without an override keeps the
+   new-id rule unchanged.
 5. **Long-offline clients** offline longer than outbox max age: entries expire
    into dead-letter recovery; the user re-authors. We do **not** keep client
    queues alive past the receipt horizon to "be nice."

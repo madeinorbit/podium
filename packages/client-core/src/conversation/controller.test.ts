@@ -512,3 +512,125 @@ describe.each([
     controller.dispose()
   })
 })
+
+/**
+ * THE BUBBLE READS ITS STATE FROM THE SEND (POD-4762). The adapter's `deliver`
+ * settles when the durable send does — the server answered, or the outbox gave
+ * up — so the controller keeps no timer of its own, follows a send it was handed
+ * from before it existed, and lets a failed one go through the adapter.
+ */
+describe('conversation controller over a durable send', () => {
+  const held = {
+    id: 'outbox-0-msg_held',
+    deliveryId: 'msg_held',
+    text: 'written before the reload',
+    wire: 'written before the reload',
+    at: 1,
+    state: 'sending' as const,
+    kind: 'message' as const,
+  }
+
+  it('follows a send it was seeded with, once, and takes its state from the outcome', async () => {
+    const outcome = deferred<{ state: 'queued' }>()
+    const deliver = vi.fn(() => outcome.promise)
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      initialPending: [held],
+      createDeliveryId: () => 'msg-new',
+      deliver,
+    })
+
+    // A StrictMode rehearsal: start, stop, start. The send is asked after once.
+    void controller.start()
+    controller.stop()
+    await controller.start()
+    expect(deliver).toHaveBeenCalledTimes(1)
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ deliveryId: 'msg_held' }))
+    // Following a held send is not a new send: nothing reads as "just sent".
+    expect(controller.getSnapshot().justSent).toBe(false)
+
+    outcome.resolve({ state: 'queued' })
+    await outcome.promise
+    await Promise.resolve()
+    expect(controller.getSnapshot().pending[0]).toMatchObject({
+      deliveryId: 'msg_held',
+      state: 'queued',
+    })
+    controller.dispose()
+  })
+
+  it('keeps a send `sending` for as long as it is — no timer relabels it', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = createConversationController({
+        sessionId: asSessionId('s1'),
+        transcript: transcript().port,
+        createDeliveryId: () => 'msg-1',
+        deliver: () => new Promise(() => {}),
+      })
+      await controller.start()
+      void controller.submit({ text: 'offline for a while' })
+      await vi.advanceTimersByTimeAsync(90_000)
+      expect(controller.getSnapshot().pending[0]?.state).toBe('sending')
+      controller.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('offers no retry of words the server refused, and discards through the adapter', async () => {
+    const refused = Object.assign(new Error('not sent — session is archived'), {
+      retryable: false,
+    })
+    const deliver = vi.fn(async () => {
+      throw refused
+    })
+    const discard = vi.fn(async () => {})
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      createDeliveryId: () => 'msg-refused',
+      deliver,
+      discard,
+    })
+    await controller.start()
+    await controller.submit({ text: 'hello?' })
+    expect(controller.getSnapshot().pending[0]).toMatchObject({
+      state: 'failed',
+      error: 'not sent — session is archived',
+      retryable: false,
+    })
+
+    await controller.retry('pending-1')
+    expect(deliver).toHaveBeenCalledTimes(1)
+
+    await controller.discard('pending-1')
+    expect(discard).toHaveBeenCalledWith('msg-refused')
+    expect(controller.getSnapshot().pending).toEqual([])
+    controller.dispose()
+  })
+
+  it('retries a send that gave up as the SAME delivery', async () => {
+    const deliver = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("not sent — couldn't reach the server"), { retryable: true }),
+      )
+      .mockResolvedValueOnce({ state: 'sent' })
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      createDeliveryId: () => 'msg-once',
+      deliver,
+    })
+    await controller.start()
+    await controller.submit({ text: 'again' })
+    expect(controller.getSnapshot().pending[0]?.state).toBe('failed')
+
+    await controller.retry('pending-1')
+    expect(deliver.mock.calls.map(([turn]) => turn.deliveryId)).toEqual(['msg-once', 'msg-once'])
+    expect(controller.getSnapshot().pending[0]?.state).toBe('sent')
+    controller.dispose()
+  })
+})

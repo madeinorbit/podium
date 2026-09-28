@@ -29,8 +29,6 @@
  *    So the buttons are derived from `recoveryPlanFor(code)` and the words from
  *    `recoveryCopyFor(code)` — both functions of the code alone.
  */
-import { asMutationId } from '@podium/model'
-
 import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
@@ -107,10 +105,10 @@ function DeadLetterRow({
         case 'confirmation':
           recover.retry(parked.entry.mutationId, { confirmed: true })
           break
-        case 'new-mutation-id':
-          // D11.4: the original id may still hold a receipt, so a re-issue must
-          // mint a fresh one or the receipt would suppress it.
-          recover.retry(parked.entry.mutationId, { mutationId: asMutationId(crypto.randomUUID()) })
+        case 'reissue':
+          // The queue picks the id (D11.4 as amended by POD-4762): the same one
+          // while a receipt for it is still certain, a fresh one after.
+          recover.retry(parked.entry.mutationId, { reissue: true })
           break
         case 'never':
           break

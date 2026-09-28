@@ -48,6 +48,7 @@ import type {
   SessionIdentifierResolution,
   SyncChangesSinceResult,
 } from '@podium/protocol'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type { PinKind, PinState } from './viewmodels/types'
@@ -189,6 +190,9 @@ export interface PodiumClientApi {
         mutationId?: MutationId
       },
       { sessionId: SessionId }
+    >
+    sendText: ApiMutation<
+      WithMutationId<{ sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }>
     >
     resumeAndSend: ApiMutation<WithMutationId<{ sessionId: SessionId; text: string }>>
     rename: ApiMutation<WithMutationId<{ sessionId: SessionId; name: string }>>

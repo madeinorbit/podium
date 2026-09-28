@@ -89,6 +89,11 @@ const fakeTrpc = {
 // the mount effect's deps (which include setSessionDraft/openFile) don't churn
 // and spuriously dispose+remount the terminal on every re-render.
 const stableStoreFns = {
+  // The chat's durable sends (POD-4762). These suites never send, so the outbox
+  // holds nothing for the conversation to follow.
+  chatSendsFor: () => [],
+  sendChat: vi.fn(async () => ({ state: 'sent' as const })),
+  discardChat: vi.fn(async () => {}),
   startBtw: vi.fn(async () => {}),
   setSessionDraft: vi.fn(),
   hibernateSession: vi.fn(async () => {}),

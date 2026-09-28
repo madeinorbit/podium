@@ -52,6 +52,7 @@ import type {
   WorkspaceMap,
 } from '../viewmodels'
 import type { SuperThreadView } from '../viewmodels/slices/superagent'
+import type { ChatSendInput, ChatSendOutcome, OutboxChatSend } from './chat-send'
 import type { ReplicatedLayoutPort } from './replicated-layout'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
@@ -474,10 +475,21 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  returned so the caller can offer `force`. */
   endSession: (sessionId: SessionId, force?: boolean) => Promise<SessionEndResult>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
-  /** Send a chat message to a parked (hibernated/exited) session, waking it
-   *  first and delivering the text once it's ready. Falls back to a plain send
-   *  when the session is already live. */
-  resumeAndSend: (sessionId: SessionId, text: string, mutationId?: MutationId) => Promise<void>
+  /**
+   * Send one chat message to a session through the durable outbox (POD-4762),
+   * keyed by `mutationId` — the message id the composer minted, minted here when
+   * absent. `wake` sends to a parked (hibernated/exited) session, waking it
+   * first. Resolves with the server's answer; rejects with `ChatNotSentError`
+   * when the outbox gives up. Calling it again with the same id never sends a
+   * second message: it waits on, re-issues or re-confirms the one entry.
+   */
+  sendChat: (input: ChatSendInput, mutationId?: MutationId) => Promise<ChatSendOutcome>
+  /** The chat messages the outbox still holds for one session — the bubbles a
+   *  reloaded conversation must show again. Read on call, not reactive. */
+  chatSendsFor: (sessionId: SessionId) => OutboxChatSend[]
+  /** Let a failed chat message go: the outbox drops its copy, so nothing sends
+   *  it later. The "discard" beside "not sent — retry". */
+  discardChat: (mutationId: MutationId) => Promise<void>
   archiveSession: (sessionId: SessionId, archived: boolean) => Promise<void>
   /** Decline the standing offer without answering it [spec:SP-c7f1] — the third
    *  exit, next to pressing a button and letting the next turn clear it.

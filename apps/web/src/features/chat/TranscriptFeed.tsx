@@ -249,7 +249,8 @@ export function TranscriptFeed({
   restoredQueued,
   restoredFailed = [],
   onRetractQueued,
-  onRetryFailed,
+  onRetryPending,
+  onDiscardPending,
   overlay,
   turnPreview,
   activity,
@@ -297,7 +298,10 @@ export function TranscriptFeed({
   restoredQueued: readonly QueuedChatMessage[]
   restoredFailed?: readonly DeadLetteredChatMessage[]
   onRetractQueued: (id: string) => Promise<void>
-  onRetryFailed?: (text: string) => void
+  /** "not sent — retry": the same message, under its own id (POD-4762). */
+  onRetryPending?: (id: string) => Promise<void>
+  /** "not sent — discard": drop the message the app still holds. */
+  onDiscardPending?: (id: string) => Promise<void>
   overlay: HeadlessOverlay | null
   /** The in-progress half of the open turn (POD-2293) — assistant text still
    *  being written and tool calls still running, for driver-backed sessions.
@@ -608,9 +612,40 @@ export function TranscriptFeed({
                   </span>
                 )}
                 {p.state === 'failed' && (
-                  <span className="transcript-delivery transcript-delivery--error">
-                    {p.failure ? `not delivered — ${p.failure}` : 'not delivered'}
-                  </span>
+                  <>
+                    <span className="transcript-delivery transcript-delivery--error">
+                      {p.failure ?? 'not delivered'}
+                    </span>
+                    {/* THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
+                        retry re-issues the entry the app still holds, under the
+                        id the server would recognise if the first attempt had
+                        in fact arrived. Withheld when the server refused these
+                        words, because the same words would be refused again. */}
+                    {p.retryable !== false && onRetryPending && (
+                      <button
+                        data-pressable
+                        type="button"
+                        className="msg-action"
+                        aria-label="Retry sending message"
+                        title="Retry sending message"
+                        onClick={() => void onRetryPending(p.id)}
+                      >
+                        <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                      </button>
+                    )}
+                    {onDiscardPending && (
+                      <button
+                        data-pressable
+                        type="button"
+                        className="msg-action msg-action--retract"
+                        aria-label="Discard unsent message"
+                        title="Discard unsent message"
+                        onClick={() => void onDiscardPending(p.id)}
+                      >
+                        <MetaGlyph name="close" />
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             ) : null}
@@ -696,7 +731,11 @@ export function TranscriptFeed({
 
       {/* A dead letter is terminal delivery history: the transcript provider
           cannot echo it because the session never took the turn. Keep the
-          durable attempt visible and retry by making a fresh normal send. */}
+          durable attempt visible. It offers no retry: the server holds this
+          message and gave up on it, and sending its text again would be a
+          SECOND message — a duplicate whenever the first was in fact typed
+          (POD-4762). Delivering the same message again is the server's to
+          offer, by its id. */}
       {restoredFailed.map((message) => (
         <div
           key={message.id}
@@ -714,18 +753,6 @@ export function TranscriptFeed({
               <span className="transcript-delivery transcript-delivery--error">
                 {message.failure}
               </span>
-              {onRetryFailed && (
-                <button
-                  data-pressable
-                  type="button"
-                  className="msg-action"
-                  aria-label="Retry failed message"
-                  title="Retry failed message"
-                  onClick={() => onRetryFailed(message.text)}
-                >
-                  <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                </button>
-              )}
             </div>
           </div>
         </div>

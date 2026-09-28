@@ -8,11 +8,12 @@
  * for the migration — which ones deliberately do not.
  *
  * Recorded here because the issue brief says "offline queueing is issue-writes
- * only today", and that is not what the code does: the covered set spans nine
+ * only today", and that is not what the code does: the covered set spans ten
  * SESSION writes plus TWELVE issue writes and five replicated per-user writes.
- * Only live interaction (`sendText`, `ask`, and `uploadImage`) remains a
- * deliberate direct-only exclusion: replaying chat, a seance, or an image
- * upload hours later is worse than an immediate failure.
+ * Only `ask` and `uploadImage` remain a deliberate direct-only exclusion:
+ * replaying a seance or an image upload later is worse than an immediate
+ * failure. Chat (`sendText`) joined the covered set under POD-4762 — see the
+ * third extension below.
  *
  * Every characterization here is tagged must-not-change: the covered set is a
  * product decision the migration must carry over verbatim, not a
@@ -57,10 +58,9 @@
  * branch) whose result is not a field this client could paint, so queueing them
  * would promise an outcome the queue cannot deliver.
  *
- * WHAT DID NOT CHANGE, and must not: `sendText`, `ask` and `uploadImage` stay
- * OUT. Those exclusions are about REPLAY being wrong — a chat message sent
- * hours late is worse than a failure — and nothing about curating an issue row
- * argues for reopening them. The exclusion test below still pins all three.
+ * WHAT DID NOT CHANGE: `ask` and `uploadImage` stay OUT. Those exclusions are
+ * about REPLAY being wrong, and nothing about curating an issue row argues for
+ * reopening them. (`sendText` was the third, until POD-4762 below.)
  *
  * ---------------------------------------------------------------------------
  * THE SECOND DELIBERATE EXTENSION (POD-1110) — `sessions.dismissOffer`
@@ -86,14 +86,33 @@
  * `direct-only` decision read that same guard as the ARGUMENT for exclusion ("the
  * guard turns that into a silent no-op"); it is the argument for inclusion.
  *
- * THE OFFER'S ACTION BUTTONS STAY OUT, and that is the line. Pressing one sends
- * `sessions.sendText` — the excluded live-interaction path — and nothing here
- * moves it. Only the decline, which sends no turn at all, is in.
+ * THE OFFER'S ACTION BUTTONS STAYED OUT, and that was the line then. Pressing
+ * one sends `sessions.sendText`, which was the excluded live-interaction path
+ * until POD-4762 brought every chat send in (below). Only the decline, which
+ * sends no turn at all, came in here.
  *
  * The overlay is what the queue promises the operator: the entry paints
  * the offer away while it waits, so the bar stays gone across a reload and on the
  * panel's other surface, and it retires the moment truth shows a different (or
  * no) standing offer.
+ *
+ * ---------------------------------------------------------------------------
+ * THE THIRD DELIBERATE EXTENSION (POD-4762) — `sessions.sendText`
+ * ---------------------------------------------------------------------------
+ *
+ * The session half was nine and is now TEN: every chat send joined it, and the
+ * offer's action buttons with it (they ARE chat sends).
+ *
+ * WHY. "A chat message sent hours late is worse than a failure" was right, and
+ * the exclusion was the wrong way to honour it: a live-session message was one
+ * request held only in memory — a reload lost it, a lost ANSWER was never
+ * retried, and the retry button minted a new id, which is a second message.
+ * Meanwhile the parked-session send already rode this queue, so there were two
+ * mechanisms for one act. There is one now, and the "hours late" hazard is
+ * bounded where it belongs: the chat kinds carry a per-command age of minutes
+ * (`CHAT_SEND_MAX_AGE_MS`), after which the entry gives up VISIBLY — "not sent —
+ * retry" — and the retry re-issues the same entry under the same id. The
+ * behaviour is pinned in `chat-send.test.ts`, on the queue the apps run.
  */
 
 import type { SessionId } from '@podium/model'
@@ -225,8 +244,8 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   { kind: 'sessionMarkRead', input: { sessionId: 's1' }, path: 'sessions.markRead' },
   { kind: 'sessionMarkUnread', input: { sessionId: 's1' }, path: 'sessions.markUnread' },
   // POD-1110 — the offer bar's "none of these"; see the header for why the
-  // session half grew. The ACTION buttons are `sessions.sendText` and stay in
-  // the exclusion test below.
+  // session half grew. The ACTION buttons are `sessions.sendText`, a chat send
+  // (POD-4762).
   {
     kind: 'dismissOffer',
     input: { sessionId: 's1', offerCreatedAt: '2026-08-16T09:00:00.000Z' },
@@ -239,6 +258,8 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     input: { sessionId: 's1', text: 'hi' },
     path: 'sessions.resumeAndSend',
   },
+  // POD-4762 — every chat send; see the header's third extension.
+  { kind: 'sendText', input: { sessionId: 's1', text: 'hi' }, path: 'sessions.sendText' },
   { kind: 'issueMarkRead', input: { id: 'i1' }, path: 'issues.markRead' },
   { kind: 'issueMarkUnread', input: { id: 'i1' }, path: 'issues.markUnread' },
   { kind: 'issueSetTucked', input: { id: 'i1', tucked: true }, path: 'issues.setTucked' },
@@ -322,7 +343,7 @@ describe('oracle: the KERNEL queue delivers the same covered set', () => {
 })
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: nine session writes, twelve issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: ten session writes, twelve issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {
@@ -333,7 +354,7 @@ describe('oracle: the offline-queued write set', () => {
     expect(calls.map((c) => c.path)).toEqual(COVERED.map((c) => c.path))
     expect(
       calls.filter((c) => c.path.startsWith('sessions.') || c.path.startsWith('snooze')),
-    ).toHaveLength(9)
+    ).toHaveLength(10)
     // Counted, not implied by the list above: POD-781 took the issue half from
     // three to twelve, and a future edit that drops one of the curation kinds
     // while leaving its row in COVERED would still pass the ordering assertion.
@@ -455,14 +476,14 @@ describe('oracle: the offline-queued write set', () => {
     outbox.dispose()
   })
 
-  it(`${MUST_NOT_CHANGE}: sendText, ask and uploadImage are NOT offline-capable — an entry for them is never sent, and PARKS for recovery rather than being dropped`, async () => {
+  it(`${MUST_NOT_CHANGE}: ask and uploadImage are NOT offline-capable — an entry for them is never sent, and PARKS for recovery rather than being dropped`, async () => {
     const { outbox, calls, poisoned, errors } = makeOutbox()
 
-    // The full direct-only exclusion set. `ask` and `uploadImage` are here so
-    // that ADDING an executor for either to createEngineOutbox — which would
-    // make a seance or an image upload survive an offline gap, a real behaviour
-    // change — turns this oracle red instead of passing silently.
-    for (const uncovered of ['sendText', 'ask', 'uploadImage']) {
+    // The full direct-only exclusion set. Both are here so that ADDING an
+    // executor for either to createEngineOutbox — which would make a seance or
+    // an image upload survive an offline gap, a real behaviour change — turns
+    // this oracle red instead of passing silently.
+    for (const uncovered of ['ask', 'uploadImage']) {
       // Deliberately outside OutboxKinds: this is the assertion that the kind
       // has no executor, i.e. that the write stays direct-to-server.
       outbox.enqueue(
@@ -475,9 +496,9 @@ describe('oracle: the offline-queued write set', () => {
     await drainFully(outbox)
 
     expect(calls).toEqual([])
-    expect(poisoned.map((e) => e.kind)).toEqual(['sendText', 'ask', 'uploadImage'])
+    expect(poisoned.map((e) => e.kind)).toEqual(['ask', 'uploadImage'])
     // The user is TOLD, per kind — a refused write is never silent.
-    expect(errors).toHaveLength(3)
+    expect(errors).toHaveLength(2)
     // DELIBERATE CHANGE OF DISPOSAL (POD-316). The oracle's intent — these kinds
     // never reach the server — is unchanged and still asserted above
     // (`calls` is empty). What changed is what happens to the entry afterwards:
@@ -485,11 +506,7 @@ describe('oracle: the offline-queued write set', () => {
     // invariant 1 forbids. It now parks, and this assertion is what stops a
     // future edit quietly restoring the drop while the name above still reads
     // "never sent".
-    expect(outbox.deadLetters().map((d) => d.entry.kind)).toEqual([
-      'sendText',
-      'ask',
-      'uploadImage',
-    ])
+    expect(outbox.deadLetters().map((d) => d.entry.kind)).toEqual(['ask', 'uploadImage'])
     outbox.dispose()
   })
 

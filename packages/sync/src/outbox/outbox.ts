@@ -615,6 +615,7 @@ export class Outbox {
       const record = this.find(snapshot.mutationId)
       if (!record) continue
       if (record.state === 'applied' || record.state === 'cancelled') continue
+      if (record.state === 'dead-letter' && this.yieldsWhenParked(record)) continue
       if (record.state !== 'queued') {
         // `accepted` awaits its apply; `dead-letter` waits for recovery or
         // cancel (D12: it blocks its OWN partition, and only that). Either way
@@ -626,7 +627,9 @@ export class Outbox {
         // The aged entry is parked; D10 forbids wedging, and the entries behind
         // it in this partition are not implicated by its age. But the parked
         // record now blocks the partition per D12, so stop here — the next pass
-        // continues once the user recovers or discards it.
+        // continues once the user recovers or discards it. Unless its command
+        // yields when parked (POD-4762): then the rest goes on now.
+        if (this.yieldsWhenParked(record)) continue
         return
       }
       if (!this.isDue(record)) {
@@ -749,7 +752,9 @@ export class Outbox {
       // entry stops holding the head of its partition and stops burning the age
       // limit on an attempt that can never succeed.
       await this.reject(sending, normalizeRefusal(outcome.refusal))
-      return false
+      // Parked, it holds the partition (D12) — unless its command yields when
+      // parked (POD-4762), and then what was written after it goes on now.
+      return this.yieldsWhenParked(sending)
     }
     // Transport failure — D9 invariant 4: this is NOT a rejection. Back to
     // `queued`, for unlimited attempts, until the age limit converts it to
@@ -955,6 +960,25 @@ export class Outbox {
     }, span)
   }
 
+  /**
+   * When the next unsent entry ages out, or `undefined` when none is waiting.
+   *
+   * The drain only ages out the head it reaches, and a client that is offline
+   * does not drain at all — so a SHORT per-command age (POD-4762: a chat send
+   * gives up in minutes) would otherwise sit "sending" until connectivity
+   * returned. An integrator arms one timer on this instant and calls
+   * `sweepExpired` when it fires.
+   */
+  nextExpiryAt(): number | undefined {
+    let next: number | undefined
+    for (const record of this.mine()) {
+      if (record.state !== 'queued' && record.state !== 'sending') continue
+      const at = this.expiresAt(record)
+      if (next === undefined || at < next) next = at
+    }
+    return next
+  }
+
   /** Age out everything past `maxAgeMs`, whether or not a drain is running
    *  (D10: `queued`/`sending` → `expired` → `dead-letter`, reason `max-age`). */
   async sweepExpired(): Promise<readonly MutationId[]> {
@@ -985,11 +1009,32 @@ export class Outbox {
         `retry of ${mutationId} requires ${plan.retry}; nothing in the supplied satisfaction meets it`,
       )
     }
-    if ('mutationId' in satisfaction) {
-      // D11.4: an `expired` entry's id may still have a receipt, so a re-issue
-      // MUST mint a new one. The old record leaves the recovery surface by the
-      // user's own action (invariant 1), and its work continues under the new id.
-      return await this.reissue(record, satisfaction.mutationId as MutationId, {
+    if ('reissue' in satisfaction) {
+      // D11.4 as amended by POD-4762: the id the re-issue carries is the
+      // Outbox's call, not the caller's. D11's hazard is an id reaching the
+      // Authority after its receipt was pruned, and the base age (measured from
+      // the immutable `queuedAt`) is what keeps every id inside the receipt
+      // window. So while a whole fresh give-up window still fits inside that
+      // base horizon, the SAME id goes out again: if the first attempt landed
+      // and only its answer was lost, the Authority returns the stored result
+      // instead of applying the intent twice. Only a command with a SHORTENED
+      // age can ever qualify — under the base age alone the window is the whole
+      // horizon and has already run out — so every other command keeps D11.4's
+      // new id.
+      const now = this.config.now()
+      if (now - record.queuedAt + this.maxAgeFor(record) <= this.config.maxAgeMs) {
+        return await this.transition(record, 'user-retried', {
+          reason: undefined,
+          deadLetteredAt: undefined,
+          parkedFrom: undefined,
+          nextAttemptAt: undefined,
+          reissuedAt: now,
+        })
+      }
+      // Past it, a receipt for the old id may be gone: mint a new one. The old
+      // record leaves the recovery surface by the user's own action (invariant
+      // 1), and its work continues under the new id.
+      return await this.reissue(record, this.config.newMutationId(), {
         input: record.input,
         ...revisionOf(record),
       })
@@ -1117,7 +1162,7 @@ export class Outbox {
     // The drain would refuse to send an aged entry anyway, but only the HEAD of
     // each partition and only when a drain runs. Sweeping at open makes the state
     // honest before anyone reads it: every entry past the horizon is `dead-letter`
-    // with reason `max-age`, its recovery is `new-mutation-id` (D11.4 — the old id
+    // with reason `max-age`, its recovery is `reissue` (D11.4 — the old id
     // may still carry a receipt), and the user's authored input is intact and
     // surfaced. Nothing is dropped; expiry is how we REFUSE the send, not how we
     // discard the intent.
@@ -1135,7 +1180,24 @@ export class Outbox {
    *  defeats D11's inequality: the whole point of expiry is to refuse a send
    *  whose receipt may already have been pruned. `queuedAt` is immutable. */
   private isAgedOut(record: OutboxRecord): boolean {
-    return this.config.now() - record.queuedAt > this.maxAgeFor(record)
+    return this.config.now() > this.expiresAt(record)
+  }
+
+  /** The last instant `record` may still be sent. Two bounds, and the earlier
+   *  wins: the id's own horizon (the base age from `queuedAt`, which a re-issue
+   *  never renews) and the command's give-up window (from the latest same-id
+   *  re-issue, POD-4762). Without an override the two are the same number. */
+  private expiresAt(record: OutboxRecord): number {
+    return Math.min(
+      record.queuedAt + this.config.maxAgeMs,
+      (record.reissuedAt ?? record.queuedAt) + this.maxAgeFor(record),
+    )
+  }
+
+  /** Whether a PARKED entry of this command lets its partition drain on
+   *  (`parkedYieldsPartition`, POD-4762) instead of holding it per D12. */
+  private yieldsWhenParked(record: OutboxRecord): boolean {
+    return this.config.parkedYieldsPartition?.has(record.command.name) === true
   }
 
   /** The horizon for ONE entry: the configured base, or the per-command override

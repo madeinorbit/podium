@@ -55,6 +55,11 @@ const fakeTrpc = {
   },
 }
 const stableStoreFns = {
+  // The chat's durable sends (POD-4762). This suite never sends, so the outbox
+  // holds nothing for the conversation to follow.
+  chatSendsFor: () => [],
+  sendChat: vi.fn(async () => ({ state: 'sent' as const })),
+  discardChat: vi.fn(async () => {}),
   startBtw: vi.fn(async () => {}),
   setSessionDraft: vi.fn(),
   hibernateSession: vi.fn(async () => {}),

@@ -50,7 +50,7 @@ Derived from the code alone, so two situations sharing a code offer identical af
 | `conflict` | stale `expectedRevision` (D13.3) | `rebase` | edit, discard |
 | `invalid` | validation poison | `never` (only an edit can succeed) | edit, discard |
 | `confirmation-required` | D8 outcome 3 | `confirmation` | edit, discard |
-| `max-age` | D10 expiry | `new-mutation-id` (D11.4) | edit, discard |
+| `max-age` | D10 expiry | `reissue` — same id inside the base horizon, new id past it (D11.4, POD-4762) | edit, discard |
 
 `edit` and `discard` are always available — not laziness, but the thing that keeps the
 affordance set free of an existence oracle. Withholding a button for one of the three

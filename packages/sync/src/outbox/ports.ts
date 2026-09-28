@@ -284,6 +284,18 @@ export interface OutboxConfig {
    */
   readonly commandMaxAgeMs?: Readonly<Record<string, number>>
   /**
+   * Contract names whose PARKED entries stop holding their partition (POD-4762).
+   *
+   * D12 stops a partition at its first unresolved entry, and a parked entry is
+   * unresolved until the user acts — right for writes to one aggregate, where a
+   * later edit must not overtake the one it follows. A chat message is not that:
+   * once one has visibly failed ("not sent — retry"), the next message the user
+   * writes is not waiting on it, and holding it would fail it too, two minutes
+   * later, for a reason it does not have. Entries still IN FLIGHT keep D12's
+   * order; only a parked one yields, and its retry goes out when the user asks.
+   */
+  readonly parkedYieldsPartition?: ReadonlySet<string>
+  /**
    * D10's transient-retry spacing. Defaults to `TRANSIENT_BACKOFF` (start 1s,
    * factor 2, cap 60s) — a spacing choice with no cross-ADR constraint on it,
    * unlike `maxAgeMs`, which participates in an inequality against a constant

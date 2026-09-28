@@ -155,9 +155,11 @@ export interface ChatSurface {
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
-  /** Present only while the addressed session can accept or safely resume for
-   *  a retry. Its absence removes the action from durable failed rows. */
-  retryFailedMessage: ((text: string) => void) | undefined
+  /** "not sent — retry" on a bubble the outbox gave up on: the same message,
+   *  under its own id (POD-4762). */
+  retryPending: (id: string) => Promise<void>
+  /** "not sent — discard": drop the copy the app still holds. */
+  discardPending: (id: string) => Promise<void>
   answerInteractionId?: string
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
@@ -213,7 +215,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     trpc,
     replica,
     setSessionDraft,
-    resumeAndSend,
+    sendChat,
+    chatSendsFor,
+    discardChat,
     dismissOffer,
     setPanelMode,
     openFile,
@@ -231,7 +235,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       trpc: s.trpc,
       replica: s.replica,
       setSessionDraft: s.setSessionDraft,
-      resumeAndSend: s.resumeAndSend,
+      sendChat: s.sendChat,
+      chatSendsFor: s.chatSendsFor,
+      discardChat: s.discardChat,
       dismissOffer: s.dismissOffer,
       setPanelMode: s.setPanelMode,
       openFile: s.openFile,
@@ -507,7 +513,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const send = useChatSend({
     sessionId,
     trpc,
-    resumeAndSend,
+    sendChat,
+    chatSendsFor,
+    discardChat,
     dismissOffer,
     setPanelMode,
     setSessionDraft,
@@ -534,23 +542,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
 
   const restoredFailed = send.failedMessages
 
-  /**
-   * DEAD-LETTER RETRY MATRIX — an action exists only when this snapshot has a
-   * route that can perform it:
-   *
-   *   live / starting                 Retry → direct session send
-   *   hibernated                      Retry → resume and durably queue
-   *   exited + resumable              Retry → resume and durably queue
-   *   exited + non-resumable          no action; keep the failed row
-   *   gone                            no action; keep the failed row
-   *   archived + resumable            no action; keep the failed row
-   *   archived + non-resumable        no action; keep the failed row
-   *
-   * Archive outranks the retained resume capability in `composerState`.
-   * A transport refusal after one of the three performable routes remains a
-   * distinct failed attempt; it never changes this older row's history.
-   */
-  const canRetryFailedMessage = composer.sendable || composer.canResume
   const queued = useMemo(() => {
     return queuedState({
       session,
@@ -781,7 +772,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
     retractQueuedMessage: send.retractQueuedMessage,
-    retryFailedMessage: canRetryFailedMessage ? (text) => void send.send(text) : undefined,
+    retryPending: send.retryPending,
+    discardPending: send.discardPending,
     answerAsk,
     answerInteractionId: currentQuestion?.id,
     activity,

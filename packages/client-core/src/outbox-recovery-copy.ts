@@ -159,6 +159,7 @@ export function kindLabel(kind: string): string {
     issueSetLabels: 'Issue labels',
     issueSetPlacement: 'Issue moved',
     issueRestore: 'Issue restored',
+    sendText: 'Message to agent',
     resumeAndSend: 'Message to agent',
   }
   return labels[kind] ?? kind

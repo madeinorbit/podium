@@ -1,34 +1,26 @@
 /**
- * WHERE A PHONE SEND GOES (POD-4688).
+ * WHERE A PHONE SEND GOES (POD-4762).
  *
- * A live session hands its send to the server at once (direct `sendText`,
- * like the desktop chat) instead of queueing it behind the durable outbox.
- * Parked sessions keep the wake path, offline taps keep the held path, and a
- * session that takes no text fails with the composer's own reason rather than
- * queueing a send the server would dead-letter.
+ * Every send goes through the outbox; the route only picks the command. A live
+ * session types, a parked one wakes first, and a session that takes no text
+ * fails with the composer's own reason rather than queueing a send the server
+ * would refuse.
  */
 import { describe, expect, it } from 'vitest'
-import { chatSendTransport, queuedDeliveryOf } from './chat-send-transport'
+import { chatSendTransport } from './chat-send-transport'
 
 describe('chatSendTransport', () => {
-  it('sends a live session straight through while online', () => {
-    expect(chatSendTransport({ sendable: true, canResume: false, connected: true })).toEqual({
-      kind: 'direct',
+  it('sends to a live session without waking it', () => {
+    expect(chatSendTransport({ sendable: true, canResume: false })).toEqual({
+      kind: 'send',
+      wake: false,
     })
   })
 
-  it('queues a live-session send while offline instead of failing it', () => {
-    expect(chatSendTransport({ sendable: true, canResume: false, connected: false })).toEqual({
-      kind: 'outbox',
-    })
-  })
-
-  it('keeps the parked wake path on the outbox, online or offline', () => {
-    expect(chatSendTransport({ sendable: false, canResume: true, connected: true })).toEqual({
-      kind: 'outbox',
-    })
-    expect(chatSendTransport({ sendable: false, canResume: true, connected: false })).toEqual({
-      kind: 'outbox',
+  it('wakes a parked session that can resume', () => {
+    expect(chatSendTransport({ sendable: false, canResume: true })).toEqual({
+      kind: 'send',
+      wake: true,
     })
   })
 
@@ -38,39 +30,14 @@ describe('chatSendTransport', () => {
         sendable: false,
         canResume: false,
         refusalReason: 'Session is archived.',
-        connected: true,
       }),
     ).toEqual({ kind: 'refused', reason: 'Session is archived.' })
   })
 
   it('refuses without a reason rather than queueing into a dead letter', () => {
-    expect(chatSendTransport({ sendable: false, canResume: false, connected: true })).toEqual({
+    expect(chatSendTransport({ sendable: false, canResume: false })).toEqual({
       kind: 'refused',
       reason: 'Session is not running.',
     })
-  })
-})
-
-describe('queuedDeliveryOf', () => {
-  it('reads a queued acceptance with its FIFO position', () => {
-    expect(
-      queuedDeliveryOf({ ok: true, queued: true, disposition: 'queued', position: 2 }),
-    ).toEqual({
-      state: 'queued',
-      position: 2,
-    })
-  })
-
-  it('reads a queued acceptance without a position', () => {
-    expect(queuedDeliveryOf({ ok: true, queued: true, disposition: 'queued' })).toEqual({
-      state: 'queued',
-    })
-  })
-
-  it('a delivered send is not a queued one', () => {
-    expect(queuedDeliveryOf({ ok: true, disposition: 'delivered' })).toBeNull()
-    expect(queuedDeliveryOf({ ok: true })).toBeNull()
-    expect(queuedDeliveryOf(null)).toBeNull()
-    expect(queuedDeliveryOf('ok')).toBeNull()
   })
 })

@@ -184,8 +184,12 @@ export interface PendingItem {
   state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
   /** 1-based position returned by the authority when this send enters its FIFO. */
   queuePosition?: number
-  /** The server/provider reason for a failed optimistic send. */
+  /** The whole caption of a failed send: "not sent — …" when it never reached
+   *  the server (POD-4762), "not delivered — …" when it failed after. */
   failure?: string
+  /** False when sending the same message again cannot succeed — the server
+   *  refused these words. Absent means the bubble offers a retry. */
+  retryable?: boolean
   tags?: TranscriptTag[]
   /** Uploaded paths encoded into the submitted prompt. Transcript providers
    * normalize those paths out of `text`, so they are the stable identity used

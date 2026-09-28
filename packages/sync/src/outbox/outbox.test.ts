@@ -504,21 +504,22 @@ describe('D10 — age limit', () => {
     expect(state(outbox, record.mutationId)).toBe('dead-letter')
   })
 
-  it('requires a NEW mutationId to re-issue an expired entry (D11.4)', async () => {
-    const { outbox, clock } = await harness(() => applied)
-    const record = await outbox.enqueue(close('POD-1'))
+  it('re-issues an entry that outlived the base age under a NEW mutationId (D11.4)', async () => {
+    const { outbox, clock } = await harness(() => applied, { idPrefix: 'm-' })
+    const record = await outbox.enqueue(close('POD-1', { mutationId: asMutationId('m-old') }))
     clock.advance(MAX_AGE_MS + 1)
     await outbox.sweepExpired()
 
     const [parked] = outbox.deadLetters()
-    expect(parked?.recovery.retry).toBe('new-mutation-id')
-    // The old id may still have a receipt, so reusing it is refused.
+    expect(parked?.recovery.retry).toBe('reissue')
     await expect(outbox.retry(record.mutationId, { rightsFixed: true })).rejects.toThrow(
-      /requires new-mutation-id/,
+      /requires reissue/,
     )
 
-    const reissued = await outbox.retry(record.mutationId, { mutationId: asMutationId('m-fresh') })
-    expect(reissued.mutationId).toBe('m-fresh')
+    // Past the base horizon a receipt for the old id may be gone, so the queue
+    // mints the new one itself — the caller never picks.
+    const reissued = await outbox.retry(record.mutationId, { reissue: true })
+    expect(reissued.mutationId).toBe('m-1')
     expect(reissued.state).toBe('queued')
     expect(reissued.input).toEqual({ issueId: 'POD-1', comment: 'shipping this' })
     // Retired, not tombstoned — the work continues under `m-fresh` (POD-785).
@@ -1367,29 +1368,28 @@ describe('review round 1 — the blockers, each with the test that would have ca
     expect(uow.spans).toBe(spansBefore + 1)
   })
 
-  it('blocker 5: a re-issue may not reuse the retired id, nor collide with any existing one', async () => {
+  it('blocker 5: a re-issue past the base horizon may not collide with any existing id', async () => {
     const { outbox, clock } = await harness(() => applied)
-    const other = await outbox.enqueue(close('POD-2'))
     const doomed = await outbox.enqueue(close('POD-1'))
+    const other = await outbox.enqueue(close('POD-2', { mutationId: asMutationId('m2') }))
     clock.advance(MAX_AGE_MS + 1)
     await outbox.sweepExpired()
 
-    // D11.4 is a MUST: the old id may still have a receipt.
-    await expect(
-      outbox.retry(doomed.mutationId, { mutationId: doomed.mutationId }),
-    ).rejects.toThrow(/must mint a NEW mutationId/)
-    // And an id already in the store would make the Authority's dedupe key
-    // ambiguous.
-    await expect(outbox.retry(doomed.mutationId, { mutationId: other.mutationId })).rejects.toThrow(
+    // The queue mints the re-issue's id (D11.4 — past the base horizon, never the
+    // old one), and an id already in the store would make the Authority's dedupe
+    // key ambiguous: the harness's minter hands out `other`'s id next.
+    expect(doomed.mutationId).toBe('m1')
+    expect(other.mutationId).toBe('m2')
+    await expect(outbox.retry(doomed.mutationId, { reissue: true })).rejects.toThrow(
       /already exists/,
     )
 
-    // Neither refusal mutated anything.
+    // The refusal mutated nothing.
     expect(state(outbox, doomed.mutationId)).toBe('dead-letter')
     expect(outbox.all().filter((r) => r.mutationId === other.mutationId)).toHaveLength(1)
 
-    const reissued = await outbox.retry(doomed.mutationId, { mutationId: asMutationId('m-fresh') })
-    expect(reissued.mutationId).toBe('m-fresh')
+    const reissued = await outbox.retry(doomed.mutationId, { reissue: true })
+    expect(reissued.mutationId).toBe('m3')
   })
 
   it('blocker 7: a removal without a licence cannot reach the store', async () => {

@@ -42,7 +42,9 @@ import {
   deadLetterHandlingFor,
   type EngineOutbox,
   type EngineOutboxCallbacks,
+  OUTBOX_COMMAND_MAX_AGE_MS,
   OUTBOX_COMMANDS,
+  OUTBOX_PARKED_YIELDS_PARTITION,
   type OutboxExecutorHooks,
   type OutboxKinds,
   outboxExecutors,
@@ -113,6 +115,15 @@ async function discardAutomaticDeadLetters(kernel: KernelOutbox): Promise<void> 
  * envelope, and a new kind now fails to COMPILE rather than failing under a
  * user's pointer.
  */
+/**
+ * What the Authority said to the attempt in flight, held until the kernel's
+ * event for that attempt reports it (POD-4762). The kernel record deliberately
+ * stores no Authority state, so the answer a chat bubble shows — "queued behind
+ * this turn", or the server's own refusal wording — lives here, in memory, for
+ * the few milliseconds between the reply and the commit that resolves it.
+ */
+type Answers = Map<string, { readonly reply?: unknown; readonly cause?: unknown }>
+
 function submit(
   api: PodiumClientApi,
   envelope: OutboxEnvelope,
@@ -153,6 +164,8 @@ class KernelEngineOutbox implements EngineOutbox {
   private readonly onlineEvents: OnlineEvents | undefined
   private readonly isOnline: () => boolean
   private retryTimer: ReturnType<typeof setTimeout> | null = null
+  /** Wakes the queue when its next entry ages out, online or not (POD-4762). */
+  private expiryTimer: ReturnType<typeof setTimeout> | null = null
   private attached = false
   /**
    * THE RECONNECT EDGE, and why it does not consult the probe (POD-2073).
@@ -177,6 +190,7 @@ class KernelEngineOutbox implements EngineOutbox {
     private readonly callbacks: EngineOutboxCallbacks,
     private readonly onDegraded: (detail: unknown) => void,
     private readonly now: () => number,
+    private readonly answers: Answers,
   ) {
     this.onlineEvents = callbacks.onlineEvents ?? platformOnlineEvents()
     this.isOnline = callbacks.isOnline ?? platformIsOnline
@@ -187,6 +201,7 @@ class KernelEngineOutbox implements EngineOutbox {
     this.attached = true
     this.onlineEvents?.add(this.onOnline)
     if (this.size() > 0 && this.isOnline()) queueMicrotask(() => void this.drain())
+    this.scheduleExpiry()
   }
 
   dispose(): void {
@@ -195,6 +210,8 @@ class KernelEngineOutbox implements EngineOutbox {
     this.onlineEvents?.remove(this.onOnline)
     if (this.retryTimer !== null) clearTimeout(this.retryTimer)
     this.retryTimer = null
+    if (this.expiryTimer !== null) clearTimeout(this.expiryTimer)
+    this.expiryTimer = null
   }
 
   subscribe(listener: (size: number) => void): () => void {
@@ -324,6 +341,19 @@ class KernelEngineOutbox implements EngineOutbox {
 
   onEvent(event: OutboxEvent): void {
     if (event.type === 'applied') {
+      const answer = this.answers.get(event.mutationId)
+      this.answers.delete(event.mutationId)
+      this.callbacks.onSettled?.(event.mutationId, { kind: 'applied', reply: answer?.reply })
+    } else if (event.type === 'dead-lettered') {
+      const answer = this.answers.get(event.record.mutationId)
+      this.answers.delete(event.record.mutationId)
+      this.callbacks.onSettled?.(event.record.mutationId, {
+        kind: 'not-sent',
+        reason: event.record.reason,
+        cause: answer?.cause,
+      })
+    }
+    if (event.type === 'applied') {
       const record = this.kernel.find(event.mutationId)
       if (record !== undefined) {
         const held = this.callbacks.onApplied?.(this.toEntry(record)) === true
@@ -357,6 +387,9 @@ class KernelEngineOutbox implements EngineOutbox {
     ) {
       this.metadata.delete(event.mutationId)
     }
+    // Queue membership moved (a new entry, a re-issue, a park, a retirement), so
+    // the next expiry instant may have too.
+    if (event.type !== 'sending' && event.type !== 'accepted') this.scheduleExpiry()
     this.publish()
   }
 
@@ -375,6 +408,33 @@ class KernelEngineOutbox implements EngineOutbox {
   private publish(): void {
     const size = this.size()
     for (const subscriber of [...this.subscribers]) subscriber(size)
+  }
+
+  /**
+   * GIVE UP ON TIME, ONLINE OR NOT (POD-4762). The kernel ages an entry out only
+   * when something sweeps, and the drain — the only sweeper while running — is
+   * exactly what an offline client never does. With a 14-day age that gap was
+   * invisible (the sweep at the next boot was early enough); with a chat send's
+   * two minutes it is the whole behaviour: "not sent — retry" has to appear
+   * while the person is still looking at the bubble.
+   */
+  private scheduleExpiry(): void {
+    if (!this.attached) return
+    if (this.expiryTimer !== null) clearTimeout(this.expiryTimer)
+    this.expiryTimer = null
+    const at = this.kernel.nextExpiryAt()
+    if (at === undefined) return
+    this.expiryTimer = setTimeout(
+      () => {
+        this.expiryTimer = null
+        void this.kernel
+          .sweepExpired()
+          .catch(this.onDegraded)
+          .finally(() => this.scheduleExpiry())
+      },
+      // `isAgedOut` is strict: an entry is still sendable AT its expiry instant.
+      Math.max(0, at - this.now() + 1),
+    )
   }
 
   private scheduleRetry(): void {
@@ -413,6 +473,7 @@ export async function openKernelEngineOutbox(
   // Set stays small (one entry per dead message, a few per boot) and needs no
   // eviction.
   const noticedGone = new Set<string>()
+  const answers: Answers = new Map()
   const kernel = await KernelOutbox.open({
     store: options.store,
     principal: options.principal,
@@ -432,9 +493,12 @@ export async function openKernelEngineOutbox(
         // the notice can never race the commit it announces. A commit that
         // never lands announces nothing; the retry announces on its own
         // landing instead (deduped below, still once per id per session).
-        const terminal = { resolved: false, goneInput: undefined as OutboxKinds['resumeAndSend'] | undefined }
+        const terminal = {
+          resolved: false,
+          goneInput: undefined as OutboxKinds['resumeAndSend'] | undefined,
+        }
         try {
-          await submit(options.api, envelope, {
+          const reply = await submit(options.api, envelope, {
             sessionGone: (input) => {
               terminal.resolved = true
               terminal.goneInput = input
@@ -443,6 +507,7 @@ export async function openKernelEngineOutbox(
               terminal.resolved = true
             },
           })
+          answers.set(envelope.mutationId, { reply })
           if (!terminal.resolved) return { kind: 'applied' } satisfies OutboxSubmitOutcome
           const goneInput = terminal.goneInput
           return {
@@ -459,12 +524,16 @@ export async function openKernelEngineOutbox(
           } satisfies OutboxSubmitOutcome
         } catch (error) {
           const refusal = classifyRefusal(error)
-          return refusal === undefined ? { kind: 'unreachable' } : { kind: 'rejected', refusal }
+          if (refusal === undefined) return { kind: 'unreachable' }
+          answers.set(envelope.mutationId, { cause: error })
+          return { kind: 'rejected', refusal }
         }
       },
     },
     now,
     maxAgeMs: OUTBOX_MAX_AGE_MS,
+    commandMaxAgeMs: OUTBOX_COMMAND_MAX_AGE_MS,
+    parkedYieldsPartition: OUTBOX_PARKED_YIELDS_PARTITION,
     newMutationId: () => randomUUID() as MutationId,
     onStoreUnreadable: options.onDegraded,
     onEvent: (event) => adapter?.onEvent(event),
@@ -482,7 +551,7 @@ export async function openKernelEngineOutbox(
     if (adapter !== undefined) {
       throw new Error('kernel engine Outbox factory may only be consumed once')
     }
-    adapter = new KernelEngineOutbox(kernel, callbacks, options.onDegraded, now)
+    adapter = new KernelEngineOutbox(kernel, callbacks, options.onDegraded, now, answers)
     return adapter
   }
 }

@@ -1,6 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { outboxCommandFor } from '@podium/client-core/engine'
-import { randomUUID } from '@podium/client-core/id'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
   describeQueuedChange,
@@ -12,7 +11,6 @@ import {
   unsatisfiableConfirmationDetail,
 } from '@podium/client-core/outbox-recovery-copy'
 import type { ConfirmationRule } from '@podium/commands'
-import { asMutationId } from '@podium/model'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -62,10 +60,10 @@ function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
         case 'confirmation':
           recoverOutbox.retry(parked.entry.mutationId, { confirmed: true })
           break
-        case 'new-mutation-id':
-          recoverOutbox.retry(parked.entry.mutationId, {
-            mutationId: asMutationId(randomUUID()),
-          })
+        case 'reissue':
+          // The queue picks the id (D11.4 as amended by POD-4762): the same one
+          // while a receipt for it is still certain, a fresh one after.
+          recoverOutbox.retry(parked.entry.mutationId, { reissue: true })
           break
         case 'never':
           return

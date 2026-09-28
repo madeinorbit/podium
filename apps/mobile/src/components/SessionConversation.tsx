@@ -1,5 +1,4 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { assertSendAccepted } from '@podium/client-core/engine'
 import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
 import {
   chatActivity,
@@ -29,8 +28,7 @@ import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { interruptSession } from '../lib/interrupt-session'
 import { deadLetteredOperatorMessages, type DeadLetteredChatMessage } from '../lib/dead-letter'
-import { sendOfferAction } from '../lib/send-offer-action'
-import { chatSendTransport, queuedDeliveryOf } from '../lib/chat-send-transport'
+import { chatSendTransport } from '../lib/chat-send-transport'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { PendingInteractionBand } from './PendingInteractionBand'
@@ -145,7 +143,9 @@ export function SessionConversation({
       trpc: s.trpc,
       replica: s.replica,
       setSessionDraft: s.setSessionDraft,
-      resumeAndSend: s.resumeAndSend,
+      sendChat: s.sendChat,
+      chatSendsFor: s.chatSendsFor,
+      discardChat: s.discardChat,
       dismissOffer: s.dismissOffer,
       resurrectSession: s.resurrectSession,
       killSession: s.killSession,
@@ -164,19 +164,16 @@ export function SessionConversation({
   // biome-ignore lint/correctness/useExhaustiveDependencies: one seed per addressed conversation
   const draftSeed = useMemo(() => storedDraft, [sessionId])
   const trpc = store.trpc
-  const sessionStatusRef = useRef(session.status)
-  sessionStatusRef.current = session.status
   /**
    * THE SEND ROUTE, READ PER SEND (POD-4688). The conversation controller is
    * created once per session and owns the pending turns, so it must not be
-   * rebuilt when connectivity flaps — the route is a ref the deliver closure
-   * reads at call time instead of a memo input.
+   * rebuilt when the session's state moves — the route is a ref the deliver
+   * closure reads at call time instead of a memo input.
    */
   const sendRouteRef = useRef({
     sendable: false,
     canResume: false,
     refusalReason: undefined as string | undefined,
-    connected: false,
   })
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
@@ -239,40 +236,53 @@ export function SessionConversation({
         sessionId,
         transcript: transcriptController,
         initialDraft: draftSeed,
-        initialPending,
+        // The messages the outbox still holds for this session come back as the
+        // bubbles they were (POD-4762): still sending — the controller waits on
+        // them again — or "not sent" with their retry.
+        initialPending: [
+          ...initialPending,
+          ...store.chatSendsFor(sessionId).map(
+            (send, index): ConversationPendingTurn => ({
+              id: `outbox-${index}-${send.mutationId}`,
+              deliveryId: send.mutationId,
+              text: send.text,
+              wire: send.text,
+              at: send.queuedAt,
+              state: send.state,
+              kind: 'message',
+              ...(send.failure
+                ? {
+                    error: send.failure.message,
+                    ...(send.failure.retryable ? {} : { retryable: false }),
+                  }
+                : {}),
+            }),
+          ),
+        ],
         initialJustSent: initialPendingText !== undefined,
         onDraftChange: (text) => store.setSessionDraft(sessionId, text),
         createDeliveryId: () => `msg_${randomUUID()}`,
         deliver: async (turn) => {
           try {
-            if (turn.kind === 'offer') {
-              await sendOfferAction(trpc.sessions, {
-                sessionId,
-                text: turn.wire,
-                wake: sessionStatusRef.current !== 'live',
-                mutationId: asMutationId(turn.deliveryId),
-              })
-            } else {
-              const transport = chatSendTransport(sendRouteRef.current)
-              if (transport.kind === 'direct') {
-                // AT ONCE, ON THE DESKTOP'S TERMS (POD-4688). A live session
-                // takes text straight through, so the send is one `sendText`
-                // mutate in this tap's own async chain — no durable queue, no
-                // drain scheduling, nothing for a running turn to hold behind.
-                // The server still orders it behind its own durable queue when
-                // one exists, so two rapid taps land in order.
-                const result = await trpc.sessions.sendText.mutate({
-                  sessionId,
-                  text: turn.wire,
-                  mutationId: asMutationId(turn.deliveryId),
-                })
-                assertSendAccepted(result)
-                return queuedDeliveryOf(result) ?? { state: 'sent' }
-              }
-              if (transport.kind === 'refused') throw new Error(transport.reason)
-              await store.resumeAndSend(sessionId, turn.wire, asMutationId(turn.deliveryId))
-            }
-            return { state: 'queued' }
+            // THE ONE CHAT SEND PATH (POD-4762), messages and offer answers
+            // alike: the durable outbox, keyed by the turn's own id. It
+            // resolves when the server answered or the outbox gave up, so the
+            // bubble reads its state from the send rather than from a timer,
+            // and "Try again" re-issues the same message instead of a new one.
+            // A message the outbox already holds (a reloaded conversation
+            // following it, or a retry of one that gave up) is waited on or
+            // re-issued as it is, whatever the route says now.
+            const heldByOutbox = store
+              .chatSendsFor(sessionId)
+              .some((held) => held.mutationId === turn.deliveryId)
+            const transport = heldByOutbox
+              ? ({ kind: 'send', wake: false } as const)
+              : chatSendTransport(sendRouteRef.current)
+            if (transport.kind === 'refused') throw new Error(transport.reason)
+            return await store.sendChat(
+              { sessionId, text: turn.wire, wake: transport.wake },
+              asMutationId(turn.deliveryId),
+            )
           } catch (error) {
             void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
             throw error
@@ -287,6 +297,7 @@ export function SessionConversation({
         // a second query of the same rows.
         onQueueRows: (rows) => setFailedMessages(deadLetteredOperatorMessages(rows, sessionId)),
         retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
+        discard: (deliveryId) => store.discardChat(asMutationId(deliveryId)),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
         // The store's recoverable outbox owns the optimistic overlay. Keeping a
         // second local hide here unmounted the action card before a rejected
@@ -298,7 +309,9 @@ export function SessionConversation({
     [
       sessionId,
       store.dismissOffer,
-      store.resumeAndSend,
+      store.sendChat,
+      store.chatSendsFor,
+      store.discardChat,
       store.setSessionDraft,
       draftSeed,
       transcriptController,
@@ -319,6 +332,7 @@ export function SessionConversation({
         wire: turn.wire,
         ...(turn.files ? { files: turn.files as readonly SentAttachment[] } : {}),
         ...(turn.error ? { failed: turn.error } : {}),
+        ...(turn.retryable === false ? { retryable: false } : {}),
         ...(turn.state === 'interrupted' ? { interrupted: true } : {}),
         ...(turn.durable?.injectedAt === null ? { queuedId: turn.durable.id } : {}),
         ...(turn.state === 'queued' || turn.durable ? { queued: true } : {}),
@@ -464,6 +478,12 @@ export function SessionConversation({
     },
     [conversationController, send],
   )
+  const discard = useCallback(
+    (turn: PendingTurn) => {
+      void conversationController.discard(turn.id)
+    },
+    [conversationController],
+  )
 
   const loadOlder = useCallback(() => {
     void transcriptController.loadOlder()
@@ -520,7 +540,6 @@ export function SessionConversation({
     sendable: composer.sendable,
     canResume: composer.canResume,
     refusalReason: composer.refusalReason,
-    connected,
   }
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
   /**
@@ -628,6 +647,7 @@ export function SessionConversation({
               hidePendingQuestion
               findRequest={findRequest}
               onRetryPending={retry}
+              onDiscardPending={discard}
               onRetractPending={(id) => void conversationController.retract(id)}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
               bottomInset={composerHeight + askHeight + keyboardLift}

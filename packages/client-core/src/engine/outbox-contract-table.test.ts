@@ -64,8 +64,9 @@ const lookup = (name: string): CommandContract | undefined => {
  *
  * `sessions.*` and `snoozes.*` are the presence class (POD-380): they are
  * `CommandDef`s today, not full `CommandContract`s, so they carry no
- * `policy.confirmation` to compare against. `sessions.resumeAndSend` is
- * command-plane (POD-381) and lives in a registry this module does not reach.
+ * `policy.confirmation` to compare against. `sessions.resumeAndSend` and
+ * `sessions.sendText` (queued since POD-4762) are command-plane (POD-381) and
+ * live in a registry this module does not reach.
  *
  * The three `issues.*` kinds are NOT here: they have full contracts and are
  * really compared, which is what stops this list from being a way to opt out.
@@ -80,6 +81,7 @@ const UNGUARDED = [
   'rename',
   'tabSetOrder',
   'resumeAndSend',
+  'sendText',
   'sessionMarkRead',
   'sessionMarkUnread',
   'setArchived',

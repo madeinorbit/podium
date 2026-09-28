@@ -20,7 +20,7 @@ vi.mock('../client/hooks', () => ({
 
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 
-function parked(code: 'invalid' | 'conflict' = 'invalid') {
+function parked(code: 'invalid' | 'conflict' | 'max-age' = 'invalid') {
   return {
     entry: {
       mutationId: asMutationId('mutation-one'),
@@ -75,6 +75,19 @@ describe('mobile parked-write recovery', () => {
 
     expect(mobile.state.recoverOutbox.retry).toHaveBeenCalledWith(asMutationId('mutation-one'), {
       expectedRevision: 0,
+    })
+  })
+
+  it('re-issues an aged-out change and leaves the id to the queue (POD-4762)', () => {
+    mobile.state.outboxDeadLetters = [parked('max-age')]
+    render(<OutboxRecoveryPanel />)
+
+    fireEvent.click(screen.getByTestId('outbox-retry'))
+
+    // No id minted here: the queue keeps the same one while a receipt for it is
+    // certain (a chat message that gave up), and mints a fresh one after.
+    expect(mobile.state.recoverOutbox.retry).toHaveBeenCalledWith(asMutationId('mutation-one'), {
+      reissue: true,
     })
   })
 

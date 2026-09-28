@@ -93,7 +93,7 @@ const pickActions = (s: MobileStore) => ({
   setSnooze: s.setSnooze,
   clearSnooze: s.clearSnooze,
   setWorkState: s.setWorkState,
-  resumeAndSend: s.resumeAndSend,
+  sendChat: s.sendChat,
   resurrectSession: s.resurrectSession,
   continueSession: s.continueSession,
   archiveSession: s.archiveSession,

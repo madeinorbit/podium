@@ -134,6 +134,7 @@ import {
   type EngineOutbox,
   type OutboxKinds,
 } from './wiring'
+import { OutboxSettlements } from './chat-send'
 
 const LOCAL_ONLY_ONLINE_EVENTS: OnlineEvents = {
   add: () => {},
@@ -261,6 +262,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly replica: Replica
   readonly hub: SocketHub
   readonly outbox: EngineOutbox
+  /** Waiters on queued entries by id — how a chat send hears its outcome
+   *  (POD-4762). Created before the outbox, whose callbacks release them. */
+  private readonly outboxSettlements = new OutboxSettlements()
   readonly router: Router
   readonly ui: RoutedUiState
   readonly replicatedLayout: ReplicatedLayoutController
@@ -397,6 +401,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // Overlay lifecycle (#263): drain success hands the entry's overlay to
       // the awaiting-truth stage; a poison drop repaints without it.
       onApplied: (entry) => this.onMutationApplied(entry),
+      onSettled: (mutationId, settlement) => this.outboxSettlements.settle(mutationId, settlement),
       onDropped: (entry) => this.onMutationDropped(entry),
       // The queue-size subscription is not the dead-letter event: a definitive
       // refusal can park before start() installs that subscription. Publish the
@@ -1461,6 +1466,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       api: this.api,
       hub: this.hub,
       outbox: this.outbox,
+      outboxSettlements: this.outboxSettlements,
       router: this.router,
       notices: this.notices,
       layoutSeed: layoutSnapshotFromRows(this.replicaBinding.snapshot().userLayouts),

@@ -121,6 +121,9 @@ export interface PendingTurn {
    *  broken and the words are lost. The row goes red, names the reason, and
    *  offers the send again. */
   failed?: string
+  /** False when the server refused these words, so sending them again as they
+   *  are cannot work: the row offers only Discard (POD-4762). */
+  retryable?: false
   /** The operator stopped this interaction after sending it. */
   interrupted?: boolean
   /** Durable ledger identity. Present rows can be retracted across remounts. */
@@ -501,6 +504,7 @@ interface TranscriptFeedRowProps {
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   onRefPress?: (ref: string) => void
   onRetryPending?: (turn: PendingTurn) => void
+  onDiscardPending?: (turn: PendingTurn) => void
   onRetractPending?: (id: string) => void
   onHold: (text: string) => void
 }
@@ -555,6 +559,7 @@ const TranscriptFeedRow = memo(
     answerInteractionId,
     onRefPress,
     onRetryPending,
+    onDiscardPending,
     onRetractPending,
     onHold,
   }: TranscriptFeedRowProps) {
@@ -597,7 +602,10 @@ const TranscriptFeedRow = memo(
               {failed ? (
                 <>
                   <Text style={styles.pendingError}>{failed}</Text>
-                  {onRetryPending ? (
+                  {/* THE SAME MESSAGE AGAIN (POD-4762): "Try again" re-issues
+                      the entry the phone still holds, under its own id, so a
+                      first attempt that did arrive is not sent twice. */}
+                  {onRetryPending && turn.retryable !== false ? (
                     <PressableScale
                       accessibilityRole="button"
                       accessibilityLabel="Send this message again"
@@ -606,6 +614,17 @@ const TranscriptFeedRow = memo(
                       style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
                     >
                       <Text style={styles.retryText}>Try again</Text>
+                    </PressableScale>
+                  ) : null}
+                  {onDiscardPending ? (
+                    <PressableScale
+                      accessibilityRole="button"
+                      accessibilityLabel="Discard this unsent message"
+                      onPress={() => onDiscardPending(turn)}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+                    >
+                      <Text style={styles.retryText}>Discard</Text>
                     </PressableScale>
                   ) : null}
                 </>
@@ -744,6 +763,7 @@ const TranscriptFeedRow = memo(
     previous.answerInteractionId === next.answerInteractionId &&
     previous.onRefPress === next.onRefPress &&
     previous.onRetryPending === next.onRetryPending &&
+    previous.onDiscardPending === next.onDiscardPending &&
     previous.onRetractPending === next.onRetractPending &&
     previous.onHold === next.onHold,
 )
@@ -845,6 +865,7 @@ export function TranscriptList({
   pendingTurns,
   pendingAsk,
   onRetryPending,
+  onDiscardPending,
   onRetractPending,
   onQuote,
   tail,
@@ -884,6 +905,8 @@ export function TranscriptList({
   pendingAsk?: TranscriptItem | null
   /** Send a rejected turn again (only failed rows expose the affordance). */
   onRetryPending?: (turn: PendingTurn) => void
+  /** Let an unsent turn go (only failed rows expose the affordance). */
+  onDiscardPending?: (turn: PendingTurn) => void
   /** Retract a durable message before the agent begins its turn. */
   onRetractPending?: (id: string) => void
   /** Insert quoted markdown into the screen's composer. */
@@ -927,6 +950,7 @@ export function TranscriptList({
   const answerRef = useRef(onAnswer)
   const refPressRef = useRef(onRefPress)
   const retryPendingRef = useRef(onRetryPending)
+  const discardPendingRef = useRef(onDiscardPending)
   const retractPendingRef = useRef(onRetractPending)
   // Memoized rows need stable wrappers, but their targets must advance only
   // after React commits. Render-time writes can leak handlers from a suspended
@@ -935,11 +959,16 @@ export function TranscriptList({
     answerRef.current = onAnswer
     refPressRef.current = onRefPress
     retryPendingRef.current = onRetryPending
+    discardPendingRef.current = onDiscardPending
     retractPendingRef.current = onRetractPending
-  }, [onAnswer, onRefPress, onRetractPending, onRetryPending])
+  }, [onAnswer, onDiscardPending, onRefPress, onRetractPending, onRetryPending])
   const answerRow = useCallback((answer: AskQuestionAnswer) => answerRef.current(answer), [])
   const pressRowRef = useCallback((ref: string) => refPressRef.current?.(ref), [])
   const retryPendingRow = useCallback((turn: PendingTurn) => retryPendingRef.current?.(turn), [])
+  const discardPendingRow = useCallback(
+    (turn: PendingTurn) => discardPendingRef.current?.(turn),
+    [],
+  )
   const retractPendingRow = useCallback((id: string) => retractPendingRef.current?.(id), [])
 
   const model = useMemo(
@@ -1262,6 +1291,7 @@ export function TranscriptList({
                 answerInteractionId={answerInteractionId}
                 onRefPress={onRefPress ? pressRowRef : undefined}
                 onRetryPending={onRetryPending ? retryPendingRow : undefined}
+                onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
                 onRetractPending={onRetractPending ? retractPendingRow : undefined}
                 onHold={setActionText}
               />
@@ -1286,6 +1316,7 @@ export function TranscriptList({
                 answerInteractionId={answerInteractionId}
             onRefPress={onRefPress ? pressRowRef : undefined}
             onRetryPending={onRetryPending ? retryPendingRow : undefined}
+                onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
             onRetractPending={onRetractPending ? retractPendingRow : undefined}
             onHold={setActionText}
           />

@@ -11,6 +11,10 @@ export interface ConversationPendingTurn {
   state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
   kind: 'message' | 'offer'
   error?: string
+  /** False when a failed turn cannot succeed by being sent again as it is — the
+   *  server refused these words, rather than never receiving them (POD-4762).
+   *  Absent means a retry may work. */
+  retryable?: boolean
   /** Out-of-band staged attachment refs delivered with this turn (POD-2408).
    *  Opaque here: the adapter's `deliver` is what puts them on the wire. */
   attachments?: readonly RuntimeAttachmentRef[]

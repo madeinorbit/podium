@@ -269,7 +269,17 @@ export interface OutboxRecord extends EnvelopeConfirmation {
   // The out-of-scope confirmation arrives via `EnvelopeConfirmation` above —
   // declared once so POD-311's rename is one line.
   readonly state: OutboxState
+  /** When the author created the intent this id names. Immutable: the base age
+   *  (D10) — the id's own horizon against the receipt window — is measured
+   *  from here, whatever happens to the entry afterwards. */
   readonly queuedAt: number
+  /**
+   * When a user re-issued an aged-out entry under its SAME id (POD-4762). A
+   * per-command SHORT age is a give-up window, not the id's horizon, so a
+   * re-issue opens a fresh window from here while `queuedAt` keeps bounding the
+   * id. Absent until the first such re-issue.
+   */
+  readonly reissuedAt?: number
   /** Number of drain attempts so far. It drives D10's exponential backoff and is
    *  deliberately NOT a ceiling: D10 forbids a global attempt limit, because a
    *  limit turns user work into silent failure. The age limit is the only bound. */

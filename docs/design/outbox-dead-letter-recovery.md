@@ -53,7 +53,7 @@ second place for it to drift open.
 | `CONFLICT` | `conflict` | a rebase |
 | `PRECONDITION_FAILED` | `confirmation-required` | a durable confirmation |
 | `BAD_REQUEST` | `invalid` | nothing — only an edit |
-| aged out | `max-age` | a **new** `mutationId` (D11.4) |
+| aged out | `max-age` | a re-issue; the queue keeps the id while a fresh window fits in the base horizon, else mints a new one (D11.4, POD-4762) |
 | anything unrecognised | *(not a reason)* | stays queued, retries |
 
 That last row is deliberate: an unknown refusal keeps the user's work queued

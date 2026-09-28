@@ -1,4 +1,3 @@
-import { randomUUID } from '@podium/client-core/id'
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
@@ -58,7 +57,6 @@ import { OfferBar } from '@/features/chat/OfferBar'
 import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { agentBrandDot } from '@/lib/agent-tone'
-import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { issueAgentKind } from '@/lib/issue-agents'
@@ -219,6 +217,7 @@ export function AgentPanel({
     setSessionDraft,
     hibernateSession,
     dismissOffer: dismissOfferWrite,
+    sendChat,
     openFile,
     uiState,
     selectedIssueId,
@@ -235,6 +234,7 @@ export function AgentPanel({
       setSessionDraft: s.setSessionDraft,
       hibernateSession: s.hibernateSession,
       dismissOffer: s.dismissOffer,
+      sendChat: s.sendChat,
       openFile: s.openFile,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
@@ -447,8 +447,9 @@ export function AgentPanel({
   // above the composer; this one sits beneath the PTY so an offer is visible in
   // both views. Same optimistic-hide contract as chat: dismissed the moment a
   // button is clicked (keyed by createdAt so a NEW offer re-shows), and the
-  // prompt goes out via sessions.sendText — the user-turn path the server
-  // auto-clears the offer on. Raw PTY keystrokes deliberately don't clear it.
+  // prompt goes out as a chat send (POD-4762: the outbox, as `sessions.sendText`)
+  // — the user-turn path the server auto-clears the offer on. Raw PTY
+  // keystrokes deliberately don't clear it.
   const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
   const nativeOffer =
     gates.offerDockOffered && session?.offer && session.offer.createdAt !== dismissedOfferAt
@@ -462,14 +463,10 @@ export function AgentPanel({
   const sendOfferPrompt = async (prompt: string, offerAt: string) => {
     setDismissedOfferAt(offerAt)
     try {
-      const result = await trpc.sessions.sendText.mutate({
-        sessionId,
-        text: prompt,
-        mutationId: randomUUID(),
-      })
-      // Substrate refuses with HTTP 200 + ok:false — must not dismiss the offer
-      // as if the prompt reached the agent (POD-552).
-      assertSendAccepted(result)
+      // Resolves once the server took it; a refusal (HTTP 200 + ok:false) or the
+      // outbox giving up rejects, and must not dismiss the offer as if the
+      // prompt reached the agent (POD-552).
+      await sendChat({ sessionId, text: prompt, wake: false })
     } catch (cause) {
       setDismissedOfferAt(null) // send failed — let the offer reappear
       toast.error('Could not send the suggested action')

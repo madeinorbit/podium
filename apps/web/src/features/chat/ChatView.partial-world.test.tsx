@@ -9,6 +9,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import './test-support/client-core-mock'
+import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 /**
  * THE CHAT SURFACE OVER A PARTIAL WORLD (POD-405).
@@ -73,6 +74,9 @@ const fakeReplica = {
   exitKind: (_entity: string, id: string) => exits[id],
 }
 
+// Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).
+const chatSend = outboxChatSendActions(() => fakeTrpc)
+
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hub: fakeHub,
@@ -81,7 +85,9 @@ vi.mock('@/app/store', () => {
     sessions: storeSessions,
     drafts: storeDrafts,
     setSessionDraft: vi.fn(),
-    resumeAndSend: vi.fn(async () => {}),
+    sendChat: chatSend.sendChat,
+    chatSendsFor: chatSend.chatSendsFor,
+    discardChat: chatSend.discardChat,
     // A send pins the panel to the surface it came from (POD-762) — part of the
     // send path, so the fake store must carry it like the real one does.
     setPanelMode: vi.fn(),
@@ -156,6 +162,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  chatSend.reset()
   act(() => root.unmount())
   container.remove()
   vi.clearAllMocks()

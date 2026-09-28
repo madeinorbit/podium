@@ -47,6 +47,7 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
   settingsUpdatePersonal: {
     values: { theme: 'dark' },
   } as OutboxKinds['settingsUpdatePersonal'],
+  sendText: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['sendText'],
   resumeAndSend: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['resumeAndSend'],
   rename: { sessionId: asSessionId('s-1'), name: 'new name' } as OutboxKinds['rename'],
   setArchived: { sessionId: asSessionId('s-1'), archived: true } as OutboxKinds['setArchived'],
@@ -148,15 +149,26 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
     // not be able to reorder.
     const a = route('rename', { sessionId: asSessionId('s-1'), name: 'first' }).partitionKey
     const b = route('rename', { sessionId: asSessionId('s-1'), name: 'second' }).partitionKey
-    const c = route('resumeAndSend', { sessionId: asSessionId('s-1'), text: 'typed' }).partitionKey
     expect(a).toBe(b)
-    expect(a).toBe(c)
+  })
+
+  it('orders a session\'s chat sends in ONE partition, apart from its curation writes (POD-4762)', () => {
+    const s1 = asSessionId('s-1')
+    const live = route('sendText', { sessionId: s1, text: 'first' }).partitionKey
+    const wake = route('resumeAndSend', { sessionId: s1, text: 'second' }).partitionKey
+    // Live and waking sends to one session keep the order they were written in.
+    expect(live).toBe(wake)
+    // Another session's messages never wait behind these.
+    expect(live).not.toBe(route('sendText', { sessionId: asSessionId('s-2'), text: 'x' }).partitionKey)
+    // A parked rename must not hold every later message to the session.
+    expect(live).not.toBe(route('rename', { sessionId: s1, name: 'n' }).partitionKey)
   })
 })
 
 describe('POD-785 — only writes a later one subsumes may collapse', () => {
   it('declares NO collapse key for content-bearing or partial-patch commands', () => {
     // Text into a live PTY: two sends are two sends (ADR 3 D11).
+    expect(route('sendText', SAMPLE.sendText).collapseKey).toBeUndefined()
     expect(route('resumeAndSend', SAMPLE.resumeAndSend).collapseKey).toBeUndefined()
     // Partial patches — a later one carries only the keys it touches, so it does
     // NOT subsume an earlier one. Collapsing these would drop fields silently.
@@ -282,8 +294,8 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).collapseKey).not.toBe(
       route('sessionMarkRead', { sessionId }).collapseKey,
     )
-    // It rides the session's partition, so it cannot overtake a rename or a
-    // resumeAndSend made on the same row.
+    // It rides the session's partition, so it cannot overtake a rename made on
+    // the same row.
     expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).partitionKey).toBe(
       route('rename', { sessionId, name: 'a' }).partitionKey,
     )

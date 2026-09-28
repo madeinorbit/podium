@@ -1,4 +1,3 @@
-import type { MutationId } from '@podium/model'
 /**
  * Rejection reason codes and the recovery affordances they license — ADR 3 D9
  * invariants 2 and 3, D10, and the amendment's D16.4 / property 15.
@@ -115,9 +114,16 @@ export type RetryPrecondition =
   | 'rebase'
   /** A durable confirmation on the envelope (D8 outcome 3 / D2). */
   | 'confirmation'
-  /** D11.4: after `expired` (or `cancelled`) a re-issue MUST mint a new
-   *  `mutationId` — the old one may still have a receipt. */
-  | 'new-mutation-id'
+  /**
+   * D11.4 as amended by POD-4762: an `expired` entry goes out again as the SAME
+   * intent. The Outbox, not the caller, picks the id: it keeps the original one
+   * while the id can still reach the Authority inside the base age horizon —
+   * which is inside the receipt window by D11's inequality, so the Authority
+   * either answers the stored result (the first attempt did land) or applies it
+   * once. Past that horizon a receipt may have been pruned and the re-issue
+   * mints a new id, as D11.4 always required.
+   */
+  | 'reissue'
   /** Nothing can make this input succeed; only an edit can (validation poison). */
   | 'never'
 
@@ -147,7 +153,7 @@ export const recoveryPlanFor = (code: OutboxRejectionCode): RecoveryPlan => {
         : code === 'confirmation-required'
           ? 'confirmation'
           : code === 'max-age'
-            ? 'new-mutation-id'
+            ? 'reissue'
             : 'never'
   return { retry, edit: true, discard: true }
 }
@@ -165,7 +171,7 @@ export type RetrySatisfaction =
   | { readonly rightsFixed: true }
   | { readonly expectedRevision: number }
   | { readonly confirmed: true }
-  | { readonly mutationId: MutationId }
+  | { readonly reissue: true }
 
 export const satisfies = (
   precondition: RetryPrecondition,
@@ -178,8 +184,8 @@ export const satisfies = (
       return 'expectedRevision' in satisfaction
     case 'confirmation':
       return 'confirmed' in satisfaction
-    case 'new-mutation-id':
-      return 'mutationId' in satisfaction
+    case 'reissue':
+      return 'reissue' in satisfaction
     case 'never':
       return false
   }

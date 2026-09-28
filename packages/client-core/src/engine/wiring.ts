@@ -14,6 +14,7 @@ import {
   type SessionId,
   type WorkState,
 } from '@podium/model'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {
   ENQUEUEABLE_DELIVERY,
   type OutboxCommand,
@@ -25,6 +26,7 @@ import {
   Outbox,
   type OutboxDeadLetterEntry,
   type OutboxEntry,
+  type OutboxSettlement,
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
@@ -43,8 +45,9 @@ import type { StoreNotices } from './types'
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
  *  §2.3). Each executor replays with the entry's stable mutationId, so the
  *  server dedupes across reload/reconnect. Replicated per-user rows (pins,
- *  tab order, and personal settings) use the same path. Live chat stays direct —
- *  it must fail fast rather than silently queue. */
+ *  tab order, and personal settings) use the same path, and so does every chat
+ *  send (POD-4762) — under a give-up window of minutes, not days
+ *  (`OUTBOX_COMMAND_MAX_AGE_MS`). */
 export type OutboxKinds = {
   pinSet: Omit<Parameters<PodiumClientApi['pins']['set']['mutate']>[0], 'mutationId'>
   tabSetOrder: Omit<Parameters<PodiumClientApi['tabs']['setOrder']['mutate']>[0], 'mutationId'>
@@ -54,6 +57,15 @@ export type OutboxKinds = {
     Parameters<PodiumClientApi['settings']['updatePersonal']['mutate']>[0],
     'mutationId'
   >
+  /**
+   * THE CHAT SENDS (POD-4762). Every message the operator writes to a session —
+   * live or parked, online or not — is one of these two, keyed by the message id
+   * the composer minted, so the queue's retries and the user's own "retry" all
+   * reach the Authority as the SAME message. `sendText` types into the running
+   * agent; `resumeAndSend` wakes a parked one first. Neither collapses: two
+   * sends are two sends.
+   */
+  sendText: { sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }
   resumeAndSend: { sessionId: SessionId; text: string }
   rename: { sessionId: SessionId; name: string }
   setArchived: { sessionId: SessionId; archived: boolean }
@@ -71,10 +83,8 @@ export type OutboxKinds = {
    * draining after a newer offer was posted is refused by construction, not by
    * luck, so the hazard the old `direct-only` class named cannot happen.
    *
-   * The offer's ACTION buttons are NOT here. They send `sessions.sendText`,
-   * which the coverage oracle pins OUT for a different reason entirely — a chat
-   * turn replayed hours late is worse than a failure — and nothing about
-   * declining an offer argues for reopening that.
+   * The offer's ACTION buttons are the `sendText` kind above: a chat turn,
+   * under the chat give-up window rather than this one's.
    */
   dismissOffer: { sessionId: SessionId; offerCreatedAt: string }
   issueMarkRead: { id: string }
@@ -173,6 +183,10 @@ export interface EngineOutboxCallbacks {
   readonly replica: Replica
   readonly notices: StoreNotices
   readonly onApplied?: (entry: OutboxEntry) => unknown
+  /** Every resolution of an entry, by id, with the Authority's answer — what a
+   *  chat send waits on (POD-4762). Fires for entries `onApplied` never sees:
+   *  a terminal verdict retires in the same commit that applies it. */
+  readonly onSettled?: (mutationId: MutationId, settlement: OutboxSettlement) => void
   readonly onDropped?: (entry: OutboxEntry) => void
   readonly onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
   /**
@@ -236,6 +250,7 @@ export const OUTBOX_COMMANDS: Record<
     delivery,
     confirmation: 'none',
   },
+  sendText: { name: 'sessions.sendText', version: 1, delivery, confirmation: 'none' },
   resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery, confirmation: 'none' },
   rename: { name: 'sessions.rename', version: 1, delivery, confirmation: 'none' },
   setArchived: { name: 'sessions.setArchived', version: 1, delivery, confirmation: 'none' },
@@ -311,6 +326,7 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   layoutSet: 'recover',
   layoutClear: 'recover',
   settingsUpdatePersonal: 'recover',
+  sendText: 'recover',
   resumeAndSend: 'recover',
   rename: 'recover',
   setArchived: 'recover',
@@ -429,9 +445,16 @@ export const OUTBOX_ROUTING: {
   // A partial patch of personal settings — no collapse.
   settingsUpdatePersonal: () => ({ partitionKey: 'settings' }),
 
+  // THE CHAT PARTITION (POD-4762): one per session, shared by both sends, so
+  // the operator's messages reach the agent in the order they were written. It
+  // is NOT the session's curation partition below: a parked rename (a share
+  // revoked, say) would otherwise hold every later message to that session
+  // until it aged out, and a chat send has no ordering to keep with a rename.
+  sendText: (i) => ({ partitionKey: `chat:${i.sessionId}` }),
+  resumeAndSend: (i) => ({ partitionKey: `chat:${i.sessionId}` }),
+
   // Session-targeted writes. All share the session's partition, so their order
   // relative to one another is preserved.
-  resumeAndSend: (i) => ({ partitionKey: `session:${i.sessionId}` }),
   rename: (i) => ({
     partitionKey: `session:${i.sessionId}`,
     collapseKey: `session-name:${i.sessionId}`,
@@ -585,6 +608,40 @@ export const outboxRoutingFor = <K extends keyof OutboxKinds & string>(
   return route ? route(input) : { partitionKey: `create:${mutationId}` }
 }
 
+/**
+ * HOW LONG A CHAT SEND KEEPS TRYING (POD-4762): two minutes from the press.
+ *
+ * The user decided it (2026-09-28): a message that cannot reach the server
+ * fails VISIBLY — "not sent — retry" — instead of arriving hours late into a
+ * conversation that has moved on. Two minutes rides out what a person sitting
+ * at the composer lives through without noticing: a Wi-Fi hand-off, a laptop
+ * waking, a server restart, the backoff's first seven attempts (1 s doubling to
+ * the 60 s cap). Past that, a person is better served by being told than by
+ * waiting on a spinner. The retry the bubble then offers keeps the message id
+ * (the kernel's same-id re-issue), so a send whose answer — not whose request —
+ * was lost comes back as the one message the server already has.
+ *
+ * Offline queueing (send now, deliver whenever the phone is back) is a later
+ * change of THIS number, not a redesign. D10 lets a per-command age only
+ * shorten the 14-day base, and the kernel refuses anything longer at open.
+ */
+export const CHAT_SEND_MAX_AGE_MS = 2 * 60 * 1000
+
+/** D10's per-command overrides, keyed by contract name — what the kernel queue
+ *  takes as `commandMaxAgeMs`. Only the chat sends shorten theirs. */
+export const OUTBOX_COMMAND_MAX_AGE_MS: Readonly<Record<string, number>> = {
+  [OUTBOX_COMMANDS.sendText.name]: CHAT_SEND_MAX_AGE_MS,
+  [OUTBOX_COMMANDS.resumeAndSend.name]: CHAT_SEND_MAX_AGE_MS,
+}
+
+/** The contracts whose parked entries let their partition drain on (the
+ *  kernel's `parkedYieldsPartition`): a chat message that visibly failed does
+ *  not hold the next one the user writes (POD-4762). */
+export const OUTBOX_PARKED_YIELDS_PARTITION: ReadonlySet<string> = new Set([
+  OUTBOX_COMMANDS.sendText.name,
+  OUTBOX_COMMANDS.resumeAndSend.name,
+])
+
 /** The contract behind one queued kind, or `undefined` for a kind with no
  *  executor. */
 export const outboxCommandFor = (
@@ -665,6 +722,33 @@ export interface OutboxExecutorHooks {
 }
 
 /**
+ * Read one chat send's reply. Both sends answer alike, so both read it here.
+ */
+function settleSend(
+  result: unknown,
+  input: OutboxKinds['sendText' | 'resumeAndSend'],
+  hooks: OutboxExecutorHooks,
+): unknown {
+  // A Stop that reached the server first retracted this send (POD-4654): the
+  // stop took effect, so the entry is done. Parked, it would hold every later
+  // message to the session behind it for good.
+  if (isStoppedSend(result)) {
+    hooks.stoppedSend?.()
+    return result
+  }
+  // The session was deleted before this send arrived (POD-4660). No session
+  // is left to deliver it to and a retry gets the same answer, so the entry
+  // is done — the operator is told it was not sent instead.
+  if (isUnaddressableSend(result)) {
+    hooks.sessionGone?.({ sessionId: input.sessionId, text: input.text })
+    return result
+  }
+  // dead_letter / refused is HTTP 200 with ok:false — must not be applied
+  assertSendAccepted(result)
+  return result
+}
+
+/**
  * THE ONE PLACE A QUEUED KIND MEETS ITS PROCEDURE, and it is one place because
  * POD-781 group 3 found out what two places cost.
  *
@@ -694,26 +778,8 @@ export function outboxExecutors(
     layoutSet: (i) => api.layout.set.mutate(i),
     layoutClear: (i) => api.layout.clear.mutate(i),
     settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
-    resumeAndSend: async (i) => {
-      const result = await api.sessions.resumeAndSend.mutate(i)
-      // A Stop that reached the server first retracted this send (POD-4654): the
-      // stop took effect, so the entry is done. Parked, it would hold every later
-      // message to the session behind it for good.
-      if (isStoppedSend(result)) {
-        hooks.stoppedSend?.()
-        return result
-      }
-      // The session was deleted before this send arrived (POD-4660). No session
-      // is left to deliver it to and a retry gets the same answer, so the entry
-      // is done — the operator is told it was not sent instead.
-      if (isUnaddressableSend(result)) {
-        hooks.sessionGone?.(i)
-        return result
-      }
-      // dead_letter / refused is HTTP 200 with ok:false — must not be applied
-      assertSendAccepted(result)
-      return result
-    },
+    sendText: async (i) => settleSend(await api.sessions.sendText.mutate(i), i, hooks),
+    resumeAndSend: async (i) => settleSend(await api.sessions.resumeAndSend.mutate(i), i, hooks),
     rename: (i) => api.sessions.rename.mutate(i),
     setArchived: (i) => api.sessions.setArchived.mutate(i),
     setWorkState: (i) => api.sessions.setWorkState.mutate(i),
@@ -760,6 +826,7 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
       sessionGone: (input) => args.notices.error(sessionGoneNotice(input.text)),
     }),
     onApplied: args.onApplied,
+    onSettled: args.onSettled,
     // A refused write with no typed words is reverted (overlay drops) and
     // toasted. Authored prose is parked so the words are not lost — a toast
     // that said they were gone would teach people to re-type instead of look.

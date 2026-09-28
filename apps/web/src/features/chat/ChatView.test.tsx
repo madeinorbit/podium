@@ -10,6 +10,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import './test-support/client-core-mock'
+import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 // ---------------------------------------------------------------------------
 // A controllable fake hub + tRPC, injected via the store mock. The hub records
@@ -57,6 +58,12 @@ const fakeTrpc = {
         }),
       ),
     },
+    resumeAndSend: {
+      mutate: vi.fn(
+        async (_input: { sessionId: SessionId; text: string; mutationId?: string }) =>
+          ({ ok: true, disposition: 'queued' }) as { ok: boolean; disposition: string },
+      ),
+    },
     // `reason` is optional but PRESENT in the contract: a stop can be refused
     // with one, and a fake that could not express that could not test it.
     interrupt: {
@@ -74,8 +81,9 @@ const fakeTrpc = {
 // Store ACTIONS, hoisted out of the `useStore` factory so they survive a
 // re-render: the factory runs on every hook call, and inline `vi.fn()`s there
 // would hand each render a fresh spy with no recorded calls.
+// Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).
+const chatSend = outboxChatSendActions(() => fakeTrpc)
 const storeActions = {
-  resumeAndSend: vi.fn(async (_sessionId: SessionId, _text: string) => {}),
   setPanelMode: vi.fn((_sessionId: SessionId, _mode: 'chat' | 'native') => {}),
   setSessionDraft: vi.fn(),
 }
@@ -118,7 +126,9 @@ vi.mock('@/app/store', () => {
     sessions: storeSessions,
     drafts: storeDrafts,
     setSessionDraft: storeActions.setSessionDraft,
-    resumeAndSend: storeActions.resumeAndSend,
+    sendChat: chatSend.sendChat,
+    chatSendsFor: chatSend.chatSendsFor,
+    discardChat: chatSend.discardChat,
     setPanelMode: storeActions.setPanelMode,
     openFile: vi.fn(),
     httpOrigin: 'http://x',
@@ -206,6 +216,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  chatSend.reset()
   vi.clearAllMocks()
 })
 
@@ -703,7 +714,7 @@ describe('ChatView composer', () => {
     expect(container.querySelector('[data-notice="queue"]')).toBeNull()
   })
 
-  it('restores a dead-lettered chat message with its reason and retries it', async () => {
+  it('restores a dead-lettered chat message with its reason, and offers no resend under a new id', async () => {
     fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
       {
         id: 'msg_failed',
@@ -756,141 +767,93 @@ describe('ChatView composer', () => {
     expect(container.textContent).toContain('delivery later failed')
     expect(container.textContent).toContain('not delivered · delivery failed')
 
-    await act(async () => {
-      failed?.querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')?.click()
-      await Promise.resolve()
-    })
-    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 's1', text: 'please try this again' }),
-    )
+    // POD-4762: the server holds this message and gave up on it. Sending its
+    // text again would be a SECOND message — a duplicate whenever the first was
+    // in fact typed ('delivery-failed') — so the row offers no retry at all.
+    expect(container.querySelector('[aria-label="Retry failed message"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Retry sending message"]')).toBeNull()
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
   })
 
-  describe('dead-letter retry state matrix', () => {
-    const failedRow = {
-      id: 'msg_failed_matrix',
-      from: 'operator',
-      to: 'session:s1',
-      body: 'retry this safely',
-      createdAt: '2026-06-03T00:00:01.000Z',
-      status: 'dead_letter',
-      deliveryDeferredReason: 'delivery-failed',
-    } as const
 
-    it.each([
-      {
-        label: 'live',
-        session: meta({ status: 'live' }),
-        exitKind: undefined,
-        route: 'send',
-      },
-      {
-        label: 'hibernated',
-        session: meta({ status: 'hibernated', resumable: true }),
-        exitKind: undefined,
-        route: 'resume',
-      },
-      {
-        label: 'exited resumable',
-        session: meta({ status: 'exited', resumable: true }),
-        exitKind: undefined,
-        route: 'resume',
-      },
-      {
-        label: 'exited non-resumable',
-        session: meta({ status: 'exited', resumable: false }),
-        exitKind: undefined,
-        route: null,
-      },
-      {
-        label: 'gone',
-        session: null,
-        exitKind: 'removed',
-        route: null,
-      },
-      {
-        label: 'archived resumable',
-        session: meta({ status: 'hibernated', resumable: true, archived: true }),
-        exitKind: undefined,
-        route: null,
-      },
-      {
-        label: 'archived non-resumable',
-        session: meta({ status: 'exited', resumable: false, archived: true }),
-        exitKind: undefined,
-        route: null,
-      },
-    ] as const)(
-      '$label session exposes only a deliverable retry route',
-      async ({ session, exitKind, route }) => {
-        storeSessions = session ? [session] : []
-        storeExitKind = exitKind
-        fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
-
-        act(() => {
-          root.render(<ChatView sessionId={asSessionId('s1')} />)
-        })
-        await flush()
-
-        const retry = container.querySelector<HTMLButtonElement>(
-          '[aria-label="Retry failed message"]',
+  /**
+   * "NOT SENT — RETRY" (POD-4762). Every send rides the outbox under the id the
+   * composer minted; when the outbox gives up the bubble says so, and its retry
+   * is the SAME message — the same id on the wire — never a new one.
+   */
+  describe('a send the outbox gave up on', () => {
+    const submit = async (): Promise<void> => {
+      const textarea = container.querySelector('textarea')
+      expect(textarea).not.toBeNull()
+      await act(async () => {
+        textarea?.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
         )
-        expect(
-          container.querySelector('[data-testid="dead-lettered-chat-message"]'),
-        ).not.toBeNull()
-        expect(retry !== null).toBe(route !== null)
-        if (!retry || route === null) return
-
-        await act(async () => {
-          retry.click()
-          await Promise.resolve()
-        })
-        if (route === 'send') {
-          expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-            expect.objectContaining({ sessionId: 's1', text: failedRow.body }),
-          )
-          expect(storeActions.resumeAndSend).not.toHaveBeenCalled()
-        } else {
-          expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
-            asSessionId('s1'),
-            failedRow.body,
-            expect.stringMatching(/^msg_/),
-          )
-          expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
-        }
-      },
-    )
-
-    it('shows an accepted retry as a new pending attempt while preserving failure history', async () => {
-      // The original failed attempt remains durable when the accepted retry's
-      // immediate refresh reads the ledger again.
-      fakeTrpc.messages.ledger.query.mockResolvedValue([failedRow])
-      fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
-        ok: true,
-        disposition: 'queued',
+        await Promise.resolve()
       })
+    }
+
+    beforeEach(() => {
+      storeSessions = [meta({ status: 'live' })]
+      storeDrafts = { s1: 'ship it' }
+      fakeTrpc.messages.ledger.query.mockResolvedValue([])
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+      // `vi.clearAllMocks` keeps implementations; put the shared fake back.
+      fakeTrpc.sessions.sendText.mutate.mockReset()
+      fakeTrpc.sessions.sendText.mutate.mockResolvedValue({ disposition: 'delivered' })
+    })
+
+    it('shows "not sent" after the give-up window, and its retry reuses the message id', async () => {
+      vi.useFakeTimers()
+      // The server never answers: every attempt fails as transport.
+      fakeTrpc.sessions.sendText.mutate.mockRejectedValue(new Error('fetch failed'))
       act(() => {
         root.render(<ChatView sessionId={asSessionId('s1')} />)
       })
-      await flush()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      await submit()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * 60 * 1000 + 1)
+      })
 
+      const failed = container.querySelector('.transcript-pending--failed')
+      expect(failed?.textContent).toContain('ship it')
+      expect(failed?.textContent).toContain("not sent — couldn't reach the server")
+      const attempts = fakeTrpc.sessions.sendText.mutate.mock.calls.length
+      expect(attempts).toBeGreaterThan(1)
+      const ids = new Set(
+        fakeTrpc.sessions.sendText.mutate.mock.calls.map(
+          (call) => (call as unknown as [{ mutationId: string }])[0].mutationId,
+        ),
+      )
+      // Every automatic retry carried the one id the composer minted.
+      expect(ids.size).toBe(1)
+      const [messageId] = [...ids]
+      expect(messageId).toMatch(/^msg_/)
+
+      fakeTrpc.sessions.sendText.mutate.mockReset()
+      fakeTrpc.sessions.sendText.mutate.mockResolvedValue({ disposition: 'delivered' })
       await act(async () => {
         container
-          .querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')
+          .querySelector<HTMLButtonElement>('[aria-label="Retry sending message"]')
           ?.click()
-        await Promise.resolve()
+        await vi.advanceTimersByTimeAsync(0)
       })
-      await flush()
 
-      expect(container.querySelector('[data-testid="dead-lettered-chat-message"]')).not.toBeNull()
-      const retryAttempt = container.querySelector(
-        '.transcript-pending:not(.transcript-pending--failed)',
+      expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
+      expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 's1', text: 'ship it', mutationId: messageId }),
       )
-      expect(retryAttempt?.textContent).toContain(failedRow.body)
-      expect(retryAttempt?.textContent).toContain('pending')
+      expect(container.querySelector('.transcript-pending--failed')).toBeNull()
+      expect(container.querySelector('.transcript-pending')?.textContent).toContain('ship it')
     })
 
-    it('shows a refused retry as a distinct failed attempt with the refusal reason', async () => {
-      fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
+    it('names a server refusal and offers only discard, which drops the queued copy', async () => {
       fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
         ok: false,
         disposition: 'dead_letter',
@@ -900,17 +863,24 @@ describe('ChatView composer', () => {
         root.render(<ChatView sessionId={asSessionId('s1')} />)
       })
       await flush()
+      await submit()
+      await flush()
+
+      const failed = container.querySelector('.transcript-pending--failed')
+      expect(failed?.textContent).toContain('not sent — session became unavailable')
+      // The same words would be refused the same way: no retry.
+      expect(failed?.querySelector('[aria-label="Retry sending message"]')).toBeNull()
+      expect(chatSend.outbox()?.deadLetters()).toHaveLength(1)
 
       await act(async () => {
-        container
-          .querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')
-          ?.click()
+        failed?.querySelector<HTMLButtonElement>('[aria-label="Discard unsent message"]')?.click()
         await Promise.resolve()
       })
       await flush()
 
-      expect(container.querySelectorAll('.transcript-pending--failed')).toHaveLength(2)
-      expect(container.textContent).toContain('not delivered — session became unavailable')
+      expect(container.querySelector('.transcript-pending--failed')).toBeNull()
+      expect(chatSend.outbox()?.deadLetters()).toEqual([])
+      expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -1234,10 +1204,12 @@ describe('ChatView sending into a hibernated session', () => {
     await flush()
     await submit()
 
-    expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
-      asSessionId('s1'),
-      'pick this back up',
-      expect.any(String),
+    expect(fakeTrpc.sessions.resumeAndSend.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: asSessionId('s1'),
+        text: 'pick this back up',
+        mutationId: expect.stringMatching(/^msg_/),
+      }),
     )
     // The live path is not the parked path.
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()

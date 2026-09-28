@@ -48,8 +48,13 @@ const deleted = {
  *  reads nothing from the shell, which is the point. */
 let send: ((text: string) => Promise<void>) | null = null
 function DeletedSessionRoute() {
-  const resumeAndSend = useStoreSelector((s) => s.resumeAndSend)
-  send = (text) => resumeAndSend(GONE, text)
+  const sendChat = useStoreSelector((s) => s.sendChat)
+  // The send itself rejects ("not sent"); what this suite asserts is the notice.
+  send = (text) =>
+    sendChat({ sessionId: GONE, text, wake: true }).then(
+      () => {},
+      () => {},
+    )
   return <Text>Session deleted. It was removed on the server.</Text>
 }
 

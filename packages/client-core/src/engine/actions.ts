@@ -32,6 +32,13 @@ import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { Router } from '../ui-state'
 import type { NavigationIntent } from './navigation'
+import {
+  discardChatThroughOutbox,
+  newChatMessageId,
+  type OutboxSettlements,
+  outboxChatSends,
+  sendChatThroughOutbox,
+} from './chat-send'
 import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import type {
   DockTab,
@@ -148,7 +155,9 @@ export const COMMAND_ACTIONS = [
   'hibernateSession',
   'endSession',
   'resurrectSession',
-  'resumeAndSend',
+  'sendChat',
+  'chatSendsFor',
+  'discardChat',
   'renameSession',
   'archiveSession',
   'dismissOffer',
@@ -242,6 +251,8 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly api: TApi
   readonly hub: SocketHub
   readonly outbox: EngineOutbox
+  /** Resolution waiters for queued entries, by id (POD-4762). */
+  readonly outboxSettlements: OutboxSettlements
   readonly router: Router
   readonly notices: StoreNotices
   /** Layout base persisted by an earlier session, for hydrate-first paint
@@ -960,17 +971,19 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         return { ok: false, reason }
       }
     },
-    resumeAndSend: async (sessionId, text, mutationId) => {
+    sendChat: async (input, mutationId) => {
       // Optimistic spawn paints the session id before the server has it. A send
       // in that window dead-letters as "unknown session" and used to be treated
       // as applied — the prompt never reached the agent (POD-546).
-      await rt.waitForSpawnConfirmed(sessionId)
-      await rt.outbox.enqueue(
-        'resumeAndSend',
-        { sessionId, text },
-        mutationId ? { mutationId } : undefined,
+      await rt.waitForSpawnConfirmed(input.sessionId)
+      return await sendChatThroughOutbox(
+        { outbox: rt.outbox, settlements: rt.outboxSettlements },
+        input,
+        mutationId ?? newChatMessageId(),
       )
     },
+    chatSendsFor: (sessionId) => outboxChatSends(rt.outbox, sessionId),
+    discardChat: (mutationId) => discardChatThroughOutbox(rt.outbox, mutationId),
     renameSession: async (sessionId, name) => rt.enqueueOverlayed('rename', { sessionId, name }),
     archiveSession: async (sessionId, archived) => {
       rt.enqueueOverlayed('setArchived', { sessionId, archived })

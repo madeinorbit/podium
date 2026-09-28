@@ -2150,7 +2150,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
   })
 })
 
-describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
+describe('a chat send holds for optimistic spawn (POD-546)', () => {
   const spawnSendApi = () => {
     const api = makeApi()
     api.sessions.resumeAndSend = {
@@ -2194,7 +2194,9 @@ describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
     expect(engine.getSnapshot().pendingSpawnIds.has(sessionId)).toBe(true)
 
     // Composer fires immediately — the classic mobile race.
-    const sendPromise = engine.getSnapshot().resumeAndSend(sessionId, 'hello from mobile')
+    const sendPromise = engine
+      .getSnapshot()
+      .sendChat({ sessionId, text: 'hello from mobile', wake: true })
     await settle(40)
     expect(resumeCalls).toEqual([])
 
@@ -2225,7 +2227,11 @@ describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
     // Existing session id (no spawn hold) — authority refuses the send.
     engine.replica.applyChanges('sessions', [session('s-known', '/w')], [])
     await settle(10)
-    await engine.getSnapshot().resumeAndSend(asSessionId('s-known'), 'lost if applied')
+    await expect(
+      engine
+        .getSnapshot()
+        .sendChat({ sessionId: asSessionId('s-known'), text: 'lost if applied', wake: true }),
+    ).rejects.toThrow('not sent — session archived')
     await settle(40)
 
     expect(engine.getSnapshot().outboxSize).toBe(0)
@@ -2254,7 +2260,11 @@ describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
 
     engine.replica.applyChanges('sessions', [session('s-known', '/w')], [])
     await settle(10)
-    await engine.getSnapshot().resumeAndSend(asSessionId('s-known'), 'too late')
+    await expect(
+      engine
+        .getSnapshot()
+        .sendChat({ sessionId: asSessionId('s-known'), text: 'too late', wake: true }),
+    ).rejects.toThrow(`not sent — ${UNADDRESSABLE_SEND_REASON}`)
     await settle(40)
 
     expect(engine.getSnapshot().outboxSize).toBe(0)

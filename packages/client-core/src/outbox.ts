@@ -35,6 +35,24 @@ import { randomUUID } from './id'
 import { hasDomWindow } from './platform-globals'
 
 /** One queued mutation. `input` is the exact tRPC input, minus `mutationId`. */
+/**
+ * How ONE attempt at an entry ended (POD-4762), for a caller that waits on it by
+ * id — a chat send, whose bubble reads its state from the queue rather than from
+ * a second, direct request of its own.
+ *
+ * - `applied`: the Authority took it. `reply` is what it answered, when this
+ *   process saw the answer (a restart in between leaves it `undefined`).
+ * - `not-sent`: it parked (or, for bookkeeping, dropped) instead. `cause` is the
+ *   refusal this process saw, if any — an aged-out entry has none.
+ */
+export type OutboxSettlement =
+  | { readonly kind: 'applied'; readonly reply: unknown }
+  | {
+      readonly kind: 'not-sent'
+      readonly reason: OutboxRejectionReason
+      readonly cause: unknown
+    }
+
 export interface OutboxEntry {
   mutationId: MutationId
   kind: string
@@ -284,6 +302,9 @@ export interface OutboxInit<M extends Record<string, object>> {
    *  any other return value deletes it, the pre-#263-review behavior. Must not
    *  throw (guarded anyway — a throw deletes). */
   onApplied?: (entry: OutboxEntry) => unknown
+  /** Fires once per resolution of an entry, with what the Authority answered
+   *  (POD-4762) — see `OutboxSettlement`. */
+  onSettled?: (mutationId: MutationId, settlement: OutboxSettlement) => void
   storage: OutboxStorage
   /** Durable home for the awaiting-truth stage, SEPARATE from `storage` (#263
    *  review round 2 — see the OutboxStorage note): a downgraded build reads
@@ -467,8 +488,9 @@ export class Outbox<M extends Record<string, object>> {
    * The precondition is ENFORCED, not advertised: `satisfies()` refuses a
    * mismatch, so an authorization denial cannot be waved through with a rebase
    * and the UI structurally cannot offer a button that reproduces the same
-   * rejection. `max-age` demands a fresh `mutationId` (D11.4 — the old id may
-   * still have a receipt) and the caller supplies it in the satisfaction.
+   * rejection. `max-age` asks for a `reissue`; this queue has no per-command
+   * age, so an aged-out entry has outlived the base horizon and always goes out
+   * under a fresh `mutationId` (D11.4 — a receipt for the old id may be gone).
    */
   retry(mutationId: MutationId, satisfaction: RetrySatisfaction): OutboxEntry {
     const idx = this.deadLetterEntries.findIndex((d) => d.entry.mutationId === mutationId)
@@ -481,8 +503,8 @@ export class Outbox<M extends Record<string, object>> {
       )
     }
     const requeued: OutboxEntry =
-      'mutationId' in satisfaction
-        ? { ...parked.entry, mutationId: satisfaction.mutationId, queuedAt: this.now() }
+      'reissue' in satisfaction
+        ? { ...parked.entry, mutationId: asMutationId(this.randomId()), queuedAt: this.now() }
         : { ...parked.entry }
     this.deadLetterEntries.splice(idx, 1)
     this.saveDeadLetters()
@@ -545,6 +567,13 @@ export class Outbox<M extends Record<string, object>> {
       this.shouldDiscardDeadLetter(entry) ? [] : [this.park(entry, MAX_AGE_REASON, 'expired')],
     )
     this.persist()
+    for (const entry of aged) {
+      this.init.onSettled?.(entry.mutationId, {
+        kind: 'not-sent',
+        reason: MAX_AGE_REASON,
+        cause: undefined,
+      })
+    }
     return parked
   }
 
@@ -606,6 +635,7 @@ export class Outbox<M extends Record<string, object>> {
     while (this.entries.length > 0) {
       if (this.disposed) return
       const entry = this.entries[0] as OutboxEntry
+      let reply: unknown
       try {
         const exec = this.init.executors[entry.kind as keyof M]
         if (!exec) {
@@ -613,7 +643,7 @@ export class Outbox<M extends Record<string, object>> {
             data: { code: 'BAD_REQUEST' },
           })
         }
-        await exec({ ...(entry.input as M[keyof M]), mutationId: entry.mutationId })
+        reply = await exec({ ...(entry.input as M[keyof M]), mutationId: entry.mutationId })
       } catch (err) {
         // Disposed mid-flight: the successor owns the queue now — no writes,
         // no retry timer. The entry replays there, deduped by mutationId.
@@ -632,6 +662,11 @@ export class Outbox<M extends Record<string, object>> {
           }
           this.persist()
           this.init.onPoison?.(entry, err)
+          this.init.onSettled?.(entry.mutationId, {
+            kind: 'not-sent',
+            reason: normalizeRefusal(refusal),
+            cause: err,
+          })
           continue
         }
         // TRANSIENT, including every refusal shape we do not recognise: keep the
@@ -661,6 +696,7 @@ export class Outbox<M extends Record<string, object>> {
         this.saveAwaiting()
       }
       this.persist()
+      this.init.onSettled?.(entry.mutationId, { kind: 'applied', reply })
     }
   }
 

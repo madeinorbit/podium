@@ -1,5 +1,6 @@
 export * from './actions'
 export * from './boot'
+export * from './chat-send'
 export * from './kernel-outbox'
 export * from './optimism'
 export * from './overlay'

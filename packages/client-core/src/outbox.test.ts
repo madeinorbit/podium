@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import { asMutationId, asSessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { deadLetterHandlingFor } from './engine/wiring'
 import {
@@ -818,12 +818,13 @@ describe('recovery affordances are enforced, not advertised', () => {
     expect(swept.map((d) => d.reason.code)).toEqual(['max-age'])
     expect(swept[0]?.parkedFrom).toBe('expired')
     expect(ob.size()).toBe(0)
-    expect(ob.recoveryFor(old.mutationId)?.retry).toBe('new-mutation-id')
-    // Retrying without minting a fresh id is refused — the old id may still have
-    // a receipt past the dedupe horizon.
+    expect(ob.recoveryFor(old.mutationId)?.retry).toBe('reissue')
     expect(() => ob.retry(old.mutationId, { rightsFixed: true })).toThrow()
-    const fresh = ob.retry(old.mutationId, { mutationId: asMutationId('m-fresh') })
-    expect(fresh.mutationId).toBe('m-fresh')
+    // This queue has no per-command age: an aged-out entry outlived the base
+    // horizon, where a receipt for the old id may be gone — so the re-issue
+    // always carries a fresh id.
+    const fresh = ob.retry(old.mutationId, { reissue: true })
+    expect(fresh.mutationId).not.toBe(old.mutationId)
   })
 })
 

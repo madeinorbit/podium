@@ -20,10 +20,17 @@ import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
+import { outboxChatSendActions } from './test-support/outbox-chat-send'
 import { type UseChatSendOptions, type UseChatSendResult, useChatSend } from './use-chat-send'
 
 const sendText = vi.fn(async () => ({ ok: true, disposition: 'queued' }) as never)
-const REFUSED = new Error('offline')
+/** A DEFINITIVE refusal — the outbox parks it at once instead of retrying it
+ *  as transport (POD-4762). */
+const REFUSED = Object.assign(new Error('offline'), { data: { code: 'BAD_REQUEST' } })
+// Every send runs the REAL outbox, draining into the fake `sendText` (POD-4762).
+const chatSend = outboxChatSendActions(() => ({
+  sessions: { sendText: { mutate: sendText } },
+}))
 const ledger = vi.fn(async () => [] as never)
 
 let strictModeResult: UseChatSendResult | null = null
@@ -45,7 +52,9 @@ function opts(
       sessions: { sendText: { mutate: sendText } },
       messages: { ledger: { query: ledger }, cancel: { mutate: vi.fn() } },
     } as unknown as Store['trpc'],
-    resumeAndSend: vi.fn() as unknown as Store['resumeAndSend'],
+    sendChat: chatSend.sendChat,
+    chatSendsFor: chatSend.chatSendsFor,
+    discardChat: chatSend.discardChat,
     dismissOffer: vi.fn() as unknown as Store['dismissOffer'],
     setPanelMode: vi.fn() as unknown as Store['setPanelMode'],
     setSessionDraft: vi.fn() as unknown as Store['setSessionDraft'],
@@ -83,6 +92,7 @@ beforeEach(() => {
   strictModeResult = null
 })
 afterEach(() => {
+  chatSend.reset()
   vi.useRealTimers()
 })
 
@@ -447,7 +457,9 @@ describe('useChatSend optimistic window', () => {
     const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
-    // A hangs, then rejects. B is sent while A is still in the air, and is fine.
+    // A hangs, then is refused. B is written while A is still in the air; the
+    // session's sends go out in order (POD-4762), so B leaves once A is refused
+    // — a refused message does not hold the next one — and B is fine.
     let rejectA: (e: unknown) => void = () => {}
     sendText.mockImplementationOnce(
       () =>
@@ -456,17 +468,20 @@ describe('useChatSend optimistic window', () => {
         }) as never,
     )
     let a: Promise<void> | undefined
+    let b: Promise<void> | undefined
     await act(async () => {
       a = result.current.send('the slow one')
     })
     await act(async () => {
-      await result.current.send('the one that lands')
+      b = result.current.send('the one that lands')
     })
     expect(result.current.justSent).toBe(true)
     await act(async () => {
       rejectA(REFUSED)
       await a
+      await b
     })
+    expect(sendText).toHaveBeenCalledTimes(2)
     // B is genuinely in flight and the daemon has said nothing. Closing here
     // dropped the tail back onto the previous turn's verdict under B's bubble.
     expect(result.current.justSent).toBe(true)

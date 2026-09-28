@@ -17,7 +17,6 @@ import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { Store } from '@/app/store'
-import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import type { DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
 import { deadLetteredOperatorMessages } from './chat'
 import type { UseHeadlessTurnResult } from './use-headless-turn'
@@ -56,7 +55,9 @@ function refusalReason(result: unknown): string | null {
 export interface UseChatSendOptions {
   sessionId: SessionId
   trpc: Store['trpc']
-  resumeAndSend: Store['resumeAndSend']
+  sendChat: Store['sendChat']
+  chatSendsFor: Store['chatSendsFor']
+  discardChat: Store['discardChat']
   dismissOffer: Store['dismissOffer']
   setPanelMode: Store['setPanelMode']
   setSessionDraft: Store['setSessionDraft']
@@ -110,7 +111,10 @@ export interface UseChatSendResult {
   ) => Promise<void>
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   dismissOffer: (offerAt: string) => Promise<void>
+  /** "not sent — retry": the SAME message goes out again, under its id. */
   retryPending: (id: string) => Promise<void>
+  /** "not sent — discard": the queued copy is dropped with the bubble. */
+  discardPending: (id: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
   interruptMessageId: string | null
   markInterrupted: (deliveryId?: string, interruptedAt?: number) => void
@@ -126,7 +130,9 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const {
     sessionId,
     trpc,
-    resumeAndSend,
+    sendChat,
+    chatSendsFor,
+    discardChat,
     dismissOffer: dismissOfferWrite,
     setPanelMode,
     setSessionDraft,
@@ -182,6 +188,15 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     async (
       turn: ConversationPendingTurn,
     ): Promise<{ state: 'queued' | 'sent'; position?: number }> => {
+      // A message the outbox already holds (a reloaded conversation following
+      // it, or a retry of one that gave up) is waited on or re-issued as it is:
+      // its command was chosen when it was written, whatever the route says now.
+      if (chatSendsFor(sessionId).some((held) => held.mutationId === turn.deliveryId)) {
+        return await sendChat(
+          { sessionId, text: turn.wire, wake: route.kind === 'resume' },
+          asMutationId(turn.deliveryId),
+        )
+      }
       if (route.kind === 'session' || route.kind === 'resume') setPanelMode(sessionId, 'chat')
       // Staged refs only exist for a live agent session; every other route has
       // no wire to carry them, so refuse rather than silently drop the files.
@@ -201,25 +216,21 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           if (attach) clearAttachedSession()
           return { state: queued ? 'queued' : 'sent' }
         }
-        case 'session': {
-          const result = await trpc.sessions.sendText.mutate({
-            sessionId,
-            text: turn.wire,
-            ...(turn.attachments?.length ? { attachments: [...turn.attachments] } : {}),
-            mutationId: turn.deliveryId,
-          })
-          assertSendAccepted(result)
-          if (result.disposition === 'queued') {
-            return {
-              state: 'queued',
-              ...(result.position !== undefined ? { position: result.position } : {}),
-            }
-          }
-          return { state: 'sent' }
-        }
+        // THE ONE CHAT SEND PATH (POD-4762): live or parked, the message goes
+        // into the durable outbox under its own id, and this resolves when the
+        // server answered or the outbox gave up — so the bubble says `sending`
+        // exactly as long as that is true, and a retry is the same message.
+        case 'session':
         case 'resume':
-          await resumeAndSend(sessionId, turn.wire, asMutationId(turn.deliveryId))
-          return { state: 'queued' }
+          return await sendChat(
+            {
+              sessionId,
+              text: turn.wire,
+              ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+              wake: route.kind === 'resume',
+            },
+            asMutationId(turn.deliveryId),
+          )
       }
     },
     [
@@ -232,8 +243,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       attachedSessionId,
       headlessTurn,
       clearAttachedSession,
-      trpc,
-      resumeAndSend,
+      sendChat,
+      chatSendsFor,
     ],
   )
 
@@ -257,11 +268,32 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const interruptRef = useRef(interruptDelivery)
   deliverRef.current = deliver
   interruptRef.current = interruptDelivery
-  const operationsRef = useRef({ trpc, dismissOfferWrite })
-  operationsRef.current = { trpc, dismissOfferWrite }
+  const operationsRef = useRef({ trpc, dismissOfferWrite, discardChat })
+  operationsRef.current = { trpc, dismissOfferWrite, discardChat }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: controller identity is scoped to session
   const controller = useMemo<ConversationController>(() => {
+    // The messages the outbox still holds for this session come back as the
+    // bubbles they were: a reload keeps an unconfirmed send on screen, still
+    // sending (the controller waits on it again) or "not sent" with its retry.
+    const held: ConversationPendingTurn[] = headless
+      ? []
+      : chatSendsFor(sessionId).map((send, index) => ({
+          id: `outbox-${index}-${send.mutationId}`,
+          deliveryId: send.mutationId,
+          text: send.text,
+          wire: send.text,
+          at: send.queuedAt,
+          state: send.state,
+          kind: 'message',
+          ...(send.attachments ? { attachments: send.attachments } : {}),
+          ...(send.failure
+            ? {
+                error: send.failure.message,
+                ...(send.failure.retryable ? {} : { retryable: false }),
+              }
+            : {}),
+        }))
     const initialPending: ConversationPendingTurn[] = initialPendingText
       ? [
           {
@@ -274,8 +306,9 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
             kind: 'message',
             acceptsAppendedBrief: true,
           },
+          ...held,
         ]
-      : []
+      : held
     return createConversationController({
       sessionId,
       transcript: transcriptBridge.port,
@@ -293,6 +326,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
             onQueueRows: (rows) => setFailedMessages(deadLetteredOperatorMessages(rows, sessionId)),
             retract: (id: string) =>
               operationsRef.current.trpc.messages.cancel.mutate({ id }).then(() => undefined),
+            discard: (deliveryId: string) =>
+              operationsRef.current.discardChat(asMutationId(deliveryId)),
           }),
       dismissOffer: (offerAt) => operationsRef.current.dismissOfferWrite(sessionId, offerAt),
       optimisticDismissOffer: false,
@@ -367,9 +402,18 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     // The controller records a failed turn's reason as `error`; the bubble that
     // renders it calls the same fact `failure` (POD-2604). Bridged here, at the
     // one seam where a controller turn becomes a web pending item, rather than
-    // teaching either side the other's word for it.
+    // teaching either side the other's word for it. A send the outbox gave up
+    // on already reads "not sent — …" (POD-4762); any other failure happened
+    // after the message left, and says so.
     pending: state.projected.pending.map((turn) =>
-      turn.error === undefined ? turn : { ...turn, failure: turn.error },
+      turn.error === undefined
+        ? turn
+        : {
+            ...turn,
+            failure: turn.error.startsWith('not sent')
+              ? turn.error
+              : `not delivered — ${turn.error}`,
+          },
     ),
     queuedMessages: state.projected.queued,
     failedMessages,
@@ -381,6 +425,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     sendOfferPrompt,
     dismissOffer: controller.dismissOffer.bind(controller),
     retryPending: controller.retry.bind(controller),
+    discardPending: controller.discard.bind(controller),
     retractQueuedMessage: controller.retract.bind(controller),
     interruptMessageId: state.interruptMessageId,
     markInterrupted: controller.markInterrupted.bind(controller),

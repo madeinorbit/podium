@@ -2,9 +2,10 @@
  * THE PHONE HANDS A LIVE-SESSION SEND TO THE SERVER AT ONCE (POD-4688).
  *
  * Two messages tapped into a busy agent must both leave the phone without
- * waiting for any turn event, in order — the desktop's contract. They go out
- * as direct `sendText` mutates (the desktop chat's `session` route), not
- * through the durable outbox: `resumeAndSend` must not be called for them.
+ * waiting for any turn event, in order — the desktop's contract. Since POD-4762
+ * they ride the durable outbox like every chat send, as `sendText` under each
+ * message's own id; the live path must still not wake the session
+ * (`resumeAndSend`), and the queue must not hold the second tap behind a turn.
  */
 import type { SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
@@ -73,7 +74,7 @@ function ConnectedProbe() {
   return null
 }
 
-describe('live-session sends go direct', () => {
+describe('live-session sends leave at once, through the outbox', () => {
   it('two taps into a busy agent POST sendText twice, in order, with no turn event', async () => {
     const posts: Array<{ text: string; mutationId: string }> = []
     const sendText = vi.fn(async (input: { text: string; mutationId: string }) => {
@@ -102,8 +103,7 @@ describe('live-session sends go direct', () => {
         },
       },
     )
-    // The direct path is the ONLINE path: the socket must be up before tapping,
-    // or the sends correctly take the held offline route instead.
+    // Tapped with the socket up, so the queue drains at once.
     await waitFor(() => expect(transportUp).toBe(true))
     await act(async () => {})
 

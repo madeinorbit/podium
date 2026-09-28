@@ -74,7 +74,9 @@ unreachable agents, and a minimal client outbox for offline authoring.
 - Poison handling: a server VALIDATION error (bad input) drops the entry + toasts;
   network errors keep it queued with flat retry.
 - Covered store methods (P3, *amended during implementation*): message sends (via
-  `resumeAndSend`; live `sendText` stays direct-with-mutationId so it fails fast),
+  `resumeAndSend`; live `sendText` stayed direct-with-mutationId so it failed fast —
+  until POD-4762 queued every chat send under the message id with a give-up window
+  of minutes, which is how it fails fast now),
   snooze set/clear, rename, archive, workState. **Issue mutations got server-side
   idempotency but NOT web-outbox routing yet** — their call sites live in the issue
   views, not the store; routing them is a follow-on. Pins/tab-orders/

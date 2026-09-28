@@ -79,6 +79,8 @@ const ALL_CONTRACTS: { name: string; def: CommandDef }[] = TABLES.flatMap((table
 const OFFLINE_ELIGIBLE_EXCEPTIONS: Record<string, string> = {
   'sessions.resumeAndSend':
     "the client outbox oracle pins it in the covered set (must-not-change); it wakes an EXISTING session rather than minting a process, carries a mutationId the authority dedupes, and is bounded by D10/D11's inequality rather than by its delivery class",
+  'sessions.sendText':
+    'POD-4762: every chat send goes through the client outbox under the message id the composer minted; it types into an EXISTING session rather than minting a process, is re-authorized live at apply, and its entry gives up after minutes (CHAT_SEND_MAX_AGE_MS) rather than days',
 }
 
 describe('the contract-table scan itself', () => {

@@ -190,7 +190,7 @@ function IssueContent({
   // The picked action set doubles as the page's IssueWriteActions — every
   // field is identity-stable, so this subscription never re-renders the page.
   const actions = useStoreActions()
-  const { resumeAndSend } = actions
+  const { sendChat } = actions
   const replica = useReplica()
   const coarseNow = useCoarseNow()
   const issues = useIssues()
@@ -352,7 +352,11 @@ function IssueContent({
                 issue={issue}
                 onAnswer={
                   askingSession
-                    ? (answer) => resumeAndSend(askingSession.sessionId, answer)
+                    ? async (answer) => {
+                        // A chat send like any other (POD-4762): waits for the
+                        // server, wakes a parked session first.
+                        await sendChat({ sessionId: askingSession.sessionId, text: answer, wake: true })
+                      }
                     : undefined
                 }
                 onOpenSession={

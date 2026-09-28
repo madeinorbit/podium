@@ -72,6 +72,9 @@ export interface ConversationControllerOptions {
    */
   onQueueRows?: (rows: unknown) => void
   retract?: (id: string) => Promise<void>
+  /** Let a failed send go, by its delivery id — the sender's durable copy is
+   *  dropped with the bubble, so nothing sends it later (POD-4762). */
+  discard?: (deliveryId: string) => Promise<void>
   dismissOffer?: (offerCreatedAt: string) => Promise<void>
   /** False when the adapter's durable outbox already projects the dismissal. */
   optimisticDismissOffer?: boolean
@@ -79,7 +82,6 @@ export interface ConversationControllerOptions {
   echoMode?: 'matching-user' | 'any-user'
   queueRefreshMs?: number
   queuedAckRefreshMs?: number
-  pendingSettleMs?: number
   optimisticSendCeilingMs?: number
   clock?: ConversationClock
 }
@@ -141,7 +143,8 @@ export class ConversationController {
   private queueTimer: unknown = null
   private ackTimer: unknown = null
   private sendTimer: unknown = null
-  private readonly settleTimers = new Map<string, unknown>()
+  /** Turns whose delivery is being awaited, so a restart does not wait twice. */
+  private readonly following = new Set<string>()
 
   constructor(private readonly options: ConversationControllerOptions) {
     this.clock = options.clock ?? defaultClock
@@ -178,6 +181,12 @@ export class ConversationController {
     const generation = this.generation
     this.observeTranscript(true)
     this.unsubscribeTranscript = this.options.transcript.subscribe(() => this.observeTranscript())
+    // A turn seeded as `sending` is a send the sender still holds from before
+    // this controller existed — a reload, a remount. Its delivery is idempotent
+    // by id, so asking again just waits on the send already under way.
+    for (const turn of this.state.pending) {
+      if (turn.state === 'sending') void this.follow(turn)
+    }
     await this.refreshQueue()
     if (!this.started || this.disposed || generation !== this.generation) return
     this.armQueueTimer()
@@ -270,10 +279,19 @@ export class ConversationController {
   async retry(id: string): Promise<void> {
     const turn = this.state.pending.find((candidate) => candidate.id === id)
     if (!turn || turn.state !== 'failed') return
+    if (turn.retryable === false) return
     const next = { ...turn, state: 'sending' as const }
     delete next.error
     this.replacePending(next)
     await this.dispatch(next, null, false)
+  }
+
+  /** Let a failed turn go: the bubble leaves once the sender dropped its copy. */
+  async discard(id: string): Promise<void> {
+    const turn = this.state.pending.find((candidate) => candidate.id === id)
+    if (!turn || turn.state !== 'failed') return
+    await this.options.discard?.(turn.deliveryId)
+    this.patch({ pending: this.state.pending.filter((candidate) => candidate.id !== id) })
   }
 
   async retract(id: string): Promise<void> {
@@ -432,8 +450,6 @@ export class ConversationController {
     this.clearTimer('queue')
     this.clearTimer('ack')
     this.clearTimer('send')
-    for (const token of this.settleTimers.values()) this.clock.clearTimeout(token)
-    this.settleTimers.clear()
   }
 
   dispose(): void {
@@ -476,7 +492,35 @@ export class ConversationController {
     rethrow: boolean,
   ): Promise<void> {
     const sendSeq = this.markSent()
-    this.armSettle(turn.id)
+    try {
+      await this.deliver(turn)
+    } catch (error) {
+      this.clearOpenSend(sendSeq)
+      if (retiredOfferAt && this.dismissedOfferAt === retiredOfferAt) {
+        this.dismissedOfferAt = null
+        this.patch({ offer: this.authoritativeOffer, dismissedOfferAt: null })
+      }
+      if (rethrow) throw error
+    }
+  }
+
+  /** Wait on a seeded turn's delivery without the side effects of a new send. */
+  private async follow(turn: ConversationPendingTurn): Promise<void> {
+    if (this.following.has(turn.id)) return
+    try {
+      await this.deliver(turn)
+    } catch {
+      // Recorded on the turn by `deliver`; nobody is waiting on a seeded send.
+    }
+  }
+
+  /**
+   * One delivery attempt, and the turn's state from its outcome. The adapter's
+   * `deliver` settles when the send does — the server answered, or the sender
+   * gave up — so the turn says `sending` for exactly as long as that is true.
+   */
+  private async deliver(turn: ConversationPendingTurn): Promise<void> {
+    this.following.add(turn.id)
     try {
       const result = await this.options.deliver(turn)
       if (result?.state) {
@@ -491,13 +535,16 @@ export class ConversationController {
         void this.refreshQueue()
       }
     } catch (error) {
-      this.replacePending({ ...turn, state: 'failed', error: errorText(error) })
-      this.clearOpenSend(sendSeq)
-      if (retiredOfferAt && this.dismissedOfferAt === retiredOfferAt) {
-        this.dismissedOfferAt = null
-        this.patch({ offer: this.authoritativeOffer, dismissedOfferAt: null })
-      }
-      if (rethrow) throw error
+      const retryable = (error as { retryable?: unknown } | null)?.retryable
+      this.replacePending({
+        ...turn,
+        state: 'failed',
+        error: errorText(error),
+        ...(retryable === false ? { retryable: false } : {}),
+      })
+      throw error
+    } finally {
+      this.following.delete(turn.id)
     }
   }
 
@@ -618,17 +665,6 @@ export class ConversationController {
       () => this.clearOpenSend(seq),
       this.options.optimisticSendCeilingMs ?? 30_000,
     )
-  }
-
-  private armSettle(id: string): void {
-    const previous = this.settleTimers.get(id)
-    if (previous) this.clock.clearTimeout(previous)
-    const token = this.clock.setTimeout(() => {
-      this.settleTimers.delete(id)
-      const turn = this.state.pending.find((candidate) => candidate.id === id)
-      if (turn?.state === 'sending') this.replacePending({ ...turn, state: 'sent' })
-    }, this.options.pendingSettleMs ?? 30_000)
-    this.settleTimers.set(id, token)
   }
 
   private armQueueTimer(): void {

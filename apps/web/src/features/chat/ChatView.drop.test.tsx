@@ -8,6 +8,7 @@ import {
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 /**
  * DRAGGING A FILE AT THE CONVERSATION (POD-1595).
@@ -94,6 +95,9 @@ const fakeReplica = {
   putTranscriptWindow: () => {},
 }
 
+// Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).
+const chatSend = outboxChatSendActions(() => fakeTrpc)
+
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hub: fakeHub,
@@ -103,7 +107,9 @@ vi.mock('@/app/store', () => {
     issues: storeIssues,
     drafts: {},
     setSessionDraft: vi.fn(),
-    resumeAndSend: vi.fn(async () => {}),
+    sendChat: chatSend.sendChat,
+    chatSendsFor: chatSend.chatSendsFor,
+    discardChat: chatSend.discardChat,
     setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
@@ -178,6 +184,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  chatSend.reset()
   act(() => root.unmount())
   container.remove()
   vi.clearAllMocks()

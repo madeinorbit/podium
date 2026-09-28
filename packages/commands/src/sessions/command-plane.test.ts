@@ -16,11 +16,11 @@ import {
 const defs = Object.entries(sessionCommandPlane.defs)
 
 /**
- * The ONE command in this class that may be queued offline, and the only reason
- * it may. Named as a constant so the exemption below cannot silently grow: a
- * second offline-eligible execution command has to edit this line.
+ * The TWO commands in this class that may be queued offline — the chat sends
+ * (POD-4762) — and the only reason they may. Named so the exemption cannot
+ * silently grow: a third offline-eligible execution command has to edit this.
  */
-const OFFLINE_ELIGIBLE_EXCEPTION = 'resumeAndSend'
+const OFFLINE_ELIGIBLE_EXCEPTIONS = ['resumeAndSend', 'sendText']
 
 describe('the command-plane table', () => {
   it('covers exactly the thirteen command-plane procs, and neither handoff nor ask', () => {
@@ -68,8 +68,16 @@ describe('the command-plane table', () => {
     expect(def.policy?.machineVerb).toBe('use')
   })
 
-  // D18.3's implication (machineVerb 'use' ⇒ not offline-eligible) and its ONE
-  // named exception are asserted in `command-facet-rules.test.ts`, over EVERY
+  it('queues exactly the chat sends offline, and nothing else in this class', () => {
+    const eligible = defs
+      .filter(([, def]) => def.offline === 'eligible')
+      .map(([key]) => key)
+      .sort()
+    expect(eligible).toEqual(OFFLINE_ELIGIBLE_EXCEPTIONS)
+  })
+
+  // D18.3's implication (machineVerb 'use' ⇒ not offline-eligible) and its named
+  // exceptions are asserted in `command-facet-rules.test.ts`, over EVERY
   // contract table this package exports rather than only this one. POD-642
   // spotted why that matters: `sessions.handoff` is the second declarer of the
   // field, and a per-file assertion would have left the rule unenforced for the
