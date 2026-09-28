@@ -1168,6 +1168,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-grok-session'),
+    readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       const transport = defaultServerTransport('grok') as GrokAcpTransport
       let alive = true

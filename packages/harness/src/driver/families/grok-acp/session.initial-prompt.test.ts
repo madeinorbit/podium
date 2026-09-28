@@ -44,6 +44,7 @@ describe('grok-acp launch with an initial prompt', () => {
       },
       now: () => Date.UTC(2026, 7, 20) + ++seq * 1000,
       mintSessionId: () => `gk-minted-${++seq}` as SessionId,
+      readHistory: async () => ({ items: [], hasMore: false }),
       async launch(input) {
         const server = startFakeGrokAcpServer(`grok-native-${input.sessionId}`)
         servers.set(input.sessionId, server)

@@ -10,6 +10,9 @@
 
 import { asSessionId } from '@podium/model'
 import { Buffer } from 'node:buffer'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { grokEngineFacts } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
@@ -27,7 +30,12 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { createTestEngineOwner } from '../../testing/binding-records.js'
-import type { GrokAcpJournalEntry } from './runtime.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
+import { isDriverRefusal } from '../../errors.js'
+import type { GrokAcpJournalEntry, GrokAcpRuntimeHost } from './runtime.js'
+import { createGrokAcpRuntime } from './runtime.js'
+import { startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
+import type { SessionId } from '@podium/model'
 
 const FACTS = grokEngineFacts(manifestFor('grok')!)
 
@@ -203,5 +211,221 @@ describe('headless engine lifecycle (POD-4433)', () => {
     expect(closed).toBe(0)
     expect(endpoint.alive()).toBe(true)
     expect(endpoint.engineExit?.()).toBeUndefined()
+  })
+})
+
+describe('readHistory — the Store read over chat_history.jsonl', () => {
+  const GROK_SESSION = '019ffd6d-f4c8-7c23-90bd-96cd86e783e9'
+  const SESSION = asSessionId('55555555-5555-4555-8555-555555555555')
+  const CWD = '/tmp/grok-history-probe'
+
+  /** One user turn and its assistant reply, in the real chat_history.jsonl record format. */
+  const writeChatHistory = (path: string): void => {
+    const lines = [
+      {
+        type: 'user',
+        id: 'u1',
+        timestamp: '2026-09-28T10:00:01.000Z',
+        content: [{ type: 'text', text: 'hello from disk' }],
+      },
+      {
+        type: 'assistant',
+        id: 'a1',
+        timestamp: '2026-09-28T10:00:05.000Z',
+        content: 'reply from disk',
+      },
+    ]
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`)
+  }
+
+  const chatHistoryPathFor = async (home: string): Promise<string> => {
+    const { grokSessionPaths } = await import('../../../adapters/grok/instrumentation.js')
+    return grokSessionPaths({ cwd: CWD, sessionId: GROK_SESSION, homeDir: home }).chatHistoryPath
+  }
+
+  const sessionFor = () => ({
+    sessionId: SESSION,
+    agentKind: 'grok' as const,
+    cwd: CWD,
+    resume: { kind: 'grok-session' as const, value: GROK_SESSION },
+  })
+
+  it('reads the chat history user turn and assistant reply from disk', async () => {
+    // THE PRODUCTION READER, against a real file: the driver's history
+    // delegates here, so this is the half the conformance suite cannot see
+    // (that suite supplies its own readHistory over the fake's frames).
+    const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-hist-'))
+    try {
+      writeChatHistory(await chatHistoryPathFor(home))
+      const host = engineHost({ homeDir: home })
+      const page = await host.readHistory(sessionFor(), { limit: 50 })
+      expect(page.items.map((item) => [item.role, item.text])).toEqual([
+        ['user', 'hello from disk'],
+        ['assistant', 'reply from disk'],
+      ])
+      expect(page.hasMore).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it("pages older items through the returned cursor ('before' limit 1, then head)", async () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-page-'))
+    try {
+      writeChatHistory(await chatHistoryPathFor(home))
+      const host = engineHost({ homeDir: home })
+      const newest = await host.readHistory(sessionFor(), { limit: 1 })
+      expect(newest.items.map((item) => item.text)).toEqual(['reply from disk'])
+      expect(newest.hasMore).toBe(true)
+      expect(newest.head).toBeDefined()
+      const earlier = await host.readHistory(sessionFor(), {
+        from: newest.head,
+        limit: 10,
+      })
+      expect(earlier.items.map((item) => item.text)).toEqual(['hello from disk'])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('a session with no chat history file yet reads as an empty page, not an error', async () => {
+    // Grok creates `chat_history.jsonl` on its first turn. History before
+    // that is empty — the slice layer returns empty for a missing chain or
+    // file, so no existence check is needed here beyond what the Store
+    // already does.
+    const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-empty-'))
+    try {
+      const host = engineHost({ homeDir: home })
+      const page = await host.readHistory(sessionFor(), { limit: 50 })
+      expect(page).toEqual({ items: [], hasMore: false })
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a foreign history cursor instead of reading another session', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-cursor-'))
+    try {
+      writeChatHistory(await chatHistoryPathFor(home))
+      const host = engineHost({ homeDir: home })
+      const session = sessionFor()
+      await expect(
+        host.readHistory(session, {
+          from: { segmentId: 'history:someone-else:other', pathHint: 'x', components: {} },
+          limit: 10,
+        }),
+      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      // Same segment but no anchor is equally foreign: cursors are opaque.
+      const own = await host.readHistory(session, { limit: 50 })
+      expect(own.head).toBeDefined()
+      await expect(
+        host.readHistory(session, {
+          from: { segmentId: own.head!.segmentId, components: {} },
+          limit: 10,
+        }),
+      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('history after a simulated daemon restart (fresh host, same files) equals history before it', async () => {
+    // THE DAEMON-RESTART PROMISE: the driver's in-memory copy dies with the
+    // process, the file does not. A fresh host over the same HOME must read
+    // back exactly what the pre-restart host read.
+    const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-restart-'))
+    try {
+      writeChatHistory(await chatHistoryPathFor(home))
+      const before = await engineHost({ homeDir: home }).readHistory(sessionFor(), { limit: 50 })
+      expect(before.items).toHaveLength(2)
+      // Fresh driver generation: new host object, same files on disk.
+      const after = await engineHost({ homeDir: home }).readHistory(sessionFor(), { limit: 50 })
+      expect(after.items).toEqual(before.items)
+      expect(after.items.map((item) => [item.role, item.text])).toEqual([
+        ['user', 'hello from disk'],
+        ['assistant', 'reply from disk'],
+      ])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('driver history after a simulated daemon restart (fresh driver, same files) equals history before it', async () => {
+    // THROUGH THE DRIVER, not just the host: both generations delegate to
+    // the Store port over the same `chat_history.jsonl`, so neither reads
+    // the live process (whose fake holds no conversation at all). A driver
+    // regressed to its in-memory copy would read empty here and go red.
+    const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-drv-restart-'))
+    try {
+      writeChatHistory(await chatHistoryPathFor(home))
+      const makeDriverHost = (
+        prod: ReturnType<typeof engineHost>,
+        entries: Map<SessionId, GrokAcpJournalEntry>,
+        seq: { n: number },
+      ): GrokAcpRuntimeHost => ({
+        bindings: {
+          recorded: (id) => entries.get(id),
+          bound: (entry) => void entries.set(entry.sessionId, entry),
+          released: (id) => void entries.delete(id),
+        },
+        now: () => Date.UTC(2026, 8, 28) + ++seq.n * 1000,
+        mintSessionId: () => `gk-restart-${++seq.n}` as SessionId,
+        readHistory: (session, range) => prod.readHistory(session, range),
+        async launch(input) {
+          const server = startFakeGrokAcpServer(GROK_SESSION)
+          return {
+            transport: server.transport,
+            process: { key: `podium-gk-${input.sessionId}` },
+            stop: async () => server.crash(),
+            kill: async () => server.crash(),
+            resources: () => undefined,
+            alive: () => server.alive,
+          }
+        },
+      })
+      const spec = () => ({
+        harness: 'grok' as const,
+        selection: {
+          auth: 'subscription' as const,
+          platform: 'linux' as const,
+          available: ['grok-acp' as const],
+          preference: 'grok-acp' as const,
+        },
+        workdir: CWD,
+        model: {},
+        instructions: { supported: false as const, reason: 'fixture' },
+        mcpServers: { supported: false as const, reason: 'fixture' },
+      })
+      const seq1 = { n: 0 }
+      const entries1 = new Map<SessionId, GrokAcpJournalEntry>()
+      const prod1 = engineHost({ homeDir: home })
+      const runtime1 = createGrokAcpRuntime(makeDriverHost(prod1, entries1, seq1), createMemoryDriverSlots())
+      const handle1 = await runtime1.driver.create(spec())
+      try {
+        const before = await handle1.transcript.history({ limit: 50 })
+        expect(before.items.map((item) => [item.role, item.text])).toEqual([
+          ['user', 'hello from disk'],
+          ['assistant', 'reply from disk'],
+        ])
+        // Simulate the daemon restart: drop the whole runtime, keep the files.
+        runtime1.dispose()
+        const seq2 = { n: 100 }
+        const entries2 = new Map<SessionId, GrokAcpJournalEntry>()
+        const prod2 = engineHost({ homeDir: home })
+        const runtime2 = createGrokAcpRuntime(makeDriverHost(prod2, entries2, seq2), createMemoryDriverSlots())
+        try {
+          const handle2 = await runtime2.driver.create(spec())
+          const after = await handle2.transcript.history({ limit: 50 })
+          expect(after.items).toEqual(before.items)
+        } finally {
+          runtime2.dispose()
+        }
+      } finally {
+        // runtime1 already disposed above; disposing twice is safe.
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })
