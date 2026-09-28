@@ -18,7 +18,7 @@ import { declaredValue, manifestFor } from '@podium/harness'
 export { codexTranscriptPlacement } from '@podium/harness'
 
 import type { SessionArchive } from '@podium/harness/driver/host'
-import type { Attribution, IssueId, MachineId, RepoId, SessionId } from '@podium/model'
+import type { AgentKind, Attribution, IssueId, MachineId, RepoId, SessionId } from '@podium/model'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/model'
 import { archivePathParts, validateConversationArchive } from './handoff-driver-bridge'
 import { gitWorktree } from './worktree-resolve'
@@ -419,7 +419,12 @@ export async function exportHandoffPackage(input: {
   sessionId: SessionId
   cwd: string
   fallbackCwd?: string
-  agentKind: 'claude-code' | 'codex'
+  // Any harness: handoffTranscriptFor refuses unknown kinds and unsupported
+  // harnesses with a message naming them (same shape as transcriptForExport
+  // above), and HandoffManifest.parse narrows to the handoff-capable slice —
+  // so this type must not restate the two harnesses that happen to qualify
+  // today (POD-4737).
+  agentKind: AgentKind
   resume: HandoffManifestType['resume']
   branch: string
   baseShas: string[]

@@ -60,7 +60,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { abducoHasSession, createDurable } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
-import { createOpencodeClientTerminals, opencodeAttachLabel } from './opencode-attach'
+import { createOpencodeClientTerminals, requireClientTerminalLabel } from './opencode-attach'
 import { createSessionClientScope } from '../session/clients.js'
 import { opencodeFlavor, opencodeScopeLabel } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
@@ -209,7 +209,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
 
       // The durable master is real, under the label whose scope is the session's
       // sibling — this is what makes the attachment warm-parkable.
-      const label = opencodeAttachLabel(GOOD)
+      const label = requireClientTerminalLabel(GOOD, 'opencode')
       expect(await abducoHasSession(label)).toBe(true)
 
       /**
@@ -285,7 +285,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       const deadline = Date.now() + 15_000
       let alive = true
       while (alive && Date.now() < deadline) {
-        alive = await abducoHasSession(opencodeAttachLabel(BAD))
+        alive = await abducoHasSession(requireClientTerminalLabel(BAD, 'opencode'))
         if (alive) await sleep(500)
       }
       expect(alive).toBe(false)

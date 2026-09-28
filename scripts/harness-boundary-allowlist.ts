@@ -198,16 +198,20 @@ export interface HarnessBoundaryAllowlistEntry {
  *  session title reads the adapter descriptor label. Deleted twelve
  *  emptied entries (discovery 6×3, scanner 1, model-probe 5, opencode 9,
  *  session-title 1): leak 152 → 118, total 187 → 153.
+ *  POD-4737 (daemon leftovers): binding spool kinds read off the resume
+ *  kind they validate against, handoff export takes any harness behind its
+ *  transcript gate, attach labels collapse to one generic composition
+ *  (kind-less adoption keeps its historical opencode default as policy):
+ *  deleted binding-store (2) + handoff (2), opencode-attach 4 → policy 1:
+ *  leak 118 → 110, policy 35 → 36, total 153 → 146.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 118
-export const HARNESS_BASELINE_POLICY_COUNT = 35
-export const HARNESS_BASELINE_TOTAL = 153
+export const HARNESS_BASELINE_LEAK_COUNT = 110
+export const HARNESS_BASELINE_POLICY_COUNT = 36
+export const HARNESS_BASELINE_TOTAL = 146
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'homonym: read-command cursor arg (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'apps/daemon/src/binding-store.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/daemon/src/handoff-package.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 4, category: 'leak', reason: 'daemon headless host/driver names a harness; move into driver families (1.5)', issue: 'POD-4414/1.5' },
+  { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 1, category: 'policy', reason: 'kind-less adoption assumes opencode (legacy attach default that stays); the per-harness labels are one generic composition', policy: 'apps/daemon/src/runtime/opencode-attach.ts' },
   { file: 'apps/mobile/harness/agent-mark-entry.tsx', count: 13, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/mobile/harness/backend-rail-entry.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/server/src/llm.ts', count: 1, category: 'leak', reason: 'homonym: Codex ApiProvider check, not the harness id; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },

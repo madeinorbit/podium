@@ -22,7 +22,7 @@ import type { DurableAttachment, DurableProcess } from '@podium/process/durable'
 import { describe, expect, it } from 'vitest'
 import { createSessionClientScope } from '../session/clients.js'
 import { SessionRegistry } from '../session/registry.js'
-import { createOpencodeClientTerminals, opencodeAttachLabel } from './opencode-attach.js'
+import { createOpencodeClientTerminals, requireClientTerminalLabel } from './opencode-attach.js'
 
 const SESSION = asSessionId('44444444-4444-4444-8444-444444444444')
 const TARGET = {
@@ -93,7 +93,7 @@ describe('client lifecycle ownership (§5: the session summons, the relay render
     await terminals.close(SESSION)
     terminals.adopt(SESSION)
 
-    const label = opencodeAttachLabel(SESSION)
+    const label = requireClientTerminalLabel(SESSION, 'opencode')
     expect(calls).toEqual([`spawn:${label}`, `kill:${label}`, `probe:${label}`])
   })
 
