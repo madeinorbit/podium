@@ -101,3 +101,35 @@ counting children), `pool/react/list.tsx` (provides the context).
 - Screen: right (the count is even correct). Notice: nobody — until the
   reads fence or a budget test runs; then immediate with the exact attribution
   (`issue:2820` iterates).
+
+### P4 untracked state (branch `n1b-p4-untracked-state`, patch `n1b-p4-untracked-state.patch`)
+
+Plant: plain `refreshed: Set` + `refreshedViews: Map` instance fields on
+`MobxPool` (`false` annotations), consulted in `IssueModel.view`, cleared in
+`applyLocals` on `coarseNow`. Two shapings on the way: (1) a zero-tracked-dep
+variant tripped MobX's own "derivation without observable" warning under the
+arm's warn trap (artifact, not P4); (2) fill-on-every-recompute made even the
+mount history (fence steps fired) and broke the ticked pair (post-tick
+snapshot refilled). Final: the derivation always runs tracked (enforcement
+ON=OFF, per K MobX D) but plain state picks previous-vs-fresh; a row joins
+the set only when a pass gives it a NEW value — the reference `guardSet`
+semantics exactly.
+
+- typecheck SILENT (green). lint-fence SILENT (instance field + `false`;
+  module scope is the separate measured `no-hidden-state` record).
+- commit-fence SILENT, reads-fence SILENT, parity SILENT — the fixed steps
+  (one change per fresh mount) cannot carry history, as catalogued.
+- gate FIRED — `same row twice, nothing between step 3 vs rebuild:
+  title: "Probe first title" (expected "Probe second title")`, shrunk to 2
+  changes (catalogue §8 verbatim).
+- relation-check SILENT. history-check FIRED — step 3 only
+  (`[false,false,false,true]`, the reference pin); the `tick between`
+  sequence fully green (gate ok, history ok): history, not inputs.
+- behaviour-test FIRED (via history + gate).
+- arm-tests FIRED — `counts.test.tsx`: `[commits] selectionClick (#3):
+  drew 0 rows, the oracle changed 1, under=[i214]` (#1–#4 run on ONE mount,
+  so history accumulates); `pool.test.tsx > a click re-derives exactly the
+  old and the new selection`: stale `selected=true` after the second click.
+- Screen: a row changed twice with nothing between shows the first value;
+  heals on the next clock tick. Notice: only a two-change test sees it —
+  every single-change view passes.

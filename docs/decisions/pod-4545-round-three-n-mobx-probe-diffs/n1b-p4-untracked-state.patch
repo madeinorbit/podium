@@ -1,0 +1,101 @@
+diff --git a/packages/worklist-proto/arms/mobx/pool/models.ts b/packages/worklist-proto/arms/mobx/pool/models.ts
+index d3ccb7d7f..92762fb69 100644
+--- a/packages/worklist-proto/arms/mobx/pool/models.ts
++++ b/packages/worklist-proto/arms/mobx/pool/models.ts
+@@ -54,6 +54,15 @@ export interface ModelHost {
+   readonly fenced: { readonly [E in EntityName]: { get(id: string): unknown } }
+   readonly inputs: ViewInputs
+   readonly stats: ArmStats
++  /** PLANTED (P4 N1b): rows "already refreshed" — plain state no derivation tracks. */
++  readonly refreshed: Set<string>
++  /** PLANTED (P4 N1b): the previous view per refreshed row. */
++  readonly refreshedViews: Map<string, RowView | undefined>
++}
++
++/** PLANTED (P4 N1b): structural compare for the previous-value short-circuit. */
++function sameView(a: RowView | undefined, b: RowView | undefined): boolean {
++  return JSON.stringify(a) === JSON.stringify(b)
+ }
+ 
+ export class EntityModel {
+@@ -156,7 +165,27 @@ export class IssueModel extends EntityModel implements IssueParts {
+   /** The L1b row view, from the parts above; undefined once the row has left. */
+   get view(): RowView | undefined {
+     this.host.stats.rowsDerived += 1
+-    return buildRowView(this.host.inputs, this.id, this)
++    // PLANTED (P4 N1b): the derivation always runs over tracked inputs (as
++    // before: enforcement sees a normal derivation), but a row "already
++    // refreshed" keeps its previous value instead of taking the fresh one —
++    // plain state deciding the output, cleared only on a clock notification.
++    // A row joins the set only when a pass gives it a NEW value (a mount or
++    // an unchanged pass fills nothing), so one change alone is always fresh
++    // and the second one with nothing between is stale.
++    const fresh = buildRowView(this.host.inputs, this.id, this)
++    if (fresh === undefined) {
++      this.host.refreshed.delete(this.id)
++      this.host.refreshedViews.delete(this.id)
++      return undefined
++    }
++    if (this.host.refreshed.has(this.id)) return this.host.refreshedViews.get(this.id)
++    const had = this.host.refreshedViews.has(this.id)
++    const prev = this.host.refreshedViews.get(this.id)
++    this.host.refreshedViews.set(this.id, fresh)
++    if (had && !sameView(prev, fresh)) {
++      this.host.refreshed.add(this.id)
++    }
++    return fresh
+   }
+ }
+ 
+diff --git a/packages/worklist-proto/arms/mobx/pool/pool.ts b/packages/worklist-proto/arms/mobx/pool/pool.ts
+index f5865e758..3a8adbba8 100644
+--- a/packages/worklist-proto/arms/mobx/pool/pool.ts
++++ b/packages/worklist-proto/arms/mobx/pool/pool.ts
+@@ -53,7 +53,7 @@ import {
+   runInAction,
+ } from 'mobx'
+ import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
+-import { sliceRowOf } from '../../../shared/src/row-view'
++import { sliceRowOf, type RowView } from '../../../shared/src/row-view'
+ import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
+ import type {
+   LocalsKey,
+@@ -291,6 +291,14 @@ export class MobxPool {
+   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
+   private readonly target: IngestTarget
+   private selectedId: string | null
++  /**
++   * PLANTED (P4 N1b) — rows "already refreshed" and their previous views.
++   * Plain state, read inside the row-view derivation (`IssueModel.view`),
++   * cleared only on a clock notification: a row changed twice with nothing
++   * between keeps its first view.
++   */
++  readonly refreshed = new Set<string>()
++  readonly refreshedViews = new Map<string, RowView | undefined>()
+   /**
+    * POD-4678 — clears the maintained seat mirror (a closure over it, so the
+    * copy sweep never walks the mirror: it holds only ids, never rows).
+@@ -577,6 +585,9 @@ export class MobxPool {
+       models: false,
+       target: false,
+       selectedId: false,
++      // PLANTED (P4 N1b): plain state, explicitly not observable.
++      refreshed: false,
++      refreshedViews: false,
+       clearSeats: false,
+       reads: false,
+       residency: false,
+@@ -1130,7 +1141,12 @@ export class MobxPool {
+     runInAction(() => {
+       if (selection) this.select(locals.selectedIssueId)
+       if (latch) this.foldLatch.set(locals.selectedIssueWasFolded === true)
+-      if (clock) this.clock.advance(locals.coarseNow)
++      if (clock) {
++        this.clock.advance(locals.coarseNow)
++        // PLANTED (P4 N1b): the refreshed set clears on a clock notification only.
++        this.refreshed.clear()
++        this.refreshedViews.clear()
++      }
+     })
+     this.stats.notifications += 1
+   }
