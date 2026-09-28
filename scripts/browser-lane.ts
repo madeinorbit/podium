@@ -44,12 +44,11 @@
  *    the lease (callers often already hold it for a hand-run playwright half).
  *
  * 5. THE PREFLIGHT [POD-4752]. Before building, the lane asks Playwright
- *    whether each selected project's browser is supported and installed on
- *    this host, and SKIPS projects whose browser can never run here (webkit
- *    on ubuntu26.04 failed every test with `Playwright does not support
- *    webkit`, drowning the real failures). A supported-but-not-installed
- *    browser is a loud setup error, never a skip; anything unclassifiable
- *    still runs, so the preflight can never hide a real failure.
+ *    whether each selected project's browser is supported on this host, and
+ *    SKIPS projects whose browser can never run here (webkit on ubuntu26.04
+ *    failed every test with `Playwright does not support webkit`, drowning
+ *    the real failures). Install state is deliberately not preflighted:
+ *    Playwright fails loudly itself when the binary it launches is missing.
  *
  * Quarantine lives in ./browser-quarantine.ts — a list, printed every run, not a
  * `testIgnore` glob nobody can see.
@@ -61,7 +60,7 @@
  *   bun scripts/browser-lane.ts --build-only   # hand-run prep only; prefer --suite
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { QUARANTINE } from './browser-quarantine'
 import { runWithHeavyTestLease, shouldAcquireHeavyTestLease } from './test-heavy'
@@ -273,12 +272,17 @@ export function laneMaySucceed(input: {
  *   `BrowserType.executablePath()` returns ''). The project can never go
  *   green here, so the lane SKIPS it with one clear line instead of failing
  *   every test in it.
- * - `missing` — supported on this host but the browser is not installed. A
- *   setup error to report loudly, never a skip: running a partial lane over
- *   it would read as coverage.
  * - `ready` / `unknown` — run. Anything the lane cannot classify must still
  *   execute, so the preflight can never hide a project that IS supported
  *   but fails.
+ *
+ * Deliberately NOT checked: whether the browser is installed. `executablePath()`
+ * names the full chromium binary, but headless runs launch the headless shell
+ * instead — so an on-disk check of that one path false-negatives on hosts
+ * where the lane works fine (ludovico: no chromium-1223, yet chromium runs
+ * pass all day on chromium_headless_shell-1223). When the binary Playwright
+ * actually launches is missing, Playwright itself fails loudly and
+ * specifically; a preflight that guesses the wrong binary is worse than none.
  *
  * API used: the public `BrowserType.executablePath()` from `@playwright/test`
  * (chromium/firefox/webkit). It is empty exactly when Playwright has no
@@ -291,7 +295,6 @@ export function laneMaySucceed(input: {
 export type BrowserSupport =
   | { kind: 'ready' }
   | { kind: 'unsupported'; reason: string }
-  | { kind: 'missing'; detail: string }
   | { kind: 'unknown'; detail: string }
 
 export type BrowserSupportProbe = (browser: string) => BrowserSupport
@@ -301,25 +304,14 @@ export type ConfiguredProject = { name: string; browser: string | null }
 /**
  * Pure classifier behind probeBrowserSupport. `executablePath` is what
  * Playwright's `BrowserType.executablePath()` returned ('' = no build for
- * this host); `installed` is whether that path exists on disk.
+ * this host). A non-empty path always means "run" — install state is
+ * Playwright's own loud failure, never the preflight's call.
  */
-export function decideBrowserSupport(
-  browser: string,
-  executablePath: string,
-  installed: boolean,
-): BrowserSupport {
+export function decideBrowserSupport(browser: string, executablePath: string): BrowserSupport {
   if (!executablePath) {
     return {
       kind: 'unsupported',
       reason: `Playwright does not support ${browser} on this host`,
-    }
-  }
-  if (!installed) {
-    return {
-      kind: 'missing',
-      detail:
-        `browser "${browser}" is supported on this host but its executable is missing ` +
-        `(${executablePath}); install it with: bunx playwright install ${browser}`,
     }
   }
   return { kind: 'ready' }
@@ -341,7 +333,6 @@ export function browserForProject(name: string, defaultBrowserType?: string): st
 export type ProjectPreflight = {
   runnable: string[]
   skipped: { project: string; browser: string; reason: string }[]
-  missing: { project: string; browser: string; detail: string }[]
 }
 
 /**
@@ -367,7 +358,6 @@ export function preflightProjects(
   }
   const runnable: string[] = []
   const skipped: ProjectPreflight['skipped'] = []
-  const missing: ProjectPreflight['missing'] = []
   for (const name of names) {
     const project = byName.get(name)
     if (!project || project.browser === null) {
@@ -377,14 +367,12 @@ export function preflightProjects(
     const answer = answerFor(project.browser)
     if (answer.kind === 'unsupported') {
       skipped.push({ project: name, browser: project.browser, reason: answer.reason })
-    } else if (answer.kind === 'missing') {
-      missing.push({ project: name, browser: project.browser, detail: answer.detail })
     } else {
       // ready AND unknown run: an unclassifiable browser must never vanish.
       runnable.push(name)
     }
   }
-  return { runnable, skipped, missing }
+  return { runnable, skipped }
 }
 
 /**
@@ -478,7 +466,7 @@ export async function probeBrowserSupport(browser: string): Promise<BrowserSuppo
       detail: `could not resolve the ${browser} executable: ${messageOf(error)}`,
     }
   }
-  return decideBrowserSupport(browser, executablePath, existsSync(executablePath))
+  return decideBrowserSupport(browser, executablePath)
 }
 
 type PlaywrightConfigShape = {
@@ -540,7 +528,7 @@ exit status will mask Playwright's. Prefer redirecting to a file.
 
 Projects whose browser Playwright cannot run on this host are SKIPPED with one
 clear line each (and named in the census) instead of failing every test in
-them. A supported-but-not-installed browser is a loud setup error, never a skip.
+them.
 
 Discovered suites (${suites.length}):
 ${suites.map((s) => `  ${s.replace(/\.browser\.e2e\.ts$/, '')}`).join('\n')}
@@ -604,8 +592,7 @@ async function runLane(args: LaneArgs): Promise<number> {
 
   // THE PREFLIGHT (5): ask Playwright per project browser before paying for a
   // build. Unsupported projects are skipped with one clear line each and the
-  // run is narrowed to the runnable set; a supported-but-not-installed
-  // browser aborts loudly before the build. When the config cannot be read at
+  // run is narrowed to the runnable set. When the config cannot be read at
   // all, proceed unfiltered — the Playwright run itself will fail loudly.
   const configured = await loadConfiguredProjects().catch((error) => {
     console.log(
@@ -648,14 +635,6 @@ async function runLane(args: LaneArgs): Promise<number> {
       console.log(
         `preflight: all ${preflight.runnable.length} selected project(s) supported on this host.`,
       )
-    }
-    if (preflight.missing.length > 0) {
-      for (const m of preflight.missing) console.error(`browser lane: ${m.detail}`)
-      console.error(
-        `browser lane: ${preflight.missing.length} project(s) target a browser that is ` +
-          `supported on this host but not installed — refusing to run a partial lane.`,
-      )
-      return 1
     }
     if (preflight.runnable.length === 0) {
       console.error(
