@@ -1477,6 +1477,8 @@ export class SessionRegistry {
         await queuedMessageApply.reject(messageId, reason, cause),
       confirmQueuedMessageApplied: (messageId, sessionId) =>
         queuedMessageApply.applied(messageId, sessionId),
+      nameQueuedMessageEntry: (messageId, sessionId, transcriptItem) =>
+        queuedMessageApply.named(messageId, sessionId, transcriptItem),
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
       noteQueuedMessageUnconfirmed: (messageId, sessionId, reason) =>

@@ -15,7 +15,7 @@ import type {
   WorkState,
   MachineId,
 } from '@podium/model'
-import type { AgentKind, UserId } from '@podium/model'
+import type { AgentKind, TranscriptItemRef, UserId } from '@podium/model'
 import type {
   MetadataChange,
   SubscriptionRegistry,
@@ -101,6 +101,12 @@ export interface SessionLifecycleDeps {
   ): Promise<void>
   /** Advance the source intent only after queued input crosses into the PTY. */
   confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): Promise<void>
+  /** Record which entry in the agent's history the message became (POD-4774). */
+  nameQueuedMessageEntry?(
+    messageId: string,
+    sessionId: SessionId,
+    transcriptItem: TranscriptItemRef,
+  ): Promise<void>
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): Promise<void>

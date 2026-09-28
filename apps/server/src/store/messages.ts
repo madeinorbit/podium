@@ -22,6 +22,7 @@ import {
   type MessageDeliveryStatus,
   type MoveOutcome,
   type SessionId,
+  type TranscriptItemRef,
 } from '@podium/model'
 import { type QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {
@@ -212,6 +213,14 @@ function mapMessage(r: MessageSelect): MessageRow {
     factKey: r.factKey ?? null,
     factTarget: r.factTarget ?? null,
     expectsResponse: r.expectsResponse,
+    ...(r.transcriptItemId
+      ? {
+          transcriptItem: {
+            id: r.transcriptItemId,
+            ...(r.transcriptItemCursor ? { cursor: r.transcriptItemCursor } : {}),
+          },
+        }
+      : {}),
   }
 }
 
@@ -897,6 +906,36 @@ export class MessagesRepository {
     // or the per-reader nag keeps asking the session to read what it just saw.
     if (brandedDeliveredTo) await this.recordRead(id, brandedDeliveredTo, deliveredAt)
     return outcome
+  }
+
+  /**
+   * NAME THE ENTRY THIS MESSAGE BECAME IN `deliveredTo`'S HISTORY [POD-4774].
+   *
+   * A stamp, not a move: `delivery_status` is untouched, so it lands whether
+   * the naming arrives with the confirmation or after it (a hook proves the
+   * send before the harness records it). Written once — the first naming wins
+   * and a repeat changes nothing — and only for the push this report answers:
+   * a row handed to another session is not named by this one's history.
+   * Answers whether THIS call wrote it.
+   */
+  async nameTranscriptItem(
+    id: string,
+    deliveredTo: SessionId,
+    item: TranscriptItemRef,
+  ): Promise<boolean> {
+    const written = await this.committed.write(async () => this.db
+      .update(messagesTable)
+      .set({ transcriptItemId: item.id, transcriptItemCursor: item.cursor ?? null })
+      .where(
+        and(
+          eq(messagesTable.id, id),
+          isNull(messagesTable.transcriptItemId),
+          or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)),
+        ),
+      )
+      .returning(MESSAGE_QUEUE_COLUMNS)
+      .all(), 'upsert')
+    return written.changes === 1
   }
 
   /** → cancelled: the sender retracted work before it was typed. The

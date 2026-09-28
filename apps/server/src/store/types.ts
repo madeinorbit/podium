@@ -19,6 +19,7 @@ import type {
   RepoId,
   SessionId,
   ThreadId,
+  TranscriptItemRef,
   UpdateChannel,
   UserId,
   VisibilityClass,
@@ -642,6 +643,11 @@ export interface MessageRow {
    *  `notification` never set it — an ack is never itself ackable. Optional in TS
    *  (the column is NOT NULL DEFAULT 0; a missing field reads as false). */
   expectsResponse?: boolean
+  /** The entry in the recipient agent's own history this message became, as
+   *  its machine named it on delivery [POD-4774]. What the chat matches the
+   *  message to its transcript item by — never the text. Absent until named;
+   *  stays absent when the harness gave no way to identify the item. */
+  transcriptItem?: TranscriptItemRef
 }
 
 /** A durable event subscription (event-subscriptions design, Phase B). The steward

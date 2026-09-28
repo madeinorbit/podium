@@ -2149,6 +2149,13 @@ export const messages = sqliteTable(
     // ordinary mail; consume/dismiss retires the matching arbiter fact.
     factKey: text('fact_key'),
     factTarget: text('fact_target'),
+    // WHICH ENTRY IN THE AGENT'S OWN HISTORY THIS MESSAGE BECAME [POD-4774]:
+    // the transcript item id (and its opaque cursor) the agent's machine named
+    // when it confirmed delivery, so the chat matches a message to its entry by
+    // id, never by text. Null until named, and null for good when the harness
+    // gave no way to identify the item. Written once; the first naming wins.
+    transcriptItemId: text('transcript_item_id'),
+    transcriptItemCursor: text('transcript_item_cursor'),
   },
   (table) => [
     index('idx_messages_delivered_to').on(table.deliveredTo),

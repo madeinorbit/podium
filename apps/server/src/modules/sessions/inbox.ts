@@ -19,6 +19,7 @@ import type {
   Geometry,
   MutationId,
   SessionId,
+  TranscriptItemRef,
   UserId,
 } from '@podium/model'
 import {
@@ -103,6 +104,10 @@ export interface DeliveryOutcomeEvent {
   outcome: 'delivered' | 'failed' | 'dropped'
   reason?: string
   cause?: string
+  /** On `delivered`: the entry in the agent's history the row became, when
+   *  the daemon identified it — with the confirmation, or in a later
+   *  `delivered` for the same id (POD-4774). */
+  transcriptItem?: TranscriptItemRef
 }
 
 const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
@@ -235,6 +240,9 @@ export interface InboxAuthorizationPort {
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
+  /** The agent's machine named the entry in its history that message became
+   *  (POD-4774). A stamp on the message, independent of its status. */
+  named?(input: { messageId: string; sessionId: SessionId; transcriptItem: TranscriptItemRef }): Promise<void>
   /** The bytes went into the CLI; the agent has not been seen to take them yet
    *  (POD-1242). Between this and {@link applied} the message is normally the
    *  harness's. An explicit interrupt is the one signal that returns ownership
@@ -1259,10 +1267,24 @@ export class SessionInbox {
   async deliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
     const key = `${sessionId}:${event.rowId}`
     const pending = this.settlingDeliveries.get(key)
-    if (pending) { await pending; return }
-    const settlement = this.settleDeliveryOutcome(sessionId, event)
-    this.settlingDeliveries.set(key, settlement)
-    try { await settlement } finally { this.settlingDeliveries.delete(key) }
+    if (pending) {
+      await pending
+    } else {
+      const settlement = this.settleDeliveryOutcome(sessionId, event)
+      this.settlingDeliveries.set(key, settlement)
+      try { await settlement } finally { this.settlingDeliveries.delete(key) }
+    }
+    // THE ENTRY IS NAMED BY ID, AFTER THE ROW SETTLES (POD-4774). A message's
+    // row id IS its message id, so this reaches the message whether the row
+    // settled on this outcome, on an earlier one (the entry was learned after
+    // the confirmation), or never had a row here (a direct send's turn id).
+    if (event.outcome === 'delivered' && event.transcriptItem) {
+      await this.deps.authorization.named?.({
+        messageId: event.rowId,
+        sessionId,
+        transcriptItem: event.transcriptItem,
+      })
+    }
   }
 
   private async settleDeliveryOutcome(

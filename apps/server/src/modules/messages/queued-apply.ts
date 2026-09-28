@@ -1,4 +1,4 @@
-import { isMessagePending, MessageDelivery, type SessionId } from '@podium/model'
+import { isMessagePending, MessageDelivery, type SessionId, type TranscriptItemRef } from '@podium/model'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import { moved } from '../../store/messages'
@@ -45,6 +45,12 @@ export class QueuedMessageApply {
   async applied(messageId: string, sessionId: SessionId): Promise<void> {
     const completion: Promise<void> = this.deps.applied(messageId, sessionId)
     await completion
+  }
+
+  /** The agent's machine named the entry in its history this message became
+   *  (POD-4774): a first-writer-wins stamp, independent of the status. */
+  async named(messageId: string, sessionId: SessionId, item: TranscriptItemRef): Promise<void> {
+    await this.deps.messages.nameTranscriptItem(messageId, sessionId, item)
   }
 
   /** The push crossed into the CLI but the agent has not been seen to take it —

@@ -2110,6 +2110,12 @@ export class MessageDeliveryService {
         await this.markDelivered(current, sessionId, 'injection')
       }
     }
+    // The entry the push became in the agent's history, when the receipt named
+    // it (POD-4774). A stamp beside the status, so it lands even on a row the
+    // echo already confirmed; a later naming arrives as a delivery outcome.
+    if (receipt.outcome === 'accepted' && receipt.transcriptItem) {
+      await this.deps.messages.nameTranscriptItem(messageId, sessionId, receipt.transcriptItem)
+    }
     // Only a push that was recorded can be lost track of; a synchronous answer
     // belongs to the caller still recording it.
     if (receipt.outcome === 'unverified' && afterRecord) {
