@@ -2034,7 +2034,7 @@ export class MessageDeliveryService {
    * it answers to `unknown` and nothing else (POD-4775): not `failed`, because
    * the text may well have landed, and never a resend. An ACCEPTED receipt is
    * the driver saying the turn took the text, so it settles the row it answers
-   * as delivered [POD-4661], `unknown` included; refusals use the correction
+   * as delivered [POD-4661]; refusals use the correction
    * table below. Every receipt records `message.receipt` beside the row's own
    * transitions. The other paths that advance a row are unchanged: the
    * transcript echo confirms it (`markDelivered` via 'echo'), an inbox read
@@ -2102,7 +2102,7 @@ export class MessageDeliveryService {
     })
     if (receipt.outcome === 'accepted' && receipt.deliveredAs !== 'queue') {
       const current = await this.deps.messages.getMessage(messageId)
-      if (current && isMessageHandedOn(current.deliveryStatus) && current.deliveredTo === sessionId) {
+      if (current && isMessageOnItsWay(current.deliveryStatus) && current.deliveredTo === sessionId) {
         await this.markDelivered(current, sessionId, 'injection')
       }
     }

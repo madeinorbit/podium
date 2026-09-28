@@ -3422,6 +3422,23 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
+  it('an unknown row is still confirmed by its echo [POD-4775]', async () => {
+    // A forward whose answer was lost goes `unknown`, not failed: the machine
+    // may still type it, and the echo is exactly the proof it waits for.
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
+    const r = await svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'did it land?' },
+    )
+    await svc.onQueuedInputUnknown(r.message.id, asSessionId('s1'), 'the forward timed out')
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('unknown')
+    const lost = (await store.events.listEventsSince(0, { kinds: ['message.unknown'] }))
+      .filter((e) => e.subject === r.message.id)
+    expect(lost).toHaveLength(1)
+    await echo(svc, asSessionId('s1'), r.message.id)
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
+  })
+
   it('onTranscriptDelta confirms EVERY id across a multi-id, multi-item delta', async () => {
     // Regression lock for the issue parenthetical: the global matchAll already
     // loops all ids in every delta item — keep it that way (two ids concatenated
