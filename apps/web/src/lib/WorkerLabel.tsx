@@ -3,15 +3,7 @@ import type { AgentKind, SessionMeta } from '@podium/model/browser'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
 import type { JSX } from 'react'
-import { agentChipTint, agentGlyphTone } from '@/lib/agent-tone'
-import {
-  ClaudeCodeIcon,
-  CursorIcon,
-  GrokIcon,
-  OpenAIcon,
-  OpenCodeIcon,
-  PiIcon,
-} from '@/lib/icons/AgentIcons'
+import { agentChipTint, agentGlyphTone, agentIconFor } from '@/lib/agent-tone'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code
@@ -73,17 +65,15 @@ export function SessionNameEditor({
 }
 
 /** Worker-kind → glyph. A small icon reads faster than a CLAUDE/SHELL word and
- *  leaves more room for the name; the kind's name rides on the hover title. */
+ *  leaves more room for the name; the kind's name rides on the hover title.
+ *  Read off the one bundled-icon home in agent-tone (POD-4737: itself the
+ *  bundled CODE half of the harness contract) — never a second kind→icon
+ *  table. 'shell' keeps its neutral chevron; it is not a harness. */
 type IconComponent = React.ComponentType<Record<string, unknown>>
 
-const KIND_ICON: Record<AgentKind, IconComponent> = {
-  'claude-code': ClaudeCodeIcon,
-  codex: OpenAIcon,
-  grok: GrokIcon,
-  opencode: OpenCodeIcon,
-  cursor: CursorIcon,
-  pi: PiIcon,
-  shell: SquareChevronRight,
+function kindIcon(kind: AgentKind): IconComponent {
+  if (kind === 'shell') return SquareChevronRight
+  return agentIconFor(kind) ?? SquareChevronRight
 }
 
 /** The agent-kind icon — shown right after the status dot, with the kind's name
@@ -102,7 +92,7 @@ export function KindIcon({
    *  (the flight deck's collapsed strips) rather than a single agent's row. */
   compact?: boolean
 }): JSX.Element {
-  const Icon = KIND_ICON[kind]
+  const Icon = kindIcon(kind)
   // Claude's brand clay for its glyph; other kinds stay text-toned like the mock.
   // Table lookups, not comparisons — see apps/web/src/lib/agent-tone.ts.
   // Chip/fleet tints carry their own text tone (Claude is white-on-clay; Grok

@@ -22,6 +22,7 @@ import {
   idleVerdictFinishedTurn,
   type SessionMeta,
 } from '@podium/model'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 import { attentionGroup } from '../focus'
 import { errorPhrase } from './error-phrase'
 
@@ -30,18 +31,15 @@ import { errorPhrase } from './error-phrase'
 // doing. Static tables, no state.
 // ---------------------------------------------------------------------------
 
-const PANEL_LABELS: Record<AgentKind, string> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  pi: 'Pi',
-  shell: 'Shell',
-}
-
+/**
+ * Short menu label for a harness ("New Claude"), read off its one home in the
+ * harness package (POD-4737): the adapter's descriptor shortLabel, via the
+ * bundled fallback. Unknown kinds render as their own kind. 'shell' is not a
+ * harness (no descriptor) and keeps its neutral name.
+ */
 export function panelLabel(agentKind: AgentKind): string {
-  return PANEL_LABELS[agentKind]
+  if (agentKind === 'shell') return 'Shell'
+  return bundledDescriptorFor(agentKind)?.shortLabel ?? agentKind
 }
 
 /**
@@ -49,19 +47,15 @@ export function panelLabel(agentKind: AgentKind): string {
  * chat↔live switcher, and the BTW button are offered immediately on spawn,
  * before the first transcript frame arrives. The server's observed
  * `transcriptAvailable` flag still wins when present; this is the fallback.
+ *
+ * Every harness this build ships produces one; only 'shell' — which is not a
+ * harness at all, just the operator at a prompt — does not. Stated as the
+ * shell exclusion rather than a per-harness table so a seventh harness is
+ * chat-capable without a second edit here. ('shell' is not a HarnessAgent
+ * member, so this carries no vendor-boundary literal.)
  */
 export function defaultChatCapable(agentKind: AgentKind): boolean {
-  return DEFAULT_CHAT_CAPABLE[agentKind]
-}
-
-const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
-  'claude-code': true,
-  codex: true,
-  grok: true,
-  opencode: true,
-  cursor: true,
-  pi: true,
-  shell: false,
+  return agentKind !== 'shell'
 }
 
 /**

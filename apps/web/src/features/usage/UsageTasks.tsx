@@ -8,6 +8,7 @@ import {
   RATE_COHORT_MIN_REPLIES,
   type TaskCostRowView,
 } from '@podium/client-core/viewmodels'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 import type { CostHarness, IssueStage } from '@podium/model/browser'
 import { type JSX, useMemo, useState } from 'react'
 import { issueRefLabel } from '@/lib/issue-labels'
@@ -50,11 +51,10 @@ import type { TaskCostsFeed } from './useTaskCosts'
  * row, which is the whole point of ranking it.
  */
 
-/** Which harness wrote a transcript, as the reader would name it. */
-const HARNESS_LABEL: Record<CostHarness, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  grok: 'Grok',
+/** Which harness wrote a transcript, as the reader would name it — read off the
+ *  adapter's descriptor row (POD-4737), never a second label table. */
+function harnessLabel(harness: CostHarness): string {
+  return bundledDescriptorFor(harness)?.label ?? harness
 }
 
 /** Rank by what a task cost, or by what a unit of its work cost. */
@@ -126,7 +126,7 @@ export function taskCostStats(rows: readonly TaskCostRowView[]): TaskCostStats {
  * and a task really can read `[codex, grok]`.
  */
 function floorReason(harnesses: readonly CostHarness[], uncostedSessionCount: number): string {
-  const named = harnesses.filter((h) => h !== 'claude-code').map((h) => HARNESS_LABEL[h])
+  const named = harnesses.filter((h) => h !== 'claude-code').map((h) => harnessLabel(h))
   const reasons: string[] = []
   if (named.length > 0) {
     const list =

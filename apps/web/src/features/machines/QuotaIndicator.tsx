@@ -23,14 +23,7 @@ import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  ClaudeCodeIcon,
-  CursorIcon,
-  GrokIcon,
-  OpenAIcon,
-  OpenCodeIcon,
-  PiIcon,
-} from '@/lib/icons/AgentIcons'
+import { agentIconFor } from '@/lib/agent-tone'
 import { cn } from '@/lib/utils'
 import { HealthPopover } from './HealthPopover'
 import { QuotaPanel } from './QuotaPanel'
@@ -51,22 +44,15 @@ const PACE: Record<QuotaPace, string> = {
   hot: 'text-destructive',
 }
 
-const QUOTA_HARNESS_ICONS: Record<AccountQuotaGroup['agent'], typeof ClaudeCodeIcon | null> = {
-  'claude-code': ClaudeCodeIcon,
-  codex: OpenAIcon,
-  grok: GrokIcon,
-  opencode: OpenCodeIcon,
-  cursor: CursorIcon,
-  pi: PiIcon,
-  shell: null,
-}
-
-/** A provider silhouette for the dense header pool; color stays on quota state. */
+/** A provider silhouette for the dense header pool; color stays on quota state.
+ *  Read off the one bundled-icon home in agent-tone (POD-4737) — never a second
+ *  kind→icon table. 'shell' has no mark (null); unknown kinds render nothing
+ *  rather than another harness's brand. */
 function QuotaHarnessIcon({ agent }: { agent: AccountQuotaGroup['agent'] }): JSX.Element | null {
-  const Icon = QUOTA_HARNESS_ICONS[agent]
+  if (agent === 'shell') return null
+  const Icon = agentIconFor(agent)
   const props = {
     size: 12,
-    variant: 'mono' as const,
     className: 'header-harness-icon',
     'aria-hidden': true as const,
   }

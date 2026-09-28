@@ -117,10 +117,17 @@ export interface HarnessBoundaryAllowlistEntry {
  *  server-family arm): that file 5 → 2, leak 253 → 250, total 289 → 286.
  *  POD-4661 deleted the server's Grok exit-patch hold in
  *  messages/service.ts, its one literal: leak 250 → 249, total 286 → 285.
+ *  POD-4737 (web label/icon tables) read every harness label off the adapter
+ *  descriptor rows via @podium/harness/browser bundled fallback and every web
+ *  harness mark through agent-tone's agentIconFor: deleted the emptied
+ *  TaskCostSection (4) + QuotaIndicator (1) + QuotaPanel (1) + WorkerLabel (1)
+ *  + client-core cost (4) + session-status (8) entries and lowered UsageTasks
+ *  5 → 1 (completeness gate stays), quota 7 → 1 + quota-history 7 → 1 (short
+ *  marks stay): leak 249 → 214, total 285 → 250.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 249
+export const HARNESS_BASELINE_LEAK_COUNT = 214
 export const HARNESS_BASELINE_POLICY_COUNT = 36
-export const HARNESS_BASELINE_TOTAL = 285
+export const HARNESS_BASELINE_TOTAL = 250
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -158,15 +165,11 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/web/harness/usage-tasks-fixture.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/components/RefMiniview.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/automations/NewAutomationDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/cost/TaskCostSection.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/cost/cost-format.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/issues/NewIssueDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/machines/QuotaIndicator.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/machines/QuotaPanel.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/setup/ColdStartComposer.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/usage/UsageTasks.tsx', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
+  { file: 'apps/web/src/features/usage/UsageTasks.tsx', count: 1, category: 'leak', reason: 'cost-completeness gate (non-Claude harness hedge); labels read off descriptors (POD-4737)', issue: 'POD-4414' },
   { file: 'apps/web/src/features/workflows/ExecutionProfiles.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/lib/WorkerLabel.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/lib/agent-tone.ts', count: 1, category: 'leak', reason: 'bundled brand-component key for harnesses this build knows (4.1 amendment: bundled CODE stays)', issue: 'POD-4414/4.1' },
   { file: 'apps/web/src/lib/test-issue.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -176,10 +179,8 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/harness/src/driver/headless-interrupt.ts', count: 2, category: 'policy', reason: 'driver FAMILY names (codex/opencode/claude-sdk), not harness names — stays', policy: 'packages/harness/src/driver/headless-interrupt.ts' },
   { file: 'packages/client-core/src/replica/legacy-snapshot.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/replica/replica.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/client-core/src/viewmodels/cost.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/client-core/src/viewmodels/quota-history.ts', count: 7, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/client-core/src/viewmodels/quota.ts', count: 7, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/client-core/src/viewmodels/session-status.ts', count: 8, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
+  { file: 'packages/client-core/src/viewmodels/quota-history.ts', count: 1, category: 'leak', reason: 'two-letter ledger mark table; labels read off descriptors (POD-4737)', issue: 'POD-4414/3.3' },
+  { file: 'packages/client-core/src/viewmodels/quota.ts', count: 1, category: 'leak', reason: 'two-letter meter mark table; labels read off descriptors (POD-4737)', issue: 'POD-4414/3.3' },
   { file: 'packages/client-core/src/viewmodels/slices/machines/placement.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/viewmodels/usage.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/commands/src/cloud/contracts.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },

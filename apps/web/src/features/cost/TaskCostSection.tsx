@@ -41,6 +41,7 @@ import {
   type SessionCostView,
   type TaskCostView,
 } from '@podium/client-core/viewmodels'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 import type { CostHarness } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -202,12 +203,11 @@ function SplitBar({
  * Not `costHarnessLabel`, deliberately: that renders a SET as a claim about a
  * figure's completeness ("all Codex", "Codex + Grok") and is the binding wording
  * for the attribution line. This is a single harness naming a single session,
- * where "all Codex" would be nonsense.
+ * where "all Codex" would be nonsense. Read off the adapter's descriptor
+ * shortLabel (POD-4737) — the one home for harness names.
  */
-const HARNESS_WORD: Record<CostHarness, string> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
+function harnessWord(harness: CostHarness): string {
+  return bundledDescriptorFor(harness)?.shortLabel ?? harness
 }
 
 /**
@@ -224,7 +224,7 @@ const HARNESS_WORD: Record<CostHarness, string> = {
  * true thing left about the row — some Codex agent worked here on the 12th.
  */
 function unnamedSessionLabel(session: SessionCostView): string {
-  const harness = HARNESS_WORD[session.harness]
+  const harness = harnessWord(session.harness)
   if (session.firstTsMs <= 0) return `${harness} session`
   const day = new Date(session.firstTsMs).toLocaleDateString(undefined, {
     day: 'numeric',

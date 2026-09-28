@@ -15,14 +15,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { QuotaWindowWire } from '@podium/model/browser'
 import type { JSX } from 'react'
-import {
-  ClaudeCodeIcon,
-  CursorIcon,
-  GrokIcon,
-  OpenAIcon,
-  OpenCodeIcon,
-  PiIcon,
-} from '@/lib/icons/AgentIcons'
+import { agentIconFor } from '@/lib/agent-tone'
 import { cn } from '@/lib/utils'
 
 const PACE_CHIP: Record<QuotaPace, string> = {
@@ -31,20 +24,13 @@ const PACE_CHIP: Record<QuotaPace, string> = {
   hot: 'hp-pace-hot',
 }
 
-const QUOTA_PANEL_ICONS: Record<AccountQuotaGroup['agent'], typeof ClaudeCodeIcon | null> = {
-  'claude-code': ClaudeCodeIcon,
-  codex: OpenAIcon,
-  grok: GrokIcon,
-  opencode: OpenCodeIcon,
-  cursor: CursorIcon,
-  pi: PiIcon,
-  shell: null,
-}
-
 /**
  * The agent-quota hover panel: verdict header, one instrument row per plan
  * window, and a pace chip on each harness. There is no pinned / detailed tier —
  * click does not grow this panel.
+ *
+ * Harness marks come from the one bundled-icon home in agent-tone (POD-4737);
+ * 'shell' has no mark and unknown kinds render nothing.
  */
 export function QuotaPanel({
   groups,
@@ -76,13 +62,13 @@ export function QuotaPanel({
         {groups.map((g) => {
           const { gating, models } = splitQuotaWindows(g.windows)
           const pace = groupGatingPace(g, now)
-          const Icon = QUOTA_PANEL_ICONS[g.agent]
+          const Icon = g.agent === 'shell' ? undefined : agentIconFor(g.agent)
           const unavailable = g.status !== 'ok' || g.windows.length === 0
           return (
             <div key={g.key} className="hp-section">
               <div className="hp-acct">
                 {Icon && (
-                  <Icon size={13} variant="mono" className="hp-acct-icon" aria-hidden={true} />
+                  <Icon size={13} className="hp-acct-icon" aria-hidden={true} />
                 )}
                 <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
                 {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
