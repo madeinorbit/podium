@@ -35,11 +35,9 @@ import {
   CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
   type ClientTerminalKind,
   clientTerminalLabel,
-  codexAttachLabel,
   createClientTerminalsFor,
   createOpencodeClientTerminals,
-  grokAttachLabel,
-  opencodeAttachLabel,
+  requireClientTerminalLabel,
   WARM_TTL_MS,
 } from './opencode-attach'
 import { SessionRegistry } from '../session/registry.js'
@@ -268,7 +266,7 @@ describe('the client terminal a server-family attach produces', () => {
 
   it('puts it in a scope SIBLING to the session’s, never inside or under it', () => {
     const sessionLabel = opencodeScopeLabel(OC_FLAVOR, SESSION)
-    const attachLabel = opencodeAttachLabel(SESSION)
+    const attachLabel = requireClientTerminalLabel(SESSION, 'opencode')
     // Two distinct units, so either can be reclaimed without touching the other.
     expect(scopeUnitName(attachLabel)).not.toBe(scopeUnitName(sessionLabel))
     // And NEITHER label contains the other. Every consumer of these labels does
@@ -304,7 +302,7 @@ describe('the client terminal a server-family attach produces', () => {
    */
   it('NEVER lets the client’s memory count against the agent’s budget', () => {
     const sessionLabel = opencodeScopeLabel(OC_FLAVOR, SESSION)
-    const attachLabel = opencodeAttachLabel(SESSION)
+    const attachLabel = requireClientTerminalLabel(SESSION, 'opencode')
     const procs: ProcSample[] = [
       {
         pid: 100,
@@ -846,7 +844,7 @@ describe('the client terminal a server-family attach produces', () => {
       },
     })
     expect(codex.state.spawns[0]).toMatchObject({
-      label: codexAttachLabel(SESSION),
+      label: requireClientTerminalLabel(SESSION, 'codex'),
       cmd: 'codex',
       env: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
       args: [
@@ -867,7 +865,7 @@ describe('the client terminal a server-family attach produces', () => {
       target: { kind: 'grok', conversation: 'grok-9', endpoint: {}, workdir: '/work/grok' },
     })
     expect(grok.state.spawns[0]).toMatchObject({
-      label: grokAttachLabel(SESSION),
+      label: requireClientTerminalLabel(SESSION, 'grok'),
       cmd: 'grok',
       args: ['--resume', 'grok-9'],
       stripEnv: ['XAI_API_KEY'],
@@ -938,7 +936,7 @@ describe('warm-parking', () => {
     await expect(attaching).rejects.toThrow(/closed while it was starting/)
     expect(clients[0]?.disposed).toBe(true)
     expect(clients[0]?.writes).toEqual([])
-    expect(reclaimed).toEqual([opencodeAttachLabel(SESSION), opencodeAttachLabel(SESSION)])
+    expect(reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode'), requireClientTerminalLabel(SESSION, 'opencode')])
   })
 
   it('never drains a stale completion into a replacement generation', async () => {
@@ -1079,7 +1077,7 @@ describe('warm-parking', () => {
 
     await terminals.release(SESSION)
 
-    expect(state.reclaimed).toEqual([codexAttachLabel(SESSION)])
+    expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'codex')])
   })
 
   it('parks on release and waits for the server-ordered close, rather than arming a timer', async () => {
@@ -1097,7 +1095,7 @@ describe('warm-parking', () => {
 
     await terminals.close(SESSION)
 
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
+    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
   })
 
   it('parks a client that was still STARTING when the viewer switched away', async () => {
@@ -1187,7 +1185,7 @@ describe('warm-parking', () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION)
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
+    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
     expect(state.clients[0]?.disposed).toBe(true)
   })
 
@@ -1208,7 +1206,7 @@ describe('warm-parking', () => {
     terminals.viewers(SESSION, false)
     // Past the warm TTL: the server orders the close.
     await terminals.close(SESSION)
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
+    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
     expect(state.clients[0]?.disposed).toBe(true)
     // THE AGENT IS UNTOUCHED: the entry survives, only the client policy retires.
     const owned = sessions.get(SESSION)
@@ -1224,7 +1222,7 @@ describe('warm-parking', () => {
     expect(state.spawns).toHaveLength(0)
     expect(terminals.reclaimable()).toBe(1)
     await terminals.close(SESSION)
-    return vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
+    return vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
   })
 
   it('does not adopt what is not there, and does not fork to find out on teardown', async () => {
@@ -1266,7 +1264,7 @@ describe('warm-parking', () => {
       // group-execute bit is what abduco writes to mean "not terminated".
       const dir = join(agentHome, '.abduco')
       mkdirSync(dir, { recursive: true })
-      const socket = join(dir, `${codexAttachLabel(SESSION)}@${hostname()}`)
+      const socket = join(dir, `${requireClientTerminalLabel(SESSION, 'codex')}@${hostname()}`)
       writeFileSync(socket, '')
       chmodSync(socket, 0o600)
     })
@@ -1305,7 +1303,7 @@ describe('warm-parking', () => {
       const { terminals, reclaimed } = subject(agentHome)
       // No attachment record, so teardown has nothing but the label to go on.
       await terminals.close(SESSION)
-      expect(reclaimed).toEqual([codexAttachLabel(SESSION)])
+      expect(reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'codex')])
     })
 
     it('adopts that same master back under the server-owned window', () => {
@@ -1404,7 +1402,7 @@ describe('warm-parking', () => {
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION)
     expect(state.clients[0]?.disposed).toBe(true)
-    expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
+    expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')])
     // …and a later attach starts a fresh generation rather than finding the
     // retired one still attached.
     await terminals.attach({ sessionId: SESSION, target })
@@ -1427,7 +1425,7 @@ describe('what a machine can give back under pressure (spec §5)', () => {
     expect(terminals.reclaimable()).toBe(1)
 
     expect(await terminals.reclaimUnwatched()).toBe(1)
-    expect(state.reclaimed).toEqual([opencodeAttachLabel(OTHER)])
+    expect(state.reclaimed).toEqual([requireClientTerminalLabel(OTHER, 'opencode')])
     expect(terminals.reclaimable()).toBe(0)
 
     // …and the watched one is still there, with its window still held off.
@@ -1635,7 +1633,7 @@ describe('the session’s lifecycle owns its attachment', () => {
       clientTerminals: engineClientTerminals(terminals),
     })
     expect(await host.adopt(binding)).toBeUndefined()
-    expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
+    expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')])
   })
 
   it('abandons the client when the journalled server does not answer', async () => {
@@ -1647,7 +1645,7 @@ describe('the session’s lifecycle owns its attachment', () => {
       clientTerminals: engineClientTerminals(terminals),
     })
     expect(await host.adopt(binding)).toBeUndefined()
-    expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
+    expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')])
   })
 
   it('kills the client when the session is killed', async () => {
@@ -1659,7 +1657,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     })
     const endpoint = await host.adopt(binding)
     await endpoint?.kill()
-    expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
+    expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')])
   })
 })
 
@@ -1842,7 +1840,7 @@ describe('under backend=host the client terminal lives in the host, not abduco (
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION) // a live record is reclaimed without a probe
     terminals.adopt(SESSION) // an adoption holds no session and probes by label
-    const label = opencodeAttachLabel(SESSION)
+    const label = requireClientTerminalLabel(SESSION, 'opencode')
     expect(calls).toEqual([`spawn:host:${label}`, `kill:host:${label}`, `probe:host:${label}`])
   })
 })

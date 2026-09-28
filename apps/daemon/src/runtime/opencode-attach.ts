@@ -191,20 +191,18 @@ export const clientTerminalLabel = (
   return token === undefined ? undefined : `podium-${token}-attach-${sessionId}`
 }
 
-/** The three server-family labels by name, for the callers and tests that hold
- *  one harness in mind. Each is the SAME composition every other kind gets;
- *  these three exist because their harnesses declare a client terminal, and the
- *  throw says so rather than handing back a label nothing answers to. */
-const requireLabel = (sessionId: SessionId, kind: ClientTerminalKind): string => {
+/** The server-family label for a harness the caller holds in mind (POD-4737):
+ *  the SAME composition every kind gets through {@link clientTerminalLabel}.
+ *  The throw stays: a harness that declares no client terminal must fail here
+ *  rather than hand back a label nothing answers to. */
+export const requireClientTerminalLabel = (
+  sessionId: SessionId,
+  kind: ClientTerminalKind,
+): string => {
   const label = clientTerminalLabel(sessionId, kind)
   if (label === undefined) throw new Error(`${kind} declares no client terminal`)
   return label
 }
-
-export const opencodeAttachLabel = (sessionId: SessionId): string =>
-  requireLabel(sessionId, 'opencode')
-export const codexAttachLabel = (sessionId: SessionId): string => requireLabel(sessionId, 'codex')
-export const grokAttachLabel = (sessionId: SessionId): string => requireLabel(sessionId, 'grok')
 
 export type ClientTerminalKind = BuiltinHarnessKind
 
@@ -836,6 +834,9 @@ export function createOpencodeClientTerminals(
       return { streamId: sessionId, warmTtlMs: WARM_TTL_MS }
     },
 
+    // Kind-less adoption assumes opencode (POD-4737): this path predates
+    // multi-harness attach, and legacy callers name no harness. It is the
+    // one deliberate default in this file — not a second harness table.
     adopt(sessionId, kind = 'opencode') {
       if (sessions.get(sessionId)?.client) return
       const label = clientTerminalLabel(sessionId, kind)

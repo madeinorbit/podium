@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { manifestFor } from '@podium/harness'
+import { harnessKindForResumeKind, manifestFor } from '@podium/harness'
 import {
   AgentDelegation,
   type AgentIdentityId,
@@ -2065,6 +2065,11 @@ export class BindingStore {
     let unresolved = false
     if (receipts.length > 0) {
       const machineId = this.confirmedMachineId ?? (await daemonMachineId(input.stateDir))
+      // The harness this legacy spool belongs to, read off the resume kind
+      // the fold already validates every binding against below (POD-4737) —
+      // never a second spelling of it. Total over the registry, so defined;
+      // undefined quarantines like every other unmigratable receipt.
+      const legacyKind = harnessKindForResumeKind('codex-thread')
       for (const receipt of receipts) {
         if (this.isQuarantined(receipt.sessionId)) {
           unresolved = true
@@ -2083,9 +2088,14 @@ export class BindingStore {
             unresolved = true
             continue
           }
+          if (legacyKind === undefined) {
+            this.recovery.set(receipt.sessionId, 'quarantined')
+            unresolved = true
+            continue
+          }
           binding = await this.ensureBinding({
             sessionId: receipt.sessionId,
-            agentKind: 'codex',
+            agentKind: legacyKind,
             claimantMachineId: machineId,
             createdAt: receipt.observedAt,
             delegation,
@@ -2181,9 +2191,17 @@ export class BindingStore {
     let unresolved = false
     const migratedAt = this.now()
     const snapshots = new Map(input.bindings.map((binding) => [binding.sessionId, binding]))
+    // Same spool-kind rule as foldLegacyCodexReceipts above (POD-4737): a
+    // receipt this registry cannot name a harness for stays out, and the
+    // migration reports itself unresolved rather than inventing one.
+    const legacyKind = harnessKindForResumeKind('codex-thread')
     for (const receipt of receipts) {
       if (!snapshots.has(receipt.sessionId)) {
-        snapshots.set(receipt.sessionId, { sessionId: receipt.sessionId, agentKind: 'codex' })
+        if (legacyKind === undefined) {
+          unresolved = true
+          continue
+        }
+        snapshots.set(receipt.sessionId, { sessionId: receipt.sessionId, agentKind: legacyKind })
       }
     }
 
