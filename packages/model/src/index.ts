@@ -195,6 +195,7 @@ export * from './representations/checks'
 export * from './representations/registry'
 
 // Pure derivations over entity shapes.
+export * from './dead-letter'
 export * from './predicates/agent-computing'
 export * from './predicates/idle-verdict'
 export * from './predicates/issue-stage'
