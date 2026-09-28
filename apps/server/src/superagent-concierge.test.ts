@@ -116,24 +116,32 @@ async function harness(opts?: { eventReadLimit?: number }) {
         resolveTurn(m, turnReqs.length)
       }
       if (m.type === 'runtimeHistoryRequest') {
+        // The server must stop SENDING runtimeHistoryRequest (POD-4783).
+        // Refuse so a regressed sender cannot collect output through it.
         queueMicrotask(() =>
           registry.gateway.routeDaemonFrame(host, {
             type: 'runtimeHistoryResult',
             requestId: m.requestId,
             sessionId: m.sessionId,
-            result: {
-              page: {
-                items: [
-                  {
-                    id: 'item-1',
-                    role: 'assistant',
-                    text: 'harness says hi',
-                    ts: new Date().toISOString(),
-                  },
-                ],
-                hasMore: false,
+            result: { reason: 'not_running' },
+          }),
+        )
+      }
+      if (m.type === 'transcriptRead') {
+        queueMicrotask(() =>
+          registry.gateway.routeDaemonFrame(host, {
+            type: 'transcriptReadResult',
+            requestId: m.requestId,
+            sessionId: m.sessionId,
+            items: [
+              {
+                id: 'item-1',
+                role: 'assistant',
+                text: 'harness says hi',
+                ts: new Date().toISOString(),
               },
-            },
+            ],
+            hasMore: false,
           }),
         )
       }

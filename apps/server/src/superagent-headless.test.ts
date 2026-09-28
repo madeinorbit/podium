@@ -80,6 +80,7 @@ async function harness() {
   const turnAcks: TurnAck[] = []
   const spawns: SpawnMsg[] = []
   const interrupts: string[] = []
+  const runtimeHistoryReqs: string[] = []
   const epochs = new Map<string, number>()
   const pendingResults = new Map<string, { harnessSessionId?: string; output?: string }>()
   const sessionInfo = new Map<string, { agent: string; cwd: string }>()
@@ -135,19 +136,16 @@ async function harness() {
       return
     }
     if (m.type === 'runtimeHistoryRequest') {
-      const pending = pendingResults.get(m.sessionId)
-      const output = pending?.output
+      // The server must stop SENDING runtimeHistoryRequest (POD-4783): the
+      // headless turn now reads through the shared transcriptRead. Record and
+      // refuse so a regressed sender goes red on its output assertion below.
+      runtimeHistoryReqs.push(m.sessionId)
       queueMicrotask(() =>
         registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'runtimeHistoryResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
-          result: {
-            page: {
-              items: output ? [{ id: 'item-1', role: 'assistant', text: output, ts: new Date().toISOString() }] : [],
-              hasMore: false,
-            },
-          },
+          result: { reason: 'not_running' },
         }),
       )
       return
@@ -194,12 +192,16 @@ async function harness() {
       )
     }
     if (m.type === 'transcriptRead') {
+      // The one shared transcript read serves the just-finished turn's items
+      // from the Store — no sleep, no live-API re-read (POD-4739 §4 timing).
+      const pending = pendingResults.get(m.sessionId)
+      const output = pending?.output
       queueMicrotask(() =>
         registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
-          items: [],
+          items: output ? [{ id: 'item-1', role: 'assistant', text: output, ts: new Date().toISOString() }] : [],
           hasMore: false,
         }),
       )
@@ -279,6 +281,7 @@ async function harness() {
     turnAcks,
     spawns,
     interrupts,
+    runtimeHistoryReqs,
     activity,
     resolveTurn,
     settle,
@@ -446,6 +449,32 @@ describe('bounded headless session identity', () => {
     expect(request.accountId).toBe('')
     h.resolveTurn(request, { output: 'done' })
     await expect(turn).resolves.toMatchObject({ ok: true, output: 'done' })
+  })
+
+  it('collects the finished turn through the shared transcriptRead, never runtimeHistory', async () => {
+    const h = await harness()
+    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession({
+      ownerUserId: firstAdminMemberId(),
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    const turn = h.registry.modules.sessions.headless.headlessTurn({
+      turnId: 'turn:shared-read',
+      sessionId,
+      threadId: asThreadId('shared-read'),
+      agent: 'claude-code',
+      cwd: '/r',
+      prompt: 'continue',
+    })
+    await h.settle()
+    const request = h.turnReqs.at(-1)
+    if (!request) throw new Error('turn request was not dispatched')
+    // The Store already holds the just-finished reply when the terminal event
+    // lands (no sleep: the fake transcriptRead answers from pendingResults,
+    // the way the daemon's Store read answers from disk after the flush).
+    h.resolveTurn(request, { output: 'shared answer' })
+    await expect(turn).resolves.toMatchObject({ ok: true, output: 'shared answer' })
+    expect(h.runtimeHistoryReqs).toEqual([])
   })
 })
 
@@ -1438,18 +1467,25 @@ describe('boot reconciliation for headless sessions', () => {
       }
       if (message.type === 'headlessTurnAck') acknowledgements.push(message)
       if (message.type === 'runtimeHistoryRequest') {
-        const pending = rebornPending.get(message.sessionId)
         queueMicrotask(() =>
           reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
             type: 'runtimeHistoryResult',
             requestId: message.requestId,
             sessionId: message.sessionId,
-            result: {
-              page: {
-                items: pending?.output ? [{ id: 'item-1', role: 'assistant', text: pending.output, ts: new Date().toISOString() }] : [],
-                hasMore: false,
-              },
-            },
+            result: { reason: 'not_running' },
+          }),
+        )
+        return
+      }
+      if (message.type === 'transcriptRead') {
+        const pending = rebornPending.get(message.sessionId)
+        queueMicrotask(() =>
+          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+            type: 'transcriptReadResult',
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            items: pending?.output ? [{ id: 'item-1', role: 'assistant', text: pending.output, ts: new Date().toISOString() }] : [],
+            hasMore: false,
           }),
         )
         return

@@ -57,13 +57,14 @@ export interface HeadlessRuntimeRelay {
 }
 
 export interface HeadlessHistoryRelay {
-  history(
-    sessionId: SessionId,
-    machineId: MachineId,
-    range: { direction: 'before' | 'after'; limit: number },
-  ): Promise<
-    { sessionId: SessionId; result: { page: { items: readonly { role?: string; text?: string }[] } } | { reason: string; detail?: string } }
-  >
+  /** The one shared transcript read (POD-4783): daemon transcriptRead (Store)
+   *  when connected and no predecessor chain, the memory lake otherwise. */
+  history(input: {
+    sessionId: SessionId
+    direction: 'before' | 'after'
+    limit: number
+    anchor?: string
+  }): Promise<{ items: readonly { role?: string; text?: string }[] }>
   snapshot(
     sessionId: SessionId,
     machineId: MachineId,
@@ -105,7 +106,7 @@ export interface HeadlessDeps {
  * daemon via `spawn`/`reattach` carrying `requestedDriverId: 'headless'` (no
  * manifest `select()` ever returns it); turns ride the driver-contract WS
  * relay (`runtimeSendRequest` with headless fields, `gateway.interrupt`,
- * `gateway.events`, `runtimeHistory`/`runtimeSnapshot`).
+ * `gateway.events`, `runtimeSnapshot` plus the shared transcript read).
  */
 export class HeadlessService {
   constructor(private readonly deps: HeadlessDeps) {}
@@ -464,22 +465,20 @@ export class HeadlessService {
       let output: string | undefined
       let harnessSessionId: string | undefined
       try {
-        const hist = await store.history(input.sessionId, machineId, { direction: 'before', limit: 1000 })
-        if ('page' in hist.result) {
-          const items = hist.result.page.items
-          for (let i = items.length - 1; i >= 0; i--) {
-            const item = items[i]
-            if (item && (item as { role?: string }).role === 'assistant' && typeof (item as { text?: string }).text === 'string' && (item as { text: string }).text) {
-              output = (item as { text: string }).text
-              break
-            }
+        const hist = await store.history({ sessionId: input.sessionId, direction: 'before', limit: 1000 })
+        const items = hist.items
+        for (let i = items.length - 1; i >= 0; i--) {
+          const item = items[i]
+          if (item && (item as { role?: string }).role === 'assistant' && typeof (item as { text?: string }).text === 'string' && (item as { text: string }).text) {
+            output = (item as { text: string }).text
+            break
           }
-          if (output === undefined) {
-            const texts = items
-              .filter((it) => typeof (it as { text?: string }).text === 'string' && (it as { text: string }).text)
-              .map((it) => (it as { text: string }).text)
-            if (texts.length > 0) output = texts[texts.length - 1]
-          }
+        }
+        if (output === undefined) {
+          const texts = items
+            .filter((it) => typeof (it as { text?: string }).text === 'string' && (it as { text: string }).text)
+            .map((it) => (it as { text: string }).text)
+          if (texts.length > 0) output = texts[texts.length - 1]
         }
       } catch {
         // Best-effort; terminal verdict below still decides.
@@ -591,8 +590,8 @@ export class HeadlessService {
   }
 
   // ---- legacy daemon result fan-in (kept as no-ops for the mux) ----
-  // Contract turns report via `gateway.events`/`runtimeHistory`, never via
-  // `headlessTurnEvent`/`headlessTurnResult`. These stay only because the
+  // Contract turns report via `gateway.events`/the shared transcript read,
+  // never via `headlessTurnEvent`/`headlessTurnResult`. These stay only because the
   // daemon mux's `HeadlessDaemonPort` names them; they must not resolve
   // anything.
 

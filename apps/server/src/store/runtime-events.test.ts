@@ -451,9 +451,8 @@ describe('durable runtime observation gate', () => {
       await terminalItemReplayIndexCompletion
     }
 
-    vi.spyOn(registry.modules.rpc, 'runtimeHistory').mockResolvedValue({
-      sessionId, result: { page: { items, hasMore: false } },
-    })
+    // The single Store read path serves the runtime overlay from the daemon
+    // transcriptRead leg or the lake; no live runtimeHistory send remains.
     const liveTranscript = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
       { kind: 'user', id: firstAdminMemberId() },
