@@ -17,6 +17,8 @@ import { DriverRefusalError } from '@podium/harness/driver/host'
 
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { discoveryRoots, resolveWithinRoots } from '@podium/harness'
 import type {
   AttachmentStager,
   CodexRawSocket,
@@ -30,7 +32,6 @@ import { instanceRuntimeSocketRoot } from '@podium/runtime/abduco-socket'
 import { resolveInstanceId } from '@podium/runtime/instance'
 import WebSocket from 'ws'
 import type { AgentKind, SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol/daemon'
 import { serverChildEnv } from '../control/session-env'
 import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
 import type { AcceptedDriverId } from '@podium/harness'
@@ -135,7 +136,21 @@ export function daemonRuntimeHost(
         resumeValue: input.resumeValue,
         home: ctx.homeDir ?? process.env.HOME ?? '',
       }),
-    readArchiveBytes: async (path) => new Uint8Array(await readFile(path)),
+    readArchiveBytes: async (path) => {
+      // CONFINED, for real (POD-4414 review): resolve against the same
+      // discovery roots the transcript-mirror guard uses
+      // (control/transcripts.ts), and refuse anything outside with a typed
+      // error. The driver passes only the path the locator just returned, but
+      // the guard is what makes that a fact rather than a promise.
+      const real = await resolveWithinRoots(path, discoveryRoots(ctx.homeDir ?? homedir()))
+      if (!real) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'archive path outside transcript roots' },
+          'transcript.export',
+        )
+      }
+      return new Uint8Array(await readFile(real))
+    },
     resources: (sessionId) => {
       const entry = ctx.sessions.get(sessionId)
       const label = entry?.label ?? ctx.durableLabelFor(sessionId)
@@ -165,12 +180,10 @@ export function daemonRuntimeHost(
     },
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     traceRuntimeEvent: (binding, event) => driverTiming.runtimeEvent(binding, event),
-    // Abandonment leaves on the same wrapped wire the driver reports on. The
-    // driver's own send port is narrowed to its three report frames, so this
-    // daemon-side send carries its own (full-wire) type via a local cast —
-    // the frame never re-enters the driver's observation tap.
+    // Abandonment is the daemon's own frame, sent by daemon wiring on the
+    // daemon's full send — never cast through the driver's narrowed port.
     onDrainAbandoned: ({ sessionId, turns, reason }) =>
-      (send as (msg: DaemonMessage) => void)({
+      ctx.send({
         type: 'runtimeQueueDrainAbandoned',
         reportId: randomUUID(),
         sessionId,

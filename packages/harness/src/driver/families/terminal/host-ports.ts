@@ -163,9 +163,10 @@ export interface TerminalHostPorts {
     cwd: string
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
-  /** Read the handoff transcript bytes for export. Scoped by purpose: the ONLY
-   *  read through this port is the export path just located above, confined
-   *  the way control/transcripts.ts guards its reads. No unscoped path reads. */
+  /** Read the handoff transcript bytes for export. CONFINED FOR REAL: the host
+   *  resolves the path with resolveWithinRoots against discoveryRoots(homeDir)
+   *  — the same guard control/transcripts.ts uses — and refuses anything
+   *  outside with a typed error. No unscoped path reads. */
   readArchiveBytes(path: string): Promise<Uint8Array>
   /** Resource truth for this session — memory, tasks and the kernel's own
    *  OOM-kill counter, from the daemon's one cgroup observer. Keyed by session:
