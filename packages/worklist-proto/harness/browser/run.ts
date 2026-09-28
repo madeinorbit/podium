@@ -78,7 +78,8 @@ import type {
   ProtoOracleCheck,
   ProtoParity,
   ProtoScenarioResult,
-} from '../web/entrylib'import {
+} from '../web/entrylib'
+import {
   checkMaxLoad,
   describePlan,
   failedPathFor,
