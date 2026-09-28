@@ -38,6 +38,21 @@ export const HARNESS_VERSION_POLICIES = {
   grok: GROK_ACP_VERSION_POLICY,
 } as const
 
+/**
+ * The version policy for one harness kind, or `undefined` when it has none
+ * (POD-4737) — today only codex, opencode and grok carry policies; a harness
+ * without one (Claude's SDK, cursor, pi) is admitted without a version gate,
+ * exactly as the per-harness gates did. A lookup returning `undefined`
+ * (never a cast, never another harness's policy) so unknown kinds degrade.
+ */
+const VERSION_POLICIES_BY_KIND: ReadonlyMap<string, HarnessVersionPolicy> = new Map(
+  Object.entries(HARNESS_VERSION_POLICIES),
+)
+
+export function harnessVersionPolicyFor(kind: string): HarnessVersionPolicy | undefined {
+  return VERSION_POLICIES_BY_KIND.get(kind)
+}
+
 /** Accept CLI banners, v prefixes and build/prerelease suffixes. */
 export function parseHarnessVersion(output: string): HarnessVersion | null {
   const match = /(?:^|[\sv-])(\d+)\.(\d+)\.(\d+)(?=$|[\s+-])/u.exec(output.trim())

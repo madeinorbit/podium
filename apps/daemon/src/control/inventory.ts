@@ -1,8 +1,15 @@
-import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/harness/driver/host'
 import {
   type MachineHarnessInventory,
   buildServedDescriptors,
+  declaredValue,
+  gateHarnessVersion,
+  HARNESS_KINDS,
+  harnessTerminalDriverId,
+  harnessVersionPolicyFor,
+  manifestFor,
   probeAllModels,
+  PROBEABLE_AGENTS,
+  type ProbeableAgent,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
@@ -47,13 +54,15 @@ const inventoryRebuildQueued = new Map<string, Promise<void>>()
 export const DEFAULT_INVENTORY_REFRESH_INTERVAL_MS = 60_000
 
 export function terminalRuntimeDriverInventory(): NonNullable<Inventory['runtimeDrivers']> {
-  return [
-    { harness: 'claude-code', id: 'generic-pty', family: 'terminal' },
-    { harness: 'codex', id: 'generic-pty', family: 'terminal' },
-    { harness: 'grok', id: 'generic-pty', family: 'terminal' },
-    { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
-    { harness: 'cursor', id: 'generic-pty', family: 'terminal' },
-  ]
+  // Every manifest declares its terminal driver (required, never Declared),
+  // so these rows are derived from the registry — a seventh harness reports
+  // its terminal with no second edit here. (pi included: its manifest
+  // declares generic-pty like the rest, and the daemon drives it through the
+  // same terminal profile as every other harness.)
+  return HARNESS_KINDS.flatMap((harness) => {
+    const id = harnessTerminalDriverId(harness)
+    return id === undefined ? [] : [{ harness, id, family: 'terminal' as const }]
+  })
 }
 
 /** Product-facing projection of the bounded harness inventory wave. It reports
@@ -66,21 +75,27 @@ export function runtimeDriverInventory(
     const agent = inventory.agents.find((candidate) => candidate.kind === kind)
     return agent?.installed === true ? agent.version : undefined
   }
-  const codex = versionFor('codex')
-  const grok = versionFor('grok')
-  const opencode = versionFor('opencode')
   return [
     ...terminalRuntimeDriverInventory(),
-    { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
-    ...(codex && gateCodexVersion(codex) === null
-      ? ([{ harness: 'codex', id: 'codex-app-server', family: 'server' }] as const)
-      : []),
-    ...(grok && gateGrokVersion(grok) === null
-      ? ([{ harness: 'grok', id: 'grok-acp', family: 'server' }] as const)
-      : []),
-    ...(opencode && gateOpencodeVersion(opencode) === null
-      ? ([{ harness: 'opencode', id: 'opencode-server', family: 'server' }] as const)
-      : []),
+    // Server drivers, read off each manifest (POD-4737): a harness without a
+    // declared server (today cursor, pi) reports none; a harness without a
+    // version policy (today Claude's SDK) reports unconditionally; a gated
+    // harness reports only with a known-good version — exactly what the
+    // per-harness gates did, with no harness named here. Both axes: most
+    // harnesses declare their server on `runtime.server`, while Claude's
+    // stream engine rides `runtime.embedded` (ADR 11) with the server family.
+    ...HARNESS_KINDS.flatMap((harness) => {
+      const runtime = manifestFor(harness)?.runtime
+      const server = runtime?.server ? declaredValue(runtime.server) : undefined
+      const embedded = runtime?.embedded ? declaredValue(runtime.embedded) : undefined
+      const servers = [server, embedded].filter((spec) => spec !== undefined)
+      const policy = harnessVersionPolicyFor(harness)
+      if (policy !== undefined) {
+        const version = versionFor(harness)
+        if (version === undefined || gateHarnessVersion(policy, version) === 'too-old') return []
+      }
+      return servers.map((server) => ({ harness, id: server.driverId, family: 'server' as const }))
+    }),
     ...(opencode2Drivable
       ? ([{ harness: 'opencode', id: 'opencode2-server', family: 'server' }] as const)
       : []),
@@ -278,26 +293,20 @@ async function runModelProbe(
     // the child will run as — the provisioned native-account HOME when present —
     // never the operator's ambient HOME and never a server-side secret.
     const credentialHome = resolveManagementCredentialHome(ctx)
+    // Executables for the CLI-probed harnesses, picked by the probeable set
+    // itself (POD-4737) — Claude probes through its OAuth token below, never a
+    // CLI, so it takes no executable. No harness named here.
+    const executables: Partial<Record<ProbeableAgent, string>> = {}
+    if (snapshot) {
+      for (const kind of PROBEABLE_AGENTS) {
+        const path = snapshot.executables.get(kind)?.path
+        if (path !== undefined) executables[kind] = path
+      }
+    }
     byAgent = await probeAllModels({
       ...(snapshot
         ? {
-            executables: {
-              ...(snapshot.executables.get('grok')
-                ? { grok: snapshot.executables.get('grok')!.path }
-                : {}),
-              ...(snapshot.executables.get('cursor')
-                ? { cursor: snapshot.executables.get('cursor')!.path }
-                : {}),
-              ...(snapshot.executables.get('opencode')
-                ? { opencode: snapshot.executables.get('opencode')!.path }
-                : {}),
-              ...(snapshot.executables.get('codex')
-                ? { codex: snapshot.executables.get('codex')!.path }
-                : {}),
-              ...(snapshot.executables.get('pi')
-                ? { pi: snapshot.executables.get('pi')!.path }
-                : {}),
-            },
+            executables,
             env: snapshot.commandEnvironment.env,
           }
         : {}),

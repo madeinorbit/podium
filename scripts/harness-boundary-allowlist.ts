@@ -145,15 +145,23 @@ export interface HarnessBoundaryAllowlistEntry {
  *  test-issue (1) entries: leak 198 → 193, policy 36 → 35, total 234 → 228.
  *  ExecutionProfiles keeps its own codex preset default; the fenced
  *  NewIssueDialog stays for its lane.
+ *  POD-4737 (daemon inventory) derived every inventory row from the
+ *  manifests: terminal rows off harnessTerminalDriverId, server rows off
+ *  each manifest's server declaration gated by harnessVersionPolicyFor
+ *  (no-policy admits, as claude-sdk always did), model-probe executables
+ *  off PROBEABLE_AGENTS. One literal stays: the opencode2-server row, whose
+ *  version comes from a separate binary probe rather than the harness
+ *  version: leak 193 → 171, total 228 → 206. The pi terminal row is now
+ *  reported (its manifest declares generic-pty like the rest).
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 193
+export const HARNESS_BASELINE_LEAK_COUNT = 171
 export const HARNESS_BASELINE_POLICY_COUNT = 35
-export const HARNESS_BASELINE_TOTAL = 228
+export const HARNESS_BASELINE_TOTAL = 206
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/binding-store.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/daemon/src/control/inventory.ts', count: 23, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
+  { file: 'apps/daemon/src/control/inventory.ts', count: 1, category: 'leak', reason: 'opencode2-server row: second binary versioned by a separate probe, not the harness version (POD-4737 follow-up)', issue: 'POD-4737' },
   { file: 'apps/daemon/src/control/session.ts', count: 1, category: 'leak', reason: 'admission executable keyed by harness; derive from driver manifest (POD-4737 follow-up)', issue: 'POD-4737' },
   { file: 'apps/daemon/src/handoff-package.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 4, category: 'leak', reason: 'daemon headless host/driver names a harness; move into driver families (1.5)', issue: 'POD-4414/1.5' },
