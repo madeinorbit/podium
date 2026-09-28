@@ -214,6 +214,16 @@ export interface SendOptions {
    */
   daemonHeld?: boolean
   signal?: AbortSignal
+  /**
+   * THE ENTRY, WHEN IT IS LEARNED AFTER THE RECEIPT (POD-4774).
+   *
+   * A protocol ack can come back before the harness has recorded the prompt
+   * (codex's `turn/start`, opencode's 204). A driver that pairs the record
+   * later calls this at most once, for an `accepted` receipt that did not
+   * carry `transcriptItem`. The delivery queue turns it into a second
+   * `delivered` outcome naming the entry. Daemon-local; never crosses the wire.
+   */
+  onTranscriptItem?: (item: TranscriptItemRef) => void
   origin: InputOrigin
   delivery: TurnDelivery
   /**

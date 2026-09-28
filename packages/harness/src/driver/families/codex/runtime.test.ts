@@ -1559,3 +1559,65 @@ describe('rebind to the surviving engine (POD-4433)', () => {
     }
   })
 })
+
+/**
+ * THE CONFIRMATION NAMES THE HISTORY ENTRY (POD-4774). Codex answers
+ * `turn/start` before it records the input, then records it as the turn's
+ * first `userMessage` item — under its own item id and the turn id the answer
+ * carried. The driver pairs them by that turn id and names the entry: on a
+ * durable row's delivery as a second `delivered` outcome, on a direct send as
+ * the same outcome under its turn id. A steer's item joins an open turn and
+ * is never taken for the turn's input.
+ */
+describe('the history entry a delivered send became', () => {
+  const deliveries = (events: RuntimeEvent[]) =>
+    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+  const shownUserIds = (events: RuntimeEvent[]): string[] =>
+    events.flatMap((event) =>
+      event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user'
+        ? [event.item.item.id]
+        : [],
+    )
+
+  it("names a durable row's entry once Codex records the turn's input", async () => {
+    const w = await world()
+    await w.handle.send({ text: 'hello there', rowId: 'msg_row' }, { origin: 'human', delivery: 'when-ready' })
+    await expect.poll(() => deliveries(w.events())).toHaveLength(1)
+    // Accepted on the ack, before any record of the prompt exists.
+    expect(deliveries(w.events())[0]).not.toHaveProperty('transcriptItem')
+    w.liveServer().emitUserMessage('hello there', 'usr-codex-1')
+    await expect.poll(() => deliveries(w.events())).toHaveLength(2)
+    expect(deliveries(w.events())[1]).toMatchObject({
+      rowId: 'msg_row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'usr-codex-1' },
+    })
+    expect(shownUserIds(w.events())).toEqual(['usr-codex-1'])
+    w.dispose()
+  })
+
+  it('names a direct send’s entry under its turn id', async () => {
+    const w = await world()
+    const receipt = await w.handle.send({ id: 'msg_direct', text: 'direct' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
+    expect(receipt).not.toHaveProperty('transcriptItem')
+    w.liveServer().emitUserMessage('direct', 'usr-codex-2')
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([expect.objectContaining({ rowId: 'msg_direct', outcome: 'delivered', transcriptItem: { id: 'usr-codex-2' } })])
+    w.dispose()
+  })
+
+  it("does not take a later user item in the same turn for the turn's input", async () => {
+    const w = await world()
+    await w.handle.send({ id: 'msg_first', text: 'first' }, { origin: 'human', delivery: 'when-ready' })
+    w.liveServer().emitUserMessage('first', 'usr-first')
+    // A steer's message lands in the same turn.
+    w.liveServer().emitUserMessage('steered in', 'usr-steer')
+    await settle()
+    expect(deliveries(w.events())).toEqual([
+      expect.objectContaining({ rowId: 'msg_first', transcriptItem: { id: 'usr-first' } }),
+    ])
+    w.dispose()
+  })
+})

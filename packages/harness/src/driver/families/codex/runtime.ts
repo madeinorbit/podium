@@ -57,7 +57,8 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
 
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import { transcriptItemRefOf } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
@@ -351,6 +352,8 @@ const WHEN_READY_TIMEOUT_MS = 10 * 60_000
  * frames on one connection, not a wait on the model.
  */
 const STEER_OPEN_TIMEOUT_MS = 15_000
+/** Turns whose input entry is remembered for a send still reading it. */
+const USER_ITEM_TURNS_KEPT = 32
 
 export const CODEX_APP_SERVER_DRIVER_ID = 'codex-app-server'
 
@@ -431,6 +434,15 @@ interface DriverSession {
   idleWaiters: Set<() => void>
   /** Resolvers waiting for a turn to actually open (the steer window). */
   turnOpenWaiters: Set<() => void>
+  /**
+   * THE PROMPT'S ENTRY, BY TURN (POD-4774). Codex records the input of
+   * `turn/start` as the turn's first `userMessage` item, under its own item id
+   * and the turn id the `turn/start` response returned — so the pairing is by
+   * id, never by text. Recent turns only; a send reads it once.
+   */
+  userItemByTurn: Map<CodexTurnId, TranscriptItemRef>
+  /** Sends whose `turn/start` came back before the turn's `userMessage`. */
+  userItemWaiters: Map<CodexTurnId, (item: TranscriptItemRef) => void>
   usage: UsageSnapshot | undefined
   title: string | undefined
 }
@@ -664,6 +676,7 @@ export function createCodexRuntime(
         }
         for (const item of threadItemToItems(note.params.item, at)) {
           emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
+          if (item.role === 'user' && note.params.turnId) noteUserItem(session, note.params.turnId, item)
         }
         break
       }
@@ -955,9 +968,27 @@ export function createCodexRuntime(
    * completion arrives on, which is what "fences only on provider confirmation"
    * means in code rather than in a comment.
    */
+  /** The turn's FIRST user item is its `turn/start` input; a steer's item
+   *  joins the same turn later and is never mistaken for it. */
+  function noteUserItem(session: DriverSession, turnId: CodexTurnId, item: TranscriptItem): void {
+    if (session.userItemByTurn.has(turnId)) return
+    const ref = transcriptItemRefOf(item)
+    if (!ref) return
+    session.userItemByTurn.set(turnId, ref)
+    if (session.userItemByTurn.size > USER_ITEM_TURNS_KEPT) {
+      const oldest = session.userItemByTurn.keys().next()
+      if (!oldest.done) session.userItemByTurn.delete(oldest.value)
+    }
+    const waiter = session.userItemWaiters.get(turnId)
+    session.userItemWaiters.delete(turnId)
+    waiter?.(ref)
+  }
+
   function closeTurn(session: DriverSession, turn: CodexTurn): void {
     if (session.fencedTurnIds.has(turn.id)) return
     session.fencedTurnIds.add(turn.id)
+    // A turn that ended without recording its input names nothing.
+    session.userItemWaiters.delete(turn.id)
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
@@ -1092,7 +1123,7 @@ export function createCodexRuntime(
     session: DriverSession,
     input: TurnInput,
     origin: SendOptions['origin'] = 'human',
-  ): Promise<void> {
+  ): Promise<CodexTurnId | undefined> {
     const overrides = input.overrides?.supported ? input.overrides.value : undefined
     const model = overrides?.model ?? modelOf(session.spec)
     const effort = overrides?.effort ?? session.spec.model.effort
@@ -1131,6 +1162,7 @@ export function createCodexRuntime(
     })
     persist(session)
     emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
+    return result.turn?.id
   }
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
@@ -1580,14 +1612,22 @@ export function createCodexRuntime(
          */
         if (session.disposed) return refuse('not_running')
 
+        let turnId: CodexTurnId | undefined
         try {
-          await deliver(session, input, options.origin)
+          turnId = await deliver(session, input, options.origin)
         } catch (err) {
           return refuse('not_running', String(err))
+        }
+        // The input's entry, if Codex recorded it before answering; otherwise
+        // named when its `userMessage` item completes (POD-4774).
+        const transcriptItem = turnId ? session.userItemByTurn.get(turnId) : undefined
+        if (turnId && !transcriptItem && options.onTranscriptItem) {
+          session.userItemWaiters.set(turnId, options.onTranscriptItem)
         }
         return {
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
+          ...(transcriptItem ? { transcriptItem } : {}),
           // `steer` cannot reach here: it either steered and returned above, or
           // it queued. Every other delivery is what it says it is.
           deliveredAs: wanted === 'steer' ? 'when-ready' : wanted,
@@ -2183,6 +2223,8 @@ export function createCodexRuntime(
       disposed: false,
       idleWaiters: new Set(),
       turnOpenWaiters: new Set(),
+      userItemByTurn: new Map(),
+      userItemWaiters: new Map(),
       usage: undefined,
       title: journalled?.title,
     }

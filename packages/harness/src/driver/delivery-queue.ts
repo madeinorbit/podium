@@ -68,6 +68,8 @@ export function withDeliveryQueue(
   const rows = new Map<string, Row>()
   type Outcome = Extract<RuntimeEventBody, { t: 'delivery' }>
   const finished = new Map<string, Outcome>()
+  /** Entries a driver named before its row settled (POD-4774). */
+  const namedEarly = new Map<string, TranscriptItemRef>()
   const send = handle.send.bind(handle)
   let draining = false
   const pause = (ms: number) =>
@@ -83,16 +85,35 @@ export function withDeliveryQueue(
     transcriptItem?: TranscriptItemRef,
   ) {
     if (finished.has(id)) return
+    const named = outcome === 'delivered' ? (transcriptItem ?? namedEarly.get(id)) : undefined
+    namedEarly.delete(id)
     const event: Outcome = {
       t: 'delivery',
       rowId: id,
       outcome,
       ...(reason ? { reason } : {}),
       ...(cause ? { cause } : {}),
-      ...(transcriptItem ? { transcriptItem } : {}),
+      ...(named ? { transcriptItem: named } : {}),
     }
     finished.set(id, event)
     rows.delete(id)
+    emit(event)
+  }
+  /**
+   * A DELIVERED ROW'S ENTRY, LEARNED LATE (POD-4774): a second `delivered`
+   * outcome for the same id, now naming the entry. Forward-only like every
+   * outcome — it never moves a row, only names the entry once — and the
+   * `finished` replay carries it from here on.
+   */
+  function name(id: string, transcriptItem: TranscriptItemRef): void {
+    const prior = finished.get(id)
+    if (!prior) {
+      if (rows.has(id)) namedEarly.set(id, transcriptItem)
+      return
+    }
+    if (prior.outcome !== 'delivered' || prior.transcriptItem) return
+    const event: Outcome = { ...prior, transcriptItem }
+    finished.set(id, event)
     emit(event)
   }
   /**
@@ -181,6 +202,7 @@ export function withDeliveryQueue(
               delivery: 'when-ready',
               deliveryAttempt: true,
               signal: row.abort.signal,
+              onTranscriptItem: (item) => name(id, item),
             },
           )
           receipt = await row.inFlight
@@ -239,7 +261,18 @@ export function withDeliveryQueue(
     }
   }
   handle.send = async (input, options) => {
-    if (!input.rowId) return send(input, options)
+    if (!input.rowId) {
+      // A direct send names its entry by its turn id, the id the server's
+      // message carries, when the driver learns it after the receipt went
+      // back (POD-4774). Same outcome frame as a row's, for the same reason.
+      const turnId = input.id
+      if (turnId === undefined || options.onTranscriptItem) return send(input, options)
+      return send(input, {
+        ...options,
+        onTranscriptItem: (transcriptItem) =>
+          emit({ t: 'delivery', rowId: turnId, outcome: 'delivered', transcriptItem }),
+      })
+    }
     // Durable delivery drains as when-ready. Never erase a boundary request.
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
