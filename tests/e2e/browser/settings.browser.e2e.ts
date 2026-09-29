@@ -1,7 +1,7 @@
 import { expect, type Page, test } from '@playwright/test'
 import { makeTrpc } from '../../../apps/web/src/app/trpc'
 import { nativeAccountId } from '../../../packages/runtime/src/settings'
-import { E2E_ACCOUNT_IDENTITY_ENV, E2E_LONG_IDENTITY_EMAIL } from '../account-identity-fixture'
+import { E2E_LONG_IDENTITY_EMAIL } from '../account-identity-fixture'
 import { RELAY } from './_harness'
 
 test.skip(
@@ -67,15 +67,11 @@ function accountsSection(page: Page) {
 }
 
 test('native account profile labels render when available', async ({ page }) => {
-  test.skip(
-    process.env[E2E_ACCOUNT_IDENTITY_ENV] !== '1',
-    'requires the seeded long-identity fixture (run with PODIUM_E2E_ACCOUNT_IDENTITY=1)',
-  )
   const trpc = makeTrpc('http://localhost:8799')
   const accounts = await trpc.accounts.list.query()
-  // The seeded login arrives through the catalog under a fingerprinted id when
-  // the host holds another login for the same harness — match the fixture
-  // address itself, never host state.
+  // The harness always seeds the long-identity login (POD-4730) — match that
+  // address itself, never host state. A missing seed is a harness failure, so
+  // fail loudly instead of skipping.
   const rows = accounts.filter(
     (account) => account.status === 'connected' && account.identity === E2E_LONG_IDENTITY_EMAIL,
   )

@@ -51,7 +51,6 @@ import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/wo
 import { inProcessMachinePrincipal } from '../../apps/server/src/gateway/daemon-mux'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import {
-  E2E_ACCOUNT_IDENTITY_ENV,
   E2E_IDENTITY_FINGERPRINT,
   E2E_IDENTITY_MACHINE_ID,
   E2E_LONG_IDENTITY_EMAIL,
@@ -399,17 +398,17 @@ if (E2E_ACCOUNT_ROLE === 'member' || E2E_ACCOUNT_ROLE === 'none') {
 
 /**
  * POD-4730: one connected native Codex login with a ~99-character identity on
- * an isolated second machine. The settings suite's identity-label test asserts
- * on exactly this address, so it runs identically on hosts with no native
- * logins, short ones, or long ones — and exercises the multi-line wrap path
- * that was red on flatblock.
+ * an isolated second machine, seeded UNCONDITIONALLY. The settings suite's
+ * identity-label test asserts on exactly this address, so it runs identically
+ * on hosts with no native logins, short ones, or long ones — and exercises
+ * the multi-line wrap path that was red on flatblock.
  *
  * A second machine (like the HANDOFF fixture's E2E Target) rather than the
  * host: the live daemon keeps reporting the host's real inventory, which would
  * overwrite a host-row fixture on every refresh. No daemon ever reports for
  * this id, so the seeded login is stable for the life of the harness.
  */
-if (process.env[E2E_ACCOUNT_IDENTITY_ENV] === '1') {
+{
   const identityId = asMachineId(E2E_IDENTITY_MACHINE_ID)
   const harnessStore = server.registry.sessionStore
   await harnessStore.machines.upsertMachine({

@@ -3,12 +3,11 @@
  *
  * The suite's identity-label test must run identically on hosts with no native
  * logins (ludovico), hosts with short ones, and hosts with long ones
- * (flatblock) — so it reads no host state at all. serve-harness records this
- * login for an isolated second machine when PODIUM_E2E_ACCOUNT_IDENTITY=1,
- * and the spec asserts on exactly this address. ~99 characters, so the badge
- * exercises the multi-line wrap path that was red on flatblock.
+ * (flatblock) — so it reads no host state at all. serve-harness always records
+ * this login for an isolated second machine, and the spec asserts on exactly
+ * this address. ~99 characters, so the badge exercises the multi-line wrap
+ * path that was red on flatblock.
  */
-export const E2E_ACCOUNT_IDENTITY_ENV = 'PODIUM_E2E_ACCOUNT_IDENTITY'
 
 /** The seeded login's email — also the identity the Accounts hub renders. */
 export const E2E_LONG_IDENTITY_EMAIL =
