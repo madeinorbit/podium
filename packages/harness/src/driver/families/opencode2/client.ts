@@ -3,6 +3,7 @@ import type {
   OpencodeEvent,
   OpencodeMessageWithParts,
   OpencodePermissionReply,
+  OpencodePromptAdmission,
   OpencodePromptBody,
   OpencodeQuestionAnswers,
   OpencodeQuestionRequest,
@@ -92,7 +93,7 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       const response = await request('GET', `/api/session/${encodeURIComponent(sessionId)}`)
       return ((await response.json()) as { data: OpencodeSession }).data
     },
-    async prompt(sessionId, body: OpencodePromptBody) {
+    async prompt(sessionId, body: OpencodePromptBody): Promise<OpencodePromptAdmission> {
       session = sessionId
       if (body.model) {
         await request('POST', `/api/session/${encodeURIComponent(sessionId)}/model`, {
@@ -120,16 +121,46 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       const text = body.parts
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
-        // The admitted preview API documents this as durable admission plus scheduling;
-        // the 200 response is an enqueue acknowledgement, not turn completion.
         .join('\n')
       const files = body.parts
         .filter((part) => part.type === 'file')
         .map((part) => ({ uri: part.url, ...(part.filename ? { name: part.filename } : {}) }))
-      await request('POST', `/api/session/${encodeURIComponent(sessionId)}/prompt`, {
-        text,
-        ...(files.length > 0 ? { files } : {}),
-      })
+      /**
+       * DURABLE ADMISSION OF ONE INPUT PER ID (POD-4813; measured on
+       * beta-18866). The 200 answers with the admitted input, and a repeat of
+       * an id answers with the ORIGINAL admission — its first text, no second
+       * record, no second turn — so the answer is the record the delivery names.
+       *
+       * `queue`, NEVER THE DEFAULT `steer`. This driver posts only once opencode
+       * reports the session idle (the runtime holds anything earlier), where the
+       * two are the same. They differ only when a turn opened in between — a
+       * human typing in an attached terminal — and there `steer` would hand our
+       * words to that turn while `queue` waits for it to end, which is what
+       * every delivery this driver accepts promised. Measured with a
+       * single-step model both waited for the running step; how `steer` enters
+       * a multi-step turn was not measured, and no mode here relies on it.
+       */
+      const response = await request(
+        'POST',
+        `/api/session/${encodeURIComponent(sessionId)}/prompt`,
+        {
+          id: body.messageID,
+          text,
+          ...(files.length > 0 ? { files } : {}),
+          delivery: 'queue',
+        },
+      )
+      const admitted = ((await response.json()) as { data?: { id?: unknown; sessionID?: unknown } })
+        .data
+      // Message ids are unique per DATABASE, not per session. An id already
+      // admitted to another session answers with THAT session's input; nothing
+      // was admitted here, and saying so is the only honest answer.
+      if (admitted?.sessionID !== sessionId || typeof admitted.id !== 'string') {
+        throw new Error(
+          `opencode2 did not admit ${body.messageID} to ${sessionId}: ${JSON.stringify(admitted)}`,
+        )
+      }
+      return { textPartId: userTextPartId(admitted.id) }
     },
     async abort(sessionId) {
       await request('POST', `/api/session/${encodeURIComponent(sessionId)}/interrupt`)
@@ -171,7 +202,7 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
           parts: (type === 'user' ? [{ type: 'text', text: String(row.text ?? '') }] : content).map(
             (part, index) => ({
               ...part,
-              id: `${id}:${index}`,
+              id: partId(id, index),
               messageID: id,
               sessionID: sessionId,
               type: String(part.type ?? 'text'),
@@ -237,6 +268,16 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       return events(request, signal)
     },
   }
+}
+
+/** The preview's rows carry content, not parts: a part is named by its row
+ *  and its position, and a user row is its one text part. */
+function partId(messageId: string, index: number | string): string {
+  return `${messageId}:${index}`
+}
+
+function userTextPartId(messageId: string): string {
+  return partId(messageId, 0)
 }
 
 type Opencode2FormField = {
@@ -437,7 +478,7 @@ async function* events(
               sessionID,
               time: raw.created,
               part: {
-                id: `${messageID}:${String(data.ordinal ?? 0)}`,
+                id: partId(messageID, String(data.ordinal ?? 0)),
                 messageID,
                 sessionID,
                 type: raw.type === 'session.text.ended' ? 'text' : 'reasoning',
@@ -456,7 +497,7 @@ async function* events(
             properties: {
               sessionID,
               messageID,
-              partID: `${messageID}:${String(data.ordinal ?? 0)}`,
+              partID: partId(messageID, String(data.ordinal ?? 0)),
               field: 'text',
               delta: String(data.delta ?? ''),
             },

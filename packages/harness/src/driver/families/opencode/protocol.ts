@@ -104,16 +104,36 @@ export interface OpencodePermissionRule {
  * plan is explicit that using it would make `accepted` mean the wrong thing.
  */
 export type OpencodePromptPart =
-  | { type: 'text'; text: string }
+  /** `id` (pattern `^prt`) is opencode's own part id, given by us. */
+  | { type: 'text'; text: string; id?: string }
   | { type: 'file'; mime: string; filename?: string; url: string }
 
 export interface OpencodePromptBody {
+  /**
+   * OUR ID IS OPENCODE'S MESSAGE ID (POD-4813). Both generations take the
+   * sender's id for the user message they record (v1 `messageID`, pattern
+   * `^msg`; v2 `id`, pattern `^msg_`), so the record is named by the send and
+   * a repeat of the send is recognised as one.
+   */
+  messageID: string
   parts: readonly OpencodePromptPart[]
   /** THE ASYMMETRY: `modelID` here, `id` on the session. */
   model?: { providerID: string; modelID: string }
   agent?: string
   system?: string
   variant?: string
+}
+
+/**
+ * What the engine's answer to a prompt proves it recorded.
+ *
+ * `textPartId` is the id of the prompt's text part in the engine's history,
+ * present only when the ANSWER itself is the record: v2's prompt answers with
+ * the durably admitted input. v1's 204 has no body, so there the record is
+ * proven by the part's own event and this is absent.
+ */
+export interface OpencodePromptAdmission {
+  textPartId?: string
 }
 
 /** `POST /permission/{requestID}/reply?directory=<abs>` → 200 `true`.

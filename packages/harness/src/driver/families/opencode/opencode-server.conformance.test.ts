@@ -918,7 +918,7 @@ describe('attachment file-part prompts', () => {
       const url = new URL('file:///')
       url.pathname = staged.path
       expect(world.prompt(handle.binding.sessionId)?.parts).toEqual([
-        { type: 'text', text: 'read this' },
+        { type: 'text', text: 'read this', id: expect.stringMatching(/^prt_000000000000/) },
         {
           type: 'file',
           mime: 'text/plain',

@@ -22,10 +22,15 @@ function makeClient(fetch: typeof globalThis.fetch, timeoutMs?: number) {
 
 describe('OpenCode 2 client adapter', () => {
   it('configures and admits a prompt through the v2 session API', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => json({ data: {} }))
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).endsWith('/prompt')
+        ? json({ data: { id: 'msg_ours', sessionID: 'ses_v2', type: 'user', delivery: 'queue' } })
+        : json({ data: {} }),
+    )
     const client = makeClient(fetch)
 
-    await client.prompt('ses_v2', {
+    const admission = await client.prompt('ses_v2', {
+      messageID: 'msg_ours',
       model: { providerID: 'openai', modelID: 'gpt-5' },
       agent: 'build',
       system: 'Stay focused.',
@@ -57,12 +62,56 @@ describe('OpenCode 2 client adapter', () => {
       [
         'http://127.0.0.1:41427/api/session/ses_v2/prompt',
         'POST',
-        { text: 'Ship it', files: [{ uri: 'file:///tmp/notes.txt', name: 'notes.txt' }] },
+        {
+          id: 'msg_ours',
+          text: 'Ship it',
+          files: [{ uri: 'file:///tmp/notes.txt', name: 'notes.txt' }],
+          delivery: 'queue',
+        },
       ],
     ])
+    // The admitted input is the record: its text part is the row's first.
+    expect(admission).toEqual({ textPartId: 'msg_ours:0' })
     expect(fetch.mock.calls[0]?.[1]?.headers).toMatchObject({
       authorization: 'Basic b3BlbmNvZGU6c2VjcmV0',
     })
+  })
+
+  it('names the part history reads back, the same on a repeat', async () => {
+    // A repeat answers with the FIRST admission under that id (beta-18866).
+    const row = {
+      id: 'msg_ours',
+      sessionID: 'ses_v2',
+      type: 'user',
+      text: 'first',
+      time: { created: 5 },
+    }
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).includes('/message?')
+        ? json({ data: [row], cursor: { next: null } })
+        : json({ data: { ...row, payload: { text: 'first' } } }),
+    )
+    const client = makeClient(fetch)
+    const prompt = { messageID: 'msg_ours', parts: [{ type: 'text' as const, text: 'again' }] }
+
+    const first = await client.prompt('ses_v2', prompt)
+    const repeat = await client.prompt('ses_v2', prompt)
+    const [message] = await client.messages('ses_v2')
+
+    expect(repeat).toEqual(first)
+    expect(message?.parts.map((part) => part.id)).toEqual([first.textPartId])
+  })
+
+  it('refuses an id opencode holds for another session', async () => {
+    // Ids are unique per database: the answer is the OTHER session's input.
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      json({ data: { id: 'msg_ours', sessionID: 'ses_other', type: 'user' } }),
+    )
+    const client = makeClient(fetch)
+
+    await expect(
+      client.prompt('ses_v2', { messageID: 'msg_ours', parts: [{ type: 'text', text: 'hi' }] }),
+    ).rejects.toThrow(/did not admit msg_ours to ses_v2/)
   })
 
   it('translates pending forms and replies with field-keyed v2 answers', async () => {

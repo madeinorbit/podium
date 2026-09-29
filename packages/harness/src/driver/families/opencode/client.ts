@@ -33,6 +33,7 @@ import {
   type OpencodePermissionReply,
   OpencodePermissionRequest,
   type OpencodePermissionRule,
+  type OpencodePromptAdmission,
   type OpencodePromptBody,
   type OpencodeQuestionAnswers,
   OpencodeQuestionRequest,
@@ -91,7 +92,7 @@ export interface OpencodeClient {
   }): Promise<OpencodeSession>
   getSession(sessionId: OpencodeSessionId): Promise<OpencodeSession>
   /** 204 = opencode has TAKEN the turn. Not "the turn finished". */
-  prompt(sessionId: OpencodeSessionId, body: OpencodePromptBody): Promise<void>
+  prompt(sessionId: OpencodeSessionId, body: OpencodePromptBody): Promise<OpencodePromptAdmission>
   abort(sessionId: OpencodeSessionId): Promise<void>
   messages(sessionId: OpencodeSessionId): Promise<readonly OpencodeMessageWithParts[]>
   /** The OPEN asks, from the server rather than from our memory of the stream —
@@ -203,6 +204,8 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
 
     async prompt(sessionId, body) {
       await request('POST', `/session/${encodeURIComponent(sessionId)}/prompt_async`, body)
+      // The 204 has no body: the record is proven by its part's event.
+      return {}
     },
 
     async abort(sessionId) {

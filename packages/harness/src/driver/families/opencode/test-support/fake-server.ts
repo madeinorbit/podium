@@ -332,11 +332,32 @@ export async function startFakeOpencodeServer(options: {
          * fixture that acked without writing was modelling a server with no
          * database.
          */
-        appendUserMessage(sessionId, body)
-        // 204 IS THE ACK, with no body — the exact shape recorded from 1.18.16.
-        res.writeHead(204)
-        res.end()
+        const repeat = recordUserMessage(sessionId, body)
+        const answer = (): void => {
+          // 204 IS THE ACK, with no body — the exact shape recorded from 1.18.16.
+          res.writeHead(204)
+          res.end()
+        }
+        if (!repeat) {
+          answer()
+          goBusy(sessionId)
+          return
+        }
+        /**
+         * A REPEAT OF AN ANSWERED MESSAGE (measured on 1.18.33): opencode
+         * re-publishes the record, opens a turn with nothing to answer and
+         * closes it at once. Published BEFORE the 204 here — the order the
+         * driver finds hardest, since the stream is a separate connection.
+         */
+        const message = sessions
+          .get(sessionId)!
+          .messages.find((row) => row.info.id === body.messageID)!
+        emit('message.updated', { sessionID: sessionId, info: message.info })
+        for (const part of message.parts)
+          emit('message.part.updated', { sessionID: sessionId, part })
         goBusy(sessionId)
+        goIdle(sessionId)
+        setTimeout(answer, 20)
       })
       return
     }
@@ -368,35 +389,51 @@ export async function startFakeOpencodeServer(options: {
     json(404, { error: `unrouted ${req.method} ${path}` })
   })
 
-  /** Record the caller's prompt the way opencode records it: one `user` message
-   *  carrying one `text` part, in the shape `__fixtures__/messages-*.json` was
-   *  recorded in. `partToItems` reads exactly these fields. */
-  function appendUserMessage(sessionId: string, body: Record<string, unknown>): void {
+  /**
+   * Record the caller's prompt the way opencode records it: one `user` message
+   * carrying one `text` part, in the shape `__fixtures__/messages-*.json` was
+   * recorded in. `partToItems` reads exactly these fields.
+   *
+   * UNDER THE CALLER'S IDS, AS 1.18.33 DOES (POD-4813). `messageID` and a
+   * part's `id` are taken as given; a message id already recorded is upserted,
+   * with a part of a known id replaced and any other part appended — which is
+   * why a repeat without the part id doubled the words. Answers whether the
+   * message was already there.
+   */
+  function recordUserMessage(sessionId: string, body: Record<string, unknown>): boolean {
     const session = sessions.get(sessionId)
-    if (!session) return
+    if (!session) return false
     const parts = Array.isArray(body.parts) ? (body.parts as Record<string, unknown>[]) : []
-    const text = parts
-      .filter((part) => part.type === 'text' && typeof part.text === 'string')
-      .map((part) => String(part.text))
-      .join('\n')
-    const messageId = id('msg')
-    session.messages.push({
-      info: {
-        id: messageId,
-        sessionID: sessionId,
-        role: 'user',
-        time: { created: session.messages.length + 1 },
-      },
-      parts: [
-        {
-          id: id('prt'),
+    const messageId = typeof body.messageID === 'string' ? body.messageID : id('msg')
+    let message = session.messages.find((row) => row.info.id === messageId)
+    const repeat = message !== undefined
+    if (!message) {
+      message = {
+        info: {
+          id: messageId,
           sessionID: sessionId,
-          messageID: messageId,
-          type: 'text',
-          text,
+          role: 'user',
+          time: { created: session.messages.length + 1 },
         },
-      ],
-    })
+        parts: [],
+      }
+      session.messages.push(message)
+    }
+    for (const part of parts) {
+      if (part.type !== 'text' || typeof part.text !== 'string') continue
+      const partId = typeof part.id === 'string' ? part.id : id('prt')
+      const row = {
+        id: partId,
+        sessionID: sessionId,
+        messageID: messageId,
+        type: 'text',
+        text: part.text,
+      }
+      const at = message.parts.findIndex((known) => known.id === partId)
+      if (at >= 0) message.parts[at] = row
+      else message.parts.push(row)
+    }
+    return repeat
   }
 
   function sessionSummary(session: FakeOpencodeSession): Record<string, unknown> {

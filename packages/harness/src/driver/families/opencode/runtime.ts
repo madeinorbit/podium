@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { pageHistory } from '../../history'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
@@ -49,7 +50,6 @@ import type {
   TranscriptItemRef,
 } from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
-import { transcriptEchoAcceptCorrelation } from '../../../accept-correlation.js'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
@@ -108,6 +108,7 @@ import {
 import {
   type OpencodeEvent,
   type OpencodeMessageInfo,
+  type OpencodePromptAdmission,
   type OpencodeQuestionInfo,
   type OpencodeSessionId,
   eventSessionId,
@@ -305,18 +306,65 @@ interface QueuedTurn {
   options: SendOptions
 }
 
+/** The ids a prompt carries into opencode's history. */
+interface PromptIds {
+  messageID: string
+  textPartId: string
+}
+
+/** What opencode takes as a message id: v2's `^msg_` (v1's `^msg` is looser). */
+const OPENCODE_MESSAGE_ID = /^msg_/
+
 /**
- * ONE SEND WAITING FOR OPENCODE'S RECORD OF ITS PROMPT (POD-4774).
+ * THE SEND'S OWN IDS, AS OPENCODE'S (POD-4813).
  *
- * `prompt_async` answers 204 with no body — no message id, no part id — and
- * the prompt's user text part arrives on the event stream around it. The
- * part's id is opencode's own and is what history re-reads, so it is what the
- * delivery names. Nothing identifies the part as this send's except its text,
- * so the pairing is the transcript-echo correlation the terminal family uses:
- * armed before the prompt goes out, one waiter credited per observation.
+ * The turn id — the message row's `msg_<uuid>` — becomes opencode's message id
+ * verbatim. A turn id of another shape is hashed into one, so it still names
+ * the same record on every repeat; only a turn with no id gets a fresh one.
+ * Measured on 1.18.33 and beta-18866: a random id orders nowhere wrong. Both
+ * keep history, the model's context and "the latest message" in arrival order
+ * and use the id only to break a tie between equal creation times.
+ *
+ * A REPEAT IS RECORDED ONCE, and on v1 only because the TEXT PART carries our
+ * id too: v1 upserts the message by id but appends every part it has not seen,
+ * so a repeat with an opencode-minted part id added the words to the message a
+ * second time. With both ids fixed it records nothing new and opens no turn.
+ * v2 answers a repeat with the original admission. (Attachments are not made
+ * idempotent: v1 expands a file into parts it mints itself on every prompt.)
+ *
+ * THE PART ID SORTS FIRST. v1 orders a message's parts by id, and the text
+ * must stay ahead of the parts opencode mints for the attachments beside it,
+ * whose ids begin with twelve hex digits of time. Twelve zeros sort below
+ * every one of them.
+ *
+ * Ids are unique per opencode DATABASE, not per session. An id already
+ * recorded in another session is refused by v2 (see its client); v1 answers
+ * 204, attaches the words to the other session's message and reports a
+ * `session.error` here. A Podium message has one recipient session, so its id
+ * reaches one opencode session.
  */
-interface UserEchoWaiter {
-  fingerprint: string
+function promptIdsFor(input: TurnInput): PromptIds {
+  const messageID =
+    input.id === undefined
+      ? `msg_${randomUUID()}`
+      : OPENCODE_MESSAGE_ID.test(input.id)
+        ? input.id
+        : `msg_${createHash('sha256').update(input.id).digest('hex').slice(0, 32)}`
+  return { messageID, textPartId: `prt_000000000000${messageID.slice('msg_'.length)}` }
+}
+
+/**
+ * ONE SEND WAITING FOR OPENCODE'S RECORD OF ITS PROMPT (POD-4774, POD-4813).
+ *
+ * The prompt carries OUR ids ({@link promptIdsFor}), so its record is found
+ * by id and never by its text. v1's `prompt_async` answers 204 with no body
+ * and the text part arrives on the event stream around it, so the watch is
+ * armed before the prompt goes out. v2's answer is the record itself and
+ * settles the watch at once.
+ */
+interface PromptRecordWaiter {
+  /** Our id for the prompt's text part, which opencode records it under. */
+  textPartId: string
   /** The entry, when it landed before the receipt went back. */
   seen?: TranscriptItemRef
   /** The late path, once the receipt went back without it. */
@@ -329,9 +377,7 @@ interface DriverSession {
   sessionId: SessionId
   spec: SessionSpec
   endpoint: OpencodeServerEndpoint
-  userEchoWaiters: Set<UserEchoWaiter>
-  /** User parts already credited to a send (recent only). */
-  creditedUserItems: Set<string>
+  promptRecords: Set<PromptRecordWaiter>
   client: OpencodeClient
   opencodeSessionId: OpencodeSessionId
   binding: SessionBinding
@@ -559,10 +605,9 @@ export function createOpencodeRuntime(
         // than a missing one. The message.updated that carries it always
         // arrives; when it does, the part's next update maps.
         if (!info) break
-        for (const item of partToItems(session.opencodeSessionId, info, event.properties.part)) {
-          emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
-          creditUserEcho(session, item)
-        }
+        const items = partToItems(session.opencodeSessionId, info, event.properties.part)
+        for (const item of items) emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
+        creditPromptRecord(session, event.properties.part.id, items)
         break
       }
       case 'message.part.delta': {
@@ -862,52 +907,54 @@ export function createOpencodeRuntime(
    * fence before emitting anything. `interrupt()` only asks opencode to stop
    * and waits for one of those provider confirmations.
    */
-  /** Credit at most one open send per recorded user part, by its text. */
-  function creditUserEcho(session: DriverSession, item: TranscriptItem): void {
-    if (session.userEchoWaiters.size === 0) return
-    const correlation = transcriptEchoAcceptCorrelation
-    if (!correlation.accepts(item)) return
-    const fingerprint = correlation.fingerprint(item)
-    const ref = transcriptItemRefOf(item)
-    if (fingerprint === null || !ref) return
-    // opencode re-publishes a part on every update: one part credits one send.
-    if (session.creditedUserItems.has(ref.id)) return
-    session.creditedUserItems.add(ref.id)
-    if (session.creditedUserItems.size > 64) {
-      const oldest = session.creditedUserItems.values().next()
-      if (!oldest.done) session.creditedUserItems.delete(oldest.value)
-    }
-    for (const waiter of session.userEchoWaiters) {
-      if (waiter.seen || waiter.fingerprint !== fingerprint) continue
+  /** Credit every open send whose prompt opencode recorded under this part id.
+   *  opencode re-publishes a part on every update; a credited send has left. */
+  function creditPromptRecord(
+    session: DriverSession,
+    partId: string,
+    items: readonly TranscriptItem[],
+  ): void {
+    const item = items[0]
+    const ref = item ? transcriptItemRefOf(item) : undefined
+    if (!ref) return
+    for (const waiter of session.promptRecords) {
+      if (waiter.seen || waiter.textPartId !== partId) continue
       if (waiter.onItem) {
-        session.userEchoWaiters.delete(waiter)
+        session.promptRecords.delete(waiter)
         waiter.onItem(ref)
       } else {
         waiter.seen = ref
       }
-      return
     }
   }
 
-  /** Arm a send's echo watch before its prompt can be recorded. */
-  function armUserEcho(session: DriverSession, text: string): UserEchoWaiter | undefined {
-    const fingerprint = transcriptEchoAcceptCorrelation.fingerprintText(text)
-    if (fingerprint === null) return undefined
-    const waiter: UserEchoWaiter = { fingerprint }
-    session.userEchoWaiters.add(waiter)
+  /** Arm a send's record watch before its prompt can be recorded. */
+  function armPromptRecord(session: DriverSession, textPartId: string): PromptRecordWaiter {
+    const waiter: PromptRecordWaiter = { textPartId }
+    session.promptRecords.add(waiter)
     return waiter
   }
 
-  /** The receipt's entry, or the late path for it; the waiter leaves either way
-   *  unless it now waits for the entry on behalf of `onItem`. */
-  function settleUserEcho(
+  /**
+   * The receipt's entry, or the late path for it; the waiter leaves either way
+   * unless it now waits for the entry on behalf of `onItem`.
+   *
+   * An admission that names the text part IS the record (v2), and its entry is
+   * named from that id. Its cursor is left out: the paging offset is the row's
+   * creation time, which only the history read knows for certain.
+   */
+  function settlePromptRecord(
     session: DriverSession,
-    waiter: UserEchoWaiter | undefined,
+    waiter: PromptRecordWaiter,
+    admission: OpencodePromptAdmission,
     onItem: SendOptions['onTranscriptItem'],
   ): TranscriptItemRef | undefined {
-    if (!waiter) return undefined
+    if (admission.textPartId !== undefined) {
+      session.promptRecords.delete(waiter)
+      return { id: deltaItemIdForPart(session.opencodeSessionId, admission.textPartId) }
+    }
     if (waiter.seen || !onItem) {
-      session.userEchoWaiters.delete(waiter)
+      session.promptRecords.delete(waiter)
       return waiter.seen
     }
     waiter.onItem = onItem
@@ -923,9 +970,9 @@ export function createOpencodeRuntime(
     if (session.turnEpoch <= session.fencedTurnEpoch) return
     session.fencedTurnEpoch = session.turnEpoch
     // A turn that ended without its prompt recorded names nothing.
-    for (const waiter of session.userEchoWaiters) {
+    for (const waiter of session.promptRecords) {
       if (waiter.epoch !== undefined && waiter.epoch <= session.fencedTurnEpoch) {
-        session.userEchoWaiters.delete(waiter)
+        session.promptRecords.delete(waiter)
       }
     }
     const interrupted = session.interruptPending
@@ -1194,8 +1241,9 @@ export function createOpencodeRuntime(
   async function deliver(
     session: DriverSession,
     input: TurnInput,
+    ids: PromptIds,
     origin: SendOptions['origin'] = 'human',
-  ): Promise<void> {
+  ): Promise<OpencodePromptAdmission> {
     const fileUrl = (path: string): string => {
       const url = new URL('file:///')
       url.pathname = path
@@ -1204,9 +1252,11 @@ export function createOpencodeRuntime(
     const model = modelFor(session.spec, input)
     const effort = effortFor(session.spec, input)
     session.observedConfiguration = undefined
-    await session.client.prompt(session.opencodeSessionId, {
+    const epochBeforePrompt = session.turnEpoch
+    const admission = await session.client.prompt(session.opencodeSessionId, {
+      messageID: ids.messageID,
       parts: [
-        { type: 'text', text: input.text },
+        { type: 'text', text: input.text, id: ids.textPartId },
         ...(input.attachments ?? []).map((attachment) => ({
           type: 'file' as const,
           mime: attachment.mediaType,
@@ -1224,6 +1274,17 @@ export function createOpencodeRuntime(
       // precedence rule worth stating identically.
       ...(effort ? { variant: effort } : {}),
     })
+    /**
+     * OPENCODE OPENED THE TURN FIRST, AND MAY HAVE CLOSED IT (POD-4813).
+     *
+     * The status stream is a separate connection, and its `busy` can land
+     * before the 204 does. A repeat of an answered message makes that the rule
+     * rather than the race: opencode opens a turn with nothing to answer and
+     * closes it at once. Opening another epoch here would count the turn twice
+     * and, when it already closed, leave the session busy with a turn no
+     * `session.idle` will ever end. The stream is the authority on turns.
+     */
+    if (session.turnEpoch > epochBeforePrompt) return admission
     // The 204 IS the acceptance, and it is also the moment the turn opens as far
     // as this driver is concerned. opencode's `session.status: busy` confirms it
     // microseconds later; the epoch advances here so the receipt can name it.
@@ -1260,6 +1321,7 @@ export function createOpencodeRuntime(
      * transition and this path has already set `busy`.
      */
     emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
+    return admission
   }
 
   /**
@@ -1416,9 +1478,16 @@ export function createOpencodeRuntime(
       if (session.interactions.size > 0) return
       const next = session.queue.shift()
       if (!next) return
+      const ids = promptIdsFor(next.input)
+      const record = armPromptRecord(session, ids.textPartId)
       try {
-        await deliver(session, next.input, next.options.origin)
+        const admission = await deliver(session, next.input, ids, next.options.origin)
+        // Its receipt went back when it was queued: the entry travels late.
+        const onItem = next.options.onTranscriptItem
+        const item = settlePromptRecord(session, record, admission, onItem)
+        if (item) onItem?.(item)
       } catch {
+        session.promptRecords.delete(record)
         /**
          * THE SEND ITSELF FAILED, AND THE CALLER IS LONG GONE.
          *
@@ -1646,14 +1715,21 @@ export function createOpencodeRuntime(
          */
         if (session.disposed || session.serverGone) return refuse('not_running')
 
-        const echo = armUserEcho(session, input.text)
+        const ids = promptIdsFor(input)
+        const record = armPromptRecord(session, ids.textPartId)
+        let admission: OpencodePromptAdmission
         try {
-          await deliver(session, input, options.origin)
+          admission = await deliver(session, input, ids, options.origin)
         } catch (err) {
-          if (echo) session.userEchoWaiters.delete(echo)
+          session.promptRecords.delete(record)
           return refuse('not_running', String(err))
         }
-        const transcriptItem = settleUserEcho(session, echo, options.onTranscriptItem)
+        const transcriptItem = settlePromptRecord(
+          session,
+          record,
+          admission,
+          options.onTranscriptItem,
+        )
         return {
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
@@ -2083,8 +2159,7 @@ export function createOpencodeRuntime(
       interactions: new Map(),
       answered: new Set(),
       messages: new Map(),
-      userEchoWaiters: new Set(),
-      creditedUserItems: new Set(),
+      promptRecords: new Set(),
       queue: [],
       serverGone: false,
       lease: null,
