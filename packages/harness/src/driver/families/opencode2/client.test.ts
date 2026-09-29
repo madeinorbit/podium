@@ -402,3 +402,14 @@ it('gives SSE live, REST replay, and the file mapper identical deterministic ite
   }
   expect(await parse()).toEqual(await parse())
 })
+
+describe('OpenCode 2 failure answers (POD-4839)', () => {
+  it('carries the HTTP status as data, so the driver refuses only a 400 or 404', async () => {
+    for (const status of [400, 404, 409]) {
+      const client = makeClient(vi.fn<typeof globalThis.fetch>(async () => json({ error: 'no' }, status)))
+      await expect(
+        client.prompt('ses_v2', { messageID: 'msg_ours', parts: [{ type: 'text', text: 'x' }] }),
+      ).rejects.toMatchObject({ name: 'OpencodeHttpError', status })
+    }
+  })
+})
