@@ -45,7 +45,6 @@ export function withDeliveryQueue(
     interrupt: boolean
     /** The cut was asked for once; the row now waits for the boundary. */
     interruptRequested?: boolean
-    /** Set only while the driver holds the text: typing cannot be undone. */
     inFlight?: Promise<TurnReceipt>
   }
   const rows = new Map<string, Row>()
@@ -100,10 +99,10 @@ export function withDeliveryQueue(
     emit(event)
   }
   /**
-   * An interrupt row waits ahead of every plain row that is still waiting,
-   * behind earlier interrupts and behind a row the driver is already typing —
-   * text that has started to cross cannot be pulled back, so the interrupt
-   * cuts the turn that row opens instead.
+   * An interrupt row waits ahead of every plain row, behind earlier
+   * interrupts. A plain row the driver is already typing keeps its own
+   * attempt — the drain holds it until it settles — so the interrupt cuts the
+   * turn that row opens.
    */
   function admit(id: string, row: Row): void {
     if (!row.interrupt) {
@@ -111,7 +110,7 @@ export function withDeliveryQueue(
       return
     }
     const entries = [...rows]
-    const at = entries.findIndex(([, waiting]) => !waiting.interrupt && !waiting.inFlight)
+    const at = entries.findIndex(([, waiting]) => !waiting.interrupt)
     entries.splice(at < 0 ? entries.length : at, 0, [id, row])
     rows.clear()
     for (const [key, value] of entries) rows.set(key, value)
@@ -197,8 +196,6 @@ export function withDeliveryQueue(
             verificationWindowMs: 0,
             at: new Date().toISOString(),
           }
-        } finally {
-          row.inFlight = undefined
         }
         if (row.abort.signal.aborted) continue
         if (receipt.outcome === 'accepted') {
