@@ -469,7 +469,9 @@ describe('dispose', () => {
     expect(getObserverTree(pool.worklist, 'order').observers ?? []).toEqual([])
     expect(pool.worklist.size()).toBe(0)
     expect(pool.modelCount('session')).toBe(0)
-    for (const model of models) expect(getObserverTree(model, 'view').observers ?? []).toEqual([])
+    // A row view is a cached group on its issue, dropped once unobserved; one
+    // still observed would observe its table slots, which the check above
+    // finds empty. The objects themselves are released (model counts, above).
     expect(pool.clock.waiting).toBe(0)
     expect(pool.residency?.hasQueued()).toBe(false)
     expect(ENTITIES.map((entity) => pool.residency?.size(entity))).toEqual([0, 0, 0, 0])

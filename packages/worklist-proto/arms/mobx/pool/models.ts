@@ -29,7 +29,10 @@
  *
  * DERIVED VALUES ARE CACHED IN GROUPS. Each group is one cached value (a
  * structural computed: an unchanged group keeps its identity and stops the
- * propagation) holding several parts computed by the pure part functions
+ * propagation), built the first time a reaction reads it and dropped when
+ * nothing observes it (`cached.ts`), so an object costs nothing until its
+ * groups are read, and only the groups that are. A group holds several parts
+ * computed by the pure part functions
  * (`views.ts`, `worklist/visible.ts`, `worklist/rollup.ts`), which the
  * rebuild runs directly. Every other getter is a plain read of a group, or a
  * part function run inside the one group that needs it. The cut follows the
@@ -39,7 +42,7 @@
  * across), so no two groups wait on each other.
  */
 
-import { computed, computedStruct, makeObservable } from 'mobx'
+import { cachedGroup } from './cached'
 import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import type { RowOriginTick, RowRank, RowView } from '../../../shared/src/row-view'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
@@ -79,7 +82,7 @@ import {
   attentionOf,
   formalParentPartOf,
   LOADING,
-  type Loaded,
+  type Loaded as LoadedRow,
   type OwnAttention,
   type OwnFacts,
   ownFactsOf,
@@ -121,7 +124,7 @@ import {
 /** What a model reads from its pool. */
 export interface ModelHost {
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
-  row(entity: EntityName, id: string): Loaded<object>
+  row(entity: EntityName, id: string): LoadedRow<object>
   /** What the row view's parts read. */
   readonly inputs: ViewInputs
   /** What the visibility parts read. */
@@ -177,70 +180,71 @@ function installFields(prototype: EntityModel, entity: EntityName): void {
   }
 }
 
+/** The own row's in-memory read, cached (`IssueModel.loaded`). */
+export interface Loaded {
+  readonly facts: OwnFacts
+  readonly label: Label
+  /** `issue.discoveredFrom`, resolved by the engine: a known origin, or null. */
+  readonly originRef: string | null
+}
+
 /**
  * THE issue: its row, its row view, its visibility, its roll-ups and its
  * edits. The groups (cached values) are `facts`, `rank`, `members`,
- * `presence`, `nesting`, `tip`, `attention`, `progress`, `loaded` and `view`.
+ * `presence`, `nesting`, `tip`, `attention`, `progress`, `loaded` and `view`;
+ * each is a cached group (`cachedGroup`), built on first reactive read.
  */
 export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
+  private static readonly groups = {
+    /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
+    facts: cachedGroup('facts', (issue: IssueModel) =>
+      issueFactsPartOf(issue.host.visibleInputs, issue.id),
+    ),
+    rank: cachedGroup('rank', (issue: IssueModel) => {
+      const part = issue.facts?.part
+      return part === undefined ? undefined : rankOfPart(issue.id, part)
+    }),
+    members: cachedGroup('members', (issue: IssueModel) =>
+      membersOf(issue.host.visibleInputs, issue.id, issue.standing),
+    ),
+    presence: cachedGroup('presence', (issue: IssueModel) =>
+      presenceOf(issue.host.visibleInputs, issue.id, issue),
+    ),
+    nesting: cachedGroup('nesting', (issue: IssueModel) =>
+      nestingOf(issue.host.visibleInputs, issue.id, issue.standing, issue.present),
+    ),
+    tip: cachedGroup('tip', (issue: IssueModel) => tipPartOf(issue.host.rollupInputs, issue.id)),
+    attention: cachedGroup('attention', (issue: IssueModel) =>
+      attentionOf(issue.host.rollupInputs, issue.id, issue),
+    ),
+    progress: cachedGroup('progress', (issue: IssueModel) =>
+      progressOf(issue.host.rollupInputs, issue.id, issue),
+    ),
+    /**
+     * What the IN-MEMORY row gives (one read of it, which queues a cold row's
+     * load): its decision facts for the roll-up (`state` says whether it is in
+     * memory), its label for the view and a spin-off's origin tick, and its
+     * origin. Cached, so a view or a composition re-running reads no row and
+     * resolves no relation.
+     */
+    loaded: cachedGroup('loaded', (issue: IssueModel): Loaded => {
+      const row = issue.host.rollupInputs.loadedIssue(issue.id)
+      return {
+        facts: ownFactsOf(row),
+        label: labelOfRow(issue.host.inputs, issue.id, row === LOADING ? undefined : row),
+        originRef: originRefPartOf(issue.host.inputs, issue.id),
+      }
+    }),
+    /** The L1b row view; undefined while the row is not in memory (its load queued) or gone. */
+    view: cachedGroup('view', (issue: IssueModel): RowView | undefined => {
+      issue.host.stats.rowsDerived += 1
+      if (issue.loaded.facts.state !== 'ready') return undefined
+      return buildRowView(issue.host.inputs, issue.id, issue)
+    }),
+  }
+
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
-    makeObservable(this, {
-      facts: computedStruct,
-      rank: computedStruct,
-      members: computedStruct,
-      presence: computedStruct,
-      nesting: computedStruct,
-      tip: computedStruct,
-      attention: computedStruct,
-      progress: computedStruct,
-      loaded: computedStruct,
-      view: computedStruct,
-      // Plain: the edit, and reads of the groups or parts run where read.
-      update: false,
-      standing: false,
-      seatIds: false,
-      laneMemberIds: false,
-      memberIds: false,
-      retainedSeatIds: false,
-      rosterIds: false,
-      retained: false,
-      liveRoster: false,
-      openOwn: false,
-      flat: false,
-      keeps: false,
-      present: false,
-      nestParent: false,
-      placed: false,
-      visible: false,
-      ownAttention: false,
-      aggregate: false,
-      seatActivity: false,
-      unitOwn: false,
-      unitsBelow: false,
-      label: false,
-      displayRef: false,
-      displayTitle: false,
-      own: false,
-      finished: false,
-      formalParent: false,
-      waiting: false,
-      rollup: false,
-      placement: false,
-      ownFacts: false,
-      childIds: false,
-      spinOffIds: false,
-      keptBelow: false,
-      unread: false,
-      repoTarget: false,
-      prefix: false,
-      originRef: false,
-      originId: false,
-      originTick: false,
-      sessionIds: false,
-      activityAt: false,
-      loading: false,
-    })
   }
 
   /** Edit this issue: one transaction of the write layer's log (paint, remember, send). */
@@ -250,66 +254,44 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
 
   // ------------------------------------------------------------- the groups
 
-  /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
   get facts(): IssueFacts | undefined {
-    return issueFactsPartOf(this.host.visibleInputs, this.id)
+    return IssueModel.groups.facts(this)
   }
 
   get rank(): RowRank | undefined {
-    const part = this.facts?.part
-    return part === undefined ? undefined : rankOfPart(this.id, part)
+    return IssueModel.groups.rank(this)
   }
 
   get members(): Members {
-    return membersOf(this.host.visibleInputs, this.id, this.standing)
+    return IssueModel.groups.members(this)
   }
 
   get presence(): Presence {
-    return presenceOf(this.host.visibleInputs, this.id, this)
+    return IssueModel.groups.presence(this)
   }
 
   get nesting(): Nesting {
-    return nestingOf(this.host.visibleInputs, this.id, this.standing, this.present)
+    return IssueModel.groups.nesting(this)
   }
 
   get tip(): { readonly found: boolean; readonly pending: number } {
-    return tipPartOf(this.host.rollupInputs, this.id)
+    return IssueModel.groups.tip(this)
   }
 
   get attention(): Attention {
-    return attentionOf(this.host.rollupInputs, this.id, this)
+    return IssueModel.groups.attention(this)
   }
 
   get progress(): Progress {
-    return progressOf(this.host.rollupInputs, this.id, this)
+    return IssueModel.groups.progress(this)
   }
 
-  /**
-   * What the IN-MEMORY row gives (one read of it, which queues a cold row's
-   * load): its decision facts for the roll-up (`state` says whether it is in
-   * memory), its label for the view and a spin-off's origin tick, and its
-   * origin. Cached, so a view or a composition re-running reads no row and
-   * resolves no relation.
-   */
-  get loaded(): {
-    readonly facts: OwnFacts
-    readonly label: Label
-    /** `issue.discoveredFrom`, resolved by the engine: a known origin, or null. */
-    readonly originRef: string | null
-  } {
-    const row = this.host.rollupInputs.loadedIssue(this.id)
-    return {
-      facts: ownFactsOf(row),
-      label: labelOfRow(this.host.inputs, this.id, row === LOADING ? undefined : row),
-      originRef: originRefPartOf(this.host.inputs, this.id),
-    }
+  get loaded(): Loaded {
+    return IssueModel.groups.loaded(this)
   }
 
-  /** The L1b row view; undefined while the row is not in memory (its load queued) or gone. */
   get view(): RowView | undefined {
-    this.host.stats.rowsDerived += 1
-    if (this.loaded.facts.state !== 'ready') return undefined
-    return buildRowView(this.host.inputs, this.id, this)
+    return IssueModel.groups.view(this)
   }
 
   // --------------------------------------------------- reads of the groups
@@ -499,35 +481,42 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
+  private static readonly groups = {
+    retention: cachedGroup('retention', (session: SessionModel) =>
+      retentionOf(session.host.visibleInputs.sessionRow(session.id)),
+    ),
+    activityMs: cachedGroup('activityMs', (session: SessionModel) =>
+      activityMsOf(session.host.visibleInputs.sessionRow(session.id)),
+    ),
+    links: cachedGroup('links', (session: SessionModel) =>
+      sessionLinksOf(session.host.visibleInputs, session.id),
+    ),
+    verdict: cachedGroup('verdict', (session: SessionModel) =>
+      verdictPartOf(session.host.visibleInputs, session.id),
+    ),
+  }
+
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
-    makeObservable(this, {
-      retention: computedStruct,
-      activityMs: computed,
-      links: computedStruct,
-      verdict: computedStruct,
-      issueLink: false,
-      worktreeLink: false,
-    })
   }
 
   /** Its part in its issue's visibility, hot or cold. */
   get retention(): Retention | null {
-    return retentionOf(this.host.visibleInputs.sessionRow(this.id))
+    return SessionModel.groups.retention(this)
   }
 
   /** Its `lastActiveAt`, hot or cold: the unread rollup's and the row's activity stamp. */
   get activityMs(): number | null {
-    return activityMsOf(this.host.visibleInputs.sessionRow(this.id))
+    return SessionModel.groups.activityMs(this)
   }
 
   get links(): SessionLinks {
-    return sessionLinksOf(this.host.visibleInputs, this.id)
+    return SessionModel.groups.links(this)
   }
 
   /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
-  get verdict(): Loaded<SeatVerdict> {
-    return verdictPartOf(this.host.visibleInputs, this.id)
+  get verdict(): LoadedRow<SeatVerdict> {
+    return SessionModel.groups.verdict(this)
   }
 
   get issueLink(): string | null {

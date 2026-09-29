@@ -66,7 +66,8 @@ function objectsBehind(roots: Iterable<Derivation>): Record<string, number> {
     const next = stack.pop() as Derivation
     if (visited.has(next)) continue
     visited.add(next)
-    const owner = /^(\w+@\d+)\./.exec(next.name_ ?? '')?.[1]
+    // `Class@n.key` (declared) or `Class@<id>.group` (a cached group).
+    const owner = /^(\w+@[^.]+)\./.exec(next.name_ ?? '')?.[1]
     if (owner !== undefined) objects.add(owner)
     for (const dependency of next.observing_ ?? []) stack.push(dependency)
   }
