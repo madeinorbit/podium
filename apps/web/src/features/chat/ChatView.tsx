@@ -356,6 +356,24 @@ export function ChatView({
           up under the panel header instead of resizing it — the feed keeps its
           box, so nothing here re-renders or loses its scroll (POD-1068). */}
       <div ref={setIssueLivenessRoot} className="offer-lift-region relative flex min-h-0 flex-1">
+        {/* The brief that scrolled off the top, held over the column rather than
+            in it — see PinnedBrief for why the pin left the flow. It sits inside
+            the same relative box the rail does and stops short of it, so the
+            shelf and the feed share one measure.
+            DOM order matches visual order (POD-4829): the shelf is drawn OVER the
+            top of the feed, so it is mounted BEFORE the scroller. Mounted after,
+            any DOM-order reader (text scrape, screen reader, tab order) met the
+            scrolled-off prompt AGAIN at the bottom, just before the composer's
+            live region — the desktop-only repeat the phone never showed. */}
+        {!compact && (
+          <PinnedBrief
+            brief={chat.scroll.pinnedBrief}
+            scrollerRef={chat.scrollerRef}
+            onBodyClick={(e) => {
+              handleChatMdClick(e, sessionId, chat.cwd, chat.openFile)
+            }}
+          />
+        )}
         <Suspense fallback={null}>
           <TranscriptFeedBoundary
             setScrollerRef={chat.scroll.setScrollerRef}
@@ -406,19 +424,6 @@ export function ChatView({
             onQuote={quoteIntoDraft}
           />
         </Suspense>
-        {/* The brief that scrolled off the top, held over the column rather than
-            in it — see PinnedBrief for why the pin left the flow. It sits inside
-            the same relative box the rail does and stops short of it, so the
-            shelf and the feed share one measure. */}
-        {!compact && (
-          <PinnedBrief
-            brief={chat.scroll.pinnedBrief}
-            scrollerRef={chat.scrollerRef}
-            onBodyClick={(e) => {
-              handleChatMdClick(e, sessionId, chat.cwd, chat.openFile)
-            }}
-          />
-        )}
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long
             transcript that means it reflects the loaded/visible tail, not the
