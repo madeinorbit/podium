@@ -15,7 +15,7 @@ import type {
   WorkState,
   MachineId,
 } from '@podium/model'
-import type { AgentKind, Attribution, TranscriptItemRef, UserId } from '@podium/model'
+import type { AgentKind, TranscriptItemRef, UserId } from '@podium/model'
 import type {
   MetadataChange,
   SubscriptionRegistry,

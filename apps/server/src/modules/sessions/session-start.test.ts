@@ -605,13 +605,41 @@ describe('SessionStart: a parent session spawns with a task', () => {
     expect(notice?.body).toContain(`the child session ${child.sessionId} has no task`)
   })
 
-  it('a person’s spawn queues the task as plain input, with no message', async () => {
+  // POD-4846 replaced "no message": a person's task is their own message.
+  it('a person’s spawn stores the task as their message, typed as their own words', async () => {
     const { reg } = await makeRegistry()
     const child = await reg.modules.sessions.createSession({
       agentKind: 'cursor',
       cwd: '/proj',
       initialPrompt: 'your task',
     })
+    const promptId = spawnPromptMessageId(child.sessionId)
+    expect(child.promptMessageId).toBe(promptId)
+    expect(await reg.sessionStore.messages.getMessage(promptId)).toMatchObject({
+      fromKind: 'operator',
+      attribution: { actor: { kind: 'user' } },
+      toKind: 'session',
+      toId: child.sessionId,
+      body: 'your task',
+      deliveryStatus: 'dispatched',
+      deliveredTo: child.sessionId,
+    })
+    const queued = await reg.sessionStore.sync.listQueuedMessages(child.sessionId)
+    expect(queued).toEqual([expect.objectContaining({ sourceMessageId: promptId, text: 'your task' })])
+    // Not agent mail: a failure is the person's to see, as it always was.
+    expect(queued[0]?.inputOrigin).not.toBe('mail')
+
+    await reg.modules.sessions.inbox.deliveryOutcome(child.sessionId, {
+      rowId: queued[0]?.id ?? '',
+      outcome: 'failed',
+      reason: 'agent not accepting input',
+      cause: 'not-accepting-input',
+    })
+
+    expect((await reg.sessionStore.messages.getMessage(promptId))?.deliveryStatus).toBe('failed')
+    // Reported by the prompt-failed attention, not by mail.
+    expect(await reg.sessionStore.messages.getMessage(failureNoticeId(promptId))).toBeNull()
+  })
     expect(child.promptMessageId).toBeUndefined()
     expect(
       await reg.sessionStore.messages.getMessage(spawnPromptMessageId(child.sessionId)),
