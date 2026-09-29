@@ -553,6 +553,50 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
     expect(dropped).toBe(1)
     expect(message?.type === 'metadataDelta' && message.changes.map((c) => c.id)).toEqual(['s1'])
   })
+  // POD-4885: the delivery status grows (`accepted`). A message row is a KNOWN
+  // kind, so a status the build did not know used to quarantine the row — and
+  // the heal fetched the same row again, forever. A client reads a status it
+  // does not know as still on its way.
+  describe('a chat message row whose delivery status is new (POD-4885)', () => {
+    const messageRow = (status: string) =>
+      JSON.stringify({
+        type: 'metadataDelta',
+        seq: 1,
+        changes: [
+          {
+            seq: 1,
+            entity: 'message',
+            id: 'msg:s1:u1:m1',
+            op: 'upsert',
+            value: {
+              id: 'm1',
+              sessionId: 's1',
+              senderUserId: 'u1',
+              body: 'hello',
+              createdAt: '2026-09-29T00:00:00.000Z',
+              status,
+            },
+          },
+        ],
+      })
+    const statusOf = (raw: string) => {
+      const { message, dropped } = parseServerMessageLenient(raw)
+      expect(dropped).toBe(0)
+      const change = message?.type === 'metadataDelta' ? message.changes[0] : undefined
+      if (!change || !isKnownMetadataChange(change) || change.entity !== 'message') {
+        throw new Error('the message row did not come through as a message')
+      }
+      return change.value?.status
+    }
+
+    it('keeps an accepted row as accepted', () => {
+      expect(statusOf(messageRow('accepted'))).toBe('accepted')
+    })
+
+    it('keeps a row whose status a newer server added, read as typed — on its way', () => {
+      expect(statusOf(messageRow('a-status-from-a-newer-server'))).toBe('typed')
+    })
+  })
 })
 
 describe('ControlMessage (server -> daemon)', () => {

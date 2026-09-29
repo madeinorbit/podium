@@ -3,7 +3,7 @@
  *
  * One status per message, owned by the server row, that only moves forward:
  *
- *   stored → dispatched → reached-machine → typing → typed → confirmed
+ *   stored → dispatched → reached-machine → typing → typed → accepted → confirmed
  *
  * with `cancelled`, `failed` and `expired` as the other ways out, and `unknown`
  * as the one explicit "we lost track" state. A move may skip ahead (an inbox
@@ -22,6 +22,13 @@
  *  - `typing`          the machine noted it is about to type it.
  *  - `typed`           its bytes crossed into the agent's input; the agent has
  *                      not yet shown that it took them.
+ *  - `accepted`        the agent program took it, but it is not yet in the
+ *                      program's history (POD-4885, POD-4819 §4): a protocol
+ *                      reply, or a place in the program's own queue. At most
+ *                      this from a protocol reply; only the history says
+ *                      `confirmed`. `held` says how the program holds it:
+ *                      `memory` (lost if the program exits) or `durable`
+ *                      (survives a restart and may still run on its own).
  *  - `confirmed`       the recipient has it: its own transcript echoed it, a
  *                      clean turn consumed it, the driver accepted the turn, it
  *                      was read from an inbox, or an ack answered it.
@@ -38,7 +45,13 @@
  * THE SERVER NEVER GUESSES AN OUTCOME ON A TIMER. A time limit may end a message
  * the server still holds (`stored → expired`); for one it handed on it may only
  * say `unknown`, never `failed` or `expired`, because the machine may still type
- * it.
+ * it. And never even `unknown` for a message the program holds durably
+ * (`held: 'durable'`): that one is still in the program's own queue, and only
+ * the program's history or a direct report settles it.
+ *
+ * `failed` STAYS FINAL. A failed message later found in the history by its id
+ * keeps its status; the contradiction goes to the self-check alarm (POD-4894),
+ * never back into the row (decided 2026-09-29).
  *
  * `created` (the sender has it, the server does not yet) is not a server status:
  * before the row exists there is nothing to hold one, and the sender's own
@@ -59,6 +72,7 @@ export const MESSAGE_DELIVERY_STATUSES = [
   'reached-machine',
   'typing',
   'typed',
+  'accepted',
   'confirmed',
   'cancelled',
   'failed',
@@ -68,6 +82,46 @@ export const MESSAGE_DELIVERY_STATUSES = [
 export const MessageDeliveryStatus = z.enum(MESSAGE_DELIVERY_STATUSES)
 export type MessageDeliveryStatus = z.infer<typeof MessageDeliveryStatus>
 
+/**
+ * A STATUS AS A CLIENT READS IT OFF THE WIRE (POD-4885).
+ *
+ * The list above grows (`accepted` did), and a client built before a new status
+ * must not refuse the row that carries it: on the sync feed a row that fails to
+ * parse is dropped and fetched again, forever. So a client reads any status it
+ * does not know as `typed` — still on its way, the agent not yet shown to have
+ * it — which claims nothing the server did not say: not delivered, not failed.
+ * Producers keep the strict {@link MessageDeliveryStatus}. {@link readDeliveryStatus}
+ * is the same reading for a value that arrived without a schema (a tRPC reply).
+ */
+export const readDeliveryStatus = (status: string): MessageDeliveryStatus =>
+  (MESSAGE_DELIVERY_STATUSES as readonly string[]).includes(status)
+    ? (status as MessageDeliveryStatus)
+    : 'typed'
+
+export const MessageDeliveryStatusOnWire = z.string().transform(readDeliveryStatus)
+
+/**
+ * HOW THE AGENT PROGRAM HOLDS AN `accepted` MESSAGE (POD-4885, POD-4819 §4).
+ *
+ *  - `memory`  lost when the program exits: Claude's and Grok's terminal
+ *              queues, a Codex steer, a line Claude SDK has queued. It goes
+ *              `unknown` when its watch closes.
+ *  - `durable` survives a restart and may run later on its own: a Codex
+ *              `thread/queue` item, an OpenCode v2 admission. It is re-checked
+ *              in the program's pending queue and never goes `unknown` by a
+ *              timer.
+ *
+ * Set together with the move to `accepted` and kept after it, so a message
+ * that went `unknown` still says the program had taken it.
+ */
+/** How every surface words `accepted` (POD-4885): the agent has it, and it is
+ *  still on its way into the agent's history. `confirmed` stays "delivered". */
+export const MESSAGE_ACCEPTED_LINE = 'accepted by the agent'
+
+export const MESSAGE_HELD = ['memory', 'durable'] as const
+export const MessageHeld = z.enum(MESSAGE_HELD)
+export type MessageHeld = z.infer<typeof MessageHeld>
+
 export const MessageDelivery = defineMachine('message delivery', {
   states: MESSAGE_DELIVERY_STATUSES,
   edges: {
@@ -76,6 +130,7 @@ export const MessageDelivery = defineMachine('message delivery', {
       'reached-machine',
       'typing',
       'typed',
+      'accepted',
       'confirmed',
       'cancelled',
       'failed',
@@ -85,14 +140,24 @@ export const MessageDelivery = defineMachine('message delivery', {
       'reached-machine',
       'typing',
       'typed',
+      'accepted',
       'confirmed',
       'cancelled',
       'failed',
       'unknown',
     ],
-    'reached-machine': ['typing', 'typed', 'confirmed', 'cancelled', 'failed', 'unknown'],
-    typing: ['typed', 'confirmed', 'failed', 'unknown'],
-    typed: ['confirmed', 'failed', 'unknown'],
+    'reached-machine': [
+      'typing',
+      'typed',
+      'accepted',
+      'confirmed',
+      'cancelled',
+      'failed',
+      'unknown',
+    ],
+    typing: ['typed', 'accepted', 'confirmed', 'failed', 'unknown'],
+    typed: ['accepted', 'confirmed', 'failed', 'unknown'],
+    accepted: ['confirmed', 'failed', 'unknown'],
     unknown: ['confirmed', 'failed', 'cancelled'],
     confirmed: [],
     cancelled: [],
@@ -103,8 +168,15 @@ export const MessageDelivery = defineMachine('message delivery', {
 })
 
 /** Handed on toward one session and not yet confirmed: the server has done its
- *  part and waits for the machine or the agent. */
-export const MESSAGE_ON_ITS_WAY = ['dispatched', 'reached-machine', 'typing', 'typed'] as const
+ *  part and waits for the machine or the agent. `accepted` is still on its way:
+ *  the program has it, its history does not yet. */
+export const MESSAGE_ON_ITS_WAY = [
+  'dispatched',
+  'reached-machine',
+  'typing',
+  'typed',
+  'accepted',
+] as const
 export type MessageOnItsWayStatus = (typeof MESSAGE_ON_ITS_WAY)[number]
 
 /** Every status that has not ended: still held, on its way, or lost track of. */

@@ -2,6 +2,7 @@ import {
   deadLetterDeliveryLine,
   isMessageOnItsWay,
   isMessagePending,
+  MESSAGE_ACCEPTED_LINE,
   type MessageDeliveryStatus,
   type ThreadId,
 } from '@podium/model'
@@ -98,6 +99,11 @@ export function deliveryLine(m: LedgerMessage): string {
     return `delivered${to}${acked}`
   }
   if (m.deliveryStatus === 'unknown') return 'not confirmed · it may or may not have arrived'
+  // The agent program has it, its history not yet (POD-4885): still on its way.
+  if (m.deliveryStatus === 'accepted') {
+    const where = m.deliveredTo ? ` in ${m.deliveredTo}` : ''
+    return `${MESSAGE_ACCEPTED_LINE}${where} · not yet in its history`
+  }
   if (isMessageOnItsWay(m.deliveryStatus)) {
     const to = m.deliveredTo ? ` to ${m.deliveredTo}` : ''
     const stage = m.deliveryStatus === 'typed' ? 'typed' : 'handed on'

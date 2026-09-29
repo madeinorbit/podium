@@ -314,6 +314,14 @@ describe('the chat message feed', () => {
     expect((await carried()).has('msg_c')).toBe(false)
   })
 
+  it('carries a message the agent program accepted, on its way until its history has it (POD-4885)', async () => {
+    const { store, carried } = await harness()
+    await store.messages.addMessage(chat('msg_a'))
+    await store.messages.markDispatched('msg_a', S1, 't1')
+    await store.messages.markAccepted('msg_a', S1, 'memory', 't2')
+    expect((await carried()).get('msg_a')?.status).toBe('accepted')
+  })
+
   it('never publishes a write that rolls back', async () => {
     const { store, carried } = await harness()
     await store.messages.addMessage(chat('msg_r'))

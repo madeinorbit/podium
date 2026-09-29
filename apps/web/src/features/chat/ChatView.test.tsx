@@ -1068,6 +1068,24 @@ describe('ChatView composer', () => {
     expect(container.querySelector('[aria-label="Retract message"]')).toBeNull()
   })
 
+  it('says the agent has a message its program accepted, with no Retract (POD-4885)', async () => {
+    setFakeStore({
+      messageRecords: [sentRecord('msg_accepted', 'in the agent’s queue', { status: 'accepted' })],
+    })
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    expect(container.textContent).toContain('in the agent’s queue')
+    expect(container.querySelector('[data-testid="delivery-accepted"]')?.textContent).toBe(
+      'accepted by the agent',
+    )
+    // Still on its way, not a failure and not a notice.
+    expect(container.querySelector('.transcript-pending--failed')).toBeNull()
+    expect(container.querySelector('[aria-label="Retract message"]')).toBeNull()
+  })
+
   it('says why a retract did not go through', async () => {
     setFakeStore({ messageRecords: [sentRecord('msg_retract', 'do not send this')] })
     fakeTrpc.messages.cancel.mutate.mockRejectedValueOnce(new Error('server unreachable'))

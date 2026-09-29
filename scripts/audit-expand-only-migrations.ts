@@ -95,6 +95,18 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       admits: [{ kind: 'table-rebuild', table: 'messages' }],
     },
   ],
+  [
+    'apps/server/src/migrations/drizzle/20260929210737_accepted-delivery-status/migration.sql',
+    {
+      // POD-4885: the delivery-status CHECK admits `accepted`. SQLite cannot
+      // widen a CHECK in place, so the table is rebuilt; every column and index
+      // is copied as it was and one nullable column (`delivery_held`) is added.
+      // An expand in substance: nothing is dropped, renamed or narrowed.
+      // Flagged for the coordinator's review with the lane's landing.
+      reason: 'widens the messages.delivery_status CHECK, which SQLite can only do by a rebuild',
+      admits: [{ kind: 'table-rebuild', table: 'messages' }],
+    },
+  ],
 ])
 
 /** The findings an approved contract step does not admit. Each admission is

@@ -20,6 +20,7 @@ import { join, relative } from 'node:path'
 import {
   asThreadId,
   MESSAGE_DELIVERY_STATUSES,
+  MESSAGE_HELD,
   MessageDelivery,
   type MessageDeliveryStatus,
   type MoveOutcome,
@@ -131,6 +132,72 @@ describe('the table walker', () => {
   })
 })
 
+describe('accepted, and how the program holds it (POD-4885)', () => {
+  const S = 'sess_to' as Parameters<MessagesRepository['markAccepted']>[1]
+  const OTHER = 'sess_other' as Parameters<MessagesRepository['markAccepted']>[1]
+  const heldOf = (id: string) =>
+    db.prepare('SELECT delivery_held AS h FROM messages WHERE id = ?').get(id) as {
+      h: string | null
+    }
+
+  it('moves a typed message to accepted and records how it is held, once', async () => {
+    await planted('a', 'typed')
+    db.prepare("UPDATE messages SET delivered_to = 'sess_to' WHERE id = 'a'").run()
+    expect(await messages.markAccepted('a', S, 'durable', 't1')).toMatchObject({ kind: 'applied' })
+    expect(statusOf('a').d).toBe('accepted')
+    expect(heldOf('a').h).toBe('durable')
+    expect(await messages.getMessage('a')).toMatchObject({
+      deliveryStatus: 'accepted',
+      held: 'durable',
+    })
+    // A repeat with another kind changes nothing: the first report stands.
+    expect((await messages.markAccepted('a', S, 'memory', 't2')).kind).not.toBe('applied')
+    expect(heldOf('a').h).toBe('durable')
+  })
+
+  it('is refused for a session the message was not handed to', async () => {
+    await planted('b', 'typed')
+    db.prepare("UPDATE messages SET delivered_to = 'sess_to' WHERE id = 'b'").run()
+    expect((await messages.markAccepted('b', OTHER, 'memory', 't1')).kind).not.toBe('applied')
+    expect(statusOf('b').d).toBe('typed')
+    expect(heldOf('b').h).toBeNull()
+  })
+
+  it('never moves a durably held message to unknown; a memory-held one still goes', async () => {
+    await planted('durable', 'typed')
+    await planted('memory', 'typed')
+    db.prepare(
+      "UPDATE messages SET delivered_to = 'sess_to' WHERE id IN ('durable', 'memory')",
+    ).run()
+    await messages.markAccepted('durable', S, 'durable', 't1')
+    await messages.markAccepted('memory', S, 'memory', 't1')
+
+    expect(await messages.markUnknown('durable', S)).toEqual({
+      kind: 'refused',
+      current: 'accepted',
+    })
+    expect(statusOf('durable').d).toBe('accepted')
+
+    expect(await messages.markUnknown('memory', S)).toMatchObject({ kind: 'applied' })
+    expect(statusOf('memory').d).toBe('unknown')
+    // Kept after the move: the message still says the program had taken it.
+    expect(heldOf('memory').h).toBe('memory')
+  })
+
+  it('still confirms or fails a durably held message on a report', async () => {
+    await planted('c', 'accepted')
+    db.prepare(
+      "UPDATE messages SET delivered_to = 'sess_to', delivery_held = 'durable' WHERE id = 'c'",
+    ).run()
+    expect(await move('c', 'confirmed')).toMatchObject({ kind: 'applied' })
+    await planted('f', 'accepted')
+    db.prepare(
+      "UPDATE messages SET delivered_to = 'sess_to', delivery_held = 'durable' WHERE id = 'f'",
+    ).run()
+    expect(await move('f', 'failed')).toMatchObject({ kind: 'applied' })
+  })
+})
+
 describe('the CHECK constraint', () => {
   it('admits exactly the machine states', () => {
     const sql = (
@@ -152,6 +219,19 @@ describe('the CHECK constraint', () => {
     expect(check?.split(',').map((s) => s.trim().replace(/'/g, ''))).toEqual([
       ...MESSAGE_DELIVERY_STATUSES,
     ])
+  })
+
+  it('admits exactly the held kinds, in schema.ts and in the database', () => {
+    const table = (
+      db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'")
+        .get() as { sql: string }
+    ).sql
+    const schema = readFileSync(join(import.meta.dirname, '../migrations/schema.ts'), 'utf8')
+    for (const source of [table, schema]) {
+      const check = /delivery_held IN \(([^)]*)\)/.exec(source)?.[1]
+      expect(check?.split(',').map((s) => s.trim().replace(/'/g, ''))).toEqual([...MESSAGE_HELD])
+    }
   })
 
   it('refuses a value outside it', async () => {

@@ -16,6 +16,7 @@ import type {
   MachineServiceAssignment,
   MachineServiceReport,
   MessageDeliveryStatus,
+  MessageHeld,
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
@@ -586,6 +587,10 @@ export interface MessageRow {
   /** Where delivery stands — `MessageDelivery` in @podium/model is the table of
    *  allowed moves; it only moves forward [POD-4765]. */
   deliveryStatus: MessageDeliveryStatus
+  /** How the agent program holds it, once it reported taking it (`accepted`,
+   *  POD-4885): `memory` or `durable`. Kept after the status moves on. A
+   *  durably held message is never moved to `unknown` by a timer. */
+  held?: MessageHeld
   /** Current 1-based position while queued. Derived for read projections; never persisted. */
   queuePosition?: number
   /** When it was confirmed — the echo, turn, receipt or read, NOT the enqueue. */

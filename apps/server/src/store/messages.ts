@@ -19,6 +19,7 @@ import {
   MESSAGE_PENDING,
   MessageDelivery,
   type MessageDeliveryStatus,
+  type MessageHeld,
   type MoveOutcome,
   type SessionId,
   HarnessRef,
@@ -219,6 +220,7 @@ function mapMessage(r: MessageSelect): MessageRow {
     expiresAt: r.expiresAt ?? null,
     createdAt: r.createdAt,
     deliveryStatus: r.deliveryStatus,
+    ...(r.deliveryHeld ? { held: r.deliveryHeld } : {}),
     deliveredAt: r.deliveredAt ?? null,
     deliveredTo: r.deliveredTo ?? null,
     readAt: r.readAt ?? null,
@@ -866,17 +868,50 @@ export class MessagesRepository {
   }
 
   /**
+   * → accepted: the agent program in `deliveredTo` took it but it is not yet in
+   * the program's history (POD-4885, POD-4819 §4), and `held` says how the
+   * program holds it. Only for the session it was handed to, or an unaimed row.
+   * A repeat finds the row there already and changes nothing, `held` included.
+   */
+  async markAccepted(
+    id: string,
+    deliveredTo: SessionId,
+    held: MessageHeld,
+    at: string,
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'accepted', {
+      set: {
+        deliveredTo,
+        deliveryHeld: held,
+        injectedAt: sql`COALESCE(${messagesTable.injectedAt}, ${at})`,
+      },
+      where: [or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)) as SQL],
+    })
+  }
+
+  /**
    * → unknown: the row was handed to `deliveredTo` and nobody can say any more
    * whether it arrived — the forward timed out, or the machine reported that it
    * cannot prove the text landed (POD-4775). Never `failed`: the machine may
    * still type it, and a later report or the echo still moves it on. Guarded on
    * the push it answers.
+   *
+   * NEVER A MESSAGE THE PROGRAM HOLDS DURABLY (POD-4885, POD-4819 §3.5). It is
+   * in the program's own queue, survives a restart and may still run; every
+   * move to `unknown` is a time limit or an unproven write, and neither says
+   * anything about that queue. The refusal is in the SQL, so no caller can
+   * forget it.
    */
   async markUnknown(
     id: string,
     deliveredTo: SessionId,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.move(id, 'unknown', { where: [eq(messagesTable.deliveredTo, deliveredTo)] })
+    return await this.move(id, 'unknown', {
+      where: [
+        eq(messagesTable.deliveredTo, deliveredTo),
+        or(isNull(messagesTable.deliveryHeld), ne(messagesTable.deliveryHeld, 'durable')) as SQL,
+      ],
+    })
   }
 
   /**

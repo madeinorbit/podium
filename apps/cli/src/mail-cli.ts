@@ -15,7 +15,7 @@
  */
 
 import type { ThreadId } from '@podium/model'
-import { deadLetterDeliveryLine, deadLetterSenderGloss } from '@podium/model'
+import { deadLetterDeliveryLine, deadLetterSenderGloss, MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import {
   makeRelayIssueClient,
   newMessageId,
@@ -150,8 +150,11 @@ interface MessageWire {
   lifecycle: string
   body: string
   createdAt: string
-  /** Forward-only delivery status (POD-4765). */
+  /** Forward-only delivery status (POD-4765). A string, not the model's enum:
+   *  a newer server's status must still print. */
   deliveryStatus: string
+  /** How the agent program holds an accepted message (POD-4885). */
+  held?: string
   ackedBy: string | null
   threadId: ThreadId
   inReplyTo: string | null
@@ -231,6 +234,8 @@ function renderLifecycle(m: MessageWire): string {
     'reached-machine': 'the target machine has it — not yet typed',
     typing: 'being typed into the target session',
     typed: 'typed into the target session — not yet confirmed it took it',
+    // The program took it; its history has not recorded it yet (POD-4885).
+    accepted: `${MESSAGE_ACCEPTED_LINE} — the agent program has it, not yet in its history`,
     confirmed: m.readAt
       ? anonymous
         ? 'opened from an inbox, but NO recipient session was named'
@@ -255,6 +260,7 @@ function renderLifecycle(m: MessageWire): string {
     m.deliveryDeferredAt ? `deferred=${m.deliveryDeferredAt}` : null,
     m.deliveryDeferredReason ? `deferred-reason=${m.deliveryDeferredReason}` : null,
     m.deliveredTo ? `to-session=${m.deliveredTo}` : null,
+    m.held ? `held=${m.held}` : null,
     m.noticeId ? `notified=${m.noticeId}` : null,
     m.transcriptItem ? `entry=${m.transcriptItem.id}` : null,
     m.harnessRef?.length
@@ -263,7 +269,7 @@ function renderLifecycle(m: MessageWire): string {
   ].filter(Boolean)
   return [
     `${m.id} ${m.from} -> ${m.to}`,
-    `  status: ${m.deliveryStatus} — ${gloss[m.deliveryStatus] ?? ''}`,
+    `  status: ${m.deliveryStatus} — ${gloss[m.deliveryStatus] ?? 'a status this podium does not know yet — treat it as still on its way'}`,
     `  captured=${m.createdAt}${stamps.length ? ` ${stamps.join(' ')}` : ''}`,
   ].join('\n')
 }

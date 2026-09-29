@@ -53,6 +53,8 @@ describe('status + delivery line', () => {
     expect(ledgerStatusTone('stored')).toBe('queued')
     expect(ledgerStatusTone('dispatched')).toBe('queued')
     expect(ledgerStatusTone('unknown')).toBe('queued')
+    // Accepted by the agent is still on its way, not delivered (POD-4885).
+    expect(ledgerStatusTone('accepted')).toBe('queued')
     expect(ledgerStatusTone('confirmed')).toBe('ok')
     expect(ledgerStatusTone('failed')).toBe('dead')
     expect(ledgerStatusTone('expired')).toBe('dead')
@@ -130,6 +132,14 @@ describe('status + delivery line', () => {
     expect(deliveryLine({ ...base, deliveryStatus: 'typed', deliveredTo: 's1' })).toBe(
       'typed to s1 · not yet confirmed',
     )
+    expect(deliveryLine({ ...base, deliveryStatus: 'accepted', deliveredTo: 's1' })).toBe(
+      'accepted by the agent in s1 · not yet in its history',
+    )
+    // A status this build does not know (the next one a server adds) reads as
+    // its own word, and nothing throws.
+    const newer = 'a-status-from-a-newer-server' as LedgerMessage['deliveryStatus']
+    expect(deliveryLine({ ...base, deliveryStatus: newer })).toBe(newer)
+    expect(ledgerStatusTone(newer)).toBe('queued')
     expect(deliveryLine({ ...base, deliveryStatus: 'unknown' })).toBe(
       'not confirmed · it may or may not have arrived',
     )

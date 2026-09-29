@@ -253,6 +253,27 @@ describe('podium mail CLI (argv shape)', () => {
     })
   })
 
+  it('[POD-4885] mail status says the agent accepted it, still on its way, and how it is held', async () => {
+    const status = { ...WIRE, deliveryStatus: 'accepted', deliveredTo: 'ses_1', held: 'durable' }
+    const out = await runMailCli(['status', 'msg_1'], client({ status }))
+    expect(out).toContain(
+      'status: accepted — accepted by the agent — the agent program has it, not yet in its history',
+    )
+    expect(out).toContain('held=durable')
+    expect(out).not.toMatch(/delivered/)
+  })
+
+  it('[POD-4885] mail status prints a status it does not know, as still on its way', async () => {
+    const status = { ...WIRE, deliveryStatus: 'a-status-from-a-newer-server' }
+    const out = await runMailCli(['status', 'msg_1'], client({ status }))
+    expect(out).toContain(
+      'status: a-status-from-a-newer-server — a status this podium does not know yet',
+    )
+    const inbox = client()
+    inbox.messages.inbox.mutate.mockResolvedValueOnce([status])
+    expect(await runMailCli(['inbox'], inbox)).toContain('[a-status-from-a-newer-server]')
+  })
+
   it('[POD-4778] the inbox names the cause from the delivery status', async () => {
     const c = client()
     c.messages.inbox.mutate.mockResolvedValueOnce([

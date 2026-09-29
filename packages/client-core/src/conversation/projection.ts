@@ -1,4 +1,4 @@
-import { deadLetterDeliveryLine, MessageDelivery } from '@podium/model'
+import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { MessageRecordWire, TranscriptItem, TranscriptTag } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
@@ -48,6 +48,9 @@ export type ConversationBubbleState =
   | 'queued'
   /** Handed on toward the agent, or confirmed and about to show in the history. */
   | 'sent'
+  /** The agent program has it, but it is not yet in the agent's history
+   *  (POD-4885): still on its way, and past retracting. */
+  | 'accepted'
   /** Did not go (this device gave up) or will not arrive (the server says so). */
   | 'failed'
   /** Nobody can say whether it arrived. */
@@ -104,7 +107,12 @@ const LOCAL_RETRACTABLE = new Set<ConversationPendingTurn['state']>(['sending', 
 function retractOf(record: MessageRecordWire): ConversationBubble['retract'] {
   if (!record.retractRequestedAt || record.status === 'cancelled') return undefined
   if (statusAllowsRetract(record.status)) return 'requested'
-  if (record.status === 'typing' || record.status === 'typed' || record.status === 'confirmed') {
+  if (
+    record.status === 'typing' ||
+    record.status === 'typed' ||
+    record.status === 'accepted' ||
+    record.status === 'confirmed'
+  ) {
     return 'too-late'
   }
   // Failed or expired: its notice already says what happened.
@@ -121,6 +129,8 @@ function recordState(record: MessageRecordWire): ConversationBubbleState {
     case 'typed':
     case 'confirmed':
       return 'sent'
+    case 'accepted':
+      return 'accepted'
     case 'failed':
     case 'expired':
       return 'failed'
@@ -155,7 +165,14 @@ function failureOf(record: MessageRecordWire): string {
   return deadLetterDeliveryLine(record.reason)
 }
 
-function fromRecord(record: MessageRecordWire): ConversationBubble {
+function fromRecord(received: MessageRecordWire): ConversationBubble {
+  // A record read by id arrives without a schema, and a newer server may name a
+  // status this build does not know (POD-4885): read it as still on its way,
+  // never let it reach the lifecycle table, which has no row for it.
+  const record =
+    readDeliveryStatus(received.status) === received.status
+      ? received
+      : { ...received, status: readDeliveryStatus(received.status) }
   const state = recordState(record)
   return {
     id: record.id,

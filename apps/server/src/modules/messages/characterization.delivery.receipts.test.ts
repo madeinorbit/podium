@@ -98,6 +98,45 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
 describe('flag-on delivery: an unconfirmed row is unknown, never a retry (R2)', () => {
   const unconfirmed = 'delivery could not be confirmed; check the transcript before retrying'
 
+  // THE TIMER NEVER TOUCHES A DURABLY HELD MESSAGE (POD-4885, POD-4819 §3.5).
+  // `onQueuedInputUnknown` is the server's one way to `unknown`: the session
+  // inbox calls it when a forward's answer never came in time (its RPC window)
+  // and when the daemon could not prove the text landed. A message the agent
+  // program holds durably is in the program's own queue and may still run, so
+  // neither says anything about it; one held in memory still goes `unknown`.
+  it.each([
+    ['durable', 'accepted'],
+    ['memory', 'unknown'],
+  ] as const)('a message held in %s, when the forward times out, is %s', async (held, after) => {
+    const h = await mailHarness({ receipts: {} })
+    const iss = await h.createIssue({ title: 'target' })
+    const target = asSessionId('sTarget')
+    h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
+
+    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+      to: `#${iss.seq}`,
+      body: 'held by the program',
+    })) as { id: string }
+    expect(
+      await h.store.messages.markAccepted(r.id, target, held, '2026-09-29T00:00:00.000Z'),
+    ).toEqual({
+      kind: 'applied',
+    })
+    const transitionsBefore = (await h.events(['message.unknown'])).length
+
+    await h.svc.onQueuedInputUnknown(
+      r.id,
+      target,
+      "the agent's machine did not answer the forward in time",
+    )
+    await h.svc.sweep()
+
+    expect(await h.svc.message(r.id)).toMatchObject({ deliveryStatus: after, held })
+    expect((await h.events(['message.unknown'])).length - transitionsBefore).toBe(
+      after === 'unknown' ? 1 : 0,
+    )
+  })
+
   it('does not resend when the sweep runs after the daemon could not confirm', async () => {
     const h = await mailHarness({ receipts: {} })
     const iss = await h.createIssue({ title: 'target' })
