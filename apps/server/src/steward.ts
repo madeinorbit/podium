@@ -1018,8 +1018,9 @@ export class StewardService {
   ): Promise<void> {
     const sub = SESSION_PARENT_SUBS[group]
     if (!sub) return
+    const first = batch[0]
     const last = batch[batch.length - 1]
-    if (!last) return
+    if (!first || !last) return
     const sessions = this.deps.sessionFacts()
     const child = sessions.find((s) => s.sessionId === childSessionId)
     // Prefer live meta; fall back to the event payload (session.exited stamps
@@ -1059,7 +1060,7 @@ export class StewardService {
     await this.deps.sendNotice(
       parentId,
       sub.nudge(childSessionId, label),
-      noticeMessageId(factKey, parentId, batch[0]!.id),
+      noticeMessageId(factKey, parentId, first.id),
       'wake',
     )
     await this.arbiter.claim(factKey, parentId, claimOpts)
@@ -1078,7 +1079,8 @@ export class StewardService {
     batch: StewardEvent[],
   ): Promise<void> {
     const sub = CHILD_PARENT_SUBS[group]
-    if (!sub) return
+    const first = batch[0]
+    if (!sub || !first) return
     const parent = await this.deps.issues.getMeta(parentId)
     if (!parent) return
     let lastChildSeq: number | undefined
@@ -1165,7 +1167,7 @@ export class StewardService {
         s.sessionId,
         sub.nudge(lastChildSeq, { remaining, total }),
         // The batch's first event: a re-read of the held window meets it first again.
-        noticeMessageId(factKey, s.sessionId, batch[0]!.id),
+        noticeMessageId(factKey, s.sessionId, first.id),
         'wait',
       )
       await this.arbiter.claim(factKey, s.sessionId, {

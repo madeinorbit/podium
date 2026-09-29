@@ -535,7 +535,8 @@ describe('StewardService unblock handler', () => {
     const ready = (await store.events.listEventsSince(0)).find(
       (e) => e.kind === 'issue.ready' && e.subject === b.id,
     )
-    expect(second).toBe(noticeMessageId(`unblock:${b.id}:${a.seq}`, asSessionId('s1'), ready!.id))
+    if (!ready) throw new Error('the close emitted no issue.ready for the dependent')
+    expect(second).toBe(noticeMessageId(`unblock:${b.id}:${a.seq}`, asSessionId('s1'), ready.id))
     expect(Number(await store.events.getStewardState('cursor'))).toBeGreaterThan(0)
     logs.restore()
   })
@@ -603,7 +604,7 @@ describe('StewardService unblock handler', () => {
     expect(target).toBe('live1')
     // It reaches a live session and has no business waking a parked one: a
     // wait-lifecycle message is held for a parked session's next run.
-    expect(sendNotice.mock.calls[0]![3]).toBe('wait')
+    expect(sendNotice.mock.calls[0]?.[3]).toBe('wait')
     // Defense in depth: single line, no backticks, no agent-authored note text.
     expect(text).toBe(
       `Blocker #${a.seq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
@@ -715,7 +716,7 @@ describe('StewardService parent-nudge handler', () => {
     expect(sendNotice).toHaveBeenCalledTimes(1)
     const [target, text] = sendNotice.mock.calls[0] as [string, string]
     expect(target).toBe('plive')
-    expect(sendNotice.mock.calls[0]![3]).toBe('wait')
+    expect(sendNotice.mock.calls[0]?.[3]).toBe('wait')
     expect(text).toBe(
       `Child issue #${c1.seq} closed — 2 of 3 children remain. See the steward comment, or run: podium issue prime`,
     )
@@ -1191,7 +1192,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     await steward.tick()
     expect(sendNotice).toHaveBeenCalledTimes(1)
     expect((sendNotice.mock.calls[0] as [string, string])[0]).toBe('watcher')
-    expect(sendNotice.mock.calls[0]![3]).toBe('wait')
+    expect(sendNotice.mock.calls[0]?.[3]).toBe('wait')
   })
 
   it("resolves a 'my-children' relationship source for a child session.finished", async () => {
@@ -1672,7 +1673,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     await steward.tick()
     expect(sendNotice).toHaveBeenCalledTimes(1)
     // The session-parent notice is the one that WAKES a parked parent (POD-279).
-    expect(sendNotice.mock.calls[0]![3]).toBe('wake')
+    expect(sendNotice.mock.calls[0]?.[3]).toBe('wake')
 
     // Exit in the SAME completion cycle (no leave-idle) stays silent.
     await store.events.appendEvent({
@@ -2075,7 +2076,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect((sendNotice.mock.calls[1] as [string, string])[0]).toBe('parent')
     // The second wake is a new message: the first one's row is kept, so reusing
     // its id would answer this wake from that row and never send it (POD-4846).
-    expect(sendNotice.mock.calls[1]![2]).not.toBe(sendNotice.mock.calls[0]![2])
+    expect(sendNotice.mock.calls[1]?.[2]).not.toBe(sendNotice.mock.calls[0]?.[2])
 
     // And stays once until next ack (no storm on re-emit).
     await store.events.appendEvent({

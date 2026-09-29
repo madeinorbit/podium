@@ -38,15 +38,14 @@ describe('steward notices travel as messages', () => {
       clampedFrom: null,
       deliveryStatus: 'dispatched',
     })
-    expect(h.pushes).toHaveLength(1)
-    const push = h.pushes[0]!
+    const [push, ...more] = h.pushes
+    expect(more).toHaveLength(0)
     expect(push).toMatchObject({ fn: 'queueText', sessionId: 's1', inputOrigin: 'mail' })
     // The words are the steward's, unchanged; only the frame is added.
-    expect(push.text.startsWith(`[podium message ${id} · from system:steward · to your session`)).toBe(
-      true,
-    )
-    expect(push.text).toContain(`\n${body}\n`)
-    expect(push.text.endsWith(`[end podium message ${id}]`)).toBe(true)
+    const text = push?.text ?? ''
+    expect(text.startsWith(`[podium message ${id} · from system:steward · to your session`)).toBe(true)
+    expect(text).toContain(`\n${body}\n`)
+    expect(text.endsWith(`[end podium message ${id}]`)).toBe(true)
   })
 
   it('a repeat under the same id stores one message and types it once', async () => {
@@ -97,7 +96,7 @@ describe('steward notices travel as messages', () => {
 
     await stewardNoticeSender(h.svc)(asSessionId('s1'), body, id, 'wait')
 
-    expect((await h.svc.message(id))!.deliveryStatus).toBe('stored')
+    expect((await h.svc.message(id))?.deliveryStatus).toBe('stored')
     expect(h.pushes).toHaveLength(0)
   })
 
@@ -108,7 +107,7 @@ describe('steward notices travel as messages', () => {
     // Stored is answered: the failure is the row's, not a reason to resend.
     await stewardNoticeSender(h.svc)(asSessionId('gone'), body, id, 'wait')
 
-    expect((await h.svc.message(id))!.deliveryStatus).toBe('failed')
+    expect((await h.svc.message(id))?.deliveryStatus).toBe('failed')
     expect(await h.svc.message(failureNoticeId(id))).toBeNull()
     expect(h.pushes).toHaveLength(0)
   })
