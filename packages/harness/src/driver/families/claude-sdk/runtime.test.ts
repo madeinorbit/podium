@@ -41,8 +41,13 @@ function hostWith(fail: (message: string) => Error): {
     now: () => '2026-08-28T00:00:00.000Z',
     startTurn(input): ClaudeSdkTurnHandle {
       // The CLI took the line; the turn then failed.
-      archive += `${JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: input.resumeValue,
-        message: { role: 'user', content: input.turn.text }, timestamp: host.now() })}\n`
+      archive += `${JSON.stringify({
+        type: 'user',
+        uuid: input.userMessageUuid,
+        sessionId: input.resumeValue,
+        message: { role: 'user', content: input.turn.text },
+        timestamp: host.now(),
+      })}\n`
       const done = Promise.reject(fail('turn'))
       done.catch(() => {})
       return {
@@ -165,7 +170,9 @@ describe('Claude SDK durable failure state', () => {
         text: expect.stringMatching(/Provider authentication failed/i),
       }),
     ])
-    const failed = events.find((event) => event.t === 'state' && event.change.kind === 'turn_failed')
+    const failed = events.find(
+      (event) => event.t === 'state' && event.change.kind === 'turn_failed',
+    )
     expect(failed).toMatchObject({
       t: 'state',
       change: { kind: 'turn_failed', errorClass: 'authentication', retryable: false },
@@ -217,8 +224,13 @@ function manualHost(): {
         done.catch(() => {})
         const turn: ReturnType<typeof manualHost>['turns'][number] = {
           ack: () => {
-            archive += `${JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: input.resumeValue,
-              message: { role: 'user', content: input.turn.text }, timestamp: host.now() })}\n`
+            archive += `${JSON.stringify({
+              type: 'user',
+              uuid: input.userMessageUuid,
+              sessionId: input.resumeValue,
+              message: { role: 'user', content: input.turn.text },
+              timestamp: host.now(),
+            })}\n`
             ack()
           },
           refuse: (error) => {

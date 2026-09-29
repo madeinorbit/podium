@@ -19,9 +19,17 @@ async function world(initialHistory = '') {
   const lines = new Set<(line: string) => void>()
   const exits = new Set<(code: number | null, signal: string | null) => void>()
   const transport: ClaudeStreamTransport = {
-    writeLine: (line) => { writes.push(line) },
-    onLine: (cb) => { lines.add(cb); return () => lines.delete(cb) },
-    onExit: (cb) => { exits.add(cb); return () => exits.delete(cb) },
+    writeLine: (line) => {
+      writes.push(line)
+    },
+    onLine: (cb) => {
+      lines.add(cb)
+      return () => lines.delete(cb)
+    },
+    onExit: (cb) => {
+      exits.add(cb)
+      return () => exits.delete(cb)
+    },
     close() {},
   }
   const frame = (value: unknown) => {
@@ -29,7 +37,10 @@ async function world(initialHistory = '') {
   }
   const client = createClaudeStreamClient(transport, { sessionId: NATIVE, timeoutMs: 600_000 })
   const init = JSON.parse(writes[0] ?? '{}')
-  frame({ type: 'control_response', response: { subtype: 'success', request_id: init.request_id, response: {} } })
+  frame({
+    type: 'control_response',
+    response: { subtype: 'success', request_id: init.request_id, response: {} },
+  })
   frame({ type: 'system', subtype: 'init', session_id: NATIVE })
   let history = initialHistory
   const readArchive = vi.fn(async () => ({
@@ -41,8 +52,15 @@ async function world(initialHistory = '') {
     mintResumeValue: () => NATIVE,
     now: () => '2026-09-29T16:27:07.881Z',
     startTurn(input) {
-      const turn = client.turn(input.turn.text, { ...input, emit() {} }, { userMessageUuid: input.userMessageUuid })
-      const done = turn.done.then((result) => ({ resumeValue: result.harnessSessionId, output: result.output }))
+      const turn = client.turn(
+        input.turn.text,
+        { ...input, emit() {} },
+        { userMessageUuid: input.userMessageUuid },
+      )
+      const done = turn.done.then((result) => ({
+        resumeValue: result.harnessSessionId,
+        output: result.output,
+      }))
       done.catch(() => {})
       return { ...turn, done, accepted: turn.accepted.then(() => {}) }
     },
@@ -50,25 +68,49 @@ async function world(initialHistory = '') {
     readArchive,
   }
   const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
-  const handle = await runtime.resumeWithId(SESSION, { kind: 'claude-session', value: NATIVE }, {
-    harness: 'claude-code',
-    selection: { auth: 'subscription', platform: 'linux', available: ['claude-sdk'], preference: 'claude-sdk' },
-    workdir: '/scratch/claude-receipt-proof',
-    model: {},
-    instructions: { supported: false, reason: 'fixture' },
-    mcpServers: { supported: false, reason: 'fixture' },
-  })
+  const handle = await runtime.resumeWithId(
+    SESSION,
+    { kind: 'claude-session', value: NATIVE },
+    {
+      harness: 'claude-code',
+      selection: {
+        auth: 'subscription',
+        platform: 'linux',
+        available: ['claude-sdk'],
+        preference: 'claude-sdk',
+      },
+      workdir: '/scratch/claude-receipt-proof',
+      model: {},
+      instructions: { supported: false, reason: 'fixture' },
+      mcpServers: { supported: false, reason: 'fixture' },
+    },
+  )
   const events: RuntimeEvent[] = []
   void (async () => {
     for await (const event of handle.events('bootstrap')) events.push(event)
   })()
-  const dispose = () => { runtime.dispose(); client.close() }
+  const dispose = () => {
+    runtime.dispose()
+    client.close()
+  }
   cleanups.push(dispose)
   return {
-    handle, runtime, events, writes, readArchive, frame, dispose,
-    append(record: unknown) { history += `${JSON.stringify(record)}\n` },
-    appendBytes(text: string) { history += text },
-    exit() { for (const cb of exits) cb(null, 'SIGKILL') },
+    handle,
+    runtime,
+    events,
+    writes,
+    readArchive,
+    frame,
+    dispose,
+    append(record: unknown) {
+      history += `${JSON.stringify(record)}\n`
+    },
+    appendBytes(text: string) {
+      history += text
+    },
+    exit() {
+      for (const cb of exits) cb(null, 'SIGKILL')
+    },
   }
 }
 
@@ -85,12 +127,18 @@ function queuedRecord() {
 }
 
 const tick = () => vi.advanceTimersByTimeAsync(250)
-const userItems = (events: RuntimeEvent[]) => events.flatMap((event) =>
-  event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user' ? [event.item.item] : [],
-)
+const userItems = (events: RuntimeEvent[]) =>
+  events.flatMap((event) =>
+    event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user'
+      ? [event.item.item]
+      : [],
+  )
 const deliveries = (events: RuntimeEvent[]) => events.filter((event) => event.t === 'delivery')
 const send = (handle: AgentSessionHandle, onTranscriptItem = vi.fn(), onUnrecorded = vi.fn()) =>
-  handle.send({ id: MESSAGE, text: 'one' }, { origin: 'human', delivery: 'when-ready', onTranscriptItem, onUnrecorded })
+  handle.send(
+    { id: MESSAGE, text: 'one' },
+    { origin: 'human', delivery: 'when-ready', onTranscriptItem, onUnrecorded },
+  )
 
 describe('Claude SDK receipt proof from its history (POD-4889)', () => {
   beforeEach(() => vi.useFakeTimers())
@@ -104,7 +152,11 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     const confirmed = vi.fn()
     const receipt = send(w.handle, confirmed)
     w.frame(ack.lifecycleQueued)
-    await expect(receipt).resolves.toMatchObject({ outcome: 'accepted', held: 'memory', provenBy: 'protocol-ack' })
+    await expect(receipt).resolves.toMatchObject({
+      outcome: 'accepted',
+      held: 'memory',
+      provenBy: 'protocol-ack',
+    })
     expect(await receipt).not.toHaveProperty('transcriptItem')
     w.frame(ack.lifecycleStarted)
     w.frame(ack.freshEcho)
@@ -127,8 +179,12 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     expect(confirmed).not.toHaveBeenCalled()
     w.append(userRecord())
     await tick()
-    expect(confirmed).toHaveBeenCalledExactlyOnceWith({ id: UUID }, [{ kind: 'claude-uuid', id: UUID }])
-    expect(userItems(w.events)).toEqual([expect.objectContaining({ id: UUID, text: 'ERR400 S10A idle' })])
+    expect(confirmed).toHaveBeenCalledExactlyOnceWith({ id: UUID }, [
+      { kind: 'claude-uuid', id: UUID },
+    ])
+    expect(userItems(w.events)).toEqual([
+      expect.objectContaining({ id: UUID, text: 'ERR400 S10A idle' }),
+    ])
     await tick()
     expect(confirmed).toHaveBeenCalledTimes(1)
   })
@@ -142,8 +198,12 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     const record = queuedRecord()
     w.append(record)
     await tick()
-    expect(confirmed).toHaveBeenCalledExactlyOnceWith({ id: record.uuid }, [{ kind: 'claude-uuid', id: UUID }])
-    expect(userItems(w.events)).toEqual([expect.objectContaining({ id: record.uuid, text: 'QUEUED-K2 in tool' })])
+    expect(confirmed).toHaveBeenCalledExactlyOnceWith({ id: record.uuid }, [
+      { kind: 'claude-uuid', id: UUID },
+    ])
+    expect(userItems(w.events)).toEqual([
+      expect.objectContaining({ id: record.uuid, text: 'QUEUED-K2 in tool' }),
+    ])
   })
 
   it('a kill after queued leaves the accepted line unconfirmed when no record exists', async () => {
@@ -168,7 +228,13 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     const receipt = send(w.handle, confirmed, unrecorded)
     w.frame(ack.lifecycleQueued)
     await receipt
-    w.frame({ type: 'result', subtype: 'success', is_error: true, result: 'API Error: 400', session_id: NATIVE })
+    w.frame({
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      result: 'API Error: 400',
+      session_id: NATIVE,
+    })
     w.frame({ ...ack.lifecycleStarted, state: 'cancelled' })
     await tick()
     expect(unrecorded).not.toHaveBeenCalled()
@@ -194,7 +260,12 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     await tick()
     expect(confirmed.mock.calls.map(([item]) => item)).toEqual([{ id: UUID }, { id: UUID }])
     expect(userItems(w.events).map((item) => item.id)).toEqual([UUID])
-    expect(w.writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user').map((line) => line.uuid)).toEqual([UUID, UUID])
+    expect(
+      w.writes
+        .map((line) => JSON.parse(line))
+        .filter((line) => line.type === 'user')
+        .map((line) => line.uuid),
+    ).toEqual([UUID, UUID])
   })
 
   it('resends a lost durable line after restart under the same uuid and confirms once', async () => {
@@ -205,9 +276,13 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     first.exit()
     first.dispose()
     const resumed = await world()
-    await resumed.handle.send({ id: MESSAGE, rowId: MESSAGE, deliveryRecovery: true, text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+    await resumed.handle.send(
+      { id: MESSAGE, rowId: MESSAGE, deliveryRecovery: true, text: 'one' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     await tick()
-    const userLines = (writes: string[]) => writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user')
+    const userLines = (writes: string[]) =>
+      writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user')
     expect(userLines(first.writes).map((line) => line.uuid)).toEqual([UUID])
     expect(userLines(resumed.writes).map((line) => line.uuid)).toEqual([UUID])
     resumed.frame(ack.lifecycleQueued)
@@ -215,20 +290,33 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     expect(deliveries(resumed.events)).toEqual([])
     resumed.append(userRecord())
     await tick()
-    expect(deliveries(resumed.events)).toEqual([expect.objectContaining({ rowId: MESSAGE, outcome: 'delivered', transcriptItem: { id: UUID } })])
+    expect(deliveries(resumed.events)).toEqual([
+      expect.objectContaining({
+        rowId: MESSAGE,
+        outcome: 'delivered',
+        transcriptItem: { id: UUID },
+      }),
+    ])
     await tick()
     expect(deliveries(resumed.events)).toHaveLength(1)
   })
 
   it('recovery of an already recorded line confirms the existing entry after Claude skips it', async () => {
     const w = await world(`${JSON.stringify(userRecord())}\n`)
-    await w.handle.send({ id: MESSAGE, rowId: MESSAGE, deliveryRecovery: true, text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send(
+      { id: MESSAGE, rowId: MESSAGE, deliveryRecovery: true, text: 'one' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     await tick()
-    expect(w.writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user')).toHaveLength(1)
+    expect(
+      w.writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user'),
+    ).toHaveLength(1)
     w.frame(ack.duplicateEchoAfterResume)
     w.frame(ack.duplicateCompletedAfterResume)
     await tick()
-    expect(deliveries(w.events)).toEqual([expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: UUID } })])
+    expect(deliveries(w.events)).toEqual([
+      expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: UUID } }),
+    ])
     expect(userItems(w.events)).toHaveLength(1)
   })
 
@@ -272,7 +360,12 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     const receipt = send(w.handle, confirmed, unrecorded)
     w.frame(ack.lifecycleQueued)
     await receipt
-    w.runtime.processEvent(SESSION, { ev: 'exited', code: null, signal: 'SIGKILL', classification: 'killed' })
+    w.runtime.processEvent(SESSION, {
+      ev: 'exited',
+      code: null,
+      signal: 'SIGKILL',
+      classification: 'killed',
+    })
     w.append(userRecord())
     await tick()
     expect(confirmed).toHaveBeenCalledTimes(1)
@@ -314,9 +407,16 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
 
   it('keeps the shared recovery stop when no stable message id was supplied', async () => {
     const w = await world()
-    await w.handle.send({ rowId: MESSAGE, deliveryRecovery: true, text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send(
+      { rowId: MESSAGE, deliveryRecovery: true, text: 'one' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     await tick()
-    expect(w.writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user')).toEqual([])
-    expect(deliveries(w.events)).toEqual([expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' })])
+    expect(w.writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user')).toEqual(
+      [],
+    )
+    expect(deliveries(w.events)).toEqual([
+      expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }),
+    ])
   })
 })

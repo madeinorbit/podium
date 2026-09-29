@@ -24,11 +24,12 @@ export function claudeTranscriptReceipts(
     if (record.sessionId !== undefined && record.sessionId !== sessionId) continue
     if (typeof record.uuid !== 'string' || !record.uuid) continue
     const attachment = record.attachment as Record<string, unknown> | undefined
-    const sourceUuid = record.type === 'user'
-      ? record.uuid
-      : record.type === 'attachment' && attachment?.type === 'queued_command'
-        ? attachment.source_uuid
-        : undefined
+    const sourceUuid =
+      record.type === 'user'
+        ? record.uuid
+        : record.type === 'attachment' && attachment?.type === 'queued_command'
+          ? attachment.source_uuid
+          : undefined
     if (typeof sourceUuid !== 'string' || !wanted.has(sourceUuid) || found.has(sourceUuid)) continue
     const item = claudeRecordToItems(record).find((entry) => entry.role === 'user')
     if (item) found.set(sourceUuid, item)

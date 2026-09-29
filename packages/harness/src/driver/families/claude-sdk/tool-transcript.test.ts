@@ -54,8 +54,13 @@ async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
     mintResumeValue: () => RESUME,
     now: () => '2026-08-28T00:00:00.000Z',
     startTurn(input): ClaudeSdkTurnHandle {
-      archive += `${JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: RESUME,
-        message: { role: 'user', content: input.turn.text }, timestamp: host.now() })}\n`
+      archive += `${JSON.stringify({
+        type: 'user',
+        uuid: input.userMessageUuid,
+        sessionId: RESUME,
+        message: { role: 'user', content: input.turn.text },
+        timestamp: host.now(),
+      })}\n`
       const done = new Promise<{ resumeValue: string; output: string }>((resolve) => {
         settle = () => resolve({ resumeValue: RESUME, output: script.output ?? 'answer' })
       })

@@ -37,10 +37,7 @@ const WITNESS: TranscriptItem[] = [
 
 function transcript(reads: Array<{ resumeValue: string; limit: number }>) {
   return {
-    readHistory: async (
-      session: { resume?: { value?: string } },
-      range: { limit: number },
-    ) => {
+    readHistory: async (session: { resume?: { value?: string } }, range: { limit: number }) => {
       reads.push({ resumeValue: session.resume?.value ?? '', limit: range.limit })
       return pageHistory(WITNESS, session.resume?.value ?? '', range)
     },
@@ -110,11 +107,19 @@ function sessionWorld(
       ...transcript(reads),
       readFileBytes: async () => {
         const calls = vi.isMockFunction(engine.startTurn) ? engine.startTurn.mock.calls : []
-        return new TextEncoder().encode(calls.map((call) => {
-          const input = call[0] as StartTurnInput
-          return JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: input.resumeValue,
-            message: { role: 'user', content: input.turn.text } })
-        }).join('\n') + '\n')
+        return new TextEncoder().encode(
+          calls
+            .map((call) => {
+              const input = call[0] as StartTurnInput
+              return JSON.stringify({
+                type: 'user',
+                uuid: input.userMessageUuid,
+                sessionId: input.resumeValue,
+                message: { role: 'user', content: input.turn.text },
+              })
+            })
+            .join('\n') + '\n',
+        )
       },
     },
     ...extra,
@@ -170,7 +175,9 @@ describe('Claude SDK daemon host adapter', () => {
       resume: RESUME,
       confidence: 'exact',
     })
-    await expect(handle.transcript.history({ limit: 10 }).then((page) => page.items)).resolves.toEqual(WITNESS)
+    await expect(
+      handle.transcript.history({ limit: 10 }).then((page) => page.items),
+    ).resolves.toEqual(WITNESS)
     expect(reads).toEqual([{ resumeValue: RESUME.value, limit: 10 }])
 
     const receipt = await handle.send(
