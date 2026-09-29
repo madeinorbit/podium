@@ -342,7 +342,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       { sessionId, direction: 'before', limit: 10 },
       { kind: 'user', id: firstAdminMemberId() },
     )
-    expect(res).toEqual({ items: [], hasMore: false })
+    expect(res).toEqual({ items: [], hasMore: false, offline: { machineName: 'Archive fixture' } })
   })
 
   it('fails closed before daemon or lake access for another user', async () => {

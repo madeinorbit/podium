@@ -157,6 +157,13 @@ export interface TranscriptSlice {
   head?: string
   tail?: string
   hasMore: boolean
+  /** The session's machine has no live daemon socket, so this page is the best
+   *  the server could do without it (POD-4808). Present whenever the machine is
+   *  offline — even when the lake served mirrored history — so an empty page
+   *  does not read as "done" and a live-looking session still names its machine.
+   *  The name is resolved server-side from the machines table (the same presence
+   *  source as requireOnlineSession), never matched from text. */
+  offline?: { machineName: string }
 }
 
 /** The session fields the file/transcript RPCs resolve against. */
@@ -1433,6 +1440,14 @@ export class DaemonRpcService {
       return { items: [], hasMore: false }
     }
     const hasPredecessors = await this.deps.memory.transcriptHasPredecessors(session)
+    // Presence is the offline signal (POD-4808): the same daemon-socket state
+    // requireOnlineSession refuses on. Resolved here so every return below can
+    // say whether this page is the best an offline machine could do, rather
+    // than letting an empty page read as "done".
+    const hasDaemon = this.deps.hasDaemon(session.machineId)
+    const offlineName = hasDaemon ? undefined : await this.deps.machineName(session.machineId)
+    const withOffline = (slice: TranscriptSlice): TranscriptSlice =>
+      offlineName ? { ...slice, offline: { machineName: offlineName } } : slice
     // Retired runtime-history cursors have no Store interpretation. A client
     // holding one gets a clean first page (latest window + reset) rather than
     // an error or a silently appended foreign source.
@@ -1475,10 +1490,9 @@ export class DaemonRpcService {
         perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
         perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
         recordTotal()
-        return archivePage(fromLake)
+        return withOffline(archivePage(fromLake))
       }
     }
-    const hasDaemon = this.deps.hasDaemon(session.machineId)
     let fromDaemon: TranscriptSlice | undefined
     let daemonMs: number | undefined
     // Daemon-first (docs/spec/search-v1.md §2.2): the native file is fresher than
@@ -1528,7 +1542,7 @@ export class DaemonRpcService {
     }
     recordTotal()
     const fallback = fromLake ?? fromDaemon ?? { items: [], hasMore: false }
-    const projected = archivePage(fallback)
+    const projected = withOffline(archivePage(fallback))
     if (projected !== fallback) {
       perf.record('phase', 'transcriptRead.items', projected.items.length, DEPLOYMENT)
     }

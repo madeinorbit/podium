@@ -113,6 +113,9 @@ export interface ChatSurface {
   loadingOlder: boolean
   loadOlder: () => void
   offlineAsOf: number | null
+  /** The session's machine is offline (POD-4808) — names the machine so the
+   *  chat can say WHY history is missing and mark a live-looking session. */
+  offlineMachineName: string | null
   livePendingAskIndex: number
   /** The live question drawn from agent state, for the window where the
    *  transcript has no item for it yet — see `pendingAskFromState`. Null
@@ -309,6 +312,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     initialLoaded,
     transcriptFreshness,
     offlineAsOf,
+    offlineMachineName,
     loadOlder,
     ensureSearchDepth,
     setRenderCount,
@@ -785,6 +789,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadingOlder,
     loadOlder: scroll.loadOlder,
     offlineAsOf,
+    offlineMachineName,
     livePendingAskIndex,
     pendingAskBlock,
     lastAnswerBlockIndex: answer.blockIndex,

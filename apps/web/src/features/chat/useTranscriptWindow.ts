@@ -122,6 +122,10 @@ export interface UseTranscriptWindowResult {
   transcriptFreshness: TranscriptFreshness
   /** Non-null when the window is the replica's offline copy (epoch ms cached at). */
   offlineAsOf: number | null
+  /** The session's machine is offline as of the last authority read (POD-4808).
+   *  Null when online. Names the machine so the chat can say WHY history is
+   *  missing instead of an empty pane. */
+  offlineMachineName: string | null
   /** Reveal more above the current window: widen it over rows already held
    *  locally, or fetch+prepend the next older page off disk. */
   loadOlder: () => void
@@ -205,6 +209,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     subscriptionHealthy,
     freshness: transcriptFreshness,
     offlineAsOf,
+    offlineMachineName,
   } = transcript
   const [computed, setComputed] = useState<{
     items: TranscriptItem[]
@@ -673,6 +678,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     initialLoaded,
     transcriptFreshness,
     offlineAsOf,
+    offlineMachineName,
     loadOlder,
     ensureSearchDepth,
     setRenderCount,
