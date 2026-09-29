@@ -320,26 +320,28 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     // unfalsifiable.
     const legacy = await record(legacyOf[via])(input)
     const onContract = receiptOpts?.onContract?.includes(input.sessionId) ?? true
-    if (!onContract || !onReceipt) return legacy
+    if (!onContract) return legacy
+    // As the real seam does (POD-4795): an agent send is one durable row, and
+    // its receipt is the queue's own answer, given at once.
     const receipt: TurnReceipt = receiptOpts?.answer?.(via, input) ?? {
-      outcome: 'accepted',
-      turnEpoch: 1,
-      deliveredAs: via === 'interrupt' ? 'interrupt' : via === 'queue' ? 'queue' : 'when-ready',
-      provenBy: 'hook',
+      outcome: 'queued',
+      position: 1,
+      deliveredAs: 'queue',
       at: now(),
     }
     const fire = async () => {
       receiptsSeen.push({ via, sessionId: input.sessionId, receipt })
-      await onReceipt(receipt)
+      await onReceipt?.(receipt)
     }
     if (receiptOpts?.defer) held.push(fire)
     else {
       fired.push(fire)
       await fire()
     }
-    // As the real seam says: a direct send's receipt is still to come, while
-    // the durable queue completes here (POD-4765).
-    return via === 'queue' ? legacy : { ...legacy, receiptPending: true as const }
+    if (receipt.outcome === 'refused') {
+      return { ok: false, reason: receipt.refusal.detail ?? receipt.refusal.reason }
+    }
+    return legacy.ok ? { ...legacy, queued: true, position: 1 } : legacy
   }
 
   const svc = new MessageDeliveryService({

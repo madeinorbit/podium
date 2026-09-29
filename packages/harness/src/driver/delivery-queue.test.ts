@@ -16,9 +16,11 @@ describe('durable row delivery', () => {
       at: new Date().toISOString(),
     }))
     const emit = vi.fn()
+    const interrupt = vi.fn(async () => {})
     const handle = withDeliveryQueue(
       {
         send,
+        interrupt,
         state: async () => ({ phase }),
         lease: { state: async () => null },
       } as unknown as AgentSessionHandle,
@@ -28,6 +30,7 @@ describe('durable row delivery', () => {
       handle,
       send,
       emit,
+      interrupt,
       ready: () => {
         phase = 'idle'
       },
@@ -318,139 +321,123 @@ describe('durable row delivery', () => {
     )
   })
 
-  // POD-4700: a daemon-held direct send answers `queued` AT ONCE — the reply
-  // must land inside the server's RPC window, never after the turn it waits
-  // on — and drains in FIFO order behind the durable rows.
-  it('answers a held row queued at once and drains it after the turn', async () => {
-    const f = fixture()
-    const options = { origin: 'human', delivery: 'when-ready' } as const
-    await f.handle.send({ rowId: 'durable', text: 'first' }, options)
-    const held = await f.handle.send(
-      { id: 'turn-direct', rowId: 'turn-direct', text: 'held' },
-      { ...options, daemonHeld: true },
-    )
-    // Both stubs, synchronously: nothing waited for the running turn.
-    expect(held).toMatchObject({ outcome: 'queued', deliveredAs: 'queue' })
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(f.send).not.toHaveBeenCalled()
-    expect(f.emit).not.toHaveBeenCalled()
-    f.ready()
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(f.send.mock.calls.map(([input]) => input.text)).toEqual(['first', 'held'])
-    expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
-      { t: 'delivery', rowId: 'durable', outcome: 'delivered' },
-      { t: 'delivery', rowId: 'turn-direct', outcome: 'delivered' },
-    ])
-  })
+})
 
-  // A held row that leaves the queue without being typed is a loss nobody
-  // else settles: its turn id goes out through abandonment so the server
-  // dead-letters it. Durable rows are spared — a new owner recovers them.
-  it('reports held turn ids on teardown and spares durable rows', async () => {
+describe('interrupt rows (POD-4795)', () => {
+  const fixture = () => {
     vi.useFakeTimers()
-    const send = vi.fn(async () => ({
-      outcome: 'accepted',
-      turnEpoch: 1,
-      deliveredAs: 'when-ready',
-      provenBy: 'protocol-ack',
-      at: new Date().toISOString(),
-    }))
+    let phase = 'working'
+    const log: string[] = []
+    const send = vi.fn(async (input: { text: string }, options?: { delivery?: string }) => {
+      log.push(`type ${input.text} as ${options?.delivery}`)
+      return {
+        outcome: 'accepted',
+        turnEpoch: 1,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: new Date().toISOString(),
+      }
+    })
     const emit = vi.fn()
-    const abandoned: Array<{ turns: Array<{ id: string }>; reason: string }> = []
-    const handle = withDeliveryQueue(
-      {
-        send,
-        state: async () => ({ phase: 'working' }),
-        lease: { state: async () => null },
-        stop: async () => {},
-      } as unknown as AgentSessionHandle,
+    const interrupt = vi.fn(async () => {
+      log.push('cut the turn')
+    })
+    const make = () =>
+      withDeliveryQueue(
+        {
+          send,
+          interrupt,
+          state: async () => ({ phase }),
+          lease: { state: async () => null },
+        } as unknown as AgentSessionHandle,
+        emit,
+      )
+    return {
+      handle: make(),
+      restart: make,
+      send,
       emit,
-      () => true,
-      () => true,
-      ({ turns, reason }) => {
-        abandoned.push({ turns: [...turns], reason })
+      interrupt,
+      log,
+      setPhase: (next: string) => {
+        phase = next
       },
-    )
-    const options = { origin: 'human', delivery: 'when-ready' } as const
-    await handle.send({ rowId: 'durable', text: 'recoverable' }, options)
-    await handle.send(
-      { id: 'turn-direct', rowId: 'turn-direct', text: 'never typed' },
-      { ...options, daemonHeld: true },
+    }
+  }
+  const whenReady = { origin: 'human', delivery: 'when-ready' } as const
+  const interrupting = { origin: 'human', delivery: 'interrupt' } as const
+
+  it('cuts a busy turn once and types the interrupt before older queued rows', async () => {
+    const f = fixture()
+    await f.handle.send({ rowId: 'older-1', text: 'older one' }, whenReady)
+    await f.handle.send({ rowId: 'older-2', text: 'older two' }, whenReady)
+    const receipt = await f.handle.send({ rowId: 'urgent', text: 'stop and do this' }, interrupting)
+    // Answered at once, like every row: the reply never waits for the turn.
+    expect(receipt).toMatchObject({ outcome: 'queued', position: 1 })
+    await vi.advanceTimersByTimeAsync(2000)
+    // The turn is cut once, and nothing is typed over it while it runs.
+    expect(f.log).toEqual(['cut the turn'])
+    f.setPhase('idle')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.log).toEqual([
+      'cut the turn',
+      'type stop and do this as when-ready',
+      'type older one as when-ready',
+      'type older two as when-ready',
+    ])
+    expect(f.emit.mock.calls.map(([event]) => event.rowId)).toEqual(['urgent', 'older-1', 'older-2'])
+  })
+
+  it('keeps interrupts in arrival order among themselves', async () => {
+    const f = fixture()
+    await f.handle.send({ rowId: 'plain', text: 'plain' }, whenReady)
+    await f.handle.send({ rowId: 'first', text: 'first interrupt' }, interrupting)
+    await f.handle.send({ rowId: 'second', text: 'second interrupt' }, interrupting)
+    await vi.advanceTimersByTimeAsync(1000)
+    f.setPhase('idle')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.send.mock.calls.map(([input]) => input.text)).toEqual([
+      'first interrupt',
+      'second interrupt',
+      'plain',
+    ])
+  })
+
+  it('types an interrupt to an idle agent at once, with no stop to send', async () => {
+    const f = fixture()
+    f.setPhase('idle')
+    await f.handle.send({ rowId: 'urgent', text: 'nothing running' }, interrupting)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.interrupt).not.toHaveBeenCalled()
+    expect(f.log).toEqual(['type nothing running as when-ready'])
+  })
+
+  it('types a repeated interrupt id once, and once across a daemon restart', async () => {
+    const f = fixture()
+    await f.handle.send({ rowId: 'urgent', text: 'only once' }, interrupting)
+    await vi.advanceTimersByTimeAsync(500)
+    f.setPhase('idle')
+    await vi.advanceTimersByTimeAsync(500)
+    // The same id again on this daemon: replayed, never re-cut or retyped.
+    await f.handle.send({ rowId: 'urgent', text: 'only once' }, interrupting)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(f.log).toEqual(['cut the turn', 'type only once as when-ready'])
+    expect(f.emit.mock.calls.map(([event]) => event.outcome)).toEqual(['delivered', 'delivered'])
+    // The daemon restarts. The server re-forwards the row it reserved as a
+    // recovery, and the new queue cuts nothing and types nothing.
+    f.setPhase('working')
+    const restarted = f.restart()
+    f.emit.mockClear()
+    await restarted.send(
+      { rowId: 'urgent', deliveryRecovery: true, text: 'only once' },
+      interrupting,
     )
     await vi.advanceTimersByTimeAsync(1000)
-    expect(send).not.toHaveBeenCalled()
-    await (handle as unknown as { stop(): Promise<unknown> }).stop()
-    expect(send).not.toHaveBeenCalled()
-    // Only the held turn is reported; the durable row goes quietly to its
-    // next owner, and no delivery event claims either outcome.
-    expect(abandoned).toEqual([
-      { turns: [{ id: 'turn-direct', text: 'never typed', origin: 'human' }], reason: 'teardown' },
-    ])
-    expect(emit).not.toHaveBeenCalled()
-  })
-
-  it('abandons a held row on a stuck composer as never-live', async () => {
-    const f = fixture()
-    const abandoned: Array<{ turns: Array<{ id: string }>; reason: string }> = []
-    const handle = withDeliveryQueue(
-      {
-        send: f.send,
-        state: async () => ({ phase: 'errored' }),
-        lease: { state: async () => null },
-      } as unknown as AgentSessionHandle,
-      f.emit,
-      () => true,
-      () => true,
-      ({ turns, reason }) => {
-        abandoned.push({ turns: [...turns], reason })
-      },
-    )
-    await handle.send(
-      { id: 'turn-stuck', rowId: 'turn-stuck', text: 'never ready' },
-      { origin: 'human', delivery: 'when-ready', daemonHeld: true },
-    )
-    await vi.advanceTimersByTimeAsync(60_000 + 1000)
-    expect(f.send).not.toHaveBeenCalled()
-    expect(abandoned).toEqual([
-      { turns: [{ id: 'turn-stuck', text: 'never ready', origin: 'human' }], reason: 'never-live' },
-    ])
-    expect(f.emit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        rowId: 'turn-stuck',
-        outcome: 'failed',
-        reason: 'agent not accepting input',
-      }),
+    expect(f.log).toEqual(['cut the turn', 'type only once as when-ready'])
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ rowId: 'urgent', outcome: 'failed', cause: 'unconfirmed' }),
     )
   })
-
-  // A held row on a live turn waits for the boundary like a durable row: no
-  // deadline, no abandonment while the agent is still working.
-  it('holds a held row through a long working turn without abandoning it', async () => {
-    const f = fixture()
-    const abandoned: Array<{ turns: Array<{ id: string }>; reason: string }> = []
-    const handle = withDeliveryQueue(
-      {
-        send: f.send,
-        state: async () => ({ phase: 'working' }),
-        lease: { state: async () => null },
-      } as unknown as AgentSessionHandle,
-      f.emit,
-      () => true,
-      () => true,
-      ({ turns, reason }) => {
-        abandoned.push({ turns: [...turns], reason })
-      },
-    )
-    await handle.send(
-      { id: 'turn-patient', rowId: 'turn-patient', text: 'waits' },
-      { origin: 'human', delivery: 'when-ready', daemonHeld: true },
-    )
-    await vi.advanceTimersByTimeAsync(45 * 60_000)
-    expect(f.send).not.toHaveBeenCalled()
-    expect(f.emit).not.toHaveBeenCalled()
-    expect(abandoned).toEqual([])
-  })
-
 })
 
 describe('the entry a delivered row became (POD-4774)', () => {

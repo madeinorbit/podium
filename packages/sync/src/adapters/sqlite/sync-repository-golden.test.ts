@@ -173,7 +173,7 @@ describe('the statements themselves', () => {
     // THE WIDENING RULE 39 FORBIDS IS INVISIBLE DOWNSTREAM, so it is pinned here
     // on the emitted SELECT list. The counts are the ones the hand-written
     // statements named: five of nine on `changes`, four of four on
-    // `change_latest`, thirteen of fourteen on `queued_messages`, three of five on
+    // `change_latest`, fifteen of sixteen on `queued_messages`, three of five on
     // `upstream_outbox`.
     const { repo, sql } = recordingRepo()
     await repo.changesSince(0)
@@ -203,6 +203,8 @@ describe('the statements themselves', () => {
       'actor_id',
       'on_behalf_of',
       'source_message_id',
+      'delivery',
+      'attachments_json',
     ])
     expect(projection('upstream_outbox')).toEqual(['mutation_id', 'proc', 'queued_at'])
   })

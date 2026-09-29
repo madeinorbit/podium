@@ -13,10 +13,13 @@
  *    reaching around the seam, because such a caller is invisible to the flag
  *    and would keep inferring delivery from queue depth forever.
  *
- * 2. THE DURABLE QUEUE NEVER CROSSES THE SOCKET. `queue` and `steer` complete on
- *    the server; nothing forwards them to a machine. This is what keeps W3's
- *    second review precondition satisfied: `host.authorizeAtDrain` has no daemon
- *    provider, so a forwarded driver-side queue would drain unauthorized.
+ * 2. EVERY AGENT SEND IS ONE DURABLE ROW (POD-4795). The seam has no way to
+ *    reach a machine around the server's queue: `now`, `queue`, `wake` and
+ *    `interrupt` each store one row under the sender's ids, `interrupt` as the
+ *    row's delivery mode, and staged files on the row. The inbox's drain is
+ *    what forwards rows, authorized at drain time — `host.authorizeAtDrain`
+ *    has no daemon provider, so a turn sent around the queue would reach the
+ *    agent unauthorized and without the id the daemon dedupes by.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -88,19 +91,18 @@ describe('W4 guard: the legacy send verbs have a closed set of callers (C5)', ()
   })
 })
 
-describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () => {
-  const sender = (
-    onContract: boolean,
-    queueNotEmpty = false,
-    reasons: { archive?: string } = {},
-    prepareSend: () => Promise<void> = async () => {},
-  ) => {
-    const forwarded: string[] = []
-    const forwardedAttachments: unknown[] = []
-    const enqueued: string[] = []
+describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
+  const attachment = {
+    id: 'att-1',
+    path: '/state/uploads/s1/att-1.png',
+    filename: 'shot.png',
+    mediaType: 'image/png',
+    kind: 'image' as const,
+  }
+  const sender = (onContract: boolean, reasons: { archive?: string } = {}) => {
+    const rows: Record<string, unknown>[] = []
     const legacy: string[] = []
     const s = new ReceiptSender({
-      prepareSend,
       legacy: {
         sendText: async () => {
           legacy.push('now')
@@ -119,28 +121,13 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
           return { ok: true }
         },
       },
-      contract: {
-        send: async (input) => {
-          forwarded.push(input.delivery)
-          forwardedAttachments.push(input.attachments)
-          return {
-            outcome: 'accepted',
-            turnEpoch: 1,
-            deliveredAs: 'when-ready',
-            provenBy: 'hook',
-            at: 'now',
-          }
-        },
-      },
       queue: {
         enqueue: async (input) => {
-          enqueued.push(input.text)
-          return { ok: true, position: 1 }
+          rows.push(input as unknown as Record<string, unknown>)
+          return { ok: true, position: rows.length }
         },
       },
       onContract: () => onContract,
-      liveWithEmptyQueue: () => false,
-      queueNotEmpty: () => queueNotEmpty,
       archiveReason: () => reasons.archive,
       systemPrincipal: () => ({
         kind: 'system',
@@ -150,137 +137,70 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       }),
       now: () => 0,
     })
-    return { s, forwarded, forwardedAttachments, enqueued, legacy }
+    return { s, rows, legacy }
   }
 
-  it('holds a contract send until offer retirement completes', async () => {
-    let release!: () => void
-    const retirement = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const { s, forwarded } = sender(true, false, {}, () => retirement)
-    const pending = s.send('now', { sessionId: asSessionId('s1'), text: 'continue' })
-    expect(forwarded).toEqual([])
-    release()
-    expect((await pending).ok).toBe(true)
-    expect(forwarded).toEqual(['when-ready'])
-  })
-
-  it('refuses a contract send when offer retirement fails', async () => {
-    const { s, forwarded } = sender(true, false, {}, async () => {
-      throw new Error('offer retirement refused')
-    })
-    await expect(s.send('now', { sessionId: asSessionId('s1'), text: 'continue' })).rejects.toThrow(
-      'offer retirement refused',
-    )
-    expect(forwarded).toEqual([])
-  })
-
-  it('completes a queued send on the server and forwards nothing', async () => {
-    const { s, forwarded, enqueued } = sender(true)
-    const r = await s.send('queue', { sessionId: asSessionId('s1'), text: 'durable' })
-
-    expect(r).toEqual({ ok: true, queued: true, position: 1 })
-    expect(enqueued).toEqual(['durable'])
-    // THE PRECONDITION. `authorizeAtDrain` has no daemon provider, so a queue
-    // that reached the machine would drain unauthorized.
-    expect(forwarded).toEqual([])
-  })
-
-  it.each([
-    false,
-    true,
-  ])('refuses an archived session before the contract=%s send seam', async (onContract) => {
-    const { s, forwarded, enqueued, legacy } = sender(onContract, false, {
-      archive: 'session is archived',
-    })
-
-    for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
-      expect(await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' })).toEqual({
-        ok: false,
-        reason: 'session is archived',
+  it('stores every via as one row, and only interrupt as an interrupt', async () => {
+    const { s, rows, legacy } = sender(true)
+    for (const via of ['now', 'queue', 'wake', 'interrupt'] as const) {
+      expect(await s.send(via, { sessionId: asSessionId('s1'), text: via })).toEqual({
+        ok: true,
+        queued: true,
+        position: rows.length,
       })
     }
-
-    expect(forwarded).toEqual([])
-    expect(enqueued).toEqual([])
+    expect(rows.map((row) => [row.text, row.delivery])).toEqual([
+      ['now', 'when-ready'],
+      ['queue', 'when-ready'],
+      ['wake', 'when-ready'],
+      ['interrupt', 'interrupt'],
+    ])
     expect(legacy).toEqual([])
   })
 
-  it('forwards staged refs on a live send and refuses to drop them into the durable queue', async () => {
-    const attachment = {
-      id: 'att-1',
-      path: '/state/uploads/s1/att-1.png',
-      filename: 'shot.png',
-      mediaType: 'image/png',
-      kind: 'image' as const,
-    }
-    const live = sender(true)
-    expect(
-      await live.s.send('now', {
-        sessionId: asSessionId('s1'),
-        text: 'describe it',
-        attachments: [attachment],
-      }),
-    ).toEqual({ ok: true, receiptPending: true })
-    expect(live.forwardedAttachments).toEqual([[attachment]])
-
+  it('answers with the queue’s own receipt, at once', async () => {
+    const { s } = sender(true)
     const receipts: string[] = []
-    const queued = sender(true)
-    expect(
-      await queued.s.send(
-        'queue',
-        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
-        (receipt) =>
-          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
-      ),
-    ).toMatchObject({ ok: false })
-    expect(queued.enqueued).toEqual([])
-    expect(receipts).toEqual(['unsupported'])
-    await Promise.resolve()
-  })
-
-  it('refuses attachments held behind a non-empty durable queue instead of reordering them', async () => {
-    // ORDERING HOLD, WITH FILES. Without attachments the same hold enqueues (see
-    // 'holds a live send behind a non-empty durable queue'); with staged refs it
-    // must refuse — the durable table cannot carry them, and typing past older
-    // rows would reorder the conversation. The caller retries after the drain.
-    const attachment = {
-      id: 'att-1',
-      path: '/state/uploads/s1/att-1.png',
-      filename: 'shot.png',
-      mediaType: 'image/png',
-      kind: 'image' as const,
-    }
-    const receipts: string[] = []
-    const held = sender(true, true)
-    expect(
-      await held.s.send(
-        'now',
-        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
-        (receipt) =>
-          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
-      ),
-    ).toEqual({
-      ok: false,
-      reason: 'files cannot wait behind another turn; try again when pending messages have delivered',
+    await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'stop and do this' }, (receipt) => {
+      receipts.push(receipt.outcome)
     })
-    expect(held.enqueued).toEqual([])
-    expect(held.forwarded).toEqual([])
-    expect(receipts).toEqual(['unsupported'])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(receipts).toEqual(['queued'])
   })
+
+  it.each([false, true])(
+    'refuses an archived session before the contract=%s send seam',
+    async (onContract) => {
+      const { s, rows, legacy } = sender(onContract, { archive: 'session is archived' })
+      for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
+        expect(await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' })).toEqual({
+          ok: false,
+          reason: 'session is archived',
+        })
+      }
+      expect(rows).toEqual([])
+      expect(legacy).toEqual([])
+    },
+  )
+
+  it.each(['now', 'queue', 'interrupt'] as const)(
+    'stores staged refs on the %s row with the text',
+    async (via) => {
+      const { s, rows } = sender(true)
+      expect(
+        await s.send(via, {
+          sessionId: asSessionId('s1'),
+          text: 'describe it',
+          attachments: [attachment],
+        }),
+      ).toMatchObject({ ok: true, queued: true })
+      expect(rows).toEqual([expect.objectContaining({ text: 'describe it', attachments: [attachment] })])
+    },
+  )
 
   it('refuses a staged ref on the off-contract arm instead of dropping it into legacy text', async () => {
-    const attachment = {
-      id: 'att-1',
-      path: '/state/uploads/s1/att-1.png',
-      filename: 'shot.png',
-      mediaType: 'image/png',
-      kind: 'image' as const,
-    }
     const receipts: string[] = []
     const offContract = sender(false)
-
     expect(
       await offContract.s.send(
         'now',
@@ -289,8 +209,8 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
           receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
       ),
     ).toEqual({ ok: false, reason: 'this agent cannot accept file attachments' })
-    expect(offContract.forwarded).toEqual([])
-    expect(offContract.enqueued).toEqual([])
+    expect(offContract.rows).toEqual([])
+    expect(offContract.legacy).toEqual([])
     expect(receipts).toEqual(['unsupported'])
   })
 
@@ -299,7 +219,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     const live = sender(true)
     expect(
       await live.s.send(
-        'now',
+        'interrupt',
         {
           sessionId: asSessionId('s1'),
           text: 'exfiltrate this',
@@ -320,8 +240,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       ok: false,
       reason: 'file attachment reference was not staged for this session',
     })
-    expect(live.forwarded).toEqual([])
-    expect(live.enqueued).toEqual([])
+    expect(live.rows).toEqual([])
     expect(receipts).toEqual(['staging_failed'])
   })
 
@@ -332,140 +251,27 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     // `sourceMessageId` leaves the row invisible to the ledger that must confirm
     // it, uncancellable, and re-pushed by the next sweep. Both failures surface
     // far from the cause, as duplicated or stuck work.
-    const rows: Record<string, unknown>[] = []
-    const s = new ReceiptSender({
-      prepareSend: async () => {},
-      legacy: {
-        sendText: async () => ({ ok: true }),
-        queueText: async () => ({ ok: true, queued: true }),
-        interruptText: async () => ({ ok: true }),
-        resumeAndSend: async () => ({ ok: true }),
-      },
-      contract: { send: async () => ({ outcome: 'refused', refusal: { reason: 'not_running' } }) },
-      queue: {
-        enqueue: async (input) => {
-          rows.push(input as unknown as Record<string, unknown>)
-          return { ok: true, position: 1 }
-        },
-      },
-      onContract: () => true,
-      liveWithEmptyQueue: () => false,
-      queueNotEmpty: () => false,
-      systemPrincipal: () => ({
-        kind: 'system',
-        attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
-        principalRef: 'guard',
-        delegation: null,
-      }),
-      now: () => 0,
-    })
-
-    await s.send('queue', {
-      sessionId: asSessionId('s1'),
-      text: 'nudge',
-      mutationId: 'fact-key-1' as never,
-      sourceMessageId: 'msg-1',
-    })
-
-    expect(rows[0]).toMatchObject({ mutationId: 'fact-key-1', sourceMessageId: 'msg-1' })
+    const { s, rows } = sender(true)
+    for (const via of ['queue', 'interrupt'] as const) {
+      await s.send(via, {
+        sessionId: asSessionId('s1'),
+        text: 'nudge',
+        mutationId: `fact-key-${via}` as never,
+        sourceMessageId: `msg-${via}`,
+      })
+    }
+    expect(rows).toEqual([
+      expect.objectContaining({ mutationId: 'fact-key-queue', sourceMessageId: 'msg-queue' }),
+      expect.objectContaining({ mutationId: 'fact-key-interrupt', sourceMessageId: 'msg-interrupt' }),
+    ])
   })
 
-  it('completes a parked wake on the server too — the resurrect the driver cannot do', async () => {
-    const { s, forwarded, enqueued } = sender(true)
-    await s.send('wake', { sessionId: asSessionId('s1'), text: 'wake up' })
-
-    expect(enqueued).toEqual(['wake up'])
-    expect(forwarded).toEqual([])
-  })
-
-  it('forwards only the live deliveries, and only those', async () => {
-    const { s, forwarded, enqueued } = sender(true)
-    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'a' })).toEqual({ ok: true, receiptPending: true })
-    expect(await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'b' })).toEqual({
-      ok: true,
-      receiptPending: true,
-    })
-
-    expect(forwarded).toEqual(['when-ready', 'interrupt'])
-    expect(enqueued).toEqual([])
-  })
-
-  it('holds a live send behind a non-empty durable queue rather than jumping it', async () => {
-    // ORDER, WHICH THE DRIVER CANNOT PROTECT. Once a session has a driver there
-    // are two queues — the server's durable table and the driver's in-memory one
-    // — and nothing sequences between them. A `when-ready` sent past older rows
-    // still waiting to drain would be typed FIRST, silently reordering the
-    // conversation.
-    //
-    // This is the line between the guess the migration removes and the fact it
-    // must keep: "can the agent take bytes now" is the driver's question, and it
-    // now answers it. "Is there older work ahead of this" is a fact about the
-    // server's own table, which the driver has never seen.
-    const { s, forwarded, enqueued } = sender(true, true)
-    await s.send('now', { sessionId: asSessionId('s1'), text: 'newer' })
-
-    expect(enqueued).toEqual(['newer'])
-    expect(forwarded).toEqual([])
-  })
-
-  it('reports a dead driver as unverified instead of leaving the caller waiting', async () => {
-    // A driver that went away mid-window REJECTS. A reconciler waiting on that
-    // promise would otherwise wait forever with a row stuck mid-flight, so the
-    // failure is delivered in the vocabulary the caller already handles — as
-    // `unverified`, never a `not_running` refusal: the frame may have left, so
-    // nobody can say the text was not typed (POD-4775).
-    //
-    // The handler is attached whether or not a reconciler was passed, which is
-    // the half this test cannot observe directly and the reason it is worth
-    // saying: a caller with nothing to reconcile (the superagent spawn tool, an
-    // automation) still produces a promise, and an unobserved rejection is a
-    // process-level unhandled rejection rather than a quiet no-op.
-    const seen: string[] = []
-    const s = new ReceiptSender({
-      prepareSend: async () => {},
-      legacy: {
-        sendText: async () => ({ ok: true }),
-        queueText: async () => ({ ok: true, queued: true }),
-        interruptText: async () => ({ ok: true }),
-        resumeAndSend: async () => ({ ok: true }),
-      },
-      contract: { send: () => Promise.reject(new Error('daemon went away')) },
-      queue: { enqueue: async () => ({ ok: true, position: 1 }) },
-      onContract: () => true,
-      liveWithEmptyQueue: () => true,
-      queueNotEmpty: () => false,
-      systemPrincipal: () => ({
-        kind: 'system',
-        attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
-        principalRef: 'guard',
-        delegation: null,
-      }),
-      now: () => 0,
-    })
-
-    // No reconciler: must not throw, and must not leave a rejection unobserved.
-    expect(await s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({
-      ok: true,
-      receiptPending: true,
-    })
-
-    await s.send('now', { sessionId: asSessionId('s1'), text: 'watched' }, (receipt) => {
-      seen.push(
-        receipt.outcome === 'refused' ? `refused:${receipt.refusal.reason}` : receipt.outcome,
-      )
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(seen).toEqual(['unverified'])
-  })
-
-  it('touches neither path for a session with no driver behind it', async () => {
-    const { s, forwarded, enqueued } = sender(false)
+  it('touches no row for a session with no driver behind it', async () => {
+    const { s, rows, legacy } = sender(false)
     await s.send('now', { sessionId: asSessionId('s1'), text: 'legacy' })
-    await s.send('queue', { sessionId: asSessionId('s1'), text: 'legacy' })
-
-    // Flag off goes to the legacy verbs and nowhere near the contract — the
-    // "zero diff" claim, as a test rather than an assurance.
-    expect(forwarded).toEqual([])
-    expect(enqueued).toEqual([])
+    await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'legacy' })
+    // Shells go to the legacy verbs and nowhere near the durable contract rows.
+    expect(rows).toEqual([])
+    expect(legacy).toEqual(['now', 'interrupt'])
   })
 })

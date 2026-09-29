@@ -380,7 +380,7 @@ describe('drain invalidation during queue enumeration', () => {
     'does not resume stale drain work after %s while queue.list is pending',
     async (invalidation) => {
       const h = harness({ status: 'parked', transcriptAvailable: true })
-      h.rows.push({
+      h.rows.push({ delivery: 'when-ready',
         id: 'held-row', sessionId: SID, text: 'still queued',
         principal: agentPrincipal(), queuedAt: 0, attempts: 2,
         inputOrigin: 'mail', sourceMessageId: null,
@@ -1484,7 +1484,7 @@ describe('SessionInbox authorization and identity', () => {
   // cancel and the row survives the stop.
   it('a shell retracts a daemon-custodied row locally when the driver cancel refuses', async () => {
     const h = harness({ agentKind: 'shell', phase: 'working' })
-    h.rows.push({
+    h.rows.push({ delivery: 'when-ready',
       id: 'shell-row',
       sessionId: SID,
       queuedAt: 1,
@@ -1843,7 +1843,7 @@ describe('SessionInbox durable wake reconciliation', () => {
   // still reconstruct its wake. Flip the site and no wake is requested.
   it('reconstructs a wake for a parked shell with queued work and no resume ref', async () => {
     const h = harness({ agentKind: 'shell', status: 'exited', resumable: false })
-    h.rows.push({
+    h.rows.push({ delivery: 'when-ready',
       id: 'shell-wake',
       sessionId: SID,
       queuedAt: 1,
@@ -1915,7 +1915,7 @@ describe('shell rows held past the typing loop', () => {
     // A row the previous drain admitted but never settled (attempts>0 names a
     // row that may have crossed into the CLI). Shells retract locally: they
     // have no driver whose custody could desync.
-    h.rows.push({
+    h.rows.push({ delivery: 'when-ready',
       id: 'shell-interrupted',
       sessionId: SID,
       queuedAt: 1,
@@ -2648,7 +2648,7 @@ describe('agent drain via the runtime contract', () => {
     vi.useFakeTimers()
     const h = harness({ hasBoundDriver: true, driverId: 'generic-pty',
       authorizeAtDrain: async () => ({ ok: false, reason: 'revoked' }), contractReceipts: [] })
-    h.rows.push({ id: 'revoked', sessionId: SID, queuedAt: 1, text: 'prior custody', attempts: 1,
+    h.rows.push({ delivery: 'when-ready', id: 'revoked', sessionId: SID, queuedAt: 1, text: 'prior custody', attempts: 1,
       deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
     if (!cancelled) h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
     await h.inbox.drain(SID)
@@ -2667,7 +2667,7 @@ describe('agent drain via the runtime contract', () => {
     const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true,
       driverId: 'generic-pty', contractReceipts: [] })
     // Fresh inbox instance, only durable state survived the server.
-    h.rows.push({ id: 'persisted', sessionId: SID, queuedAt: 1, text: 'already admitted', attempts: 1,
+    h.rows.push({ delivery: 'when-ready', id: 'persisted', sessionId: SID, queuedAt: 1, text: 'already admitted', attempts: 1,
       deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
     h.session.queuedMessageCount = 1
     await h.inbox.drain(SID, { justBound: true })
@@ -2685,7 +2685,7 @@ describe('agent drain via the runtime contract', () => {
   it('imports legacy attempts after restart without re-entering the typing loop', async () => {
     vi.useFakeTimers()
     const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractReceipts: [] })
-    h.rows.push({ id: 'legacy', sessionId: SID, queuedAt: 1, text: 'already typed', attempts: 2,
+    h.rows.push({ delivery: 'when-ready', id: 'legacy', sessionId: SID, queuedAt: 1, text: 'already typed', attempts: 2,
       inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: null })
     await h.inbox.drain(SID)
     await vi.advanceTimersByTimeAsync(60_000)

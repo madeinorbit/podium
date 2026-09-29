@@ -589,7 +589,7 @@ export class SyncRepository {
     delivery: 'when-ready' | 'interrupt'
     attachmentsJson: string | null
   }[]> {
-    // FOURTEEN COLUMNS OF FIFTEEN, named [spec rule 39]: `session_id` is the
+    // FIFTEEN COLUMNS OF SIXTEEN, named [spec rule 39]: `session_id` is the
     // predicate, not part of the answer. `queued_at` is the ordering AND an
     // answer since POD-4360: the inbox compares it against the transcript to
     // recognise a row a previous server process already delivered.

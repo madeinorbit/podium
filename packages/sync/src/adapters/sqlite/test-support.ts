@@ -42,6 +42,8 @@ export const testQueuedMessages = sqliteTable(
     actorId: text('actor_id').default('legacy-session-inbox').notNull(),
     onBehalfOf: text('on_behalf_of'),
     sourceMessageId: text('source_message_id'),
+    delivery: text().default('when-ready').notNull(),
+    attachmentsJson: text('attachments_json'),
   },
   (table) => [
     index('queued_messages_session').on(table.sessionId, table.queuedAt),
@@ -212,6 +214,8 @@ export function createTestSyncDatabase(): SqlDatabase {
        actor_id      TEXT NOT NULL DEFAULT 'legacy-session-inbox',
        on_behalf_of  TEXT,
        source_message_id TEXT,
+       delivery      TEXT NOT NULL DEFAULT 'when-ready',
+       attachments_json TEXT,
        CONSTRAINT queued_messages_principal_kind CHECK (principal_kind IN ('user','agent','system')),
        CONSTRAINT queued_messages_actor_kind CHECK (actor_kind IN ('user','agent','system'))
      )`,
