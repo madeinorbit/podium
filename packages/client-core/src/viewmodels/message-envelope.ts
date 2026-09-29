@@ -40,7 +40,8 @@ export interface ParsedEnvelope {
 /** The head line. The reply part is absent from the short frame a server job
  *  types (auto-continue, an automation's prompt — POD-4868): mail no agent
  *  answers, but still Podium's, never the person's. */
-const HEAD_RE = /^\[podium message (\S+) · from (.+?) · to (.+?)(?: · reply: podium mail reply \1)?\]\n/
+const HEAD_RE =
+  /^\[podium message (\S+) · from (.+?) · to (.+?)(?: · reply: podium mail reply \1)?\]\n/
 
 export interface ParsedEnvelopeBatch {
   envelopes: ParsedEnvelope[]

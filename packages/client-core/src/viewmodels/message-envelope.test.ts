@@ -14,7 +14,8 @@ describe('parseMessageEnvelope', () => {
   // their id in the text but are not mail an agent answers, so the head line has
   // no reply part. The chat must still read them as Podium's, never as the person.
   it('parses the short frame a system job types', () => {
-    const text = '[podium message msg_c · from system:auto-continue · to your session]\ncontinue\n[end podium message msg_c]'
+    const text =
+      '[podium message msg_c · from system:auto-continue · to your session]\ncontinue\n[end podium message msg_c]'
     expect(parseMessageEnvelope(text)).toEqual({
       id: 'msg_c',
       from: 'system:auto-continue',
@@ -23,7 +24,10 @@ describe('parseMessageEnvelope', () => {
       question: false,
       expectsReply: false,
     })
-    expect(parseEnvelopeBatch(text)).toMatchObject({ envelopes: [{ id: 'msg_c' }], operatorText: '' })
+    expect(parseEnvelopeBatch(text)).toMatchObject({
+      envelopes: [{ id: 'msg_c' }],
+      operatorText: '',
+    })
   })
 
   it('parses a server-rendered frame', () => {
