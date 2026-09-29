@@ -897,19 +897,21 @@ describe('conversation controller catching up by id', () => {
     controller.dispose()
   })
 
-  it('never asks for what the feed carries', async () => {
+  it('never asks for what the feed carries', () => {
     const lookup = vi.fn(async () => [])
     const controller = createConversationController({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records([record('msg-1', { status: 'dispatched' })]).port,
       lookupRecords: lookup,
-      createDeliveryId: () => 'msg-1',
-      deliver: async () => ({ state: 'sent' }),
+      // A reload: this view was handed the send, and the feed carries it.
+      initialPending: [seeded('msg-1', 'sent')],
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
     })
     controller.start()
-    await controller.submit({ text: 'carried' })
     expect(lookup).not.toHaveBeenCalled()
+    expect(states(controller)).toEqual(['msg-1:sent'])
     controller.dispose()
   })
 
