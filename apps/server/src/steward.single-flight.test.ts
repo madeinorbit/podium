@@ -64,7 +64,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
       issues,
       sessionFacts: () => metasAsFacts(sessions),
       sessionById: async (sessionId) => sessions.find((x) => x.sessionId === sessionId),
-      sendTextWhenReady: vi.fn(),
+      sendNotice: vi.fn(),
       notify: vi.fn(),
       getSettings: () => settings,
       now,
