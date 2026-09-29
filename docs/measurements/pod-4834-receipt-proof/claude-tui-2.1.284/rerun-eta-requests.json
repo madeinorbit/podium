@@ -1,0 +1,47 @@
+{
+ "note": "Rerun ZETA/ETA (fake2): full last message of each main-loop request. ETA was typed while ZETA's sleep tool ran (marks.txt S4_ETA_CR). Request #2 (ZETA's first) has no ETA; request #3 (after the tool) carries ETA inside the tool_result content as a system-reminder.",
+ "requests": [
+  {
+   "idx": 2,
+   "at": 1790695363421,
+   "nMsgs": 11,
+   "containsETA": false,
+   "lastMessage": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<system-reminder>\n<total_tokens>15000000 tokens left</total_tokens>\n</system-reminder>\n"
+     },
+     {
+      "type": "text",
+      "text": "ZETA TOOLSLEEP run the tool again",
+      "cache_control": {
+       "type": "ephemeral"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "idx": 3,
+   "at": 1790695371760,
+   "nMsgs": 13,
+   "containsETA": true,
+   "lastMessage": {
+    "role": "user",
+    "content": [
+     {
+      "tool_use_id": "toolu_fake2",
+      "type": "tool_result",
+      "content": "(Bash completed with no output)\n\n<system-reminder>\nThe user sent a new message while you were working:\nETA typed while second tool runs\n\nThis is how Claude Code surfaces messages the user sends mid-turn \u2014 within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.\n</system-reminder>\n\n<system-reminder>\n<total_tokens>14999998 tokens left</total_tokens>\n</system-reminder>",
+      "is_error": false,
+      "cache_control": {
+       "type": "ephemeral"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
