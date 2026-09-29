@@ -497,8 +497,8 @@ export class MobxPool {
       relations: this.relations,
       issue: (id) => inMemory(this.row('issue', id)) as SliceIssue | undefined,
       session: (id) => inMemory(this.row('session', id)) as SliceSession | undefined,
-      // The member's cached stamp, while its row is in memory.
-      sessionActivity: (id) => this.model('session', id)?.activityMs ?? null,
+      // The member's cached stamp (its object's, hot or cold): no row read.
+      sessionActivity: (id) => (this.object('session', id) as SessionModel).activityMs,
       repo: (id) => inMemory(this.row('repo', id)) as RepoRow | undefined,
       present: (entity, id) => fenced[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
