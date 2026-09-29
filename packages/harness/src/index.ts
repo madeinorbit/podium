@@ -61,6 +61,8 @@ export {
   transcriptEchoAcceptCorrelation,
 } from './accept-correlation.js'
 export { codexMcpArgs, codexTranscriptPlacement } from './adapters/codex/index.js'
+export { codexPromptTextMatches } from './adapters/codex/transcript.js'
+export { opencodePromptTextMatches } from './adapters/opencode/transcript.js'
 // Host-only sqlite source surface (POD-4520): the opencode cursor stamper the
 // daemon supplies to the opencode observer as an injected port, so the adapter
 // names nothing under store/ (spec §5). Behind this barrel, never the store

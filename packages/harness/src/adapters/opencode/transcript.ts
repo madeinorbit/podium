@@ -61,6 +61,10 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
           {
             id: itemId(0),
             role: 'user',
+            // 1.18.33 records no terminal/HTTP origin or command marker on
+            // these rows. Command expansions remain a known display residual
+            // (POD-4906); receipt matching still requires the submitted text.
+            promptEntry: true,
             ...(ts ? { ts } : {}),
             text,
           },
