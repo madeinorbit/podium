@@ -101,6 +101,7 @@ const fakeTrpc = {
     ensureSession: {
       mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: asSessionId('hp-1') })),
     },
+    latestTurnFailure: { query: vi.fn(async () => null) },
   },
   issues: {
     events: { query: vi.fn(async () => []) },
