@@ -76,6 +76,18 @@ describe('an automation prompt', () => {
     expect((await h.svc.message(id))?.deliveryStatus).toBe('confirmed')
   })
 
+  // A shell automation's prompt is a command line: there is no agent to read a
+  // frame, and a frame typed at a shell would run as a command. It stays bare.
+  it('to a plain shell is typed bare, as the command it is', async () => {
+    const h = await mailHarness()
+    const iss = await h.createIssue({ title: 'nightly' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'starting', agentKind: 'shell' })
+
+    await sender(h)(prompt({ text: 'make nightly' }))
+
+    expect(h.pushes).toEqual([expect.objectContaining({ sessionId: 's1', text: 'make nightly' })])
+  })
+
   it('a repeated run stores one message and types it once', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'nightly' })
