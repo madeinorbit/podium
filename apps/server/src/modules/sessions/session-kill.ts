@@ -19,7 +19,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId, MachineId } from '@podium/model'
+import type { IssueId, SessionId, MachineId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
@@ -56,6 +56,12 @@ export interface SessionKillPorts {
   broadcastSessions(): void
   rpc: Pick<DaemonRpcService, 'runtimeLifecycle'>
   ledger: KillLedger
+  /** Fail every message still waiting for the removed sessions, with each
+   *  sender's notice, inside the removal's transaction (POD-4816). */
+  failMessagesToRemovedSessions(
+    sessionIds: readonly SessionId[],
+    opts?: { endedIssueId?: IssueId },
+  ): Promise<void>
 }
 
 export class SessionKill {
@@ -64,17 +70,9 @@ export class SessionKill {
   /** Durable transition for removing a local session. POD-309 removed the second
    *  spec this used to push: a retained hub-mirror entry colliding on the same id was
    *  revealed in the same ordered append. There is no mirror to reveal any more. */
-
-  /** Durable transition for removing a local session. POD-309 removed the second
-   *  spec this used to push: a retained hub-mirror entry colliding on the same id was
-   *  revealed in the same ordered append. There is no mirror to reveal any more. */
   sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
     return [{ entity: 'session', id: sessionId, op: 'remove' }]
   }
-
-  /** Runtime half of a durable session removal. Issue-owned tombstones can be
-   * restored and therefore use generic process kill; standalone deletion is
-   * terminal and emits the distinct binding-retirement instruction. */
 
   /** Runtime half of a durable session removal. Issue-owned tombstones can be
    * restored and therefore use generic process kill; standalone deletion is
@@ -152,12 +150,17 @@ export class SessionKill {
     // the queued-send cleanup — a killed session can never deliver, so its rows
     // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
     // durable change log can never say something the sessions table doesn't.
+    // So does the end of every message still waiting for it (POD-4816): the
+    // queue it waited in goes here, and nothing else would ever settle it.
     // Durable tombstone FIRST, live teardown after (#247): a commit throw leaves
     // the session fully alive — still in the map, clients attached, PTY not
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
     await this.ports.ledger.commit({
       write: async () => {
+        // Before the tombstone: each sender's notice names the session's issue
+        // as the way on, read from the session while it still stands.
+        await this.ports.failMessagesToRemovedSessions([input.sessionId])
         await this.ports.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
         await this.ports.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
@@ -198,13 +201,6 @@ export class SessionKill {
         await this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
     }, 'session-kill-broadcast')
   }
-
-  /**
-   * Real process death: bus fan-out (locks, messaging) AND a durable
-   * `session.exited` row for the steward's session-parent wake (POD-904).
-   * Hibernate does not land here. Best-effort log write — a store throw must
-   * not undo the exit side-effects already applied.
-   */
 
   /**
    * Real process death: bus fan-out (locks, messaging) AND a durable

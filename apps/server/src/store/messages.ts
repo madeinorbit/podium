@@ -1109,6 +1109,35 @@ export class MessagesRepository {
   }
 
   /**
+   * EVERY OPEN MESSAGE BOUND TO THESE SESSIONS, in delivery order (POD-4816):
+   * addressed to one of them, or handed on to one of them. A session going away
+   * strands both, because its queue goes with it and nothing re-pushes a row
+   * that was handed on. An issue-addressed row still `stored` is bound to its
+   * issue, not to a session, so it stays for whoever works the issue next.
+   */
+  async listOpenBoundToSessions(sessionIds: readonly SessionId[]): Promise<MessageRow[]> {
+    if (sessionIds.length === 0) return []
+    const rows = await this.db
+      .select()
+      .from(messagesTable)
+      .where(
+        and(
+          pending(),
+          or(
+            and(eq(messagesTable.toKind, 'session'), inArray(messagesTable.toId, [...sessionIds])),
+            and(
+              inArray(messagesTable.deliveredTo, [...sessionIds]),
+              inArray(messagesTable.deliveryStatus, [...HANDED_ON]),
+            ),
+          ),
+        ),
+      )
+      .orderBy(...DELIVERY_ORDER)
+      .all()
+    return rows.map(mapMessage)
+  }
+
+  /**
    * THE SENDER DISMISSED THE NOTICE of a chat message that will not arrive or
    * that nobody can vouch for [POD-4764]. A stamp, not a move: the delivery
    * status stays what happened; only the feed lets the message go. Only a

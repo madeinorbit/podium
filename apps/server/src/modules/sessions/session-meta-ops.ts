@@ -19,7 +19,7 @@ import type { ObservationInputOrigin } from '@podium/protocol'
 import type { MachinesService } from '../machines/service'
 import type { WriteFunnel } from '../funnel'
 import type { SessionTeardown } from './session-teardown'
-import type { SessionKill } from './session-kill'
+import type { SessionKill, SessionKillPorts } from './session-kill'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
@@ -36,6 +36,7 @@ export interface SessionMetaOpsPorts {
   funnel: Pick<WriteFunnel, 'run'>
   now(): number
   prepareSessionRuntimeRemoval: SessionKill['prepareSessionRuntimeRemoval']
+  failMessagesToRemovedSessions: SessionKillPorts['failMessagesToRemovedSessions']
   repository: Pick<
     SessionRepository,
     'write' | 'draft' | 'persistDraft' | 'sessionFromStoredRow' | 'prepareStoredSessionInstall' | 'publishSessionProjection'
@@ -452,6 +453,9 @@ export class SessionMetaOps {
     return {
       sessionIds,
       write: async () => {
+        // The messages still waiting for these sessions end with them, and
+        // their senders are told, in this same write (POD-4816).
+        await this.ports.failMessagesToRemovedSessions(sessionIds, { endedIssueId: issueId })
         await this.ports.store.sessions.softDeleteForIssue(sessionIds, issueId, deletedAt)
         for (const sessionId of sessionIds)
           await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)

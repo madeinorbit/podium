@@ -1473,6 +1473,10 @@ export class SessionRegistry {
       interrupted?: (messageId: string) => Promise<void>
       typing?: (messageId: string, sessionId: SessionId) => Promise<void>
       interruptedPending?: (sessionId: SessionId, messageId?: string) => Promise<void>
+      sessionsRemoved?: (
+        sessionIds: readonly SessionId[],
+        opts?: { endedIssueId?: IssueId },
+      ) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
@@ -1513,6 +1517,12 @@ export class SessionRegistry {
       recordSpawnPrompt: async (input) => {
         if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
         return await queuedApplyHooks.spawnPrompt(input)
+      },
+      // Refuses rather than stranding: a removal that cannot end its messages
+      // must not commit (POD-4816).
+      failMessagesToRemovedSessions: async (sessionIds, opts) => {
+        if (!queuedApplyHooks.sessionsRemoved) throw new Error('the message ledger is not wired yet')
+        await queuedApplyHooks.sessionsRemoved(sessionIds, opts)
       },
       rejectQueuedMessage: async (messageId, reason, cause) =>
         await queuedMessageApply.reject(messageId, reason, cause),
@@ -2186,6 +2196,8 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
     queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
+    queuedApplyHooks.sessionsRemoved = async (sessionIds, opts) =>
+      await messagesSvc.failMessagesToRemovedSessions(sessionIds, opts)
     queuedApplyHooks.handingOn = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>

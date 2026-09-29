@@ -99,6 +99,13 @@ export interface SessionLifecycleDeps {
     reason: string,
     cause?: import('@podium/protocol/daemon').QueueDrainAbandonedReason,
   ): Promise<void>
+  /** Fail every message still waiting for these sessions, with its sender's
+   *  notice, inside the caller's transaction (POD-4816). `endedIssueId`: the
+   *  issue is being deleted with them. */
+  failMessagesToRemovedSessions?(
+    sessionIds: readonly SessionId[],
+    opts?: { endedIssueId?: IssueId },
+  ): Promise<void>
   /** Store a spawn's task prompt as the parent session's message to the child
    *  (POD-4778); answers its id. */
   recordSpawnPrompt?(input: {

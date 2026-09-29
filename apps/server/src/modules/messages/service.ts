@@ -35,6 +35,7 @@ import {
   type IssueId,
   type MachineId,
   MessageDelivery,
+  type MessageDeliveryStatus,
 } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
@@ -463,6 +464,10 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
  * notice; see {@link MessageDeliveryService.failureWords}.
  *
  *  - `session-gone`  the target session was deleted or archived.
+ *                    `mayHaveArrived`: it ended after the message was typed (or
+ *                    lost track of) but before anything confirmed it, so
+ *                    whether it arrived cannot be known now. `issueEnded`: its
+ *                    issue went with it, so nobody else holds that conversation.
  *  - `issue-ended`   the target issue was closed, archived or deleted.
  *  - `not-allowed`   the sender lost the authority to reach it (apply-time
  *                    re-authorization, a refused wake placement); `detail`
@@ -473,12 +478,20 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
  *                    refusal more precisely when there is one.
  */
 export type SendFailure =
-  | { kind: 'session-gone' }
+  | { kind: 'session-gone'; mayHaveArrived?: boolean; issueEnded?: boolean }
   | { kind: 'issue-ended' }
   | { kind: 'not-allowed'; detail?: string }
   | { kind: 'never-typed'; cause: QueueDrainAbandonedReason; detail?: string }
 
 const SESSION_GONE: SendFailure = { kind: 'session-gone' }
+/** Typed, about to be, or lost track of: past the point where "not delivered"
+ *  can be claimed. */
+const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set(['typing', 'typed', 'unknown'])
+const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a reply.'
+
+/** A failure notice's words: what happened (default "was not delivered"), why,
+ *  and the one next step. */
+type FailureWords = { outcome?: string; reason: string; action: string }
 const ISSUE_ENDED: SendFailure = { kind: 'issue-ended' }
 const notAllowed = (detail: string): SendFailure => ({ kind: 'not-allowed', detail })
 
@@ -1609,6 +1622,49 @@ export class MessageDeliveryService {
   }
 
   /**
+   * THESE SESSIONS ARE GONE, AND SO IS EVERY MESSAGE STILL WAITING FOR THEM
+   * (POD-4816). Called INSIDE the transaction that tombstones them and drops
+   * their queues: each open message addressed to one of them, or handed on to
+   * one, moves to `failed` with its sender's notice in that same write. So a
+   * delete can never commit leaving a message nothing will ever settle, and a
+   * repeated delete finds nothing open and tells nobody twice.
+   *
+   * The words follow what is known (POD-4778 §2). Not yet typed: not delivered,
+   * the session ended. Typed or lost track of: it may or may not have arrived,
+   * and nobody can check now. An issue-addressed row handed to one of them
+   * fails as its issue's when that issue is ending with them (`endedIssueId`);
+   * otherwise its notice points the sender back at the issue. No cause is
+   * stamped: none is the column's word for "the target was gone", which here
+   * it is.
+   *
+   * Only reads and guarded moves run inside the caller's transaction; the
+   * ledger event and the notice's delivery wait for its commit.
+   */
+  async failMessagesToRemovedSessions(
+    sessionIds: readonly SessionId[],
+    opts: { endedIssueId?: IssueId } = {},
+  ): Promise<void> {
+    const at = this.deps.now()
+    for (const message of await this.deps.messages.listOpenBoundToSessions(sessionIds)) {
+      const failure: SendFailure =
+        message.toKind === 'issue' && message.toId === opts.endedIssueId
+          ? ISSUE_ENDED
+          : {
+              kind: 'session-gone',
+              ...(MAY_HAVE_ARRIVED.has(message.deliveryStatus) ? { mayHaveArrived: true } : {}),
+              ...(opts.endedIssueId !== undefined ? { issueEnded: true } : {}),
+            }
+      const notice = await this.failureNotice(message, failure)
+      if (!moved(await this.deps.messages.markDeadLetter(message.id, at, undefined, notice))) continue
+      const failed: MessageRow = { ...message, deliveryStatus: 'failed', deadLetteredAt: at }
+      afterCommit(async () => {
+        await this.emitTransition(failed, 'message.dead_letter', { reason: 'session removed' })
+        await this.noticeStored(notice)
+      }, 'message-session-removed')
+    }
+  }
+
+  /**
    * The wake this delivery asked for did not happen (POD-1703).
    *
    * `queueText` accepts the row, requests a wake and answers `ok: true, queued`.
@@ -2287,7 +2343,7 @@ export class MessageDeliveryService {
   ): Promise<MessageRow | null> {
     if (message.fromKind === 'system') return null
     const to = await this.replyTarget(message)
-    const { reason, action } = await this.failureWords(message, failure)
+    const { outcome, reason, action } = await this.failureWords(message, failure)
     const from: MessageSender = { kind: 'system', name: 'steward' }
     const authority = await this.authorityOf(from)
     const id = failureNoticeId(message.id)
@@ -2306,7 +2362,7 @@ export class MessageDeliveryService {
       kind: 'notification',
       urgency: 'next-turn',
       lifecycle: 'wait',
-      body: `Your message ${message.id} to ${await this.targetLabel(message)} was not delivered: ${reason}. ${action}`,
+      body: `Your message ${message.id} to ${await this.targetLabel(message)} ${outcome ?? 'was not delivered'}: ${reason}. ${action}`,
       expiresAt: null,
       createdAt: this.deps.now(),
       deliveryStatus: 'stored',
@@ -2326,16 +2382,26 @@ export class MessageDeliveryService {
    * THE REASON AND THE ONE NEXT STEP, per failure (POD-4778 §2). A notice an
    * agent cannot act on is noise, so each names what is still worth doing:
    * reach whoever works the target's issue now, send it again (safe only when
-   * it was never typed), or stop waiting for a reply.
+   * it was never typed), or stop waiting for a reply. `outcome` replaces "was
+   * not delivered" where that would claim more than is known.
    */
   private async failureWords(
     message: MessageRow,
     failure: SendFailure,
-  ): Promise<{ reason: string; action: string }> {
-    const words = await (async (): Promise<{ reason: string; action: string }> => {
+  ): Promise<FailureWords> {
+    const words = await (async (): Promise<FailureWords> => {
       switch (failure.kind) {
-        case 'session-gone':
-          return { reason: 'that session has ended', action: await this.reachIssueInstead(message) }
+        case 'session-gone': {
+          const action = failure.issueEnded ? NOBODY_HOLDS_IT : await this.reachIssueInstead(message)
+          const session = message.toKind === 'issue' ? 'the session it was handed to' : 'that session'
+          if (failure.mayHaveArrived)
+            return {
+              outcome: 'may not have been delivered',
+              reason: `${session} ended before anything confirmed it arrived; whether it did cannot be known now`,
+              action,
+            }
+          return { reason: `${session} has ended`, action }
+        }
         case 'issue-ended': {
           const issue = message.toId ? await this.deps.issues.getMeta(message.toId) : undefined
           const ref = issue ? await this.deps.issues.niceRef(issue) : 'that issue'
@@ -2373,8 +2439,10 @@ export class MessageDeliveryService {
       }
     })()
     // A spawn prompt that never arrived leaves a child with nothing to do: the
-    // one step that helps is giving it the task, or stopping it.
+    // one step that helps is giving it the task, or stopping it. Not when the
+    // child itself is gone: there is nothing left to give the task to.
     if (
+      failure.kind !== 'session-gone' &&
       message.toKind === 'session' &&
       message.toId &&
       message.id === spawnPromptMessageId(asSessionId(message.toId))
@@ -2413,7 +2481,7 @@ export class MessageDeliveryService {
       const ref = await this.deps.issues.niceRef(issue)
       return `Send to ${ref} (\`podium issue mail send ${ref} …\`) to reach whoever works it now.`
     }
-    return 'Nobody else holds that conversation; do not wait for a reply.'
+    return NOBODY_HOLDS_IT
   }
 
   /** A notice just stored with a failure: ledgered like any send, mirrored into

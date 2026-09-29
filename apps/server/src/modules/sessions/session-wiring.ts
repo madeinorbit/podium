@@ -48,6 +48,17 @@ import type { Session, SessionDurableState } from './session'
 
 type QueuedMessageRow = Awaited<ReturnType<SyncRepository['listQueuedMessages']>>[number]
 
+/** The message ledger's end for removed sessions (POD-4816), shared by kill and
+ *  issue deletion. A lifecycle built without a message ledger (a fixture) has
+ *  no messages to strand. */
+function failMessagesToRemovedSessions(
+  deps: SessionLifecycleDeps,
+): SessionKillPorts['failMessagesToRemovedSessions'] {
+  return async (sessionIds, opts) => {
+    await deps.failMessagesToRemovedSessions?.(sessionIds, opts)
+  }
+}
+
 /** A queued row's stored file refs (POD-4795). Only this module writes the
  *  column, from refs already checked against the session; a value that no
  *  longer decodes is reported, and the row goes on as text alone rather than
@@ -76,7 +87,7 @@ import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
-import { SessionKill } from './session-kill'
+import { SessionKill, type SessionKillPorts } from './session-kill'
 import { SessionMetaOps } from './session-meta-ops'
 import { SessionRevival } from './session-revival'
 import { APPLIED_MUTATIONS_MAX_AGE_MS, DEFAULT_GEOMETRY } from './session-shared'
@@ -1098,6 +1109,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     broadcastSessions: () => bag.broadcastSessions(),
     ledger: bag.deps.ledger,
+    failMessagesToRemovedSessions: failMessagesToRemovedSessions(bag.deps),
   })
 
   const sessionClientPlane = new SessionClientPlane({
@@ -1127,6 +1139,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     now: () => bag.now(),
     prepareSessionRuntimeRemoval: (id: SessionId, ret?: { retiredAt: string }) =>
       bag.sessionKill.prepareSessionRuntimeRemoval(id, ret),
+    failMessagesToRemovedSessions: failMessagesToRemovedSessions(bag.deps),
     repository: bag.repository,
     sessionRemovalSpecs: (id: SessionId) => bag.sessionKill.sessionRemovalSpecs(id),
     sessionTeardown: bag.sessionTeardown,
