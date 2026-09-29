@@ -234,9 +234,9 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     expect(marker).not.toBeNull()
     expect(marker?.textContent).toContain('desk')
     expect(marker?.textContent?.toLowerCase()).toContain('offline')
-    // Machine comes back online: the banner clears WITHOUT any transcript
-    // re-read (presence is live; the flag is frozen).
-    const readsBefore = reads.length
+    // Machine comes back online: the banner clears from live presence alone —
+    // no transcript re-read is needed for the clear (a reconnect re-read may
+    // still be in flight behind it; the banner must already be gone).
     storeMachines = [{ id: 'm1', name: 'desk', online: true }]
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
@@ -245,7 +245,6 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     await waitFor(() =>
       expect(container.querySelector('[data-testid="transcript-machine-offline"]')).toBeNull(),
     )
-    expect(reads.length).toBe(readsBefore)
   })
 
   it('reconnect re-reads history and replaces the offline message without a reload', async () => {
