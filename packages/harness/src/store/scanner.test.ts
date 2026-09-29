@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { ConversationDiscoveryCache } from '../discovery/cache.js'
+import { AgentConversationLoadError, type AgentConversationSummary } from '../discovery/types.js'
 import {
   loadAgentConversation,
   scanAgentConversations,
   scanAgentConversationsCached,
 } from './scanner.js'
-import { AgentConversationLoadError, type AgentConversationSummary } from '../discovery/types.js'
 
 async function createHome(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-scanner-'))
@@ -89,12 +89,21 @@ async function writeGrokSession(
       git_remotes: ['git@example.com:repo/grok.git'],
     }),
   )
+  // Grok's conversation file is its append-only updates.jsonl (POD-4875).
+  const update = (sessionUpdate: string, text: string) =>
+    JSON.stringify({
+      method: 'session/update',
+      params: {
+        sessionId: id,
+        update: { sessionUpdate, content: { type: 'text', text } },
+        _meta: {},
+      },
+    })
   await writeFile(
-    join(file, '..', 'chat_history.jsonl'),
-    [
-      JSON.stringify({ type: 'user', content: [{ type: 'text', text: 'grok scan' }] }),
-      JSON.stringify({ type: 'assistant', content: 'grok answer' }),
-    ].join('\n'),
+    join(file, '..', 'updates.jsonl'),
+    [update('user_message_chunk', 'grok scan'), update('agent_message_chunk', 'grok answer')].join(
+      '\n',
+    ),
   )
   return file
 }

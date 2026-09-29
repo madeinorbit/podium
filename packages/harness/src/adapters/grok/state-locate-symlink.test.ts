@@ -27,7 +27,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
-import { locateGrokChatHistory } from './state-locate.js'
+import { locateGrokTranscript } from './state-locate.js'
 
 describe('current Grok authority symlink confinement', () => {
   it('rejects in-root file and project symlinks through public root scanning', async () => {
@@ -47,7 +47,7 @@ describe('current Grok authority symlink confinement', () => {
     census.forcedProjectSymlink = 'project-link'
 
     await expect(
-      locateGrokChatHistory({
+      locateGrokTranscript({
         cwd: '/repo',
         sessionId: 'sess-in-root',
         homeDir: home,

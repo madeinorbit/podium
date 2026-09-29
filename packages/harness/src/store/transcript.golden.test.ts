@@ -61,6 +61,13 @@ interface FileGrammar {
 
 const ts = '2026-09-21T12:00:00.000Z'
 
+function grokUpdate(sessionUpdate: string, text: string) {
+  return {
+    method: 'session/update',
+    params: { sessionId: 'gold', update: { sessionUpdate, content: { type: 'text', text } }, _meta: { agentTimestampMs: Date.parse(ts) } },
+  }
+}
+
 const grammars: FileGrammar[] = [
   {
     name: 'claude',
@@ -117,13 +124,11 @@ const grammars: FileGrammar[] = [
   {
     name: 'grok',
     parse: grokRecordToItems,
-    records: () => [
-      { type: 'user', timestamp: ts, content: [{ type: 'text', text: 'hello' }] },
-      { type: 'assistant', id: 'gold-g1', timestamp: ts, content: 'hi there' },
-    ],
-    extra: () => ({ type: 'assistant', id: 'gold-g2', timestamp: ts, content: 'later' }),
+    // updates.jsonl lines (POD-4875): text entries are named by position.
+    records: () => [grokUpdate('user_message_chunk', 'hello'), grokUpdate('agent_message_chunk', 'hi there')],
+    extra: () => grokUpdate('agent_message_chunk', 'later'),
     extraText: 'later',
-    uuidStableIds: true,
+    uuidStableIds: false,
   },
   {
     name: 'pi',

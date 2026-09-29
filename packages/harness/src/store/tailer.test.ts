@@ -270,10 +270,18 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
   })
 })
 
+/** One Grok `updates.jsonl` line (POD-4875). */
+function grokLine(sessionUpdate: string, text: string): string {
+  return JSON.stringify({
+    method: 'session/update',
+    params: { update: { sessionUpdate, content: { type: 'text', text } }, _meta: {} },
+  })
+}
+
 describe('tailTranscript — missing provider file', () => {
   it('keeps non-missing stat failures on the paced seed path', async () => {
     const path = join(dir, 'grok-stat-eacces.jsonl')
-    writeFileSync(path, JSON.stringify({ uuid: 'blocked', type: 'user', content: 'paced' }) + '\n')
+    writeFileSync(path, grokLine('user_message_chunk', 'paced') + '\n')
     const emissions: Emission[] = []
     let watcher = (): void => {}
     let gated = 0
@@ -344,16 +352,16 @@ describe('tailTranscript — missing provider file', () => {
       writeFileSync(
         path,
         [
-          JSON.stringify({ type: 'system', content: 'hidden' }),
-          JSON.stringify({ uuid: 'prompt-r4', type: 'user', content: 'IDLE-M6Z13Z' }),
-          JSON.stringify({ uuid: 'reply-r4', type: 'assistant', content: 'done IDLE-M6Z13Z' }),
+          grokLine('agent_thought_chunk', 'hidden'),
+          grokLine('user_message_chunk', 'IDLE-M6Z13Z'),
+          grokLine('agent_message_chunk', 'done IDLE-M6Z13Z'),
         ].join('\n') + '\n',
       )
       watcher()
       await waitFor(() => itemsOf(emissions).length === 2)
-      expect(itemsOf(emissions).map((item) => [item.id, item.role, item.text])).toEqual([
-        ['prompt-r4', 'user', 'IDLE-M6Z13Z'],
-        ['reply-r4', 'assistant', 'done IDLE-M6Z13Z'],
+      expect(itemsOf(emissions).map((item) => [item.role, item.text])).toEqual([
+        ['user', 'IDLE-M6Z13Z'],
+        ['assistant', 'done IDLE-M6Z13Z'],
       ])
       expect(emissions).toHaveLength(1)
       expect(emissions[0]?.reset).toBe(true)
@@ -372,7 +380,7 @@ describe('tailTranscript — missing provider file', () => {
 
   it('deduplicates stable post-stat failures until a successful cycle clears recovery', async () => {
     const path = join(dir, 'grok-post-stat-failure.jsonl')
-    writeFileSync(path, JSON.stringify({ uuid: 'recover-1', type: 'user', content: 'seed' }) + '\n')
+    writeFileSync(path, grokLine('user_message_chunk', 'seed') + '\n')
     const emissions: Emission[] = []
     const statuses: { kind: string; path: string }[] = []
     const failure = Object.assign(new Error('stable descriptor stat failure'), { code: 'EACCES' })

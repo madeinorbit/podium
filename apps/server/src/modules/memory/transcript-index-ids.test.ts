@@ -65,8 +65,18 @@ const cases: GrammarCase[] = [
   {
     name: 'grok',
     agentKind: 'grok',
+    // Grok is read from its append-only updates.jsonl (POD-4875).
     records: [
-      { type: 'user', timestamp: TS, content: [{ type: 'text', text: 'grok uuid-less user prose' }] },
+      {
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'user_message_chunk',
+            content: { type: 'text', text: 'grok uuid-less user prose' },
+          },
+          _meta: { agentTimestampMs: Date.parse(TS) },
+        },
+      },
     ],
   },
   {

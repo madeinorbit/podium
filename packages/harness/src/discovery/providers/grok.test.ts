@@ -29,12 +29,22 @@ async function writeGrokSession(
       git_remotes: ['git@example.com:repo/grok.git'],
     }),
   )
+  // Grok rewrites chat_history.jsonl; the conversation is read from the
+  // append-only updates.jsonl (POD-4875). The stale chat_history stays beside it.
+  await writeFile(join(file, '..', 'chat_history.jsonl'), '{"type":"user","content":"stale"}\n')
+  const update = (sessionUpdate: string, text: string) =>
+    JSON.stringify({
+      timestamp: 1780315200,
+      method: 'session/update',
+      params: {
+        sessionId: id,
+        update: { sessionUpdate, content: { type: 'text', text } },
+        _meta: { eventId: `${id}-1`, agentTimestampMs: 1780315200000 },
+      },
+    })
   await writeFile(
-    join(file, '..', 'chat_history.jsonl'),
-    [
-      JSON.stringify({ type: 'user', content: [{ type: 'text', text: 'scan grok' }] }),
-      JSON.stringify({ type: 'assistant', content: 'found grok' }),
-    ].join('\n'),
+    join(file, '..', 'updates.jsonl'),
+    [update('user_message_chunk', 'scan grok'), update('agent_message_chunk', 'found grok')].join('\n'),
   )
   return file
 }
@@ -56,7 +66,7 @@ describe('createGrokConversationProvider', () => {
   test('scans Grok summary.json sessions and builds resumable summaries', async () => {
     const root = await createRoot()
     const summaryPath = await writeGrokSession(root)
-    const chatBytes = (await stat(join(summaryPath, '..', 'chat_history.jsonl'))).size
+    const updatesBytes = (await stat(join(summaryPath, '..', 'updates.jsonl'))).size
 
     const result = await createGrokConversationProvider().scanRoot(root)
 
@@ -75,15 +85,15 @@ describe('createGrokConversationProvider', () => {
           originUrl: 'git@example.com:repo/grok.git',
         },
         resume: { kind: 'grok-session', value: '019e-grok' },
-        source: expect.objectContaining({ providerId: 'grok-sessions', root, path: expect.stringMatching(/chat_history.jsonl$/), relatedPaths: expect.arrayContaining([expect.stringMatching(/summary.json$/)]) }),
-        sizeBytes: chatBytes,
+        source: expect.objectContaining({ providerId: 'grok-sessions', root, path: expect.stringMatching(/updates.jsonl$/), relatedPaths: expect.arrayContaining([expect.stringMatching(/summary.json$/)]) }),
+        sizeBytes: updatesBytes,
       }),
     ])
     expect(result.conversations[0]?.createdAt?.toISOString()).toBe('2026-06-01T12:00:00.000Z')
     expect(result.conversations[0]?.updatedAt?.toISOString()).toBe('2026-06-01T12:03:00.000Z')
   })
 
-  test('loads normalized Grok chat history on demand', async () => {
+  test('loads the conversation from updates.jsonl on demand', async () => {
     const root = await createRoot()
     await writeGrokSession(root)
     const provider = createGrokConversationProvider()
@@ -95,13 +105,13 @@ describe('createGrokConversationProvider', () => {
     const conversation = await provider.loadConversation(summary)
 
     expect(conversation.messages).toEqual([
-      expect.objectContaining({ role: 'user', content: 'scan grok' }),
+      expect.objectContaining({ role: 'user', content: 'scan grok', createdAt: new Date(1780315200000) }),
       expect.objectContaining({ role: 'assistant', content: 'found grok' }),
     ])
     expect(conversation.raw).toEqual(expect.any(Array))
   })
 
-  test('reports deleted lazy-load chat history as load failures', async () => {
+  test('reports a deleted updates.jsonl as a load failure', async () => {
     const root = await createRoot()
     await writeGrokSession(root)
     const provider = createGrokConversationProvider()

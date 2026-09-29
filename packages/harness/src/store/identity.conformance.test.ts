@@ -6,15 +6,15 @@ import { describe, expect, it } from 'vitest'
 import { claudeRecordToItems } from '../adapters/claude-code/transcript.js'
 import { codexRecordToItems } from '../adapters/codex/transcript.js'
 import { cursorRecordToItems } from '../adapters/cursor/transcript.js'
-import { decodeCursor, encodeCursor, recordUuid, stampCursors } from './cursor-codec'
-import { fileIdFor } from './file-chain'
 import { grokRecordToItems } from '../adapters/grok/transcript.js'
 import type { OpencodeMessagePartRow } from '../adapters/opencode/transcript.js'
-import { piRecordToItems } from '../adapters/pi/transcript.js'
-import { readFileItems, readTranscriptSlice } from './slice'
 import { opencodeFileId } from '../adapters/opencode/transcript.js'
-import { stampOpencodeItems } from './sources/sqlite.js'
+import { piRecordToItems } from '../adapters/pi/transcript.js'
+import { decodeCursor, encodeCursor, recordUuid, stampCursors } from './cursor-codec'
+import { fileIdFor } from './file-chain'
+import { readFileItems, readTranscriptSlice } from './slice'
 import { sliceItemsByAnchor } from './source'
+import { stampOpencodeItems } from './sources/sqlite.js'
 import { streamItemIdOf } from './stream-identity'
 
 type Mapper = (record: unknown) => TranscriptItem[]
@@ -28,7 +28,14 @@ const families: [string, Mapper, object][] = [
   ],
   ['cursor', cursorRecordToItems, { role: 'assistant', message: { content } }],
   ['pi', piRecordToItems, { type: 'message', message: { role: 'assistant', content } }],
-  ['grok-acp', grokRecordToItems, { role: 'assistant', content }],
+  [
+    'grok',
+    grokRecordToItems,
+    {
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'agent_message_chunk', content: content[0] }, _meta: {} },
+    },
+  ],
 ]
 const ids = (items: TranscriptItem[]) => items.map((item) => item.id)
 const coordinates = (items: TranscriptItem[]) => items.map(({ id, cursor }) => ({ id, cursor }))
@@ -381,12 +388,29 @@ const cursorCases: [string, object][] = [
     { role: 'assistant', message: { content: [...content, call, result] } },
   ],
 ]
+// Grok is read from updates.jsonl (POD-4875): one entry per record.
+const grokLine = (update: object) => ({ method: 'session/update', params: { update, _meta: {} } })
 const grokCases: [string, object][] = [
-  ['user', { role: 'user', content }],
-  ['assistant content calls', { role: 'assistant', content: [...content, call, result] }],
-  ['assistant tool_calls', { role: 'assistant', content, tool_calls: [call] }],
-  ['top-level call', call],
-  ['top-level result', result],
+  ['user', grokLine({ sessionUpdate: 'user_message_chunk', content: content[0] })],
+  ['assistant', grokLine({ sessionUpdate: 'agent_message_chunk', content: content[0] })],
+  [
+    'call',
+    grokLine({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'call-1',
+      title: 'read_file',
+      rawInput: {},
+    }),
+  ],
+  [
+    'result',
+    grokLine({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'call-1',
+      status: 'completed',
+      rawOutput: { output_for_prompt: 'same words' },
+    }),
+  ],
 ]
 
 // Add IDs at the provider locations, leaving nested call/result IDs absent in

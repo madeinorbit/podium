@@ -3410,14 +3410,22 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
   })
 })
 
+/** One Grok `updates.jsonl` line: the file the Grok transcript is read from (POD-4875). */
+function grokLine(sessionUpdate: string, text: string): string {
+  return JSON.stringify({
+    method: 'session/update',
+    params: { update: { sessionUpdate, content: { type: 'text', text } }, _meta: {} },
+  })
+}
+
 describe('Grok accepted rebind transcript bridge', () => {
-  it('keeps legacy late-created chat_history live and exactly-once across reload', async () => {
+  it('keeps late-written updates.jsonl entries live and exactly-once across reload', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-transcript-rebind-'))
     const cwd = '/repo/grok-transcript-rebind'
     const nativeId = 'grok-native-rebind'
     const sessionId = asSessionId('podium-grok-transcript-rebind')
     const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), nativeId)
-    const chatHistory = join(sessionDir, 'chat_history.jsonl')
+    const updates = join(sessionDir, 'updates.jsonl')
     await mkdir(sessionDir, { recursive: true })
     await writeFile(
       join(sessionDir, 'summary.json'),
@@ -3475,15 +3483,11 @@ describe('Grok accepted rebind transcript bridge', () => {
     })
 
     await writeFile(
-      chatHistory,
+      updates,
       [
-        JSON.stringify({ type: 'system', content: 'hidden' }),
-        JSON.stringify({ uuid: 'grok-user-token', type: 'user', content: 'user token' }),
-        JSON.stringify({
-          uuid: 'grok-assistant-token',
-          type: 'assistant',
-          content: 'assistant token',
-        }),
+        grokLine('agent_thought_chunk', 'hidden'),
+        grokLine('user_message_chunk', 'user token'),
+        grokLine('agent_message_chunk', 'assistant token'),
       ].join('\n') + '\n',
     )
     for (const watcher of statTick.watchers) watcher()
@@ -3494,9 +3498,9 @@ describe('Grok accepted rebind transcript bridge', () => {
       (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
         message.type === 'transcriptDelta',
     )!
-    expect(live.items.map((item) => [item.id, item.role, item.text])).toEqual([
-      ['grok-user-token', 'user', 'user token'],
-      ['grok-assistant-token', 'assistant', 'assistant token'],
+    expect(live.items.map((item) => [item.role, item.text])).toEqual([
+      ['user', 'user token'],
+      ['assistant', 'assistant token'],
     ])
     for (const watcher of statTick.watchers) watcher()
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -3528,7 +3532,7 @@ describe('Grok accepted rebind transcript bridge', () => {
           message.type === 'transcriptDelta',
       )!
     expect(replay.reset).toBe(true)
-    expect(replay.items.map((item) => item.id)).toEqual(['grok-user-token', 'grok-assistant-token'])
+    expect(replay.items.map((item) => item.id)).toEqual(live.items.map((item) => item.id))
 
     observers.clearSession(sessionId)
     await rm(home, { recursive: true, force: true })
@@ -3603,30 +3607,30 @@ describe('Grok accepted rebind transcript bridge', () => {
     await writeFile(
       currentTranscript,
       [
-        JSON.stringify({ type: 'system', content: 'hidden' }),
-        JSON.stringify({ uuid: 'current-user-token', type: 'user', content: 'user token' }),
-        JSON.stringify({
-          uuid: 'current-assistant-token',
-          type: 'assistant',
-          content: 'assistant token',
-        }),
+        grokLine('agent_thought_chunk', 'hidden'),
+        grokLine('user_message_chunk', 'user token'),
+        grokLine('agent_message_chunk', 'assistant token'),
       ].join('\n') + '\n',
     )
     for (const watcher of statTick.watchers) watcher()
+    // The session dir's updates.jsonl is tailed first; while it is empty it
+    // sends one empty reset. Count the deltas that carry entries.
+    const itemDeltas = () =>
+      sent.filter(
+        (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          message.type === 'transcriptDelta' && message.items.length > 0,
+      )
     await vi.waitFor(() => {
-      expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+      expect(itemDeltas()).toHaveLength(1)
     })
-    const live = sent.find(
-      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
-        message.type === 'transcriptDelta',
-    )!
-    expect(live.items.map((item) => [item.id, item.role, item.text])).toEqual([
-      ['current-user-token', 'user', 'user token'],
-      ['current-assistant-token', 'assistant', 'assistant token'],
+    const live = itemDeltas()[0]!
+    expect(live.items.map((item) => [item.role, item.text])).toEqual([
+      ['user', 'user token'],
+      ['assistant', 'assistant token'],
     ])
     for (const watcher of statTick.watchers) watcher()
     await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+    expect(itemDeltas()).toHaveLength(1)
 
     observers.clearSession(sessionId)
     const reloadStart = sent.length
@@ -3643,21 +3647,11 @@ describe('Grok accepted rebind transcript bridge', () => {
       { seedOnFrame: false },
     )
     await vi.waitFor(() => {
-      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(
-        true,
-      )
+      expect(itemDeltas().length).toBeGreaterThan(1)
     })
-    const replay = sent
-      .slice(reloadStart)
-      .find(
-        (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
-          message.type === 'transcriptDelta',
-      )!
+    const replay = itemDeltas().at(-1)!
     expect(replay.reset).toBe(true)
-    expect(replay.items.map((item) => item.id)).toEqual([
-      'current-user-token',
-      'current-assistant-token',
-    ])
+    expect(replay.items.map((item) => item.id)).toEqual(live.items.map((item) => item.id))
 
     observers.clearSession(sessionId)
     await rm(home, { recursive: true, force: true })

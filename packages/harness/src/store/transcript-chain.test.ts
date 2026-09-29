@@ -117,19 +117,19 @@ describe('resolveChain', () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
     const sessionId = 'sess-other-bucket'
     const { grokSessionPaths } = await import('../adapters/grok/instrumentation.js')
-    const chatHistoryPath = grokSessionPaths({
+    const updatesPath = grokSessionPaths({
       cwd: '/repo',
       sessionId,
       homeDir: home,
-    }).chatHistoryPath
-    await mkdir(dirname(chatHistoryPath), { recursive: true })
-    await writeFile(chatHistoryPath, '{}\n')
+    }).updatesPath
+    await mkdir(dirname(updatesPath), { recursive: true })
+    await writeFile(updatesPath, '{}\n')
     const chain = await resolveChain('grok', {
       cwd: '/repo/.worktrees/issue-912',
       resumeValue: sessionId,
       homeDir: home,
     })
-    expect(chain).toEqual([{ path: chatHistoryPath, fileId: fileIdFor(sessionId) }])
+    expect(chain).toEqual([{ path: updatesPath, fileId: fileIdFor(sessionId) }])
   })
 
   it('resolves a one-entry chain for grok from cwd + sessionId', async () => {
@@ -137,11 +137,11 @@ describe('resolveChain', () => {
     const cwd = '/work/repo'
     const sessionId = 'sess-456'
     const { grokSessionPaths } = await import('../adapters/grok/instrumentation.js')
-    const chatHistoryPath = grokSessionPaths({ cwd, sessionId, homeDir: home }).chatHistoryPath
-    await mkdir(dirname(chatHistoryPath), { recursive: true })
-    await writeFile(chatHistoryPath, '{}\n')
+    const updatesPath = grokSessionPaths({ cwd, sessionId, homeDir: home }).updatesPath
+    await mkdir(dirname(updatesPath), { recursive: true })
+    await writeFile(updatesPath, '{}\n')
     const chain = await resolveChain('grok', { cwd, resumeValue: sessionId, homeDir: home })
-    expect(chain).toEqual([{ path: chatHistoryPath, fileId: fileIdFor(sessionId) }])
+    expect(chain).toEqual([{ path: updatesPath, fileId: fileIdFor(sessionId) }])
   })
 
   it('resolves a one-entry chain for codex via the rollout filename fallback', async () => {
@@ -248,6 +248,18 @@ describe('transcript read after a cwd restamp', () => {
   })
 })
 
+/** One Grok `updates.jsonl` line: the file the Grok transcript is read from (POD-4875). */
+function grokUpdate(sessionUpdate: string, text: string): string {
+  return JSON.stringify({
+    method: 'session/update',
+    params: {
+      sessionId: 'sess',
+      update: { sessionUpdate, content: { type: 'text', text } },
+      _meta: { agentTimestampMs: 1786572784000 },
+    },
+  })
+}
+
 describe('Grok transcript read when cwd and session bucket disagree', () => {
   async function seed(): Promise<{ home: string; path: string }> {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-moved-'))
@@ -258,24 +270,16 @@ describe('Grok transcript read when cwd and session bucket disagree', () => {
     })
     await mkdir(paths.sessionDir, { recursive: true })
     await writeFile(
-      paths.chatHistoryPath,
+      paths.updatesPath,
       `${[
-        JSON.stringify({
-          type: 'user',
-          timestamp: '2026-08-12T22:13:04.000Z',
-          content: 'please have a look at unread indicators',
-        }),
-        JSON.stringify({
-          type: 'assistant',
-          timestamp: '2026-08-12T22:44:28.000Z',
-          content: 'Unread stays off after you open an issue.',
-        }),
+        grokUpdate('user_message_chunk', 'please have a look at unread indicators'),
+        grokUpdate('agent_message_chunk', 'Unread stays off after you open an issue.'),
       ].join('\n')}\n`,
     )
-    return { home, path: paths.chatHistoryPath }
+    return { home, path: paths.updatesPath }
   }
 
-  it('resolveChain finds chat_history under the git-root bucket', async () => {
+  it('resolveChain finds updates.jsonl under the git-root bucket', async () => {
     const { home, path } = await seed()
     const chain = await resolveChain('grok', {
       cwd: '/repo/.worktrees/issue-912-unread-indicators',
@@ -304,7 +308,7 @@ describe('Grok transcript read when cwd and session bucket disagree', () => {
     expect(texts).toContain('Unread stays off after you open an issue.')
   })
 
-  it('reads the current product transcript authority before legacy chat_history', async () => {
+  it('reads the current product transcript authority before the session dir', async () => {
     const { home } = await seed()
     const nativeId = '67e48205-9b61-4c2e-a6de-250f50400142'
     const transcriptRoot = join(home, 'product-transcripts')
@@ -313,18 +317,8 @@ describe('Grok transcript read when cwd and session bucket disagree', () => {
     await writeFile(
       current,
       `${[
-        JSON.stringify({
-          uuid: 'current-user-id',
-          type: 'user',
-          timestamp: '2026-08-31T04:45:06.000Z',
-          content: 'current authority user',
-        }),
-        JSON.stringify({
-          uuid: 'current-assistant-id',
-          type: 'assistant',
-          timestamp: '2026-08-31T04:45:07.000Z',
-          content: 'current authority assistant',
-        }),
+        grokUpdate('user_message_chunk', 'current authority user'),
+        grokUpdate('agent_message_chunk', 'current authority assistant'),
       ].join('\n')}\n`,
     )
     const page = await readThroughGrammar('grok', {
@@ -333,9 +327,9 @@ describe('Grok transcript read when cwd and session bucket disagree', () => {
       homeDir: home,
       transcriptRoot,
     })
-    expect(page.items.map((item) => [item.id, item.text])).toEqual([
-      ['current-user-id', 'current authority user'],
-      ['current-assistant-id', 'current authority assistant'],
+    expect(page.items.map((item) => [item.role, item.text])).toEqual([
+      ['user', 'current authority user'],
+      ['assistant', 'current authority assistant'],
     ])
   })
 })

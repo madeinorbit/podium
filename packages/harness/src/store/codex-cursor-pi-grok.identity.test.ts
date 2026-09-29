@@ -2,15 +2,17 @@ import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { codexRecordToItems } from '../adapters/codex/transcript.js'
 import { cursorRecordToItems } from '../adapters/cursor/transcript.js'
-import { stampCursors } from './cursor-codec'
 import { grokRecordToItems } from '../adapters/grok/transcript.js'
 import { piRecordToItems } from '../adapters/pi/transcript.js'
+import { stampCursors } from './cursor-codec'
 
 const content = [{ type: 'text', text: 'hello' }]
 const tool = { type: 'tool_use', name: 'Read', input: { file_path: 'hello' } }
 const result = { type: 'tool_result', content: 'hello' }
 const codex = (payload: object, type = 'response_item') => ({ type, payload })
 const pi = (message: object) => ({ type: 'message', message })
+// Grok is read from updates.jsonl (POD-4875).
+const grok = (update: object) => ({ method: 'session/update', params: { update, _meta: {} } })
 
 const cases: [string, (record: unknown) => TranscriptItem[], object[]][] = [
   [
@@ -60,11 +62,8 @@ const cases: [string, (record: unknown) => TranscriptItem[], object[]][] = [
     'grok',
     grokRecordToItems,
     [
-      { role: 'user', content },
-      { role: 'assistant', content: [...content, tool, tool, result, result] },
-      { role: 'assistant', content, tool_calls: [tool, tool] },
-      tool,
-      result,
+      grok({ sessionUpdate: 'user_message_chunk', content: content[0] }),
+      grok({ sessionUpdate: 'agent_message_chunk', content: content[0] }),
     ],
   ],
 ]
@@ -172,28 +171,27 @@ const providerCases: [string, (record: unknown) => TranscriptItem[], object, str
     ['call:out'],
   ],
   [
-    'grok blocks',
+    'grok tool',
     grokRecordToItems,
-    {
-      uuid: 'entry',
-      role: 'assistant',
-      content: [
-        ...content,
-        { ...tool, id: 'call' },
-        { ...result, tool_call_id: 'call' },
-        tool,
-        tool,
-      ],
-    },
-    ['entry', 'call', 'call:out', 'entry:3', 'entry:4'],
+    grok({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'call',
+      title: 'read_file',
+      rawInput: { target_file: 'hello' },
+    }),
+    ['call'],
   ],
   [
-    'grok own result',
+    'grok result',
     grokRecordToItems,
-    { ...result, uuid: 'result', tool_call_id: 'call' },
-    ['result'],
+    grok({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'call',
+      status: 'completed',
+      rawOutput: { output_for_prompt: 'hello' },
+    }),
+    ['call:out'],
   ],
-  ['grok own tool', grokRecordToItems, { ...tool, uuid: 'call' }, ['call']],
 ]
 
 for (const [name, mapper, record, expected] of providerCases) {
