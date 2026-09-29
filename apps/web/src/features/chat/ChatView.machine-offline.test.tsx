@@ -1,4 +1,5 @@
 import {
+  asMachineId,
   asSessionId,
   type SessionId,
   type SessionMeta,
@@ -17,13 +18,14 @@ import './test-support/client-core-mock'
 // no explanation — the server ran the offline branch (no daemon → lake over
 // mirrored bytes → undefined when nothing was mirrored) and returned
 // {items:[], hasMore:false}, which the client treats as done (empty phase).
-// The chat must instead say WHY: "<machine> is offline; history will load
-// when it reconnects".
-// Half 2: a session shown as "live" on an offline machine shows
-// "Waiting on shell" with no offline marker — the client reads session.status
-// (live) and never sees machine presence. It must show the machine is offline.
-// Both halves are red at the tip: the server sends no offline marker and the
-// client renders none.
+// The chat must instead say WHY via the server's offline flag:
+// "machine '<name>' is offline — history will load when it reconnects".
+// Half 2 (review): the 'machine is offline' banner comes from the client's
+// LIVE machine presence (session.machineId -> store machines' online), NOT
+// from the flag frozen into the last transcript read — so it appears when the
+// machine drops and clears when it returns without any re-read.
+// Reconnect: when the machine comes back online the chat re-reads history and
+// replaces the offline message (no reload).
 // ---------------------------------------------------------------------------
 
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
@@ -83,6 +85,7 @@ const fakeReplica = {
 }
 
 let storeSessions: SessionMeta[] = []
+let storeMachines: Array<{ id: string; name: string; online: boolean }> = []
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
@@ -90,6 +93,7 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     replica: fakeReplica,
     sessions: storeSessions,
+    machines: storeMachines,
     drafts: {},
     setSessionDraft: vi.fn(),
     resumeAndSend: vi.fn(async () => {}),
@@ -137,10 +141,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
   } as unknown as SessionMeta
 }
 
-function textItem(id: string, cursor: string, text: string): TranscriptItem {
-  return { id, cursor, role: 'assistant', text }
-}
-
 let container: HTMLDivElement
 let root: Root
 
@@ -150,6 +150,7 @@ beforeEach(() => {
   fakeReplica.windows.clear()
   fakeReplica.puts.length = 0
   storeSessions = [meta({})]
+  storeMachines = []
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -170,7 +171,10 @@ async function flush(): Promise<void> {
 
 describe('ChatView machine-offline history (POD-4808)', () => {
   it('half 1: hibernated session on an offline machine says why history is missing instead of an empty pane', async () => {
-    storeSessions = [meta({ status: 'hibernated', machineName: 'desk' })]
+    storeSessions = [
+      meta({ status: 'hibernated', machineId: asMachineId('m1'), machineName: 'desk' }),
+    ]
+    storeMachines = [{ id: 'm1', name: 'desk', online: false }]
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
@@ -186,10 +190,11 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     expect(marker?.textContent?.toLowerCase()).toContain('reconnect')
   })
 
-  it('half 2: live session on an offline machine shows the machine is offline alongside its tail', async () => {
+  it('half 2: live banner comes from live machine presence, not the frozen transcript flag', async () => {
     storeSessions = [
       meta({
         status: 'live',
+        machineId: asMachineId('m1'),
         machineName: 'desk',
         agentState: {
           phase: 'working',
@@ -198,10 +203,13 @@ describe('ChatView machine-offline history (POD-4808)', () => {
         },
       }),
     ]
+    storeMachines = [{ id: 'm1', name: 'desk', online: false }]
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     expect(reads).toHaveLength(1)
+    // NOTE: no offline flag on the transcript page — the banner must still
+    // show, because it reads live presence (session.machineId -> machines).
     await act(async () => {
       reads[0]?.resolve({
         items: [
@@ -218,7 +226,6 @@ describe('ChatView machine-offline history (POD-4808)', () => {
         head: 'c1',
         tail: 'c1',
         hasMore: false,
-        offline: { machineName: 'desk' },
       })
     })
     await flush()
@@ -227,5 +234,52 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     expect(marker).not.toBeNull()
     expect(marker?.textContent).toContain('desk')
     expect(marker?.textContent?.toLowerCase()).toContain('offline')
+    // Machine comes back online: the banner clears WITHOUT any transcript
+    // re-read (presence is live; the flag is frozen).
+    const readsBefore = reads.length
+    storeMachines = [{ id: 'm1', name: 'desk', online: true }]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-machine-offline"]')).toBeNull(),
+    )
+    expect(reads.length).toBe(readsBefore)
+  })
+
+  it('reconnect re-reads history and replaces the offline message without a reload', async () => {
+    storeSessions = [
+      meta({ status: 'hibernated', machineId: asMachineId('m1'), machineName: 'desk' }),
+    ]
+    storeMachines = [{ id: 'm1', name: 'desk', online: false }]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    expect(reads).toHaveLength(1)
+    await act(async () => {
+      reads[0]?.resolve({ items: [], hasMore: false, offline: { machineName: 'desk' } })
+    })
+    await flush()
+    await waitFor(() => expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull())
+    // Machine reconnects: the chat re-reads and the offline message is
+    // replaced by history — no reload.
+    storeMachines = [{ id: 'm1', name: 'desk', online: true }]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+    await waitFor(() => expect(reads.length).toBe(2))
+    await act(async () => {
+      reads[1]?.resolve({
+        items: [{ id: 'a', cursor: 'c1', role: 'assistant', text: 'reconnected history' }],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+    await waitFor(() => expect(container.textContent).toContain('reconnected history'))
+    expect(container.querySelector('[data-testid="transcript-machine-offline"]')).toBeNull()
   })
 })

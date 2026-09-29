@@ -254,6 +254,7 @@ export function TranscriptFeed({
   turnPreview,
   activity,
   offlineMachineName,
+  presenceOfflineMachineName,
   attribution,
   expandRuns = false,
   onQuote,
@@ -306,10 +307,16 @@ export function TranscriptFeed({
    *  PTY chat byte-identical to what it renders today. */
   turnPreview: TurnPreview | null
   activity: ChatActivity | null
-  /** The session's machine is offline (POD-4808) — the server's daemon-presence
-   *  signal, naming the machine. Renders the WHY instead of an empty pane, and
-   *  marks a live-looking session. Null when online. */
+  /** The session's machine is offline as of the last transcript read (POD-4808
+   *  half 1) — the server's daemon-presence signal, naming the machine.
+   *  Renders the WHY instead of an empty pane. Null when the last read was
+   *  online. The live banner below does NOT read this (it is frozen at the
+   *  last read); it reads presenceOfflineMachineName. */
   offlineMachineName?: string | null
+  /** LIVE machine presence for the half-2 banner (POD-4808 review): derived
+   *  from session.machineId -> the store's machines list, so it appears when
+   *  the machine drops and clears when it returns without any re-read. */
+  presenceOfflineMachineName?: string | null
   /** The session's three attribution pairs (doc §3.1.3 A3), derived once by the
    *  slice. Each row picks its pair by role; the objects are stable, so the
    *  memoized block views keep skipping renders. */
@@ -421,13 +428,13 @@ export function TranscriptFeed({
             <TranscriptStandby session={session} cwd={cwd} superagent={superagent} />
           )
         )}
-        {offlineMachineName && phase !== 'empty' && phase !== 'loading' && (
+        {presenceOfflineMachineName && phase !== 'empty' && phase !== 'loading' && (
           <div
             className="transcript-offline-banner"
             data-testid="transcript-machine-offline"
             role="status"
           >
-            <span>{`machine '${offlineMachineName}' is offline — showing last known transcript.`}</span>
+            <span>{`machine '${presenceOfflineMachineName}' is offline — showing last known transcript.`}</span>
           </div>
         )}
         {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
