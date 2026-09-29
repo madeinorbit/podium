@@ -1,7 +1,12 @@
 # Grok 1.0.44 terminal UI — what it reports when it takes a prompt (run 2026-09-29, POD-4865)
 
-Everything below is **run** unless marked *read*. Grok ACP is measured separately (POD-4837); it is
-not covered here. Ground truth for "the model got it" is the fake model server's request log.
+Everything below is **run** unless marked *read*. Grok ACP is measured separately (POD-4837,
+`../grok-acp-1.0.44/` and its section in `../README.md`). The two agree where they overlap:
+`updates.jsonl`'s `user_message_chunk` has `promptIndex` and an event id but no `promptId`; the
+prompt is recorded after the `UserPromptSubmit` hooks and before the model call; an error reply
+from the model still leaves the prompt recorded. The difference: ACP takes our id
+(`_meta.promptId`) and acks the queue at once; the terminal takes no id and shows nothing for a
+queued prompt. Ground truth for "the model got it" is the fake model server's request log.
 
 ## Setup
 
@@ -9,7 +14,7 @@ not covered here. Ground truth for "the model got it" is the fake model server's
   (multi-line, long and unicode text by bracketed paste: `tmux paste-buffer -p`).
 - Scratch `HOME` and `GROK_HOME`; `config.toml` has `[model.fake] base_url = http://127.0.0.1:47361/v1`,
   `env_key = FAKE_KEY` (value `dummy-not-a-key`), `[models] default = "fake"`. Flags
-  `-m fake --always-approve --trust`. No real credentials, nothing left the machine.
+  `-m fake --always-approve --trust`. No real credentials; every model request went to the local fake.
 - Fake model: `fake-openai-chat-server.ts` (OpenAI chat-completions SSE, the wire Grok uses for a
   custom model). `TOOLSLEEP` → a `run_terminal_command` `sleep 8` call; `SLOWTEXT` → 20 words in
   10 s; `ERRORNOW` → HTTP 400; a compaction prompt → a `<summary>` block. Every request is logged
