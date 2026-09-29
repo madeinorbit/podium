@@ -936,6 +936,20 @@ describe('send receipts', () => {
     expect(resolved.turnEpoch).toBeGreaterThan(0)
   })
 
+  it("names Claude's prompt_id from the hook that proved the send (POD-4841)", async () => {
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
+    world.hookOnSubmit(session.binding.sessionId, {
+      payload: { hook_event_name: 'UserPromptSubmit', prompt: 'ship it', prompt_id: 'prompt-7' },
+    })
+    const receipt = await session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'hook',
+      harnessRef: [{ kind: 'claude-prompt', id: 'prompt-7' }],
+    })
+  })
+
   it('does not credit a hook that belongs to a different prompt', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)

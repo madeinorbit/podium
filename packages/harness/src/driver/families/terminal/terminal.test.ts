@@ -656,3 +656,43 @@ describe('the history entry a delivered send became (POD-4774)', () => {
     }
   })
 })
+
+/**
+ * THE PROGRAM'S OWN ID FROM THE HOOK THAT PROVED THE SEND (POD-4841).
+ *
+ * Claude's `UserPromptSubmit` carries the prompt's `prompt_id`. Measured
+ * (POD-4834): for a prompt typed into an idle agent the hook is this prompt's;
+ * for one typed while a turn runs, the hook at Enter may carry the RUNNING
+ * turn's id. So the id rides on the receipt only when the agent was idle as
+ * the send began, and never an id that might be another prompt's.
+ */
+describe("the program's own id from the proving hook (POD-4841)", () => {
+  const ref = [{ kind: 'claude-prompt', id: 'prompt-7' }]
+  const hooked = (phase: string) =>
+    terminal({
+      phase: () => phase,
+      hookAccept: {
+        watch: () => ({ accepted: Promise.resolve({ harnessRef: ref }), cancel: () => {} }),
+      },
+      echoAccept: {
+        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
+      },
+    })
+
+  it('names it for a send typed into an idle agent', async () => {
+    const receipt = await createTerminalInjection(hooked('idle').ports).deliver('ship it', {
+      origin: 'human',
+      delivery: 'when-ready',
+    })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook', harnessRef: ref })
+  })
+
+  it('leaves it out for a send typed while a turn runs', async () => {
+    const receipt = await createTerminalInjection(hooked('working').ports).deliver('ship it', {
+      origin: 'human',
+      delivery: 'steer',
+    })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+    expect(receipt).not.toHaveProperty('harnessRef')
+  })
+})
