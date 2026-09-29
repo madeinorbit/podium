@@ -44,6 +44,12 @@ import { runReclaimDiskEstimateJob } from '../../apps/daemon/src/reclaim-disk-es
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { inProcessMachinePrincipal } from '../../apps/server/src/gateway/daemon-mux'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
+import {
+  E2E_ACCOUNT_IDENTITY_ENV,
+  E2E_IDENTITY_FINGERPRINT,
+  E2E_IDENTITY_MACHINE_ID,
+  E2E_LONG_IDENTITY_EMAIL,
+} from './account-identity-fixture'
 import { writeCodexStartupFixture } from './codex-fixture'
 import {
   applyHarnessEnv,
@@ -363,6 +369,50 @@ if (E2E_ACCOUNT_ROLE === 'member' || E2E_ACCOUNT_ROLE === 'none') {
   const users = roleStore.users as unknown as { roleOf: (id: string) => Promise<string | undefined> }
   users.roleOf = async () => (E2E_ACCOUNT_ROLE === 'member' ? 'member' : undefined)
   console.log(`[e2e] account role forced to ${E2E_ACCOUNT_ROLE}`)
+}
+
+/**
+ * POD-4730: one connected native Codex login with a ~99-character identity on
+ * an isolated second machine. The settings suite's identity-label test asserts
+ * on exactly this address, so it runs identically on hosts with no native
+ * logins, short ones, or long ones — and exercises the multi-line wrap path
+ * that was red on flatblock.
+ *
+ * A second machine (like the HANDOFF fixture's E2E Target) rather than the
+ * host: the live daemon keeps reporting the host's real inventory, which would
+ * overwrite a host-row fixture on every refresh. No daemon ever reports for
+ * this id, so the seeded login is stable for the life of the harness.
+ */
+if (process.env[E2E_ACCOUNT_IDENTITY_ENV] === '1') {
+  const identityId = asMachineId(E2E_IDENTITY_MACHINE_ID)
+  const harnessStore = server.registry.sessionStore
+  await harnessStore.machines.upsertMachine({
+    id: E2E_IDENTITY_MACHINE_ID,
+    name: 'E2E Identity',
+    hostname: 'e2e-identity',
+    tokenHash: 'e2e',
+    ownerUserId: await firstAdminMemberId(harnessStore),
+    assignment: { server: false, agentExecution: false },
+  })
+  await server.registry.modules.machines.recordInventory(identityId, {
+    os: 'linux',
+    arch: 'x64',
+    tools: [],
+    agents: [
+      {
+        kind: 'codex',
+        installed: true,
+        login: {
+          state: 'in',
+          account: E2E_LONG_IDENTITY_EMAIL,
+          identity: {
+            fingerprint: E2E_IDENTITY_FINGERPRINT,
+            email: E2E_LONG_IDENTITY_EMAIL,
+          },
+        },
+      },
+    ],
+  })
 }
 
 if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHINE === '1') {
