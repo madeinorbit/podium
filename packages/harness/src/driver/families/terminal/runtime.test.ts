@@ -4741,3 +4741,136 @@ describe('a lone turn_completed without turn_started never holds the queue [POD-
     world.runtime.dispose()
   })
 })
+
+describe('a stale busy tracker with no open turn never holds Grok follow-ups [POD-4871]', () => {
+  const GROK_SPEC = { ...SPEC, harness: 'grok' as const }
+
+  const pastesOf = (world: ReturnType<typeof makeWorld>): string[] =>
+    world.written
+      .map(pastedText)
+      .filter((text): text is string => text !== undefined)
+  const deliveriesOf = (world: ReturnType<typeof makeWorld>): Array<{ rowId: string; outcome: string }> =>
+    world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
+        ? [{ rowId: frame.event.rowId, outcome: frame.event.outcome }]
+        : [],
+    )
+  const waitForPaste = async (world: ReturnType<typeof makeWorld>, text: string): Promise<void> => {
+    for (let i = 0; i < 80 && !pastesOf(world).includes(text); i++) {
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(pastesOf(world)).toContain(text)
+  }
+  const waitForDelivery = async (world: ReturnType<typeof makeWorld>, rowId: string): Promise<void> => {
+    for (
+      let i = 0;
+      i < 80 &&
+      !deliveriesOf(world).some((event) => event.rowId === rowId && event.outcome === 'delivered');
+      i++
+    ) {
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(deliveriesOf(world)).toContainEqual({ rowId, outcome: 'delivered' })
+  }
+  const observeState = (
+    world: ReturnType<typeof makeWorld>,
+    sessionId: SessionId,
+    transitionKind: 'turn_opened' | 'turn_terminal',
+    turnEpoch: number,
+    phase: 'working' | 'idle',
+  ): void => {
+    world.observe(sessionId, {
+      transitionKind,
+      priorPhase: transitionKind === 'turn_opened' ? 'idle' : 'working',
+      nextPhase: phase,
+      turnEpoch,
+      state: {
+        phase,
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+        ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
+      },
+    })
+  }
+
+  it('follow-ups drain while the tracker reads working with no turn open', async () => {
+    // THE 2d8bcbc6 SHAPE: the first prompt opened and closed (turn_started and
+    // turn_completed both logged), then every follow-up stayed prompt_queued
+    // and was never typed. The daemon's tracker had flipped back to working
+    // with no turn open to end it — a late Grok hook (PostToolUse,
+    // SubagentStop, …) misses the causal hook ingest and falls through to the
+    // translate fallback, which folds activity straight into the tracker
+    // (apps/daemon/src/session-observers.ts onHookPayload). The driver
+    // suppresses the same working observations in its fenced epoch (POD-4804),
+    // so the driver reads idle while the tracker reads working — and the
+    // POD-4795 busy refusal, reading the tracker alone, holds every follow-up
+    // behind a turn that does not exist. world.setPhase below IS that stale
+    // tracker fold: a phase change with no observation and no open turn.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(GROK_SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // Past the raw-first-turn window so follow-ups go as pastes the
+    // assertions can read (Grok types its very first prompt as raw keystrokes).
+    world.echo(sessionId, 'first prompt')
+    observeState(world, sessionId, 'turn_opened', 1, 'working')
+    observeState(world, sessionId, 'turn_terminal', 1, 'idle')
+    expect((await session.state()).phase).toBe('idle')
+
+    // The stale fold lands: tracker working, driver idle, no open turn.
+    world.setPhase(sessionId, 'working')
+    expect((await session.state()).phase).toBe('idle')
+
+    // The smoke sequence's follow-ups: queued, then typed and delivered —
+    // never held behind the phantom turn.
+    for (const [text, rowId] of [
+      ['second prompt', 'row-second'],
+      ['third prompt', 'row-third'],
+      ['fourth prompt', 'row-fourth'],
+    ] as const) {
+      expect(
+        (
+          await session.send(
+            { text, rowId },
+            { origin: 'controller', delivery: 'when-ready' },
+          )
+        ).outcome,
+      ).toBe('queued')
+      await waitForPaste(world, text)
+      world.echo(sessionId, text)
+      await waitForDelivery(world, rowId)
+    }
+
+    // And the recovery is clean: when the tracker tells the truth again,
+    // nothing about the epoch disagrees with it.
+    world.setPhase(sessionId, 'idle')
+    observeState(world, sessionId, 'turn_opened', 2, 'working')
+    observeState(world, sessionId, 'turn_terminal', 2, 'idle')
+    expect((await session.state()).phase).toBe('idle')
+    world.runtime.dispose()
+  })
+
+  it('a genuinely busy Grok turn still refuses a direct when-ready send', async () => {
+    // THE GUARD for the fix above: while a turn is really open (the driver
+    // has its started without its close), a direct when-ready send must still
+    // be refused busy — typing into the running TUI cuts the turn off
+    // (POD-4700, POD-4795). The refusal stays; only the phantom-turn hold goes.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(GROK_SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.echo(sessionId, 'first prompt')
+    observeState(world, sessionId, 'turn_opened', 1, 'working')
+    world.setPhase(sessionId, 'working')
+
+    const direct = await session.send(
+      { id: 'turn-direct', text: 'not typed' },
+      { origin: 'controller', delivery: 'when-ready' },
+    )
+    expect(direct).toMatchObject({ outcome: 'refused', refusal: { reason: 'busy' } })
+    expect(pastesOf(world)).toEqual([])
+    world.runtime.dispose()
+  })
+})

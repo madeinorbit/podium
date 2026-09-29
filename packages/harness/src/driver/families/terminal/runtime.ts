@@ -2063,9 +2063,26 @@ export function createTerminalRuntime(
         // attempt waits for the turn end itself, and holds the row under its
         // id across that wait. `interrupt` is exempt (cutting in is its job)
         // and `needs_user` is still refused inside `deliver`.
+        //
+        // THE TRACKER CAN LIE (POD-4871). The daemon's tracker folds
+        // hook-translate activity with no epoch fence, so a late Grok hook
+        // (PostToolUse, SubagentStop, …) flips it back to working after the
+        // turn closed, with no turn to end it — while this driver suppresses
+        // the same working observations in its fenced epoch (POD-4804) and
+        // reads idle. A refusal reading the tracker alone then holds every
+        // follow-up behind a turn that does not exist (2d8bcbc6: queued,
+        // never typed; the rebased smoke: none of three ran). For causal
+        // lifecycles this driver's own epoch is the turn truth — folded from
+        // the same observations, plus the absorbing fence — so the refusal
+        // additionally requires an open turn here: tracker-busy with no open
+        // turn is a stale reading and the send proceeds. Poll-lifecycle
+        // harnesses keep the tracker-only answer: their epochs never pass
+        // through this machine's observation fold (the opencode busy test
+        // pins it).
         if (
           requested === 'when-ready' &&
-          ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '')
+          ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '') &&
+          (profile?.lifecycleFromState === true || session.epochOpen)
         ) {
           return { outcome: 'refused', refusal: refuse('busy') }
         }
