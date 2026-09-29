@@ -21,8 +21,7 @@ import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type ProcessPosition, type TurnPosition } from './ChatBlockView'
-import type { ProjectedPendingItem, QueuedChatMessage } from './chat'
-import type { DeadLetteredChatMessage } from './chat'
+import type { PendingItem } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
@@ -246,11 +245,10 @@ export function TranscriptFeed({
   stickyEnabled,
   isOperatorPromptRow,
   pending,
-  restoredQueued,
-  restoredFailed = [],
   onRetractQueued,
   onRetryPending,
   onDiscardPending,
+  onSendAgain,
   overlay,
   turnPreview,
   activity,
@@ -294,14 +292,15 @@ export function TranscriptFeed({
   collapseContext: boolean
   stickyEnabled: boolean
   isOperatorPromptRow: (row: RenderableRow['row']) => boolean
-  pending: readonly ProjectedPendingItem[]
-  restoredQueued: readonly QueuedChatMessage[]
-  restoredFailed?: readonly DeadLetteredChatMessage[]
+  pending: readonly PendingItem[]
   onRetractQueued: (id: string) => Promise<void>
   /** "not sent — retry": the same message, under its own id (POD-4762). */
   onRetryPending?: (id: string) => Promise<void>
-  /** "not sent — discard": drop the message the app still holds. */
+  /** "not sent — discard": drop the message the app still holds; on a message
+   *  the server says did not arrive, dismiss its notice (POD-4764). */
   onDiscardPending?: (id: string) => Promise<void>
+  /** "Send again": the text back in the composer, as a NEW message. */
+  onSendAgain?: (id: string) => Promise<void>
   overlay: HeadlessOverlay | null
   /** The in-progress half of the open turn (POD-2293) — assistant text still
    *  being written and tool calls still running, for driver-backed sessions.
@@ -519,14 +518,17 @@ export function TranscriptFeed({
           )
         })}
         {pending.map((p) => {
-          const durable = p.durable
-          const queuePosition = durable ? durable.queuePosition : p.queuePosition
-          const handedOver =
-            durable?.injectedAt != null && !sessionWaking(session) && !queueIsBlocked(session)
+          // Waiting on the server: behind the turn in flight, or for the
+          // session to wake. Once handed on toward the agent the bubble keeps
+          // the same silence a message in flight keeps everywhere else in this
+          // feed (POD-1242), and it leaves when the history entry its record
+          // names is on screen (POD-4764).
+          const waiting = p.state === 'queued'
           return (
             <div
               key={p.id}
-              data-testid={durable ? 'queued-chat-message' : undefined}
+              data-testid={p.record ? 'chat-message-record' : undefined}
+              data-delivery={p.record?.status}
               className={cn(
                 // An optimistic bubble is the operator opening an exchange, and is
                 // spaced like one — otherwise the feed's rhythm changes at the
@@ -539,16 +541,13 @@ export function TranscriptFeed({
                 // row replaces it in the same place, at the same measure, and the
                 // swap is invisible.
                 'transcript-pending transcript-arrive-bubble',
-                p.state === 'failed' && 'transcript-pending--failed',
+                (p.state === 'failed' || p.state === 'unknown') && 'transcript-pending--failed',
               )}
             >
               <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
               <div className="transcript-body transcript-you">
                 <div
-                  className={cn(
-                    'transcript-you-bubble',
-                    durable && !handedOver && 'transcript-you-bubble--queued',
-                  )}
+                  className={cn('transcript-you-bubble', waiting && 'transcript-you-bubble--queued')}
                 >
                   <div className="transcript-you-body">
                     <div className="chat-md whitespace-pre-wrap">{p.text}</div>
@@ -573,79 +572,100 @@ export function TranscriptFeed({
                 A message in flight says NOTHING here: the breath at the end of
                 the feed is already the "this is happening" signal, and a second
                 one under the card would be the same fact twice, competing with
-                it. Only the two states the tail cannot express get a caption —
-                waiting behind another turn, and not arriving at all.
+                it. Only the states the tail cannot express get a caption —
+                waiting behind another turn, not arriving, and not knowing.
 
                 The word is PENDING, not "queued" — one noun for every
                 not-yet-delivered bubble, whatever parked it (a hibernated
-                session, a turn already in flight, a server that queued it).
-                The delivered design said "queued"; main had already settled on
-                "pending" for the same state, and one vocabulary matters more
-                here than one word. */}
+                session, a turn already in flight, a server that queued it). */}
             {p.state === 'interrupted' ? (
               <div className="msg-foot" data-side="right">
                 <span className="transcript-delivery">interrupted</span>
               </div>
-            ) : durable && !handedOver ? (
+            ) : waiting ? (
               <div className="msg-foot" data-side="right">
                 <span className="transcript-delivery">
-                  {queuedDeliveryLabel(session, queuePosition)}
+                  {p.record || queueIsBlocked(session)
+                    ? queuedDeliveryLabel(session, p.queuePosition)
+                    : `pending${queuePositionSuffix(p.queuePosition)}`}
                 </span>
-                <button
-                  data-pressable
-                  type="button"
-                  className="msg-action msg-action--retract"
-                  aria-label="Retract pending message"
-                  title="Retract pending message"
-                  onClick={() => void onRetractQueued(durable.id)}
-                >
-                  <MetaGlyph name="close" />
-                </button>
-              </div>
-            ) : p.state !== 'sending' && !handedOver ? (
-              <div className="msg-foot" data-side="right">
-                {p.state === 'queued' && (
-                  <span className="transcript-delivery">
-                    {queueIsBlocked(session)
-                      ? queuedDeliveryLabel(session, queuePosition)
-                      : `pending${queuePositionSuffix(queuePosition)}`}
-                  </span>
+                {p.retractable && (
+                  <button
+                    data-pressable
+                    type="button"
+                    className="msg-action msg-action--retract"
+                    aria-label="Retract pending message"
+                    title="Retract pending message"
+                    onClick={() => void onRetractQueued(p.id)}
+                  >
+                    <MetaGlyph name="close" />
+                  </button>
                 )}
-                {p.state === 'failed' && (
-                  <>
-                    <span className="transcript-delivery transcript-delivery--error">
-                      {p.failure ?? 'not delivered'}
-                    </span>
-                    {/* THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
-                        retry re-issues the entry the app still holds, under the
-                        id the server would recognise if the first attempt had
-                        in fact arrived. Withheld when the server refused these
-                        words, because the same words would be refused again. */}
-                    {p.retryable !== false && onRetryPending && (
-                      <button
-                        data-pressable
-                        type="button"
-                        className="msg-action"
-                        aria-label="Retry sending message"
-                        title="Retry sending message"
-                        onClick={() => void onRetryPending(p.id)}
-                      >
-                        <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                      </button>
-                    )}
-                    {onDiscardPending && (
-                      <button
-                        data-pressable
-                        type="button"
-                        className="msg-action msg-action--retract"
-                        aria-label="Discard unsent message"
-                        title="Discard unsent message"
-                        onClick={() => void onDiscardPending(p.id)}
-                      >
-                        <MetaGlyph name="close" />
-                      </button>
-                    )}
-                  </>
+              </div>
+            ) : p.state === 'failed' || p.state === 'unknown' ? (
+              <div className="msg-foot" data-side="right">
+                <span className="transcript-delivery transcript-delivery--error">
+                  {p.state === 'unknown'
+                    ? 'not confirmed — it may or may not have arrived'
+                    : (p.failure ?? 'not delivered')}
+                </span>
+                {p.notice !== undefined ? (
+                  // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
+                  // cannot say). Never a resend of it: "send again" puts its
+                  // words back in the composer and the person sends them as a
+                  // NEW message by choice — for an unknown one knowing it may
+                  // already be there.
+                  onSendAgain && (
+                    <button
+                      data-pressable
+                      type="button"
+                      className="msg-action"
+                      aria-label={
+                        p.notice === 'unknown'
+                          ? 'Send again — it may already have arrived'
+                          : 'Send again'
+                      }
+                      title={
+                        p.notice === 'unknown'
+                          ? 'Send again — it may already have arrived'
+                          : 'Send again'
+                      }
+                      onClick={() => void onSendAgain(p.id)}
+                    >
+                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                    </button>
+                  )
+                ) : (
+                  // THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
+                  // retry re-issues the entry the app still holds, under the id
+                  // the server would recognise if the first attempt had in fact
+                  // arrived. Withheld when the server refused these words,
+                  // because the same words would be refused again.
+                  p.retryable !== false &&
+                  onRetryPending && (
+                    <button
+                      data-pressable
+                      type="button"
+                      className="msg-action"
+                      aria-label="Retry sending message"
+                      title="Retry sending message"
+                      onClick={() => void onRetryPending(p.id)}
+                    >
+                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                    </button>
+                  )
+                )}
+                {onDiscardPending && (
+                  <button
+                    data-pressable
+                    type="button"
+                    className="msg-action msg-action--retract"
+                    aria-label={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
+                    title={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
+                    onClick={() => void onDiscardPending(p.id)}
+                  >
+                    <MetaGlyph name="close" />
+                  </button>
                 )}
               </div>
             ) : null}
@@ -653,110 +673,11 @@ export function TranscriptFeed({
             </div>
           )
         })}
-        {/* THE QUEUED TURN (POD-993) — a message the operator has written and
-          committed to, waiting behind the turn in flight. It is the one row in
-          the feed that is not yet part of the conversation, so it does not wear
-          the settled card: same geometry and same side, but a DASHED rim over no
-          fill — the shape of a thing whose place is reserved rather than taken —
-          and dimmed until the pointer arrives. Its foot carries what it is
-          waiting for and the way out: Retract sits with the other message
-          actions, in one idiom, and only takes destructive ink under the
-          pointer, because changing your mind is not an error.
-
-          This foot is now the ONLY place the queue is stated: the composer used
-          to repeat the count above the field, which said the same fact twice
-          about the very bubble sitting an inch above it. So the wording the
-          composer carried comes here — a parked session has no turn to send
-          after, it has a process to start first (POD-762).
-
-          AND THE RESERVATION ENDS WHERE THE HANDOVER BEGINS (POD-1242). Once the
-          bytes are in the CLI the message is no longer waiting on us: it cannot
-          be retracted, and the agent is very often already acting on it — Claude
-          Code shows queued input to the turn in flight, which is how an operator
-          watched a merge run tool by tool while the bubble underneath it still
-          read "pending · sends after this turn". So an injected row drops the
-          dashed rim and the whole foot and takes its place as a settled card: the
-          same silence a message in flight keeps everywhere else in this feed. A
-          fresh harness interrupt is the exception: the server cancels that row
-          and the local outgoing bubble names the interrupted result. A
-          WAKING session is the exception — its row is queued for a process that
-          does not exist yet, so the stamp says nothing about a CLI and the
-          reservation stands. */}
-      {restoredQueued.map((message) => {
-        const handedOver =
-          message.injectedAt !== null && !sessionWaking(session) && !queueIsBlocked(session)
-        return (
-          <div
-            key={message.id}
-            className="transcript-row transcript-turn-open transcript-arrive-bubble"
-            data-testid="queued-chat-message"
-          >
-            <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-            <div className="transcript-body transcript-you">
-              <div
-                className={cn(
-                  'transcript-you-bubble',
-                  !handedOver && 'transcript-you-bubble--queued',
-                )}
-              >
-                <div className="transcript-you-body">
-                  <div className="chat-md whitespace-pre-wrap">{message.text}</div>
-                </div>
-              </div>
-              {!handedOver && (
-                <div className="msg-foot" data-side="right">
-                  <span className="transcript-delivery">
-                    {queuedDeliveryLabel(session, message.queuePosition)}
-                  </span>
-                  <button
-                    data-pressable
-                    type="button"
-                    className="msg-action msg-action--retract"
-                    aria-label="Retract pending message"
-                    title="Retract pending message"
-                    onClick={() => void onRetractQueued(message.id)}
-                  >
-                    <MetaGlyph name="close" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )
-      })}
       {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
           the real item when it lands via the transcript tail; cleared on
           turn-end. Native sessions never emit these frames. */}
 
-      {/* A dead letter is terminal delivery history: the transcript provider
-          cannot echo it because the session never took the turn. Keep the
-          durable attempt visible. It offers no retry: the server holds this
-          message and gave up on it, and sending its text again would be a
-          SECOND message — a duplicate whenever the first was in fact typed
-          (POD-4762). Delivering the same message again is the server's to
-          offer, by its id. */}
-      {restoredFailed.map((message) => (
-        <div
-          key={message.id}
-          className="transcript-row transcript-turn-open transcript-pending transcript-pending--failed"
-          data-testid="dead-lettered-chat-message"
-        >
-          <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-          <div className="transcript-body transcript-you">
-            <div className="transcript-you-bubble">
-              <div className="transcript-you-body">
-                <div className="chat-md whitespace-pre-wrap">{message.text}</div>
-              </div>
-            </div>
-            <div className="msg-foot" data-side="right">
-              <span className="transcript-delivery transcript-delivery--error">
-                {message.failure}
-              </span>
-            </div>
-          </div>
-        </div>
-      ))}
       {/* The text carries a caret while it is still being written (POD-423):
           the overlay exists only mid-turn, so its presence IS the signal, and
           it goes away when the finished item takes over. */}

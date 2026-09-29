@@ -22,7 +22,6 @@ import {
   parseEnvelopeBatch,
   pendingAskFromState,
   matchesQuestionInteraction,
-  queuedState,
   type RenderableRow,
   renderableRows,
   type SuperThreadRef,
@@ -38,7 +37,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import type { ChatBlock, DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
+import type { ChatBlock, PendingItem } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
@@ -147,8 +146,6 @@ export interface ChatSurface {
   taRef: RefObject<HTMLTextAreaElement | null>
   submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
-  restoredQueued: readonly QueuedChatMessage[]
-  restoredFailed: readonly DeadLetteredChatMessage[]
   ctxSeq: number | null
   offer: SessionMeta['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
@@ -158,8 +155,11 @@ export interface ChatSurface {
   /** "not sent — retry" on a bubble the outbox gave up on: the same message,
    *  under its own id (POD-4762). */
   retryPending: (id: string) => Promise<void>
-  /** "not sent — discard": drop the copy the app still holds. */
+  /** "not sent — discard": drop the copy the app still holds; on a message the
+   *  server says did not arrive, dismiss its notice. */
   discardPending: (id: string) => Promise<void>
+  /** "Send again": the text back in the composer, to go as a NEW message. */
+  sendAgain: (id: string) => Promise<void>
   answerInteractionId?: string
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
@@ -512,6 +512,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
 
   const send = useChatSend({
     sessionId,
+    store: storeHandle,
     trpc,
     sendChat,
     chatSendsFor,
@@ -527,7 +528,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     headless,
     superThread,
     compact,
-    active,
     composer,
     ownThreadIds,
     blocks,
@@ -539,16 +539,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     initialPendingText,
     onInitialPendingSettled,
   })
-
-  const restoredFailed = send.failedMessages
-
-  const queued = useMemo(() => {
-    return queuedState({
-      session,
-      queuedMessages: send.queuedMessages,
-      pending: send.pending,
-    })
-  }, [send.pending, send.queuedMessages, session])
 
   const phase = useMemo(
     () =>
@@ -765,8 +755,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     taRef,
     submitDraft,
     pending: send.pending,
-    restoredQueued: queued.restored,
-    restoredFailed,
     ctxSeq: send.ctxSeq,
     offer,
     sendOfferPrompt: send.sendOfferPrompt,
@@ -774,6 +762,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     retractQueuedMessage: send.retractQueuedMessage,
     retryPending: send.retryPending,
     discardPending: send.discardPending,
+    sendAgain: send.sendAgain,
     answerAsk,
     answerInteractionId: currentQuestion?.id,
     activity,

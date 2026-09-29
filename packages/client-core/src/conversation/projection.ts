@@ -1,8 +1,15 @@
-import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model'
+import { deadLetterDeliveryLine } from '@podium/model'
+import type { MessageRecordWire, TranscriptItem, TranscriptTag } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
+/**
+ * A message this device is sending, from the composer until the server's
+ * record of it arrives (POD-4764). After that the record says where it stands.
+ */
 export interface ConversationPendingTurn {
   id: string
+  /** The message id the composer minted: the outbox entry, the server row and
+   *  the synced record all carry it. */
   deliveryId: string
   text: string
   /** Exact payload delivered to the agent. Retry never reconstructs it from `text`. */
@@ -23,179 +30,163 @@ export interface ConversationPendingTurn {
   tags?: TranscriptTag[]
   toolPaths?: string[]
   files?: readonly { path: string }[]
-  acceptsAppendedBrief?: boolean
+  /**
+   * How the bubble learns the agent has the message. By default (`record`) from
+   * the server's synced record: the bubble leaves when the history entry the
+   * record names is on screen. A send that makes no message record — a
+   * headless thread turn, a session's first prompt — leaves when the agent's
+   * next user entry appears (`next-user-item`), whatever its text.
+   */
+  reconcile?: 'record' | 'next-user-item'
 }
 
-export interface ConversationQueuedMessage {
-  id: string
-  text: string
-  at: number
-  /** 1-based position the authority returned when this row entered its FIFO. */
-  queuePosition?: number
-  injectedAt: number | null
+/** What a bubble says about delivery. */
+export type ConversationBubbleState =
+  /** Leaving this device. */
+  | 'sending'
+  /** The server holds it: waiting its turn, or for the session to wake. */
+  | 'queued'
+  /** Handed on toward the agent, or confirmed and about to show in the history. */
+  | 'sent'
+  /** Did not go (this device gave up) or will not arrive (the server says so). */
+  | 'failed'
+  /** Nobody can say whether it arrived. */
+  | 'unknown'
+  | 'interrupted'
+
+/** One bubble below the transcript. */
+export interface ConversationBubble extends Omit<ConversationPendingTurn, 'state'> {
+  state: ConversationBubbleState
+  /** The server's record of the message, once the feed carries it. */
+  record?: MessageRecordWire
+  /** The sender may still take it back. */
+  retractable: boolean
+  /** A failed or unknown message the SERVER holds: the way on is "send again"
+   *  (a new message, by the user's choice) or dismissing the notice — never a
+   *  resend of this one. Absent for a send this device never got through. */
+  notice?: 'failed' | 'unknown'
 }
 
-export interface ProjectedConversationTurn extends ConversationPendingTurn {
-  durable?: ConversationQueuedMessage
+export interface ConversationProjectionInput {
+  readonly turns: readonly ConversationPendingTurn[]
+  /** This session's records, as the feed carries them. */
+  readonly records: readonly MessageRecordWire[]
+  readonly transcript: readonly TranscriptItem[]
+  /** Records this view saw before they were confirmed: only those may show a
+   *  bubble once confirmed (an older confirmed record is history). */
+  readonly seenOpen: ReadonlySet<string>
+  /** Message ids being retracted or dismissed right now: hidden meanwhile. */
+  readonly hidden: ReadonlySet<string>
 }
 
-const QUEUE_CLOCK_SKEW_MS = 5_000
-const QUEUE_ACK_WINDOW_MS = 60_000
+const RETRACTABLE = new Set<MessageRecordWire['status']>(['stored', 'dispatched', 'reached-machine'])
 
-export function queuedConversationMessages(
-  rows: unknown,
-  sessionId: SessionId,
-): ConversationQueuedMessage[] {
-  if (!Array.isArray(rows)) return []
-  return rows
-    .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-    .filter(
-      (row) =>
-        row.from === 'operator' &&
-        row.to === `session:${sessionId}` &&
-        row.status === 'queued' &&
-        typeof row.id === 'string' &&
-        typeof row.body === 'string' &&
-        typeof row.createdAt === 'string',
-    )
-    .map((row) => ({
-      id: row.id as string,
-      text: row.body as string,
-      at: Date.parse(row.createdAt as string) || 0,
-      ...(typeof row.queuePosition === 'number' ? { queuePosition: row.queuePosition } : {}),
-      injectedAt: typeof row.injectedAt === 'string' ? Date.parse(row.injectedAt) || null : null,
-    }))
-    .sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
+function recordState(record: MessageRecordWire): ConversationBubbleState {
+  switch (record.status) {
+    case 'stored':
+      return 'queued'
+    case 'dispatched':
+    case 'reached-machine':
+    case 'typing':
+    case 'typed':
+    case 'confirmed':
+      return 'sent'
+    case 'failed':
+    case 'expired':
+      return 'failed'
+    case 'unknown':
+      return 'unknown'
+    case 'cancelled':
+      return 'interrupted'
+  }
 }
 
-export function pairPendingWithConversationQueue(
-  pending: readonly ConversationPendingTurn[],
-  queued: readonly ConversationQueuedMessage[],
-): { pending: ProjectedConversationTurn[]; queued: ConversationQueuedMessage[] } {
-  const unmatched = [...queued]
-  const projected = pending.map((turn): ProjectedConversationTurn => {
-    if (turn.state === 'failed' || turn.state === 'interrupted') return turn
-    const exact = unmatched.findIndex((message) => message.id === turn.deliveryId)
-    if (exact >= 0) {
-      const [durable] = unmatched.splice(exact, 1)
-      return durable ? { ...turn, durable } : turn
-    }
-    let best = -1
-    let distance = Number.POSITIVE_INFINITY
-    for (const [index, message] of unmatched.entries()) {
-      if (message.text.trim() !== turn.wire.trim()) continue
-      if (message.at < turn.at - QUEUE_CLOCK_SKEW_MS) continue
-      if (message.at > turn.at + QUEUE_ACK_WINDOW_MS) continue
-      const candidate = Math.abs(message.at - turn.at)
-      if (candidate < distance) {
-        best = index
-        distance = candidate
-      }
-    }
-    if (best < 0) return turn
-    const [durable] = unmatched.splice(best, 1)
-    return durable ? { ...turn, durable } : turn
-  })
-  return { pending: projected, queued: unmatched }
-}
-
-function samePaths(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((path, index) => path === right[index])
-}
-
-function textCarriesPaths(text: string, paths: readonly string[]): boolean {
-  if (paths.length === 0) return false
-  const lines = new Set(text.split('\n').map((line) => line.trim()))
-  return paths.every((path) => lines.has(path))
-}
-
-export function conversationTurnMatchesItem(
-  turn: Pick<ConversationPendingTurn, 'text' | 'wire' | 'toolPaths' | 'acceptsAppendedBrief'>,
-  item: TranscriptItem,
+/**
+ * Whether a record still needs a bubble: its history entry is not on screen,
+ * and — once confirmed — this view watched it go out and the machine named the
+ * entry it became. A confirmed record naming nothing has no id to wait for, so
+ * the history shows it without a bubble; no text is ever compared.
+ */
+function recordShows(
+  record: MessageRecordWire,
+  onScreen: ReadonlySet<string>,
+  seenOpen: ReadonlySet<string>,
 ): boolean {
-  const text = turn.text.trim()
-  const itemText = item.text.trim()
-  if (
-    turn.acceptsAppendedBrief === true &&
-    (itemText === text || itemText.startsWith(`${text}\n\n`))
-  ) {
-    return true
-  }
-  const paths = turn.toolPaths ?? []
-  const itemPaths = item.toolPaths ?? []
-  if (paths.length > 0) {
-    if (itemPaths.length > 0) return samePaths(paths, itemPaths)
-    return textCarriesPaths(item.text, paths)
-  }
-  if (itemPaths.length > 0) return textCarriesPaths(turn.wire, itemPaths)
-  return itemText === text || itemText === turn.wire.trim()
+  if (record.transcriptItem && onScreen.has(record.transcriptItem.id)) return false
+  if (record.status !== 'confirmed') return true
+  return record.transcriptItem !== undefined && seenOpen.has(record.id)
 }
 
-export function reconcileConversationPending(
-  pending: readonly ConversationPendingTurn[],
-  userItems: readonly TranscriptItem[],
-  echoMode: 'matching-user' | 'any-user' = 'matching-user',
-): ConversationPendingTurn[] {
-  if (pending.length === 0 || userItems.length === 0) return pending as ConversationPendingTurn[]
-  if (echoMode === 'any-user') return pending.filter((turn) => turn.state === 'interrupted')
-  const remaining = [...userItems]
-  return pending.filter((turn) => {
-    if (turn.state === 'interrupted') return true
-    const index = remaining.findIndex((item) => conversationTurnMatchesItem(turn, item))
-    if (index < 0) return true
-    remaining.splice(index, 1)
-    return false
-  })
+function failureOf(record: MessageRecordWire): string {
+  if (record.status === 'expired') return 'not delivered · it waited too long'
+  return deadLetterDeliveryLine(record.reason)
 }
 
-export function reconcileConversationQueue(
-  queued: readonly ConversationQueuedMessage[],
-  userItems: readonly TranscriptItem[],
-): ConversationQueuedMessage[] {
-  if (queued.length === 0 || userItems.length === 0) return queued as ConversationQueuedMessage[]
-  const remaining = [...userItems]
-  return queued.filter((message) => {
-    const index = remaining.findIndex((item) =>
-      conversationTurnMatchesItem({ text: message.text, wire: message.text }, item),
+function fromRecord(record: MessageRecordWire): ConversationBubble {
+  const state = recordState(record)
+  return {
+    id: record.id,
+    deliveryId: record.id,
+    text: record.body,
+    wire: record.body,
+    at: Date.parse(record.createdAt) || 0,
+    kind: 'message',
+    ...(record.attachments?.length
+      ? { files: record.attachments.map((attachment) => ({ path: attachment.filename })) }
+      : {}),
+    state,
+    record,
+    retractable: RETRACTABLE.has(record.status),
+    ...(state === 'failed' ? { notice: 'failed' as const, error: failureOf(record) } : {}),
+    ...(state === 'unknown' ? { notice: 'unknown' as const } : {}),
+  }
+}
+
+/**
+ * THE BUBBLES, BY ID (POD-4764). A local turn until the server's record of it
+ * arrives, then the record; a record this device never sent (another device,
+ * or a send from before a reload) is a bubble of its own. A bubble leaves when
+ * the history entry its record names is on screen. Nothing here reads the text
+ * of a transcript item.
+ */
+export function projectConversation(input: ConversationProjectionInput): ConversationBubble[] {
+  const onScreen = new Set(input.transcript.map((item) => item.id))
+  const byId = new Map(input.records.map((record) => [record.id, record]))
+  const bubbles: ConversationBubble[] = []
+  const covered = new Set<string>()
+  for (const turn of input.turns) {
+    covered.add(turn.deliveryId)
+    if (input.hidden.has(turn.deliveryId)) continue
+    const record = byId.get(turn.deliveryId)
+    if (record === undefined) {
+      bubbles.push({ ...turn, retractable: turn.state === 'queued' })
+      continue
+    }
+    if (!recordShows(record, onScreen, input.seenOpen)) continue
+    const fromServer = fromRecord(record)
+    bubbles.push(
+      turn.state === 'interrupted'
+        ? { ...fromServer, ...turn, state: 'interrupted', record, retractable: false }
+        : {
+            ...fromServer,
+            id: turn.id,
+            text: turn.text,
+            wire: turn.wire,
+            at: turn.at,
+            kind: turn.kind,
+            ...(turn.tags ? { tags: turn.tags } : {}),
+            ...(turn.files ? { files: turn.files } : {}),
+            ...(turn.attachments ? { attachments: turn.attachments } : {}),
+            ...(turn.queuePosition !== undefined && fromServer.state === 'queued'
+              ? { queuePosition: turn.queuePosition }
+              : {}),
+          },
     )
-    if (index < 0) return true
-    remaining.splice(index, 1)
-    return false
-  })
-}
-
-export function projectConversationQueue(
-  pending: readonly ConversationPendingTurn[],
-  queued: readonly ConversationQueuedMessage[],
-  transcript: readonly TranscriptItem[],
-): { pending: ProjectedConversationTurn[]; queued: ConversationQueuedMessage[] } {
-  const paired = pairPendingWithConversationQueue(pending, queued)
-  const available = transcript.filter((item) => item.role === 'user')
-  const pendingVisible = paired.pending.filter((turn) => {
-    const index = available.findIndex((item) => {
-      const timestamp = item.ts ? Date.parse(item.ts) : Number.NaN
-      return (
-        Number.isFinite(timestamp) &&
-        timestamp >= turn.at - QUEUE_CLOCK_SKEW_MS &&
-        conversationTurnMatchesItem(turn, item)
-      )
-    })
-    if (index < 0) return true
-    available.splice(index, 1)
-    return false
-  })
-  const queuedVisible = paired.queued.filter((message) => {
-    const index = available.findIndex((item) => {
-      const timestamp = item.ts ? Date.parse(item.ts) : Number.NaN
-      return (
-        Number.isFinite(timestamp) &&
-        timestamp >= message.at - QUEUE_CLOCK_SKEW_MS &&
-        conversationTurnMatchesItem({ text: message.text, wire: message.text }, item)
-      )
-    })
-    if (index < 0) return true
-    available.splice(index, 1)
-    return false
-  })
-  return { pending: pendingVisible, queued: queuedVisible }
+  }
+  for (const record of input.records) {
+    if (covered.has(record.id) || input.hidden.has(record.id)) continue
+    if (!recordShows(record, onScreen, input.seenOpen)) continue
+    bubbles.push(fromRecord(record))
+  }
+  return bubbles.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
 }

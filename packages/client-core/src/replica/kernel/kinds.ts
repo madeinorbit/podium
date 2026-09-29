@@ -40,6 +40,8 @@ const ENTITY_TO_KIND = {
   /** POD-2020's blocking asks. Same rule again: `pendingInteraction` is
    *  `MetadataEntityKind`'s literal. */
   pendingInteraction: 'pendingInteractions',
+  /** POD-4764's chat message records. */
+  message: 'messageRecords',
   shipOrder: 'shipOrders',
   conversation: 'conversations',
   automation: 'automations',

@@ -502,6 +502,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       issueProjections: seededProjectionFold.rows,
       issueEvents: replicaSeed.issueEvents,
       pendingInteractions: replicaSeed.pendingInteractions,
+      messageRecords: replicaSeed.messageRecords,
       shipOrders: replicaSeed.shipOrders,
       conversations: replicaSeed.conversations,
       automations: replicaSeed.automations,
@@ -1295,6 +1296,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
       if (changed.has('pendingInteractions'))
         patch.pendingInteractions = snapshot.pendingInteractions
+      if (changed.has('messageRecords')) patch.messageRecords = snapshot.messageRecords
       if (changed.has('shipOrders')) patch.shipOrders = snapshot.shipOrders
       if (changed.has('conversations')) patch.conversations = snapshot.conversations
       if (changed.has('automations')) patch.automations = snapshot.automations

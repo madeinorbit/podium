@@ -161,6 +161,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  re-asking `issues.events` on a timer. */
   issueEvents: IssueEventWire[]
   pendingInteractions: PendingInteractionWire[]
+  /** People's chat messages and their delivery status (POD-4764) — replicated
+   *  rows keyed by the message id the sender minted. The chat reads these, not
+   *  the ledger. */
+  messageRecords: import('@podium/model').MessageRecordWire[]
   /** Compact order rows; Shipping views join these to issues by issueId. */
   shipOrders: import('@podium/model').ShipOrderProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */

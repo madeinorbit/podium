@@ -1,19 +1,37 @@
 import { formatAgentError } from '@podium/model'
-import type { SessionId, SessionOffer, TranscriptItem, TranscriptTag } from '@podium/model'
+import type {
+  MessageRecordWire,
+  SessionId,
+  SessionOffer,
+  TranscriptItem,
+  TranscriptTag,
+} from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { TranscriptState } from '../transcript'
+import type { OutboxChatSend } from '../engine/chat-send'
 import {
+  type ConversationBubble,
   type ConversationPendingTurn,
-  type ConversationQueuedMessage,
-  pairPendingWithConversationQueue,
-  projectConversationQueue,
-  queuedConversationMessages,
-  reconcileConversationPending,
-  reconcileConversationQueue,
+  projectConversation,
 } from './projection'
 
 export interface ConversationTranscript {
   getSnapshot(): { items: readonly TranscriptItem[] }
+  subscribe(listener: () => void): () => void
+}
+
+/** This session's message records, as the synced feed carries them (POD-4764). */
+export interface ConversationRecords {
+  getSnapshot(): readonly MessageRecordWire[]
+  subscribe(listener: () => void): () => void
+}
+
+/**
+ * The chat sends this device's outbox holds for the session. A send parked
+ * after giving up can be retried or discarded from elsewhere in the app (the
+ * outbox recovery panel); the bubble follows what the outbox holds.
+ */
+export interface ConversationOutbox {
+  held(): readonly OutboxChatSend[]
   subscribe(listener: () => void): () => void
 }
 
@@ -48,40 +66,36 @@ export interface ConversationClock {
   now(): number
   setTimeout(callback: () => void, delayMs: number): unknown
   clearTimeout(token: unknown): void
-  setInterval(callback: () => void, delayMs: number): unknown
-  clearInterval(token: unknown): void
 }
 
 export interface ConversationControllerOptions {
   sessionId: SessionId
   transcript: ConversationTranscript
+  /** The synced records that say where each sent message stands. Absent for a
+   *  conversation whose sends make no message record (a headless thread). */
+  records?: ConversationRecords
+  outbox?: ConversationOutbox
   initialDraft?: string
   initialPending?: readonly ConversationPendingTurn[]
   initialJustSent?: boolean
   onDraftChange?: (text: string) => void
   createDeliveryId(): string
   deliver(turn: ConversationPendingTurn): Promise<ConversationDeliveryResult | void>
-  readQueue?: () => Promise<unknown>
-  /**
-   * The rows {@link readQueue} just returned, handed over RAW.
-   *
-   * ONE READ, TWO PROJECTIONS. An adapter that needs a second view of the same
-   * ledger — the web chat's dead-lettered rows, whose wording is its own — must
-   * not issue its own query for it: two reads of one ledger race each other,
-   * and the loser projects a snapshot the winner has already moved past.
-   */
-  onQueueRows?: (rows: unknown) => void
-  retract?: (id: string) => Promise<void>
+  /** Take back a message the server still holds, by its id. */
+  retract?: (messageId: string) => Promise<void>
   /** Let a failed send go, by its delivery id — the sender's durable copy is
    *  dropped with the bubble, so nothing sends it later (POD-4762). */
   discard?: (deliveryId: string) => Promise<void>
+  /** Dismiss the notice of a message the server says did not (or may not
+   *  have) arrived, by its id (POD-4764). */
+  dismissNotice?: (messageId: string) => Promise<void>
   dismissOffer?: (offerCreatedAt: string) => Promise<void>
   /** False when the adapter's durable outbox already projects the dismissal. */
   optimisticDismissOffer?: boolean
   interrupt?: (messageId?: string) => Promise<void>
-  echoMode?: 'matching-user' | 'any-user'
-  queueRefreshMs?: number
-  queuedAckRefreshMs?: number
+  /** How new turns learn the agent has them; see
+   *  {@link ConversationPendingTurn.reconcile}. Defaults to `record`. */
+  reconcile?: 'record' | 'next-user-item'
   optimisticSendCeilingMs?: number
   clock?: ConversationClock
 }
@@ -89,9 +103,10 @@ export interface ConversationControllerOptions {
 export interface ConversationState {
   sessionId: SessionId
   draft: string
+  /** This device's own sends, until their records take over. */
   pending: ConversationPendingTurn[]
-  queued: ConversationQueuedMessage[]
-  projected: ReturnType<typeof projectConversationQueue>
+  /** What the chat shows below the transcript, oldest first. */
+  bubbles: ConversationBubble[]
   offer: SessionOffer | null
   dismissedOfferAt: string | null
   justSent: boolean
@@ -112,8 +127,6 @@ const defaultClock: ConversationClock = {
   now: () => Date.now(),
   setTimeout: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
   clearTimeout: (token) => globalThis.clearTimeout(token as ReturnType<typeof setTimeout>),
-  setInterval: (callback, delayMs) => globalThis.setInterval(callback, delayMs),
-  clearInterval: (token) => globalThis.clearInterval(token as ReturnType<typeof setInterval>),
 }
 
 function errorText(error: unknown): string {
@@ -126,12 +139,8 @@ export class ConversationController {
   private state: ConversationState
   private disposed = false
   private started = false
-  private generation = 0
-  private active = true
   private pendingSeq = 0
   private sendSeq = 0
-  private queueReadSerial = 0
-  private readonly retractingQueueIds = new Set<string>()
   private openSend: OpenSend | null = null
   private context: ConversationContext = { canInterrupt: false }
   private authoritativeOffer: SessionOffer | null = null
@@ -139,17 +148,22 @@ export class ConversationController {
   private seenUserIds = new Set<string>()
   private seenUserTailId: string | null = null
   private userBaselineReady = false
-  private unsubscribeTranscript: (() => void) | null = null
-  private queueTimer: unknown = null
-  private ackTimer: unknown = null
+  private readonly unsubscribes: (() => void)[] = []
   private sendTimer: unknown = null
   /** Turns whose delivery is being awaited, so a restart does not wait twice. */
   private readonly following = new Set<string>()
+  /** Message ids whose record this view has seen at all, and seen before it
+   *  was confirmed. A local turn whose record came and went has left the feed;
+   *  a confirmed record never seen open is history and shows no bubble. */
+  private readonly seenRecord = new Set<string>()
+  private readonly seenOpen = new Set<string>()
+  /** Message ids being retracted or dismissed: hidden until the answer. */
+  private readonly hidden = new Set<string>()
 
   constructor(private readonly options: ConversationControllerOptions) {
     this.clock = options.clock ?? defaultClock
     const pending = [...(options.initialPending ?? [])]
-    const queued: ConversationQueuedMessage[] = []
+    for (const turn of pending) this.seenOpen.add(turn.deliveryId)
     if (options.initialJustSent) {
       this.openSend = { seq: 0, since: null, queuedBehindTurn: false }
     }
@@ -157,8 +171,7 @@ export class ConversationController {
       sessionId: options.sessionId,
       draft: options.initialDraft ?? '',
       pending,
-      queued,
-      projected: projectConversationQueue(pending, queued, options.transcript.getSnapshot().items),
+      bubbles: [],
       offer: null,
       dismissedOfferAt: null,
       justSent: options.initialJustSent === true,
@@ -166,6 +179,7 @@ export class ConversationController {
       interruptError: null,
       interruptMessageId: null,
     }
+    this.observeRecords(false)
   }
 
   getSnapshot = (): ConversationState => this.state
@@ -175,34 +189,25 @@ export class ConversationController {
     return () => this.listeners.delete(listener)
   }
 
-  async start(): Promise<void> {
+  start(): void {
     if (this.started || this.disposed) return
     this.started = true
-    const generation = this.generation
     this.observeTranscript(true)
-    this.unsubscribeTranscript = this.options.transcript.subscribe(() => this.observeTranscript())
+    this.unsubscribes.push(this.options.transcript.subscribe(() => this.observeTranscript()))
+    if (this.options.records) {
+      this.unsubscribes.push(this.options.records.subscribe(() => this.observeRecords()))
+    }
+    if (this.options.outbox) {
+      this.unsubscribes.push(this.options.outbox.subscribe(() => this.observeOutbox()))
+    }
+    this.observeRecords()
     // A turn seeded as `sending` is a send the sender still holds from before
     // this controller existed — a reload, a remount. Its delivery is idempotent
     // by id, so asking again just waits on the send already under way.
     for (const turn of this.state.pending) {
       if (turn.state === 'sending') void this.follow(turn)
     }
-    await this.refreshQueue()
-    if (!this.started || this.disposed || generation !== this.generation) return
-    this.armQueueTimer()
-    if (this.state.pending.some((turn) => turn.state === 'queued')) this.armAckTimer()
     this.armSendTimer()
-  }
-
-  setActive(active: boolean): void {
-    if (this.active === active) return
-    this.active = active
-    this.armQueueTimer()
-    if (!active) {
-      this.clearTimer('ack')
-    } else if (this.state.pending.some((turn) => turn.state === 'queued')) {
-      this.armAckTimer()
-    }
   }
 
   setDraft(text: string): void {
@@ -276,72 +281,64 @@ export class ConversationController {
     return turn
   }
 
+  /** Send again a message this device never got through: the SAME message,
+   *  under its own id (POD-4762). */
   async retry(id: string): Promise<void> {
+    const bubble = this.bubble(id)
+    if (!bubble || bubble.state !== 'failed' || bubble.notice !== undefined) return
+    if (bubble.retryable === false) return
     const turn = this.state.pending.find((candidate) => candidate.id === id)
-    if (!turn || turn.state !== 'failed') return
-    if (turn.retryable === false) return
+    if (!turn) return
     const next = { ...turn, state: 'sending' as const }
     delete next.error
     this.replacePending(next)
     await this.dispatch(next, null, false)
   }
 
-  /** Let a failed turn go: the bubble leaves once the sender dropped its copy. */
+  /**
+   * Let a failed message go. One this device never got through: its outbox
+   * entry is dropped with the bubble, so nothing sends it later. One the server
+   * says did not (or may not have) arrived: its notice is dismissed on every
+   * device.
+   */
   async discard(id: string): Promise<void> {
-    const turn = this.state.pending.find((candidate) => candidate.id === id)
-    if (!turn || turn.state !== 'failed') return
-    await this.options.discard?.(turn.deliveryId)
-    this.patch({ pending: this.state.pending.filter((candidate) => candidate.id !== id) })
+    const bubble = this.bubble(id)
+    if (!bubble) return
+    if (bubble.notice !== undefined) {
+      await this.hideWhile(bubble.deliveryId, async () => {
+        await this.options.dismissNotice?.(bubble.deliveryId)
+        this.dropTurn(bubble.deliveryId)
+      })
+      return
+    }
+    if (bubble.state !== 'failed') return
+    await this.options.discard?.(bubble.deliveryId)
+    this.dropTurn(bubble.deliveryId)
   }
 
+  /**
+   * "SEND AGAIN" for a message the server says did not arrive, or cannot say
+   * whether it did (POD-4762 follow-up). Never a resend of that message: its
+   * text goes back into the composer, and the user sends it — as a NEW message
+   * under a new id — by choice. The old notice is dismissed. For an `unknown`
+   * message the surface must say it may already have arrived.
+   */
+  async sendAgain(id: string): Promise<void> {
+    const bubble = this.bubble(id)
+    if (!bubble || bubble.notice === undefined) return
+    this.setDraft(bubble.text)
+    await this.discard(id)
+  }
+
+  /** Take back a message the server still holds. */
   async retract(id: string): Promise<void> {
-    if (!this.options.retract) return
-    // Retire every ledger read that began before this cancellation. A slow
-    // pre-retract response must not resurrect the row we just removed.
-    this.queueReadSerial += 1
-    const queued = this.state.queued
-    const retracted = queued.find((message) => message.id === id)
-    const linked = pairPendingWithConversationQueue(this.state.pending, queued).pending.find(
-      (turn) => turn.durable?.id === id,
-    )
-    this.retractingQueueIds.add(id)
-    this.patch({
-      queued: queued.filter((message) => message.id !== id),
-      pending: linked
-        ? this.state.pending.filter((turn) => turn.id !== linked.id)
-        : this.state.pending,
+    const bubble = this.bubble(id)
+    if (!bubble?.retractable || !this.options.retract) return
+    const messageId = bubble.deliveryId
+    await this.hideWhile(messageId, async () => {
+      await this.options.retract?.(messageId)
+      this.dropTurn(messageId)
     })
-    try {
-      await this.options.retract(id)
-      // A poll may begin after the optimistic removal but before cancellation
-      // commits. Retire that read and remove any row it managed to reinsert.
-      this.queueReadSerial += 1
-      this.patch({
-        queued: this.state.queued.filter((message) => message.id !== id),
-        pending: linked
-          ? this.state.pending.filter((turn) => turn.id !== linked.id)
-          : this.state.pending,
-      })
-      this.retractingQueueIds.delete(id)
-    } catch (error) {
-      this.retractingQueueIds.delete(id)
-      this.patch({
-        queued:
-          retracted && !this.state.queued.some((message) => message.id === id)
-            ? [...this.state.queued, retracted].sort(
-                (left, right) => left.at - right.at || left.id.localeCompare(right.id),
-              )
-            : this.state.queued,
-        pending:
-          linked && !this.state.pending.some((turn) => turn.id === linked.id)
-            ? [...this.state.pending, linked].sort(
-                (left, right) => left.at - right.at || left.id.localeCompare(right.id),
-              )
-            : this.state.pending,
-      })
-      void this.refreshQueue()
-      throw error
-    }
   }
 
   async dismissOffer(offerCreatedAt: string): Promise<void> {
@@ -384,72 +381,47 @@ export class ConversationController {
     }
   }
 
+  /** Mark the named message — or the newest one still on its way before
+   *  `interruptedAt` — interrupted. */
   markInterrupted(deliveryId?: string, interruptedAt?: number): void {
     const beforeInterrupt = (at: number): boolean =>
       interruptedAt === undefined || at <= interruptedAt
-    const queued = deliveryId
-      ? this.state.queued.find((message) => message.id === deliveryId)
-      : this.state.queued.findLast((message) => beforeInterrupt(message.at))
-    const index = deliveryId
-      ? this.state.pending.findIndex((turn) => turn.deliveryId === deliveryId)
-      : this.state.pending.findLastIndex(
-          (turn) => turn.state !== 'failed' && beforeInterrupt(turn.at),
+    const bubble = deliveryId
+      ? this.state.bubbles.find((candidate) => candidate.deliveryId === deliveryId)
+      : this.state.bubbles.findLast(
+          (candidate) =>
+            candidate.state !== 'failed' &&
+            candidate.state !== 'unknown' &&
+            beforeInterrupt(candidate.at),
         )
-    let pending = this.state.pending
-    if (index < 0 && queued) {
-      pending = [
-        ...pending,
-        {
-          id: `interrupted-${queued.id}`,
-          deliveryId: queued.id,
-          text: queued.text,
-          wire: queued.text,
-          at: queued.at,
-          state: 'interrupted',
-          kind: 'message',
-        },
-      ]
-    } else if (index >= 0 && pending[index]?.state !== 'interrupted') {
-      pending = pending.map((turn, candidate) =>
-        candidate === index ? { ...turn, state: 'interrupted' } : turn,
-      )
-    }
+    if (!bubble || bubble.state === 'interrupted') return
+    const turn = this.state.pending.find((candidate) => candidate.deliveryId === bubble.deliveryId)
     this.patch({
-      pending,
-      queued: queued
-        ? this.state.queued.filter((message) => message.id !== queued.id)
-        : this.state.queued,
+      pending: turn
+        ? this.state.pending.map((candidate) =>
+            candidate === turn ? { ...candidate, state: 'interrupted' } : candidate,
+          )
+        : [
+            ...this.state.pending,
+            {
+              id: `interrupted-${bubble.deliveryId}`,
+              deliveryId: bubble.deliveryId,
+              text: bubble.text,
+              wire: bubble.wire,
+              at: bubble.at,
+              state: 'interrupted',
+              kind: bubble.kind,
+            },
+          ],
     })
-  }
-
-  async refreshQueue(): Promise<void> {
-    if (!this.options.readQueue || this.disposed) return
-    const serial = ++this.queueReadSerial
-    try {
-      const rows = await this.options.readQueue()
-      if (this.disposed || serial !== this.queueReadSerial) return
-      this.options.onQueueRows?.(rows)
-      this.patch({
-        queued: queuedConversationMessages(rows, this.options.sessionId).filter(
-          (message) => !this.retractingQueueIds.has(message.id),
-        ),
-      })
-    } catch {
-      // Keep the last durable projection. Transcript and sending remain usable.
-    }
   }
 
   /** Release live resources while keeping the controller restartable by an adapter effect. */
   stop(): void {
     if (!this.started) return
     this.started = false
-    this.generation += 1
-    this.queueReadSerial += 1
-    this.unsubscribeTranscript?.()
-    this.unsubscribeTranscript = null
-    this.clearTimer('queue')
-    this.clearTimer('ack')
-    this.clearTimer('send')
+    for (const unsubscribe of this.unsubscribes.splice(0)) unsubscribe()
+    this.clearSendTimer()
   }
 
   dispose(): void {
@@ -457,6 +429,28 @@ export class ConversationController {
     this.stop()
     this.disposed = true
     this.listeners.clear()
+  }
+
+  private bubble(id: string): ConversationBubble | undefined {
+    return this.state.bubbles.find((candidate) => candidate.id === id)
+  }
+
+  private dropTurn(deliveryId: string): void {
+    const pending = this.state.pending.filter((turn) => turn.deliveryId !== deliveryId)
+    if (pending.length !== this.state.pending.length) this.patch({ pending })
+  }
+
+  /** Hide a bubble while a request about it is in flight; it comes back if the
+   *  request fails, and the synced record decides after that. */
+  private async hideWhile(messageId: string, work: () => Promise<void>): Promise<void> {
+    this.hidden.add(messageId)
+    this.patch({})
+    try {
+      await work()
+    } finally {
+      this.hidden.delete(messageId)
+      this.patch({})
+    }
   }
 
   private createTurn(
@@ -480,8 +474,9 @@ export class ConversationController {
       ...(input.attachments && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),
-      ...(input.acceptsAppendedBrief ? { acceptsAppendedBrief: true } : {}),
+      ...(this.options.reconcile === 'next-user-item' ? { reconcile: 'next-user-item' } : {}),
     }
+    this.seenOpen.add(turn.deliveryId)
     this.patch({ pending: [...this.state.pending, turn] })
     return turn
   }
@@ -530,10 +525,6 @@ export class ConversationController {
           ...(result.position !== undefined ? { queuePosition: result.position } : {}),
         })
       }
-      if (result?.state === 'queued') {
-        this.armAckTimer()
-        void this.refreshQueue()
-      }
     } catch (error) {
       const retryable = (error as { retryable?: unknown } | null)?.retryable
       this.replacePending({
@@ -567,6 +558,77 @@ export class ConversationController {
     return offer.createdAt
   }
 
+  /**
+   * The records moved. A local turn whose record this view saw and that has
+   * since left the feed is settled — confirmed and out of the window,
+   * cancelled, or dismissed — so it goes. One whose record never arrived yet
+   * stays as it is: the feed may simply be behind the send's answer.
+   */
+  private observeRecords(notify = true): void {
+    const records = this.options.records?.getSnapshot() ?? []
+    const present = new Set<string>()
+    for (const record of records) {
+      present.add(record.id)
+      this.seenRecord.add(record.id)
+      if (record.status !== 'confirmed') this.seenOpen.add(record.id)
+    }
+    const pending = this.state.pending.filter(
+      (turn) =>
+        turn.reconcile === 'next-user-item' ||
+        turn.state === 'interrupted' ||
+        present.has(turn.deliveryId) ||
+        !this.seenRecord.has(turn.deliveryId),
+    )
+    // Forget what can no longer matter: an id neither carried nor held here.
+    const held = new Set(pending.map((turn) => turn.deliveryId))
+    for (const id of this.seenRecord) if (!present.has(id) && !held.has(id)) this.seenRecord.delete(id)
+    for (const id of this.seenOpen) if (!present.has(id) && !held.has(id)) this.seenOpen.delete(id)
+    if (!notify) {
+      this.state = { ...this.state, pending }
+      return
+    }
+    this.patch(pending.length === this.state.pending.length ? {} : { pending })
+  }
+
+  /**
+   * The outbox moved under a send this device gave up on (POD-4762 follow-up):
+   * the recovery panel retried it — follow it again, it is the same message —
+   * or discarded it, and the bubble goes with it. Once the server stores it,
+   * its record drives the bubble like any other.
+   */
+  private observeOutbox(): void {
+    const outbox = this.options.outbox
+    if (!outbox) return
+    const held = new Map(outbox.held().map((send) => [send.mutationId as string, send]))
+    const records = new Set((this.options.records?.getSnapshot() ?? []).map((record) => record.id))
+    let changed = false
+    const pending: ConversationPendingTurn[] = []
+    const resumed: ConversationPendingTurn[] = []
+    for (const turn of this.state.pending) {
+      if (turn.state !== 'failed' || records.has(turn.deliveryId)) {
+        pending.push(turn)
+        continue
+      }
+      const send = held.get(turn.deliveryId)
+      if (send === undefined) {
+        changed = true
+        continue
+      }
+      if (send.state === 'sending') {
+        const next = { ...turn, state: 'sending' as const }
+        delete next.error
+        pending.push(next)
+        resumed.push(next)
+        changed = true
+        continue
+      }
+      pending.push(turn)
+    }
+    if (!changed) return
+    this.patch({ pending })
+    for (const turn of resumed) void this.follow(turn)
+  }
+
   private observeTranscript(baseline = false): void {
     const items = this.options.transcript.getSnapshot().items
     const users = items.filter((item) => item.role === 'user')
@@ -584,24 +646,25 @@ export class ConversationController {
     const fresh = appended.filter((item) => !this.seenUserIds.has(item.id))
     for (const item of users) this.seenUserIds.add(item.id)
     this.seenUserTailId = users.at(-1)?.id ?? null
-    if (fresh.length > 0) {
-      const conversational = fresh.filter((item) => item.event !== 'interrupt')
-      const interruptItem = fresh.findLast((item) => item.event === 'interrupt')
-      if (interruptItem) {
-        const interruptedAt = interruptItem.ts ? Date.parse(interruptItem.ts) : Number.NaN
-        this.markInterrupted(undefined, Number.isFinite(interruptedAt) ? interruptedAt : undefined)
-      }
-      this.patch({
-        pending: reconcileConversationPending(
-          this.state.pending,
-          conversational,
-          this.options.echoMode,
-        ),
-        queued: reconcileConversationQueue(this.state.queued, conversational),
-      })
-    } else {
+    if (fresh.length === 0) {
       this.patch({})
+      return
     }
+    const interruptItem = fresh.findLast((item) => item.event === 'interrupt')
+    if (interruptItem) {
+      const interruptedAt = interruptItem.ts ? Date.parse(interruptItem.ts) : Number.NaN
+      this.markInterrupted(undefined, Number.isFinite(interruptedAt) ? interruptedAt : undefined)
+    }
+    // A send with no record leaves when the agent's next user entries arrive,
+    // one per entry, oldest first — by arrival, never by comparing text.
+    let arrivals = fresh.filter((item) => item.event !== 'interrupt').length
+    const pending = this.state.pending.filter((turn) => {
+      if (turn.reconcile !== 'next-user-item' || turn.state === 'interrupted') return true
+      if (arrivals === 0) return true
+      arrivals -= 1
+      return false
+    })
+    this.patch(pending.length === this.state.pending.length ? {} : { pending })
   }
 
   private markSent(): number {
@@ -631,7 +694,7 @@ export class ConversationController {
         return
       }
       this.openSend = null
-      this.clearTimer('send')
+      this.clearSendTimer()
       this.patch({ justSent: false })
       return
     }
@@ -646,12 +709,14 @@ export class ConversationController {
   private endOpenSend(): void {
     if (!this.openSend && !this.state.justSent) return
     this.openSend = null
-    this.clearTimer('send')
+    this.clearSendTimer()
     this.patch({ justSent: false })
   }
 
+  /** The "just sent" activity window's ceiling — the composer's Sending row,
+   *  not a bubble's delivery state. */
   private armSendTimer(): void {
-    this.clearTimer('send')
+    this.clearSendTimer()
     const open = this.openSend
     if (!open) return
     if (
@@ -667,58 +732,27 @@ export class ConversationController {
     )
   }
 
-  private armQueueTimer(): void {
-    this.clearTimer('queue')
-    if (!this.active || !this.options.readQueue) return
-    this.queueTimer = this.clock.setInterval(
-      () => void this.refreshQueue(),
-      this.options.queueRefreshMs ?? 5_000,
-    )
-  }
-
-  private armAckTimer(): void {
-    this.clearTimer('ack')
-    if (!this.active || !this.options.readQueue) return
-    this.ackTimer = this.clock.setInterval(
-      () => void this.refreshQueue(),
-      this.options.queuedAckRefreshMs ?? 1_000,
-    )
-  }
-
-  private clearTimer(kind: 'queue' | 'ack' | 'send'): void {
-    if (kind === 'queue' && this.queueTimer !== null) {
-      this.clock.clearInterval(this.queueTimer)
-      this.queueTimer = null
-    }
-    if (kind === 'ack' && this.ackTimer !== null) {
-      this.clock.clearInterval(this.ackTimer)
-      this.ackTimer = null
-    }
-    if (kind === 'send' && this.sendTimer !== null) {
-      this.clock.clearTimeout(this.sendTimer)
-      this.sendTimer = null
-    }
+  private clearSendTimer(): void {
+    if (this.sendTimer === null) return
+    this.clock.clearTimeout(this.sendTimer)
+    this.sendTimer = null
   }
 
   private patch(patch: Partial<ConversationState>): void {
     const pending = patch.pending ?? this.state.pending
-    const queued = patch.queued ?? this.state.queued
-    const latestPending = pending.findLast((turn) => turn.state !== 'failed')
+    const bubbles = projectConversation({
+      turns: pending,
+      records: this.options.records?.getSnapshot() ?? [],
+      transcript: this.options.transcript.getSnapshot().items,
+      seenOpen: this.seenOpen,
+      hidden: this.hidden,
+    })
+    const latest = bubbles.findLast(
+      (bubble) => bubble.state !== 'failed' && bubble.state !== 'unknown',
+    )
     const interruptMessageId =
-      latestPending?.state === 'interrupted'
-        ? null
-        : (latestPending?.deliveryId ?? queued.at(-1)?.id ?? null)
-    this.state = {
-      ...this.state,
-      ...patch,
-      interruptMessageId,
-      projected: projectConversationQueue(
-        pending,
-        queued,
-        this.options.transcript.getSnapshot().items,
-      ),
-    }
-    if (!this.state.pending.some((turn) => turn.state === 'queued')) this.clearTimer('ack')
+      latest === undefined || latest.state === 'interrupted' ? null : latest.deliveryId
+    this.state = { ...this.state, ...patch, bubbles, interruptMessageId }
     for (const listener of this.listeners) listener()
   }
 }

@@ -27,6 +27,7 @@ import type {
   IssueProjection,
   IssueWire,
   MachineWire,
+  MessageRecordWire,
   SessionId,
   SessionMeta,
   ShipOrderProjection,
@@ -72,6 +73,8 @@ export interface EngineState {
    *  not a timer's answer. Newest last, as the feed renders them. */
   issueEvents: IssueEventWire[]
   pendingInteractions: PendingInteractionWire[]
+  /** People's chat message records (POD-4764), replicated by id. */
+  messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
@@ -640,6 +643,7 @@ export interface EngineStateSeed {
   readonly issueProjections: IssueProjection[]
   readonly issueEvents: IssueEventWire[]
   readonly pendingInteractions: PendingInteractionWire[]
+  readonly messageRecords: MessageRecordWire[]
   readonly shipOrders: ShipOrderProjection[]
   readonly conversations: ConversationSummaryWire[]
   readonly automations: AutomationWire[]
@@ -676,6 +680,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     issueProjections: seed.issueProjections,
     issueEvents: seed.issueEvents,
     pendingInteractions: seed.pendingInteractions,
+    messageRecords: seed.messageRecords,
     shipOrders: seed.shipOrders,
     conversations: seed.conversations,
     automations: seed.automations,

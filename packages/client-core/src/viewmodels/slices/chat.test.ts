@@ -9,7 +9,6 @@ import {
   isOperatorPrompt,
   lastAnswer,
   livePendingAskIndex,
-  queuedState,
   renderableRows,
   transcriptAttribution,
   transcriptPhase,
@@ -499,24 +498,6 @@ describe('composer, queue, offer and activity', () => {
         }),
       ).toEqual({ label: 'Sending', tone: 'idle', transient: 'just-sent' })
     })
-  })
-
-  it('consumes duplicate restored rows FIFO against optimistic bubbles', () => {
-    const state = queuedState({
-      session: session({ queuedMessageCount: 2 } as Partial<SessionMeta>),
-      queuedMessages: [{ text: 'again' }, { text: 'again' }, { text: 'other' }],
-      pending: [{ text: 'again', state: 'sending' }],
-    })
-    expect(state.restored.map((r) => r.text)).toEqual(['again', 'other'])
-    expect(state.total).toBe(3)
-    // A FAILED bubble claims nothing — the durable row must still render.
-    expect(
-      queuedState({
-        session: undefined,
-        queuedMessages: [{ text: 'again' }],
-        pending: [{ text: 'again', state: 'failed' }],
-      }).restored,
-    ).toHaveLength(1)
   })
 
   it('hides the offer optimistically by createdAt, and always for headless', () => {

@@ -65,6 +65,7 @@ import type {
   IssueProjection,
   IssueWire,
   LayoutWire,
+  MessageRecordWire,
   RepoProjection,
   SessionMeta,
   ShipOrderProjection,
@@ -121,6 +122,11 @@ export interface ReplicaRows {
    *  resolved history is deliberately NOT here — it is unbounded audit, read
    *  over RPC by the one surface that wants it. */
   pendingInteractions: PendingInteractionWire
+  /** People's chat messages and their delivery status [POD-4764] — on their
+   *  way, failed or lost track of until the sender dismisses them, and a bounded
+   *  window of recently confirmed ones. Bounded by the server: the transcript is
+   *  the history, and this collection only carries what a chat bubble needs. */
+  messageRecords: MessageRecordWire
   /** Compact Shipping rows, keyed by order and joined locally through issueId. */
   shipOrders: ShipOrderProjection
   conversations: ConversationSummaryWire
@@ -157,6 +163,7 @@ export interface ReplicaHydrateResult {
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]
   pendingInteractions: PendingInteractionWire[]
+  messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]

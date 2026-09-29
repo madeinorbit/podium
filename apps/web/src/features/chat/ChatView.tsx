@@ -389,10 +389,9 @@ export function ChatView({
             stickyEnabled={chat.stickyEnabled}
             isOperatorPromptRow={chat.isOperatorPromptRow}
             pending={chat.pending}
-            restoredFailed={chat.restoredFailed}
             onRetryPending={chat.retryPending}
             onDiscardPending={chat.discardPending}
-            restoredQueued={chat.restoredQueued}
+            onSendAgain={chat.sendAgain}
             onRetractQueued={chat.retractQueuedMessage}
             overlay={chat.headless ? chat.headlessTurn.overlay : null}
             turnPreview={chat.turnPreview}

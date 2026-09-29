@@ -66,6 +66,8 @@ import {
   type IssueWire,
   type LayoutWire,
   layoutRowId,
+  type MessageRecordWire,
+  messageRecordRowId,
   type RepoProjection,
   type SessionMeta,
   type ShipOrderProjection,
@@ -301,6 +303,7 @@ const ENTITY_STORE_KINDS = [
   'repos',
   'issueEvents',
   'pendingInteractions',
+  'messageRecords',
   'shipOrders',
   'conversations',
   'automations',
@@ -478,6 +481,14 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      // Keyed on the composite change id for the same reason as the asks above.
+      messageRecords: this.makeCollection<MessageRecordWire>(
+        'messageRecords',
+        (r) =>
+          messageRecordRowId({ sessionId: r.sessionId, senderUserId: r.senderUserId, messageId: r.id }),
+        guarded,
+        guardedEvents,
+      ),
       shipOrders: this.makeCollection<ShipOrderProjection>(
         'shipOrders',
         (order) => order.id,
@@ -549,6 +560,7 @@ class TanstackReplica implements Replica {
       repos: [],
       issueEvents: [],
       pendingInteractions: [],
+      messageRecords: [],
       shipOrders: [],
       conversations: [],
       automations: [],
@@ -599,6 +611,7 @@ class TanstackReplica implements Replica {
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
         pendingInteractions: this.cols.pendingInteractions
           .toArray as PendingInteractionWire[],
+        messageRecords: this.cols.messageRecords.toArray as MessageRecordWire[],
         shipOrders: this.cols.shipOrders.toArray as ShipOrderProjection[],
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
         automations: this.cols.automations.toArray as AutomationWire[],

@@ -618,39 +618,8 @@ export function chatSendRoute(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Queued messages, the offer bar, and the working indicator.
+// The offer bar and the working indicator.
 // ---------------------------------------------------------------------------
-
-/** What the "N messages queued" line counts, and which restored rows still need
- *  rendering after optimistic bubbles have claimed their duplicates. */
-export interface QueuedState<Q> {
-  readonly restored: readonly Q[]
-  readonly total: number
-}
-
-export function queuedState<
-  Q extends { text: string },
-  P extends { text: string; state: string },
->(input: {
-  session: SessionMeta | undefined
-  queuedMessages: readonly Q[]
-  pending: readonly P[]
-}): QueuedState<Q> {
-  const { session, queuedMessages, pending } = input
-  // Duplicate prompt text is consumed FIFO so two identical queued sends still
-  // render twice after a refresh and only once each before it.
-  const optimistic = pending.filter((p) => p.state !== 'failed').map((p) => p.text.trim())
-  const restored = queuedMessages.filter((q) => {
-    const i = optimistic.indexOf(q.text.trim())
-    if (i === -1) return true
-    optimistic.splice(i, 1)
-    return false
-  })
-  // Both projections describe the same queue at different layers: session
-  // depth is the PTY outbox, queuedMessages is its message-ledger identity.
-  // Summing them double-counts every server-backed pending message.
-  return { restored, total: Math.max(session?.queuedMessageCount ?? 0, queuedMessages.length) }
-}
 
 /** The live offer for this session, unless a button click just consumed it
  *  (optimistic hide until the server's cleared meta arrives). Headless superagent

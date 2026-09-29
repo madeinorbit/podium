@@ -12,6 +12,7 @@ import type {
   LayoutWire,
   MachineId,
   MachineWire,
+  MessageRecordWire,
   ReadPositionWire,
   RepoProjection,
   SessionId,
@@ -19,7 +20,13 @@ import type {
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
-import { asMachineId, interactionRowId, layoutRowId, readPositionRowId } from '@podium/model'
+import {
+  asMachineId,
+  interactionRowId,
+  layoutRowId,
+  messageRecordRowId,
+  readPositionRowId,
+} from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -518,6 +525,9 @@ export interface HubEvents {
    *  answering from one surface clears the card on all of them. Resolving an ask
    *  removes it; the resolved history is an RPC read, not a feed kind. */
   pendingInteractions: [interactions: PendingInteractionWire[]]
+  /** People's chat message records after any change (POD-4764, entity kind
+   *  `message`), matched on the composite id the Authority logs. */
+  messageRecords: [records: MessageRecordWire[]]
   /** Compact shipping read rows, joined to issues by `issueId`. */
   shipOrders: [orders: ShipOrderProjection[]]
   /**
@@ -640,6 +650,7 @@ export class SocketHub {
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
   private pendingInteractionList: PendingInteractionWire[] = []
+  private messageRecordList: MessageRecordWire[] = []
   private shipOrderList: ShipOrderProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
@@ -2299,6 +2310,22 @@ export class SocketHub {
             (x) => interactionRowId(x.sessionId, x.id) === c.id,
           )
           break
+        case 'message':
+          // POD-4764. Matched on the composite id the Authority logs
+          // (`messageRecordRowId`): a message leaving the feed arrives as a
+          // `remove` carrying only that composite.
+          this.messageRecordList = applyChange(
+            this.messageRecordList,
+            c.op,
+            c.value,
+            (x) =>
+              messageRecordRowId({
+                sessionId: x.sessionId,
+                senderUserId: x.senderUserId,
+                messageId: x.id,
+              }) === c.id,
+          )
+          break
         case 'userLayout':
           // Feed demux for POD-1350's per-user layout rows. Match on the same
           // composite id the Authority logs (layoutRowId), not payload equality.
@@ -2330,6 +2357,7 @@ export class SocketHub {
     if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
     if (touched.has('pendingInteraction'))
       this.emit('pendingInteractions', this.pendingInteractionList)
+    if (touched.has('message')) this.emit('messageRecords', this.messageRecordList)
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
