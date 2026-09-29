@@ -574,7 +574,7 @@ test('the agent’s real size, the server’s copy and every browser grid agree 
     await signalHarness('SIGUSR2', 'daemon-restart-serial')
     await check('daemon restart, nothing changes', { kernelStays: settled })
   } finally {
-    console.log('[size-truth] verdicts\n' + JSON.stringify(verdicts, null, 2))
+    console.log(`[size-truth] verdicts\n${JSON.stringify(verdicts, null, 2)}`)
     await test.info().attach('size-truth-verdicts.json', {
       body: JSON.stringify(verdicts, null, 2),
       contentType: 'application/json',
