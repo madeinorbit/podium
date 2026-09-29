@@ -146,7 +146,7 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
       'that session has ended. Nobody else holds that conversation; do not wait for a reply.',
     )
     expect(await statusOf(store, toIssue)).toBe('failed')
-    expect((await noticeOf(store, toIssue))?.body).toContain('is finished. Do not wait for a reply.')
+    expect((await noticeOf(store, toIssue))?.body).toContain('was deleted. Do not wait for a reply.')
   })
 
   it('a stored issue message is bound to its issue, not to the session that is killed', async () => {
@@ -175,5 +175,67 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
     // Never handed on: still the issue's, for whoever works it next.
     expect(await statusOf(store, held)).not.toBe('failed')
     expect(await noticeOf(store, held)).toBeNull()
+  })
+})
+
+describe('a deleted issue takes the messages still waiting for it (POD-4817)', () => {
+  async function withIssue(title: string) {
+    const { registry, store } = await registryWithDaemon()
+    const issue = await registry.issues.create({ repoPath: '/repo', title, startNow: false })
+    const sender = (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo' })).sessionId
+    return { registry, store, issue, sender }
+  }
+
+  it('fails a message never handed on, with its sender told in the deletion’s commit; restore does not reopen it', async () => {
+    const { registry, store, issue, sender } = await withIssue('Deleted with mail waiting')
+    const other = await registry.issues.create({ repoPath: '/repo', title: 'Stays', startNow: false })
+    const held = await seed(store, { from: sender, to: { kind: 'issue', id: issue.id }, status: 'stored' })
+    const elsewhere = await seed(store, { from: sender, to: { kind: 'issue', id: other.id }, status: 'stored' })
+
+    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+
+    expect(await store.messages.getMessage(held)).toMatchObject({
+      deliveryStatus: 'failed',
+      deliveryDeferredReason: null,
+    })
+    const notice = await noticeOf(store, held)
+    expect(notice).toMatchObject({ toKind: 'session', toId: sender, fromKind: 'system' })
+    expect(notice?.body).toContain('was not delivered: ')
+    expect(notice?.body).toContain('was deleted. Do not wait for a reply.')
+    expect(await statusOf(store, elsewhere)).toBe('stored')
+    expect(await noticeOf(store, elsewhere)).toBeNull()
+
+    // The sender was told not to wait; bringing the issue back does not
+    // resurrect a message it already gave up on.
+    await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    expect(await statusOf(store, held)).toBe('failed')
+  })
+
+  it('a deletion that rolls back leaves the message waiting', async () => {
+    const { registry, store, issue, sender } = await withIssue('Delete fails')
+    const held = await seed(store, { from: sender, to: { kind: 'issue', id: issue.id }, status: 'stored' })
+    vi.spyOn(store.issues, 'upsertIssue').mockImplementationOnce(async () => {
+      throw new Error('issue tombstone failed')
+    })
+
+    await expect(registry.modules.issueSessionLifecycle.deleteIssue(issue.id)).rejects.toThrow(
+      'issue tombstone failed',
+    )
+
+    expect(await statusOf(store, held)).toBe('stored')
+    expect(await noticeOf(store, held)).toBeNull()
+  })
+
+  it('a message reaching an issue already deleted fails on its delivery attempt', async () => {
+    const { registry, store, issue, sender } = await withIssue('Already gone')
+    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    // Stored after the deletion committed: a send that raced it.
+    const late = await seed(store, { from: sender, to: { kind: 'issue', id: issue.id }, status: 'stored' })
+
+    await registry.modules.messages.sweep()
+    await registry.modules.messages.flushDeliveryTriggers()
+
+    expect(await statusOf(store, late)).toBe('failed')
+    expect((await noticeOf(store, late))?.body).toContain('was deleted. Do not wait for a reply.')
   })
 })

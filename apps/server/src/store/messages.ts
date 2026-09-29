@@ -1109,29 +1109,38 @@ export class MessagesRepository {
   }
 
   /**
-   * EVERY OPEN MESSAGE BOUND TO THESE SESSIONS, in delivery order (POD-4816):
-   * addressed to one of them, or handed on to one of them. A session going away
-   * strands both, because its queue goes with it and nothing re-pushes a row
-   * that was handed on. An issue-addressed row still `stored` is bound to its
-   * issue, not to a session, so it stays for whoever works the issue next.
+   * EVERY OPEN MESSAGE BOUND TO WHAT IS BEING REMOVED, in delivery order
+   * (POD-4816, POD-4817): addressed to one of these sessions, or handed on to
+   * one of them, and, when their issue is deleted with them (`endedIssueId`),
+   * addressed to that issue. A session going away strands the first two,
+   * because its queue goes with it and nothing re-pushes a row that was handed
+   * on. An issue-addressed row still `stored` is bound to its issue, not to a
+   * session: it stays for whoever works the issue next, unless the issue is the
+   * thing going away.
    */
-  async listOpenBoundToSessions(sessionIds: readonly SessionId[]): Promise<MessageRow[]> {
-    if (sessionIds.length === 0) return []
-    const rows = await this.db
-      .select()
-      .from(messagesTable)
-      .where(
-        and(
-          pending(),
-          or(
+  async listOpenBoundTo(
+    sessionIds: readonly SessionId[],
+    endedIssueId?: IssueId,
+  ): Promise<MessageRow[]> {
+    const bound = [
+      ...(sessionIds.length === 0
+        ? []
+        : [
             and(eq(messagesTable.toKind, 'session'), inArray(messagesTable.toId, [...sessionIds])),
             and(
               inArray(messagesTable.deliveredTo, [...sessionIds]),
               inArray(messagesTable.deliveryStatus, [...HANDED_ON]),
             ),
-          ),
-        ),
-      )
+          ]),
+      ...(endedIssueId === undefined
+        ? []
+        : [and(eq(messagesTable.toKind, 'issue'), eq(messagesTable.toId, endedIssueId))]),
+    ]
+    if (bound.length === 0) return []
+    const rows = await this.db
+      .select()
+      .from(messagesTable)
+      .where(and(pending(), or(...bound)))
       .orderBy(...DELIVERY_ORDER)
       .all()
     return rows.map(mapMessage)

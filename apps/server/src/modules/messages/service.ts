@@ -468,7 +468,9 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
  *                    lost track of) but before anything confirmed it, so
  *                    whether it arrived cannot be known now. `issueEnded`: its
  *                    issue went with it, so nobody else holds that conversation.
- *  - `issue-ended`   the target issue was closed, archived or deleted.
+ *  - `issue-ended`   the target issue was closed, archived or deleted;
+ *                    `deleted` says which, since a deletion's own transaction
+ *                    fails the rows before the issue row reads as deleted.
  *  - `not-allowed`   the sender lost the authority to reach it (apply-time
  *                    re-authorization, a refused wake placement); `detail`
  *                    is the refusing gate's own reason.
@@ -479,7 +481,7 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
  */
 export type SendFailure =
   | { kind: 'session-gone'; mayHaveArrived?: boolean; issueEnded?: boolean }
-  | { kind: 'issue-ended' }
+  | { kind: 'issue-ended'; deleted?: boolean }
   | { kind: 'not-allowed'; detail?: string }
   | { kind: 'never-typed'; cause: QueueDrainAbandonedReason; detail?: string }
 
@@ -493,6 +495,7 @@ const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a 
  *  and the one next step. */
 type FailureWords = { outcome?: string; reason: string; action: string }
 const ISSUE_ENDED: SendFailure = { kind: 'issue-ended' }
+const ISSUE_DELETED: SendFailure = { kind: 'issue-ended', deleted: true }
 const notAllowed = (detail: string): SendFailure => ({ kind: 'not-allowed', detail })
 
 export class MessageDeliveryService {
@@ -1187,6 +1190,16 @@ export class MessageDeliveryService {
           notifySender,
           failure: ISSUE_ENDED,
         })
+      // A deleted issue's row stays readable (so a restore can bring it back),
+      // but its sessions went with it and nothing will work it: the deletion
+      // failed every message open to it, and this fails one that raced it or
+      // was stored before deletion did that (POD-4817). A restore does not
+      // reopen them; their senders were told not to wait.
+      if (issue.deletedAt)
+        return await this.deadLetter(message, `issue #${issue.seq} is deleted`, {
+          notifySender,
+          failure: ISSUE_DELETED,
+        })
       // The narrow read applies `isIssueMember` BEFORE the reader-scoped
       // projection is built (POD-1639) — the same predicate `sessionsForIssue`
       // applied after it, so the set is unchanged. The post-filter that used to
@@ -1625,15 +1638,18 @@ export class MessageDeliveryService {
    * THESE SESSIONS ARE GONE, AND SO IS EVERY MESSAGE STILL WAITING FOR THEM
    * (POD-4816). Called INSIDE the transaction that tombstones them and drops
    * their queues: each open message addressed to one of them, or handed on to
-   * one, moves to `failed` with its sender's notice in that same write. So a
-   * delete can never commit leaving a message nothing will ever settle, and a
-   * repeated delete finds nothing open and tells nobody twice.
+   * one, moves to `failed` with its sender's notice in that same write. When
+   * their issue is being deleted with them (`endedIssueId`), so does every
+   * message still open to that issue, handed on or not (POD-4817): nothing
+   * will work it again. So a delete can never commit leaving a message nothing
+   * will ever settle, and a repeated delete finds nothing open and tells nobody
+   * twice.
    *
    * The words follow what is known (POD-4778 §2). Not yet typed: not delivered,
    * the session ended. Typed or lost track of: it may or may not have arrived,
-   * and nobody can check now. An issue-addressed row handed to one of them
-   * fails as its issue's when that issue is ending with them (`endedIssueId`);
-   * otherwise its notice points the sender back at the issue. No cause is
+   * and nobody can check now. An issue-addressed row fails as its issue's
+   * deletion when that issue is ending with them; one handed to a killed
+   * session of a live issue points its sender back at the issue. No cause is
    * stamped: none is the column's word for "the target was gone", which here
    * it is.
    *
@@ -1645,10 +1661,10 @@ export class MessageDeliveryService {
     opts: { endedIssueId?: IssueId } = {},
   ): Promise<void> {
     const at = this.deps.now()
-    for (const message of await this.deps.messages.listOpenBoundToSessions(sessionIds)) {
+    for (const message of await this.deps.messages.listOpenBoundTo(sessionIds, opts.endedIssueId)) {
       const failure: SendFailure =
         message.toKind === 'issue' && message.toId === opts.endedIssueId
-          ? ISSUE_ENDED
+          ? ISSUE_DELETED
           : {
               kind: 'session-gone',
               ...(MAY_HAVE_ARRIVED.has(message.deliveryStatus) ? { mayHaveArrived: true } : {}),
@@ -1658,7 +1674,9 @@ export class MessageDeliveryService {
       if (!moved(await this.deps.messages.markDeadLetter(message.id, at, undefined, notice))) continue
       const failed: MessageRow = { ...message, deliveryStatus: 'failed', deadLetteredAt: at }
       afterCommit(async () => {
-        await this.emitTransition(failed, 'message.dead_letter', { reason: 'session removed' })
+        await this.emitTransition(failed, 'message.dead_letter', {
+          reason: opts.endedIssueId !== undefined ? 'issue deleted' : 'session removed',
+        })
         await this.noticeStored(notice)
       }, 'message-session-removed')
     }
@@ -2405,7 +2423,10 @@ export class MessageDeliveryService {
         case 'issue-ended': {
           const issue = message.toId ? await this.deps.issues.getMeta(message.toId) : undefined
           const ref = issue ? await this.deps.issues.niceRef(issue) : 'that issue'
-          return { reason: `${ref} is finished`, action: 'Do not wait for a reply.' }
+          return {
+            reason: failure.deleted ? `${ref} was deleted` : `${ref} is finished`,
+            action: 'Do not wait for a reply.',
+          }
         }
         case 'not-allowed':
           return {
@@ -2477,7 +2498,8 @@ export class MessageDeliveryService {
               : undefined,
           )
     const issue = issueId ? await this.deps.issues.get(issueId) : undefined
-    if (issue && !issue.archived && !isIssueClosed(issue)) {
+    // A deleted issue's row still reads (POD-4817); nobody works it.
+    if (issue && !issue.archived && !issue.deletedAt && !isIssueClosed(issue)) {
       const ref = await this.deps.issues.niceRef(issue)
       return `Send to ${ref} (\`podium issue mail send ${ref} …\`) to reach whoever works it now.`
     }
