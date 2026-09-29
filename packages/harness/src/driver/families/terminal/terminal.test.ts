@@ -493,7 +493,9 @@ describe('row cancellation at the terminal submit boundary', () => {
     abort.abort()
     const { ports, written } = terminal({})
     const receipt = await createTerminalInjection(ports).deliver('never typed', {
-      origin: 'human', delivery: 'when-ready', signal: abort.signal,
+      origin: 'human',
+      delivery: 'when-ready',
+      signal: abort.signal,
     })
     expect(receipt).toMatchObject({ outcome: 'refused' })
     expect(written).toEqual([])

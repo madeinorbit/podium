@@ -1385,7 +1385,11 @@ export class MessageDeliveryService {
   async onQueuedInputTyping(messageId: string, sessionId: SessionId): Promise<void> {
     if (!moved(await this.deps.messages.markTyping(messageId))) return
     const typing = await this.deps.messages.getMessage(messageId)
-    if (typing) await this.emitTransition({ ...typing, deliveredTo: typing.deliveredTo ?? sessionId }, 'message.typing')
+    if (typing)
+      await this.emitTransition(
+        { ...typing, deliveredTo: typing.deliveredTo ?? sessionId },
+        'message.typing',
+      )
   }
 
   /** SessionInbox calls this when a forwarded durable row's fate is lost: the

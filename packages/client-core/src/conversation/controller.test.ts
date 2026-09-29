@@ -227,7 +227,9 @@ describe('conversation controller over synced records', () => {
       createDeliveryId: () => 'msg-new',
       deliver: vi.fn(),
       retract: async () => {
-        synced.set([record('msg-1', { status: 'typing', retractRequestedAt: '2026-09-29T10:00:01.000Z' })])
+        synced.set([
+          record('msg-1', { status: 'typing', retractRequestedAt: '2026-09-29T10:00:01.000Z' }),
+        ])
         return 'typing'
       },
     })
@@ -237,7 +239,9 @@ describe('conversation controller over synced records', () => {
       { deliveryId: 'msg-1', state: 'sent', retract: 'too-late', retractable: false },
     ])
     // A retract still waiting for the machine reads as asked, not as done.
-    synced.set([record('msg-1', { status: 'dispatched', retractRequestedAt: '2026-09-29T10:00:01.000Z' })])
+    synced.set([
+      record('msg-1', { status: 'dispatched', retractRequestedAt: '2026-09-29T10:00:01.000Z' }),
+    ])
     expect(controller.getSnapshot().bubbles).toMatchObject([
       { deliveryId: 'msg-1', retract: 'requested', retractable: false },
     ])
@@ -259,14 +263,25 @@ describe('conversation controller over synced records', () => {
     controller.start()
     await controller.retract('msg-1')
     expect(controller.getSnapshot().bubbles).toMatchObject([
-      { deliveryId: 'msg-1', state: 'queued', retractable: true, retractError: 'server unreachable' },
+      {
+        deliveryId: 'msg-1',
+        state: 'queued',
+        retractable: true,
+        retractError: 'server unreachable',
+      },
     ])
     controller.dispose()
   })
 
   it('retract shows exactly while the status still allows it to win', () => {
     const statuses: MessageRecordWire['status'][] = [
-      'stored', 'dispatched', 'reached-machine', 'typing', 'typed', 'unknown', 'failed',
+      'stored',
+      'dispatched',
+      'reached-machine',
+      'typing',
+      'typed',
+      'unknown',
+      'failed',
     ]
     const synced = records(statuses.map((status, index) => record(`msg-${index}`, { status })))
     const controller = createConversationController({
@@ -296,7 +311,10 @@ describe('conversation controller over synced records', () => {
     const held: OutboxChatSend[] = []
     const outboxListeners = new Set<() => void>()
     const discard = vi.fn(async (id: string) => {
-      held.splice(held.findIndex((send) => send.mutationId === id), 1)
+      held.splice(
+        held.findIndex((send) => send.mutationId === id),
+        1,
+      )
     })
     const retract = vi.fn()
     const controller = createConversationController({
@@ -335,7 +353,7 @@ describe('conversation controller over synced records', () => {
     controller.dispose()
   })
 
-  it('a send already on its way to the server is the server\'s to answer', async () => {
+  it("a send already on its way to the server is the server's to answer", async () => {
     const held: OutboxChatSend[] = [
       {
         mutationId: 'msg-1' as OutboxChatSend['mutationId'],

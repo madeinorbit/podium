@@ -600,109 +600,107 @@ export function TranscriptFeed({
                 The word is PENDING, not "queued" — one noun for every
                 not-yet-delivered bubble, whatever parked it (a hibernated
                 session, a turn already in flight, a server that queued it). */}
-            {p.state === 'interrupted' || p.state === 'retracted' ? (
-              <div className="msg-foot" data-side="right">
-                <span className="transcript-delivery">{p.state}</span>
-              </div>
-            ) : p.state !== 'failed' &&
-              p.state !== 'unknown' &&
-              (waiting || p.retractable || p.retract || p.retractError) ? (
-              <div className="msg-foot" data-side="right">
-                {p.retract ? (
-                  <span className="transcript-delivery" data-testid="retract-state">
-                    {retractCaption(p.retract)}
-                  </span>
-                ) : waiting ? (
-                  <span className="transcript-delivery">
-                    {p.record || queueIsBlocked(session)
-                      ? queuedDeliveryLabel(session, p.queuePosition)
-                      : `pending${queuePositionSuffix(p.queuePosition)}`}
-                  </span>
+                {p.state === 'interrupted' || p.state === 'retracted' ? (
+                  <div className="msg-foot" data-side="right">
+                    <span className="transcript-delivery">{p.state}</span>
+                  </div>
+                ) : p.state !== 'failed' &&
+                  p.state !== 'unknown' &&
+                  (waiting || p.retractable || p.retract || p.retractError) ? (
+                  <div className="msg-foot" data-side="right">
+                    {p.retract ? (
+                      <span className="transcript-delivery" data-testid="retract-state">
+                        {retractCaption(p.retract)}
+                      </span>
+                    ) : waiting ? (
+                      <span className="transcript-delivery">
+                        {p.record || queueIsBlocked(session)
+                          ? queuedDeliveryLabel(session, p.queuePosition)
+                          : `pending${queuePositionSuffix(p.queuePosition)}`}
+                      </span>
+                    ) : null}
+                    {p.retractError && (
+                      <span className="transcript-delivery transcript-delivery--error">
+                        {`couldn't retract — ${p.retractError}`}
+                      </span>
+                    )}
+                    {p.retractable && (
+                      <RetractButton onRetract={() => void onRetractQueued(p.id)} />
+                    )}
+                  </div>
+                ) : p.state === 'failed' || p.state === 'unknown' ? (
+                  <div className="msg-foot" data-side="right">
+                    <span className="transcript-delivery transcript-delivery--error">
+                      {p.state === 'unknown'
+                        ? 'not confirmed — it may or may not have arrived'
+                        : (p.failure ?? 'not delivered')}
+                    </span>
+                    {p.retract && (
+                      <span className="transcript-delivery" data-testid="retract-state">
+                        {retractCaption(p.retract)}
+                      </span>
+                    )}
+                    {p.retractable && (
+                      <RetractButton onRetract={() => void onRetractQueued(p.id)} />
+                    )}
+                    {p.notice !== undefined
+                      ? // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
+                        // cannot say). Never a resend of it: "send again" puts its
+                        // words back in the composer and the person sends them as a
+                        // NEW message by choice — for an unknown one knowing it may
+                        // already be there.
+                        onSendAgain && (
+                          <button
+                            data-pressable
+                            type="button"
+                            className="msg-action"
+                            aria-label={
+                              p.notice === 'unknown'
+                                ? 'Send again — it may already have arrived'
+                                : 'Send again'
+                            }
+                            title={
+                              p.notice === 'unknown'
+                                ? 'Send again — it may already have arrived'
+                                : 'Send again'
+                            }
+                            onClick={() => void onSendAgain(p.id)}
+                          >
+                            <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                          </button>
+                        )
+                      : // THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
+                        // retry re-issues the entry the app still holds, under the id
+                        // the server would recognise if the first attempt had in fact
+                        // arrived. Withheld when the server refused these words,
+                        // because the same words would be refused again.
+                        p.retryable !== false &&
+                        onRetryPending && (
+                          <button
+                            data-pressable
+                            type="button"
+                            className="msg-action"
+                            aria-label="Retry sending message"
+                            title="Retry sending message"
+                            onClick={() => void onRetryPending(p.id)}
+                          >
+                            <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                          </button>
+                        )}
+                    {onDiscardPending && (
+                      <button
+                        data-pressable
+                        type="button"
+                        className="msg-action msg-action--retract"
+                        aria-label={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
+                        title={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
+                        onClick={() => void onDiscardPending(p.id)}
+                      >
+                        <MetaGlyph name="close" />
+                      </button>
+                    )}
+                  </div>
                 ) : null}
-                {p.retractError && (
-                  <span className="transcript-delivery transcript-delivery--error">
-                    {`couldn't retract — ${p.retractError}`}
-                  </span>
-                )}
-                {p.retractable && (
-                  <RetractButton onRetract={() => void onRetractQueued(p.id)} />
-                )}
-              </div>
-            ) : p.state === 'failed' || p.state === 'unknown' ? (
-              <div className="msg-foot" data-side="right">
-                <span className="transcript-delivery transcript-delivery--error">
-                  {p.state === 'unknown'
-                    ? 'not confirmed — it may or may not have arrived'
-                    : (p.failure ?? 'not delivered')}
-                </span>
-                {p.retract && (
-                  <span className="transcript-delivery" data-testid="retract-state">
-                    {retractCaption(p.retract)}
-                  </span>
-                )}
-                {p.retractable && (
-                  <RetractButton onRetract={() => void onRetractQueued(p.id)} />
-                )}
-                {p.notice !== undefined ? (
-                  // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
-                  // cannot say). Never a resend of it: "send again" puts its
-                  // words back in the composer and the person sends them as a
-                  // NEW message by choice — for an unknown one knowing it may
-                  // already be there.
-                  onSendAgain && (
-                    <button
-                      data-pressable
-                      type="button"
-                      className="msg-action"
-                      aria-label={
-                        p.notice === 'unknown'
-                          ? 'Send again — it may already have arrived'
-                          : 'Send again'
-                      }
-                      title={
-                        p.notice === 'unknown'
-                          ? 'Send again — it may already have arrived'
-                          : 'Send again'
-                      }
-                      onClick={() => void onSendAgain(p.id)}
-                    >
-                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                    </button>
-                  )
-                ) : (
-                  // THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
-                  // retry re-issues the entry the app still holds, under the id
-                  // the server would recognise if the first attempt had in fact
-                  // arrived. Withheld when the server refused these words,
-                  // because the same words would be refused again.
-                  p.retryable !== false &&
-                  onRetryPending && (
-                    <button
-                      data-pressable
-                      type="button"
-                      className="msg-action"
-                      aria-label="Retry sending message"
-                      title="Retry sending message"
-                      onClick={() => void onRetryPending(p.id)}
-                    >
-                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                    </button>
-                  )
-                )}
-                {onDiscardPending && (
-                  <button
-                    data-pressable
-                    type="button"
-                    className="msg-action msg-action--retract"
-                    aria-label={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
-                    title={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
-                    onClick={() => void onDiscardPending(p.id)}
-                  >
-                    <MetaGlyph name="close" />
-                  </button>
-                )}
-              </div>
-            ) : null}
               </div>
             </div>
           )

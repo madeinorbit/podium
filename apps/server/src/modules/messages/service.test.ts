@@ -1561,7 +1561,11 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
    *  row is withdrawn and the service is told, as `SessionInbox.withdrawn` does. */
   const withdrawnByDaemon =
     (queuedSourceIds?: Set<string>) =>
-    async (svc: MessageDeliveryService, _sessionId: SessionId, id: string): Promise<QueuedRetract> => {
+    async (
+      svc: MessageDeliveryService,
+      _sessionId: SessionId,
+      id: string,
+    ): Promise<QueuedRetract> => {
       queuedSourceIds?.delete(id)
       await svc.onQueuedInputWithdrawn(id)
       return 'cancelled'
@@ -1600,12 +1604,15 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     ['no answer: the machine is away', 'waiting', 'dispatched'],
     ['no queue holds it any more', 'not-queued', 'dispatched'],
   ] as const)('a retract with %s leaves the status to the daemon and stamps the request', async (_label, answer, status) => {
-    const { svc, store } = await harness([session({ sessionId: asSessionId('s1'), agentState: WORKING })], {
-      retractQueued: async (service, sessionId, id) => {
-        if (answer === 'too-late') await service.onQueuedInputTyping(id, sessionId)
-        return answer
+    const { svc, store } = await harness(
+      [session({ sessionId: asSessionId('s1'), agentState: WORKING })],
+      {
+        retractQueued: async (service, sessionId, id) => {
+          if (answer === 'too-late') await service.onQueuedInputTyping(id, sessionId)
+          return answer
+        },
       },
-    })
+    )
     const sent = await svc.send(
       { kind: 'operator' },
       { to: { kind: 'session', id: asSessionId('s1') }, body: 'on its way' },
@@ -1618,9 +1625,12 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
   })
 
   it('a message no queue holds and nothing handed on is cancelled at once: only the server had it', async () => {
-    const { svc, store } = await harness([session({ sessionId: asSessionId('s1'), agentState: WORKING })], {
-      queueText: async () => ({ ok: false, reason: 'machine unreachable' }),
-    })
+    const { svc, store } = await harness(
+      [session({ sessionId: asSessionId('s1'), agentState: WORKING })],
+      {
+        queueText: async () => ({ ok: false, reason: 'machine unreachable' }),
+      },
+    )
     const sent = await svc.send(
       { kind: 'operator' },
       { to: { kind: 'session', id: asSessionId('s1') }, body: 'never left' },

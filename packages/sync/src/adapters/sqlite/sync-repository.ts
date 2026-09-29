@@ -663,7 +663,8 @@ export class SyncRepository {
    *  statement a retract and {@link reserveQueuedDelivery} race through, so
    *  exactly one of them wins. Answers whether THIS call deleted it. */
   async deleteUnreservedQueuedMessage(id: string): Promise<boolean> {
-    const r = await this.db.delete(this.queuedMessages)
+    const r = await this.db
+      .delete(this.queuedMessages)
       .where(and(eq(this.queuedMessages.id, id), isNull(this.queuedMessages.deliveryOwner)))
       .run()
     return Number(r.changes) > 0
@@ -673,16 +674,20 @@ export class SyncRepository {
    *  answers it, every forward sends the retract instead of the row. The first
    *  request's time is kept. */
   async requestQueuedRetract(id: string, at: number): Promise<void> {
-    await this.db.update(this.queuedMessages)
+    await this.db
+      .update(this.queuedMessages)
       .set({ retractRequestedAt: sql`coalesce(${this.queuedMessages.retractRequestedAt}, ${at})` })
-      .where(eq(this.queuedMessages.id, id)).run()
+      .where(eq(this.queuedMessages.id, id))
+      .run()
   }
 
   /** The daemon answered the retract "too late": the row goes on as it was. */
   async clearQueuedRetract(id: string): Promise<void> {
-    await this.db.update(this.queuedMessages)
+    await this.db
+      .update(this.queuedMessages)
       .set({ retractRequestedAt: null })
-      .where(eq(this.queuedMessages.id, id)).run()
+      .where(eq(this.queuedMessages.id, id))
+      .run()
   }
 
   /** Reserve custody before the RPC. A crash after this commit is ambiguous,

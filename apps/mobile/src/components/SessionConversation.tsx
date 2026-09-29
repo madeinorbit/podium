@@ -304,7 +304,10 @@ export function SessionConversation({
         retract: (id) =>
           trpc.messages.cancel
             .mutate({ id })
-            .then((message) => (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus),
+            .then(
+              (message) =>
+                (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
+            ),
         discard: (deliveryId) => store.discardChat(asMutationId(deliveryId)),
         dismissNotice: (id) => trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),

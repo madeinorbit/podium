@@ -440,8 +440,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         }
       },
       typing: async ({ sourceMessageId, sessionId }) => {
-        const completion: Promise<void> | undefined =
-          deps.noteQueuedMessageTyping?.(sourceMessageId, sessionId)
+        const completion: Promise<void> | undefined = deps.noteQueuedMessageTyping?.(
+          sourceMessageId,
+          sessionId,
+        )
         await completion
       },
       interruptedPending: async ({ sessionId, sourceMessageId }) => {

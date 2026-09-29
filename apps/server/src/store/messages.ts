@@ -996,12 +996,16 @@ export class MessagesRepository {
    * request's time is kept. Answers whether the row carries a stamp now.
    */
   async requestRetract(id: string, at: string): Promise<boolean> {
-    const r = await this.write(async () => this.db
-      .update(messagesTable)
-      .set({ retractRequestedAt: sql`COALESCE(${messagesTable.retractRequestedAt}, ${at})` })
-      .where(and(eq(messagesTable.id, id), pending()))
-      .returning()
-      .all(), 'upsert')
+    const r = await this.write(
+      async () =>
+        this.db
+          .update(messagesTable)
+          .set({ retractRequestedAt: sql`COALESCE(${messagesTable.retractRequestedAt}, ${at})` })
+          .where(and(eq(messagesTable.id, id), pending()))
+          .returning()
+          .all(),
+      'upsert',
+    )
     return r.changes === 1
   }
 

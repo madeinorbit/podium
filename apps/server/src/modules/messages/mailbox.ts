@@ -38,12 +38,7 @@ import { type MessagesRepository, moved } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
 import type { QueuedRetract } from '../sessions/inbox'
 import type { IssueService } from '../issues/service'
-import type {
-  MessageSender,
-  MessageSendInput,
-  MessageSendResult,
-  SendDisposition,
-} from './types'
+import type { MessageSender, MessageSendInput, MessageSendResult } from './types'
 
 /**
  * Ports, narrowed from the real collaborators rather than restated.
@@ -388,14 +383,16 @@ export class MessageMailbox {
     await this.deps.messages.requestRetract(message.id, this.deps.now())
     const outcome = await this.deps.retractQueuedInput(message)
     if (outcome === 'not-queued') {
-      const moveFromStored = await this.deps.messages.markCancelled(message.id, { onlyFrom: 'stored' })
+      const moveFromStored = await this.deps.messages.markCancelled(message.id, {
+        onlyFrom: 'stored',
+      })
       if (moved(moveFromStored)) {
-        const cancelled = await this.deps.messages.getMessage(message.id) ?? message
+        const cancelled = (await this.deps.messages.getMessage(message.id)) ?? message
         await this.deps.emitTransition(cancelled, 'message.cancelled')
         return cancelled
       }
     }
-    return await this.deps.messages.getMessage(message.id) ?? message
+    return (await this.deps.messages.getMessage(message.id)) ?? message
   }
 
   private async retireNotificationFact(message: MessageRow, at: string): Promise<void> {

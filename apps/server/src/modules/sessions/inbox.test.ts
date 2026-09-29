@@ -2829,7 +2829,7 @@ describe('agent drain via the runtime contract', () => {
   // drain always forwards — so there is no legacy arm to flip between.
   // Daemon custody (POD-4291) survives the rollout removal: a daemon-owned row
   // still needs a successful driver cancel, and later sends still forward.
-  it('a daemon-held row leaves only on the daemon\'s ok; too late leaves it to its outcome', async () => {
+  it("a daemon-held row leaves only on the daemon's ok; too late leaves it to its outcome", async () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
       contractReceipts: [] })
@@ -2839,15 +2839,27 @@ describe('agent drain via the runtime contract', () => {
     expect(h.contractCalls).toHaveLength(1)
     h.contractCancel.mockResolvedValueOnce({ reason: 'busy', tooLate: 'typing' })
     expect(await h.inbox.retract(SID, 'mail-cancel')).toBe('too-late')
-    expect(h.rows).toEqual([expect.objectContaining({ id: 'mail-cancel', deliveryOwner: 'daemon' })])
+    expect(h.rows).toEqual([
+      expect.objectContaining({ id: 'mail-cancel', deliveryOwner: 'daemon' }),
+    ])
     expect(h.rows[0]?.retractRequestedAt).toBeUndefined()
-    expect(h.typing).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'mail-cancel', sessionId: SID })
+    expect(h.typing).toHaveBeenCalledExactlyOnceWith({
+      sourceMessageId: 'mail-cancel',
+      sessionId: SID,
+    })
     expect(h.interrupted).not.toHaveBeenCalled()
     expect(await h.inbox.retract(SID, 'mail-cancel')).toBe('cancelled')
     expect(h.contractCancel).toHaveBeenCalledTimes(2)
     expect(h.rows).toEqual([])
-    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'mail-cancel', sessionId: SID })
-    await h.inbox.queueText({ sessionId: SID, text: 'after cancel', mutationId: asMutationId('after-cancel') })
+    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({
+      sourceMessageId: 'mail-cancel',
+      sessionId: SID,
+    })
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'after cancel',
+      mutationId: asMutationId('after-cancel'),
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(2)
     expect(h.sent).toEqual([])
@@ -2855,27 +2867,46 @@ describe('agent drain via the runtime contract', () => {
 
   it('a row no daemon holds is withdrawn here, without asking one', async () => {
     const h = harness({ agentKind: 'codex', status: 'hibernated' })
-    await h.inbox.queueText({ sessionId: SID, text: 'still here', sourceMessageId: 'held', principal: agentPrincipal() })
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'still here',
+      sourceMessageId: 'held',
+      principal: agentPrincipal(),
+    })
     expect(h.rows).toEqual([expect.objectContaining({ id: 'held' })])
     expect(h.rows[0]?.deliveryOwner).not.toBe('daemon')
     expect(await h.inbox.retract(SID, 'held')).toBe('cancelled')
     expect(h.contractCancel).not.toHaveBeenCalled()
     expect(h.rows).toEqual([])
-    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'held', sessionId: SID })
+    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({
+      sourceMessageId: 'held',
+      sessionId: SID,
+    })
   })
 
   it('a retract the machine cannot answer waits on the row and goes first on the next bind', async () => {
     vi.useFakeTimers()
-    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
-      contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'typed later?', mutationId: asMutationId('offline-owned'),
-      sourceMessageId: 'offline' })
+    const h = harness({
+      agentKind: 'codex',
+      transcriptAvailable: true,
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      contractReceipts: [],
+    })
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'typed later?',
+      mutationId: asMutationId('offline-owned'),
+      sourceMessageId: 'offline',
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(1)
     // The machine went away: the request times out as not_running.
     h.contractCancel.mockResolvedValueOnce({ reason: 'not_running' })
     expect(await h.inbox.retract(SID, 'offline')).toBe('waiting')
-    expect(h.rows).toEqual([expect.objectContaining({ id: 'offline', retractRequestedAt: expect.any(Number) })])
+    expect(h.rows).toEqual([
+      expect.objectContaining({ id: 'offline', retractRequestedAt: expect.any(Number) }),
+    ])
     expect(h.interrupted).not.toHaveBeenCalled()
     expect(h.typing).not.toHaveBeenCalled()
     // Nothing on the server decides it: a sweep with the machine still away
@@ -2890,15 +2921,27 @@ describe('agent drain via the runtime contract', () => {
     expect(h.contractCancel).toHaveBeenLastCalledWith(SID, 'offline')
     expect(h.contractCalls).toHaveLength(1)
     expect(h.rows).toEqual([])
-    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'offline', sessionId: SID })
+    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({
+      sourceMessageId: 'offline',
+      sessionId: SID,
+    })
   })
 
   it('a retract that reaches the machine too late on reconnect leaves the row to its outcome', async () => {
     vi.useFakeTimers()
-    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
-      contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'typed during the cut', mutationId: asMutationId('late-owned'),
-      sourceMessageId: 'late' })
+    const h = harness({
+      agentKind: 'codex',
+      transcriptAvailable: true,
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      contractReceipts: [],
+    })
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'typed during the cut',
+      mutationId: asMutationId('late-owned'),
+      sourceMessageId: 'late',
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     h.contractCancel.mockResolvedValueOnce({ reason: 'not_running' })
     expect(await h.inbox.retract(SID, 'late')).toBe('waiting')

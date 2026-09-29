@@ -136,19 +136,29 @@ describe('durable row delivery', () => {
     expect(await f.handle.cancelDelivery!('one')).toEqual({ ok: true })
     await vi.advanceTimersByTimeAsync(1000)
     expect(f.send).toHaveBeenCalledTimes(1)
-    expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'one', outcome: 'dropped' })
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({
+      t: 'delivery',
+      rowId: 'one',
+      outcome: 'dropped',
+    })
   })
 
   it('a retract after a failure says failed and repeats the failure, never ok', async () => {
     const f = fixture()
     f.ready()
     f.send.mockResolvedValue({ outcome: 'unverified' } as never)
-    await f.handle.send({ rowId: 'lost', text: 'once' }, { origin: 'human', delivery: 'when-ready' })
+    await f.handle.send(
+      { rowId: 'lost', text: 'once' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     await vi.advanceTimersByTimeAsync(0)
     const failure = f.emit.mock.calls[0]![0]
     expect(failure).toMatchObject({ outcome: 'failed', cause: 'unconfirmed' })
     f.emit.mockClear()
-    expect(await f.handle.cancelDelivery!('lost')).toMatchObject({ reason: 'busy', tooLate: 'failed' })
+    expect(await f.handle.cancelDelivery!('lost')).toMatchObject({
+      reason: 'busy',
+      tooLate: 'failed',
+    })
     expect(f.emit).toHaveBeenCalledExactlyOnceWith(failure)
   })
 
@@ -352,7 +362,10 @@ describe('durable row delivery', () => {
     f.send.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
     await f.handle.send({ rowId: 'ambiguous', text: 'once' }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(0)
-    expect(await f.handle.cancelDelivery!('ambiguous')).toMatchObject({ reason: 'busy', tooLate: 'typing' })
+    expect(await f.handle.cancelDelivery!('ambiguous')).toMatchObject({
+      reason: 'busy',
+      tooLate: 'typing',
+    })
     finish({ outcome: 'unverified' } as never)
     await vi.advanceTimersByTimeAsync(0)
     expect(f.emit).toHaveBeenCalledExactlyOnceWith(

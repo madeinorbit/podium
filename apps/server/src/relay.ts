@@ -1509,7 +1509,10 @@ export class SessionRegistry {
         await completion
       },
       noteQueuedMessageTyping: async (messageId, sessionId) => {
-        const completion: Promise<void> | undefined = queuedApplyHooks.typing?.(messageId, sessionId)
+        const completion: Promise<void> | undefined = queuedApplyHooks.typing?.(
+          messageId,
+          sessionId,
+        )
         await completion
       },
       interruptPendingMessage: async (sessionId, messageId) => {

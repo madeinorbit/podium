@@ -679,7 +679,9 @@ const TranscriptFeedRow = memo(
               ) : (
                 <>
                   {turn.retractError ? (
-                    <Text style={styles.pendingError}>{`couldn't retract — ${turn.retractError}`}</Text>
+                    <Text
+                      style={styles.pendingError}
+                    >{`couldn't retract — ${turn.retractError}`}</Text>
                   ) : null}
                   {turn.retractable && onRetractPending ? (
                     <PressableScale
@@ -702,14 +704,14 @@ const TranscriptFeedRow = memo(
                   : turn.notice !== undefined
                     ? 'not delivered'
                     : 'not sent'
-                : retractLine(turn) ??
+                : (retractLine(turn) ??
                   (turn.interrupted
-                  ? 'interrupted'
-                  : turn.queued
-                    ? 'waiting its turn'
-                    : turn.delivery === 'sent'
-                      ? 'sent'
-                      : 'sending…')}
+                    ? 'interrupted'
+                    : turn.queued
+                      ? 'waiting its turn'
+                      : turn.delivery === 'sent'
+                        ? 'sent'
+                        : 'sending…'))}
             </Text>
           </View>
         )

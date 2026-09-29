@@ -8,7 +8,7 @@ import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import { moved } from '../../store/messages'
 import type { EventBus } from '../bus'
-import type { MessageDeliveryDeps, MessageDeliveryService } from './service'
+import type { MessageDeliveryDeps } from './service'
 
 /** Durable apply-time guard shared by the session inbox and message delivery. */
 export class QueuedMessageApply {
