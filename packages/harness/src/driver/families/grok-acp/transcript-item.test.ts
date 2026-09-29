@@ -536,7 +536,10 @@ describe("Grok's own id for our message (POD-4841)", () => {
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
-      const receipt = await handle.send({ text: 'no id' }, { origin: 'human', delivery: 'when-ready' })
+      const receipt = await handle.send(
+        { text: 'no id' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       const promptId = (
         w.serverFor(handle.binding.sessionId).prompts.at(-1)?._meta as { promptId?: string }
       )?.promptId
