@@ -712,7 +712,15 @@ describe('the reads fence and the write record', () => {
     {
       name: 'reparent',
       change: [issue('I2', { parentId: 'I4' })],
-      writes: ['issue.children:I1', 'issue.children:I4', 'issue.parent:I2'],
+      writes: [
+        'issue.children:I1',
+        'issue.children:I4',
+        'issue.parent:I2',
+        // The where-less twin (the nest walk's raw edge) moves with it.
+        'issue.treeChildren:I1',
+        'issue.treeChildren:I4',
+        'issue.treeParent:I2',
+      ],
     },
     {
       name: 'archive',

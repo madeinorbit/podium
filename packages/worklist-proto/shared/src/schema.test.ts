@@ -214,6 +214,22 @@ describe('validateStructure', () => {
     expect(validateStructure(schema).join('\n')).toMatch(/declares the same edge as session\.issue/)
   })
 
+  it('counts a where-less twin of a filtered edge as a different edge (POD-4757)', () => {
+    const schema = clone()
+    const { where: _where, ...unfiltered } = relationsOf('session').issue as RelationSpec & {
+      where?: unknown
+    }
+    ;(schema.session.relations as Record<string, RelationSpec>).anyIssue = {
+      ...unfiltered,
+      inverse: 'anySessions',
+    } as RelationSpec
+    ;(schema.issue.relations as Record<string, RelationSpec>).anySessions = {
+      ...relationsOf('issue').sessions!,
+      inverse: 'anyIssue',
+    } as RelationSpec
+    expect(validateStructure(schema).join('\n')).not.toMatch(/declares the same edge/)
+  })
+
   it('fires when a relation name collides with a declared field name', () => {
     const schema = clone()
     ;(schema.issue.relations as Record<string, RelationSpec>).deps = {

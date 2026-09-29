@@ -630,7 +630,7 @@ const DECLARED = defineSchema({
       repoPath: { type: 'string', source: wire(), note: 'On the wire only — IssueProjection does not carry it. The repo identity when repoId is absent.' },
       worktreePath: { type: 'string', optional: true, nullable: true, source: wire(), note: 'Foreign key of the `worktree` relation.' },
       coordinatorSessionId: { type: 'id', optional: true, nullable: true, source: wire() },
-      startedBySession: { type: 'id', optional: true, nullable: true, source: wire(), note: 'Declared, not read: provenance children are out of the slice (§6).' },
+      startedBySession: { type: 'id', optional: true, nullable: true, source: wire(), note: 'Foreign key of the `startedBy` relation: the worklist nests a parentless issue under the one its starter session belongs to.' },
       deps: {
         type: 'depEdgeList',
         source: wire(),
@@ -666,6 +666,28 @@ const DECLARED = defineSchema({
         lazy: true,
         slice: 'R1',
         why: 'The inverse collection the pool maintains; a child of a closed parent may be cold.',
+      }),
+      treeParent: belongsTo({
+        to: 'issue',
+        foreignKey: 'parentId',
+        targetKey: 'id',
+        inverse: 'treeChildren',
+        lazy: true,
+        why: "The raw parent edge, archived and deleted issues included: the worklist's nest walk follows `parentId` through ANY issue (nestStartedByIssues, rows.ts:271-283, walks allById), where `parent` drops an archived or deleted child's edge.",
+      }),
+      treeChildren: hasMany({
+        to: 'issue',
+        inverse: 'treeParent',
+        lazy: true,
+        why: 'Its inverse: a present row finds its nest children down it (a hidden child passes on the present rows below it).',
+      }),
+      startedBy: belongsTo({
+        to: 'session',
+        foreignKey: 'startedBySession',
+        targetKey: 'sessionId',
+        inverse: 'startedIssues',
+        lazy: true,
+        why: "The session that started this issue: the nest fallback for a parentless issue that is not a spin-off (nestStartedByIssues, rows.ts:288-305).",
       }),
       sessions: hasMany({
         to: 'session',
@@ -810,6 +832,12 @@ const DECLARED = defineSchema({
       },
     },
     relations: {
+      startedIssues: hasMany({
+        to: 'issue',
+        inverse: 'startedBy',
+        lazy: true,
+        why: "The issues this session started: a present issue finds the ones its sessions started, nested under it by the started-by fallback.",
+      }),
       issue: belongsTo({
         to: 'issue',
         foreignKey: 'issueId',
@@ -1727,9 +1755,13 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       const pairKey = [here, `${relation.to}.${relation.inverse}`].sort().join(' <-> ')
       pairSides.set(pairKey, [...(pairSides.get(pairKey) ?? []), here])
 
+      // A `where` makes a different edge set over the same key: `issue.parent`
+      // (archived and deleted children contribute no edge) and its where-less
+      // twin `issue.treeParent` are two edges, a verbatim copy is one.
+      const filter = relation.where === undefined ? '' : ` where(${relation.where.fields.join(',')})`
       const signature =
         relation.kind === 'belongsTo'
-          ? `belongsTo ${from}.${relation.foreignKey} -> ${relation.to}.${relation.targetKey}`
+          ? `belongsTo ${from}.${relation.foreignKey} -> ${relation.to}.${relation.targetKey}${filter}`
           : relation.kind === 'prefix'
             ? `prefix ${from}.${relation.sourceField} -> ${relation.to}.${relation.targetKey}`
             : relation.kind === 'edge' && relation.direction === 'out'
