@@ -2177,6 +2177,7 @@
         "src/store/workflows.ts",
         "src/superagent-concierge.test.ts",
         "src/superagent-headless.test.ts",
+        "src/superagent-offline.test.ts",
         "src/superagent-search-tools.test.ts",
         "src/superagent.test.ts",
         "src/sync-worker/sync-worker-embed.ts",
