@@ -1,0 +1,27 @@
+   -175 OUT    system/hook_started {"uuid": "885aea63"} 
+   -141 HOOK   SessionStart {"source": "startup"} keys=source
+   -132 OUT    system/hook_response {"uuid": "855330b0"} 
+     -1 OUT    {"type":"control_response","response":{"subtype":"success","request_id":"init-1","response":{"commands":[{"name":"deep-research","description":"Deep research ha…
+     +0 MARK   K1_SEND
+     +0 IN     user/ {"uuid": "OURS-01"} [{"type": "text", "text": "IDLE K1"}]
+    +32 OUT    command_lifecycle/queued {"uuid": "403e931c", "command_uuid": "OURS-01"} 
+    +36 OUT    command_lifecycle/started {"uuid": "26accbe5", "command_uuid": "OURS-01"} 
+    +73 HOOK   UserPromptSubmit {"prompt_id": "96e5ae78-76d9-4102-b058-adc6305b1aba", "prompt": "IDLE K1"} keys=prompt,prompt_id
+    +88 OUT    system/init {"uuid": "cd9f0782"} 
+    +95 OUT    system/status {"uuid": "2bbb6e1f", "status": "requesting"} 
+   +180 MODEL  #3 tools=True n=2 last=user: text) <noreply@anthropic.com>\n- End pull request descriptions with:\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n</system-reminder>\n | IDL…
+   +184 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:24:22.660Z"} null
+   +184 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:24:22.662Z"} null
+   +184 REC    user/ {"promptId": "96e5ae78", "uuid": "OURS-01", "parentUuid": null, "promptSource": "sdk", "timestamp": "2026-09-29T16:24:22.695Z"} [{"type": "text", "text": "IDLE K1"}]
+   +188 OUT    user/ {"uuid": "OURS-01", "isReplay": true, "timestamp": "2026-09-29T16:24:22.695Z"} [{"type": "text", "text": "IDLE K1"}]
+   +189 SE     message_start
+   +310 HOOK   MessageDisplay {"prompt_id": "96e5ae78-76d9-4102-b058-adc6305b1aba"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +431 OUT    assistant/ {"uuid": "2d27ea44", "timestamp": "2026-09-29T16:24:22.915Z"} [{"type": "text", "text": "r3w1 r3w2 r3w3 "}]
+   +434 SE     message_stop
+   +460 HOOK   Stop {"prompt_id": "96e5ae78-76d9-4102-b058-adc6305b1aba", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +488 OUT    result/success {"uuid": "953d9d5f", "is_error": false, "result": "r3w1 r3w2 r3w3 ", "num_turns": 1} 
+   +492 REC    assistant/ {"uuid": "2d27ea44", "parentUuid": "371df1ce", "timestamp": "2026-09-29T16:24:22.915Z"} [{"type": "text", "text": "r3w1 r3w2 r3w3 "}]
+   +492 REC    system/stop_hook_summary {"uuid": "95b76537", "parentUuid": "ce405679", "timestamp": "2026-09-29T16:24:23.103Z"} null
+   +495 OUT    command_lifecycle/completed {"uuid": "1ac148ad", "command_uuid": "OURS-01"} 
+  +1491 MARK   K2_BUSY
+  +1491 IN     user/ {"uuid": "OURS-02"} [{"type": "text", "text": "TOOLSLEEP K2 busy"}]

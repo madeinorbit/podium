@@ -1,0 +1,45 @@
+▝▜██████▀  Opus 5.5 (1M context) · API Usage Billing
+ ▝▝   ▝▝   /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/runs/tA/work
+
+▎ Auto mode is now Claude Code's default permission mode.
+▎ Auto mode lets Claude handle permission prompts automatically. Claude checks each tool call for risky actions and prompt injection before executing, runs the ones it assesses as
+▎ lower-risk, and blocks the rest.
+▎ https://code.claude.com/docs/en/permission-modes
+
+❯ TOOLSLEEP A1 busy
+
+● r4w1 r4w2 r4w3
+
+✻ Worked for 0s · done 6:12 PM
+
+❯ QUEUED-A1 typed while the tool runs
+
+● r6w1 r6w2 r6w3
+
+✻ Crunched for 0s · done 6:12 PM
+
+❯ TOOLSLEEP A1 busy
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ QUEUED-A1 typed while the tool runs
+
+● r5w1 r5w2 r5w3
+
+✻ Crunched for 0s · done 6:13 PM
+
+❯ SLOWTEXT A2 streaming
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ AFTER-INT A2 sent after interrupt
+
+● r9w1 r9w2 r9w3
+
+✻ Worked for 0s · done 6:13 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

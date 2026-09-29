@@ -1,0 +1,21 @@
+     +0 MARK   T7_SEND
+     +0 IN     user/ {"uuid": "OURS-47"} [{"type": "text", "text": "  SDKTXT lead\n\tTAB\r\nCRLF​ZWSP é 👩‍👧  nbsp  \n\ntrail  "}]
+    +16 OUT    command_lifecycle/queued {"uuid": "d71b3ec6", "command_uuid": "OURS-47"} 
+    +20 OUT    command_lifecycle/started {"uuid": "040515ef", "command_uuid": "OURS-47"} 
+    +91 HOOK   UserPromptSubmit {"prompt_id": "9460078c-2e5b-4b61-af1f-d959480c0f68", "prompt": "SDKTXT lead\\n\tTAB\r\\nCRLF​ZWSP é 👩‍👧  nbsp  \\n\\ntrail"} keys=prompt,prompt_id
+   +106 OUT    system/init {"uuid": "4db3625b"} 
+   +112 OUT    system/status {"uuid": "c378ae0c", "status": "requesting"} 
+   +161 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:29:11.585Z"} null
+   +161 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:29:11.593Z"} null
+   +161 REC    user/ {"promptId": "9460078c", "uuid": "OURS-47", "parentUuid": "b357036f", "promptSource": "sdk", "timestamp": "2026-09-29T16:29:11.648Z"} [{"type": "text", "text": "  SDKTXT lead\n\tTAB\r\nCRLF​ZWSP é 👩‍👧  nbsp  \n\ntrail  "}]
+   +171 MODEL  #37 tools=True n=22 last=user:   SDKTXT lead\n	TAB\nCRLF​ZWSP é 👩‍👧  nbsp  \n\ntrail  
+   +177 OUT    user/ {"uuid": "OURS-47", "isReplay": true, "timestamp": "2026-09-29T16:29:11.648Z"} [{"type": "text", "text": "  SDKTXT lead\n\tTAB\r\nCRLF​ZWSP é 👩‍👧  nbsp  \n\ntrail  "}]
+   +178 SE     message_start
+   +291 HOOK   MessageDisplay {"prompt_id": "9460078c-2e5b-4b61-af1f-d959480c0f68"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +342 OUT    assistant/ {"uuid": "46ab53e1", "timestamp": "2026-09-29T16:29:11.856Z"} [{"type": "text", "text": "r37w1 r37w2 r37w3 "}]
+   +346 SE     message_stop
+   +366 HOOK   Stop {"prompt_id": "9460078c-2e5b-4b61-af1f-d959480c0f68", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +383 REC    assistant/ {"uuid": "46ab53e1", "parentUuid": "56a4defa", "timestamp": "2026-09-29T16:29:11.856Z"} [{"type": "text", "text": "r37w1 r37w2 r37w3 "}]
+   +383 REC    system/stop_hook_summary {"uuid": "73d65241", "parentUuid": "46ab53e1", "timestamp": "2026-09-29T16:29:11.957Z"} null
+   +384 OUT    result/success {"uuid": "6f6cf532", "is_error": false, "result": "r37w1 r37w2 r37w3 ", "num_turns": 1} 
+   +386 MARK   T7_END

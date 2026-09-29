@@ -1,0 +1,45 @@
+
+● r16w1 r16w2 r16w3
+
+✻ Crunched for 5s · done 6:14 PM
+
+● Background command "wait eight seconds" completed (exit code 0)
+
+● r17w1 r17w2 r17w3
+
+✻ Baked for 0s · done 6:14 PM
+
+❯ TOOLSLEEP A5 busy
+
+  Ran 1 shell command
+
+❯ SENDNOW-A5 queued then ctrl-enter
+
+● r20w1 r20w2 r20w3
+
+✻ Baked for 5s · done 6:14 PM
+
+● Background command "wait eight seconds" completed (exit code 0)
+
+● r21w1 r21w2 r21w3
+
+✻ Sautéed for 0s · done 6:14 PM
+
+❯ SLOWTEXT A6 streaming
+
+❯ SENDNOW-A6 queued during text
+
+● r25w1 r25w2 r25w3
+
+✻ Worked for 0s · done 6:15 PM
+
+● UserPromptSubmit operation blocked by hook:
+  blocked-by-test
+
+  Original prompt: BLOCKME A7 idle
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

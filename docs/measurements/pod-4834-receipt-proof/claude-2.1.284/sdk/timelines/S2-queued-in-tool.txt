@@ -1,0 +1,45 @@
+     +0 MARK   K2_BUSY
+     +0 IN     user/ {"uuid": "OURS-02"} [{"type": "text", "text": "TOOLSLEEP K2 busy"}]
+     +2 OUT    command_lifecycle/queued {"uuid": "8f969490", "command_uuid": "OURS-02"} 
+     +4 OUT    command_lifecycle/started {"uuid": "8f42e246", "command_uuid": "OURS-02"} 
+    +22 HOOK   UserPromptSubmit {"prompt_id": "58dc0b7b-d534-4f5f-835c-b41679be49c8", "prompt": "TOOLSLEEP K2 busy"} keys=prompt,prompt_id
+    +33 OUT    system/init {"uuid": "e8c8a971"} 
+    +34 OUT    system/status {"uuid": "2bce2a1a", "status": "requesting"} 
+    +48 MODEL  #4 tools=True n=5 last=user: TOOLSLEEP K2 busy
+    +56 OUT    user/ {"uuid": "OURS-02", "isReplay": true, "timestamp": "2026-09-29T16:24:24.132Z"} [{"type": "text", "text": "TOOLSLEEP K2 busy"}]
+    +56 SE     message_start
+    +65 OUT    assistant/ {"uuid": "e701e446", "timestamp": "2026-09-29T16:24:24.179Z"} [{"type": "tool_use", "id": "toolu_fake4", "name": "Bash", "input": {"command": "sleep 8", "descript…
+    +75 SE     message_stop
+    +82 HOOK   PreToolUse {"prompt_id": "58dc0b7b-d534-4f5f-835c-b41679be49c8", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+   +110 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:24:24.123Z"} null
+   +110 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:24:24.124Z"} null
+   +110 REC    user/ {"promptId": "58dc0b7b", "uuid": "OURS-02", "parentUuid": "95b76537", "promptSource": "sdk", "timestamp": "2026-09-29T16:24:24.132Z"} [{"type": "text", "text": "TOOLSLEEP K2 busy"}]
+   +110 REC    assistant/ {"uuid": "e701e446", "parentUuid": "ab4dcfa0", "timestamp": "2026-09-29T16:24:24.179Z"} [{"type": "tool_use", "id": "toolu_fake4", "name": "Bash", "input": {"command": "sleep 8",…
+  +2501 MARK   K2_Q
+  +2502 IN     user/ {"uuid": "OURS-03"} [{"type": "text", "text": "QUEUED-K2 in tool"}]
+  +2504 OUT    command_lifecycle/queued {"uuid": "47a7ba17", "command_uuid": "OURS-03"} 
+  +2608 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:24:26.624Z"} null
+  +3216 OUT    system/task_started {"uuid": "74fffeea"} 
+  +8224 OUT    system/task_notification {"uuid": "5f0c2bdb", "status": "completed"} 
+  +8246 HOOK   PostToolUse {"prompt_id": "58dc0b7b-d534-4f5f-835c-b41679be49c8", "tool_name": "Bash"} keys=duration_ms,effort,prompt_id,tool_name,tool_use_id
+  +8257 OUT    user/ {"uuid": "715103ee", "timestamp": "2026-09-29T16:24:32.373Z"} [{"tool_use_id": "toolu_fake4", "type": "tool_result", "content": "(Bash completed with no output)",…
+  +8268 HOOK   PostToolBatch {"prompt_id": "58dc0b7b-d534-4f5f-835c-b41679be49c8"} keys=effort,prompt_id,tool_calls
+  +8290 HOOK   UserPromptSubmit {"prompt_id": "58dc0b7b-d534-4f5f-835c-b41679be49c8", "prompt": "QUEUED-K2 in tool"} keys=prompt,prompt_id
+  +8302 OUT    user/ {"uuid": "OURS-03", "isReplay": true, "timestamp": "2026-09-29T16:24:26.624Z"} [{"type": "text", "text": "QUEUED-K2 in tool"}]
+  +8303 OUT    command_lifecycle/started {"uuid": "2dc75cc9", "command_uuid": "OURS-03"} 
+  +8304 OUT    system/status {"uuid": "1a7dfdb6", "status": "requesting"} 
+  +8316 MODEL  #5 tools=True n=8 last=user: [tool_result toolu_fake4: (Bash completed with no output)]
+  +8319 SE     message_start
+  +8404 REC    user/ {"promptId": "58dc0b7b", "uuid": "715103ee", "parentUuid": "e701e446", "timestamp": "2026-09-29T16:24:32.373Z"} [{"tool_use_id": "toolu_fake4", "type": "tool_result", "content": "(Bash completed with no…
+  +8404 REC    attachment/queued_command {"uuid": "89700ac9", "parentUuid": "715103ee", "timestamp": "2026-09-29T16:24:26.624Z", "att.source_uuid": "OURS-03", "att.commandMode": "prompt"} [{"type": "text", "text": "QUEUED-K2 in tool"}]
+  +8404 REC    queue-operation/remove {"timestamp": "2026-09-29T16:24:32.423Z"} null
+  +8441 HOOK   MessageDisplay {"prompt_id": "58dc0b7b-d534-4f5f-835c-b41679be49c8"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +8452 OUT    assistant/ {"uuid": "f2dff0ca", "timestamp": "2026-09-29T16:24:32.553Z"} [{"type": "text", "text": "r5w1 r5w2 r5w3 "}]
+  +8458 SE     message_stop
+  +8466 HOOK   Stop {"prompt_id": "58dc0b7b-d534-4f5f-835c-b41679be49c8", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +8474 OUT    command_lifecycle/completed {"uuid": "ba379b0f", "command_uuid": "OURS-03"} 
+  +8476 OUT    result/success {"uuid": "9e4305f7", "is_error": false, "result": "r5w1 r5w2 r5w3 ", "num_turns": 2} 
+  +8477 OUT    command_lifecycle/completed {"uuid": "eb452845", "command_uuid": "OURS-02"} 
+  +8481 REC    assistant/ {"uuid": "f2dff0ca", "parentUuid": "010b03e2", "timestamp": "2026-09-29T16:24:32.553Z"} [{"type": "text", "text": "r5w1 r5w2 r5w3 "}]
+  +8481 REC    system/stop_hook_summary {"uuid": "571e883a", "parentUuid": "f2dff0ca", "timestamp": "2026-09-29T16:24:32.594Z"} null
+ +14504 MARK   K3_BUSY

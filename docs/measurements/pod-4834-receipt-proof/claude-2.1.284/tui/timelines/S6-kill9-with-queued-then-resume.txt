@@ -1,0 +1,26 @@
+     +0 MARK   B4_BUSY
+   +106 HOOK   UserPromptSubmit {"prompt_id": "80d29b54-8752-4009-9111-7e964e1b5c75", "prompt": "SLOWTEXT B4 streaming"} keys=prompt,prompt_id
+   +111 HIST   history.jsonl ts=1790698849611 sid=db6804f3 SLOWTEXT B4 streaming pasted={}
+   +168 MODEL  #69 tools=True n=16 last=user: SLOWTEXT B4 streaming
+   +224 REC    user/ {"promptId": "80d29b54", "uuid": "5f7af3bc", "parentUuid": "9b843445", "promptSource": "typed", "timestamp": "2026-09-29T16:20:49.621Z", "origin": {"kind": "human"}} SLOWTEXT B4 streaming
+  +3007 MARK   B4_Q
+  +3062 HOOK   UserPromptSubmit {"prompt_id": "80d29b54-8752-4009-9111-7e964e1b5c75", "prompt": "QUEUED-B4 before kill9"} keys=prompt,prompt_id
+  +3150 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:20:52.602Z"} QUEUED-B4 before kill9
+  +4375 MARK   B4_KILL9
+  +6451 MARK   B4_RESUME
+  +6517 MARK   START_rf4862tA3
+  +7076 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+  +7350 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +16167 MARK   B4_AFTER
+ +16386 HOOK   UserPromptSubmit {"prompt_id": "79df069a-19aa-46ee-8caf-02901eddf803", "prompt": "AFTER-KILL9 B4"} keys=prompt,prompt_id
+ +16389 HIST   history.jsonl ts=1790698865767 sid=db6804f3 AFTER-KILL9 B4 pasted={}
+ +16806 MODEL  #71 tools=True n=19 last=user: AFTER-KILL9 B4
+ +16991 REC    assistant/ {"uuid": "7d38b667", "parentUuid": "3de42a5f", "isApiErrorMessage": false, "timestamp": "2026-09-29T16:20:56.583Z"} [{"type": "text", "text": "No response requested."}]
+ +16991 REC    user/ {"promptId": "79df069a", "uuid": "1c760ba0", "parentUuid": "7d38b667", "promptSource": "typed", "timestamp": "2026-09-29T16:21:05.837Z", "origin": {"kind": "human"}} AFTER-KILL9 B4
+ +17144 HOOK   MessageDisplay {"prompt_id": "79df069a-19aa-46ee-8caf-02901eddf803"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +17151 HOOK   Stop {"prompt_id": "79df069a-19aa-46ee-8caf-02901eddf803", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +17301 REC    assistant/ {"uuid": "b4884529", "parentUuid": "c8b4f7fa", "timestamp": "2026-09-29T16:21:06.599Z"} [{"type": "text", "text": "r71w1 r71w2 r71w3 "}]
+ +17301 REC    system/stop_hook_summary {"uuid": "04ca5768", "parentUuid": "b4884529", "timestamp": "2026-09-29T16:21:06.737Z"} null
+ +17301 REC    system/turn_duration {"uuid": "edd81755", "parentUuid": "04ca5768", "isMeta": false, "timestamp": "2026-09-29T16:21:06.743Z"} null
+ +17498 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +19187 MARK   B4_END

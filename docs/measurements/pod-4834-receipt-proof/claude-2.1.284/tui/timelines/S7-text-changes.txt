@@ -1,0 +1,76 @@
+     +0 MARK   A17_ENTER
+   +133 HOOK   UserPromptSubmit {"prompt_id": "88c11f96-5114-4f8a-ba55-d9b32df929a5", "prompt": "  TXT-A17 lead space\\n    TAB line\\n\\nblank above   \\ntraili…"} keys=prompt,prompt_id
+   +317 REC    user/ {"promptId": "88c11f96", "uuid": "94636dc8", "parentUuid": "a2cfc230", "promptSource": "typed", "timestamp": "2026-09-29T16:18:09.890Z", "origin": {"kind": "human"}}   TXT-A17 lead space\n    TAB line\n\nblank above   \ntrailing  
+   +317 HIST   history.jsonl ts=1790698689869 sid=db6804f3 [Pasted text #1 +4 lines] pasted={"1": {"id": 1, "type": "text", "content": "  TXT-A17 lead s…
+   +322 MODEL  #50 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +323 MODEL  #51 tools=True n=89 last=user:   TXT-A17 lead space\n    TAB line\n\nblank above   \ntrailing  
+   +600 HOOK   MessageDisplay {"prompt_id": "88c11f96-5114-4f8a-ba55-d9b32df929a5"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +648 HOOK   Stop {"prompt_id": "88c11f96-5114-4f8a-ba55-d9b32df929a5", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +668 REC    assistant/ {"uuid": "032456ce", "parentUuid": "08abc4b1", "timestamp": "2026-09-29T16:18:10.235Z"} [{"type": "text", "text": "r51w1 r51w2 r51w3 "}]
+   +912 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +1005 REC    system/stop_hook_summary {"uuid": "f38ded2b", "parentUuid": "032456ce", "timestamp": "2026-09-29T16:18:10.654Z"} null
+  +1005 REC    system/turn_duration {"uuid": "b6e6c22c", "parentUuid": "f38ded2b", "isMeta": false, "timestamp": "2026-09-29T16:18:10.673Z"} null
+  +4294 MARK   A18_ENTER
+  +8408 MARK   A19_ENTER
+  +8526 HOOK   UserPromptSubmit {"prompt_id": "31b10fe1-1450-4dc8-9eae-e16bea97e9b0", "prompt": "UNI-A18 héllo é 🎉👩‍👩‍👧 日本語 עברית zerowidthLONG-A19 line 00 …"} keys=prompt,prompt_id
+  +8547 HIST   history.jsonl ts=1790698698283 sid=db6804f3 UNI-A18 héllo é 🎉👩‍👩‍👧 日本語 עברית zerowidth[Pasted text #2 +59 lines] pasted={"2": {"id": 2, "type": "text", "contentHash": "82d55dcfdc03…
+  +8621 MODEL  #52 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+  +8624 MODEL  #53 tools=True n=92 last=user: 8 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nLONG-A19 line 59 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…
+  +8657 REC    user/ {"promptId": "31b10fe1", "uuid": "ced9a36e", "parentUuid": "b6e6c22c", "promptSource": "typed", "timestamp": "2026-09-29T16:18:18.290Z", "origin": {"kind": "human"}} UNI-A18 héllo é 🎉👩‍👩‍👧 日本語 עברית zerowidthLONG-A19 line 00 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…
+  +8801 HOOK   MessageDisplay {"prompt_id": "31b10fe1-1450-4dc8-9eae-e16bea97e9b0"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +8841 HOOK   Stop {"prompt_id": "31b10fe1-1450-4dc8-9eae-e16bea97e9b0", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +8954 REC    assistant/ {"uuid": "49b2cf57", "parentUuid": "52982456", "timestamp": "2026-09-29T16:18:18.551Z"} [{"type": "text", "text": "r53w1 r53w2 r53w3 "}]
+  +8954 REC    system/stop_hook_summary {"uuid": "37c51bf8", "parentUuid": "49b2cf57", "timestamp": "2026-09-29T16:18:18.668Z"} null
+  +8954 REC    system/turn_duration {"uuid": "cad4e8ba", "parentUuid": "37c51bf8", "isMeta": false, "timestamp": "2026-09-29T16:18:18.676Z"} null
+  +9139 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +12568 MARK   A20_ENTER
+ +12618 HOOK   UserPromptSubmit {"prompt_id": "f77b9002-3b6e-4b34-be77-241296c47720", "prompt": "CRLF-A20 one\\n\\ntwo\\n\\nthree"} keys=prompt,prompt_id
+ +12650 HIST   history.jsonl ts=1790698702395 sid=db6804f3 [Pasted text #3 +4 lines] pasted={"3": {"id": 3, "type": "text", "content": "CRLF-A20 one\n\n…
+ +12692 MODEL  #54 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+ +12695 MODEL  #55 tools=True n=95 last=user: CRLF-A20 one\n\ntwo\n\nthree
+ +12752 REC    user/ {"promptId": "f77b9002", "uuid": "67e96524", "parentUuid": "cad4e8ba", "promptSource": "typed", "timestamp": "2026-09-29T16:18:22.399Z", "origin": {"kind": "human"}} CRLF-A20 one\n\ntwo\n\nthree
+ +12850 HOOK   MessageDisplay {"prompt_id": "f77b9002-3b6e-4b34-be77-241296c47720"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +12865 HOOK   Stop {"prompt_id": "f77b9002-3b6e-4b34-be77-241296c47720", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +12984 REC    assistant/ {"uuid": "3a10c2da", "parentUuid": "d824d3c8", "timestamp": "2026-09-29T16:18:22.610Z"} [{"type": "text", "text": "r55w1 r55w2 r55w3 "}]
+ +12984 REC    system/stop_hook_summary {"uuid": "092a39b5", "parentUuid": "3a10c2da", "timestamp": "2026-09-29T16:18:22.691Z"} null
+ +12984 REC    system/turn_duration {"uuid": "616cf07b", "parentUuid": "092a39b5", "isMeta": false, "timestamp": "2026-09-29T16:18:22.696Z"} null
+ +13188 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +15595 MARK   A20_END
+ +48949 MARK   A21_ENTER
+ +49005 HOOK   UserPromptSubmit {"prompt_id": "4f0ea737-f384-4c55-adb3-dfe8a46edc08", "prompt": "UNI-A21 héllo é 🎉👩‍👩‍👧 日本語 עברית nbsp x"} keys=prompt,prompt_id
+ +49129 HIST   history.jsonl ts=1790698738797 sid=db6804f3 UNI-A21 héllo é 🎉👩‍👩‍👧 日本語 עברית nbsp x pasted={}
+ +49129 MODEL  #56 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+ +49130 MODEL  #57 tools=True n=98 last=user: UNI-A21 héllo é 🎉👩‍👩‍👧 日本語 עברית nbsp x
+ +49176 REC    user/ {"promptId": "4f0ea737", "uuid": "650f1a3d", "parentUuid": "616cf07b", "promptSource": "typed", "timestamp": "2026-09-29T16:18:58.802Z", "origin": {"kind": "human"}} UNI-A21 héllo é 🎉👩‍👩‍👧 日本語 עברית nbsp x
+ +49321 HOOK   MessageDisplay {"prompt_id": "4f0ea737-f384-4c55-adb3-dfe8a46edc08"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +49324 HOOK   Stop {"prompt_id": "4f0ea737-f384-4c55-adb3-dfe8a46edc08", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +49452 REC    assistant/ {"uuid": "766af17a", "parentUuid": "6faa0c97", "timestamp": "2026-09-29T16:18:59.092Z"} [{"type": "text", "text": "r57w1 r57w2 r57w3 "}]
+ +49452 REC    system/stop_hook_summary {"uuid": "57d575d5", "parentUuid": "766af17a", "timestamp": "2026-09-29T16:18:59.157Z"} null
+ +49452 REC    system/turn_duration {"uuid": "dad6a9b9", "parentUuid": "57d575d5", "isMeta": false, "timestamp": "2026-09-29T16:18:59.164Z"} null
+ +49693 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +53562 MARK   A22_ENTER
+ +53656 HOOK   UserPromptSubmit {"prompt_id": "9740d1c6-02d7-47b5-875b-7c24345ef2b8", "prompt": "CRLF-A22 one\\ntwo\\nthree\\nLF-only four"} keys=prompt,prompt_id
+ +53658 HIST   history.jsonl ts=1790698743405 sid=db6804f3 [Pasted text #4 +3 lines] pasted={"4": {"id": 4, "type": "text", "content": "CRLF-A22 one\ntw…
+ +53739 MODEL  #58 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+ +53743 MODEL  #59 tools=True n=101 last=user: CRLF-A22 one\ntwo\nthree\nLF-only four
+ +53773 REC    user/ {"promptId": "9740d1c6", "uuid": "bfd26927", "parentUuid": "dad6a9b9", "promptSource": "typed", "timestamp": "2026-09-29T16:19:03.417Z", "origin": {"kind": "human"}} CRLF-A22 one\ntwo\nthree\nLF-only four
+ +53875 HOOK   MessageDisplay {"prompt_id": "9740d1c6-02d7-47b5-875b-7c24345ef2b8"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +53907 HOOK   Stop {"prompt_id": "9740d1c6-02d7-47b5-875b-7c24345ef2b8", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +54048 REC    assistant/ {"uuid": "cd9c9c01", "parentUuid": "f654dd6e", "timestamp": "2026-09-29T16:19:03.655Z"} [{"type": "text", "text": "r59w1 r59w2 r59w3 "}]
+ +54048 REC    system/stop_hook_summary {"uuid": "df1bc40b", "parentUuid": "cd9c9c01", "timestamp": "2026-09-29T16:19:03.727Z"} null
+ +54048 REC    system/turn_duration {"uuid": "9c37d6c6", "parentUuid": "df1bc40b", "isMeta": false, "timestamp": "2026-09-29T16:19:03.734Z"} null
+ +54337 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +57699 MARK   A23_ENTER
+ +60893 MARK   A23_ENTER2
+ +61032 HOOK   UserPromptSubmit {"prompt_id": "cfbfd08b-7108-47f0-abff-d3dcead6ab6d", "prompt": "ZWSP-A23 zerowidth"} keys=prompt,prompt_id
+ +61062 HIST   history.jsonl ts=1790698750802 sid=db6804f3 ZWSP-A23 zerowidth pasted={}
+ +61124 MODEL  #60 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+ +61133 MODEL  #61 tools=True n=104 last=user: ZWSP-A23 zerowidth
+ +61217 REC    user/ {"promptId": "cfbfd08b", "uuid": "bcd8049a", "parentUuid": "9c37d6c6", "promptSource": "typed", "timestamp": "2026-09-29T16:19:10.809Z", "origin": {"kind": "human"}} ZWSP-A23 zerowidth
+ +61296 HOOK   Stop {"prompt_id": "cfbfd08b-7108-47f0-abff-d3dcead6ab6d", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +61315 HOOK   MessageDisplay {"prompt_id": "cfbfd08b-7108-47f0-abff-d3dcead6ab6d"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +61419 REC    assistant/ {"uuid": "59b89a22", "parentUuid": "d292da7a", "timestamp": "2026-09-29T16:19:11.049Z"} [{"type": "text", "text": "r61w1 r61w2 r61w3 "}]
+ +61419 REC    system/stop_hook_summary {"uuid": "64120b22", "parentUuid": "59b89a22", "timestamp": "2026-09-29T16:19:11.126Z"} null
+ +61419 REC    system/turn_duration {"uuid": "14d178c0", "parentUuid": "64120b22", "isMeta": false, "timestamp": "2026-09-29T16:19:11.140Z"} null
+ +61612 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +63936 MARK   A23_END

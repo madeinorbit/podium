@@ -1,0 +1,5 @@
+  TXT-A17 lead space
+	TAB line
+
+blank above   
+trailing  

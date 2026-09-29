@@ -1,0 +1,38 @@
+     +0 MARK   A5_BUSY
+    +71 HIST   history.jsonl ts=1790698483271 sid=db6804f3 TOOLSLEEP A5 busy pasted={}
+    +78 HOOK   UserPromptSubmit {"prompt_id": "60f7a779-6947-45ae-9356-ef14c1eab9f8", "prompt": "TOOLSLEEP A5 busy"} keys=prompt,prompt_id
+   +126 MODEL  #18 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +127 MODEL  #19 tools=True n=34 last=user: TOOLSLEEP A5 busy
+   +145 HOOK   PreToolUse {"prompt_id": "60f7a779-6947-45ae-9356-ef14c1eab9f8", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+   +192 REC    user/ {"promptId": "60f7a779", "uuid": "a9e0a780", "parentUuid": "0adf90ef", "promptSource": "typed", "timestamp": "2026-09-29T16:14:43.276Z", "origin": {"kind": "human"}} TOOLSLEEP A5 busy
+   +192 REC    assistant/ {"uuid": "648a2920", "parentUuid": "c49ef4e3", "timestamp": "2026-09-29T16:14:43.375Z"} [{"type": "tool_use", "id": "toolu_fake19", "name": "Bash", "input": {"command": "sleep 8"…
+   +493 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +2972 MARK   A5_Q
+  +3125 HOOK   UserPromptSubmit {"prompt_id": "60f7a779-6947-45ae-9356-ef14c1eab9f8", "prompt": "SENDNOW-A5 queued then ctrl-enter"} keys=prompt,prompt_id
+  +3132 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:14:46.246Z"} SENDNOW-A5 queued then ctrl-enter
+  +4527 MARK   A5_CENTER
+  +5241 HOOK   PostToolUse {"prompt_id": "60f7a779-6947-45ae-9356-ef14c1eab9f8", "tool_name": "Bash"} keys=duration_ms,effort,prompt_id,tool_name,tool_use_id
+  +5309 HOOK   PostToolBatch {"prompt_id": "60f7a779-6947-45ae-9356-ef14c1eab9f8"} keys=effort,prompt_id,tool_calls
+  +5419 REC    user/ {"promptId": "60f7a779", "uuid": "ef565373", "parentUuid": "648a2920", "timestamp": "2026-09-29T16:14:48.493Z"} [{"tool_use_id": "toolu_fake19", "type": "tool_result", "content": "Command was moved to t…
+  +5486 MODEL  #20 tools=True n=37 last=user: within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.
+  +5491 HIST   history.jsonl ts=1790698488681 sid=db6804f3 SENDNOW-A5 queued then ctrl-enter pasted={}
+  +5544 REC    queue-operation/remove {"timestamp": "2026-09-29T16:14:48.681Z"} SENDNOW-A5 queued then ctrl-enter
+  +5544 REC    attachment/queued_command {"uuid": "d81c0a6f", "parentUuid": "ef565373", "timestamp": "2026-09-29T16:14:46.246Z", "att.source_uuid": "b0e31f1d", "att.commandMode": "prompt", "att.origin": {"kind": "human"}} SENDNOW-A5 queued then ctrl-enter
+  +5617 HOOK   MessageDisplay {"prompt_id": "60f7a779-6947-45ae-9356-ef14c1eab9f8"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +5619 HOOK   Stop {"prompt_id": "60f7a779-6947-45ae-9356-ef14c1eab9f8", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +5740 REC    assistant/ {"uuid": "9a7bbdfa", "parentUuid": "a8e7b11a", "timestamp": "2026-09-29T16:14:48.834Z"} [{"type": "text", "text": "r20w1 r20w2 r20w3 "}]
+  +5740 REC    system/stop_hook_summary {"uuid": "3cb04da8", "parentUuid": "9a7bbdfa", "timestamp": "2026-09-29T16:14:48.886Z"} null
+  +5740 REC    system/turn_duration {"uuid": "5e9c8969", "parentUuid": "3cb04da8", "isMeta": false, "timestamp": "2026-09-29T16:14:48.900Z"} null
+  +5951 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +8287 HOOK   UserPromptSubmit {"prompt_id": "e4acbc57-f818-4dff-9ef8-8579e4b37970", "prompt": "<task-notification>\\n<task-id>bnau0hk9w</task-id>\\n<tool-use…"} keys=prompt,prompt_id
+  +8339 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:14:51.462Z"} <task-notification>\n<task-id>bnau0hk9w</task-id>\n<tool-use-id>toolu_fake19</tool-use-id>…
+  +8339 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:14:51.492Z"} null
+  +8373 MODEL  #21 tools=True n=39 last=user: tput-file>\n<status>completed</status>\n<summary>Background command "wait eight seconds" completed (exit code 0)</summary>\n</task-notification>\n</system-remin…
+  +8467 REC    user/ {"promptId": "e4acbc57", "uuid": "a757c208", "parentUuid": "5e9c8969", "promptSource": "system", "timestamp": "2026-09-29T16:14:51.515Z", "origin": {"kind": "task-notification", "producer": "session-task"}} <task-notification>\n<task-id>bnau0hk9w</task-id>\n<tool-use-id>toolu_fake19</tool-use-id>…
+  +8498 HOOK   Stop {"prompt_id": "e4acbc57-f818-4dff-9ef8-8579e4b37970", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +8501 HOOK   MessageDisplay {"prompt_id": "e4acbc57-f818-4dff-9ef8-8579e4b37970"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +8607 REC    assistant/ {"uuid": "15335f1d", "parentUuid": "a757c208", "timestamp": "2026-09-29T16:14:51.713Z"} [{"type": "text", "text": "r21w1 r21w2 r21w3 "}]
+  +8607 REC    system/stop_hook_summary {"uuid": "e5eb192e", "parentUuid": "15335f1d", "timestamp": "2026-09-29T16:14:51.768Z"} null
+  +8607 REC    system/turn_duration {"uuid": "c91664ed", "parentUuid": "e5eb192e", "isMeta": false, "timestamp": "2026-09-29T16:14:51.774Z"} null
+  +8874 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +16636 MARK   A5_END

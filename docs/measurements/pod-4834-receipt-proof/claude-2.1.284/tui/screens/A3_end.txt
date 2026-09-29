@@ -1,0 +1,45 @@
+
+✻ Worked for 0s · done 6:12 PM
+
+❯ QUEUED-A1 typed while the tool runs
+
+● r6w1 r6w2 r6w3
+
+✻ Crunched for 0s · done 6:12 PM
+
+❯ TOOLSLEEP A1 busy
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ QUEUED-A1 typed while the tool runs
+
+● r5w1 r5w2 r5w3
+
+✻ Crunched for 0s · done 6:13 PM
+
+❯ SLOWTEXT A2 streaming
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ AFTER-INT A2 sent after interrupt
+
+● r9w1 r9w2 r9w3
+
+✻ Worked for 0s · done 6:13 PM
+
+❯ TOOLSLEEP A3 busy
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ AFTER-INT A3 sent after interrupt
+
+● r13w1 r13w2 r13w3
+
+✻ Worked for 0s · done 6:14 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

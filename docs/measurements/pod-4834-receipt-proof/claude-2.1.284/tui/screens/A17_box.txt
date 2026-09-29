@@ -1,0 +1,45 @@
+
+
+● r40w1 r40w2 r40w3
+
+✻ Crunched for 8s · done 6:16 PM
+
+❯ SLOWTEXT A13 streaming
+
+● r42w1 r42w2 r42w3 r42w4 r42w5 r42w6 r42w7 r42w8 r42w9 r42w10 r42w11 r42w12 r42w13 r42w14 r42w15 r42w16 r42w17 r42w18 r42w19 r42w20
+
+✻ Brewed for 10s · done 6:17 PM
+
+❯ Q1-A13 first
+
+❯ Q2-A13 second
+
+❯ Q3-A13 third
+
+● r44w1 r44w2 r44w3
+
+✻ Brewed for 0s · done 6:17 PM
+
+❯ RAPID-A A14
+
+● r46w1 r46w2 r46w3
+
+✻ Cooked for 0s · done 6:17 PM
+
+❯ RAPID-B A14
+
+● r48w1 r48w2 r48w3
+
+✻ Baked for 0s · done 6:17 PM
+
+❯ /cmdx CMDARG-A15
+
+● r49w1 r49w2 r49w3
+
+✻ Worked for 0s · done 6:17 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ [Pasted text #1 +4 lines]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  paste again to expand

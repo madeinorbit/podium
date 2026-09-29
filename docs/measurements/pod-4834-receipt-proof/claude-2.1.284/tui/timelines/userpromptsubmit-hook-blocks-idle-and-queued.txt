@@ -1,0 +1,48 @@
+     +0 MARK   A7_IDLE
+    +56 HOOK   UserPromptSubmit {"prompt_id": "17b722e4-e3fc-4113-ac6f-501bafaed68e", "prompt": "BLOCKME A7 idle"} keys=prompt,prompt_id
+    +63 HIST   history.jsonl ts=1790698527217 sid=db6804f3 BLOCKME A7 idle pasted={}
+   +251 REC    system/informational {"uuid": "eac49322", "parentUuid": "ea92b4bd", "isMeta": false, "timestamp": "2026-09-29T16:15:27.277Z"} UserPromptSubmit operation blocked by hook:\nblocked-by-test\n\nOriginal prompt: BLOCKME A…
+  +3047 MARK   A7_END
+  +3484 MARK   A8_BUSY
+  +3533 HOOK   UserPromptSubmit {"prompt_id": "9e6995f6-64a3-4624-a2d3-46e05f18ef25", "prompt": "TOOLSLEEP A8 busy"} keys=prompt,prompt_id
+  +3536 HIST   history.jsonl ts=1790698530702 sid=db6804f3 TOOLSLEEP A8 busy pasted={}
+  +3594 MODEL  #26 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+  +3598 MODEL  #27 tools=True n=48 last=user: TOOLSLEEP A8 busy
+  +3623 HOOK   PreToolUse {"prompt_id": "9e6995f6-64a3-4624-a2d3-46e05f18ef25", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+  +3662 REC    user/ {"promptId": "9e6995f6", "uuid": "0abd968e", "parentUuid": "eac49322", "promptSource": "typed", "timestamp": "2026-09-29T16:15:30.706Z", "origin": {"kind": "human"}} TOOLSLEEP A8 busy
+  +3662 REC    assistant/ {"uuid": "0fe37d7a", "parentUuid": "2f5ed8f1", "timestamp": "2026-09-29T16:15:30.807Z"} [{"type": "tool_use", "id": "toolu_fake27", "name": "Bash", "input": {"command": "sleep 8"…
+  +3978 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +6431 MARK   A8_Q
+  +6455 HOOK   UserPromptSubmit {"prompt_id": "9e6995f6-64a3-4624-a2d3-46e05f18ef25", "prompt": "BLOCKME A8 queued in tool"} keys=prompt,prompt_id
+  +6486 HIST   history.jsonl ts=1790698533670 sid=db6804f3 BLOCKME A8 queued in tool pasted={}
+  +6544 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:15:33.645Z"} BLOCKME A8 queued in tool
+  +6544 REC    queue-operation/remove {"timestamp": "2026-09-29T16:15:33.670Z"} BLOCKME A8 queued in tool
+ +11744 HOOK   PostToolUse {"prompt_id": "9e6995f6-64a3-4624-a2d3-46e05f18ef25", "tool_name": "Bash"} keys=duration_ms,effort,prompt_id,tool_name,tool_use_id
+ +11823 HOOK   PostToolBatch {"prompt_id": "9e6995f6-64a3-4624-a2d3-46e05f18ef25"} keys=effort,prompt_id,tool_calls
+ +11872 MODEL  #28 tools=True n=51 last=user: [tool_result toolu_fake27: (Bash completed with no output)]
+ +11914 REC    user/ {"promptId": "9e6995f6", "uuid": "898682e8", "parentUuid": "0fe37d7a", "timestamp": "2026-09-29T16:15:38.963Z"} [{"tool_use_id": "toolu_fake27", "type": "tool_result", "content": "(Bash completed with n…
+ +12018 HOOK   Stop {"prompt_id": "9e6995f6-64a3-4624-a2d3-46e05f18ef25", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +12018 HOOK   MessageDisplay {"prompt_id": "9e6995f6-64a3-4624-a2d3-46e05f18ef25"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +12164 REC    assistant/ {"uuid": "73f8c18d", "parentUuid": "23e639fa", "timestamp": "2026-09-29T16:15:39.174Z"} [{"type": "text", "text": "r28w1 r28w2 r28w3 "}]
+ +12164 REC    system/stop_hook_summary {"uuid": "b5761520", "parentUuid": "73f8c18d", "timestamp": "2026-09-29T16:15:39.238Z"} null
+ +12164 REC    system/turn_duration {"uuid": "35a41fdc", "parentUuid": "b5761520", "isMeta": false, "timestamp": "2026-09-29T16:15:39.243Z"} null
+ +12353 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +14515 MARK   A8_END
+ +14982 MARK   A9_BUSY
+ +15067 HOOK   UserPromptSubmit {"prompt_id": "856308e8-6bb8-4b19-b2ab-62ad1418769f", "prompt": "SLOWTEXT A9 streaming"} keys=prompt,prompt_id
+ +15071 HIST   history.jsonl ts=1790698542202 sid=db6804f3 SLOWTEXT A9 streaming pasted={}
+ +15107 MODEL  #29 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+ +15108 MODEL  #30 tools=True n=54 last=user: SLOWTEXT A9 streaming
+ +15181 REC    user/ {"promptId": "856308e8", "uuid": "4efa2444", "parentUuid": "35a41fdc", "promptSource": "typed", "timestamp": "2026-09-29T16:15:42.212Z", "origin": {"kind": "human"}} SLOWTEXT A9 streaming
+ +18010 MARK   A9_Q
+ +18046 HOOK   UserPromptSubmit {"prompt_id": "856308e8-6bb8-4b19-b2ab-62ad1418769f", "prompt": "BLOCKME A9 queued in text"} keys=prompt,prompt_id
+ +18083 HIST   history.jsonl ts=1790698545264 sid=db6804f3 BLOCKME A9 queued in text pasted={}
+ +18135 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:15:45.231Z"} BLOCKME A9 queued in text
+ +18135 REC    queue-operation/remove {"timestamp": "2026-09-29T16:15:45.263Z"} BLOCKME A9 queued in text
+ +25369 HOOK   Stop {"prompt_id": "856308e8-6bb8-4b19-b2ab-62ad1418769f", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +25375 HOOK   MessageDisplay {"prompt_id": "856308e8-6bb8-4b19-b2ab-62ad1418769f"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +25571 REC    assistant/ {"uuid": "58c62632", "parentUuid": "03277585", "timestamp": "2026-09-29T16:15:52.505Z"} [{"type": "text", "text": "r30w1 r30w2 r30w3 r30w4 r30w5 r30w6 r30w7 r30w8 r30w9 r30w10 r3…
+ +25571 REC    system/stop_hook_summary {"uuid": "ea0a0e97", "parentUuid": "58c62632", "timestamp": "2026-09-29T16:15:52.612Z"} null
+ +25571 REC    system/turn_duration {"uuid": "24bb2794", "parentUuid": "ea0a0e97", "isMeta": false, "timestamp": "2026-09-29T16:15:52.618Z"} null
+ +25776 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +28073 MARK   A9_END

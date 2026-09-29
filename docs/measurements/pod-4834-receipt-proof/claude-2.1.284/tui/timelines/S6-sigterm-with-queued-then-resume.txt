@@ -1,0 +1,36 @@
+     +0 MARK   B1_BUSY
+   +582 HOOK   UserPromptSubmit {"prompt_id": "778afe75-70a8-454e-9d11-453c6fca31e7", "prompt": "TOOLSLEEP B1 busy"} keys=prompt,prompt_id
+   +605 HIST   history.jsonl ts=1790698804339 sid=db6804f3 TOOLSLEEP B1 busy pasted={}
+   +864 MODEL  #65 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +871 MODEL  #66 tools=True n=8 last=user: TOOLSLEEP B1 busy
+   +921 HOOK   PreToolUse {"prompt_id": "778afe75-70a8-454e-9d11-453c6fca31e7", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+   +964 REC    user/ {"promptId": "778afe75", "uuid": "cce11220", "parentUuid": "3f6b55cf", "promptSource": "typed", "timestamp": "2026-09-29T16:20:04.523Z", "origin": {"kind": "human"}} TOOLSLEEP B1 busy
+   +964 REC    assistant/ {"uuid": "2c8ea48e", "parentUuid": "75e653bf", "timestamp": "2026-09-29T16:20:04.931Z"} [{"type": "tool_use", "id": "toolu_fake66", "name": "Bash", "input": {"command": "sleep 8"…
+  +1305 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +3223 MARK   B1_Q
+  +3441 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:20:07.370Z"} QUEUED-B1 before sigterm
+  +3476 HOOK   UserPromptSubmit {"prompt_id": "778afe75-70a8-454e-9d11-453c6fca31e7", "prompt": "QUEUED-B1 before sigterm"} keys=prompt,prompt_id
+  +4657 MARK   B1_SIGTERM
+  +4722 REC    cost-state/ {} null
+  +4728 REC    cost-state/ {} null
+  +4859 HOOK   SessionEnd {"prompt_id": "778afe75-70a8-454e-9d11-453c6fca31e7", "reason": "other"} keys=prompt_id,reason
+  +7779 MARK   B1_END
+ +14450 MARK   B2_RESUME
+ +14516 MARK   START_rf4862tA2
+ +15326 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+ +15798 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +23730 MARK   B2_END
+ +31593 MARK   B3_AFTER_RESUME
+ +31785 HOOK   UserPromptSubmit {"prompt_id": "5a3b1f8e-5ef9-46d4-aab6-6fb1d91f0b68", "prompt": "AFTER-RESUME B3"} keys=prompt,prompt_id
+ +31787 HIST   history.jsonl ts=1790698835694 sid=db6804f3 AFTER-RESUME B3 pasted={}
+ +31894 MODEL  #68 tools=True n=13 last=user: AFTER-RESUME B3
+ +31921 REC    user/ {"promptId": "5a3b1f8e", "uuid": "897e2527", "parentUuid": "2c8ea48e", "timestamp": "2026-09-29T16:20:19.282Z"} [{"type": "tool_result", "content": "[Tool call interrupted: the session ended before this…
+ +31921 REC    assistant/ {"uuid": "34a9cace", "parentUuid": "897e2527", "isApiErrorMessage": false, "timestamp": "2026-09-29T16:20:19.283Z"} [{"type": "text", "text": "No response requested."}]
+ +31921 REC    user/ {"promptId": "5a3b1f8e", "uuid": "900eaf1e", "parentUuid": "34a9cace", "promptSource": "typed", "timestamp": "2026-09-29T16:20:35.749Z", "origin": {"kind": "human"}} AFTER-RESUME B3
+ +32064 HOOK   MessageDisplay {"prompt_id": "5a3b1f8e-5ef9-46d4-aab6-6fb1d91f0b68"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +32071 HOOK   Stop {"prompt_id": "5a3b1f8e-5ef9-46d4-aab6-6fb1d91f0b68", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +32196 REC    assistant/ {"uuid": "22e9b960", "parentUuid": "3534061d", "timestamp": "2026-09-29T16:20:36.046Z"} [{"type": "text", "text": "r68w1 r68w2 r68w3 "}]
+ +32196 REC    system/stop_hook_summary {"uuid": "7328b953", "parentUuid": "22e9b960", "timestamp": "2026-09-29T16:20:36.144Z"} null
+ +32196 REC    system/turn_duration {"uuid": "9b843445", "parentUuid": "7328b953", "isMeta": false, "timestamp": "2026-09-29T16:20:36.151Z"} null
+ +32404 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +34645 MARK   B3_END

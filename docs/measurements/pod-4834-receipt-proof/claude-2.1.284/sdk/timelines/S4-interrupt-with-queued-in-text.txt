@@ -1,0 +1,65 @@
+     +0 MARK   S4B_BUSY
+     +0 IN     user/ {"uuid": "OURS-24"} [{"type": "text", "text": "SLOWTEXT S4B streaming"}]
+     +3 OUT    command_lifecycle/queued {"uuid": "51ed98fb", "command_uuid": "OURS-24"} 
+     +4 OUT    command_lifecycle/started {"uuid": "9cfa70f9", "command_uuid": "OURS-24"} 
+    +26 HOOK   UserPromptSubmit {"prompt_id": "0ad78e76-09f7-4bdb-ade6-2fa77b0b053d", "prompt": "SLOWTEXT S4B streaming"} keys=prompt,prompt_id
+    +45 OUT    system/init {"uuid": "c41a4b2c"} 
+    +50 OUT    system/status {"uuid": "2f383a2c", "status": "requesting"} 
+    +68 MODEL  #18 tools=True n=11 last=user: SLOWTEXT S4B streaming
+    +73 OUT    user/ {"uuid": "OURS-24", "isReplay": true, "timestamp": "2026-09-29T16:26:32.134Z"} [{"type": "text", "text": "SLOWTEXT S4B streaming"}]
+    +74 SE     message_start
+   +105 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:26:32.127Z"} null
+   +105 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:26:32.128Z"} null
+   +105 REC    user/ {"promptId": "0ad78e76", "uuid": "OURS-24", "parentUuid": "237498a6", "promptSource": "sdk", "timestamp": "2026-09-29T16:26:32.134Z"} [{"type": "text", "text": "SLOWTEXT S4B streaming"}]
+  +2501 MARK   S4B_Q
+  +2501 IN     user/ {"uuid": "OURS-25"} [{"type": "text", "text": "QUEUED-S4B before interrupt"}]
+  +2504 OUT    command_lifecycle/queued {"uuid": "329504d2", "command_uuid": "OURS-25"} 
+  +2610 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:26:34.628Z"} null
+  +3301 MARK   S4B_INT
+  +3301 IN     control_request/interrupt {"request_id": "int-2"} 
+  +3304 OUT    control_response/success {} 
+  +3308 OUT    assistant/ {"uuid": "cda888a5", "timestamp": "2026-09-29T16:26:35.429Z"} [{"type": "text", "text": "r18w1 r18w2 r18w3 r18w4 r18w5 r18w6 "}]
+  +3311 OUT    user/ {"uuid": "86843fcf", "timestamp": "2026-09-29T16:26:35.434Z"} [{"type": "text", "text": "[Request interrupted by user]"}]
+  +3315 OUT    result/error_during_execution {"uuid": "c535f481", "is_error": true, "num_turns": 2} 
+  +3318 REC    assistant/ {"uuid": "cda888a5", "parentUuid": "92da484c", "timestamp": "2026-09-29T16:26:35.429Z"} [{"type": "text", "text": "r18w1 r18w2 r18w3 r18w4 r18w5 r18w6 "}]
+  +3318 REC    user/ {"promptId": "0ad78e76", "uuid": "86843fcf", "parentUuid": "cda888a5", "timestamp": "2026-09-29T16:26:35.434Z"} [{"type": "text", "text": "[Request interrupted by user]"}]
+  +3320 OUT    command_lifecycle/cancelled {"uuid": "9fc78ea9", "command_uuid": "OURS-24"} 
+  +3331 OUT    command_lifecycle/started {"uuid": "7b901b5b", "command_uuid": "OURS-25"} 
+  +3373 HOOK   UserPromptSubmit {"prompt_id": "05185762-6f02-41fd-aec3-279e203de717", "prompt": "QUEUED-S4B before interrupt"} keys=prompt,prompt_id
+  +3418 OUT    system/init {"uuid": "742fd0dc"} 
+  +3422 OUT    system/status {"uuid": "12bd625a", "status": "requesting"} 
+  +3490 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:26:35.443Z"} null
+  +3490 REC    user/ {"promptId": "05185762", "uuid": "OURS-25", "parentUuid": "86843fcf", "promptSource": "sdk", "timestamp": "2026-09-29T16:26:35.484Z"} [{"type": "text", "text": "QUEUED-S4B before interrupt"}]
+  +3493 MODEL  #19 tools=True n=14 last=user: [Request interrupted by user]\n | QUEUED-S4B before interrupt
+  +3497 OUT    user/ {"uuid": "OURS-25", "isReplay": true, "timestamp": "2026-09-29T16:26:35.484Z"} [{"type": "text", "text": "QUEUED-S4B before interrupt"}]
+  +3497 SE     message_start
+  +3639 HOOK   MessageDisplay {"prompt_id": "05185762-6f02-41fd-aec3-279e203de717"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +3655 OUT    assistant/ {"uuid": "045822d7", "timestamp": "2026-09-29T16:26:35.735Z"} [{"type": "text", "text": "r19w1 r19w2 r19w3 "}]
+  +3658 SE     message_stop
+  +3669 HOOK   Stop {"prompt_id": "05185762-6f02-41fd-aec3-279e203de717", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +3692 REC    assistant/ {"uuid": "045822d7", "parentUuid": "0b925a9d", "timestamp": "2026-09-29T16:26:35.735Z"} [{"type": "text", "text": "r19w1 r19w2 r19w3 "}]
+  +3692 REC    system/stop_hook_summary {"uuid": "b68a42ab", "parentUuid": "045822d7", "timestamp": "2026-09-29T16:26:35.804Z"} null
+  +3694 OUT    result/success {"uuid": "04c6b571", "is_error": false, "result": "r19w1 r19w2 r19w3 ", "num_turns": 1} 
+  +3701 OUT    command_lifecycle/completed {"uuid": "ed5ebb04", "command_uuid": "OURS-25"} 
+  +6307 MARK   S4B_AFTER
+  +6309 IN     user/ {"uuid": "OURS-26"} [{"type": "text", "text": "AFTER-INT S4B"}]
+  +6313 OUT    command_lifecycle/queued {"uuid": "60083a70", "command_uuid": "OURS-26"} 
+  +6315 OUT    command_lifecycle/started {"uuid": "425d492d", "command_uuid": "OURS-26"} 
+  +6331 HOOK   UserPromptSubmit {"prompt_id": "c84f9e20-330b-4f48-b50c-2b366e41fbe4", "prompt": "AFTER-INT S4B"} keys=prompt,prompt_id
+  +6354 OUT    system/init {"uuid": "bf0914c3"} 
+  +6369 OUT    system/status {"uuid": "20e2ce48", "status": "requesting"} 
+  +6421 MODEL  #20 tools=True n=17 last=user: AFTER-INT S4B
+  +6423 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:26:38.437Z"} null
+  +6423 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:26:38.439Z"} null
+  +6423 REC    user/ {"promptId": "c84f9e20", "uuid": "OURS-26", "parentUuid": "b68a42ab", "promptSource": "sdk", "timestamp": "2026-09-29T16:26:38.446Z"} [{"type": "text", "text": "AFTER-INT S4B"}]
+  +6427 OUT    user/ {"uuid": "OURS-26", "isReplay": true, "timestamp": "2026-09-29T16:26:38.446Z"} [{"type": "text", "text": "AFTER-INT S4B"}]
+  +6431 SE     message_start
+  +6561 HOOK   MessageDisplay {"prompt_id": "c84f9e20-330b-4f48-b50c-2b366e41fbe4"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +6618 OUT    assistant/ {"uuid": "d7c73e46", "timestamp": "2026-09-29T16:26:38.642Z"} [{"type": "text", "text": "r20w1 r20w2 r20w3 "}]
+  +6661 SE     message_stop
+  +6697 HOOK   Stop {"prompt_id": "c84f9e20-330b-4f48-b50c-2b366e41fbe4", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +6725 OUT    result/success {"uuid": "d7a5c27a", "is_error": false, "result": "r20w1 r20w2 r20w3 ", "num_turns": 1} 
+  +6727 REC    assistant/ {"uuid": "d7c73e46", "parentUuid": "f0a34469", "timestamp": "2026-09-29T16:26:38.642Z"} [{"type": "text", "text": "r20w1 r20w2 r20w3 "}]
+  +6727 REC    system/stop_hook_summary {"uuid": "6d462122", "parentUuid": "d7c73e46", "timestamp": "2026-09-29T16:26:38.842Z"} null
+  +6729 OUT    command_lifecycle/completed {"uuid": "237f2c8f", "command_uuid": "OURS-26"} 
+ +10312 MARK   S5A_BUSY

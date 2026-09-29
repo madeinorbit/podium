@@ -1,0 +1,43 @@
+     +0 MARK   K6_BUSY
+     +1 IN     user/ {"uuid": "OURS-10"} [{"type": "text", "text": "SLOWTEXT K6 streaming"}]
+     +3 OUT    command_lifecycle/queued {"uuid": "d615298a", "command_uuid": "OURS-10"} 
+     +4 OUT    command_lifecycle/started {"uuid": "c1bd607c", "command_uuid": "OURS-10"} 
+    +16 HOOK   UserPromptSubmit {"prompt_id": "37bb9d0a-1696-4129-a697-3307b0eefd03", "prompt": "SLOWTEXT K6 streaming"} keys=prompt,prompt_id
+    +25 OUT    system/init {"uuid": "2cb6c6ad"} 
+    +27 OUT    system/status {"uuid": "b76c2b06", "status": "requesting"} 
+    +42 MODEL  #12 tools=True n=29 last=user: SLOWTEXT K6 streaming
+    +44 OUT    user/ {"uuid": "OURS-10", "isReplay": true, "timestamp": "2026-09-29T16:25:22.355Z"} [{"type": "text", "text": "SLOWTEXT K6 streaming"}]
+    +44 SE     message_start
+   +105 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:25:22.348Z"} null
+   +105 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:25:22.349Z"} null
+   +105 REC    user/ {"promptId": "37bb9d0a", "uuid": "OURS-10", "parentUuid": "8271676b", "promptSource": "sdk", "timestamp": "2026-09-29T16:25:22.355Z"} [{"type": "text", "text": "SLOWTEXT K6 streaming"}]
+  +2503 MARK   K6_Q
+  +2504 IN     user/ {"uuid": "OURS-11", "priority": "later"} [{"type": "text", "text": "LATER-K6 priority later in text"}]
+  +2506 OUT    command_lifecycle/queued {"uuid": "9c63df24", "command_uuid": "OURS-11"} 
+  +2607 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:25:24.851Z"} null
+ +10129 HOOK   MessageDisplay {"prompt_id": "37bb9d0a-1696-4129-a697-3307b0eefd03"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +10136 OUT    assistant/ {"uuid": "ee902a3e", "timestamp": "2026-09-29T16:25:32.461Z"} [{"type": "text", "text": "r12w1 r12w2 r12w3 r12w4 r12w5 r12w6 r12w7 r12w8 r12w9 r12w10 r12w11 r12w1…
+ +10140 SE     message_stop
+ +10148 HOOK   Stop {"prompt_id": "37bb9d0a-1696-4129-a697-3307b0eefd03", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +10159 OUT    result/success {"uuid": "29926890", "is_error": false, "result": "r12w1 r12w2 r12w3 r12w4 r12w5 r12w6 r12w7 r12w8 r12w9 r12w10 r12w11 r12w12 r12w13 r12w14 r12w15 r12w16 r12w17 r12w18 r12w19 r12w20 ", "num_turns": 1} 
+ +10160 OUT    command_lifecycle/completed {"uuid": "4e1b2ac3", "command_uuid": "OURS-10"} 
+ +10160 OUT    command_lifecycle/started {"uuid": "e027ce56", "command_uuid": "OURS-11"} 
+ +10162 REC    assistant/ {"uuid": "ee902a3e", "parentUuid": "74cd8e7e", "timestamp": "2026-09-29T16:25:32.461Z"} [{"type": "text", "text": "r12w1 r12w2 r12w3 r12w4 r12w5 r12w6 r12w7 r12w8 r12w9 r12w10 r1…
+ +10162 REC    system/stop_hook_summary {"uuid": "a6e4ad59", "parentUuid": "ee902a3e", "timestamp": "2026-09-29T16:25:32.500Z"} null
+ +10187 HOOK   UserPromptSubmit {"prompt_id": "0cabb1a4-7ac2-47ab-9d13-98dd09ed90fd", "prompt": "LATER-K6 priority later in text"} keys=prompt,prompt_id
+ +10224 OUT    system/init {"uuid": "8fd4956f"} 
+ +10226 OUT    system/status {"uuid": "0e0d7dcd", "status": "requesting"} 
+ +10249 MODEL  #13 tools=True n=32 last=user: LATER-K6 priority later in text
+ +10256 OUT    user/ {"uuid": "OURS-11", "isReplay": true, "timestamp": "2026-09-29T16:25:32.521Z"} [{"type": "text", "text": "LATER-K6 priority later in text"}]
+ +10256 SE     message_start
+ +10262 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:25:32.503Z"} null
+ +10262 REC    user/ {"promptId": "0cabb1a4", "uuid": "OURS-11", "parentUuid": "a6e4ad59", "promptSource": "sdk", "timestamp": "2026-09-29T16:25:32.521Z"} [{"type": "text", "text": "LATER-K6 priority later in text"}]
+ +10365 HOOK   MessageDisplay {"prompt_id": "0cabb1a4-7ac2-47ab-9d13-98dd09ed90fd"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +10371 OUT    assistant/ {"uuid": "12eeceae", "timestamp": "2026-09-29T16:25:32.695Z"} [{"type": "text", "text": "r13w1 r13w2 r13w3 "}]
+ +10374 SE     message_stop
+ +10382 HOOK   Stop {"prompt_id": "0cabb1a4-7ac2-47ab-9d13-98dd09ed90fd", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +10388 OUT    result/success {"uuid": "0d799183", "is_error": false, "result": "r13w1 r13w2 r13w3 ", "num_turns": 1} 
+ +10390 OUT    command_lifecycle/completed {"uuid": "ba922c8f", "command_uuid": "OURS-11"} 
+ +10391 REC    assistant/ {"uuid": "12eeceae", "parentUuid": "b0b8b3e7", "timestamp": "2026-09-29T16:25:32.695Z"} [{"type": "text", "text": "r13w1 r13w2 r13w3 "}]
+ +10391 REC    system/stop_hook_summary {"uuid": "6fd89336", "parentUuid": "12eeceae", "timestamp": "2026-09-29T16:25:32.732Z"} null
+ +14506 MARK   K_END

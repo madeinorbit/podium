@@ -1,0 +1,45 @@
+
+
+✻ Crunched for 0s · done 6:13 PM
+
+❯ SLOWTEXT A2 streaming
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ AFTER-INT A2 sent after interrupt
+
+● r9w1 r9w2 r9w3
+
+✻ Worked for 0s · done 6:13 PM
+
+❯ TOOLSLEEP A3 busy
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ AFTER-INT A3 sent after interrupt
+
+● r13w1 r13w2 r13w3
+
+✻ Worked for 0s · done 6:14 PM
+
+❯ TOOLSLEEP A4 busy
+
+  Ran 1 shell command
+
+❯ SENDNOW-A4 queued then send-now
+
+● r16w1 r16w2 r16w3
+
+✻ Crunched for 5s · done 6:14 PM
+
+● Background command "wait eight seconds" completed (exit code 0)
+
+● r17w1 r17w2 r17w3
+
+✻ Baked for 0s · done 6:14 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

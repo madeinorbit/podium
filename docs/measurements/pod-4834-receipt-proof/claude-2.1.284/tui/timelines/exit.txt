@@ -1,0 +1,6 @@
+     +0 MARK   E_EXIT
+    +69 REC    cost-state/ {} null
+    +69 HIST   history.jsonl ts=1790699005484 sid=db6804f3 /exit pasted={}
+   +104 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+   +109 HOOK   SessionEnd {"prompt_id": "35eb7550-621d-452b-9946-e3eaee83cef1", "reason": "prompt_input_exit"} keys=prompt_id,reason
+  +3041 MARK   E_END

@@ -1,0 +1,73 @@
+     +0 MARK   R3_SEND
+     +0 IN     user/ {"uuid": "OURS-43"} [{"type": "text", "text": "HANGFIRST R3 kill at 40ms"}]
+    +43 OUT    command_lifecycle/queued {"uuid": "dddb4f2b", "command_uuid": "OURS-43"} 
+    +50 MARK   R3_KILL9
+    +50 OUT    command_lifecycle/started {"uuid": "93fc80fb", "command_uuid": "OURS-43"} 
+    +50 NOTE   SIGKILL
+    +86 EXIT   null SIGKILL
+  +1648 ARGS   ["--output-format","stream-json","--verbose","--input-format","stream-json","--include-partial-messages","--replay-user-messages","--permission-mode","bypassPermissions","--allow-dangerously-skip-perm…
+  +1661 IN     control_request/initialize {"request_id": "init-1"} 
+  +2140 OUT    system/hook_started {"uuid": "7487629a"} 
+  +2151 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+  +2161 OUT    system/hook_response {"uuid": "7aad50fd"} 
+  +2210 OUT    {"type":"control_response","response":{"subtype":"success","request_id":"init-1","response":{"commands":[{"name":"deep-research","description":"Deep research ha…
+  +3218 MARK   R4_SEND
+  +3218 IN     user/ {"uuid": "OURS-44"} [{"type": "text", "text": "HANGFIRST R4 kill at 150ms"}]
+  +3223 OUT    command_lifecycle/queued {"uuid": "852627c2", "command_uuid": "OURS-44"} 
+  +3225 OUT    command_lifecycle/started {"uuid": "0f4fb8ce", "command_uuid": "OURS-44"} 
+  +3349 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:28:20.156Z"} null
+  +3349 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:28:20.157Z"} null
+  +3356 HOOK   UserPromptSubmit {"prompt_id": "f9e0c43b-94ee-42aa-bcc6-fe904068ab37", "prompt": "HANGFIRST R4 kill at 150ms"} keys=prompt,prompt_id
+  +3388 MARK   R4_KILL9
+  +3388 NOTE   SIGKILL
+  +3524 EXIT   null SIGKILL
+  +5117 ARGS   ["--output-format","stream-json","--verbose","--input-format","stream-json","--include-partial-messages","--replay-user-messages","--permission-mode","bypassPermissions","--allow-dangerously-skip-perm…
+  +5143 IN     control_request/initialize {"request_id": "init-1"} 
+  +5654 OUT    system/hook_started {"uuid": "d23bc0b5"} 
+  +5660 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+  +5670 OUT    system/hook_response {"uuid": "97f3b0f5"} 
+  +5717 OUT    {"type":"control_response","response":{"subtype":"success","request_id":"init-1","response":{"commands":[{"name":"deep-research","description":"Deep research ha…
+  +6719 MARK   R5_RESEND43
+  +6720 IN     user/ {"uuid": "OURS-43"} [{"type": "text", "text": "R3 resent"}]
+  +6726 OUT    command_lifecycle/queued {"uuid": "e6b7af1c", "command_uuid": "OURS-43"} 
+  +6728 OUT    command_lifecycle/started {"uuid": "159b68f9", "command_uuid": "OURS-43"} 
+  +6781 HOOK   UserPromptSubmit {"prompt_id": "fead069a-f173-4fe4-b5be-9b4c351e9d5d", "prompt": "R3 resent"} keys=prompt,prompt_id
+  +6801 OUT    system/init {"uuid": "7180611a"} 
+  +6806 OUT    system/status {"uuid": "81c11079", "status": "requesting"} 
+  +6851 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:28:23.660Z"} null
+  +6851 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:28:23.662Z"} null
+  +6851 REC    user/ {"promptId": "fead069a", "uuid": "OURS-43", "parentUuid": "87fffa5f", "promptSource": "sdk", "timestamp": "2026-09-29T16:28:23.709Z"} [{"type": "text", "text": "R3 resent"}]
+  +6859 MODEL  #32 tools=True n=10 last=user: R3 resent
+  +6863 OUT    user/ {"uuid": "OURS-43", "isReplay": true, "timestamp": "2026-09-29T16:28:23.709Z"} [{"type": "text", "text": "R3 resent"}]
+  +6865 SE     message_start
+  +6968 HOOK   MessageDisplay {"prompt_id": "fead069a-f173-4fe4-b5be-9b4c351e9d5d"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +6999 OUT    assistant/ {"uuid": "cb32acec", "timestamp": "2026-09-29T16:28:23.890Z"} [{"type": "text", "text": "r32w1 r32w2 r32w3 "}]
+  +7003 SE     message_stop
+  +7016 HOOK   Stop {"prompt_id": "fead069a-f173-4fe4-b5be-9b4c351e9d5d", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +7024 OUT    result/success {"uuid": "c98a2c26", "is_error": false, "result": "r32w1 r32w2 r32w3 ", "num_turns": 1} 
+  +7026 OUT    command_lifecycle/completed {"uuid": "d87a067e", "command_uuid": "OURS-43"} 
+  +7036 REC    assistant/ {"uuid": "cb32acec", "parentUuid": "7cc58c6a", "timestamp": "2026-09-29T16:28:23.890Z"} [{"type": "text", "text": "r32w1 r32w2 r32w3 "}]
+  +7036 REC    system/stop_hook_summary {"uuid": "4470a0b1", "parentUuid": "cb32acec", "timestamp": "2026-09-29T16:28:23.955Z"} null
+  +9722 MARK   R5_RESEND44
+  +9723 IN     user/ {"uuid": "OURS-44"} [{"type": "text", "text": "R4 resent"}]
+  +9728 OUT    command_lifecycle/queued {"uuid": "532f8bd3", "command_uuid": "OURS-44"} 
+  +9729 OUT    command_lifecycle/started {"uuid": "138fc15e", "command_uuid": "OURS-44"} 
+  +9777 HOOK   UserPromptSubmit {"prompt_id": "d2cb9a6b-9bf2-444c-9248-b2633cd28dce", "prompt": "R4 resent"} keys=prompt,prompt_id
+  +9794 OUT    system/init {"uuid": "d68282ce"} 
+  +9801 OUT    system/status {"uuid": "8ec64d96", "status": "requesting"} 
+  +9835 MODEL  #33 tools=True n=13 last=user: R4 resent
+  +9836 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:28:26.662Z"} null
+  +9836 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:28:26.663Z"} null
+  +9836 REC    user/ {"promptId": "d2cb9a6b", "uuid": "OURS-44", "parentUuid": "4470a0b1", "promptSource": "sdk", "timestamp": "2026-09-29T16:28:26.694Z"} [{"type": "text", "text": "R4 resent"}]
+  +9840 OUT    user/ {"uuid": "OURS-44", "isReplay": true, "timestamp": "2026-09-29T16:28:26.694Z"} [{"type": "text", "text": "R4 resent"}]
+  +9841 SE     message_start
+  +9941 HOOK   MessageDisplay {"prompt_id": "d2cb9a6b-9bf2-444c-9248-b2633cd28dce"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +9973 OUT    assistant/ {"uuid": "c5a978c8", "timestamp": "2026-09-29T16:28:26.869Z"} [{"type": "text", "text": "r33w1 r33w2 r33w3 "}]
+  +9974 SE     message_stop
+  +9991 HOOK   Stop {"prompt_id": "d2cb9a6b-9bf2-444c-9248-b2633cd28dce", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +10003 OUT    result/success {"uuid": "d7a095b2", "is_error": false, "result": "r33w1 r33w2 r33w3 ", "num_turns": 1} 
+ +10006 REC    assistant/ {"uuid": "c5a978c8", "parentUuid": "ab0e9c82", "timestamp": "2026-09-29T16:28:26.869Z"} [{"type": "text", "text": "r33w1 r33w2 r33w3 "}]
+ +10006 REC    system/stop_hook_summary {"uuid": "ae2677f8", "parentUuid": "c5a978c8", "timestamp": "2026-09-29T16:28:26.935Z"} null
+ +10006 OUT    command_lifecycle/completed {"uuid": "e33f377c", "command_uuid": "OURS-44"} 
+ +12729 MARK   R6_BUSY
+ +12729 IN     user/ {"uuid": "OURS-45"} [{"type": "text", "text": "TOOLSLEEP R6 busy"}]

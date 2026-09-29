@@ -1,0 +1,20 @@
+     +0 MARK   S10A_ERR
+     +0 IN     user/ {"uuid": "OURS-30"} [{"type": "text", "text": "ERR400 S10A idle"}]
+     +4 OUT    command_lifecycle/queued {"uuid": "478c7c9e", "command_uuid": "OURS-30"} 
+     +9 OUT    command_lifecycle/started {"uuid": "f05f3a77", "command_uuid": "OURS-30"} 
+    +32 HOOK   UserPromptSubmit {"prompt_id": "81fd89fa-02de-4b93-87e2-8bc41821a8bd", "prompt": "ERR400 S10A idle"} keys=prompt,prompt_id
+    +54 OUT    system/init {"uuid": "461d25a2"} 
+    +58 OUT    system/status {"uuid": "b0cedfaa", "status": "requesting"} 
+    +72 MODEL  #24 tools=True n=29 last=user: ERR400 S10A idle
+    +72 MODEL  #24 replied 400
+    +78 OUT    user/ {"uuid": "OURS-30", "isReplay": true, "timestamp": "2026-09-29T16:27:07.881Z"} [{"type": "text", "text": "ERR400 S10A idle"}]
+    +88 HOOK   MessageDisplay {"prompt_id": "81fd89fa-02de-4b93-87e2-8bc41821a8bd"} keys=delta,final,index,message_id,prompt_id,turn_id
+    +94 OUT    assistant/ {"uuid": "88750769", "timestamp": "2026-09-29T16:27:07.938Z"} [{"type": "text", "text": "API Error: 400 fake: rejected by test (ERR400)"}]
+   +102 HOOK   StopFailure {"prompt_id": "81fd89fa-02de-4b93-87e2-8bc41821a8bd", "error": "unknown"} keys=effort,error,last_assistant_message,prompt_id
+   +107 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:27:07.865Z"} null
+   +107 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:27:07.867Z"} null
+   +107 REC    user/ {"promptId": "81fd89fa", "uuid": "OURS-30", "parentUuid": "246516fd", "promptSource": "sdk", "timestamp": "2026-09-29T16:27:07.881Z"} [{"type": "text", "text": "ERR400 S10A idle"}]
+   +107 REC    assistant/ {"uuid": "88750769", "parentUuid": "b433565d", "isApiErrorMessage": true, "timestamp": "2026-09-29T16:27:07.938Z"} [{"type": "text", "text": "API Error: 400 fake: rejected by test (ERR400)"}]
+   +107 OUT    result/success {"uuid": "2dc49b67", "is_error": true, "result": "API Error: 400 fake: rejected by test (ERR400)", "num_turns": 1} 
+   +108 OUT    command_lifecycle/cancelled {"uuid": "7b96ccf5", "command_uuid": "OURS-30"} 
+  +5002 MARK   S_END

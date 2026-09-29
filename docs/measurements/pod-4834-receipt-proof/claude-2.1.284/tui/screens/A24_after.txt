@@ -1,0 +1,45 @@
+
+❯ CRLF-A20 one
+
+  two
+
+  three
+
+● r55w1 r55w2 r55w3
+
+✻ Sautéed for 0s · done 6:18 PM
+
+❯ UNI-A21 héllo é 🎉👩‍👩‍👧 日本語 עברית nbsp x
+
+● r57w1 r57w2 r57w3
+
+✻ Cooked for 0s · done 6:18 PM
+
+❯ CRLF-A22 one
+  two
+  three
+  LF-only four
+
+● r59w1 r59w2 r59w3
+
+✻ Brewed for 0s · done 6:19 PM
+
+❯ ZWSP-A23 zerowidth
+
+● r61w1 r61w2 r61w3
+
+✻ Cogitated for 0s · done 6:19 PM
+
+❯ /compact
+  ⎿  Compacted (ctrl+o to see full summary)
+     PreCompact [/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/rig/hook.sh PreCompact]
+     completed successfully
+     PostCompact [/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/rig/hook.sh PostCompact]
+     completed successfully
+  ⎿  Skills restored (cmdx)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

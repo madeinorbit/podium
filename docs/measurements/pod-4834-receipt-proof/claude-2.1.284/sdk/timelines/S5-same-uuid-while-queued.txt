@@ -1,0 +1,49 @@
+     +0 MARK   S5A_BUSY
+     +1 IN     user/ {"uuid": "OURS-27"} [{"type": "text", "text": "TOOLSLEEP S5A busy"}]
+     +6 OUT    command_lifecycle/queued {"uuid": "7b4cbd13", "command_uuid": "OURS-27"} 
+     +8 OUT    command_lifecycle/started {"uuid": "8300cec0", "command_uuid": "OURS-27"} 
+    +27 HOOK   UserPromptSubmit {"prompt_id": "f0f5b025-e0cf-433f-bc93-51d27a09397d", "prompt": "TOOLSLEEP S5A busy"} keys=prompt,prompt_id
+    +54 OUT    system/init {"uuid": "87b495f8"} 
+    +57 OUT    system/status {"uuid": "5807fea8", "status": "requesting"} 
+    +86 MODEL  #21 tools=True n=20 last=user: TOOLSLEEP S5A busy
+    +92 OUT    user/ {"uuid": "OURS-27", "isReplay": true, "timestamp": "2026-09-29T16:26:42.452Z"} [{"type": "text", "text": "TOOLSLEEP S5A busy"}]
+    +92 SE     message_start
+    +98 OUT    assistant/ {"uuid": "c1d12a9a", "timestamp": "2026-09-29T16:26:42.530Z"} [{"type": "tool_use", "id": "toolu_fake21", "name": "Bash", "input": {"command": "sleep 8", "descrip…
+   +107 SE     message_stop
+   +112 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:26:42.442Z"} null
+   +112 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:26:42.444Z"} null
+   +112 REC    user/ {"promptId": "f0f5b025", "uuid": "OURS-27", "parentUuid": "6d462122", "promptSource": "sdk", "timestamp": "2026-09-29T16:26:42.452Z"} [{"type": "text", "text": "TOOLSLEEP S5A busy"}]
+   +112 REC    assistant/ {"uuid": "c1d12a9a", "parentUuid": "8e65a53d", "timestamp": "2026-09-29T16:26:42.530Z"} [{"type": "tool_use", "id": "toolu_fake21", "name": "Bash", "input": {"command": "sleep 8"…
+   +115 HOOK   PreToolUse {"prompt_id": "f0f5b025-e0cf-433f-bc93-51d27a09397d", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+  +2018 MARK   S5A_Q1
+  +2018 IN     user/ {"uuid": "OURS-28"} [{"type": "text", "text": "DUP-S5A first"}]
+  +2033 OUT    command_lifecycle/queued {"uuid": "e6253924", "command_uuid": "OURS-28"} 
+  +2147 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:26:44.463Z"} null
+  +2420 MARK   S5A_Q2
+  +2420 IN     user/ {"uuid": "OURS-28"} [{"type": "text", "text": "DUP-S5A second same uuid"}]
+  +2421 OUT    user/ {"uuid": "OURS-28", "isReplay": true} [{"type": "text", "text": "DUP-S5A second same uuid"}]
+  +3140 OUT    system/task_started {"uuid": "aa8b0252"} 
+  +8157 OUT    system/task_notification {"uuid": "5dad2346", "status": "completed"} 
+  +8178 HOOK   PostToolUse {"prompt_id": "f0f5b025-e0cf-433f-bc93-51d27a09397d", "tool_name": "Bash"} keys=duration_ms,effort,prompt_id,tool_name,tool_use_id
+  +8197 OUT    user/ {"uuid": "2d4bb356", "timestamp": "2026-09-29T16:26:50.623Z"} [{"tool_use_id": "toolu_fake21", "type": "tool_result", "content": "(Bash completed with no output)"…
+  +8224 HOOK   PostToolBatch {"prompt_id": "f0f5b025-e0cf-433f-bc93-51d27a09397d"} keys=effort,prompt_id,tool_calls
+  +8258 HOOK   UserPromptSubmit {"prompt_id": "f0f5b025-e0cf-433f-bc93-51d27a09397d", "prompt": "DUP-S5A first"} keys=prompt,prompt_id
+  +8276 OUT    user/ {"uuid": "OURS-28", "isReplay": true, "timestamp": "2026-09-29T16:26:44.463Z"} [{"type": "text", "text": "DUP-S5A first"}]
+  +8276 OUT    command_lifecycle/started {"uuid": "6c7e2ee0", "command_uuid": "OURS-28"} 
+  +8279 OUT    system/status {"uuid": "a935be1f", "status": "requesting"} 
+  +8303 REC    user/ {"promptId": "f0f5b025", "uuid": "2d4bb356", "parentUuid": "c1d12a9a", "timestamp": "2026-09-29T16:26:50.623Z"} [{"tool_use_id": "toolu_fake21", "type": "tool_result", "content": "(Bash completed with n…
+  +8303 REC    attachment/queued_command {"uuid": "acd1d580", "parentUuid": "2d4bb356", "timestamp": "2026-09-29T16:26:44.463Z", "att.source_uuid": "OURS-28", "att.commandMode": "prompt"} [{"type": "text", "text": "DUP-S5A first"}]
+  +8303 REC    queue-operation/remove {"timestamp": "2026-09-29T16:26:50.712Z"} null
+  +8306 MODEL  #22 tools=True n=23 last=user: [tool_result toolu_fake21: (Bash completed with no output)]
+  +8313 SE     message_start
+  +8431 HOOK   MessageDisplay {"prompt_id": "f0f5b025-e0cf-433f-bc93-51d27a09397d"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +8437 OUT    assistant/ {"uuid": "94518766", "timestamp": "2026-09-29T16:26:50.849Z"} [{"type": "text", "text": "r22w1 r22w2 r22w3 "}]
+  +8438 SE     message_stop
+  +8450 HOOK   Stop {"prompt_id": "f0f5b025-e0cf-433f-bc93-51d27a09397d", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +8457 OUT    command_lifecycle/completed {"uuid": "5b452c63", "command_uuid": "OURS-28"} 
+  +8460 OUT    result/success {"uuid": "98daa358", "is_error": false, "result": "r22w1 r22w2 r22w3 ", "num_turns": 2} 
+  +8462 OUT    command_lifecycle/completed {"uuid": "2d055eef", "command_uuid": "OURS-27"} 
+  +8463 REC    assistant/ {"uuid": "94518766", "parentUuid": "3f7c7488", "timestamp": "2026-09-29T16:26:50.849Z"} [{"type": "text", "text": "r22w1 r22w2 r22w3 "}]
+  +8463 REC    system/stop_hook_summary {"uuid": "48767660", "parentUuid": "94518766", "timestamp": "2026-09-29T16:26:50.893Z"} null
+ +12421 MARK   S5B_BUSY
+ +12421 IN     user/ {"uuid": "OURS-29"} [{"type": "text", "text": "SLOWTEXT S5B streaming"}]
