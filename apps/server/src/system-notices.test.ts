@@ -1,7 +1,9 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { autoContinueMessageId } from './message-ids'
+import { messageRecordOf } from './modules/message-feed/feed'
 import { mailHarness } from './modules/messages/characterization-support'
-import { systemIssueNotice } from './system-notices'
+import { autoContinueSender, systemIssueNotice } from './system-notices'
 
 /**
  * THE SERVER'S NOTICES TO AN ISSUE ARE MESSAGES (POD-4846).
@@ -57,5 +59,61 @@ describe('a system notice to an issue', () => {
     expect(await h.issues.mailInbox(iss.id)).toMatchObject([
       { id, fromAuthor: 'machine-diagnostic', body: 'integration disabled' },
     ])
+  })
+})
+
+/**
+ * AUTO-CONTINUE IS A MESSAGE, TYPED BARE (POD-4846).
+ *
+ * The 'continue' the server types into an errored agent is a key press standing
+ * in for the person, so it is the one server notice delivered WITHOUT the
+ * envelope — the agent sees exactly what a person would have typed. It is still
+ * a row, with an id and a status, one per errored turn however often the retry
+ * loop fires, and it is not a person's chat bubble.
+ */
+describe('an auto-continue', () => {
+  it("is a row from system:auto-continue, typed as the bare word with the auto-continue origin", async () => {
+    const h = await mailHarness()
+    const iss = await h.createIssue({ title: 'work' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'errored' })
+
+    const r = await autoContinueSender(h.svc)({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+
+    expect(r).toEqual({ ok: true })
+    const id = autoContinueMessageId(asSessionId('s1'), 'epoch:3')
+    const row = await h.svc.message(id)
+    expect(row).toMatchObject({
+      fromKind: 'system',
+      fromName: 'auto-continue',
+      toKind: 'session',
+      toId: 's1',
+      body: 'continue',
+      lifecycle: 'wait',
+      deliveryStatus: 'dispatched',
+    })
+    expect(h.pushes).toEqual([
+      expect.objectContaining({
+        fn: 'queueText',
+        sessionId: 's1',
+        text: 'continue',
+        inputOrigin: 'auto_continue',
+      }),
+    ])
+    // Not a person's chat message: no bubble on the chat feed.
+    expect(row && messageRecordOf(row)).toBeNull()
+  })
+
+  it('the retry loop firing again inside one errored turn stores and types it once', async () => {
+    const h = await mailHarness()
+    const iss = await h.createIssue({ title: 'work' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'errored' })
+    const send = autoContinueSender(h.svc)
+
+    await send({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+    await send({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+    await send({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:4' })
+
+    expect(await h.store.messages.listLedger({ sessionId: asSessionId('s1') })).toHaveLength(2)
+    expect(h.pushes.map((p) => p.text)).toEqual(['continue', 'continue'])
   })
 })
