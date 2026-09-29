@@ -412,6 +412,8 @@ interface AwaitedEntry {
   turnId: CodexTurnId
   deliveredAs: 'turn' | 'steer'
   onItem: ((item: TranscriptItemRef) => void) | undefined
+  /** Codex will not record it any more (POD-4849). */
+  onUnrecorded: ((reason: string) => void) | undefined
 }
 
 /**
@@ -1089,8 +1091,30 @@ export function createCodexRuntime(
       return seen.ref
     }
     session.awaitingEntry.push(entry)
-    if (session.awaitingEntry.length > AWAITING_ENTRIES_KEPT) session.awaitingEntry.shift()
+    if (session.awaitingEntry.length > AWAITING_ENTRIES_KEPT) {
+      // Not recorded as far as this driver can ever tell: say so rather than
+      // leave its row waiting on a pairing that can no longer happen.
+      session.awaitingEntry
+        .shift()
+        ?.onUnrecorded?.('too many messages were waiting for Codex to record them')
+    }
     return undefined
+  }
+
+  /**
+   * SENDS CODEX WILL NOT RECORD ANY MORE (POD-4849), told so once each. Taken
+   * out of the waiting list before anyone is told, so a late item carrying
+   * the id pairs with nothing.
+   */
+  function abandonEntries(
+    session: DriverSession,
+    ended: (entry: AwaitedEntry) => boolean,
+    reason: string,
+  ): void {
+    const gone = session.awaitingEntry.filter(ended)
+    if (gone.length === 0) return
+    session.awaitingEntry = session.awaitingEntry.filter((entry) => !ended(entry))
+    for (const entry of gone) entry.onUnrecorded?.(reason)
   }
 
   function claimEntry(
@@ -1118,9 +1142,13 @@ export function createCodexRuntime(
      * never will (POD-4835, measured on codex 0.155.0). A steer is recorded at
      * Codex's next model call, not on its ack: one acked and then interrupted
      * before that call is dropped — in no item, no later turn, and never shown
-     * to the model.
+     * to the model. Its sender hears so, never "delivered" (POD-4849).
      */
-    session.awaitingEntry = session.awaitingEntry.filter((entry) => entry.turnId !== turn.id)
+    abandonEntries(
+      session,
+      (entry) => entry.turnId === turn.id,
+      `the turn ended (${turn.status}) before Codex recorded the message`,
+    )
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
@@ -1265,25 +1293,70 @@ export function createCodexRuntime(
   const clientUserMessageId = (input: TurnInput) =>
     input.id !== undefined ? { clientUserMessageId: input.id } : {}
 
-  /** Open a NEW turn. The response IS the acceptance. `transcriptItem` is set
-   *  when Codex recorded the input before answering; otherwise `onItem` names
-   *  it once recorded. */
+  /** Open a NEW turn. The response is the acceptance, not the record:
+   *  `transcriptItem` is set when Codex recorded the input before answering;
+   *  otherwise `held` says it waits, and `onTranscriptItem` names it once
+   *  recorded or `onUnrecorded` says it will not be (POD-4849). */
   async function deliver(
     session: DriverSession,
     input: TurnInput,
-    origin: SendOptions['origin'] = 'human',
-    onItem?: (item: TranscriptItemRef) => void,
-  ): Promise<{ turnId: CodexTurnId | undefined; transcriptItem: TranscriptItemRef | undefined }> {
+    options: Pick<SendOptions, 'origin' | 'onTranscriptItem' | 'onUnrecorded'>,
+  ): Promise<{
+    turnId: CodexTurnId | undefined
+    transcriptItem: TranscriptItemRef | undefined
+    held: boolean
+    deliveredAs: 'turn' | 'steer'
+  }> {
+    const origin = options.origin ?? 'human'
     const overrides = input.overrides?.supported ? input.overrides.value : undefined
     const model = overrides?.model ?? modelOf(session.spec)
     const effort = overrides?.effort ?? session.spec.model.effort
-    const result = await session.client.call<{ turn?: { id?: string } }>(CODEX_METHODS.turnStart, {
-      threadId: session.threadId,
-      ...clientUserMessageId(input),
-      input: codexInput(input),
-      ...(model ? { model } : {}),
-      ...(effort && effort !== 'auto' ? { effort } : {}),
-    })
+    // The turn open when Codex's answer is READ, not when this function
+    // resumes: our own turn's `turn/started` follows the answer and may be
+    // dispatched in between.
+    let openAtAnswer: CodexTurnId | undefined
+    const result = await session.client.call<{ turn?: { id?: string } }>(
+      CODEX_METHODS.turnStart,
+      {
+        threadId: session.threadId,
+        ...clientUserMessageId(input),
+        input: codexInput(input),
+        ...(model ? { model } : {}),
+        ...(effort && effort !== 'auto' ? { effort } : {}),
+      },
+      {
+        onAnswer: () => {
+          openAtAnswer = session.openTurnId
+        },
+      },
+    )
+    const turnId = result.turn?.id
+    const awaited = (deliveredAs: 'turn' | 'steer', id: CodexTurnId) =>
+      awaitEntry(session, {
+        messageId: input.id,
+        turnId: id,
+        deliveredAs,
+        onItem: options.onTranscriptItem,
+        onUnrecorded: options.onUnrecorded,
+      })
+    /**
+     * A `turn/start` THAT LANDED ON A RUNNING TURN OPENED NOTHING (POD-4849).
+     *
+     * Measured on 0.155.0 (POD-4863, S3): Codex answers it with the RUNNING
+     * turn's id and holds the message like a steer, for that turn's next
+     * model call — lost if the turn is stopped first. It is reached when a
+     * turn someone else started (the stock TUI on this thread) opened between
+     * our idle check and Codex taking the call: its `turn/started` then
+     * precedes this answer on the connection, so the answer names the turn
+     * already open when it is read. A turn this call opened is announced
+     * only AFTER the answer. No turn of ours began, so no epoch moves and no
+     * turn event is raised; and the entry is paired as a steer's, by our id
+     * only, so that turn's own first item is never taken for ours.
+     */
+    if (turnId !== undefined && turnId === openAtAnswer) {
+      const transcriptItem = awaited('steer', turnId)
+      return { turnId, transcriptItem, held: transcriptItem === undefined, deliveredAs: 'steer' }
+    }
     /**
      * THE RESPONSE IS THE ACK AND *NOT* THE OPEN TURN.
      *
@@ -1313,11 +1386,13 @@ export function createCodexRuntime(
     })
     persist(session)
     emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
-    const turnId = result.turn?.id
-    const transcriptItem = turnId
-      ? awaitEntry(session, { messageId: input.id, turnId, deliveredAs: 'turn', onItem })
-      : undefined
-    return { turnId, transcriptItem }
+    const transcriptItem = turnId ? awaited('turn', turnId) : undefined
+    return {
+      turnId,
+      transcriptItem,
+      held: turnId !== undefined && transcriptItem === undefined,
+      deliveredAs: 'turn',
+    }
   }
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
@@ -1411,6 +1486,9 @@ export function createCodexRuntime(
    * six now say so on the way out.
    */
   function endSession(session: DriverSession): void {
+    // Before `disposed`, which silences this session's stream: the senders
+    // still waiting on a record hear that none will come (POD-4849).
+    abandonEntries(session, () => true, 'the Codex session ended before it recorded the message')
     session.disposed = true
     abandonQueue(session, 'teardown')
     /**
@@ -1466,12 +1544,7 @@ export function createCodexRuntime(
       const next = session.queue.shift()
       if (!next) return
       try {
-        const { transcriptItem } = await deliver(
-          session,
-          next.input,
-          next.options.origin,
-          next.options.onTranscriptItem,
-        )
+        const { transcriptItem } = await deliver(session, next.input, next.options)
         // The caller's receipt went back long ago, so an entry already
         // recorded is named the way a later one would be.
         if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem)
@@ -1706,7 +1779,10 @@ export function createCodexRuntime(
               /**
                * A STEER'S ENTRY IS NAMED BY OUR ID OR NOT AT ALL (POD-4835).
                * Codex records it at its next model call, seconds after this
-               * ack, as a later user item in a turn it did not open.
+               * ack, as a later user item in a turn it did not open — and
+               * drops it if the turn is stopped before that call. So the ack
+               * is `held`, not delivered (POD-4849). A steer with no id can
+               * never be paired: nothing follows its receipt.
                */
               const transcriptItem =
                 input.id !== undefined
@@ -1715,11 +1791,12 @@ export function createCodexRuntime(
                       turnId,
                       deliveredAs: 'steer',
                       onItem: options.onTranscriptItem,
+                      onUnrecorded: options.onUnrecorded,
                     })
                   : undefined
               return {
                 outcome: 'accepted',
-                ...(transcriptItem ? { transcriptItem } : {}),
+                ...(transcriptItem ? { transcriptItem } : { held: 'memory' as const }),
                 // THE SAME EPOCH. A steer joins the open turn rather than
                 // opening one, so advancing the epoch would tell every consumer
                 // a new turn began and orphan the events still arriving under
@@ -1792,25 +1869,29 @@ export function createCodexRuntime(
         if (session.disposed) return refuse('not_running')
 
         // The input's entry, if Codex recorded it before answering; otherwise
-        // named when its `userMessage` item completes (POD-4774, POD-4835).
-        let transcriptItem: TranscriptItemRef | undefined
+        // named when its `userMessage` item completes (POD-4774, POD-4835),
+        // or reported unrecorded when its turn ends first (POD-4849).
+        let delivered: Awaited<ReturnType<typeof deliver>>
         try {
-          ;({ transcriptItem } = await deliver(
-            session,
-            input,
-            options.origin,
-            options.onTranscriptItem,
-          ))
+          delivered = await deliver(session, input, options)
         } catch (err) {
           return refuse('not_running', String(err))
         }
+        const { transcriptItem } = delivered
         return {
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
           ...(transcriptItem ? { transcriptItem } : {}),
-          // `steer` cannot reach here: it either steered and returned above, or
-          // it queued. Every other delivery is what it says it is.
-          deliveredAs: wanted === 'steer' ? 'when-ready' : wanted,
+          ...(delivered.held ? { held: 'memory' as const } : {}),
+          // A requested `steer` either steered and returned above, or queued.
+          // What reaches here steers only when Codex made it one — a
+          // `turn/start` that landed on a running turn — and says so.
+          deliveredAs:
+            delivered.deliveredAs === 'steer'
+              ? 'steer'
+              : wanted === 'steer'
+                ? 'when-ready'
+                : wanted,
           /** The `turn/start` response. The only proof this driver declares, and
            *  the only one it needs. */
           provenBy: 'protocol-ack',

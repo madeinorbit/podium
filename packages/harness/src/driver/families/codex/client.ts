@@ -121,12 +121,23 @@ export interface CodexClientConfig {
 
 const DEFAULT_TIMEOUT_MS = 120_000
 
+export interface CodexCallOptions {
+  /**
+   * Runs the moment the answer is read, before the next frame is: the only
+   * point that knows which notifications came BEFORE the answer. A promise
+   * continuation runs later — a whole chunk of frames can be dispatched
+   * first — so what the session looked like at the answer is lost by then.
+   * Not called for an error answer.
+   */
+  onAnswer?: () => void
+}
+
 export interface CodexClient {
   /** `initialize` + `initialized`, in that order, exactly once. */
   handshake(params: CodexInitializeParams): Promise<CodexInitializeResponse>
   /** Has the handshake completed? Everything else refuses until it has. */
   readonly ready: boolean
-  call<T = unknown>(method: string, params?: unknown): Promise<T>
+  call<T = unknown>(method: string, params?: unknown, options?: CodexCallOptions): Promise<T>
   /** Answer a server→client request. The ONLY way an approval stops blocking. */
   respond(id: number | string, result: unknown): void
   /** Answer a server→client request with an error, for an ask we cannot honour. */
@@ -155,6 +166,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       reject: (err: Error) => void
       method: string
       timer: unknown
+      onAnswer: (() => void) | undefined
     }
   >()
   const knownInboundMethods = new Set<string>([
@@ -245,6 +257,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
         )
         return
       }
+      entry.onAnswer?.()
       entry.resolve(frame.data.result)
       return
     }
@@ -280,7 +293,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
     config.transport.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
   }
 
-  function call<T>(method: string, params?: unknown): Promise<T> {
+  function call<T>(method: string, params?: unknown, options?: CodexCallOptions): Promise<T> {
     if (!ready && method !== CODEX_METHODS.initialize) {
       // THE STRICT ORDER, ENFORCED HERE RATHER THAN DISCOVERED IN PRODUCTION.
       // Sending this would hang forever AND poison the connection for the
@@ -302,6 +315,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
         reject,
         method,
         timer,
+        onAnswer: options?.onAnswer,
       })
       try {
         send({ id, method, ...(params !== undefined ? { params } : {}) })

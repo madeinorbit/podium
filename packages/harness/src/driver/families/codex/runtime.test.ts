@@ -1442,6 +1442,9 @@ describe('durable inbox rows on the owning driver', () => {
       expect((await w.handle.send({ id: 'row-live', rowId: 'row-live', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })).outcome).toBe('queued')
       await settle()
       expect(w.server.turnStarts).toBe(1)
+      // Delivered once Codex records it, not on its answer (POD-4849).
+      w.server.emitUserMessage('hello', 'usr-live', { clientId: 'row-live' })
+      await settle()
       expect(w.events().filter((event) => event.t === 'delivery')).toEqual([expect.objectContaining({ rowId: 'row-live', outcome: 'delivered' })])
     } finally { w.dispose() }
   })
@@ -1570,10 +1573,10 @@ describe('rebind to the surviving engine (POD-4433)', () => {
  * THE CONFIRMATION NAMES THE HISTORY ENTRY (POD-4774). Codex answers
  * `turn/start` before it records the input, then records it as the turn's
  * first `userMessage` item — under its own item id and the turn id the answer
- * carried. The driver pairs them by that turn id and names the entry: on a
- * durable row's delivery as a second `delivered` outcome, on a direct send as
- * the same outcome under its turn id. A steer's item joins an open turn and
- * is never taken for the turn's input.
+ * carried. The driver pairs them by that turn id and names the entry: a
+ * durable row is delivered by that record, naming it (POD-4849); a direct
+ * send gets the outcome under its turn id. A steer's item joins an open turn
+ * and is never taken for the turn's input.
  */
 describe('the history entry a delivered send became', () => {
   const deliveries = (events: RuntimeEvent[]) =>
@@ -1585,18 +1588,19 @@ describe('the history entry a delivered send became', () => {
         : [],
     )
 
-  it("names a durable row's entry once Codex records the turn's input", async () => {
+  it("delivers a durable row by the record of the turn's input, naming it", async () => {
     const w = await world()
     await w.handle.send(
       { text: 'hello there', rowId: 'msg_row' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    await expect.poll(() => deliveries(w.events())).toHaveLength(1)
-    // Accepted on the ack, before any record of the prompt exists.
-    expect(deliveries(w.events())[0]).not.toHaveProperty('transcriptItem')
+    await expect.poll(() => w.liveServer().turnStarts).toBe(1)
+    await settle()
+    // Codex answered; nothing records the prompt yet, so nothing is delivered.
+    expect(deliveries(w.events())).toEqual([])
     w.liveServer().emitUserMessage('hello there', 'usr-codex-1')
-    await expect.poll(() => deliveries(w.events())).toHaveLength(2)
-    expect(deliveries(w.events())[1]).toMatchObject({
+    await expect.poll(() => deliveries(w.events())).toHaveLength(1)
+    expect(deliveries(w.events())[0]).toMatchObject({
       rowId: 'msg_row',
       outcome: 'delivered',
       transcriptItem: { id: 'usr-codex-1' },
@@ -1839,6 +1843,155 @@ describe('Codex carries our message id', () => {
       .poll(() => deliveries(w.events()))
       .toEqual([
         expect.objectContaining({ rowId: 'msg_later', transcriptItem: { id: 'usr-later' } }),
+      ])
+    w.dispose()
+  })
+})
+
+/**
+ * A MESSAGE CODEX HOLDS IN MEMORY IS NOT DELIVERED (POD-4849).
+ *
+ * Codex answers `turn/steer` at once and records the message only at its next
+ * model call; one stopped before that call is dropped — in no item, never
+ * shown to the model (`__fixtures__/client-message-id.json`,
+ * `_steerDroppedByInterrupt`). A `turn/start` that lands on a running turn is
+ * silently the same thing: its answer names the RUNNING turn (POD-4863, S3).
+ * So a send counts as delivered only when Codex records its `userMessage`
+ * with our id; a turn or a session that ends first ends it as unconfirmed.
+ */
+describe('a message Codex holds in memory', () => {
+  const deliveries = (events: RuntimeEvent[]) =>
+    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+  const turnStarts = (events: RuntimeEvent[]) =>
+    events.filter((event) => event.t === 'turn' && event.ev.ev === 'started')
+  const row = (id: string, text: string) => ({ id, rowId: id, text })
+  const whenReady = { origin: 'human', delivery: 'when-ready' } as const
+
+  it('delivers a durable row when Codex records it, not on the `turn/start` answer', async () => {
+    const w = await world()
+    await w.handle.send(row('msg_row', 'hello'), whenReady)
+    await expect.poll(() => w.liveServer().turnStarts).toBe(1)
+    await settle()
+    expect(deliveries(w.events())).toEqual([])
+    w.liveServer().emitUserMessage('hello', 'usr-row', { clientId: 'msg_row' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({
+          rowId: 'msg_row',
+          outcome: 'delivered',
+          transcriptItem: { id: 'usr-row' },
+        }),
+      ])
+    w.dispose()
+  })
+
+  it('says a steer is held until recorded, and names the entry once it is', async () => {
+    const w = await world()
+    await w.handle.send({ id: 'msg_open', text: 'open' }, whenReady)
+    w.liveServer().emitUserMessage('open', 'usr-open', { clientId: 'msg_open' })
+    const named: string[] = []
+    const lost: string[] = []
+    const steered = await w.handle.send(
+      { id: 'msg_steer', text: 'steered in' },
+      {
+        origin: 'human',
+        delivery: 'steer',
+        onTranscriptItem: (item) => void named.push(item.id),
+        onUnrecorded: (reason) => void lost.push(reason),
+      },
+    )
+    expect(steered).toMatchObject({ outcome: 'accepted', deliveredAs: 'steer', held: 'memory' })
+    expect(steered).not.toHaveProperty('transcriptItem')
+    w.liveServer().emitUserMessage('steered in', 'usr-steer', { clientId: 'msg_steer' })
+    w.liveServer().completeTurn('interrupted')
+    await settle()
+    expect(named).toEqual(['usr-steer'])
+    expect(lost).toEqual([])
+    w.dispose()
+  })
+
+  it('reports a steer dropped by an interrupt as unrecorded, never as named', async () => {
+    const w = await world()
+    await w.handle.send({ id: 'msg_open', text: 'open' }, whenReady)
+    const named: string[] = []
+    const lost: string[] = []
+    await w.handle.send(
+      { id: 'msg_lost', text: 'lost' },
+      {
+        origin: 'human',
+        delivery: 'steer',
+        onTranscriptItem: (item) => void named.push(item.id),
+        onUnrecorded: (reason) => void lost.push(reason),
+      },
+    )
+    w.liveServer().completeTurn('interrupted')
+    await settle()
+    expect(lost).toEqual([expect.stringContaining('interrupted')])
+    // Nothing may pair it later, even an item carrying its id.
+    await w.handle.send({ id: 'msg_next', text: 'next' }, whenReady)
+    w.liveServer().emitUserMessage('lost', 'usr-late', { clientId: 'msg_lost' })
+    await settle()
+    expect(named).toEqual([])
+    expect(lost).toHaveLength(1)
+    w.dispose()
+  })
+
+  it('treats a `turn/start` answered with a running turn as a steer into it', async () => {
+    const w = await world()
+    // Another client's turn opens just as the row is typed: Codex holds the
+    // row's message for that turn's next model call.
+    w.liveServer().raceForeignTurnOnNextTurnStart()
+    await w.handle.send(row('msg_race', 'raced'), whenReady)
+    await expect.poll(() => w.liveServer().turnStarts).toBe(1)
+    await settle()
+    // No turn of ours opened, so no turn event and no new epoch.
+    expect(turnStarts(w.events())).toEqual([])
+    // The other client's own input is not ours, even as the turn's first item.
+    w.liveServer().emitUserMessage('theirs', 'usr-theirs', { clientId: null })
+    await settle()
+    expect(deliveries(w.events())).toEqual([])
+    w.liveServer().emitUserMessage('raced', 'usr-raced', { clientId: 'msg_race' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({
+          rowId: 'msg_race',
+          outcome: 'delivered',
+          transcriptItem: { id: 'usr-raced' },
+        }),
+      ])
+    expect(w.entryReports).toEqual([
+      expect.objectContaining({ messageId: 'msg_race', pairedBy: 'client-id', deliveredAs: 'steer' }),
+    ])
+    w.dispose()
+  })
+
+  it('ends a row Codex silently steered, then dropped at an interrupt, as unconfirmed', async () => {
+    const w = await world()
+    w.liveServer().raceForeignTurnOnNextTurnStart()
+    await w.handle.send(row('msg_race', 'raced'), whenReady)
+    await expect.poll(() => w.liveServer().turnStarts).toBe(1)
+    await settle()
+    w.liveServer().completeTurn('interrupted')
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({ rowId: 'msg_race', outcome: 'failed', cause: 'unconfirmed' }),
+      ])
+    w.dispose()
+  })
+
+  it('ends a row waiting for its record as unconfirmed when the app-server goes away', async () => {
+    const w = await world()
+    await w.handle.send(row('msg_row', 'hello'), whenReady)
+    await expect.poll(() => w.liveServer().turnStarts).toBe(1)
+    await settle()
+    w.liveServer().crash()
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({ rowId: 'msg_row', outcome: 'failed', cause: 'unconfirmed' }),
       ])
     w.dispose()
   })

@@ -62,6 +62,15 @@ export function withDeliveryQueue(
   const finished = new Map<string, Outcome>()
   /** Entries a driver named before its row settled (POD-4774). */
   const namedEarly = new Map<string, TranscriptItemRef>()
+  /**
+   * TYPED, AND HELD BY THE PROGRAM WITHOUT A RECORD YET (POD-4849): rows whose
+   * receipt said `held`. Not delivered and not waiting: the next row may be
+   * typed, a retract is too late, and the row settles on what the driver says
+   * next — its entry, or that it will not be recorded.
+   */
+  const held = new Set<string>()
+  /** Rows the driver said it will not record before their receipt came back. */
+  const unrecordedEarly = new Map<string, string>()
   const send = handle.send.bind(handle)
   let draining = false
   const pause = (ms: number) =>
@@ -79,6 +88,8 @@ export function withDeliveryQueue(
     if (finished.has(id)) return
     const named = outcome === 'delivered' ? (transcriptItem ?? namedEarly.get(id)) : undefined
     namedEarly.delete(id)
+    unrecordedEarly.delete(id)
+    held.delete(id)
     const event: Outcome = {
       t: 'delivery',
       rowId: id,
@@ -98,6 +109,11 @@ export function withDeliveryQueue(
    * `finished` replay carries it from here on.
    */
   function name(id: string, transcriptItem: TranscriptItemRef): void {
+    if (held.has(id)) {
+      // The record a held row waited for: this is its delivery.
+      settle(id, 'delivered', undefined, undefined, transcriptItem)
+      return
+    }
     const prior = finished.get(id)
     if (!prior) {
       if (rows.has(id)) namedEarly.set(id, transcriptItem)
@@ -107,6 +123,18 @@ export function withDeliveryQueue(
     const event: Outcome = { ...prior, transcriptItem }
     finished.set(id, event)
     emit(event)
+  }
+  /**
+   * A HELD ROW THE PROGRAM WILL NOT RECORD (POD-4849): what held it ended
+   * first. Unconfirmed — the server's `unknown` — and never `failed`: nothing
+   * here proves the model did not see it, and a retry could run it twice.
+   */
+  function unrecorded(id: string, reason: string): void {
+    if (held.has(id)) {
+      settle(id, 'failed', reason, 'unconfirmed')
+      return
+    }
+    if (rows.has(id) && !finished.has(id)) unrecordedEarly.set(id, reason)
   }
   /**
    * An interrupt row waits ahead of every plain row, behind earlier
@@ -200,6 +228,7 @@ export function withDeliveryQueue(
               deliveryAttempt: true,
               signal: row.abort.signal,
               onTranscriptItem: (item) => name(id, item),
+              onUnrecorded: (reason) => unrecorded(id, reason),
             },
           )
           receipt = await row.inFlight
@@ -213,6 +242,18 @@ export function withDeliveryQueue(
         }
         if (row.abort.signal.aborted) continue
         if (receipt.outcome === 'accepted') {
+          if (receipt.held && !receipt.transcriptItem && !namedEarly.has(id)) {
+            // TAKEN, NOT RECORDED (POD-4849): typed, so never typed again and
+            // never retractable, but not delivered until the driver says so.
+            const lost = unrecordedEarly.get(id)
+            if (lost !== undefined) {
+              settle(id, 'failed', lost, 'unconfirmed')
+              continue
+            }
+            rows.delete(id)
+            held.add(id)
+            continue
+          }
           // The driver's pairing travels with the outcome, and a replay of it
           // (`finished`) carries the same item (POD-4774).
           settle(id, 'delivered', undefined, undefined, receipt.transcriptItem)
@@ -276,7 +317,7 @@ export function withDeliveryQueue(
     }
     const prior = finished.get(input.rowId)
     if (prior) emit(prior)
-    if (!prior && !rows.has(input.rowId)) {
+    if (!prior && !rows.has(input.rowId) && !held.has(input.rowId)) {
       // Answered `queued` AT ONCE: the reply must land inside the server's
       // RPC window, never after the turn the row waits on.
       admit(input.rowId, {
@@ -307,7 +348,7 @@ export function withDeliveryQueue(
    */
   handle.cancelDelivery = async (id) => {
     const row = rows.get(id)
-    if (row?.inFlight) {
+    if (row?.inFlight || held.has(id)) {
       return { reason: 'busy', detail: 'typing already started', tooLate: 'typing' }
     }
     if (row) {
@@ -336,6 +377,8 @@ export function withDeliveryQueue(
       if (method === 'hibernate' && !handle.binding.resume) return original()
       for (const row of rows.values()) row.abort.abort()
       rows.clear()
+      held.clear()
+      unrecordedEarly.clear()
       return original()
     }
   }

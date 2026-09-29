@@ -655,3 +655,154 @@ describe('the entry a delivered row became (POD-4774)', () => {
     ])
   })
 })
+
+/**
+ * A MESSAGE THE PROGRAM HOLDS IN MEMORY IS NOT DELIVERED YET (POD-4849).
+ *
+ * Codex answers `turn/steer`, and a `turn/start` that lands on a running turn,
+ * at once — and records the message only at its next model call. Stopped
+ * before that call, the message is dropped. Such a receipt says `held:
+ * 'memory'`, and the row settles on what follows it: `delivered` naming the
+ * entry once recorded, or `failed` + `unconfirmed` (the server's `unknown`)
+ * when the program says it will not be recorded any more.
+ */
+describe('a receipt held in memory (POD-4849)', () => {
+  type Named = (item: { id: string }) => void
+  type Unrecorded = (reason: string) => void
+  const fixture = () => {
+    vi.useFakeTimers()
+    let named: Named | undefined
+    let unrecorded: Unrecorded | undefined
+    let early: ((named: Named, unrecorded: Unrecorded) => void) | undefined
+    const send = vi.fn(
+      async (
+        _input: { text: string },
+        options?: { onTranscriptItem?: Named; onUnrecorded?: Unrecorded },
+      ) => {
+        named = options?.onTranscriptItem
+        unrecorded = options?.onUnrecorded
+        // What arrives before the receipt goes back, when a test asks for it.
+        if (named && unrecorded) early?.(named, unrecorded)
+        return {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'steer',
+          provenBy: 'protocol-ack',
+          held: 'memory',
+          at: new Date().toISOString(),
+        }
+      },
+    )
+    const emit = vi.fn()
+    const stop = vi.fn(async () => {})
+    let phase = 'idle'
+    const handle = withDeliveryQueue(
+      {
+        send,
+        stop,
+        state: async () => ({ phase }),
+        lease: { state: async () => null },
+        binding: {},
+      } as unknown as AgentSessionHandle,
+      emit,
+    )
+    return {
+      handle,
+      send,
+      emit,
+      events: () => emit.mock.calls.map(([event]) => event),
+      name: (item: { id: string }) => named?.(item),
+      unrecorded: (reason: string) => unrecorded?.(reason),
+      beforeReceipt: (act: (named: Named, unrecorded: Unrecorded) => void) => {
+        early = act
+      },
+      setPhase: (next: string) => {
+        phase = next
+      },
+    }
+  }
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+
+  it('settles nothing on the receipt, and delivered once the program records it', async () => {
+    const f = fixture()
+    await f.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.events()).toEqual([])
+    f.name({ id: 'entry-1' })
+    expect(f.events()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'delivered', transcriptItem: { id: 'entry-1' } },
+    ])
+  })
+
+  it('ends as unconfirmed, never delivered, when the program will not record it', async () => {
+    const f = fixture()
+    await f.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    f.unrecorded('the turn was interrupted before Codex recorded the message')
+    // A record that arrives after the drop changes nothing here: the server's
+    // late proof by id is the only way back (POD-4840).
+    f.name({ id: 'entry-late' })
+    expect(f.events()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'the turn was interrupted before Codex recorded the message',
+        cause: 'unconfirmed',
+      },
+    ])
+  })
+
+  it('takes a record or a drop that arrived before the receipt', async () => {
+    const recorded = fixture()
+    recorded.beforeReceipt((named) => named({ id: 'entry-early' }))
+    await recorded.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorded.events()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'delivered', transcriptItem: { id: 'entry-early' } },
+    ])
+
+    const dropped = fixture()
+    dropped.beforeReceipt((_named, unrecorded) => unrecorded('dropped'))
+    await dropped.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(dropped.events()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'failed', reason: 'dropped', cause: 'unconfirmed' },
+    ])
+  })
+
+  it('types the next row while one waits for its record, and a retract of it is too late', async () => {
+    const f = fixture()
+    await f.handle.send({ id: 'held', rowId: 'held', text: 'a' }, options)
+    await f.handle.send({ id: 'next', rowId: 'next', text: 'b' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.send.mock.calls.map(([input]) => input.text)).toEqual(['a', 'b'])
+    expect(await f.handle.cancelDelivery!('held')).toMatchObject({
+      reason: 'busy',
+      tooLate: 'typing',
+    })
+    expect(f.events()).toEqual([])
+  })
+
+  it('a repeated admission of a row waiting for its record types nothing again', async () => {
+    const f = fixture()
+    await f.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    const again = await f.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(again.outcome).toBe('queued')
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.events()).toEqual([])
+  })
+
+  it('teardown discards a row waiting for its record, like every other row', async () => {
+    const f = fixture()
+    await f.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    await f.handle.stop!()
+    f.unrecorded('the session ended')
+    f.name({ id: 'entry-late' })
+    // A new owner receives the durable row again and settles it by recovery.
+    expect(f.events()).toEqual([])
+  })
+})
