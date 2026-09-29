@@ -12,7 +12,10 @@ import {
 import type { ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
-import { claudeToolCallItem, claudeToolResultItem } from '../../../adapters/claude-code/transcript.js'
+import {
+  claudeToolCallItem,
+  claudeToolResultItem,
+} from '../../../adapters/claude-code/transcript.js'
 import { DeliveryUnprovenError, DriverRefusalError, wasNeverSent } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
 import { headlessInterruptMark } from '../../headless-interrupt.js'
@@ -44,11 +47,7 @@ import type {
 } from '../../host.js'
 import type { ProcessIdentity } from '../../binding.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import {
-  type ConfigureValueChecks,
-  decideConfigure,
-  noWhitespaceCheck,
-} from '../../configure.js'
+import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import { claudeSdkCapabilities } from './capabilities.js'
 import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
@@ -378,11 +377,16 @@ export function createClaudeSdkRuntime(
       const pending = [...core.heldMessages]
       for (const resumeValue of new Set(pending.map((message) => message.resumeValue))) {
         const messages = pending.filter((message) => message.resumeValue === resumeValue)
-        const archive = await host.readArchive({ workdir: core.spec.workdir, resumeValue })
+        const archive = await host
+          .readArchive({ workdir: core.spec.workdir, resumeValue })
           .catch(() => undefined)
         if (core.disposed) return
         const found = archive
-          ? claudeTranscriptReceipts(archive.bytes, resumeValue, new Set(messages.map((message) => message.uuid)))
+          ? claudeTranscriptReceipts(
+              archive.bytes,
+              resumeValue,
+              new Set(messages.map((message) => message.uuid)),
+            )
           : new Map<string, TranscriptItem>()
         for (const message of messages) {
           if (!core.heldMessages.has(message)) continue
@@ -393,7 +397,9 @@ export function createClaudeSdkRuntime(
               core.publishedPromptItems.add(item.id)
               publishItem(core, item)
             }
-            message.options.onTranscriptItem?.({ id: item.id }, [{ kind: 'claude-uuid', id: message.uuid }])
+            message.options.onTranscriptItem?.({ id: item.id }, [
+              { kind: 'claude-uuid', id: message.uuid },
+            ])
           } else if (!core.alive || Date.now() >= message.deadline) {
             core.heldMessages.delete(message)
             // This closes the watch as unconfirmed. N4 owns a proven no after
@@ -900,11 +906,7 @@ export function createClaudeSdkRuntime(
     return accepted(options, userItemId, epoch)
   }
 
-  function accepted(
-    options: SendOptions,
-    userItemId: string,
-    turnEpoch: number,
-  ): TurnReceipt {
+  function accepted(options: SendOptions, userItemId: string, turnEpoch: number): TurnReceipt {
     return {
       outcome: 'accepted',
       turnEpoch,
@@ -1069,7 +1071,8 @@ export function createClaudeSdkRuntime(
         }
       },
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (options.signal?.aborted)
+          return { outcome: 'refused', refusal: { reason: 'not_running' } }
         if (options.deliveryAttempt && (busy(core) || core.lease?.kind === 'human-controller')) {
           return { outcome: 'refused', refusal: { reason: busy(core) ? 'busy' : 'lease_held' } }
         }
@@ -1108,7 +1111,12 @@ export function createClaudeSdkRuntime(
           core.queue.push({ input, options })
           const position = core.queue.length
           void drain(core)
-          return { outcome: 'queued', position, deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue', at: host.now() }
+          return {
+            outcome: 'queued',
+            position,
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
+            at: host.now(),
+          }
         }
         return deliver(core, input, { ...options, delivery: deliveredAs })
       },
@@ -1295,15 +1303,23 @@ export function createClaudeSdkRuntime(
       },
     }
     slots.set(core.sessionId, handle)
-    const queued = withDeliveryQueue(handle, (event) => push(core, event), undefined, () => core.alive)
-    const send = queued.send.bind(queued)
-    queued.send = (input, options) => send(
-      // Claude ignores a repeated uuid even while queued/running and after
-      // resume (POD-4819 §3.8, measured on 2.1.284). Clear the shared queue's
-      // recovery stop only when this line carries that stable message id.
-      input.deliveryRecovery && input.id !== undefined ? { ...input, deliveryRecovery: false } : input,
-      options,
+    const queued = withDeliveryQueue(
+      handle,
+      (event) => push(core, event),
+      undefined,
+      () => core.alive,
     )
+    const send = queued.send.bind(queued)
+    queued.send = (input, options) =>
+      send(
+        // Claude ignores a repeated uuid even while queued/running and after
+        // resume (POD-4819 §3.8, measured on 2.1.284). Clear the shared queue's
+        // recovery stop only when this line carries that stable message id.
+        input.deliveryRecovery && input.id !== undefined
+          ? { ...input, deliveryRecovery: false }
+          : input,
+        options,
+      )
     return queued
   }
 

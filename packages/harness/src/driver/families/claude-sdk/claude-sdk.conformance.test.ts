@@ -107,13 +107,19 @@ function makeWorld(): {
       if (items.length === 0) return undefined
       return {
         path: `${resumeValue}.jsonl`,
-        bytes: new TextEncoder().encode(items.map((item) => JSON.stringify({
-          type: item.role,
-          uuid: item.id,
-          sessionId: resumeValue,
-          timestamp: item.ts,
-          message: { role: item.role, content: item.text },
-        })).join('\n') + '\n'),
+        bytes: new TextEncoder().encode(
+          items
+            .map((item) =>
+              JSON.stringify({
+                type: item.role,
+                uuid: item.id,
+                sessionId: resumeValue,
+                timestamp: item.ts,
+                message: { role: item.role, content: item.text },
+              }),
+            )
+            .join('\n') + '\n',
+        ),
       }
     },
   }
