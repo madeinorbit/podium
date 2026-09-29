@@ -1,0 +1,16 @@
+# timeline for SID (Enter at 1790699911640), ms relative to Enter
+     +0  KEY           SID Enter: SESSIONID prompt with our session id
+    +45  HOOK          UserPromptSubmit promptId=313b47b1-9021-4533-8cf3-809f80195e65 prompt='SESSIONID prompt with our session id'
+   +133  PODIUM-HOOK   user_prompt_submit promptId=313b47b1-9021-4533-8cf3-809f80195e65
+   +317  HOOK          Stop promptId=313b47b1-9021-4533-8cf3-809f80195e65 reason=end_turn
+   +347  PODIUM-HOOK   stop promptId=313b47b1-9021-4533-8cf3-809f80195e65
+
+# started as: grok -m fake --always-approve --trust --session-id 4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001 (file watcher not running for this run)
+# session directory created: <work-dir-sessions>/4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001/
+# its updates.jsonl, first records (sessionId, sessionUpdate, eventId):
+{"sessionId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001","u":"hook_execution","eventId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001-2","promptIndex":null,"prompt_id":null}
+{"sessionId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001","u":"hook_execution","eventId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001-3","promptIndex":null,"prompt_id":"313b47b1-9021-4533-8cf3-809f80195e65"}
+{"sessionId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001","u":"user_message_chunk","eventId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001-4","promptIndex":0,"prompt_id":null}
+{"sessionId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001","u":"hook_execution","eventId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001-12","promptIndex":null,"prompt_id":"313b47b1-9021-4533-8cf3-809f80195e65"}
+{"sessionId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001","u":"agent_message_chunk","eventId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001-8","promptIndex":null,"prompt_id":null}
+{"sessionId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001","u":"turn_completed","eventId":"4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001-13","promptIndex":null,"prompt_id":"313b47b1-9021-4533-8cf3-809f80195e65"}
