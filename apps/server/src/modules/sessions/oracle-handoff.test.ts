@@ -700,8 +700,10 @@ describe('oracle: handoff success across two machines', () => {
     vi.useFakeTimers()
     try {
       const f = await handoffFixture()
-      // Current execution authority includes daemon availability. Once detached,
-      // admission refuses before any source process or transfer is touched.
+      // POD-4630 (4923bf09d): an offline machine reads offline, not
+      // unauthorized — 'use' is a grant fact only, and reachability reports
+      // after authorization. Once detached, placement refuses before any
+      // source process or transfer is touched.
       f.reg.gateway.detachDaemon('m2')
       vi.advanceTimersByTime(30_001)
 
@@ -712,7 +714,7 @@ describe('oracle: handoff success across two machines', () => {
             TEST_CALLER,
           ),
         ),
-      ).toBe("you do not have access to run agents on machine 'target'")
+      ).toBe('target machine is offline')
       expect(f.source.some(message => message.type === 'runtimeLifecycleRequest')).toBe(false)
     } finally {
       vi.useRealTimers()
