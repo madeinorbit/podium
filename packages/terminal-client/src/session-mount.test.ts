@@ -26,19 +26,14 @@ function fakeHub() {
     controllerId: null,
     cols: 80,
     rows: 24,
-    requestedGeometry: null,
-    geometryRevision: 0,
     epoch: 0,
     connected: true,
   } as ConnectionState
   const connection = {
-    sendResize: () => {},
     sendInput: () => {},
-    requestControl: () => {},
     // POD-3239 B4: the one ask. Inert here — these suites are about frames,
     // readiness and the colour-scheme report, not about sizing.
     sendViewportRequest: () => {},
-    redraw: () => {},
     state: () => current,
   }
   const hub = {
@@ -51,7 +46,7 @@ function fakeHub() {
   return {
     hub,
     reset: () => cbs.onReset?.(),
-    timelineReset: () => cbs.onGeometryTimelineReset?.(),
+    attached: () => cbs.onAttached?.(),
     // Keep cols/rows at the mounted 80×24 so onState drives only the epoch/clear path,
     // never a view.resize.
     setState: (patch: Partial<ConnectionState>) => {
@@ -104,25 +99,6 @@ describe('session-mount clear semantics', () => {
     }
   })
 
-  it('resets geometry ordering without clearing on a resumed timeline reset', () => {
-    withResizeObserver()
-    const clear = vi.spyOn(TerminalView.prototype, 'clear')
-    try {
-      const { hub, timelineReset } = fakeHub()
-      const mounted = mountSession(document.createElement('div'), {
-        hub,
-        sessionId: asSessionId('s1'),
-        active: false,
-      })
-      clear.mockClear()
-      timelineReset()
-      expect(clear).not.toHaveBeenCalled()
-      mounted.dispose()
-    } finally {
-      clear.mockRestore()
-    }
-  })
-
   it('does not clear on an epoch change while disconnected (only onReset owns the reattach clear)', () => {
     withResizeObserver()
     const clear = vi.spyOn(TerminalView.prototype, 'clear')
@@ -145,30 +121,35 @@ describe('session-mount clear semantics', () => {
     }
   })
 
-  it('keeps non-geometry state flowing when an older geometry state arrives', () => {
+  it('after the attach, the xterm takes EVERY server grid in arrival order — no revision fence (POD-3190 rev 3)', () => {
+    // The mount used to drop a state whose `geometryRevision` was lower than
+    // one it had seen. The streams are ordered and a reconnect's attach is a
+    // full statement, so nothing is stale: an older peer's leftover revision
+    // field must not freeze the view.
     withResizeObserver()
     const host = document.createElement('div')
     const onState = vi.fn()
-    const { hub, setState } = fakeHub()
+    const { hub, setState, attached } = fakeHub()
     const mounted = mountSession(host, {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
       onState,
     })
-    setState({ geometryRevision: 2 })
+    attached()
+    setState({ geometryRevision: 2, cols: 100, rows: 30 } as Partial<ConnectionState>)
     onState.mockClear()
 
     setState({
       geometryRevision: 1,
-      cols: 100,
-      rows: 30,
+      cols: 90,
+      rows: 28,
       role: 'spectator',
       epoch: 3,
-    })
+    } as Partial<ConnectionState>)
 
-    expect(mounted.view.cols()).toBe(80)
-    expect(mounted.view.rows()).toBe(24)
+    expect(mounted.view.cols()).toBe(90)
+    expect(mounted.view.rows()).toBe(28)
     expect(host.dataset.role).toBe('spectator')
     expect(host.dataset.epoch).toBe('3')
     expect(onState).toHaveBeenCalled()

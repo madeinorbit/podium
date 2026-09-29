@@ -1,6 +1,7 @@
 import type { SessionCallbacks } from '@podium/client-core/socket-transport'
 import { asSessionId } from '@podium/model'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mountSession } from '@podium/terminal-client/session-mount'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createTerminalBridge,
   encodeFrameBytes,
@@ -18,7 +19,8 @@ import {
  *   - attach/detach latching (the native attach frame is one-shot, POD-1613)
  *   - the state MIRROR: `connection.state()` must answer synchronously with
  *     the last state the native connection published
- *   - forwarding fidelity for input/resize/viewport/control/redraw.
+ *   - forwarding fidelity for input and the one size statement — driven by the
+ *     REAL mount, because the seam impersonates exactly what the mount calls.
  */
 
 const SESSION = asSessionId('sess-bridge')
@@ -28,10 +30,7 @@ function actionsHarness() {
     onAttachTerminal: vi.fn(async () => {}),
     onDetachTerminal: vi.fn(async () => {}),
     onSendInput: vi.fn(async () => {}),
-    onSendResize: vi.fn(async () => {}),
-    onReportViewport: vi.fn(async () => {}),
-    onRequestControl: vi.fn(async () => {}),
-    onRedraw: vi.fn(async () => {}),
+    onViewportRequest: vi.fn(async () => {}),
   } satisfies TerminalDomActions
   return { actions, box: { current: actions as TerminalDomActions } }
 }
@@ -125,17 +124,14 @@ describe('createTerminalBridge', () => {
 
     conn.sendInput('ls\r')
     expect(harness.actions.onSendInput).toHaveBeenCalledWith('ls\r')
-    conn.sendResize(62, 36)
-    expect(harness.actions.onSendResize).toHaveBeenCalledWith(62, 36)
-    conn.reportViewport(48, 30)
-    expect(harness.actions.onReportViewport).toHaveBeenCalledWith(48, 30)
-    conn.requestControl({ cols: 62, rows: 36 })
-    expect(harness.actions.onRequestControl).toHaveBeenCalledWith({ cols: 62, rows: 36 })
-    // A bare claim crosses as null — `undefined` does not survive JSON marshal.
-    conn.requestControl()
-    expect(harness.actions.onRequestControl).toHaveBeenLastCalledWith(null)
-    conn.redraw()
-    expect(harness.actions.onRedraw).toHaveBeenCalledTimes(1)
+    const statement = {
+      geometry: { cols: 62, rows: 36 },
+      visible: true,
+      mode: 'native' as const,
+      claimControl: true,
+    }
+    conn.sendViewportRequest(statement)
+    expect(harness.actions.onViewportRequest).toHaveBeenCalledWith(statement)
   })
 
   it('reads actions through the box, so a re-marshal never strands the mount on stale proxies', () => {
@@ -146,5 +142,92 @@ describe('createTerminalBridge', () => {
     conn.sendInput('x')
     expect(harness.actions.onSendInput).not.toHaveBeenCalled()
     expect(replacement.actions.onSendInput).toHaveBeenCalledWith('x')
+  })
+})
+
+/**
+ * THE SEAM UNDER THE REAL MOUNT (POD-3190 rev 3, traced by POD-4772).
+ *
+ * The mount speaks about size through `sendViewportRequest` alone. The bridge
+ * used to impersonate `sendResize`/`reportViewport`/`requestControl`/`redraw`
+ * instead — methods the mount stopped calling — so on the native app every
+ * size statement, and the header's take-control, threw a TypeError inside the
+ * webview and never reached the server. These run the shipped `mountSession`
+ * over the bridge, so a method the mount needs and the seam lacks fails here.
+ */
+describe('mountSession over the bridge', () => {
+  const restorers: Array<() => void> = []
+  afterEach(() => {
+    while (restorers.length) restorers.pop()?.()
+  })
+  function withResizeObserver(): void {
+    const g = globalThis as { ResizeObserver?: unknown }
+    if (g.ResizeObserver) return
+    g.ResizeObserver = class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    restorers.push(() => {
+      delete g.ResizeObserver
+    })
+  }
+
+  it("the header's takeover reaches native as ONE claiming size statement", () => {
+    withResizeObserver()
+    const bridge = createTerminalBridge(SESSION, harness.box)
+    const mounted = mountSession(document.createElement('div'), {
+      hub: bridge.hub,
+      sessionId: SESSION,
+      crop: 'scroll',
+      initialGeometry: { cols: 62, rows: 36 },
+      focusOnMount: false,
+    })
+    try {
+      mounted.takeControl()
+      expect(harness.actions.onViewportRequest).toHaveBeenCalledWith({
+        geometry: { cols: 62, rows: 36 },
+        visible: true,
+        mode: 'native',
+        claimControl: true,
+      })
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it("the webview's xterm moves only on the server's grid, and only after the attach", () => {
+    withResizeObserver()
+    const bridge = createTerminalBridge(SESSION, harness.box)
+    const mounted = mountSession(document.createElement('div'), {
+      hub: bridge.hub,
+      sessionId: SESSION,
+      crop: 'scroll',
+      initialGeometry: { cols: 62, rows: 36 },
+      focusOnMount: false,
+    })
+    const grid = () => ({ cols: mounted.view.cols(), rows: mounted.view.rows() })
+    const serverState = (cols: number, rows: number) => ({
+      ...initialBridgeState(SESSION),
+      connected: true,
+      clientId: 'phone',
+      controllerId: 'desk',
+      cols,
+      rows,
+    })
+    try {
+      // Before the attach nothing has authority over the buffer — not even a
+      // mirrored state that carries a grid.
+      bridge.push.state(serverState(90, 30))
+      expect(grid()).toEqual({ cols: 62, rows: 36 })
+
+      bridge.push.attached()
+      expect(grid(), 'the attach snapshot is the first word').toEqual({ cols: 90, rows: 30 })
+
+      bridge.push.state(serverState(100, 32))
+      expect(grid()).toEqual({ cols: 100, rows: 32 })
+    } finally {
+      mounted.dispose()
+    }
   })
 })

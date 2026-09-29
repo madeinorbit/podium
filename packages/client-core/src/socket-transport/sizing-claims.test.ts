@@ -108,28 +108,26 @@ describe('C1 (REWRITTEN for POD-3239 B2/B8): a SessionConnection has NO geometry
     for (const opts of seen) expect(opts).not.toHaveProperty('viewport')
   })
 
-  it('requestControl(geometry) still emits synchronously — carrying NO grid, only the request', () => {
-    // The emit is kept: `requestedGeometry` is real local intent and the UI reads
-    // it. What is gone is the fabricated `cols`/`rows` it used to carry.
+  it('a claiming size statement publishes NOTHING locally — the grid moves only on the server word (POD-3190 rev 3)', () => {
+    // It used to publish `requestedGeometry`, a pending ask the phone's caption
+    // read as "fitting" until the server's grid matched it. An ask the host
+    // refuses is never answered, so that state never ended.
     const { hub } = makeHub()
-    const states: ConnectionState[] = []
     const events: string[] = []
     const conn = hub.attach(SESSION, {
-      onState: (s) => {
-        states.push(s)
-        events.push(`state:${s.cols}x${s.rows}`)
-      },
+      onState: (s) => events.push(`state:${s.cols}x${s.rows}`),
       onAttached: () => events.push('attached'),
     })
 
-    conn.requestControl({ cols: 150, rows: 50 })
-
-    expect(events).toEqual(['state:undefinedxundefined'])
-    expect(states.at(-1)).toMatchObject({
-      cols: undefined,
-      rows: undefined,
-      requestedGeometry: { cols: 150, rows: 50 },
+    conn.sendViewportRequest({
+      geometry: { cols: 150, rows: 50 },
+      visible: true,
+      mode: 'native',
+      claimControl: true,
     })
+
+    expect(events).toEqual([])
+    expect(conn.state()).not.toHaveProperty('requestedGeometry')
   })
 
   it('`welcome` re-emits through _notifyHubChange, and it too carries no grid', () => {
@@ -179,7 +177,6 @@ describe('C3: the `attached` handler sets cols/rows and emits BEFORE onAttached'
       controllerId: 'other-client',
       controllerIdentity: null,
       geometry: { cols: 150, rows: 50 },
-      geometryRevision: 3,
       epoch: 1,
       resumed: false,
       outputSeen: false,
@@ -189,7 +186,7 @@ describe('C3: the `attached` handler sets cols/rows and emits BEFORE onAttached'
     expect(events).toEqual(['reset', 'state:150x50', 'attached'])
     // So there is no later event to wait for: the attach snapshot is readable
     // from `state()` inside onAttached, which is what SPEC-1 B2 relies on.
-    expect(stateInsideOnAttached).toMatchObject({ cols: 150, rows: 50, geometryRevision: 3 })
+    expect(stateInsideOnAttached).toMatchObject({ cols: 150, rows: 50 })
   })
 
   it('an attach at the SAME grid as the birth default still emits — the emit is unconditional', () => {
@@ -205,7 +202,6 @@ describe('C3: the `attached` handler sets cols/rows and emits BEFORE onAttached'
       controllerId: null,
       controllerIdentity: null,
       geometry: { cols: 80, rows: 24 },
-      geometryRevision: 0,
       epoch: 0,
       resumed: true,
       outputSeen: true,

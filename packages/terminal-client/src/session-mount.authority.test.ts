@@ -121,8 +121,6 @@ const attachedFrame = (geometry: { cols: number; rows: number }): ServerMessage 
     controllerId: 'someone-else',
     controllerIdentity: null,
     geometry,
-    geometryRevision: 1,
-    geometryState: 'current',
     epoch: 0,
     resumed: true,
     outputSeen: true,
@@ -133,7 +131,7 @@ const attachedFrame = (geometry: { cols: number; rows: number }): ServerMessage 
 // ---------------------------------------------------------------------------
 
 describe('T1: a mount seeded with a non-default grid is not moved by anything before the attach', () => {
-  it('survives requestControl’s synchronous emit, welcome, and a spectator state — then follows the attach', () => {
+  it('survives a claim, welcome, and a spectator state — then follows the attach', () => {
     withResizeObserver()
     withNoProposal()
     const { hub, socket } = realHub()
@@ -142,7 +140,6 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
       sessionId: SESSION,
       active: false,
       initialGeometry: { cols: 132, rows: 43 },
-      geometryState: 'current',
     })
     try {
       // BORN AT W. Not 80x24, and not after a round trip — at construction.
@@ -151,8 +148,14 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
         rows: 43,
       })
 
-      // 1. `requestControl(geometry)` publishes a state SYNCHRONOUSLY (0b C1).
-      mounted.connection.requestControl({ cols: 150, rows: 50 })
+      // 1. A claim carrying another size (it used to publish a pending state
+      //    synchronously, 0b C1; it publishes nothing now).
+      mounted.connection.sendViewportRequest({
+        geometry: { cols: 150, rows: 50 },
+        visible: true,
+        mode: 'native',
+        claimControl: true,
+      })
       // 2. `welcome` re-emits the same state through `_notifyHubChange`.
       socket.deliver({ type: 'welcome', clientId: 'client-1' } as ServerMessage)
       // 3. A spectator geometry frame, which a real session can receive before
@@ -162,7 +165,6 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
         sessionId: SESSION,
         cols: 90,
         rows: 30,
-        geometryRevision: 1,
       } as ServerMessage)
 
       expect(
@@ -193,7 +195,6 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
       sessionId: SESSION,
       active: false,
       initialGeometry: { cols: 104, rows: 31 },
-      geometryState: 'current',
     })
     try {
       socket.deliver(attachedFrame({ cols: 104, rows: 31 }))
@@ -206,37 +207,6 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
     }
   })
 
-  it('`unknown` still renders last-known; only `absent` declines to paint a grid', () => {
-    // MODEL rule 6: inside the system W can only change through the daemon, so
-    // last-known is right until the first ask corrects it. Flashing an overlay
-    // over a live terminal for one round trip after every daemon restart is the
-    // alternative, and it is worse.
-    withResizeObserver()
-    withNoProposal()
-    const { hub } = realHub()
-    const unknown = mountSession(host(), {
-      hub,
-      sessionId: SESSION,
-      active: false,
-      initialGeometry: { cols: 120, rows: 40 },
-      geometryState: 'unknown',
-    })
-    expect({ cols: unknown.view.cols(), rows: unknown.view.rows() }).toEqual({
-      cols: 120,
-      rows: 40,
-    })
-    unknown.dispose()
-
-    const absent = mountSession(host(), {
-      hub,
-      sessionId: SESSION,
-      active: false,
-      initialGeometry: { cols: 120, rows: 40 },
-      geometryState: 'absent',
-    })
-    expect({ cols: absent.view.cols(), rows: absent.view.rows() }).toEqual({ cols: 80, rows: 24 })
-    absent.dispose()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -257,7 +227,6 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
       sessionId: SESSION,
       active: false,
       initialGeometry: { cols: 104, rows: 31 },
-      geometryState: 'current',
     })
     try {
       socket.deliver(attachedFrame({ cols: 104, rows: 31 }))
@@ -277,7 +246,6 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
           visible: true,
           mode: 'native',
           claimControl: true,
-          seq: 1,
         },
       ])
       // THE BUFFER DID NOT MOVE. Zero latency, and no frame at any other size —
@@ -300,7 +268,6 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
       sessionId: SESSION,
       active: false,
       initialGeometry: { cols: 104, rows: 31 },
-      geometryState: 'current',
     })
     try {
       socket.deliver({ type: 'welcome', clientId: 'this-client' } as ServerMessage)
@@ -314,7 +281,6 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
         controllerId: 'this-client',
         controllerIdentity: null,
         geometry: { cols: 104, rows: 31 },
-        geometryRevision: 1,
       } as ServerMessage)
 
       expect(mounted.connection.state().role).toBe('controller')
@@ -346,7 +312,6 @@ describe('T7: a hidden pane follows the server grid, and is already correct when
       sessionId: SESSION,
       active: false,
       initialGeometry: { cols: 132, rows: 43 },
-      geometryState: 'current',
     })
     try {
       socket.deliver(attachedFrame({ cols: 132, rows: 43 }))
@@ -357,7 +322,6 @@ describe('T7: a hidden pane follows the server grid, and is already correct when
         sessionId: SESSION,
         cols: 100,
         rows: 30,
-        geometryRevision: 2,
       } as ServerMessage)
 
       expect(

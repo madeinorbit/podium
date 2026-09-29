@@ -37,34 +37,29 @@ describe('terminalStatusLine', () => {
 })
 
 describe('terminalControlView', () => {
-  it('maps a spectator snapshot to spectating on the server grid', () => {
-    expect(
-      terminalControlView({ role: 'spectator', cols: 103, rows: 28, requestedGeometry: null }),
-    ).toEqual({ role: 'spectator', phase: 'spectating', cols: 103, rows: 28 })
+  it('is the server snapshot and nothing else: who drives, on which grid', () => {
+    expect(terminalControlView({ role: 'spectator', cols: 103, rows: 28 })).toEqual({
+      role: 'spectator',
+      cols: 103,
+      rows: 28,
+    })
+    expect(terminalControlView({ role: 'controller', cols: 62, rows: 36 })).toEqual({
+      role: 'controller',
+      cols: 62,
+      rows: 36,
+    })
   })
 
-  it('reports fitting while ANY geometry claim is unacknowledged — role alone is not success', () => {
-    expect(
-      terminalControlView({
-        role: 'controller',
-        cols: 103,
-        rows: 28,
-        requestedGeometry: { cols: 62, rows: 36 },
-      }).phase,
-    ).toBe('fitting')
-    expect(
-      terminalControlView({
-        role: 'spectator',
-        cols: 103,
-        rows: 28,
-        requestedGeometry: { cols: 62, rows: 36 },
-      }).phase,
-    ).toBe('fitting')
-  })
-
-  it('reports controlling only once the acknowledged geometry is authoritative', () => {
-    expect(
-      terminalControlView({ role: 'controller', cols: 62, rows: 36, requestedGeometry: null }),
-    ).toEqual({ role: 'controller', phase: 'controlling', cols: 62, rows: 36 })
+  it('has no "fitting" state to wedge in: an unanswered claim leaves the view where the server put it (POD-3190 rev 3)', () => {
+    // The old view read `requestedGeometry` and said "fitting" until the
+    // server's grid matched it. A refused ask is never answered, so it never
+    // ended. The view now ignores anything but the server's own fields.
+    const pendingClaim = {
+      role: 'spectator' as const,
+      cols: 103,
+      rows: 28,
+      requestedGeometry: { cols: 62, rows: 36 },
+    }
+    expect(terminalControlView(pendingClaim)).toEqual({ role: 'spectator', cols: 103, rows: 28 })
   })
 })

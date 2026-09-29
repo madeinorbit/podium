@@ -182,14 +182,14 @@ test('phone follows an active desktop grid, then auto-fits when it is the sole r
             (
               window as unknown as {
                 __podium?: {
-                  state(): { cols: number; rows: number; role: string; requestedGeometry: unknown }
+                  state(): { cols: number; rows: number; role: string }
                 }
               }
             ).__podium?.state(),
           ),
         { timeout: 30_000 },
       )
-      .toMatchObject({ role: 'controller', requestedGeometry: null })
+      .toMatchObject({ role: 'controller' })
     const fitted = await phone.evaluate(() =>
       (
         window as unknown as {

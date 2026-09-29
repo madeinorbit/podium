@@ -133,15 +133,13 @@ function withFakeTimedRaf(): void {
   })
 }
 
-/** Hub stub that records resize/redraw/requestControl and lets a test drive onState. */
+/** Hub stub that records the size statements and lets a test drive onState. */
 function fakeHub() {
   let cbs: SessionCallbacks = {}
   let current = {
     role: 'controller' as 'controller' | 'spectator',
     cols: 80,
     rows: 24,
-    requestedGeometry: null as { cols: number; rows: number } | null,
-    geometryRevision: 0,
     epoch: 0,
     connected: true,
   }
@@ -155,7 +153,6 @@ function fakeHub() {
       claimControl: boolean
     }>,
     input: [] as string[],
-    redraw: 0,
     requestControl: 0,
     leaseAcquire: 0,
     leaseRelease: 0,
@@ -164,7 +161,7 @@ function fakeHub() {
     // THE ONE ASK (POD-3239 B4). Recorded in `asks` with its full shape, and
     // ALSO folded into `claims`/`resize` so the assertions those older cases
     // make still read the same events — a claiming ask is what `requestControl`
-    // used to be, a plain one is what `sendResize`/`reportViewport` used to be.
+    // used to be, a plain one is what the old `resize` frame used to be.
     sendViewportRequest: (request: {
       geometry: { cols: number; rows: number }
       visible: boolean
@@ -179,20 +176,7 @@ function fakeHub() {
         calls.resize.push([request.geometry.cols, request.geometry.rows])
       }
     },
-    sendResize: (c: number, r: number) => {
-      calls.resize.push([c, r])
-    },
-    reportViewport: (c: number, r: number) => {
-      calls.resize.push([c, r])
-    },
     sendInput: (data: string) => calls.input.push(data),
-    requestControl: (geometry?: { cols: number; rows: number }) => {
-      calls.requestControl += 1
-      calls.claims.push(geometry)
-    },
-    redraw: () => {
-      calls.redraw += 1
-    },
     state: () => current,
   }
   const hub = {
@@ -215,10 +199,8 @@ function fakeHub() {
       cols: number,
       rows: number,
       role: 'controller' | 'spectator' = 'controller',
-      requestedGeometry: { cols: number; rows: number } | null = null,
-      geometryRevision: number = current.geometryRevision,
     ) => {
-      current = { ...current, cols, rows, role, requestedGeometry, geometryRevision }
+      current = { ...current, cols, rows, role }
       cbs.onState?.(current as never)
     },
     role: (role: 'controller' | 'spectator') => {
@@ -626,8 +608,8 @@ describe('mountSession eligibility-gated sizing', () => {
     // to this buffer: a grid the client had applied from its OWN measurement,
     // and the grid the server said. Rule 2 leaves one claimant. The client
     // measures to decide whether to ASK, and the buffer only ever moves to what
-    // the server reports — so a "stale echo" is now just an older state, and the
-    // geometry revision is the whole of the ordering rule.
+    // the server reports. And since POD-3190 rev 3 there is no ordering rule
+    // on top: one ordered socket, so the latest state is the server's word.
     withResizeObserver()
     const observer = withCapturingResizeObserver()
     withFakeTimedRaf()
@@ -651,24 +633,23 @@ describe('mountSession eligibility-gated sizing', () => {
     })
 
     // The server applies it and says so. NOW the buffer moves.
-    state(150, 50, 'controller', null, 1)
+    state(150, 50, 'controller')
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
       cols: 150,
       rows: 50,
     })
 
     // A LATER authoritative grid wins outright — no claim to weigh it against.
-    state(100, 30, 'controller', null, 2)
+    state(100, 30, 'controller')
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
       cols: 100,
       rows: 30,
     })
 
-    // An OLDER revision is still refused, which is the one ordering rule left.
-    state(70, 20, 'controller', null, 1)
+    state(70, 20, 'controller')
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 100,
-      rows: 30,
+      cols: 70,
+      rows: 20,
     })
 
     mounted.dispose()

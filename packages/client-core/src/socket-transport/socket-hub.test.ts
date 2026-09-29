@@ -793,33 +793,39 @@ describe('SessionConnection (hub-backed)', () => {
     expect(conn.state().role).toBe('spectator')
   })
 
-  it('tags input/resize/requestControl/redraw with the sessionId', () => {
+  it('tags input/viewportRequest/requestControl/redraw with the sessionId', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
     const conn = hub.attach(asSessionId('s1'))
     conn.sendInput('x')
-    conn.sendResize(120, 40)
-    conn.reportViewport(63, 28)
+    conn.sendViewportRequest({
+      geometry: { cols: 120, rows: 40 },
+      visible: true,
+      mode: 'native',
+      claimControl: false,
+    })
     conn.requestControl()
     conn.redraw()
     const sent = sock.parsed()
     expect(sent).toContainEqual({ type: 'input', sessionId: 's1', data: b64('x') })
-    expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
-    expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 63, rows: 28 })
-    // POD-3239 B8: a connection that has never attached reports NO grid. The
-    // request it sent is real local intent and is still visible; the size the
-    // server holds is not a thing this connection can claim to know yet.
-    expect(conn.state()).toMatchObject({
-      cols: undefined,
-      rows: undefined,
-      requestedGeometry: { cols: 120, rows: 40 },
+    // No `seq`: one ordered socket needs no watermark (POD-3190 rev 3).
+    expect(sent).toContainEqual({
+      type: 'viewportRequest',
+      sessionId: 's1',
+      geometry: { cols: 120, rows: 40 },
+      visible: true,
+      mode: 'native',
+      claimControl: false,
     })
+    // POD-3239 B8: a connection that has never attached reports NO grid, and a
+    // statement it sent does not change that.
+    expect(conn.state()).toMatchObject({ cols: undefined, rows: undefined })
     expect(sent).toContainEqual({ type: 'requestControl', sessionId: 's1' })
     expect(sent).toContainEqual({ type: 'redrawRequest', sessionId: 's1' })
   })
 
-  it('carries claim geometry atomically and keeps UI pending until server acknowledgment', () => {
+  it('a claim moves nothing locally; the controllerChanged and geometry frames do', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
@@ -833,31 +839,23 @@ describe('SessionConnection (hub-backed)', () => {
       epoch: 0,
     })
 
-    conn.requestControl({ cols: 62, rows: 36 })
-    expect(sock.parsed()).toContainEqual({
-      type: 'requestControl',
-      sessionId: 's1',
+    conn.sendViewportRequest({
       geometry: { cols: 62, rows: 36 },
+      visible: true,
+      mode: 'native',
+      claimControl: true,
     })
-    expect(conn.state()).toMatchObject({
-      role: 'spectator',
-      cols: 103,
-      rows: 28,
-      requestedGeometry: { cols: 62, rows: 36 },
-    })
+    expect(conn.state()).toMatchObject({ role: 'spectator', cols: 103, rows: 28 })
 
     sock.recv({
       type: 'controllerChanged',
       sessionId: asSessionId('s1'),
       controllerId: 'c0',
-      geometry: { cols: 62, rows: 36 },
+      geometry: { cols: 103, rows: 28 },
     })
-    expect(conn.state()).toMatchObject({
-      role: 'controller',
-      cols: 62,
-      rows: 36,
-      requestedGeometry: null,
-    })
+    expect(conn.state()).toMatchObject({ role: 'controller', cols: 103, rows: 28 })
+    sock.recv({ type: 'geometry', sessionId: asSessionId('s1'), cols: 62, rows: 36 })
+    expect(conn.state()).toMatchObject({ role: 'controller', cols: 62, rows: 36 })
   })
 
   it('fires onAttached once when the server confirms the attach (no output required)', () => {
@@ -1023,7 +1021,9 @@ describe('SessionConnection (hub-backed)', () => {
     expect(conn.state()).toMatchObject({ cols: 111, rows: 41 })
   })
 
-  it('ignores an older geometry revision after a newer resize', () => {
+  it('every geometry frame moves the grid: frames arrive in order, so there is no revision fence', () => {
+    // POD-3190 rev 3 deleted `geometryRevision`. An older peer may still send
+    // it; it is read by nothing, so a lower one no longer freezes the grid.
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
@@ -1042,11 +1042,7 @@ describe('SessionConnection (hub-backed)', () => {
       rows: 24,
       geometryRevision: 1,
     })
-    expect(conn.state()).toMatchObject({
-      cols: 100,
-      rows: 30,
-      geometryRevision: 2,
-    })
+    expect(conn.state()).toMatchObject({ cols: 80, rows: 24 })
   })
 
   it('handles agentExit without throwing and still emits state', () => {
@@ -1466,17 +1462,12 @@ describe('resume + offline input queue', () => {
     hub.connect()
     sock.open()
     let resets = 0
-    let timelineResets = 0
-    hub.attach(asSessionId('s1'), {
-      onReset: () => (resets += 1),
-      onGeometryTimelineReset: () => (timelineResets += 1),
-    })
+    hub.attach(asSessionId('s1'), { onReset: () => (resets += 1) })
     sock.recv({
       type: 'attached',
       sessionId: asSessionId('s1'),
       controllerId: 'c0',
       geometry: { cols: 80, rows: 24 },
-      geometryRevision: 1,
       epoch: 0,
       resumed: false,
     })
@@ -1486,14 +1477,10 @@ describe('resume + offline input queue', () => {
       sessionId: asSessionId('s1'),
       controllerId: 'c0',
       geometry: { cols: 80, rows: 24 },
-      geometryRevision: 0,
       epoch: 0,
       resumed: true,
     })
     expect(resets).toBe(1) // a resume keeps the screen — no clear
-    // A restarted timeline resets the fence, not the screen.
-    expect(timelineResets).toBe(1)
-    expect(timelineResets).toBe(1) // a restarted timeline resets the fence, not the screen
   })
 })
 

@@ -197,7 +197,7 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
   // 80x24 on every cold mount, whatever the server was holding.
   expect(
     gridOf(mount),
-    `constructed at the session grid, not at xterm's default — mount was asked for ${JSON.stringify(mount?.data.initialGeometry)} / ${JSON.stringify(mount?.data.geometryState)}`,
+    `constructed at the session grid, not at xterm's default — mount was asked for ${JSON.stringify(mount?.data.initialGeometry)}`,
   ).toEqual(W)
 
   // …and nothing after it ever moves the buffer to the default either.
@@ -212,24 +212,31 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
   expect(coldEvents).not.toContain('fit:retry-start')
   expect(coldEvents).not.toContain('reveal:fit-mismatch')
   expect(coldEvents.some((e) => e.startsWith('anomaly:'))).toBe(false)
-  // THE ASKS: EXACTLY ONE, AND ONE APPLY (POD-4721). A cold switch used to ask
-  // twice — the claim, then again once the box shrank after the first frame
+  // THE ASKS: ONE BOX, AND ONE APPLY (POD-4721). A cold switch used to ask for
+  // two sizes — the claim, then again once the box shrank after the first frame
   // (0a saw 727 → 700 px and read it as the chrome settling). That shrink was
   // the prompt chrome under the PTY mounting on `ready`, i.e. AFTER the mount
   // had measured and asked: a second resize, a second blank of the xterm and a
   // second SIGWINCH redraw for a box that was always going to be that size. The
   // chrome is now laid out from the first frame, so the box the claim measures
-  // is final and nothing asks again.
+  // is final.
+  //
+  // The browser may STATE that box more than once — the mount, its first render,
+  // the font arriving and the attach are all triggers, and since POD-3190 rev 3
+  // it keeps no memory of what it asked (POD-4772). The server forwards only a
+  // change, so a repeat costs a frame and no resize; what must hold is that
+  // every statement names the same box, and the buffer moves once.
   //
   // (0a also caught 104x31 → 104x33 → 104x31 — a size stated, left and come
   // back to — from a client comparing against the freshly constructed xterm
-  // rather than W. One ask rules that out too.)
+  // rather than W. One box rules that out too.)
   const asks = cold.filter((e) => e.event === 'ask:sent')
   const asked = asks.map((e) => `${e.data.reason as string} ${JSON.stringify(e.data.geometry)}`)
   const applied = cold.filter((e) => e.event === 'geometry:applied')
   const story = `asks: ${asked.join(' → ')}; applied: ${applied.length}`
-  expect(asked, `the reveal asks once, from a box that is already final (${story})`).toHaveLength(1)
-  expect(asks[0]?.data, 'the one ask is the claim').toMatchObject({ claimControl: true })
+  const boxes = new Set(asks.map((e) => JSON.stringify(e.data.geometry)))
+  expect([...boxes], `the reveal states one box, already final (${story})`).toHaveLength(1)
+  expect(asks[0]?.data, 'the first ask is the claim').toMatchObject({ claimControl: true })
   expect(applied, `the buffer moves once (${story})`).toHaveLength(1)
 
   // PAINT EVIDENCE. The terminal has a real box on screen, and the grid it is at
@@ -261,7 +268,7 @@ test('a chat → CLI switch never paints the default grid, cold or warm', async 
     .join('\n      ')
   expect(
     coldPainted,
-    `the terminal ends at the size it asked for.\n    asked: ${asked.join(' → ')}\n    server: geometry=${JSON.stringify(row?.geometry)} state=${String(row?.geometryState)} gated=${String(row?.requestsGated ?? 0)} duplicate=${String(row?.requestsDuplicate ?? 0)}\n    connection: ${connection}\n    tail:\n      ${tail}`,
+    `the terminal ends at the size it asked for.\n    asked: ${asked.join(' → ')}\n    server: geometry=${JSON.stringify(row?.geometry)} gated=${String(row?.requestsGated ?? 0)} duplicate=${String(row?.requestsDuplicate ?? 0)}\n    connection: ${connection}\n    tail:\n      ${tail}`,
   ).toEqual(asks.at(-1)?.data.geometry)
   await page
     .getByTestId('terminal-surface')

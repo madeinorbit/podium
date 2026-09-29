@@ -119,8 +119,6 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
     role: 'controller' as 'controller' | 'spectator',
     cols: initial.cols,
     rows: initial.rows,
-    geometryRevision: 0,
-    requestedGeometry: null as { cols: number; rows: number } | null,
     epoch: 0,
     lastSeq: -1,
     outputSeen: true,
@@ -135,13 +133,12 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
       claimControl: boolean
     }>,
     requestControl: 0,
-    redraw: 0,
   }
   const connection = {
     // THE ONE ASK (POD-3239 B4). Recorded in `asks` with its full shape, and
     // ALSO folded into `claims`/`resize` so the assertions those older cases
     // make still read the same events — a claiming ask is what `requestControl`
-    // used to be, a plain one is what `sendResize`/`reportViewport` used to be.
+    // used to be, a plain one is what the old `resize` frame used to be.
     sendViewportRequest: (request: {
       geometry: { cols: number; rows: number }
       visible: boolean
@@ -156,16 +153,7 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
         calls.resize.push([request.geometry.cols, request.geometry.rows])
       }
     },
-    sendResize: (c: number, r: number) => calls.resize.push([c, r]),
-    reportViewport: (c: number, r: number) => calls.resize.push([c, r]),
     sendInput: () => {},
-    requestControl: (geometry?: { cols: number; rows: number }) => {
-      calls.requestControl += 1
-      calls.claims.push(geometry)
-    },
-    redraw: () => {
-      calls.redraw += 1
-    },
     state: () => current,
   }
   const hub = {
@@ -180,7 +168,7 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
     hub,
     calls,
     serverGrid: (cols: number, rows: number) => {
-      current = { ...current, cols, rows, geometryRevision: current.geometryRevision + 1 }
+      current = { ...current, cols, rows }
       cbs.onState?.(current as never)
     },
     attached: () => cbs.onAttached?.(),
@@ -397,14 +385,16 @@ describe("C12 (REWRITTEN for POD-3239 B3): `crop` is the explicit presentation m
 // ---------------------------------------------------------------------------
 
 describe('C10 (REWRITTEN for POD-3239 B1): the whole chain now reads the session geometry it always had', () => {
-  it('SOURCE FACT: `initialGeometry` runs through mountSession, useTerminalSession and AgentPanel', () => {
+  it('SOURCE FACT: `initialGeometry` runs through mountSession, useTerminalSession and AgentPanel — and `geometryState` through none of them', () => {
     // THE CLAIM THIS INVERTS. `SessionMeta.geometry` reached the panel and
     // nobody read it, so every terminal was constructed at xterm's 80x24 and
     // then moved. B1 threads it through the same three files, which is what
     // makes the first painted frame the right shape.
     //
-    // Still positive-only and still scoped to the named files — its job is to
-    // fail loudly if any link in the chain is unwired, in either direction.
+    // Scoped to the named files — its job is to fail loudly if any link in the
+    // chain is unwired. `geometryState` is the inverse (POD-3190 rev 3): the
+    // mount is gated on `live`, which already answers "is there a pty?", so no
+    // link in this chain may carry a second answer.
     const read = (rel: string): string =>
       readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
     const files = {
@@ -414,7 +404,7 @@ describe('C10 (REWRITTEN for POD-3239 B1): the whole chain now reads the session
     }
     for (const [name, source] of Object.entries(files)) {
       expect({ [name]: source.includes('initialGeometry') }).toEqual({ [name]: true })
-      expect({ [name]: source.includes('geometryState') }).toEqual({ [name]: true })
+      expect({ [name]: source.includes('geometryState') }).toEqual({ [name]: false })
     }
     // …and the panel reads it off the SESSION ROW, which is the value the server
     // has been publishing all along.
@@ -448,7 +438,6 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
       sessionId: SESSION,
       active: true,
       initialGeometry: { cols: 104, rows: 31 },
-      geometryState: 'current',
     })
     try {
       // ONE request — the reveal claim, which rule 4 sends whether or not the
@@ -474,8 +463,8 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
 
   it('a settling box asks ONCE more, at the settled size — never away and back', async () => {
     // The second half of 0a's capture: the layout settled two rows shorter after
-    // the first measurement. The debounced observer collapses the burst, and the
-    // dedup drops a restatement, so the settled box is asked for exactly once.
+    // the first measurement. The debounced observer collapses the burst, so the
+    // settled box is asked for once per burst.
     withResizeObserver()
     const observer = withCapturingResizeObserver()
     let grid = { cols: 104, rows: 33 }
@@ -487,7 +476,6 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
       sessionId: SESSION,
       active: true,
       initialGeometry: { cols: 104, rows: 31 },
-      geometryState: 'current',
     })
     try {
       expect(calls.claims).toEqual([{ cols: 104, rows: 33 }])
@@ -497,9 +485,15 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
       observer.fire()
       await new Promise((r) => setTimeout(r, 90))
       expect(calls.resize).toEqual([[104, 31]])
+      // A LATER box event re-states the same box (POD-3190 rev 3): the browser
+      // keeps no record of what it asked. The server compares the statement
+      // with what it last forwarded and drops the repeat.
       observer.fire()
       await new Promise((r) => setTimeout(r, 90))
-      expect(calls.resize, 'and the settled box is not re-stated').toEqual([[104, 31]])
+      expect(calls.resize, 'a later box event restates the box').toEqual([
+        [104, 31],
+        [104, 31],
+      ])
     } finally {
       mounted.dispose()
     }

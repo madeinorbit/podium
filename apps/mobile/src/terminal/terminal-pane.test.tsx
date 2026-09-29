@@ -64,7 +64,6 @@ type MountCallbacks = {
     role: MountRole
     cols: number
     rows: number
-    requestedGeometry: { cols: number; rows: number } | null
   }) => void
   onMounted?: (mounted: unknown) => void
   crop?: MountSessionOptions['crop']
@@ -264,7 +263,6 @@ describe('TerminalPane startup status (POD-393)', () => {
         role: 'spectator',
         cols: 103,
         rows: 28,
-        requestedGeometry: null,
       })
       opts.onReady?.()
       await Promise.resolve()
@@ -293,7 +291,6 @@ describe('TerminalPane startup status (POD-393)', () => {
         role: 'spectator',
         cols: 103,
         rows: 28,
-        requestedGeometry: null,
       })
       await Promise.resolve()
     })
@@ -335,18 +332,13 @@ describe('TerminalPane take control (POD-724)', () => {
     return { view, published, latest: () => published.at(-1) }
   }
 
-  async function report(
-    role: MountRole,
-    ready = true,
-    requestedGeometry: { cols: number; rows: number } | null = null,
-  ): Promise<void> {
+  async function report(role: MountRole, ready = true): Promise<void> {
     await act(async () => {
       lastMountOpts?.onState?.({
         outputSeen: true,
         role,
         cols: role === 'controller' ? 62 : 103,
         rows: role === 'controller' ? 36 : 28,
-        requestedGeometry,
       })
       if (ready) lastMountOpts?.onReady?.()
       await Promise.resolve()
@@ -361,7 +353,6 @@ describe('TerminalPane take control (POD-724)', () => {
     // a desktop-driven PTY, so the honest published state is "spectator".
     await report('spectator')
     expect(pane.latest()?.role).toBe('spectator')
-    expect(pane.latest()?.phase).toBe('spectating')
     expect(pane.latest()?.ready).toBe(true)
 
     // The header's action. `takeControl` on the MOUNT is what carries this
@@ -373,31 +364,25 @@ describe('TerminalPane take control (POD-724)', () => {
     // happened.
     await report('controller')
     expect(pane.latest()?.role).toBe('controller')
-    expect(pane.latest()?.phase).toBe('controlling')
   })
 
-  it('keeps the claim pending until matching server geometry is acknowledged', async () => {
+  it('the caption says only what the server said: spectating on its grid, then in control on the new one', async () => {
+    // POD-3190 rev 3 deleted the "fitting" state between the two. It read a
+    // pending ask the phone kept for itself, and an ask the host refuses is
+    // never answered — the caption stayed on "fitting" forever.
     const sessionId = asSessionId('sess-caption')
     const pane = await mountPane(sessionId)
     const SPECTATING = 'Following the shared 103×28 terminal — take control to fit this phone.'
-    const FITTING = 'Taking control — fitting the shared terminal to this phone…'
     const CONTROLLING = 'In control — phone grid 62×36.'
 
     await report('spectator')
     expect(pane.view.queryByText(SPECTATING)).not.toBeNull()
 
-    await report('spectator', true, { cols: 62, rows: 36 })
-    expect(pane.latest()?.phase).toBe('fitting')
-    expect(pane.view.queryByText(SPECTATING)).toBeNull()
-    expect(pane.view.queryByText(FITTING)).not.toBeNull()
-
-    // Controller role alone is not success: the target remains pending until
-    // the authoritative geometry arrives.
-    await report('controller', true, { cols: 62, rows: 36 })
-    expect(pane.view.queryByText(FITTING)).not.toBeNull()
+    act(() => pane.latest()?.takeControl())
+    expect(pane.view.queryByText(SPECTATING), 'a claim changes nothing until the server answers').not.toBeNull()
 
     await report('controller')
-    expect(pane.view.queryByText(FITTING)).toBeNull()
+    expect(pane.view.queryByText(SPECTATING)).toBeNull()
     expect(pane.view.queryByText(CONTROLLING)).not.toBeNull()
   })
 })
