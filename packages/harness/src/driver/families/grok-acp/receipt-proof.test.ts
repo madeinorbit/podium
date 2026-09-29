@@ -9,7 +9,8 @@ import type { GrokAcpTransport } from './client.js'
 import { GrokAcpFrame, parseGrokAcpSessionUpdate } from './protocol.js'
 import { createGrokAcpRuntime, type GrokAcpRuntimeHost } from './runtime.js'
 
-type Frame = GrokAcpFrame
+// Grok's file records omit jsonrpc; its live and load-replay frames include it.
+type Frame = Omit<GrokAcpFrame, 'jsonrpc'> & { jsonrpc?: '2.0' }
 type Scenario = keyof typeof promptAck.scenarios
 
 function scenario(name: Scenario): { frames: Frame[]; recorded: Frame[] } {
@@ -20,7 +21,7 @@ function scenario(name: Scenario): { frames: Frame[]; recorded: Frame[] } {
   return {
     frames: measured.frames.filter((entry) => entry.dir === 'in' && entry.frame)
       .map((entry) => GrokAcpFrame.parse(entry.frame)),
-    recorded: measured.recordedUpdates.map((frame) => GrokAcpFrame.parse(frame)),
+    recorded: measured.recordedUpdates as Frame[],
   }
 }
 
@@ -49,7 +50,7 @@ function world(grokSessionId: string) {
     const inbound = frame.method === undefined && prompts.length > 0
       ? { ...frame, id: prompts.at(-1)!.id }
       : frame
-    handler?.line(JSON.stringify(inbound))
+    handler?.line(JSON.stringify({ jsonrpc: '2.0', ...inbound }))
   }
   const host: GrokAcpRuntimeHost = {
     now: () => Date.now(),
