@@ -19,7 +19,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { grokTranscript } from './transcript.js'
-import { grokCredentials } from './credentials.js'
+import { grokCredentials, hasValidGrokCredential } from './credentials.js'
 import { grokInstall } from './install.js'
 import { grokUsage } from './usage.js'
 import { grokCatalog } from './catalog.js'
@@ -126,14 +126,12 @@ export const grokManifest: AgentManifest = {
     detectLogin(homeDir, env?: HarnessEnvironment) {
       const path = grokHome(homeDir, env)
       try {
-        const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
-          string,
-          GrokAuthRecord
-        >
-        const hasCredential = Object.values(file).some(
-          (record) => record && (record.key || record.refresh_token),
-        )
-        if (!hasCredential) return { state: 'out' }
+        // ONE readiness rule (POD-4803): the same expiry-aware check as the
+        // portable-credential `validate` above. An expired key with no refresh
+        // token is "out" here, so the picker and Settings → Agents read it.
+        if (!hasValidGrokCredential(readFileSync(join(path, 'auth.json'), 'utf8'))) {
+          return { state: 'out' }
+        }
         const identity = grokCredentials.identity(
           credentialFileReader(grokCredentials, homeDir, env),
         )

@@ -14,16 +14,49 @@ interface GrokAuthRecord {
   key?: unknown
   refresh_token?: unknown
   create_time?: unknown
+  expires_at?: unknown
   email?: unknown
   account_id?: unknown
 }
 
-/** A Grok auth file is usable when some entry carries a token. */
-export function hasValidGrokCredential(contents: string): boolean {
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function expiryMs(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Date.parse(value.trim())
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
+/**
+ * One auth.json entry is usable while its key is live, or while a refresh
+ * token can renew it. Grok refreshes the OIDC key itself against
+ * `oidc_issuer` before `expires_at` (and on 401/403 retry-once), rewriting
+ * auth.json — so an expired key WITH a refresh token stays ready. An expired
+ * key with no refresh token is a lapsed login: nothing can renew it.
+ * A missing or unparseable `expires_at` stays usable (conservative: never
+ * log out a login whose clock we cannot read).
+ */
+export function isUsableGrokAuthRecord(record: GrokAuthRecord, nowMs = Date.now()): boolean {
+  if (nonEmptyString(record.refresh_token)) return true
+  if (!nonEmptyString(record.key)) return false
+  const expires = expiryMs(record.expires_at)
+  if (expires === undefined) return true
+  return expires > nowMs
+}
+
+/** A Grok auth file is usable when some entry carries a usable token. */
+export function hasValidGrokCredential(contents: string, nowMs = Date.now()): boolean {
   const file = parseAuthFile(contents)
   if (!file) return false
   return Object.values(file).some(
-    (record) => record && (record.key || record.refresh_token),
+    (record) => record && isUsableGrokAuthRecord(record, nowMs),
   )
 }
 
