@@ -12,6 +12,7 @@
 
 import {
   type HostMetricsWire,
+  isMachineOfflineForLiveTerminal,
   type MachineId,
   type MachineQuotaWire,
   type MachineWire,
@@ -209,9 +210,13 @@ export function visibleFleetOperations(args: {
     // A cached answer never widens a revoked grant: once `use` is denied the
     // detail becomes absent immediately, even before the caller prunes cache.
     const disk = breakdown?.disk ? hostDiskView(breakdown.disk) : null
+    // POD-4830: capacity needs the daemon, not just the supervisor. A supervised
+    // daemon loss keeps `online` true while the execution plane is gone — read
+    // the live-terminal predicate or capacity stays readable with no banner.
+    const liveTerminalOffline = isMachineOfflineForLiveTerminal(machine)
     const capacityDetail: CapacityDetailState = !grants.use
       ? 'restricted'
-      : !machine.online
+      : liveTerminalOffline
         ? 'offline'
         : (capacityReading?.state ?? 'unavailable')
     const capacityLabel =
@@ -239,9 +244,9 @@ export function visibleFleetOperations(args: {
       id: machine.id,
       name: machine.name,
       hostname: machine.hostname,
-      online: machine.online,
+      online: !liveTerminalOffline,
       availability,
-      statusLabel: machine.online
+      statusLabel: !liveTerminalOffline
         ? machine.daemonReadiness && machine.daemonReadiness.state !== 'ready'
           ? `not ready · ${machine.daemonReadiness.reason} · ${machine.daemonReadiness.quarantinedBindings} quarantined`
           : availability === 'unauthorized'

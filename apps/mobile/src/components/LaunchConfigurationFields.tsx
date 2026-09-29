@@ -1,7 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
 import { reposToViews } from '@podium/client-core/viewmodels'
-import { agentCapabilityRejection, type MachineId, machinesForRepoOrClone } from '@podium/model'
+import { agentCapabilityRejection, isMachineOfflineForLiveTerminal, type MachineId, machinesForRepoOrClone } from '@podium/model'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useStoreSelector } from '../client/hooks'
@@ -66,7 +66,7 @@ export function LaunchConfigurationFields({
       const reason =
         machine.use === 'denied'
           ? `You do not have permission to use ${machine.name}.`
-          : !machine.online
+          : isMachineOfflineForLiveTerminal(machine)
             ? `${machine.name} is offline.`
             : rejection !== undefined
               ? `${machine.name} cannot run ${issueAgentLabel(value.agentKind, served)}.`

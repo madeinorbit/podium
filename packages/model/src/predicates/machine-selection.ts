@@ -399,3 +399,23 @@ export function agentLoginCondition<M extends HandoffMachine>(
     ? 'logged-out'
     : undefined
 }
+
+/**
+ * LIVE-TERMINAL OFFLINE (POD-4830).
+ *
+ * `online` is supervisor presence (with the 30 s grace); a session's live
+ * terminal needs the DAEMON. A supervised daemon loss keeps `online` true
+ * (Online · Degraded) while `availability.daemon` is false — and `hasDaemon`
+ * (the transcript offline flag, `requireOnlineSession`) is already false.
+ * A banner/panel/chip that reads only `online` never shows for a frozen
+ * daemon (measured 107 s past the grace, chip blue, no banner).
+ *
+ * Explicit `false` only: absent availability (old fixtures) means unknown,
+ * not offline, so existing `online:true` fixtures keep meaning online.
+ */
+export function isMachineOfflineForLiveTerminal(
+  machine: Pick<SelectableMachine, 'online' | 'availability'>,
+): boolean {
+  if (machine.online === false) return true
+  return machine.availability?.daemon === false
+}

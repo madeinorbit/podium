@@ -10,6 +10,7 @@ import {
   RECLAIMABLE_WORKTREE_THRESHOLD,
 } from '@podium/client-core/viewmodels'
 import type { MachineId } from '@podium/model/browser'
+import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
@@ -211,6 +212,24 @@ export function HeaderHostIndicators(): JSX.Element {
         })()
 
   const afterDays = lifecycle?.worktreeGc.afterDays ?? 14
+  // POD-4830: live-terminal presence per machine (online OR daemon). A
+  // supervised daemon loss keeps `online` true while the execution plane is
+  // gone — the same signal the chat/terminal banners read — so the chip dot
+  // must read it too, or a frozen daemon leaves the chip blue with no banner.
+  const offlineByMachine = useMemo(() => {
+    const map = new Map<string, boolean>()
+    for (const m of machines) map.set(m.id, isMachineOfflineForLiveTerminal(m))
+    return map
+  }, [machines])
+  const offlineWithoutMetrics = useMemo(
+    () =>
+      machines.filter(
+        (m) =>
+          offlineByMachine.get(m.id) === true &&
+          !hostMetrics.some((h) => h.machineId === m.id),
+      ),
+    [machines, hostMetrics, offlineByMachine],
+  )
   // One scan for every machine, grouped afterwards, rather than one scan per
   // host — and keyed on what the scan can actually see. The sessions slice is
   // replaced on every token count and phase flip; only where live agents STAND
@@ -245,7 +264,7 @@ export function HeaderHostIndicators(): JSX.Element {
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
-      {hostMetrics.length === 0 && (
+      {hostMetrics.length === 0 && offlineWithoutMetrics.length === 0 && (
         <button
           data-pressable
           type="button"
@@ -274,6 +293,10 @@ export function HeaderHostIndicators(): JSX.Element {
         // A renamed machine should read by its chosen name everywhere, and this
         // chip was the one surface still showing the raw telemetry hostname.
         const displayName = machine?.name ?? host.hostname
+        // POD-4830: a supervised daemon loss keeps `online` true while the live
+        // terminal is gone. The dot must read live-terminal presence, not just
+        // the global socket health, or it stays green/blue with no banner.
+        const machineOffline = machine ? (offlineByMachine.get(machine.id) ?? false) : false
         const aggregate = aggregates.forMachine(host.machineId)
         const agents = hostAgentsViewFromCounts(
           aggregate.count,
@@ -299,6 +322,7 @@ export function HeaderHostIndicators(): JSX.Element {
         ].filter(Boolean)
         const aria = [
           displayName,
+          machineOffline ? 'offline' : null,
           memory.title,
           load.title,
           agentTitleParts.join(' — '),
@@ -325,17 +349,26 @@ export function HeaderHostIndicators(): JSX.Element {
                 <span
                   className={cn(
                     'size-1.5 flex-none rounded-full',
-                    health.status === 'ok'
-                      ? reclaimablePast
-                        ? 'bg-warning'
-                        : 'bg-success'
-                      : health.status === 'degraded'
-                        ? 'bg-warning'
-                        : 'bg-destructive',
+                    machineOffline
+                      ? 'bg-destructive'
+                      : health.status === 'ok'
+                        ? reclaimablePast
+                          ? 'bg-warning'
+                          : 'bg-success'
+                        : health.status === 'degraded'
+                          ? 'bg-warning'
+                          : 'bg-destructive',
                   )}
                   aria-hidden="true"
                 />
                 <span className="header-machine-name">{displayName}</span>
+                {machineOffline && (
+                  <span className="header-readout">
+                    <span className="header-value" data-tone="bad">
+                      offline
+                    </span>
+                  </span>
+                )}
                 {needsUpdate && (
                   <CircleArrowUp
                     size={12}
@@ -406,6 +439,33 @@ export function HeaderHostIndicators(): JSX.Element {
           </HealthPopover>
         )
       })}
+      {/* POD-4830: a daemon loss deletes its hostMetrics (hosts service drops
+          the sample on `machine.disconnected`), so an offline machine would
+          otherwise vanish instead of reading offline. Render it from the
+          machines list — destructive dot + name + offline — so the chip follows
+          presence offline after the detach and back online on reattach, when
+          metrics resume and this row hands back to the live chip above. */}
+      {offlineWithoutMetrics.map((machine) => (
+        <button
+          key={machine.id}
+          data-pressable
+          type="button"
+          className="header-machine-chip"
+          aria-label={`${machine.name ?? machine.id}; offline`}
+          onClick={() => setInfo({ tab: 'connection', machineId: machine.id as MachineId })}
+        >
+          <span
+            className={cn('size-1.5 flex-none rounded-full', 'bg-destructive')}
+            aria-hidden="true"
+          />
+          <span className="header-machine-name">{machine.name ?? machine.id}</span>
+          <span className="header-readout">
+            <span className="header-value" data-tone="bad">
+              offline
+            </span>
+          </span>
+        </button>
+      ))}
       <OutboxRecoveryIndicator compact />
       {/* The chamber rule between host pressure and plan quota. Taller and
           given air so the two groups stop reading as one run of meters. */}

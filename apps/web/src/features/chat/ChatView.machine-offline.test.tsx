@@ -85,7 +85,7 @@ const fakeReplica = {
 }
 
 let storeSessions: SessionMeta[] = []
-let storeMachines: Array<{ id: string; name: string; online: boolean }> = []
+let storeMachines: Array<{ id: string; name: string; online: boolean; availability?: { daemon: boolean } }> = []
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
@@ -238,6 +238,60 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     // no transcript re-read is needed for the clear (a reconnect re-read may
     // still be in flight behind it; the banner must already be gone).
     storeMachines = [{ id: 'm1', name: 'desk', online: true }]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-machine-offline"]')).toBeNull(),
+    )
+  })
+
+  it('POD-4830: supervised daemon loss (online true, degraded) still shows the live banner', async () => {
+    storeSessions = [
+      meta({
+        status: 'live',
+        machineId: asMachineId('m1'),
+        machineName: 'desk',
+        agentState: {
+          phase: 'working',
+          since: new Date(Date.now() - 149_380).toISOString(),
+          nativeSubagentCount: 0,
+        },
+      }),
+    ]
+    // The server keeps `online` true (degraded) while the daemon is gone —
+    // the banner must read the daemon too, or a frozen daemon never shows.
+    storeMachines = [{ id: 'm1', name: 'desk', online: true, availability: { daemon: false } }]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    expect(reads).toHaveLength(1)
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [
+          {
+            id: 'tool-1',
+            cursor: 'c1',
+            role: 'tool',
+            text: '',
+            toolName: 'Bash',
+            toolInput: 'bun test',
+            ts: new Date(Date.now() - 149_380).toISOString(),
+          } as TranscriptItem,
+        ],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+    await waitFor(() => expect(container.textContent).toContain('Waiting on shell'))
+    const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
+    expect(marker).not.toBeNull()
+    expect(marker?.textContent).toContain('desk')
+    // Daemon reattaches: the banner clears from live presence alone.
+    storeMachines = [{ id: 'm1', name: 'desk', online: true, availability: { daemon: true } }]
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
