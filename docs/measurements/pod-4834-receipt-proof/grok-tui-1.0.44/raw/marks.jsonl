@@ -57,3 +57,5 @@
 {"at":1790699107668,"label":"S6t-queued","text":"HELDTERM queued at sigterm"}
 {"at":1790699108494,"label":"S6t-term","text":"kill -TERM 1006055"}
 {"at":1790699120296,"label":"S6t-resume","text":"grok -c after SIGTERM"}
+{"at":1790699904297,"label":"SID-start","text":"grok --session-id 4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001"}
+{"at":1790699911640,"label":"SID","text":"SESSIONID prompt with our session id"}

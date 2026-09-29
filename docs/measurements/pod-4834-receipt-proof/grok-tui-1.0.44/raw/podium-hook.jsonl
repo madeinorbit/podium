@@ -101,3 +101,6 @@
 {"at": 1790699108816, "hookEventName": "session_end", "sessionId": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "promptId": null}
 {"at": 1790699108914, "hookEventName": "stop", "sessionId": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "promptId": null}
 {"at": 1790699120935, "hookEventName": "session_start", "sessionId": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "promptId": null}
+{"at": 1790699904834, "hookEventName": "session_start", "sessionId": "4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001", "promptId": null}
+{"at": 1790699911773, "hookEventName": "user_prompt_submit", "sessionId": "4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001", "promptId": "313b47b1-9021-4533-8cf3-809f80195e65"}
+{"at": 1790699911987, "hookEventName": "stop", "sessionId": "4865aaaa-bbbb-4ccc-8ddd-eeeeeeee0001", "promptId": "313b47b1-9021-4533-8cf3-809f80195e65"}
