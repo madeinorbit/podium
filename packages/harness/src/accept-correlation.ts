@@ -71,7 +71,8 @@ const echoFingerprint = (text: string): string | null => {
 const typedForm = (item: TranscriptItem): string =>
   item.toolPaths?.length ? [...item.toolPaths, item.text].join('\n') : item.text
 
-/** An interrupt marker is a user action, but never a typed prompt. */
+/** Display role alone cannot override a reader's explicit prompt exclusion.
+ *  Interrupts remain excluded for readers predating the prompt-entry flag. */
 export const transcriptEchoAcceptCorrelation: TerminalAcceptCorrelation<TranscriptItem> = {
   accepts: (item) =>
     item.role === 'user' && item.event !== 'interrupt' && item.promptEntry !== false,

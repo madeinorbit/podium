@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
 import { TranscriptItem } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { codexPromptTextMatches, codexRecordToItems } from './transcript.js'
 

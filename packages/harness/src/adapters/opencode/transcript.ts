@@ -5,13 +5,15 @@ import {
   type OpencodeMessagePartRow,
   type SqliteTranscriptLocator,
 } from '../../transcript-types.js'
+
 export type { OpencodeMessagePartRow } from '../../transcript-types.js'
+
 import {
   type Declared,
   type HarnessTranscript,
   supported,
-  unsupported,
   type TranscriptSourceInput,
+  unsupported,
 } from '../../manifest.js'
 import { toolInputPreview } from '../claude-code/transcript.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
@@ -212,21 +214,19 @@ export const opencodeTranscript: Declared<HarnessTranscript> = supported({
   recordRuntime: unsupported('opencode reports no model, effort or context use in its records'),
   recordColor: unsupported('opencode has no identity-colour record'),
   chainPaths: unsupported('opencode stores transcripts in SQLite — there are no files to chain'),
-  sqliteLocator: supported(
-    (input: TranscriptSourceInput): SqliteTranscriptLocator | undefined => {
-      // No resume value → nothing to read; the Store hands back an inert empty
-      // source so the caller need not special-case it.
-      if (!input.resumeValue) return undefined
-      const databasePath = opencodeDbPathForSession({
-        homeDir: input.homeDir,
-        podiumSessionId: input.podiumSessionId,
-        resumeValue: input.resumeValue,
-      })
-      return {
-        sessionKey: input.resumeValue,
-        ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-        ...(databasePath ? { databasePath } : {}),
-      }
-    },
-  ),
+  sqliteLocator: supported((input: TranscriptSourceInput): SqliteTranscriptLocator | undefined => {
+    // No resume value → nothing to read; the Store hands back an inert empty
+    // source so the caller need not special-case it.
+    if (!input.resumeValue) return undefined
+    const databasePath = opencodeDbPathForSession({
+      homeDir: input.homeDir,
+      podiumSessionId: input.podiumSessionId,
+      resumeValue: input.resumeValue,
+    })
+    return {
+      sessionKey: input.resumeValue,
+      ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+      ...(databasePath ? { databasePath } : {}),
+    }
+  }),
 })

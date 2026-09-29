@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
 import { TranscriptItem } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import type { OpencodeMessagePartRow } from './transcript.js'
 import { opencodePromptTextMatches, opencodeRowsToItems } from './transcript.js'
@@ -121,7 +121,11 @@ describe('OpenCode measured prompt entries', () => {
     const [http] = opencodeRowsToItems(rowsFor(httpId))
     const [keyboard] = opencodeRowsToItems(rowsFor(keyboardId))
     expect(http).toMatchObject({ role: 'user', text: 'S9a HTTP second', promptEntry: true })
-    expect(keyboard).toMatchObject({ role: 'user', text: 'TUI S9a KEYBOARD first', promptEntry: true })
+    expect(keyboard).toMatchObject({
+      role: 'user',
+      text: 'TUI S9a KEYBOARD first',
+      promptEntry: true,
+    })
     expect(http).not.toHaveProperty('promptOrigin')
     expect(keyboard).not.toHaveProperty('promptOrigin')
   })

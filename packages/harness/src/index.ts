@@ -16,23 +16,36 @@
  * (docs/multi-user-readiness.md §3.1.6 S5).
  */
 
-export * from './agent-state/index.js'
+export {
+  claudeHookAcceptCorrelation,
+  transcriptEchoAcceptCorrelation,
+} from './accept-correlation.js'
+export type { AgentManifest as HarnessAdapter } from './adapter.js'
+export * from './adapters/claude-code/credential-freshness.js'
+export * from './adapters/claude-code/state-locate.js'
 // Per-harness state sections (POD-4520, spec §4.5): the providers, causal
 // observers, locate/binding helpers and fingerprints live in adapters/<h>/
 // and are re-exported here so daemon hosts keep one import surface —
 // `agent-state/` itself holds only harness-free vocabulary (see its barrel).
 export * from './adapters/claude-code/state-provider.js'
-export * from './adapters/claude-code/state-locate.js'
+export * from './adapters/codex/auth-identity.js'
+export * from './adapters/codex/credential-absence-grace.js'
+export { codexMcpArgs, codexTranscriptPlacement } from './adapters/codex/index.js'
+export * from './adapters/codex/responses.js'
 export * from './adapters/codex/state-provider.js'
+export { codexPromptTextMatches } from './adapters/codex/transcript.js'
 export * from './adapters/cursor/state.js'
-export * from './adapters/grok/state-provider.js'
 export * from './adapters/grok/state-binding.js'
 export * from './adapters/grok/state-causal.js'
 export * from './adapters/grok/state-locate.js'
+export * from './adapters/grok/state-provider.js'
 export * from './adapters/opencode/state.js'
+export { opencodePromptTextMatches } from './adapters/opencode/transcript.js'
 export * from './adapters/pi/state.js'
-export type { AgentManifest as HarnessAdapter } from './adapter.js'
-export * from './descriptors.js'
+export * from './adapters/shared/login-identity.js'
+export * from './agent-state/index.js'
+export * from './cursor/cli.js'
+export * from './cursor/paths.js'
 export type {
   HarnessBrandTone,
   HarnessCatalogData,
@@ -41,13 +54,7 @@ export type {
   HarnessLoginCopy,
   StaticModelEntry,
 } from './descriptor-types.js'
-export * from './adapters/claude-code/credential-freshness.js'
-export * from './adapters/codex/auth-identity.js'
-export * from './adapters/codex/credential-absence-grace.js'
-export * from './adapters/codex/responses.js'
-export * from './adapters/shared/login-identity.js'
-export * from './cursor/cli.js'
-export * from './cursor/paths.js'
+export * from './descriptors.js'
 export * from './discovery/index.js'
 export * from './executable-runtime.js'
 export * from './instructions.js'
@@ -56,23 +63,16 @@ export * from './issue-system-pointer.js'
 export * from './jsonl-stream.js'
 export * from './launch.js'
 export * from './manifest.js'
-export {
-  claudeHookAcceptCorrelation,
-  transcriptEchoAcceptCorrelation,
-} from './accept-correlation.js'
-export { codexMcpArgs, codexTranscriptPlacement } from './adapters/codex/index.js'
-export { codexPromptTextMatches } from './adapters/codex/transcript.js'
-export { opencodePromptTextMatches } from './adapters/opencode/transcript.js'
-// Host-only sqlite source surface (POD-4520): the opencode cursor stamper the
-// daemon supplies to the opencode observer as an injected port, so the adapter
-// names nothing under store/ (spec §5). Behind this barrel, never the store
-// entry — see store.ts.
-export { stampOpencodeItems } from './store/sources/sqlite.js'
 export * from './model-probe.js'
 export { opencodeAuthPath } from './adapters/opencode/auth.js'
 export * from './adapters/opencode/cli.js'
 export * from './opencode/db.js'
 export * from './pi/paths.js'
 export * from './registry.js'
+// Host-only sqlite source surface (POD-4520): the opencode cursor stamper the
+// daemon supplies to the opencode observer as an injected port, so the adapter
+// names nothing under store/ (spec §5). Behind this barrel, never the store
+// entry — see store.ts.
+export { stampOpencodeItems } from './store/sources/sqlite.js'
 export * from './version-policy.js'
 export * from './version-probe.js'

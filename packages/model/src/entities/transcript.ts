@@ -105,10 +105,10 @@ export const TranscriptItem = z.object({
    *  re-reads of the same bytes in the same session namespace, independent of path. */
   cursor: z.string().optional(),
   role: TranscriptRole,
-  /** Whether the harness history identifies this item as a submitted prompt.
-   *  Generated entries and user actions are false; absence means the reader has
-   *  not established the distinction. Receipt matching must not infer it from
-   *  the display role alone. */
+  /** Reader-declared prompt eligibility for receipt matching. True identifies a
+   *  recorded submit; false excludes generated entries, actions and unverified
+   *  legacy formats. Absent means the reader has not classified the item.
+   *  Display role alone does not establish eligibility. */
   promptEntry: z.boolean().optional(),
   ts: z.string().optional(), // ISO 8601
   /** Markdown body. Empty for pure tool-call items. */
@@ -178,9 +178,10 @@ export const TranscriptItemRef = z.object({
 export type TranscriptItemRef = z.infer<typeof TranscriptItemRef>
 
 /** The ref for an item, or undefined when it carries no usable id. */
-export function transcriptItemRefOf(
-  item: { id: string; cursor?: string | undefined },
-): TranscriptItemRef | undefined {
+export function transcriptItemRefOf(item: {
+  id: string
+  cursor?: string | undefined
+}): TranscriptItemRef | undefined {
   if (!item.id) return undefined
   return { id: item.id, ...(item.cursor ? { cursor: item.cursor } : {}) }
 }
