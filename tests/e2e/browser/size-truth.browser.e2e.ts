@@ -504,7 +504,15 @@ test('the agent’s real size, the server’s copy and every browser grid agree 
       .poll(() => readViewer(phone).then((r) => r.sessionId), { timeout: 60_000 })
       .toBe(session)
     viewers = [d1, d2, phone]
-    await check('phone attaches as a spectator')
+    // Whoever drives once the phone has opened its terminal, all three agree.
+    await check('the phone opens the terminal')
+    // The desk drives again, so the phone is a spectator at the desk's grid…
+    await d1.page.evaluate(() => (window as unknown as PodiumWindow).__podium?.takeControl?.())
+    await expect
+      .poll(() => readViewer(phone).then((r) => r.role), { timeout: 30_000 })
+      .toBe('spectator')
+    await check('desktop-1 drives, the phone watches')
+    // …until every desktop leaves and the phone is the one renderer left.
     for (const viewer of [d1, d2]) await viewer.page.context().close()
     viewers = [phone]
     await check('desktops leave, the phone is sole controller')
