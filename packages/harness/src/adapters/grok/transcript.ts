@@ -64,6 +64,30 @@ function messageItems(
   const parts = contentParts(content, ts)
   const text = role === 'user' ? userVisibleText(parts.text) : parts.text
   const items: TranscriptItem[] = []
+  // Grok's live format puts calls on `assistant.tool_calls`, not in content
+  // blocks. Older fixtures (and a few Claude-shaped records) still use
+  // `tool_use` parts, which contentParts already emitted above — skip dupes.
+  const toolItems =
+    role === 'assistant'
+      ? (() => {
+          const seen = new Set(
+            parts.extraItems.flatMap((item) => (item.toolUseId ? [item.toolUseId] : [])),
+          )
+          return assistantToolCallItems(record, ts).filter(
+            (item) => !item.toolUseId || !seen.has(item.toolUseId),
+          )
+        })()
+      : []
+  // What the grammar knows at emit time about finality: narration shares its
+  // record with the calls it introduces (`tool_calls`, or `tool_use` parts
+  // already in extraItems), while the terminal reply is text alone. The same
+  // marker Claude (stop_reason), Codex (phase), Pi (stopReason) and OpenCode
+  // (finish) carry: without it every Grok reply renders as PROCESS while
+  // theirs render ANSWER. [POD-4809]
+  const hasTools =
+    parts.extraItems.length > 0 ||
+    toolItems.length > 0 ||
+    (Array.isArray(record.tool_calls) && record.tool_calls.length > 0)
   if (text || parts.tags.length > 0) {
     items.push({
       id: baseId(record),
@@ -71,19 +95,11 @@ function messageItems(
       ...(ts ? { ts } : {}),
       text,
       ...(parts.tags.length > 0 ? { tags: parts.tags } : {}),
+      ...(role === 'assistant' && text && !hasTools ? { answer: true as const } : {}),
     })
   }
   items.push(...parts.extraItems)
-  // Grok's live format puts calls on `assistant.tool_calls`, not in content
-  // blocks. Older fixtures (and a few Claude-shaped records) still use
-  // `tool_use` parts, which contentParts already emitted above — skip dupes.
-  if (role === 'assistant') {
-    const seen = new Set(items.flatMap((item) => (item.toolUseId ? [item.toolUseId] : [])))
-    for (const item of assistantToolCallItems(record, ts)) {
-      if (item.toolUseId && seen.has(item.toolUseId)) continue
-      items.push(item)
-    }
-  }
+  items.push(...toolItems)
   const recordId = stringField(record, 'id') ?? stringField(record, 'uuid')
   return items.map((item, sub) =>
     recordId && item.id.startsWith(SYNTHESIZED_ITEM_ID_PREFIX)

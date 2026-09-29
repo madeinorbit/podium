@@ -24,6 +24,11 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
 
   const role = stringField(messageInfo, 'role')
   const partType = stringField(part, 'type')
+  // How the assistant turn closed: 'stop' is the terminal, user-facing reply;
+  // 'tool-calls' is an intermediate step whose text (if any) narrates the tools
+  // it introduces. Present once the turn closes (protocol `finish`).
+  // [POD-4809]
+  const finish = stringField(messageInfo, 'finish')
   const ts = epochToIso(row.timeUpdated ?? row.timeCreated)
   // Identity excludes mutable payloads and timestamps. The paging cursor keeps
   // timeCreated separately; tool calls/results occupy stable slots 0 and 1.
@@ -67,6 +72,10 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
             role: 'assistant',
             ...(ts ? { ts } : {}),
             text,
+            // The same marker Claude (stop_reason), Codex (phase) and Pi
+            // (stopReason) carry: without it every OpenCode reply renders as
+            // PROCESS while theirs render ANSWER. [POD-4809]
+            ...(finish === 'stop' ? { answer: true as const } : {}),
           },
         ]
       }
