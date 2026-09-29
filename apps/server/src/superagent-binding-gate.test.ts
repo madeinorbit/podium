@@ -127,7 +127,7 @@ describe('headless frames through the daemon binding gate (POD-4806 review)', ()
     expect(reattaches).toHaveLength(2)
     // Distinct transition ids: a constant `reattach:<id>:1` would collapse
     // the second frame into the first (unchanged) instead of applying it.
-    const ids = reattaches.map((m) => (m as { binding?: { transitionId?: string } }).binding?.transitionId)
+    const ids = reattaches.map((m) => (m.type === 'reattach' ? m.binding?.transitionId : undefined))
     expect(new Set(ids).size).toBe(2)
     for (const frame of reattaches) {
       await sessionHandlers.reattach(g.ctx, frame as never)
