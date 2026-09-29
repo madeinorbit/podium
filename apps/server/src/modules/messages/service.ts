@@ -154,16 +154,17 @@ export interface SpawnOnWake {
 interface InboxDeliveryInput {
   sessionId: SessionId
   text: string
-  /** The two origins message delivery can produce — NOT the full
+  /** The three origins message delivery can produce — NOT the full
    *  `ObservationInputOrigin`. Agent/system/superagent rows stamp `mail`;
    *  operator rows (chat, offer buttons) stamp `controller` because they are a
    *  person typing into the session, and the inbox acts on that difference —
    *  `prepareInboxSend` clears a standing offer for a person-send only
-   *  [spec:SP-c7f1, POD-118, POD-552]. Was `'mail'` alone until offer-action
-   *  delivery started riding this substrate (POD-729); the port is deliberately
-   *  narrower than `SessionInbox`'s own `InboxSendInput` so it keeps naming what
-   *  delivery actually sends. */
-  inputOrigin?: 'controller' | 'mail'
+   *  [spec:SP-c7f1, POD-118, POD-552]; a person's words a job delivers (an
+   *  automation's prompt, POD-4846) stamp `system`. Was `'mail'` alone until
+   *  offer-action delivery started riding this substrate (POD-729); the port is
+   *  deliberately narrower than `SessionInbox`'s own `InboxSendInput` so it
+   *  keeps naming what delivery actually sends. */
+  inputOrigin?: 'controller' | 'mail' | 'system'
   principal: InboxPrincipalReference
   sourceMessageId: string
 }
