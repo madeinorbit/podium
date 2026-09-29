@@ -530,6 +530,14 @@ const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a 
 const deliveredByAJob = (m: MessageRow): boolean =>
   m.fromKind === 'operator' && m.attribution?.actor.kind === 'system'
 
+/** The task a person (or a job) started a session with (POD-4846): its
+ *  failure is the inbox's prompt-failed attention, not a notice. */
+const isOwnersSpawnPrompt = (m: MessageRow): boolean =>
+  m.fromKind === 'operator' &&
+  m.toKind === 'session' &&
+  m.toId !== null &&
+  m.id === spawnPromptMessageId(asSessionId(m.toId))
+
 /**
  * How a delivered message presents as input. A person typing (`controller`)
  * clears a standing offer [spec:SP-c7f1] and opens a user turn (POD-552);
@@ -1490,32 +1498,65 @@ export class MessageDeliveryService {
     sessionId: SessionId
     text: string
   }): Promise<string> {
-    const id = spawnPromptMessageId(input.sessionId)
     const parent = await this.deps.sessions.sessionById(input.parentSessionId)
     const parentIssue = this.issueForSession(parent)
-    const from: MessageSender = {
-      kind: 'agent',
-      sessionId: input.parentSessionId,
-      ...(parentIssue ? { issueId: parentIssue } : {}),
-    }
+    return await this.recordPrompt(
+      {
+        kind: 'agent',
+        sessionId: input.parentSessionId,
+        ...(parentIssue ? { issueId: parentIssue } : {}),
+      },
+      input.sessionId,
+      input.text,
+    )
+  }
+
+  /**
+   * THE TASK A PERSON STARTED A SESSION WITH IS THEIR MESSAGE (POD-4846) — the
+   * twin of {@link recordSpawnPrompt} for a session no other session spawned.
+   * The owner's row under the same spawn-prompt id, attributed to whoever
+   * created the session (a person, or the job that started it), typed as their
+   * own words. Its failure is reported by the inbox's prompt-failed attention,
+   * as it always was, so it mails no failure notice ({@link failureNotice}).
+   */
+  async recordOwnerPrompt(input: {
+    sessionId: SessionId
+    text: string
+    attribution: Attribution
+  }): Promise<string> {
+    return await this.recordPrompt(
+      { kind: 'operator', attribution: input.attribution, delegationRef: null },
+      input.sessionId,
+      input.text,
+    )
+  }
+
+  /** Store a session's task prompt from `from`, ALREADY handed to the session:
+   *  the start path queues it itself, so the sweep must never push it again. */
+  private async recordPrompt(
+    from: MessageSender,
+    sessionId: SessionId,
+    text: string,
+  ): Promise<string> {
+    const id = spawnPromptMessageId(sessionId)
     const authority = await this.authorityOf(from)
     const at = this.deps.now()
     const prompt: MessageRow = {
       id,
       threadId: asThreadId(id),
       inReplyTo: null,
-      fromKind: 'agent',
-      fromSession: input.parentSessionId,
+      fromKind: from.kind,
+      fromSession: from.kind === 'agent' ? (from.sessionId ?? null) : null,
       fromName: null,
-      fromIssue: parentIssue,
+      fromIssue: from.kind === 'agent' ? (from.issueId ?? null) : null,
       attribution: authority.attribution,
       delegationRef: authority.delegationRef,
       toKind: 'session',
-      toId: input.sessionId,
+      toId: sessionId,
       kind: 'message',
       urgency: 'next-turn',
       lifecycle: 'wait',
-      body: input.text,
+      body: text,
       expiresAt: null,
       createdAt: at,
       deliveryStatus: 'stored',
@@ -1531,13 +1572,13 @@ export class MessageDeliveryService {
     }
     const write = async (): Promise<boolean> => {
       if (!(await this.deps.messages.addMessage(prompt))) return false
-      await this.deps.messages.markDispatched(id, input.sessionId, at)
+      await this.deps.messages.markDispatched(id, sessionId, at)
       return true
     }
     if (!(this.deps.transact ? await this.deps.transact(write) : await write())) return id
     await this.emitTransition(prompt, 'message.queued')
     await this.emitTransition(
-      { ...prompt, deliveryStatus: 'dispatched', deliveredTo: input.sessionId, injectedAt: at },
+      { ...prompt, deliveryStatus: 'dispatched', deliveredTo: sessionId, injectedAt: at },
       'message.injected',
     )
     return id
@@ -2408,8 +2449,10 @@ export class MessageDeliveryService {
   /**
    * THE NOTICE A SENDER GETS WHEN ITS MESSAGE ENDED UNDELIVERED (POD-4778), or
    * null when there is nobody to tell: a system/steward sender (no one to tell,
-   * and it would loop), or a person's words a job delivered (the job records
-   * its own outcome — an automation's run, POD-4846). Routed back like a reply — the sending session if it
+   * and it would loop), a person's words a job delivered (the job records its
+   * own outcome — an automation's run, POD-4846), or the task a person started
+   * a session with (the inbox's prompt-failed attention reports it, POD-4846).
+   * Routed back like a reply — the sending session if it
    * still exists, else its issue, else the operator for a person's own
    * message. Reads only; the caller stores it with the failure.
    */
@@ -2417,7 +2460,9 @@ export class MessageDeliveryService {
     message: MessageRow,
     failure: SendFailure,
   ): Promise<MessageRow | null> {
-    if (message.fromKind === 'system' || deliveredByAJob(message)) return null
+    if (message.fromKind === 'system' || deliveredByAJob(message) || isOwnersSpawnPrompt(message)) {
+      return null
+    }
     const to = await this.replyTarget(message)
     const { outcome, reason, action } = await this.failureWords(message, failure)
     const from: MessageSender = { kind: 'system', name: 'steward' }

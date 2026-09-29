@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type {
   AgentKind,
+  Attribution,
   IssueEventWire,
   IssueId,
   MachineId,
@@ -1459,6 +1460,11 @@ export class SessionRegistry {
         sessionId: SessionId
         text: string
       }) => Promise<string>
+      ownerPrompt?: (input: {
+        sessionId: SessionId
+        text: string
+        attribution: Attribution
+      }) => Promise<string>
       continueSession?: (input: {
         sessionId: SessionId
         erroredTurn: string
@@ -1523,6 +1529,10 @@ export class SessionRegistry {
       recordSpawnPrompt: async (input) => {
         if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
         return await queuedApplyHooks.spawnPrompt(input)
+      },
+      recordOwnerPrompt: async (input) => {
+        if (!queuedApplyHooks.ownerPrompt) throw new Error('the message ledger is not wired yet')
+        return await queuedApplyHooks.ownerPrompt(input)
       },
       // Auto-continue is a message (POD-4846).
       sendContinue: async (input) => {
@@ -2201,6 +2211,7 @@ export class SessionRegistry {
     })
     queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
     queuedApplyHooks.continueSession = autoContinueSender(messagesSvc)
+    queuedApplyHooks.ownerPrompt = async (input) => await messagesSvc.recordOwnerPrompt(input)
     queuedApplyHooks.sessionsRemoved = async (sessionIds, opts) =>
       await messagesSvc.failMessagesToRemovedSessions(sessionIds, opts)
     queuedApplyHooks.handingOn = async (messageId, sessionId) =>
