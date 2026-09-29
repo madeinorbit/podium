@@ -196,7 +196,8 @@ describe('a send with files is a durable row like any other (POD-4795)', () => {
       urgency: 'next-turn',
     })) as { id: string }
 
-    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('queued')
+    // Stored on the server, not handed on: the sweep pushes it again.
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('stored')
     expect(await notices(h)).toEqual([])
   })
 })
