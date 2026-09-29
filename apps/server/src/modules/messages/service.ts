@@ -78,7 +78,7 @@ import { withReadScope } from '../../store/executor/read-scope'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
-import type { InboxPrincipalReference } from '../sessions/inbox'
+import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import type { SessionFacts } from '../sessions/facts'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
@@ -261,7 +261,7 @@ export interface MessageDeliveryDeps {
       reason?: string
       position?: number
     }>
-    cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): Promise<boolean>
+    retractQueuedMessage?(sessionId: SessionId, sourceMessageId: string): Promise<QueuedRetract>
     hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): Promise<boolean>
     /** Cut the running turn and type this next (#237 hard interrupt): for an
      *  agent, a durable row in the interrupt delivery mode (POD-4795). */
@@ -525,10 +525,11 @@ export class MessageDeliveryService {
           }
         : {}),
       send: async (from, input) => await this.send(from, input),
-      cancelQueuedInput: async (message) => {
+      retractQueuedInput: async (message) => {
         const sessionId =
           message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
-        if (sessionId) await deps.sessions.cancelQueuedMessage?.(asSessionId(sessionId), message.id)
+        if (!sessionId || !deps.sessions.retractQueuedMessage) return 'not-queued'
+        return await deps.sessions.retractQueuedMessage(asSessionId(sessionId), message.id)
       },
       emitTransition: async (message, kind, extra) => await this.emitTransition(message, kind, extra),
       fromLabel: async (message) => await this.render.fromLabel(message),
@@ -1367,6 +1368,24 @@ export class MessageDeliveryService {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
     await this.markTyped(message, sessionId)
+  }
+
+  /** SessionInbox calls this when a queued row was withdrawn before it was
+   *  typed — the daemon holding it said so, or no daemon ever had it
+   *  (POD-4776). The only move to `cancelled` a queued message makes. A row
+   *  that had already moved on (a late `dropped` replay) changes nothing. */
+  async onQueuedInputWithdrawn(messageId: string): Promise<void> {
+    if (!moved(await this.deps.messages.markCancelled(messageId))) return
+    const cancelled = await this.deps.messages.getMessage(messageId)
+    if (cancelled) await this.emitTransition(cancelled, 'message.cancelled')
+  }
+
+  /** SessionInbox calls this when the daemon answered a retract "typing had
+   *  already started" (POD-4776): the message is on its way into the agent. */
+  async onQueuedInputTyping(messageId: string, sessionId: SessionId): Promise<void> {
+    if (!moved(await this.deps.messages.markTyping(messageId))) return
+    const typing = await this.deps.messages.getMessage(messageId)
+    if (typing) await this.emitTransition({ ...typing, deliveredTo: typing.deliveredTo ?? sessionId }, 'message.typing')
   }
 
   /** SessionInbox calls this when a forwarded durable row's fate is lost: the

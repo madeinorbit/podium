@@ -27,7 +27,7 @@
 
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { and, asc, count, eq, gt, inArray, lt, lte, max, min, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, min, sql } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
@@ -589,9 +589,10 @@ export class SyncRepository {
       sourceMessageId: string | null
       delivery: 'when-ready' | 'interrupt'
       attachmentsJson: string | null
+      retractRequestedAt: number | null
     }[]
   > {
-    // FIFTEEN COLUMNS OF SIXTEEN, named [spec rule 39]: `session_id` is the
+    // SIXTEEN COLUMNS OF SEVENTEEN, named [spec rule 39]: `session_id` is the
     // predicate, not part of the answer. `queued_at` is the ordering AND an
     // answer since POD-4360: the inbox compares it against the transcript to
     // recognise a row a previous server process already delivered.
@@ -612,6 +613,7 @@ export class SyncRepository {
         sourceMessageId: this.queuedMessages.sourceMessageId,
         delivery: this.queuedMessages.delivery,
         attachmentsJson: this.queuedMessages.attachmentsJson,
+        retractRequestedAt: this.queuedMessages.retractRequestedAt,
       })
       .from(this.queuedMessages)
       .where(eq(this.queuedMessages.sessionId, sessionId))
@@ -635,6 +637,7 @@ export class SyncRepository {
       sourceMessageId: (r.sourceMessageId as string | null) ?? null,
       delivery: r.delivery === 'interrupt' ? 'interrupt' : 'when-ready',
       attachmentsJson: (r.attachmentsJson as string | null) ?? null,
+      retractRequestedAt: r.retractRequestedAt == null ? null : Number(r.retractRequestedAt),
     }))
   }
 
@@ -654,6 +657,32 @@ export class SyncRepository {
 
   async deleteQueuedMessage(id: string): Promise<void> {
     await this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.id, id)).run()
+  }
+
+  /** Delete a row only while no daemon has custody of it (POD-4776): the one
+   *  statement a retract and {@link reserveQueuedDelivery} race through, so
+   *  exactly one of them wins. Answers whether THIS call deleted it. */
+  async deleteUnreservedQueuedMessage(id: string): Promise<boolean> {
+    const r = await this.db.delete(this.queuedMessages)
+      .where(and(eq(this.queuedMessages.id, id), isNull(this.queuedMessages.deliveryOwner)))
+      .run()
+    return Number(r.changes) > 0
+  }
+
+  /** A retract of a daemon-held row is on its way (POD-4776): until the daemon
+   *  answers it, every forward sends the retract instead of the row. The first
+   *  request's time is kept. */
+  async requestQueuedRetract(id: string, at: number): Promise<void> {
+    await this.db.update(this.queuedMessages)
+      .set({ retractRequestedAt: sql`coalesce(${this.queuedMessages.retractRequestedAt}, ${at})` })
+      .where(eq(this.queuedMessages.id, id)).run()
+  }
+
+  /** The daemon answered the retract "too late": the row goes on as it was. */
+  async clearQueuedRetract(id: string): Promise<void> {
+    await this.db.update(this.queuedMessages)
+      .set({ retractRequestedAt: null })
+      .where(eq(this.queuedMessages.id, id)).run()
   }
 
   /** Reserve custody before the RPC. A crash after this commit is ambiguous,

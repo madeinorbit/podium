@@ -127,7 +127,7 @@ import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
-import { cancelInterruptedQueuedMessage, QueuedMessageApply } from './modules/messages/queued-apply'
+import { QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
@@ -1458,6 +1458,7 @@ export class SessionRegistry {
         reason: QueueDrainAbandonedReason
       }) => Promise<void>
       interrupted?: (messageId: string) => Promise<void>
+      typing?: (messageId: string, sessionId: SessionId) => Promise<void>
       interruptedPending?: (sessionId: SessionId, messageId?: string) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
@@ -1505,6 +1506,10 @@ export class SessionRegistry {
       },
       interruptQueuedMessage: async (messageId) => {
         const completion: Promise<void> | undefined = queuedApplyHooks.interrupted?.(messageId)
+        await completion
+      },
+      noteQueuedMessageTyping: async (messageId, sessionId) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.typing?.(messageId, sessionId)
         await completion
       },
       interruptPendingMessage: async (sessionId, messageId) => {
@@ -2163,8 +2168,12 @@ export class SessionRegistry {
       await messagesSvc.onQueueDrainAbandoned(sessionId, turnIds, reason)
     // A live busy send can be in the message ledger without a SessionInbox row.
     // The exit event is the real boundary that hands that row to the durable FIFO.
-    queuedApplyHooks.interrupted = (messageId): Promise<void> =>
-      cancelInterruptedQueuedMessage(messagesSvc, messageId)
+    // The session inbox withdrew the row on the daemon's word (or no daemon
+    // ever had it): the one way a queued message becomes cancelled (POD-4776).
+    queuedApplyHooks.interrupted = async (messageId) =>
+      await messagesSvc.onQueuedInputWithdrawn(messageId)
+    queuedApplyHooks.typing = async (messageId, sessionId) =>
+      await messagesSvc.onQueuedInputTyping(messageId, sessionId)
     queuedApplyHooks.interruptedPending = async (sessionId, messageId) => {
       try {
         await messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)

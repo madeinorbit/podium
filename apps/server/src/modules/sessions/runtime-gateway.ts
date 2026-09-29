@@ -34,6 +34,7 @@
 import type { MachineId, MutationId, SessionId } from '@podium/model'
 import type { InteractionAnswerOutcome, ObservationInputOrigin } from '@podium/protocol'
 import type {
+  DeliveryCancelResult,
   Refusal,
   RuntimeAttachmentRef,
   RuntimeEvent,
@@ -316,7 +317,7 @@ export class SessionRuntimeGateway {
     return (await this.ports.rpc.runtimeInterrupt(sessionId, machineId)).result
   }
 
-  async cancelDelivery(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal> {
+  async cancelDelivery(sessionId: SessionId, rowId: string): Promise<DeliveryCancelResult> {
     const machineId = this.ports.machineOf(sessionId)
     if (!machineId) return { reason: 'not_running' }
     return (await this.ports.rpc.runtimeInterrupt(sessionId, machineId, rowId)).result

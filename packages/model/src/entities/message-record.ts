@@ -43,6 +43,10 @@ export const MessageRecordWire = z.object({
   reason: z.string().optional(),
   /** The entry it became in the agent's history, once the machine named it. */
   transcriptItem: TranscriptItemRef.optional(),
+  /** When its sender asked to retract it (POD-4776). Beside `cancelled` the
+   *  retract won; beside a pending status it is still on its way to the agent's
+   *  machine; beside `typing`/`typed`/`confirmed` it came too late. */
+  retractRequestedAt: z.string().optional(),
 })
 export type MessageRecordWire = z.infer<typeof MessageRecordWire>
 

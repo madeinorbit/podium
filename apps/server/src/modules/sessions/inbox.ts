@@ -33,6 +33,7 @@ import {
 } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import type {
+  DeliveryCancelResult,
   QueueDrainAbandonedReason,
   Refusal,
   RuntimeAttachmentRef,
@@ -192,7 +193,23 @@ export interface QueuedInboxMessage {
   delivery: QueuedDelivery
   /** Staged file refs typed with the text; absent = none. */
   attachments?: readonly RuntimeAttachmentRef[]
+  /** A retract of this row the daemon has not answered yet (POD-4776), epoch
+   *  ms; absent = none. Every forward sends the retract instead of the row. */
+  retractRequestedAt?: number | null
 }
+
+/**
+ * WHAT A RETRACT CAME TO, as the session inbox saw it (POD-4776).
+ *
+ *  - `cancelled`  withdrawn, never to be typed: the daemon holding the row said
+ *                 so, or no daemon ever had it and the server deleted it.
+ *  - `too-late`   the daemon had already started typing it, or it had already
+ *                 settled; the row goes on to its own outcome.
+ *  - `waiting`    the daemon holds the row and has not answered; the retract is
+ *                 stored on the row and goes to the daemon with the next forward.
+ *  - `not-queued` no row here carries that message.
+ */
+export type QueuedRetract = 'cancelled' | 'too-late' | 'waiting' | 'not-queued'
 
 /**
  * HOW THE DAEMON TYPES A QUEUED ROW (POD-4795). `when-ready` waits for the turn
@@ -222,6 +239,14 @@ export interface InboxQueuePort {
   releaseDelivery?(id: string, attempts: number): Promise<void>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   delete(id: string): Promise<void>
+  /** Delete the row only while no daemon has custody of it; answers whether
+   *  this call deleted it. The one write a retract and `reserveDelivery` race
+   *  through (POD-4776). */
+  deleteUnreserved(id: string): Promise<boolean>
+  /** Store a retract the daemon has not answered yet on the row (POD-4776). */
+  requestRetract(id: string, at: number): Promise<void>
+  /** The daemon answered the retract "too late": the row goes on as it was. */
+  clearRetract(id: string): Promise<void>
   /** Every session holding at least one pending row — the work list for
    *  {@link SessionInbox.sweepQueuedInputs} (POD-1703). Optional so the many
    *  fixtures that satisfy this port with enqueue/list/delete alone stay valid;
@@ -270,8 +295,12 @@ export interface InboxAuthorizationPort {
    *  harness's. An explicit interrupt is the one signal that returns ownership
    *  to this queue so it can cancel instead of retrying. */
   injected?(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
-  /** The operator interrupted an injected row before it became a user turn. */
+  /** The row was withdrawn before it was typed: the daemon holding it said so
+   *  (a retract's `ok`, a `dropped` outcome), or no daemon ever had it
+   *  (POD-4776). The one way a queued message becomes `cancelled`. */
   interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): Promise<void>
+  /** The daemon answered a retract: typing had already started (POD-4776). */
+  typing?(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
   /** The operator interrupted while a chat message was still held in the
    *  higher-level message ledger and had no physical inbox row yet. */
   interruptedPending?(input: { sessionId: SessionId; sourceMessageId?: string }): Promise<void>
@@ -367,8 +396,8 @@ export interface SessionInboxDeps {
     principal: InboxPrincipalReference
   }): Promise<{ ok: boolean; reason?: string }>
 
-  /** Cancel a daemon-owned queued row before deleting its durable intent. */
-  contractCancel?(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal>
+  /** Ask the daemon holding a row to retract it; see {@link DeliveryCancelResult}. */
+  contractCancel?(sessionId: SessionId, rowId: string): Promise<DeliveryCancelResult>
   contractDeliver?(input: {
     sessionId: SessionId
     turnId: string
@@ -862,18 +891,73 @@ export class SessionInbox {
       }
       return false
     }
-    // Agents cancel through the driver (POD-4279). A daemon-owned row needs a
-    // successful driver cancel — retracting it locally would desync a delivery
-    // the daemon still holds. A server-held row the daemon never admitted
-    // retracts locally, so an idle stop still pulls back a queued send. Shells
-    // keep the local-only path — they have no driver to call.
-    if (session.agentKind !== 'shell') {
-      const result = await this.deps.contractCancel?.(sessionId, head.id)
-      if ((!result || !('ok' in result)) && head.deliveryOwner === 'daemon') return false
+    // The same retract as the chat's, so a stop pulls back a queued send only
+    // on the daemon's word, or while no daemon has it (POD-4776).
+    return (await this.retractRow(session, head)) === 'cancelled'
+  }
+
+  /**
+   * RETRACT A QUEUED MESSAGE BY ITS ID (POD-4776; POD-4720 §4 rule 5).
+   *
+   * A row no daemon has custody of is deleted here — nothing past the server
+   * ever held it, so nothing can type it. A row a daemon holds is the daemon's
+   * to withdraw: the retract is stored on the row FIRST, then sent, and only
+   * the daemon's answer settles it. `ok` withdraws the row; "too late" leaves it
+   * to its own outcome; no answer (the machine is away, or has no handle for
+   * the session) leaves the retract on the row, and every later forward sends
+   * it instead of the row until the daemon answers. The server never decides
+   * on its own that a row it handed on was not typed.
+   */
+  async retract(sessionId: SessionId, sourceMessageId: string): Promise<QueuedRetract> {
+    const session = this.deps.getSession(sessionId)
+    if (!session) return 'not-queued'
+    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
+    const row = (await queuedRows).find((entry) => entry.sourceMessageId === sourceMessageId)
+    if (!row) return 'not-queued'
+    return await this.retractRow(session, row)
+  }
+
+  private async retractRow(session: Session, row: QueuedInboxMessage): Promise<QueuedRetract> {
+    // Shells have no daemon queue: their rows are only ever the server's.
+    if (session.agentKind === 'shell') {
+      await this.deps.queue.delete(row.id)
+      await this.withdrawn(session, row)
+      return 'cancelled'
     }
-    const deletion: Promise<void> = this.deps.queue.delete(head.id)
-    await deletion
-    this.forwardedRows.get(sessionId)?.ids.delete(head.id)
+    if (row.deliveryOwner !== 'daemon' && (await this.deps.queue.deleteUnreserved(row.id))) {
+      await this.withdrawn(session, row)
+      return 'cancelled'
+    }
+    await this.deps.queue.requestRetract(row.id, this.deps.now())
+    return await this.sendRetract(session, row)
+  }
+
+  /** Send a stored retract to the daemon holding the row, and apply its answer. */
+  private async sendRetract(session: Session, row: QueuedInboxMessage): Promise<QueuedRetract> {
+    const answer = await this.deps.contractCancel?.(session.sessionId, row.id)
+    if (!answer) return 'waiting'
+    if ('ok' in answer) {
+      await this.deps.queue.delete(row.id)
+      await this.withdrawn(session, row)
+      return 'cancelled'
+    }
+    if (!answer.tooLate && answer.reason !== 'busy') return 'waiting'
+    // `busy` without a stage is an older daemon's "could not retract".
+    await this.deps.queue.clearRetract(row.id)
+    if (answer.tooLate === 'typing' && row.sourceMessageId) {
+      const noted: Promise<void> | undefined = this.deps.authorization.typing?.({
+        sourceMessageId: row.sourceMessageId,
+        sessionId: session.sessionId,
+      })
+      await noted
+    }
+    return 'too-late'
+  }
+
+  /** A retracted row is gone: the queue count, and the message, learn it. */
+  private async withdrawn(session: Session, row: QueuedInboxMessage): Promise<void> {
+    const sessionId = session.sessionId
+    this.forwardedRows.get(sessionId)?.ids.delete(row.id)
     const remaining = await this.deps.queue.list(sessionId)
     const persistence: Promise<void> = this.deps.write(session, (draft) => {
       draft.queuedMessageCount = remaining.length
@@ -881,11 +965,10 @@ export class SessionInbox {
     await persistence
     this.deps.broadcast()
     const completion: Promise<void> | undefined = this.deps.authorization.interrupted?.({
-      sourceMessageId: head.sourceMessageId,
+      sourceMessageId: row.sourceMessageId,
       sessionId,
     })
     await completion
-    return true
   }
 
   /**
@@ -932,8 +1015,8 @@ export class SessionInbox {
     // times over five minutes while the FIRST copy was still sitting in the
     // queue, unread. The row already here is the delivery; re-arm the drain in
     // case the earlier pass gave up, but never stack a duplicate behind it.
-    // `cancelQueuedMessage` retracts by the same key, so a second row would also
-    // survive a cancellation that was meant to remove the message entirely.
+    // `retract` finds the row by the same key, so a second row would also
+    // survive a retract that was meant to withdraw the message entirely.
     if (
       input.sourceMessageId &&
       (await this.hasQueuedMessage(input.sessionId, input.sourceMessageId))
@@ -1015,36 +1098,6 @@ export class SessionInbox {
     const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
     const head = (await queuedRows)[0]
     if (head) this.deps.resurrect(sessionId, head.principal)
-  }
-
-  /** Remove every still-pending PTY row backed by one message-ledger intent. */
-  async cancelQueuedMessage(sessionId: SessionId, sourceMessageId: string): Promise<boolean> {
-    const session = this.deps.getSession(sessionId)
-    if (!session) return false
-    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-    const matches = (await queuedRows).filter(
-      (row) => row.sourceMessageId === sourceMessageId,
-    )
-    if (matches.length === 0) return false
-    for (const row of matches) {
-      // Agents cancel through the driver (POD-4279): daemon-owned rows need a
-      // successful driver cancel, server-held rows retract locally. Shells
-      // keep the local-only path — they have no driver to call.
-      if (session.agentKind !== 'shell') {
-        const result = await this.deps.contractCancel?.(sessionId, row.id)
-        if ((!result || !('ok' in result)) && row.deliveryOwner === 'daemon') return false
-      }
-      const deletion: Promise<void> = this.deps.queue.delete(row.id)
-      await deletion
-      this.forwardedRows.get(sessionId)?.ids.delete(row.id)
-    }
-    const remaining = await this.deps.queue.list(sessionId)
-    const persistence: Promise<void> = this.deps.write(session, (draft) => {
-      draft.queuedMessageCount = remaining.length
-    })
-    await persistence
-    this.deps.broadcast()
-    return true
   }
 
   async hasQueuedMessage(sessionId: SessionId, sourceMessageId: string): Promise<boolean> {
@@ -1139,6 +1192,14 @@ export class SessionInbox {
       const rows = await this.deps.queue.list(sessionId)
       for (const row of rows) {
         if (!current()) return
+        // A RETRACT STILL WAITING FOR THIS MACHINE goes instead of the row
+        // (POD-4776), however long ago it was asked and whatever this binding
+        // already forwarded: only the daemon's answer settles it.
+        if (row.retractRequestedAt != null) {
+          const retracted = await this.sendRetract(session, row)
+          if (retracted === 'waiting') return
+          continue
+        }
         if (binding.ids.has(row.id)) continue
         if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
         const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })

@@ -110,18 +110,3 @@ export class QueuedMessageApply {
     this.deps.bus.emit('message.deadLettered', { messageId, reason })
   }
 }
-
-/** Retract a physical queued delivery; only a concurrent terminal transition is benign. */
-export async function cancelInterruptedQueuedMessage(
-  messages: Pick<MessageDeliveryService, 'cancel'>,
-  messageId: string,
-): Promise<void> {
-  try {
-    const cancellation: Promise<MessageRow> = messages.cancel(messageId)
-    await cancellation
-  } catch (error) {
-    if (!(error instanceof Error) || error.message !== 'message is no longer queued') {
-      throw error
-    }
-  }
-}

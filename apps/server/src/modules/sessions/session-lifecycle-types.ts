@@ -123,9 +123,11 @@ export interface SessionLifecycleDeps {
     turnIds: readonly string[]
     reason: QueueDrainAbandonedReason
   }): Promise<void>
-  /** Cancel a queued source intent after the harness reports that the operator
-   *  interrupted the physical delivery before it became a turn. */
+  /** The queued row was withdrawn before it was typed, on the daemon's word or
+   *  because no daemon ever had it (POD-4776): the message is `cancelled`. */
   interruptQueuedMessage?(messageId: string): Promise<void>
+  /** The daemon answered a retract: it had already started typing (POD-4776). */
+  noteQueuedMessageTyping?(messageId: string, sessionId: SessionId): Promise<void>
   /** Cancel the named operator chat message, or the newest one when a native
    *  terminal interrupt has no chat-side message id. */
   interruptPendingMessage?(sessionId: SessionId, messageId?: string): Promise<void>

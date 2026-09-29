@@ -652,6 +652,10 @@ export interface MessageRow {
    *  expired or was lost track of [POD-4764]. A stamp beside the status, never a
    *  status: it only takes the message off every device's feed. */
   noticeDismissedAt?: string | null
+  /** When the sender asked to retract it [POD-4776]. A stamp beside the status:
+   *  `cancelled` says the retract won; any other status past it says how far
+   *  the message had got when the retract arrived. */
+  retractRequestedAt?: string | null
 }
 
 /** A durable event subscription (event-subscriptions design, Phase B). The steward

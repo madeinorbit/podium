@@ -225,6 +225,7 @@ function mapMessage(r: MessageSelect): MessageRow {
         }
       : {}),
     ...(r.noticeDismissedAt ? { noticeDismissedAt: r.noticeDismissedAt } : {}),
+    ...(r.retractRequestedAt ? { retractRequestedAt: r.retractRequestedAt } : {}),
   }
 }
 
@@ -971,11 +972,37 @@ export class MessagesRepository {
     return written.changes === 1
   }
 
-  /** → cancelled: the sender retracted work before it was typed. The
-   * queued-input drain re-reads this status immediately before touching the PTY,
-   * so a cancelled row cannot be applied later. */
-  async markCancelled(id: string): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.move(id, 'cancelled')
+  /** → cancelled: withdrawn before it was typed — the daemon holding it said
+   *  so, or nothing past the server ever held it (POD-4776). */
+  async markCancelled(
+    id: string,
+    opts: { onlyFrom?: MessageDeliveryStatus } = {},
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'cancelled', {
+      ...(opts.onlyFrom ? { where: [eq(messagesTable.deliveryStatus, opts.onlyFrom)] } : {}),
+    })
+  }
+
+  /** → typing: the agent's machine said it has started typing it — today only
+   *  in its answer to a retract that came too late (POD-4776). */
+  async markTyping(id: string): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.move(id, 'typing')
+  }
+
+  /**
+   * THE SENDER ASKED TO RETRACT IT [POD-4776]. A stamp, not a move: only the
+   * daemon's answer (or the server being the only holder) moves the status to
+   * `cancelled`. Stamped only while the message is still pending, and the first
+   * request's time is kept. Answers whether the row carries a stamp now.
+   */
+  async requestRetract(id: string, at: string): Promise<boolean> {
+    const r = await this.write(async () => this.db
+      .update(messagesTable)
+      .set({ retractRequestedAt: sql`COALESCE(${messagesTable.retractRequestedAt}, ${at})` })
+      .where(and(eq(messagesTable.id, id), pending()))
+      .returning()
+      .all(), 'upsert')
+    return r.changes === 1
   }
 
   /** → confirmed via the PULL path (an issue-mailbox read/claim) [POD-1420].

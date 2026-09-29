@@ -99,6 +99,7 @@ export function messageRecordOf(row: MessageRow): MessageRecordWire | null {
       ? { reason: row.deliveryDeferredReason }
       : {}),
     ...(row.transcriptItem ? { transcriptItem: row.transcriptItem } : {}),
+    ...(row.retractRequestedAt ? { retractRequestedAt: row.retractRequestedAt } : {}),
   }
 }
 

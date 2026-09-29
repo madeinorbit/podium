@@ -1,6 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { cancelInterruptedQueuedMessage, QueuedMessageApply } from './queued-apply'
+import { QueuedMessageApply } from './queued-apply'
 
 describe('queued message completion', () => {
   it.each(['applied', 'injected'] as const)('waits for durable %s completion', async (hook) => {
@@ -40,29 +40,6 @@ describe('queued message completion', () => {
     })
     await expect(apply.reject('m1', 'revoked')).rejects.toBe(failure)
     expect(emit).not.toHaveBeenCalled()
-  })
-
-  it('waits for physical cancellation completion', async () => {
-    let release!: () => void
-    const pending = new Promise<void>((resolve) => { release = resolve })
-    const cancel = vi.fn(async () => { await pending; throw new Error('message is no longer queued') })
-    let settled = false
-    const result = cancelInterruptedQueuedMessage({ cancel }, 'm1').then(() => { settled = true })
-    await Promise.resolve()
-    try { expect(settled).toBe(false) } finally { release(); await result }
-    expect(cancel).toHaveBeenCalledWith('m1')
-  })
-
-  it.each([new Error('storage failed'), new Error('unknown message m1'), { code: 'IO_FAILURE' }])(
-    'propagates the exact cancellation failure %#', async (failure) => {
-      const cancel = async () => { throw failure }
-      await expect(cancelInterruptedQueuedMessage({ cancel }, 'm1')).rejects.toBe(failure)
-    },
-  )
-
-  it('tolerates only a concurrent terminal transition', async () => {
-    const cancel = async () => { throw new Error('message is no longer queued') }
-    await expect(cancelInterruptedQueuedMessage({ cancel }, 'm1')).resolves.toBeUndefined()
   })
 })
 

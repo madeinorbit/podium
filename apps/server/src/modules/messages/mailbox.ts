@@ -36,6 +36,7 @@ import type { SessionId, SessionMeta, IssueId } from '@podium/model'
 import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '../../store'
 import { type MessagesRepository, moved } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
+import type { QueuedRetract } from '../sessions/inbox'
 import type { IssueService } from '../issues/service'
 import type {
   MessageSender,
@@ -58,6 +59,7 @@ export interface MessageMailboxDeps {
     | 'markRead'
     | 'markCancelled'
     | 'markReminded'
+    | 'requestRetract'
     // The per-reader ledger the nag counts [POD-1379] — distinct from `markRead`,
     // which moves the SHARED delivery status for the message as a whole.
     | 'recordRead'
@@ -77,7 +79,9 @@ export interface MessageMailboxDeps {
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
   send(from: MessageSender, input: MessageSendInput): MessageSendResult | Promise<MessageSendResult>
-  cancelQueuedInput(message: MessageRow): Promise<void>
+  /** Ask the session holding the message to withdraw its queued row; see
+   *  {@link QueuedRetract}. `not-queued` when no session queue holds it. */
+  retractQueuedInput(message: MessageRow): Promise<QueuedRetract>
   /** The transition ledger — a read is a status transition like any other. */
   emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void | Promise<void>
   /** The rendered sender label, for a reminder's render-ready row. */
@@ -361,23 +365,37 @@ export class MessageMailbox {
     return dismissed
   }
 
-  /** Sender-side retraction while delivery is still pending. The session inbox
-   * performs one final status check at drain time, so this durable transition is
-   * also the cancellation token for the queued PTY input. */
+  /**
+   * THE SENDER RETRACTS A PENDING MESSAGE (POD-4776; POD-4720 §4 rule 5).
+   *
+   * A request, not a verdict. The stamp goes on the row first, so every device
+   * shows the retract as asked; then the session holding the message is asked
+   * to withdraw it, and only the daemon holding the row — or the fact that no
+   * daemon ever had it — makes it `cancelled` (through that session's
+   * withdrawal, {@link MessageDeliveryService.onQueuedInputWithdrawn}). A
+   * message the daemon had started typing keeps its status, which beside the
+   * stamp reads "too late". One whose machine is away stays pending with the
+   * retract stored on its queued row, and the daemon answers it on reconnect.
+   *
+   * The one case decided here: no queued row anywhere and never handed on
+   * (`stored`) — nothing past the server holds it, so it is cancelled now.
+   */
   async cancel(messageId: string): Promise<MessageRow> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) throw new Error('unknown message ' + messageId)
     // The sentinel text is matched by the callers that treat a lost race as benign.
-    if (!moved(await this.deps.messages.markCancelled(message.id))) {
-      throw new Error('message is no longer queued')
+    if (!isMessagePending(message.deliveryStatus)) throw new Error('message is no longer queued')
+    await this.deps.messages.requestRetract(message.id, this.deps.now())
+    const outcome = await this.deps.retractQueuedInput(message)
+    if (outcome === 'not-queued') {
+      const moveFromStored = await this.deps.messages.markCancelled(message.id, { onlyFrom: 'stored' })
+      if (moved(moveFromStored)) {
+        const cancelled = await this.deps.messages.getMessage(message.id) ?? message
+        await this.deps.emitTransition(cancelled, 'message.cancelled')
+        return cancelled
+      }
     }
-    const cancelled = await this.deps.messages.getMessage(message.id) ?? {
-      ...message,
-      deliveryStatus: 'cancelled' as const,
-    }
-    await this.deps.cancelQueuedInput(message)
-    await this.deps.emitTransition(cancelled, 'message.cancelled')
-    return cancelled
+    return await this.deps.messages.getMessage(message.id) ?? message
   }
 
   private async retireNotificationFact(message: MessageRow, at: string): Promise<void> {

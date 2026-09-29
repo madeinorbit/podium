@@ -402,11 +402,15 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           sourceMessageId: row.sourceMessageId,
           delivery: row.delivery,
           ...storedQueueAttachments(row.attachmentsJson),
+          ...(row.retractRequestedAt != null ? { retractRequestedAt: row.retractRequestedAt } : {}),
         }))
       },
       reserveDelivery: (id) => store.sync.reserveQueuedDelivery(id),
       releaseDelivery: (id, attempts) => store.sync.releaseQueuedDelivery(id, attempts),
       delete: (id) => store.sync.deleteQueuedMessage(id),
+      deleteUnreserved: (id) => store.sync.deleteUnreservedQueuedMessage(id),
+      requestRetract: (id, at) => store.sync.requestQueuedRetract(id, at),
+      clearRetract: (id) => store.sync.clearQueuedRetract(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
       // boot, read as a work list for the queue sweep (POD-1703).
       sessionsWithPending: async () => {
@@ -434,6 +438,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           const completion: Promise<void> | undefined = deps.interruptQueuedMessage?.(sourceMessageId)
           await completion
         }
+      },
+      typing: async ({ sourceMessageId, sessionId }) => {
+        const completion: Promise<void> | undefined =
+          deps.noteQueuedMessageTyping?.(sourceMessageId, sessionId)
+        await completion
       },
       interruptedPending: async ({ sessionId, sourceMessageId }) => {
         const retraction: Promise<void> | undefined =
@@ -580,8 +589,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.interruptTurn = (input: any) => bag.inbox.interruptTurn(input)
   bag.configureSession = (input: any) => bag.inbox.configureSession(input)
   bag.queueText = (input: any) => bag.inbox.queueText(input)
-  bag.cancelQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
-    bag.inbox.cancelQueuedMessage(sessionId, sourceMessageId)
+  bag.retractQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
+    bag.inbox.retract(sessionId, sourceMessageId)
   bag.hasQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.hasQueuedMessage(sessionId, sourceMessageId)
   bag.queuedMessagePosition = (sessionId: SessionId, sourceMessageId: string) =>
