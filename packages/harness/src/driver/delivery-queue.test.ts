@@ -346,7 +346,10 @@ describe('durable row delivery', () => {
   for (const [label, enter] of Object.entries(notAccepting)) {
     it(`delivers after a long busy wait and one ${label} reading`, async () => {
       const f = fixture()
-      await f.handle.send({ rowId: 'waited', text: 'after the turn' }, { origin: 'mail', delivery: 'when-ready' })
+      await f.handle.send(
+        { rowId: 'waited', text: 'after the turn' },
+        { origin: 'mail', delivery: 'when-ready' },
+      )
       await vi.advanceTimersByTimeAsync(20 * 60_000)
       enter(f)
       await vi.advanceTimersByTimeAsync(200)
@@ -355,13 +358,18 @@ describe('durable row delivery', () => {
       await vi.advanceTimersByTimeAsync(1000)
       expect(f.send).toHaveBeenCalledTimes(1)
       expect(f.emit).toHaveBeenCalledTimes(1)
-      expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'waited', outcome: 'delivered' }))
+      expect(f.emit).toHaveBeenCalledWith(
+        expect.objectContaining({ rowId: 'waited', outcome: 'delivered' }),
+      )
     })
   }
 
   it('fails a row only after the agent stays not accepting for the whole ceiling', async () => {
     const f = fixture()
-    await f.handle.send({ rowId: 'stuck', text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
+    await f.handle.send(
+      { rowId: 'stuck', text: 'wait' },
+      { origin: 'mail', delivery: 'when-ready' },
+    )
     await vi.advanceTimersByTimeAsync(20 * 60_000)
     f.setPhase('unknown')
     await vi.advanceTimersByTimeAsync(59_000)
@@ -381,7 +389,10 @@ describe('durable row delivery', () => {
   it('a reading of a live turn restarts the not-accepting stretch', async () => {
     const f = fixture()
     f.setPhase('unknown')
-    await f.handle.send({ rowId: 'flicker', text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
+    await f.handle.send(
+      { rowId: 'flicker', text: 'wait' },
+      { origin: 'mail', delivery: 'when-ready' },
+    )
     await vi.advanceTimersByTimeAsync(40_000)
     f.setPhase('working')
     await vi.advanceTimersByTimeAsync(400)
@@ -391,7 +402,11 @@ describe('durable row delivery', () => {
     await vi.advanceTimersByTimeAsync(21_000)
     expect(f.send).not.toHaveBeenCalled()
     expect(f.emit).toHaveBeenCalledWith(
-      expect.objectContaining({ rowId: 'flicker', outcome: 'failed', cause: 'not-accepting-input' }),
+      expect.objectContaining({
+        rowId: 'flicker',
+        outcome: 'failed',
+        cause: 'not-accepting-input',
+      }),
     )
   })
 
