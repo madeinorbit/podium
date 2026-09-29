@@ -231,32 +231,29 @@ describe('a queue-drain abandonment crosses the wire and leaves durable work que
     // the hand-off failed. It reaches this path through the same frame the
     // terminal family uses; its failure settles through the `delivery` event.
     'delivery-failed',
-  ] as const)(
-    'a %s report from the owning machine keeps the interrupt row for the next owner',
-    async (reason) => {
-      const { sessionId, messageId } = await heldInterrupt(`reported ${reason}`)
+  ] as const)('a %s report from the owning machine keeps the interrupt row for the next owner', async (reason) => {
+    const { sessionId, messageId } = await heldInterrupt(`reported ${reason}`)
 
-      await registry.gateway.routeDaemonFrame(MACHINE, {
-        type: 'runtimeQueueDrainAbandoned',
-        reportId: `report-${reason}`,
-        sessionId,
-        turnIds: [messageId],
-        reason,
-      })
+    await registry.gateway.routeDaemonFrame(MACHINE, {
+      type: 'runtimeQueueDrainAbandoned',
+      reportId: `report-${reason}`,
+      sessionId,
+      turnIds: [messageId],
+      reason,
+    })
 
-      expect(acksFor(`report-${reason}`)).toHaveLength(1)
-      await expectStillQueued(sessionId, messageId)
-      // The next owner receives the same row again — as a recovery, with its
-      // interrupt mode, never as a fresh write.
-      await registry.gateway.routeDaemonFrame(MACHINE, bind(sessionId))
-      await vi.waitFor(() => expect(durableSends(sessionId)).toHaveLength(2))
-      expect(durableSends(sessionId)[1]).toMatchObject({
-        rowId: messageId,
-        delivery: 'interrupt',
-        deliveryRecovery: true,
-      })
-    },
-  )
+    expect(acksFor(`report-${reason}`)).toHaveLength(1)
+    await expectStillQueued(sessionId, messageId)
+    // The next owner receives the same row again — as a recovery, with its
+    // interrupt mode, never as a fresh write.
+    await registry.gateway.routeDaemonFrame(MACHINE, bind(sessionId))
+    await vi.waitFor(() => expect(durableSends(sessionId)).toHaveLength(2))
+    expect(durableSends(sessionId)[1]).toMatchObject({
+      rowId: messageId,
+      delivery: 'interrupt',
+      deliveryRecovery: true,
+    })
+  })
 
   it('an at-least-once replay is re-acked every time and still moves nothing', async () => {
     const { sessionId, messageId } = await heldInterrupt('reported twice')
