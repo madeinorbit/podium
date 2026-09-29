@@ -56,6 +56,10 @@ impl Outbox {
             self.base += self.buf.len() as u64;
             self.buf.clear();
             self.sent = 0;
+            // A replay or a picture made it large once: do not keep that.
+            if self.buf.capacity() > 4 * Self::COMPACT_AT {
+                self.buf.shrink_to(Self::COMPACT_AT);
+            }
         } else {
             self.compact();
         }
@@ -106,13 +110,28 @@ struct Client {
     /// Asked for a picture: gets cuts and resize resets from then on.
     #[cfg(feature = "screen")]
     pictures: bool,
+    /// A picture taken for this client, waiting for its DATA cursor to
+    /// reach the seq it stands for; then it goes into `out`.
+    #[cfg(feature = "screen")]
+    waiting: Option<Waiting>,
     /// The picture being sent: its (start, end) stream positions in `out`.
     #[cfg(feature = "screen")]
     picture: Option<(u64, u64)>,
-    /// A picture due to this client, and why: sent once `picture` is gone,
-    /// so it holds at most one (H4). A reset outranks a cut.
+    /// A picture due to this client, and why: taken once the one it is being
+    /// sent is gone, so it holds at most one more (H4). A reset outranks a cut.
     #[cfg(feature = "screen")]
     owed: Option<u8>,
+}
+
+/// A picture of the state at `seq`, serialised once and shared by every
+/// client it was taken for.
+#[cfg(feature = "screen")]
+struct Waiting {
+    seq: u64,
+    reason: u8,
+    cols: u16,
+    rows: u16,
+    bytes: std::rc::Rc<Vec<u8>>,
 }
 
 impl Client {
@@ -340,6 +359,8 @@ impl Host {
             #[cfg(feature = "screen")]
             pictures: false,
             #[cfg(feature = "screen")]
+            waiting: None,
+            #[cfg(feature = "screen")]
             picture: None,
             #[cfg(feature = "screen")]
             owed: None,
@@ -563,7 +584,15 @@ impl Host {
                 }
                 let out = self.clients[ci].out.tail();
                 Frame::begin(out, proto::H_REPLAYING).u64(from);
-                queue_data(&self.ring, from, high, out);
+                let mut seq = from;
+                while seq < high {
+                    let len = (high - seq).min(proto::DATA_CHUNK as u64) as usize;
+                    let mut f = Frame::begin(out, proto::H_DATA);
+                    f.u64(seq);
+                    self.ring.copy_to(seq, len, f.buf());
+                    drop(f);
+                    seq += len as u64;
+                }
                 Frame::begin(out, proto::H_REPLAYED);
             }
             Request::Kill => self.request_kill(),
@@ -647,7 +676,8 @@ impl Host {
         false
     }
 
-    /// Fill `out` from the ring when it is empty and the cursor lags.
+    /// Fill `out` from the ring when it is empty and the cursor lags; a
+    /// waiting picture goes in once the DATA before it has.
     fn client_fill(&mut self, ci: usize) {
         let (low, high, announced) = (self.ring.low(), self.ring.high(), self.exit_announced);
         let (code, sig) = (self.exit_code, self.exit_signal);
@@ -655,11 +685,38 @@ impl Host {
         if !c.out.is_empty() || !c.hello_done {
             return;
         }
+        #[allow(unused_mut)]
+        let mut until = high;
+        #[cfg(feature = "screen")]
+        if let Some(w) = &c.waiting {
+            if w.seq < low.max(c.next_seq) {
+                // The ring moved past it before this client read up to it:
+                // the DATA it stands between is gone. A fresh reset instead.
+                c.waiting = None;
+                c.owe(proto::PICTURE_RESET);
+                if let Some(kept) = &mut self.screen {
+                    kept.due = true;
+                }
+            } else if c.next_seq == w.seq {
+                let start = c.out.end_pos();
+                Frame::begin(c.out.tail(), proto::H_PICTURE)
+                    .u64(w.seq)
+                    .u8(w.reason)
+                    .u16(w.cols)
+                    .u16(w.rows)
+                    .bytes(&w.bytes);
+                c.picture = Some((start, c.out.end_pos()));
+                c.waiting = None;
+                return;
+            } else {
+                until = w.seq;
+            }
+        }
         if c.next_seq < low {
             Frame::begin(c.out.tail(), proto::H_GAP).u64(low);
             c.next_seq = low;
-        } else if c.next_seq < high {
-            let n = (high - c.next_seq).min(proto::DATA_CHUNK as u64) as usize;
+        } else if c.next_seq < until {
+            let n = (until - c.next_seq).min(proto::DATA_CHUNK as u64) as usize;
             let mut f = Frame::begin(c.out.tail(), proto::H_DATA);
             f.u64(c.next_seq);
             self.ring.copy_to(c.next_seq, n, f.buf());
@@ -679,6 +736,10 @@ impl Host {
         }
         if !c.hello_done {
             return false;
+        }
+        #[cfg(feature = "screen")]
+        if c.waiting.is_some() {
+            return true;
         }
         c.next_seq < self.ring.high() || (c.exit_owed && self.exit_announced)
     }
@@ -746,11 +807,11 @@ impl Host {
         }
     }
 
-    /// Take a cut when one is due, then send each client the picture it is
-    /// owed, unless it is still sending one. One picture is serialised for
-    /// all of them, of the state at the ring's high seq; each client first
-    /// gets its DATA up to there, so the picture sits exactly between the
-    /// bytes it stands for and the bytes after it.
+    /// Take a cut when one is due, then take the picture each client is
+    /// owed, unless it is still being sent one. One picture is serialised
+    /// for all of them, of the state at the ring's high seq; each client gets
+    /// it once its DATA has reached there (`client_fill`), so it sits exactly
+    /// between the bytes it stands for and the bytes after it.
     #[cfg(feature = "screen")]
     fn pictures(&mut self, now: Instant) {
         let high = self.ring.high();
@@ -770,33 +831,30 @@ impl Host {
             return;
         }
         kept.due = false;
-        let ready =
-            |c: &Client| c.owed.is_some() && c.picture.is_none() && !c.closing && !c.overflowed;
+        let ready = |c: &Client| {
+            c.owed.is_some()
+                && c.waiting.is_none()
+                && c.picture.is_none()
+                && !c.closing
+                && !c.overflowed
+        };
         if !self.clients.iter().any(ready) {
             return;
         }
         debug_assert_eq!(kept.screen.fed_seq() + kept.screen.held_len() as u64, high);
-        let mut picture = Vec::new();
-        kept.screen.picture(&mut picture);
-        kept.clock.sized(picture.len());
+        let mut bytes = Vec::new();
+        kept.screen.picture(&mut bytes);
+        kept.clock.sized(bytes.len());
+        let bytes = std::rc::Rc::new(bytes);
         let (cols, rows) = kept.screen.size();
-        let low = self.ring.low();
         for c in self.clients.iter_mut().filter(|c| ready(c)) {
-            let out = c.out.tail();
-            if c.next_seq < low {
-                Frame::begin(out, proto::H_GAP).u64(low);
-                c.next_seq = low;
-            }
-            queue_data(&self.ring, c.next_seq, high, out);
-            c.next_seq = high;
-            let start = c.out.end_pos();
-            Frame::begin(c.out.tail(), proto::H_PICTURE)
-                .u64(high)
-                .u8(c.owed.take().expect("owed"))
-                .u16(cols)
-                .u16(rows)
-                .bytes(&picture);
-            c.picture = Some((start, c.out.end_pos()));
+            c.waiting = Some(Waiting {
+                seq: high,
+                reason: c.owed.take().expect("owed"),
+                cols,
+                rows,
+                bytes: bytes.clone(),
+            });
         }
     }
 
@@ -1068,19 +1126,6 @@ impl Host {
                 }
             }
         }
-    }
-}
-
-/// Queue DATA frames for the ring's bytes `from..to`.
-fn queue_data(ring: &Ring, from: u64, to: u64, out: &mut Vec<u8>) {
-    let mut seq = from;
-    while seq < to {
-        let len = (to - seq).min(proto::DATA_CHUNK as u64) as usize;
-        let mut f = Frame::begin(out, proto::H_DATA);
-        f.u64(seq);
-        ring.copy_to(seq, len, f.buf());
-        drop(f);
-        seq += len as u64;
     }
 }
 

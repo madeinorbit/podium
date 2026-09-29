@@ -22,6 +22,7 @@ use screen::Screen;
 
 const C_RESIZE: u8 = 0x03;
 const C_PICTURE: u8 = 0x0B;
+const H_GAP: u8 = 0x83;
 const H_RESIZED: u8 = 0x84;
 const H_PICTURE: u8 = 0x8D;
 const RESET: u8 = 0;
@@ -57,7 +58,8 @@ fn resize(cols: u16, rows: u16) -> Vec<u8> {
     frame(C_RESIZE, &p)
 }
 
-/// Every frame until `quiet` passes without one; DATA must be contiguous.
+/// Every frame until `quiet` passes without one; DATA must be contiguous (a
+/// GAP starts it afresh at the ring's low seq).
 struct Read {
     data: Vec<u8>,
     from: u64,
@@ -94,6 +96,10 @@ impl Read {
                 }
                 assert_eq!(seq, self.end(), "DATA is contiguous");
                 self.data.extend_from_slice(&p[8..]);
+            }
+            H_GAP => {
+                self.from = u64::from_be_bytes(p[..8].try_into().unwrap());
+                self.data.clear();
             }
             H_PICTURE => {
                 let pic = Picture::parse(&p);
@@ -587,5 +593,68 @@ fn a_due_cut_is_sent_without_further_output() {
     assert!(
         tail < 65536,
         "{tail} bytes after the last cut: a due cut was stranded"
+    );
+}
+
+/// A picture taken while its client lags waits for that client's DATA to
+/// reach its seq. When the ring outruns it first, the bytes it stands between
+/// are gone: the client gets a fresh reset after the GAP instead, and its
+/// output goes on (it must not stall on a picture it can never reach).
+#[test]
+fn a_picture_the_ring_outran_is_replaced_by_a_fresh_one() {
+    let dir = Scratch::new("pic-stale");
+    let sock = dir.path("h.sock");
+    let text = |tag: &str| -> String {
+        (0..40_000)
+            .map(|i| format!("{tag} line {i} of the output\r\n"))
+            .collect()
+    };
+    fs::write(dir.path("a"), text("a")).unwrap();
+    fs::write(dir.path("b"), [text("b").as_bytes(), END].concat()).unwrap();
+    // `a` fills the socket of a client that is not reading; a cut falls due
+    // at its end (taken by the timer) while the client cannot reach it; `b`
+    // then carries the ring far past that cut.
+    let d = dir.0.display();
+    let play = format!("sleep 0.3; cat {d}/a; sleep 0.8; cat {d}/b; exec sleep 60");
+    create(
+        &sock,
+        &[
+            "--cols",
+            "80",
+            "--rows",
+            "24",
+            "--ring-bytes",
+            "4096",
+            "--linger-secs",
+            "0",
+        ],
+        &["sh", "-c", &play],
+    );
+    let (mut c, _) = Conn::open(&sock, READER, u64::MAX);
+    let mut hosts = Hosts::default();
+    hosts.track(&c);
+    c.send(&frame(C_PICTURE, &[]));
+    let mut read = Read::new(u64::MAX);
+    assert!(
+        read.step(&mut c, Duration::from_secs(5)),
+        "the reset answer"
+    );
+    std::thread::sleep(Duration::from_millis(3000)); // not reading while it all plays
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !read.data.ends_with(END) {
+        assert!(
+            Instant::now() < deadline,
+            "the stream stalled: {:x?}",
+            &read.types[read.types.len().saturating_sub(8)..]
+        );
+        read.step(&mut c, Duration::from_millis(200));
+    }
+    read.until_quiet(&mut c, Duration::from_millis(800));
+    let high = c.seq_high();
+    assert!(read.types.contains(&H_GAP), "the ring outran the client");
+    let resets: Vec<_> = read.pictures_of(RESET).iter().map(|p| p.seq).collect();
+    assert!(
+        resets.contains(&high),
+        "a fresh reset at the end of the output ({high}); resets at {resets:?}"
     );
 }
