@@ -78,7 +78,7 @@ import {
   WriteContractError,
 } from '../../../shared/src/write-contract'
 import { DeadlineClock } from './clock'
-import { issueIdsOf, knownIssueIds, reseed } from './enumerate'
+import { builtIds, issueIdsOf, knownIssueIds, reseed } from './enumerate'
 import { type EntityModel, type IssueModel, MODEL_CLASSES, type ModelOf, type SessionModel } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
@@ -1137,7 +1137,7 @@ export class MobxPool {
         }
       }
       this.worklist.syncReplace(this.expandRoots(roots, partsOf), knows)
-      for (const id of [...this.models.session.keys()]) this.release('session', id)
+      for (const id of builtIds(this.models.session)) this.release('session', id)
       return
     }
     const isColdIssue = (id: string): boolean => this.residency?.isCold('issue', id) === true

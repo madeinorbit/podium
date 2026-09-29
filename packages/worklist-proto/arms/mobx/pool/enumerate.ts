@@ -13,6 +13,9 @@
  *   which the visible collection (`worklist/visible.ts`) syncs its nodes to
  *   at a `replace`. An update syncs only the ids it names: the collection is
  *   maintained, never re-enumerated.
+ * - `builtIds`: the rows of one entity whose object the pool has built (a
+ *   `replace` releases the ones it no longer knows, `MobxPool.syncWorklist`).
+ *   Sized by what was built, never by the table.
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, in the
  *   caller's single action. In the live pool it re-partitions residency
@@ -70,6 +73,11 @@ export function issueIdsOf(pool: { readonly fenced: PoolTables }): string[] {
  * table's keys) and the cold ones (the registry). The visible collection
  * syncs its nodes to it at a `replace`; an update syncs only the ids it names.
  */
+/** The ids whose object the pool has built for one entity (a `replace` releases the unknown ones). */
+export function builtIds(models: ReadonlyMap<string, unknown>): string[] {
+  return [...models.keys()]
+}
+
 export function knownIssueIds(pool: {
   readonly fenced: PoolTables
   readonly residency: Residency | null
