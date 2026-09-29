@@ -128,6 +128,15 @@ export class FaultyIdbFactory implements IdbFactoryLike {
   writesIssued = 0
   /** Transactions in which a fault fired. */
   denials = 0
+  /**
+   * Every transaction opened through this factory, with its SCOPE and mode, and
+   * every `getAll` issued, by object store (POD-4810). The scope is what decides
+   * whether IndexedDB may run a transaction beside another one or must queue it
+   * behind it, so "the outbox write does not wait for the replica" is asserted
+   * on the scope the engine was actually handed.
+   */
+  readonly transactions: { readonly names: readonly string[]; readonly mode: string }[] = []
+  readonly getAlls: string[] = []
 
   constructor(private readonly inner: IdbFactoryLike) {}
 
@@ -193,7 +202,13 @@ function wrapDatabase(db: IdbDatabaseLike, factory: FaultyIdbFactory): IdbDataba
     set onversionchange(handler) {
       db.onversionchange = handler
     },
-    transaction: (names, mode) => wrapTransaction(db.transaction(names, mode), factory),
+    transaction: (names, mode) => {
+      factory.transactions.push({
+        names: typeof names === 'string' ? [names] : [...names],
+        mode: mode ?? 'readonly',
+      })
+      return wrapTransaction(db.transaction(names, mode), factory)
+    },
   }
 }
 
@@ -205,6 +220,8 @@ function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): Idb
     objectStore: (name) =>
       wrapObjectStore(
         tx.objectStore(name),
+        name,
+        factory,
         () => deny(),
         () => killAfter(),
       ),
@@ -256,6 +273,8 @@ function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): Idb
 
 function wrapObjectStore(
   store: IdbObjectStoreLike,
+  name: string,
+  factory: FaultyIdbFactory,
   deny: () => Error | undefined,
   killAfter: () => void,
 ): IdbObjectStoreLike {
@@ -275,7 +294,10 @@ function wrapObjectStore(
       return request
     },
     get: (key) => store.get(key) as IdbRequestLike<unknown>,
-    getAll: () => store.getAll(),
+    getAll: () => {
+      factory.getAlls.push(name)
+      return store.getAll()
+    },
     clear: () => store.clear(),
   }
 }
