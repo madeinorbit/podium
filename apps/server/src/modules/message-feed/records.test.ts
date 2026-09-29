@@ -160,13 +160,25 @@ describe('mail.records, through the gate the tRPC router reaches', () => {
     const h = await mailHarness()
     await h.store.messages.addMessage(chat('msg_g1'))
     await h.store.messages.addMessage(chat('msg_g2'))
-    const answer = (await h.gate.dispatch(person(ALICE), undefined, 'records', {
-      ids: ['msg_g1', 'msg_g2', 'msg_unknown'],
-    }, 'trpc')) as { records: { id: string }[] }
+    const answer = (await h.gate.dispatch(
+      person(ALICE),
+      undefined,
+      'records',
+      {
+        ids: ['msg_g1', 'msg_g2', 'msg_unknown'],
+      },
+      'trpc',
+    )) as { records: { id: string }[] }
     expect(answer.records.map((record) => record.id).sort()).toEqual(['msg_g1', 'msg_g2'])
-    const stranger = (await h.gate.dispatch(person(CAROL), undefined, 'records', {
-      ids: ['msg_g1'],
-    }, 'trpc')) as { records: unknown[] }
+    const stranger = (await h.gate.dispatch(
+      person(CAROL),
+      undefined,
+      'records',
+      {
+        ids: ['msg_g1'],
+      },
+      'trpc',
+    )) as { records: unknown[] }
     expect(stranger.records).toEqual([])
   })
 
@@ -174,15 +186,23 @@ describe('mail.records, through the gate the tRPC router reaches', () => {
     const h = await mailHarness()
     await h.store.messages.addMessage(chat('msg_g3'))
     const agent: Capability = { ...person(ALICE), actorSessionId: asSessionId('ses_agent') }
-    const answer = (await h.gate.dispatch(agent, undefined, 'records', {
-      ids: ['msg_g3'],
-    }, 'trpc')) as { records: unknown[] }
+    const answer = (await h.gate.dispatch(
+      agent,
+      undefined,
+      'records',
+      {
+        ids: ['msg_g3'],
+      },
+      'trpc',
+    )) as { records: unknown[] }
     expect(answer.records).toEqual([])
   })
 
   it('refuses a read naming no id, or more than one request may', async () => {
     const h = await mailHarness()
-    await expect(h.gate.dispatch(person(ALICE), undefined, 'records', { ids: [] }, 'trpc')).rejects.toThrow()
+    await expect(
+      h.gate.dispatch(person(ALICE), undefined, 'records', { ids: [] }, 'trpc'),
+    ).rejects.toThrow()
     const many = Array.from({ length: 101 }, (_, i) => `msg_${i}`)
     await expect(
       h.gate.dispatch(person(ALICE), undefined, 'records', { ids: many }, 'trpc'),

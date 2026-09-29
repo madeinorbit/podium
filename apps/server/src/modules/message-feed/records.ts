@@ -39,9 +39,7 @@ export async function readMessageRecords(
     if (record !== null) records.push(record)
   }
   const others = [
-    ...new Set(
-      records.filter((record) => record.senderUserId !== userId).map((r) => r.sessionId),
-    ),
+    ...new Set(records.filter((record) => record.senderUserId !== userId).map((r) => r.sessionId)),
   ]
   const sessions = others.length === 0 ? new Map() : await deps.sessions.getSessions(others)
   return records.filter(

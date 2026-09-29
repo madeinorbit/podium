@@ -732,8 +732,12 @@ export class ConversationController {
     const reads: Promise<readonly MessageRecordWire[]>[] = []
     for (let at = 0; at < ids.length; at += CATCH_UP_BATCH) {
       const batch = ids.slice(at, at + CATCH_UP_BATCH)
-      // A read that throws before it starts failed like any other.
-      reads.push(Promise.resolve().then(() => lookup(batch)))
+      try {
+        reads.push(lookup(batch))
+      } catch (error) {
+        // A read that throws before it starts failed like any other.
+        reads.push(Promise.reject(error))
+      }
     }
     void Promise.all(reads)
       .then(

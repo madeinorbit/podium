@@ -81,11 +81,7 @@ async function harness(opts: { window?: number; live?: boolean } = {}) {
 }
 
 /** Store a message and confirm it. */
-async function confirm(
-  store: SessionStore,
-  id: string,
-  sessionId = S1,
-): Promise<void> {
+async function confirm(store: SessionStore, id: string, sessionId = S1): Promise<void> {
   await store.messages.addMessage(chat(id, { toId: sessionId }))
   await store.messages.markDelivered(id, sessionId, 't')
 }

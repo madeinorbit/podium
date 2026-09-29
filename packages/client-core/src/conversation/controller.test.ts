@@ -2,6 +2,7 @@ import { asSessionId, type MessageRecordWire, type SessionOffer, type Transcript
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxChatSend } from '../engine/chat-send'
 import { createConversationController } from './controller'
+import type { ConversationPendingTurn } from './projection'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -801,6 +802,22 @@ function link(initial = true) {
   }
 }
 
+/** A turn this view was handed from before it existed — a reload. */
+const seeded = (
+  deliveryId: string,
+  state: ConversationPendingTurn['state'],
+  over: Partial<ConversationPendingTurn> = {},
+): ConversationPendingTurn => ({
+  id: `o-${deliveryId}`,
+  deliveryId,
+  text: `the words of ${deliveryId}`,
+  wire: `the words of ${deliveryId}`,
+  at: 1,
+  state,
+  kind: 'message',
+  ...over,
+})
+
 const heldSend = (mutationId: string, state: OutboxChatSend['state']): OutboxChatSend =>
   ({
     mutationId,
@@ -870,17 +887,7 @@ describe('conversation controller catching up by id', () => {
       transcript: transcript().port,
       records: records().port,
       lookupRecords: lookup,
-      initialPending: [
-        {
-          id: 'outbox-0-msg_held',
-          deliveryId: 'msg_held',
-          text: 'written before the reload',
-          wire: 'written before the reload',
-          at: 1,
-          state: 'sending',
-          kind: 'message',
-        },
-      ],
+      initialPending: [seeded('msg_held', 'sending')],
       createDeliveryId: () => 'msg-new',
       deliver: () => new Promise(() => {}),
     })
@@ -922,17 +929,8 @@ describe('conversation controller catching up by id', () => {
       lookupRecords: lookup,
       connection: net.port,
       initialPending: [
-        { id: 'o-1', deliveryId: 'msg-trying', text: 't', wire: 't', at: 1, state: 'sending', kind: 'message' },
-        {
-          id: 'o-2',
-          deliveryId: 'msg-parked',
-          text: 'p',
-          wire: 'p',
-          at: 2,
-          state: 'failed',
-          kind: 'message',
-          error: "not sent — couldn't reach the server",
-        },
+        seeded('msg-trying', 'sending'),
+        seeded('msg-parked', 'failed', { at: 2, error: "not sent — couldn't reach the server" }),
       ],
       createDeliveryId: () => ids.shift() ?? 'msg-x',
       deliver: (turn) =>
@@ -945,8 +943,16 @@ describe('conversation controller catching up by id', () => {
     await vi.waitFor(() =>
       expect(controller.getSnapshot().bubbles).toMatchObject([
         { deliveryId: 'msg-trying', state: 'sending' },
-        { deliveryId: 'msg-parked', state: 'failed', error: "not sent — couldn't reach the server" },
-        { deliveryId: 'msg-gone', state: 'failed', error: 'not sent — the server has no record of it' },
+        {
+          deliveryId: 'msg-parked',
+          state: 'failed',
+          error: "not sent — couldn't reach the server",
+        },
+        {
+          deliveryId: 'msg-gone',
+          state: 'failed',
+          error: 'not sent — the server has no record of it',
+        },
       ]),
     )
     // "Not sent" with the way on: a retry of the same message.
@@ -964,9 +970,7 @@ describe('conversation controller catching up by id', () => {
       transcript: transcript().port,
       records: records().port,
       lookupRecords: lookup,
-      initialPending: [
-        { id: 'o-1', deliveryId: 'msg-1', text: 't', wire: 't', at: 1, state: 'sending', kind: 'message' },
-      ],
+      initialPending: [seeded('msg-1', 'sending')],
       createDeliveryId: () => 'msg-new',
       deliver: () => sent.promise,
     })
@@ -991,9 +995,7 @@ describe('conversation controller catching up by id', () => {
       transcript: transcript().port,
       records: records().port,
       lookupRecords: lookup,
-      initialPending: [
-        { id: 'o-1', deliveryId: 'msg-1', text: 't', wire: 't', at: 1, state: 'sent', kind: 'message' },
-      ],
+      initialPending: [seeded('msg-1', 'sent')],
       createDeliveryId: () => 'msg-new',
       deliver: vi.fn(),
     })
@@ -1015,16 +1017,7 @@ describe('conversation controller catching up by id', () => {
       lookupRecords: async () => [record('msg-1', { status: 'dispatched' })],
       discard,
       initialPending: [
-        {
-          id: 'o-1',
-          deliveryId: 'msg-1',
-          text: 't',
-          wire: 't',
-          at: 1,
-          state: 'failed',
-          kind: 'message',
-          error: "not sent — couldn't reach the server",
-        },
+        seeded('msg-1', 'failed', { error: "not sent — couldn't reach the server" }),
       ],
       createDeliveryId: () => 'msg-new',
       deliver: vi.fn(),
@@ -1048,9 +1041,7 @@ describe('conversation controller catching up by id', () => {
       records: records().port,
       lookupRecords: lookup,
       connection: net.port,
-      initialPending: [
-        { id: 'o-1', deliveryId: 'msg-1', text: 't', wire: 't', at: 1, state: 'sent', kind: 'message' },
-      ],
+      initialPending: [seeded('msg-1', 'sent')],
       createDeliveryId: () => 'msg-new',
       deliver: vi.fn(),
     })
@@ -1060,6 +1051,23 @@ describe('conversation controller catching up by id', () => {
     net.set(true)
     await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(2))
     await vi.waitFor(() => expect(controller.getSnapshot().bubbles).toEqual([]))
+    controller.dispose()
+  })
+
+  it('keeps going when the read cannot even start (a client without the procedure)', () => {
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      lookupRecords: () => {
+        throw new TypeError('messages.records is not a function')
+      },
+      initialPending: [seeded('msg-1', 'sent')],
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    expect(() => controller.start()).not.toThrow()
+    expect(states(controller)).toEqual(['msg-1:sent'])
     controller.dispose()
   })
 })
