@@ -67,7 +67,7 @@ import type {
 } from '../../capabilities.js'
 import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
-import type { ProcessEvent } from '../../errors.js'
+import { DeliveryUnprovenError, type ProcessEvent } from '../../errors.js'
 import {
   createRuntimeEventStream,
   type EventStreamStart,
@@ -95,7 +95,12 @@ import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
 import { opencodeServerCapabilities } from './capabilities.js'
-import { type OpencodeClient, type OpencodeClientConfig, createOpencodeClient } from './client.js'
+import {
+  type OpencodeClient,
+  type OpencodeClientConfig,
+  OpencodeHttpError,
+  createOpencodeClient,
+} from './client.js'
 import {
   answerAction,
   deltaItemIdForPart,
@@ -1722,7 +1727,21 @@ export function createOpencodeRuntime(
           admission = await deliver(session, input, ids, options.origin)
         } catch (err) {
           session.promptRecords.delete(record)
-          return refuse('not_running', String(err))
+          /**
+           * A REFUSAL ONLY WHEN OPENCODE RECORDED NOTHING (POD-4839; POD-4819
+           * §6.1 N2). Measured on 1.18.33, v1 and v2 (POD-4834 S10): a 400 (a
+           * body OpenCode cannot take) and a 404 (no such session) store
+           * nothing. Every other failure may follow a stored prompt — a v2 409
+           * means the id IS recorded, and a 500, a timeout or a dropped socket
+           * say nothing either way — so it is thrown as unproven.
+           */
+          if (err instanceof OpencodeHttpError && err.status === 400) {
+            return refuse('invalid_value', String(err))
+          }
+          if (err instanceof OpencodeHttpError && err.status === 404) {
+            return refuse('session_ended', String(err))
+          }
+          throw new DeliveryUnprovenError('opencode prompt', err)
         }
         const transcriptItem = settlePromptRecord(
           session,
