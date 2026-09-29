@@ -171,9 +171,6 @@ export interface EventMap {
   'oplog.appended': { changes: MetadataChange[] }
   /** The conversation index changed and was broadcast. */
   'conversations.changed': { conversations: ConversationSummaryWire[] }
-  /** Agent mail was sent to an issue (issue #103) — the sessions module resolves
-   *  live membership and coordinator from the canonical issue id. */
-  'issue.mailSent': { issueId: IssueId; seq: number }
   /** Durable refusal committed; sender notification is an asynchronous nudge. */
   /** The hub-reachability flag flipped (spec §2.3) — the conversation and issue
    *  mirrors rebroadcast their stale overlays on this. */

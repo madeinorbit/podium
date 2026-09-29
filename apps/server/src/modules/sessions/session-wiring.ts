@@ -42,7 +42,6 @@ import {
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
-import { type IssueMailNudgeEvent, nudgeIssueMail } from './issue-mail-nudge'
 import { SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
@@ -1218,23 +1217,4 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // (rule 57). Arming is best-effort; each loop re-reads the switch itself.
     void bag.autoContinue.onSettingsChanged(nowEnabled, ids)
   })
-  // Agent mail send-time nudge (issue #103): resolve membership and the
-  // coordinator from the canonical issue id at delivery time. The nudge carries
-  // no body; prime/inbox remain the durable pull path when nobody is live.
-  //
-  // ONE ARM, THE DURABLE ONE (POD-2043's collapse, done by POD-4661). The nudge
-  // used to pick `now` for an idle-looking agent and the durable queue for a
-  // busy one — a server guess at the agent's phase. It always rides the durable
-  // queue now: that survives a daemon restart, and the daemon's delivery queue
-  // decides when it lands.
-  bag.bus.on('issue.mailSent', (event: IssueMailNudgeEvent) =>
-    nudgeIssueMail(
-      {
-        issueMeta: async (issueId) => (await bag.deps.issueAccess.getMeta(issueId)) ?? undefined,
-        sessionsForIssue: (worktreePath, issueId) => bag.view.listForIssue(worktreePath, issueId),
-        receiptSend: (via, input) => bag.receiptSender.send(via, input),
-      },
-      event,
-    ),
-  )
 }

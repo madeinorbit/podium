@@ -100,8 +100,9 @@ export interface IssueCommandDeps {
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
    *  relay-allowlisted `repos.inferFromPath` without touching the router. */
   inferRepoFromPath(path: string): string | undefined | Promise<string | undefined>
-  /** Unified messaging send path (#237) [spec:SP-34d7] — optional so bare test
-   *  dispatchers keep working; when absent mailSend falls back to legacy sendMail. */
+  /** Unified messaging send path (#237) [spec:SP-34d7] — the only way mail is
+   *  sent. Optional so bare test dispatchers that never send keep working;
+   *  mailSend refuses when it is absent. */
   sendMessage?(
     from: MessageSender,
     input: MessageSendInput,

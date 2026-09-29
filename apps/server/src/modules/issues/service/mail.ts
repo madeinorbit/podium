@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto'
 import type { IssueWire, IssueId, SessionId } from '@podium/model'
 import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
-import { afterCommit } from '../../../store/executor/executor'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import type { IssueReportsModule } from './reads'
 
 /**
- * Comments and tracker-mail capability: durable messages
- * addressed to an ISSUE, with send-time nudge delivery via deps.onMailSent.
+ * Comments and tracker-mail capability: an issue's comments, and the read side
+ * of its mailbox (the messages addressed to the issue, mirrored in by the
+ * message delivery service).
  */
 export class IssueCommentsMailModule {
   constructor(
@@ -83,42 +83,11 @@ export class IssueCommentsMailModule {
   }
 
   // ---- agent mail (issue #103): messages addressed to an ISSUE ----
-
-  /** Create a mail message on the target issue, then fire the delivery hook
-   *  (send-time nudge). Delivery failures never fail the send — the message is
-   *  durable and will surface via prime / inbox regardless. */
-  async sendMail(targetIssueId: IssueId, fromAuthor: string, body: string): Promise<IssueMessageRow> {
-    const id = await this.store.resolveRef(targetIssueId)
-    const row = await this.store.rowOrThrow(id)
-    const message: IssueMessageRow = {
-      id: `msg_${randomUUID()}`,
-      issueId: id,
-      fromAuthor,
-      body,
-      createdAt: this.store.now(),
-      status: 'unread',
-      claimedBy: null,
-      claimedAt: null,
-    }
-    await this.store.deps.funnel.run({
-      write: async () => await this.store.deps.store.issues.addIssueMessage(message),
-    })
-    // THE ROW IS DURABLE, THE NUDGE IS AN EXTERNAL EFFECT [POD-3260, spec §3.3].
-    // The two halves of a send have different contracts and always did; what was
-    // missing is that the nudge ran inside whatever span the CALLER had open.
-    // `LockService` sends grant and steal mail from inside its lock transaction
-    // (`grantTo`, `steal`), so the delivery hook fired — waking an agent, writing
-    // a nudge — for a message a rollback could still take away. The durable write
-    // above is unchanged and stays nested: it is atomic with the grant that
-    // caused it, and spec §3.3 says durable mail is never reclassified as
-    // best-effort. With no span open this runs exactly where it does today.
-    afterCommit(() => {
-      try {
-        this.store.deps.onMailSent?.(row, message)
-      } catch {}
-    }, 'issue-mail-nudge')
-    return message
-  }
+  //
+  // Sending is the message delivery service's (`messages.send` to the issue),
+  // which mirrors each issue message into this mailbox under its id (POD-4846
+  // deleted the direct write and its pointer nudge). What stays here is the
+  // mailbox's read side: inbox, claim, pending.
 
   /** List an issue's mailbox, marking the returned messages read FOR THE READING
    *  SESSION (read-on-list; content is never destroyed). `wasUnread` carries the
