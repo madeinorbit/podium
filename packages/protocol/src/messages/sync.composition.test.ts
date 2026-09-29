@@ -62,15 +62,16 @@ describe('the wire change row composes the model vocabulary', () => {
     // for on a timer, TWELVE with 'shipOrder', the replicated shipping row that
     // arrived with the durable shipping model (7fb15bc57) — which added the arm
     // and left this count at eleven, so the suite went red on exactly the fact
-    // it exists to notice — and THIRTEEN NOW with 'pendingInteraction' (POD-2020),
-    // the blocking asks a session is stopped on. They are COUNTED here rather than
+    // it exists to notice — THIRTEEN with 'pendingInteraction' (POD-2020),
+    // the blocking asks a session is stopped on, and FOURTEEN NOW with 'message'
+    // (POD-4764), a chat message's record and delivery status. They are COUNTED here rather than
     // exempted because the loops below are what proves the new arms compose the
     // shared vocabulary too — main declared the earlier three as hand-written
     // `z.object`s restating `seq`/`id`/`op`, which is exactly the fork this file
     // exists to see. They are composed through `metadataChangeArm` instead, and
     // these assertions are the evidence that the port did not reintroduce the
     // five restatements POD-305 deleted.
-    expect(strictArms).toHaveLength(13)
+    expect(strictArms).toHaveLength(14)
   })
 
   it('takes `seq` from the shared field schema INSTANCE in every arm', () => {

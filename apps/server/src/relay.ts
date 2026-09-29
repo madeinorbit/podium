@@ -97,6 +97,8 @@ import { QuotaSampler } from './modules/quota-history/service'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
+import { MessageFeedPublisher } from './modules/message-feed/feed'
+import type { MessageRow } from './store/types'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
@@ -463,6 +465,8 @@ export class SessionRegistry {
   private readonly issueEventFeed: IssueEventFeedPublisher
   /** Open interaction set, resolved during async registry hydration. */
   private readonly interactionFeed: InteractionFeedPublisher
+  /** People's chat messages on the feed, resolved during async registry hydration. */
+  private readonly messageFeed: MessageFeedPublisher
   /** Boot and inventory-triggered personal backend seeding. */
   private readonly superagentDefaults: SuperagentDefaultSeeder
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
@@ -511,6 +515,7 @@ export class SessionRegistry {
     stageStarted = performance.now()
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
+    await this.messageFeed.resolve()
     await this.superagentDefaults.seed()
     // Full boot truth for the order plane, closing changes made while the server
     // was down.
@@ -999,6 +1004,26 @@ export class SessionRegistry {
       seed: async () => await ledger.authority.snapshot('issueEvent') as IssueEventWire[],
     })
     this.store.events.onAppend(async (id, event) => await issueEventFeed?.publish(id, event))
+    // ONE HOOK ON THE ONE WRITE FUNNEL (POD-4764): every write to the messages
+    // table hands its rows to the chat message feed inside its own
+    // transaction, so a person's messages and their delivery status reach every
+    // device from the write path, whichever module moved them.
+    const messageFeed = new MessageFeedPublisher({
+      ledger,
+      snapshot: async () => await ledger.authority.snapshot('message'),
+      listOpen: async () => await this.store.messages.listOpenChat(),
+      getMessages: async (ids) => {
+        const rows: MessageRow[] = []
+        for (const id of ids) {
+          const row = await this.store.messages.getMessage(id)
+          if (row) rows.push(row)
+        }
+        return rows
+      },
+      transact: async (fn) => await this.store.transact(fn),
+    })
+    this.messageFeed = messageFeed
+    this.store.messages.setFeedCapture(messageFeed.capture)
     const issueArbitration = new IssueAuthorityArbitration(ledger)
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered

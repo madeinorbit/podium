@@ -144,6 +144,9 @@ export interface PendingMessageSummary {
   senders: PendingMessageSender[]
 }
 
+/** Receives every message row a write touched, inside that write's transaction. */
+export type MessageFeedCapture = (rows: readonly MessageRow[]) => Promise<void>
+
 /** One `messages` row as the schema types it, before mapping. */
 type MessageSelect = typeof messagesTable.$inferSelect
 
@@ -221,6 +224,7 @@ function mapMessage(r: MessageSelect): MessageRow {
           },
         }
       : {}),
+    noticeDismissedAt: r.noticeDismissedAt ?? null,
   }
 }
 
@@ -245,12 +249,6 @@ const boundedLimit = (limit: number | undefined, fallback: number, ceiling: numb
   Math.min(ceiling, Math.max(1, limit ?? fallback))
 
 export type MessageQueueFact = Pick<typeof messagesTable.$inferSelect, 'id' | 'toKind' | 'toId' | 'deliveryStatus'>
-const MESSAGE_QUEUE_COLUMNS = {
-  id: messagesTable.id,
-  toKind: messagesTable.toKind,
-  toId: messagesTable.toId,
-  deliveryStatus: messagesTable.deliveryStatus,
-}
 
 export class MessagesRepository {
   readonly committed: CommittedRows<MessageQueueFact>
@@ -263,10 +261,41 @@ export class MessagesRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
+  /** The chat feed's capture, run inside every write's transaction [POD-4764]. */
+  private feedCapture: MessageFeedCapture | undefined
+
   constructor(queries: StoreQueries) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'messages')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
+
+  /**
+   * INSTALL THE FEED CAPTURE [POD-4764]. Every write below returns the rows it
+   * touched, whole, and hands them to `capture` INSIDE the same transaction,
+   * so "the row changed" and "the feed says so" commit or roll back together:
+   * no status move can reach the table without reaching every device, and no
+   * device can see a status the table never held. Composition installs it once;
+   * the answer uninstalls it.
+   */
+  setFeedCapture(capture: MessageFeedCapture): () => void {
+    this.feedCapture = capture
+    return () => {
+      if (this.feedCapture === capture) this.feedCapture = undefined
+    }
+  }
+
+  /** The one write funnel: the committed-rows publication plus the feed capture. */
+  private async write(
+    query: () => Promise<MessageSelect[]>,
+    operation: 'upsert' | 'delete',
+  ): Promise<{ changes: number }> {
+    return await this.committed.write(async () => {
+      const rows = await query()
+      const capture = this.feedCapture
+      if (capture !== undefined && rows.length > 0) await capture(rows.map(mapMessage))
+      return rows
+    }, operation)
   }
 
   /**
@@ -292,7 +321,7 @@ export class MessagesRepository {
     if (m.deliveryStatus !== 'stored') {
       throw new Error(`message ${m.id} must be stored before it moves (got ${m.deliveryStatus})`)
     }
-    const { changes } = await this.committed.write(async () => (this.db
+    const { changes } = await this.write(async () => (this.db
       .insert(messagesTable)
       .values({
         id: m.id,
@@ -332,7 +361,7 @@ export class MessagesRepository {
         expectsResponse: m.expectsResponse,
         factKey: m.factKey ?? null,
         factTarget: m.factTarget ?? null,
-      })).onConflictDoNothing({ target: messagesTable.id }).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+      })).onConflictDoNothing({ target: messagesTable.id }).returning().all(), 'upsert')
     return changes > 0
   }
 
@@ -760,7 +789,7 @@ export class MessagesRepository {
       to,
       write: async (guard) =>
         (
-          await this.committed.write(async () => this.db
+          await this.write(async () => this.db
             .update(messagesTable)
             .set({
               ...opts.set,
@@ -771,7 +800,7 @@ export class MessagesRepository {
                   : legacyMessageStatus(to, readNow),
             })
             .where(and(eq(messagesTable.id, id), guard, ...(opts.where ?? [])))
-            .returning(MESSAGE_QUEUE_COLUMNS)
+            .returning()
             .all(), 'upsert')
         ).changes,
       read: async () =>
@@ -923,7 +952,7 @@ export class MessagesRepository {
     deliveredTo: SessionId,
     item: TranscriptItemRef,
   ): Promise<boolean> {
-    const written = await this.committed.write(
+    const written = await this.write(
       async () =>
         this.db
           .update(messagesTable)
@@ -935,7 +964,7 @@ export class MessagesRepository {
               or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)),
             ),
           )
-          .returning(MESSAGE_QUEUE_COLUMNS)
+          .returning()
           .all(),
       'upsert',
     )
@@ -1001,11 +1030,11 @@ export class MessagesRepository {
     let firstRead = outcome.kind === 'applied'
     if (outcome.kind === 'already-there') {
       // A stamp, not a move: `delivery_status` is untouched. First read wins.
-      const stamped = await this.committed.write(async () => this.db
+      const stamped = await this.write(async () => this.db
         .update(messagesTable)
         .set({ readAt, legacyStatus: legacyMessageStatus('confirmed', true) })
         .where(and(eq(messagesTable.id, id), isNull(messagesTable.readAt)))
-        .returning(MESSAGE_QUEUE_COLUMNS)
+        .returning()
         .all(), 'upsert')
       firstRead = stamped.changes === 1
     }
@@ -1036,6 +1065,54 @@ export class MessagesRepository {
         ? { deadLetteredAt: at, deliveryDeferredAt: at, deliveryDeferredReason: cause }
         : { deadLetteredAt: at },
     })
+  }
+
+  /**
+   * THE SENDER DISMISSED THE NOTICE of a chat message that will not arrive or
+   * that nobody can vouch for [POD-4764]. A stamp, not a move: the delivery
+   * status stays what happened; only the feed lets the message go. Only a
+   * failed, expired or unknown row has a notice, and the first dismissal wins —
+   * a repeat changes nothing. Who may dismiss is the caller's question (the
+   * sender only). Answers whether THIS call wrote it.
+   */
+  async dismissNotice(id: string, at: string): Promise<boolean> {
+    const r = await this.write(async () => this.db
+      .update(messagesTable)
+      .set({ noticeDismissedAt: at })
+      .where(
+        and(
+          eq(messagesTable.id, id),
+          isNull(messagesTable.noticeDismissedAt),
+          inArray(messagesTable.deliveryStatus, ['failed', 'expired', 'unknown']),
+        ),
+      )
+      .returning()
+      .all(), 'upsert')
+    return r.changes === 1
+  }
+
+  /**
+   * The people's chat messages the feed carries as OPEN [POD-4764]: sent into a
+   * session, not confirmed or cancelled, and not dismissed. Oldest first, and
+   * read through `idx_messages_open_chat` so the confirmed history is never
+   * touched. The feed's boot read.
+   */
+  async listOpenChat(limit = 2000): Promise<MessageRow[]> {
+    return (await this.db
+      .select()
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.fromKind, 'operator'),
+          eq(messagesTable.toKind, 'session'),
+          isNull(messagesTable.noticeDismissedAt),
+          notInArray(messagesTable.deliveryStatus, ['confirmed', 'cancelled']),
+        ),
+      )
+      .orderBy(...DELIVERY_ORDER)
+      .limit(boundedLimit(limit, 2000, 10_000))
+      .all())
+      .map(mapMessage)
   }
 
   /** Every pending row, oldest first — the slow sweep's retry set. */
@@ -1102,10 +1179,10 @@ export class MessagesRepository {
 
   /** Stamp the ack message id onto the original (first ack wins). */
   async markAcked(id: string, ackedBy: string): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
+    const r = await this.write(async () => this.db
       .update(messagesTable)
       .set({ ackedBy })
-      .where(and(eq(messagesTable.id, id), isNull(messagesTable.ackedBy))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+      .where(and(eq(messagesTable.id, id), isNull(messagesTable.ackedBy))).returning().all(), 'upsert')
     return r.changes === 1
   }
 
@@ -1173,10 +1250,10 @@ export class MessagesRepository {
 
   /** Stamp the ONE stop-hook reminder (never repeats: guarded on NULL). */
   async markReminded(id: string, at: string): Promise<boolean> {
-    const r = await this.committed.write(async () => this.db
+    const r = await this.write(async () => this.db
       .update(messagesTable)
       .set({ remindedAt: at })
-      .where(and(eq(messagesTable.id, id), isNull(messagesTable.remindedAt))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+      .where(and(eq(messagesTable.id, id), isNull(messagesTable.remindedAt))).returning().all(), 'upsert')
     return r.changes === 1
   }
 }

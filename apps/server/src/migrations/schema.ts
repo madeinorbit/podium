@@ -2162,9 +2162,23 @@ export const messages = sqliteTable(
     // gave no way to identify the item. Written once; the first naming wins.
     transcriptItemId: text('transcript_item_id'),
     transcriptItemCursor: text('transcript_item_cursor'),
+    // THE SENDER DISMISSED THE NOTICE [POD-4764]: a chat message that failed,
+    // expired or was lost track of stays on every device's feed as something to
+    // look at until its sender dismisses it (or sends it again, which dismisses
+    // the old one). A stamp, not a status: the delivery ledger still says what
+    // happened to the message.
+    noticeDismissedAt: text('notice_dismissed_at'),
   },
   (table) => [
     index('idx_messages_delivered_to').on(table.deliveredTo),
+    // THE CHAT FEED'S BOOT READ [POD-4764]: a person's messages into sessions
+    // that are not settled yet or still await their sender's attention. Partial,
+    // so the read touches only that handful and never the confirmed history.
+    index('idx_messages_open_chat')
+      .on(table.createdAt)
+      .where(
+        sql`${table.fromKind} = 'operator' AND ${table.toKind} = 'session' AND ${table.noticeDismissedAt} IS NULL AND ${table.deliveryStatus} NOT IN ('confirmed', 'cancelled')`,
+      ),
     // The THIRD arm of the ledger's OR [POD-1931]. `messages.ledger` asks
     // `from_session = ? OR (to_kind='session' AND to_id = ?) OR delivered_to = ?`;
     // the other two arms were indexed and this one was not, so SQLite could not

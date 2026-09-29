@@ -513,6 +513,8 @@ export const appRouter = t.router({
     inbox: mailMutation('inbox'),
     dismiss: mailMutation('dismiss'),
     cancel: mailMutation('cancel'),
+    // The sender dismisses a failed chat message's notice (POD-4764).
+    dismissNotice: mailMutation('dismissNotice'),
     show: mailQuery('show'),
     // Sender-queryable message lifecycle (#834) [POD-834 §04d]: "what happened to
     // msg X" — mayView-gated in the gate (sender/recipient/admin), a pure read.

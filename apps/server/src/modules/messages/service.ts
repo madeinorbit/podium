@@ -1693,6 +1693,12 @@ export class MessageDeliveryService {
     return await this.mailbox.cancel(messageId)
   }
 
+  /** The sender dismissed the notice of a message that did not arrive
+   *  (POD-4764): a stamp that takes it off the chat feed. */
+  async dismissNotice(messageId: string): Promise<boolean> {
+    return await this.deps.messages.dismissNotice(messageId, this.deps.now())
+  }
+
   /** Retract the named chat send, or the newest held send for a native terminal
    * interrupt that cannot carry the chat mutation id. */
   async cancelPendingOperatorMessage(sessionId: SessionId, messageId?: string): Promise<MessageRow | null> {

@@ -12,6 +12,7 @@ import {
   IssueProjection,
   IssueWire,
   LayoutWire,
+  MessageRecordWire,
   RepoProjection,
   SessionMeta,
   type SessionId,
@@ -227,6 +228,22 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
    *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('pendingInteraction'), PendingInteractionWire),
+  /** A chat message a person sent into a session (POD-4764) — its record and
+   *  delivery status, so every device shows the same status by id and the chat
+   *  matches it to the agent's history by the entry id the machine named,
+   *  never by text.
+   *
+   *  Keyed by `messageRecordRowId(sessionId, senderUserId, id)`: both people who
+   *  may read it ride the change id, the same device `pendingInteraction` uses,
+   *  so `mayRead` answers from the id alone and a bootstrap prefetches every
+   *  subject session in one batched read.
+   *
+   *  The feed carries messages on their way, failed or lost-track ones until the
+   *  sender dismisses them, and a bounded window of recently confirmed ones;
+   *  the transcript is the history. Same additive contract as the kinds above:
+   *  an older build parses these rows as {@link UnknownMetadataChange}, ignores
+   *  them and advances its cursor. `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
+  metadataChangeArm(z.literal('message'), MessageRecordWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -243,6 +260,7 @@ export const MetadataEntityKind = z.enum([
   'userReadPosition',
   'issueEvent',
   'pendingInteraction',
+  'message',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

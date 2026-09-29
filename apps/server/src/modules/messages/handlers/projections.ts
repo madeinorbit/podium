@@ -17,6 +17,7 @@
 import type {
   ContractInput,
   mailCancelContract,
+  mailDismissNoticeContract,
   mailDismissContract,
   mailShowContract,
   mailStatusContract,
@@ -79,4 +80,18 @@ export async function cancelHandler(
     throw new Error('only the sender of a message may cancel it')
   }
   return await access.wire(await deps.messages.cancel(message.id))
+}
+
+/** The sender dismisses the notice of a message that did not arrive (POD-4764). */
+export async function dismissNoticeHandler(
+  ctx: MailHandlerContext,
+  input: ContractInput<typeof mailDismissNoticeContract>,
+): Promise<{ ok: true; dismissed: boolean }> {
+  const { caller, deps, access } = ctx
+  const message = await deps.messages.message(input.id)
+  if (!message) throw new Error(`unknown message ${input.id}`)
+  if (!access.isSender(caller, message)) {
+    throw new Error('only the sender of a message may dismiss its notice')
+  }
+  return { ok: true, dismissed: await deps.messages.dismissNotice(message.id) }
 }

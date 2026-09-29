@@ -664,6 +664,42 @@ export const mailCancelContract: CommandContract<typeof mailCancelInput> = {
     'Sender-only queued-to-cancelled transition; delivery wins if the row has already left queued.',
 }
 
+export const mailDismissNoticeInput = z.object({ id: z.string() })
+
+/**
+ * THE SENDER LETS GO OF A FAILED MESSAGE'S NOTICE (POD-4764). A chat message
+ * that failed, expired or was lost track of stays on every device's feed as
+ * something to look at until the person who sent it dismisses it — or sends
+ * the text again, which is a NEW message and dismisses the old notice. The
+ * delivery status is untouched: this is a stamp that the sender has seen it.
+ */
+export const mailDismissNoticeContract: CommandContract<typeof mailDismissNoticeInput> = {
+  name: 'mail.dismissNotice',
+  version: 1,
+  visibility: 'personal',
+  input: mailDismissNoticeInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'SENDER-SHIP IS THE AUTHORIZATION, as for `cancel`. The notice is the sender’s: it tells them ' +
+      'their message did not arrive (or may not have). The recipient never sees it and may not ' +
+      'clear it, and seeing the row is not enough.',
+  },
+  exposure: ['trpc'],
+  delivery: DURABLE_QUEUED_ONLINE,
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'Stamps an existing row; creates nothing.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: MESSAGE_ID_ORACLE_RULE,
+  cli: { positional: ['id'], summary: 'Dismiss the notice of a message that did not arrive' },
+  conflict: 'cmd',
+  conflictRule:
+    'Sender-only stamp on a failed, expired or unknown row; idempotent — a second dismissal, or one on a row that has no notice, changes nothing.',
+}
+
 export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
   name: 'mail.status',
   version: 1,
@@ -816,6 +852,7 @@ export const MAIL_CONTRACTS = [
   mailShowContract,
   mailDismissContract,
   mailCancelContract,
+  mailDismissNoticeContract,
   mailStatusContract,
   mailPendingRemindersContract,
   mailAskContract,

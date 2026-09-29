@@ -648,6 +648,10 @@ export interface MessageRow {
    *  message to its transcript item by — never the text. Absent until named;
    *  stays absent when the harness gave no way to identify the item. */
   transcriptItem?: TranscriptItemRef
+  /** When the sender dismissed the notice of a chat message that failed,
+   *  expired or was lost track of [POD-4764]. A stamp beside the status, never a
+   *  status: it only takes the message off every device's feed. */
+  noticeDismissedAt?: string | null
 }
 
 /** A durable event subscription (event-subscriptions design, Phase B). The steward

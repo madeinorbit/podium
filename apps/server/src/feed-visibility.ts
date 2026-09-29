@@ -32,6 +32,7 @@ import {
   parseIssueDepId,
   parseIssueEventRowId,
   parseInteractionRowId,
+  parseMessageRecordRowId,
   parseLayoutRowId,
   parseReadPositionRowId,
   type IssueId,
@@ -282,6 +283,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // exactly the audience of the SESSION it blocks, which is what
           // `personal` + `mayRead` already spells.
           entity === 'pendingInteraction' ||
+          // A person's chat message (POD-4764). `personal`: readable by the
+          // person who sent it and the owner of the session it went to, both
+          // named in its row id — see the `message` arm of `mayRead`.
+          entity === 'message' ||
           entity === 'shipOrder' ||
           entity === 'conversation' ||
           entity === 'automation' ||
@@ -321,6 +326,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (ref.entity === 'pendingInteraction') {
           try {
             return maySeeSession(userId, parseInteractionRowId(ref.entityId).sessionId)
+          } catch {
+            return false
+          }
+        }
+        if (ref.entity === 'message') {
+          // Its sender, and the owner of the session it was sent to — not every
+          // reader of that session: a message on its way is the sender's and the
+          // owner's business until it lands in the transcript.
+          try {
+            const { sessionId, senderUserId } = parseMessageRecordRowId(ref.entityId)
+            if (senderUserId === userId) return true
+            return (
+              prefetch.sessionIds.has(sessionId) &&
+              prefetch.sessions.get(sessionId)?.ownerUserId === userId
+            )
           } catch {
             return false
           }
@@ -414,6 +434,20 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // applied before the kind can repeat it).
         try {
           issueIds.add(parseIssueEventRowId(ref.entityId).subject)
+        } catch {
+          // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+        }
+      } else if (ref.entity === 'pendingInteraction') {
+        // The subject session is in the id; `mayRead` asks the `session` arm's
+        // question about it, which reads only what this pass prefetched.
+        try {
+          sessionIds.add(parseInteractionRowId(ref.entityId).sessionId)
+        } catch {
+          // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+        }
+      } else if (ref.entity === 'message') {
+        try {
+          sessionIds.add(parseMessageRecordRowId(ref.entityId).sessionId)
         } catch {
           // Unparseable ids are refused by `mayRead`; nothing to prefetch.
         }

@@ -324,6 +324,8 @@ export {
   mailCancelInput,
   mailDismissContract,
   mailDismissInput,
+  mailDismissNoticeContract,
+  mailDismissNoticeInput,
   mailInboxConsumeContract,
   mailInboxInput,
   mailLedgerContract,

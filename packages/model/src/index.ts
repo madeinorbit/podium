@@ -52,6 +52,8 @@ export * from './entities/issue-event'
 // the schemas are here rather than in @podium/protocol.
 export * from './entities/loop'
 export * from './entities/pending-interaction-row'
+export * from './entities/message-record-row'
+export * from './entities/message-record'
 export * from './entities/repo'
 // The per-machine fact group: MachineWire, inventory, host metrics + memory,
 // usage + quota, and the repo/worktree/directory wires. One named group because
