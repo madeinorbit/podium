@@ -119,6 +119,8 @@ export interface SessionFixture {
   machineId?: MachineId
   busy?: boolean
   title?: string
+  /** A parked session with a resume reference (POD-4846's automation resume). */
+  resumable?: boolean
 }
 
 /** A minimal, well-typed agentState for a phase — used when a test moves a live
@@ -147,6 +149,7 @@ export function session(f: SessionFixture): SessionMeta {
     unread: false,
     ...(f.phase ? { agentState: { phase: f.phase } } : {}),
     ...(f.busy !== undefined ? { busy: f.busy } : {}),
+    ...(f.resumable !== undefined ? { resumable: f.resumable } : {}),
     ...(f.issueId ? { issueId: f.issueId } : {}),
     ...(f.spawnedBy ? { spawnedBy: f.spawnedBy } : {}),
     ...(f.draftUpdatedAt ? { draftUpdatedAt: f.draftUpdatedAt } : {}),
