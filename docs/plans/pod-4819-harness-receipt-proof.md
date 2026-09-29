@@ -274,34 +274,34 @@ repeat (§7), recovery is a resend under the same id.
 
 ## 10. Work
 
-| Issue | What | State |
-|---|---|---|
-| POD-4834 | The measurement grid; lanes POD-4862 Claude, POD-4863 Codex, POD-4864 OpenCode, POD-4865 Grok terminal and Cursor | done |
-| POD-4835 | Codex carries our id | done |
-| POD-4836 | Claude SDK carries our id; accept on the lifecycle ack | done |
-| POD-4837 | Grok ACP carries our id | done |
-| POD-4838 | Only history after the send (§5.2) | backlog |
-| POD-4839 | A final refusal ends as not delivered (N1) | backlog |
-| POD-4840 | Late proof (§5.4) | backlog |
-| POD-4841 | The program's ids stored with the message | backlog |
-| POD-4844 | Bug: a failed system send lands in the person's input box | backlog |
-| POD-4845 | Bug: low-priority mail stays `typed` | backlog |
-| POD-4846 | Every sender travels as a message | done |
-| POD-4849 | Bug: an interrupted Codex steer is reported delivered | backlog |
-| POD-4860 | Bug: a quoted id confirms another message (§5.1) | backlog |
-| POD-4868 | Automations and auto-continue wrapped (supersedes POD-4853) | review |
+Done: POD-4834 (measurement grid, lanes POD-4862–4865), POD-4835, POD-4836, POD-4837, POD-4838,
+POD-4839, POD-4840, POD-4844, POD-4845, POD-4846, POD-4849 (held receipts), POD-4853, POD-4860,
+POD-4868, POD-4877. Running: POD-4841 (program ids on the message), POD-4875 (Grok history from
+`updates.jsonl`).
 
-Filed from the measurements: POD-4875 (Grok terminal history read from `updates.jsonl`, not the
-rewritten `chat_history.jsonl`); POD-4876 (the `opencode2` request body, refused by OpenCode
-1.18.33); POD-4877 (Claude compaction summaries read as a person's entry); POD-4849 gained the busy
-`turn/start` that silently steers. For the agent-state work, under POD-4720: POD-4878 (Claude's
-`UserPromptSubmit` timing for queued prompts versus our turn tracking) and POD-4879 (Grok's missing
-`StopCancelled` hook).
+To do (filed 2026-09-29; hard on Claude Code Opus 5.5 high, easy on Codex gpt-6-sol max):
 
-To file once this spec is approved: the status list with `accepted` (both kinds) and
-`failed → confirmed` on an exact id (§4); the foreign-write counter, the prompt-entry readers and the
-order rule (§5.3); N2, N2b, N3, N4 as mechanisms (§6.1); the self-check alarm (§6.3); and one issue
-per program applying its §7 row where it changes today's behaviour.
+| Issue | What | Size | Waits on |
+|---|---|---|---|
+| POD-4885 | The `accepted` status (model, storage, wire to clients, chat and CLI) | hard | — |
+| POD-4886 | The daemon reports `accepted` to the server; `held: durable` | hard | POD-4885 |
+| POD-4887 | Definite "not delivered" causes: N2b, N3, N4 | hard | — |
+| POD-4888 | Foreign-write counter (§5.3) | hard | — |
+| POD-4878 | Claude turn tracking for queued prompts | hard | — |
+| POD-4889 | Claude SDK: confirmed on the transcript record | easy | — |
+| POD-4890 | Grok ACP: confirmed on `updates.jsonl` | easy | — |
+| POD-4891 | OpenCode v1: confirmed on the text part | easy | — |
+| POD-4892 | OpenCode v2: durable `accepted`, confirmed on promotion, 409 | easy | POD-4876, POD-4886 |
+| POD-4893 | Prompt entries in the Codex and OpenCode readers | easy | — |
+| POD-4894 | Self-check alarm (first case) | easy | — |
+| POD-4876 | Bug: the `opencode2` request body refused by 1.18.33 | easy | — |
+| POD-4884 | Bug: a direct send's throw read as refused | easy | — |
+| POD-4879 | Grok's missing `StopCancelled` hook | easy | — |
+
+Held until the operator decides the proposed simplifications: the order-plus-text matching rule
+(its anchor), and the terminal receipts per program (Claude, Codex, Grok, OpenCode terminals —
+whether hooks stay in receipt proof). Dropped from the design: `failed → confirmed`. Moved to
+Phase C: Codex `thread/queue` handling.
 
 Upstream: Claude's queued-prompt `prompt_id` behaviour may be worth reporting to Claude Code.
 
