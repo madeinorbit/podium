@@ -38,7 +38,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { HeadlessTurnEvent } from '@podium/protocol'
-import { RequestNotSentError } from '../../errors.js'
+import { markNeverSent } from '../../errors.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from './classify.js'
 
@@ -957,11 +957,7 @@ export function createClaudeStreamClient(
           turn.acceptance = { uuid: turn.uuid, duplicate: false }
           // A line never written is a proven "no"; one written may be in the
           // transcript whatever ended the turn, and stays unproven (POD-4839).
-          refuse(
-            turn.lineWritten
-              ? error
-              : Object.assign(new RequestNotSentError(error.message), { cause: error }),
-          )
+          refuse(turn.lineWritten ? error : markNeverSent(error))
         },
         lineWritten: false,
         output: '',

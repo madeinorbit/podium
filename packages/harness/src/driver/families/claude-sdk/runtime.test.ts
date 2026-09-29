@@ -302,7 +302,9 @@ describe('the history entry a delivered send became (POD-4774, POD-4836)', () =>
     turns[0]!.refuse(
       new Error('the Claude model host process exited with code 1 before the turn finished'),
     )
-    await expect(first).resolves.toMatchObject({ outcome: 'refused' })
+    // Unproven (POD-4839); a resend under the same uuid is what Claude skips
+    // when it already holds the line.
+    await expect(first).rejects.toThrow(/exited with code 1/)
     const again = handle.send(
       { id: 'notice:4720:7', text: 'ping' },
       { origin: 'human', delivery: 'when-ready' },

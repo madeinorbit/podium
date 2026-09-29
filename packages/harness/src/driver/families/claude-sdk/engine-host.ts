@@ -28,7 +28,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { RequestNotSentError } from '../../errors.js'
+import { markNeverSent } from '../../errors.js'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import type { ScopeResources } from '../../capabilities.js'
 import type { ProcessIdentity } from '../../binding.js'
@@ -652,7 +652,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     accepted.catch(() => {})
     const failBeforeLine = (error: Error): void => {
       // Never written, so a proven "no" (POD-4839).
-      rejectAccepted(Object.assign(new RequestNotSentError(error.message), { cause: error }))
+      rejectAccepted(markNeverSent(error))
       rejectDone(error)
     }
 

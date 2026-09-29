@@ -176,6 +176,12 @@ export class RequestNotSentError extends Error {
   }
 }
 
+/** Mark a failure of its own type as one that struck before a byte was
+ *  written, keeping the class callers branch on. */
+export function markNeverSent<E extends Error>(error: E): E & { requestNotSent: true } {
+  return Object.assign(error, { requestNotSent: true as const })
+}
+
 /** Did this request fail before a byte of it was written? */
 export function wasNeverSent(error: unknown): boolean {
   return (
