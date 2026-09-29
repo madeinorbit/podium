@@ -50,7 +50,9 @@ const durableSends = (daemon: ControlMessage[], sessionId: SessionId): DurableSe
       message.type === 'runtimeDurableSendRequest' && message.sessionId === sessionId,
   )
 const directSends = (daemon: ControlMessage[], sessionId: SessionId) =>
-  daemon.filter((message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId)
+  daemon.filter(
+    (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+  )
 
 /** A staged ref, shaped the way the daemon's staging directory mints one. */
 const staged = (sessionId: SessionId) => ({
@@ -62,9 +64,13 @@ const staged = (sessionId: SessionId) => ({
 })
 
 async function boot(file: string, daemon: ControlMessage[]) {
-  const registry = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
-    instanceId: 'default',
-  })
+  const registry = await SessionRegistry.create(
+    await openTestStore(file, TEST_MACHINE),
+    undefined,
+    {
+      instanceId: 'default',
+    },
+  )
   await attachHostDaemon(registry, (message) => daemon.push(message))
   return registry
 }
