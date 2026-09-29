@@ -978,7 +978,9 @@ static void cleanup_and_exit(int code) {
 }
 
 static void event_loop(void) {
-  struct pollfd pfds[MAX_CLIENTS + 3];
+  /* listener, signal pipe, child output, a separate child stdin (--no-pty with
+   * writes queued), then every client: MAX_CLIENTS + 4 (POD-4842 C-1). */
+  struct pollfd pfds[MAX_CLIENTS + 4];
   for (;;) {
     int64_t now = now_ms();
     if (H.kill_deadline_ms && now >= H.kill_deadline_ms) {
