@@ -1,0 +1,7 @@
++5172 thread/read after interrupt:
+   turn 01a0edf3-b37b-77b0-8b13-ff1ea4901952 interrupted startedAt=1790698566 users=[our_busy="TOOLSLEEP busy"] items=userMessage
++5184 thread/queue/list after interrupt: []
++10556 thread/read end:
+   turn 01a0edf3-b37b-77b0-8b13-ff1ea4901952 interrupted startedAt=1790698566 users=[our_busy="TOOLSLEEP busy"] items=userMessage,commandExecution
+   turn 01a0edf3-c7bc-79d1-b46f-f7d561d71d17 completed startedAt=1790698571 users=[our_after="after interrupt"] items=userMessage,agentMessage
++10562 thread/queue/list end: []

@@ -1,0 +1,75 @@
+ -24911  MODEL           # listening
+ -24506  QUEUEDB         queued_items=[]
+ -23157  MARK            launch codex {"args":[]}
+  -3123  MARK            waitLog timeout hooks.jsonl /"ev":"SessionStart"/ {}
+   -611  MARK            type busy {}
+      0  MARK            send busy Enter {}
+     26  FILE:rollout#1  session_meta {"session_id":"01a0edfb-2369-7583-b34b-6106d30b01ed","id":"01a0edfb-2369-7583-b34b-6106d30…(21824) [ts 2026-09-29T16:24:36.471Z]
+     26  FILE:rollout#2  event_msg/task_started turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:36.472Z]
+     38  FILE:hist       history.jsonl ts=1790699076 "TOOLSLEEP busy"
+    133  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(4315)" id=msg_01a0edfb-7bdb-7890-8420-5c271f3763ae [ts 2026-09-29T16:24:36.572Z]
+    133  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(635)" id=msg_01a0edfb-7bdb-7890-8420-5c391f6d4d2a [ts 2026-09-29T16:24:36.573Z]
+    133  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3964) [ts 2026-09-29T16:24:36.578Z]
+    154  FILE:rollout#6  turn_context turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:36.596Z]
+    176  HOOK            SessionStart turn_id=- source=startup
+    253  HOOK            UserPromptSubmit turn_id=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 prompt="TOOLSLEEP busy"
+    261  FILE:rollout#7  response_item/message:user "TOOLSLEEP busy" id=msg_01a0edfb-7c64-7e60-b4bd-c3a3aa769bcb [ts 2026-09-29T16:24:36.709Z]
+    271  FILE:rollout#8  event_msg/item_completed turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:36.715Z]
+    326  MODEL           #1 request mode=tool items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(635)","TOOLSLEEP busy"]
+    328  MODEL           #1 stream-done tool
+    338  FILE:rollout#9  response_item/function_call id=fc_fake1 call=call_fake1 [ts 2026-09-29T16:24:36.781Z]
+    348  FILE:rollout#10 token_usage_record {"thread_id":"01a0edfb-2369-7583-b34b-6106d30b01ed","turn_id":"01a0edfb-7b6a-7cb1-9be7-2a8…(693) [ts 2026-09-29T16:24:36.791Z]
+    390  HOOK            PreToolUse turn_id=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 tool={"command":"sleep 8"}
+    458  MODEL           #2 request mode=tool items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(427)"]
+    460  MODEL           #2 stream-done tool
+    521  MODEL           #3 request mode=quick items=5 lastItem=function_call_output users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(427)"]
+    522  MODEL           #3 stream-done quick
+   1782  MARK            type gamma {}
+   2392  MARK            send gamma Enter {}
+   2412  FILE:hist       history.jsonl ts=1790699078 "GAMMA typed while busy"
+   2800  MARK            type delta {}
+   3408  MARK            send delta Enter {}
+   3458  FILE:hist       history.jsonl ts=1790699079 "DELTA typed while busy"
+   4149  MARK            type epsilon {}
+   4802  MARK            send epsilon Tab {}
+   8472  FILE:rollout#11 event_msg/item_completed turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:44.916Z]
+   8499  HOOK            PostToolUse turn_id=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 tool={"command":"sleep 8"}
+   8538  FILE:rollout#12 response_item/function_call_output id=fco_01a0edfb-9cb6-7483-8849-c7a06e6b47df call=call_fake1 [ts 2026-09-29T16:24:44.982Z]
+   8566  FILE:rollout#13 event_msg/token_count [ts 2026-09-29T16:24:45.009Z]
+   8627  HOOK            UserPromptSubmit turn_id=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 prompt="GAMMA typed while busy"
+   8649  FILE:rollout#14 response_item/message:user "GAMMA typed while busy" id=msg_01a0edfb-9d25-73e0-b297-dfa4e1d64d1b [ts 2026-09-29T16:24:45.094Z]
+   8659  FILE:rollout#15 event_msg/item_completed turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:45.105Z]
+   8698  HOOK            UserPromptSubmit turn_id=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 prompt="DELTA typed while busy"
+   8717  FILE:rollout#16 response_item/message:user "DELTA typed while busy" id=msg_01a0edfb-9d66-7412-a4b0-5c7ea7f90c2a [ts 2026-09-29T16:24:45.158Z]
+   8717  FILE:rollout#17 event_msg/item_completed turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:45.161Z]
+   8770  MODEL           #4 request mode=quick items=7 lastItem=message:user users(last3)=["TOOLSLEEP busy","GAMMA typed while busy","DELTA typed while busy"]
+   8770  MODEL           #4 stream-done quick
+   8787  FILE:rollout#18 event_msg/item_completed turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:45.227Z]
+   8797  FILE:rollout#19 response_item/message:assistant "ok4 " id=msg_fake4 [ts 2026-09-29T16:24:45.237Z]
+   8797  FILE:rollout#20 token_usage_record {"thread_id":"01a0edfb-2369-7583-b34b-6106d30b01ed","turn_id":"01a0edfb-7b6a-7cb1-9be7-2a8…(695) [ts 2026-09-29T16:24:45.246Z]
+   8806  MODEL           #5 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(435)"]
+   8807  FILE:rollout#21 event_msg/token_count [ts 2026-09-29T16:24:45.252Z]
+   8807  MODEL           #5 stream-done quick
+   8835  HOOK            Stop turn_id=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8
+   8881  FILE:rollout#22 event_msg/task_complete turn=01a0edfb-7b6a-7cb1-9be7-2a84920d7df8 [ts 2026-09-29T16:24:45.323Z]
+   8905  FILE:rollout#23 event_msg/thread_settings_applied [ts 2026-09-29T16:24:45.344Z]
+   8916  FILE:rollout#24 event_msg/task_started turn=01a0edfb-9e19-72e2-b1ea-b5090ac55ed9 [ts 2026-09-29T16:24:45.357Z]
+   8916  FILE:hist       history.jsonl ts=1790699085 "EPSILON tabbed while busy"
+   8926  FILE:rollout#25 turn_context turn=01a0edfb-9e19-72e2-b1ea-b5090ac55ed9 [ts 2026-09-29T16:24:45.373Z]
+   8953  HOOK            UserPromptSubmit turn_id=01a0edfb-9e19-72e2-b1ea-b5090ac55ed9 prompt="EPSILON tabbed while busy"
+   8967  FILE:rollout#26 response_item/message:user "EPSILON tabbed while busy" id=msg_01a0edfb-9e62-71e2-96c5-7b8af32c703a [ts 2026-09-29T16:24:45.410Z]
+   8967  FILE:rollout#27 event_msg/item_completed turn=01a0edfb-9e19-72e2-b1ea-b5090ac55ed9 [ts 2026-09-29T16:24:45.415Z]
+   9021  MODEL           #6 request mode=quick items=9 lastItem=message:user users(last3)=["GAMMA typed while busy","DELTA typed while busy","EPSILON tabbed while busy"]
+   9022  MODEL           #6 stream-done quick
+   9029  FILE:rollout#28 event_msg/item_completed turn=01a0edfb-9e19-72e2-b1ea-b5090ac55ed9 [ts 2026-09-29T16:24:45.476Z]
+   9039  FILE:rollout#29 response_item/message:assistant "ok6 " id=msg_fake6 [ts 2026-09-29T16:24:45.482Z]
+   9039  FILE:rollout#30 token_usage_record {"thread_id":"01a0edfb-2369-7583-b34b-6106d30b01ed","turn_id":"01a0edfb-9e19-72e2-b1ea-b50…(694) [ts 2026-09-29T16:24:45.488Z]
+   9049  FILE:rollout#31 event_msg/token_count [ts 2026-09-29T16:24:45.490Z]
+   9062  HOOK            Stop turn_id=01a0edfb-9e19-72e2-b1ea-b5090ac55ed9
+   9082  FILE:rollout#32 event_msg/task_complete turn=01a0edfb-9e19-72e2-b1ea-b5090ac55ed9 [ts 2026-09-29T16:24:45.524Z]
+   9117  MODEL           #7 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(438)"]
+   9118  MODEL           #7 stream-done quick
+  22151  MARK            kill tmux session {}

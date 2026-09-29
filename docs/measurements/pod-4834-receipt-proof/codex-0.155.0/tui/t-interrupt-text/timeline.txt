@@ -1,0 +1,84 @@
+ -25479  MODEL           # listening
+ -24641  QUEUEDB         queued_items=[]
+ -23243  MARK            launch codex {"args":[]}
+  -3173  MARK            waitLog timeout hooks.jsonl /"ev":"SessionStart"/ {}
+   -611  MARK            type busy {}
+      0  MARK            send busy Enter {}
+     62  FILE:rollout#1  session_meta {"session_id":"01a0edfd-9807-7241-8d1f-3ed6ec980e27","id":"01a0edfd-9807-7241-8d1f-3ed6ec9…(21834) [ts 2026-09-29T16:27:17.602Z]
+     62  FILE:rollout#2  event_msg/task_started turn=01a0edfd-f0b8-7540-8866-dda99733e82b [ts 2026-09-29T16:27:17.606Z]
+     62  FILE:hist       history.jsonl ts=1790699237 "SLOWTEXT busy"
+    139  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(4320)" id=msg_01a0edfd-f135-7ae2-94fe-2477615f8b1f [ts 2026-09-29T16:27:17.686Z]
+    139  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(645)" id=msg_01a0edfd-f135-7ae2-94fe-248be5670a35 [ts 2026-09-29T16:27:17.686Z]
+    139  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3979) [ts 2026-09-29T16:27:17.688Z]
+    149  FILE:rollout#6  turn_context turn=01a0edfd-f0b8-7540-8866-dda99733e82b [ts 2026-09-29T16:27:17.690Z]
+    174  HOOK            SessionStart turn_id=- source=startup
+    203  HOOK            UserPromptSubmit turn_id=01a0edfd-f0b8-7540-8866-dda99733e82b prompt="SLOWTEXT busy"
+    210  FILE:rollout#7  response_item/message:user "SLOWTEXT busy" id=msg_01a0edfd-f17d-7fa1-b417-516e3824b79f [ts 2026-09-29T16:27:17.757Z]
+    220  FILE:rollout#8  event_msg/item_completed turn=01a0edfd-f0b8-7540-8866-dda99733e82b [ts 2026-09-29T16:27:17.764Z]
+    306  MODEL           #1 request mode=slow items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(645)","SLOWTEXT busy"]
+    376  MODEL           #2 request mode=slow items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(426)"]
+   1713  MARK            type gamma {}
+   2328  MARK            send gamma Enter {}
+   2349  FILE:hist       history.jsonl ts=1790699239 "GAMMA pending steer"
+   2873  MARK            type epsilon {}
+   3494  MARK            send epsilon Tab {}
+   4215  MARK            send interrupt Escape {}
+   4244  MODEL           #1 stream-cancelled-by-client
+   4247  FILE:rollout#9  event_msg/token_count [ts 2026-09-29T16:27:21.785Z]
+   4257  FILE:rollout#10 response_item/message:user "<turn_aborted>
+The user interrupted the previous turn on purpose. Any …(226)" id=msg_01a0edfe-0145-70e0-a6cc-5120d743b349 [ts 2026-09-29T16:27:21.797Z]
+   4257  FILE:rollout#11 event_msg/turn_aborted turn=01a0edfd-f0b8-7540-8866-dda99733e82b reason=interrupted [ts 2026-09-29T16:27:21.804Z]
+   4267  FILE:rollout#12 event_msg/thread_settings_applied [ts 2026-09-29T16:27:21.814Z]
+   4277  FILE:rollout#13 event_msg/task_started turn=01a0edfe-0152-7f51-bfc6-d75ab25403a8 [ts 2026-09-29T16:27:21.819Z]
+   4277  FILE:hist       history.jsonl ts=1790699241 "GAMMA pending steer"
+   4298  FILE:rollout#14 turn_context turn=01a0edfe-0152-7f51-bfc6-d75ab25403a8 [ts 2026-09-29T16:27:21.837Z]
+   4331  HOOK            UserPromptSubmit turn_id=01a0edfe-0152-7f51-bfc6-d75ab25403a8 prompt="GAMMA pending steer"
+   4350  FILE:rollout#15 response_item/message:user "GAMMA pending steer" id=msg_01a0edfe-01a5-7d83-a334-767568f355f5 [ts 2026-09-29T16:27:21.893Z]
+   4360  FILE:rollout#16 event_msg/item_completed turn=01a0edfe-0152-7f51-bfc6-d75ab25403a8 [ts 2026-09-29T16:27:21.901Z]
+   4428  MODEL           #3 request mode=quick items=5 lastItem=message:user users(last3)=["SLOWTEXT busy","<turn_aborted>\nThe user interrupted the …(226)","GAMMA pending steer"]
+   4429  MODEL           #3 stream-done quick
+   4441  FILE:rollout#17 event_msg/item_completed turn=01a0edfe-0152-7f51-bfc6-d75ab25403a8 [ts 2026-09-29T16:27:21.983Z]
+   4441  FILE:rollout#18 response_item/message:assistant "ok3 " id=msg_fake3 [ts 2026-09-29T16:27:21.990Z]
+   4453  FILE:rollout#19 token_usage_record {"thread_id":"01a0edfd-9807-7241-8d1f-3ed6ec980e27","turn_id":"01a0edfe-0152-7f51-bfc6-d75…(693) [ts 2026-09-29T16:27:21.993Z]
+   4463  FILE:rollout#20 event_msg/token_count [ts 2026-09-29T16:27:22.007Z]
+   4496  HOOK            Stop turn_id=01a0edfe-0152-7f51-bfc6-d75ab25403a8
+   4527  FILE:rollout#21 event_msg/task_complete turn=01a0edfe-0152-7f51-bfc6-d75ab25403a8 [ts 2026-09-29T16:27:22.070Z]
+   4538  FILE:rollout#22 event_msg/thread_settings_applied [ts 2026-09-29T16:27:22.086Z]
+   4548  FILE:rollout#23 event_msg/task_started turn=01a0edfe-0263-7851-958e-e5a048090053 [ts 2026-09-29T16:27:22.093Z]
+   4548  FILE:hist       history.jsonl ts=1790699242 "EPSILON tab queued"
+   4562  FILE:rollout#24 turn_context turn=01a0edfe-0263-7851-958e-e5a048090053 [ts 2026-09-29T16:27:22.103Z]
+   4674  HOOK            UserPromptSubmit turn_id=01a0edfe-0263-7851-958e-e5a048090053 prompt="EPSILON tab queued"
+   4725  FILE:rollout#25 response_item/message:user "EPSILON tab queued" id=msg_01a0edfe-0318-7b40-82c8-f83587572199 [ts 2026-09-29T16:27:22.264Z]
+   4725  FILE:rollout#26 event_msg/item_completed turn=01a0edfe-0263-7851-958e-e5a048090053 [ts 2026-09-29T16:27:22.269Z]
+   4781  MODEL           #4 request mode=quick items=7 lastItem=message:user users(last3)=["<turn_aborted>\nThe user interrupted the …(226)","GAMMA pending steer","EPSILON tab queued"]
+   4782  MODEL           #4 stream-done quick
+   4790  FILE:rollout#27 event_msg/item_completed turn=01a0edfe-0263-7851-958e-e5a048090053 [ts 2026-09-29T16:27:22.334Z]
+   4800  FILE:rollout#28 response_item/message:assistant "ok4 " id=msg_fake4 [ts 2026-09-29T16:27:22.347Z]
+   4810  FILE:rollout#29 token_usage_record {"thread_id":"01a0edfd-9807-7241-8d1f-3ed6ec980e27","turn_id":"01a0edfe-0263-7851-958e-e5a…(694) [ts 2026-09-29T16:27:22.355Z]
+   4866  FILE:rollout#30 event_msg/token_count [ts 2026-09-29T16:27:22.406Z]
+   4971  HOOK            Stop turn_id=01a0edfe-0263-7851-958e-e5a048090053
+   4999  FILE:rollout#31 event_msg/task_complete turn=01a0edfe-0263-7851-958e-e5a048090053 [ts 2026-09-29T16:27:22.544Z]
+  10404  MODEL           #2 stream-done slow
+  13259  MARK            type after {}
+  13867  MARK            send after Enter {}
+  13884  FILE:rollout#32 event_msg/thread_settings_applied [ts 2026-09-29T16:27:31.428Z]
+  13916  FILE:rollout#33 event_msg/task_started turn=01a0edfe-26e1-7f23-928b-9a01d2a32a45 [ts 2026-09-29T16:27:31.458Z]
+  13916  FILE:hist       history.jsonl ts=1790699251 "AFTER interrupt"
+  13926  FILE:rollout#34 turn_context turn=01a0edfe-26e1-7f23-928b-9a01d2a32a45 [ts 2026-09-29T16:27:31.465Z]
+  13950  HOOK            UserPromptSubmit turn_id=01a0edfe-26e1-7f23-928b-9a01d2a32a45 prompt="AFTER interrupt"
+  13957  FILE:rollout#35 response_item/message:user "AFTER interrupt" id=msg_01a0edfe-2730-7633-9221-20eb1a1b58e3 [ts 2026-09-29T16:27:31.504Z]
+  13967  FILE:rollout#36 event_msg/item_completed turn=01a0edfe-26e1-7f23-928b-9a01d2a32a45 [ts 2026-09-29T16:27:31.509Z]
+  14020  MODEL           #5 request mode=quick items=9 lastItem=message:user users(last3)=["GAMMA pending steer","EPSILON tab queued","AFTER interrupt"]
+  14021  MODEL           #5 stream-done quick
+  14029  FILE:rollout#37 event_msg/item_completed turn=01a0edfe-26e1-7f23-928b-9a01d2a32a45 [ts 2026-09-29T16:27:31.574Z]
+  14039  FILE:rollout#38 response_item/message:assistant "ok5 " id=msg_fake5 [ts 2026-09-29T16:27:31.581Z]
+  14050  FILE:rollout#39 token_usage_record {"thread_id":"01a0edfd-9807-7241-8d1f-3ed6ec980e27","turn_id":"01a0edfe-26e1-7f23-928b-9a0…(694) [ts 2026-09-29T16:27:31.591Z]
+  14050  FILE:rollout#40 event_msg/token_count [ts 2026-09-29T16:27:31.598Z]
+  14108  HOOK            Stop turn_id=01a0edfe-26e1-7f23-928b-9a01d2a32a45
+  14125  FILE:rollout#41 event_msg/task_complete turn=01a0edfe-26e1-7f23-928b-9a01d2a32a45 [ts 2026-09-29T16:27:31.671Z]
+  14156  MODEL           #6 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(428)"]
+  14157  MODEL           #6 stream-done quick
+  17649  MARK            kill tmux session {}

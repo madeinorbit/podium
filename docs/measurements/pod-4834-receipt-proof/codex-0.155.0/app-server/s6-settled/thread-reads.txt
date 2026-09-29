@@ -1,0 +1,7 @@
++1743 thread/read after restart:
+   turn 01a0edf4-fe19-7692-a382-97911ad2ef46 completed startedAt=1790698651 users=[our_one="first message"] items=userMessage,agentMessage
++1747 thread/queue/list after restart: []
++2030 thread/read end:
+   turn 01a0edf4-fe19-7692-a382-97911ad2ef46 completed startedAt=1790698651 users=[our_one="first message"] items=userMessage,agentMessage
+   turn 01a0edf5-04e3-75f0-835a-d475fd20ed47 completed startedAt=1790698652 users=[our_two="after restart"] items=userMessage,agentMessage
++2034 thread/queue/list end: []

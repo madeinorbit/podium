@@ -1,0 +1,43 @@
+ -25338  MODEL           # listening
+ -24588  QUEUEDB         queued_items=[]
+ -23187  MARK            launch codex {"args":[]}
+  -3123  MARK            waitLog timeout hooks.jsonl /"ev":"SessionStart"/ {}
+   -612  MARK            type http400 {}
+      0  MARK            send http400 Enter {}
+     92  FILE:rollout#1  session_meta {"session_id":"01a0ee02-e71a-7252-97af-22d4ae16fb79","id":"01a0ee02-e71a-7252-97af-22d4ae1…(21818) [ts 2026-09-29T16:33:05.431Z]
+     92  FILE:rollout#2  event_msg/task_started turn=01a0ee03-3f54-7283-8a42-fa0d5e6d81b9 [ts 2026-09-29T16:33:05.432Z]
+     92  FILE:hist       history.jsonl ts=1790699585 "HTTP400 please"
+    245  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(4312)" id=msg_01a0ee03-402a-7982-8527-0948d7a86c64 [ts 2026-09-29T16:33:05.578Z]
+    245  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(629)" id=msg_01a0ee03-402a-7982-8527-0955d8fc149a [ts 2026-09-29T16:33:05.579Z]
+    245  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3955) [ts 2026-09-29T16:33:05.585Z]
+    245  FILE:rollout#6  turn_context turn=01a0ee03-3f54-7283-8a42-fa0d5e6d81b9 [ts 2026-09-29T16:33:05.587Z]
+    292  HOOK            SessionStart turn_id=- source=startup
+    354  HOOK            UserPromptSubmit turn_id=01a0ee03-3f54-7283-8a42-fa0d5e6d81b9 prompt="HTTP400 please"
+    368  FILE:rollout#7  response_item/message:user "HTTP400 please" id=msg_01a0ee03-40a8-7720-904d-975e69f90604 [ts 2026-09-29T16:33:05.705Z]
+    368  FILE:rollout#8  event_msg/item_completed turn=01a0ee03-3f54-7283-8a42-fa0d5e6d81b9 [ts 2026-09-29T16:33:05.708Z]
+    427  MODEL           #1 request mode=http400 items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(629)","HTTP400 please"]
+    428  MODEL           #1 reply-http400
+    441  FILE:rollout#9  event_msg/task_complete turn=01a0ee03-3f54-7283-8a42-fa0d5e6d81b9 [ts 2026-09-29T16:33:05.783Z]
+    514  MODEL           #2 request mode=http400 items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(427)"]
+    514  MODEL           #2 reply-http400
+   8046  MARK            type killed {}
+   8654  MARK            send killed Enter {}
+   8701  FILE:rollout#10 event_msg/thread_settings_applied [ts 2026-09-29T16:33:14.039Z]
+   8726  FILE:rollout#11 event_msg/task_started turn=01a0ee03-6134-7f90-90ef-97f085d73e9c [ts 2026-09-29T16:33:14.063Z]
+   8726  FILE:hist       history.jsonl ts=1790699594 "SLOWTEXT killed after submit"
+   8749  FILE:rollout#12 turn_context turn=01a0ee03-6134-7f90-90ef-97f085d73e9c [ts 2026-09-29T16:33:14.087Z]
+   8782  HOOK            UserPromptSubmit turn_id=01a0ee03-6134-7f90-90ef-97f085d73e9c prompt="SLOWTEXT killed after submit"
+   8791  FILE:rollout#13 response_item/message:user "SLOWTEXT killed after submit" id=msg_01a0ee03-6192-76f2-9a1c-1b04ead89c02 [ts 2026-09-29T16:33:14.130Z]
+   8801  FILE:rollout#14 event_msg/item_completed turn=01a0ee03-6134-7f90-90ef-97f085d73e9c [ts 2026-09-29T16:33:14.139Z]
+   8837  MODEL           #3 request mode=slow items=4 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(629)","HTTP400 please","SLOWTEXT killed after submit"]
+   9100  MODEL           #4 request mode=slow items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(441)"]
+   9165  MARK            kill -9 codex {"pids":[1041136,1041150]}
+   9184  MODEL           #3 stream-cancelled-by-client
+   9184  MODEL           #4 stream-cancelled-by-client
+  10168  MARK            kill tmux session {}
+  10175  MARK            launch codex {"args":["resume","--last"]}
+  10986  FILE:rollout#15 event_msg/thread_settings_applied [ts 2026-09-29T16:33:16.325Z]
+  20849  MARK            kill tmux session {}

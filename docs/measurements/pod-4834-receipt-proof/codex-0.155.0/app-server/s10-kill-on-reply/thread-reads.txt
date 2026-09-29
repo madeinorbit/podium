@@ -1,0 +1,8 @@
++888 thread/read after restart:
+   turn 01a0edf6-b501-7f01-814b-0509ccca9732 completed startedAt=1790698763 users=[our_first="first message"] items=userMessage,agentMessage
+   turn 01a0edf6-b673-7030-94f3-4ab2114f43d2 interrupted startedAt=1790698763 users=[] items=
++889 thread/queue/list after restart: []
++3905 thread/read after 3s:
+   turn 01a0edf6-b501-7f01-814b-0509ccca9732 completed startedAt=1790698763 users=[our_first="first message"] items=userMessage,agentMessage
+   turn 01a0edf6-b673-7030-94f3-4ab2114f43d2 interrupted startedAt=1790698763 users=[] items=
++3907 thread/queue/list after 3s: []

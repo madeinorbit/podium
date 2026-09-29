@@ -1,0 +1,4 @@
++10024 thread/read end:
+   turn 01a0edf5-a2ce-7a61-9c43-a203e3f04f42 completed startedAt=1790698693 users=[our_busy="TOOLSLEEP busy"] items=userMessage,commandExecution,agentMessage
+   turn 01a0edf5-c4ed-79a1-9419-13f689852fe7 failed error={"message":"{\"error\":{\"message\":\"fake: bad request (HTTP400 marker)\",\"type\":\"invalid_request_error\",\"code\":\ startedAt=1790698702 users=[our_http400="HTTP400 please"] items=userMessage
++10041 thread/queue/list end: []

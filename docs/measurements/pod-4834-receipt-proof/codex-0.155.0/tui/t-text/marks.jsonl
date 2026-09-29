@@ -1,0 +1,11 @@
+{"at":1790699478643,"dir":"mark","label":"launch codex","extra":{"args":[]}}
+{"at":1790699498756,"dir":"mark","label":"waitLog timeout hooks.jsonl /\"ev\":\"SessionStart\"/","extra":{}}
+{"at":1790699501299,"dir":"mark","label":"type ws","extra":{}}
+{"at":1790699501947,"dir":"mark","label":"send ws Enter","extra":{}}
+{"at":1790699503477,"dir":"mark","label":"paste multiline","extra":{"len":41}}
+{"at":1790699504298,"dir":"mark","label":"send multiline Enter","extra":{}}
+{"at":1790699505401,"dir":"mark","label":"paste long","extra":{"len":15889}}
+{"at":1790699506921,"dir":"mark","label":"send long Enter","extra":{}}
+{"at":1790699507750,"dir":"mark","label":"paste unicode","extra":{"len":54}}
+{"at":1790699508589,"dir":"mark","label":"send unicode Enter","extra":{}}
+{"at":1790699510104,"dir":"mark","label":"kill tmux session","extra":{}}

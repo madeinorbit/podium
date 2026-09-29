@@ -1,0 +1,6 @@
+{"session_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","ts":1790699787,"text":"TOOLSLEEP busy"}
+{"session_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","ts":1790699789,"text":"D1 daemon enter second"}
+{"session_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","ts":1790699795,"text":"P1 person tab-queued first"}
+{"session_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","ts":1790699801,"text":"SLOWTEXT race-a"}
+{"session_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","ts":1790699802,"text":"RACE-B right after"}
+{"session_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","ts":1790699817,"text":"TOOLBG start a background terminal"}

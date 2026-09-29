@@ -1,0 +1,940 @@
+
+===== 1790699126609 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699131337 after two Enters while busy
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (4s • esc to interrupt)
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work · renam…
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699132713 after Tab while busy
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (5s • esc to interrupt)
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work · renam…
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699133728 poll 0
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (6s • esc to interrupt)
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work · renam…
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699134746 poll 1
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (7s • esc to interrupt)
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work · renam…
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699135758 poll 2
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (8s • esc to interrupt)
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work · renam…
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699136768 poll 3
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (9s • esc to interrupt)
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work · renam…
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699137778 poll 4
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+
+
+
+
+
+
+===== 1790699138794 poll 5
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699139852 poll 6
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699140864 poll 7
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699142046 poll 8
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699143090 poll 9
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699144100 poll 10
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699145113 poll 11
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699146128 poll 12
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699147144 poll 13
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699148179 poll 14
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699149259 poll 15
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work
+
+===== 1790699149269 end
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› SLOWTEXT busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok3
+
+  done 6:25 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok4
+
+  done 6:25 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-text/work

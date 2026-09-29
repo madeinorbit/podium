@@ -1,0 +1,8 @@
++2093 thread/read end:
+   turn 01a0edf5-8832-7073-9ff5-eee5cde8c252 completed startedAt=1790698686 users=[our_ws="  leading and trailing spaces  \n\n"] items=userMessage,agentMessage
+   turn 01a0edf5-8a00-7532-97ff-240712ae0e1f completed startedAt=1790698686 users=[our_crlf="line1\r\nline2\n\n\nline5\ttab"] items=userMessage,agentMessage
+   turn 01a0edf5-8afe-7e43-9c6e-18d9b1a2f786 completed startedAt=1790698687 users=[our_long="line 0 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nli"…(100889)] items=userMessage,agentMessage
+   turn 01a0edf5-8c16-7c03-84bc-4815e76cb0c0 completed startedAt=1790698687 users=[our_unicode="nfc:é nfd:é emoji:👩‍👩‍👧 rtl:שלום zwsp:[​] bom:"…(62)] items=userMessage,agentMessage
+   turn 01a0edf5-8d07-7d70-971a-e0db232ca95c completed startedAt=1790698687 users=[our_ctrl="ctrl:[\u0007][\u001b[31m] nul-free end"] items=userMessage,agentMessage
+   turn 01a0edf5-8df1-77e2-9641-f67da93880db completed startedAt=1790698687 users=[our_empty_ws="   "] items=userMessage,agentMessage
++2115 thread/queue/list end: []

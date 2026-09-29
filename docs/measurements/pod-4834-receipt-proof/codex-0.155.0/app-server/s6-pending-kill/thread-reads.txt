@@ -1,0 +1,8 @@
++3784 thread/read after restart:
+   turn 01a0edf6-7d35-7343-afdc-fd604b26fa89 inProgress startedAt=1790698749 users=[our_busy="TOOLSLEEP busy"] items=userMessage
+   turn 01a0edf6-8bbc-7952-94e2-d26fe18d0e8c inProgress startedAt=1790698752 users=[] items=
++3788 thread/queue/list after restart: []
++9799 thread/read after 6s:
+   turn 01a0edf6-7d35-7343-afdc-fd604b26fa89 interrupted startedAt=1790698749 users=[our_busy="TOOLSLEEP busy"] items=userMessage
+   turn 01a0edf6-8bbc-7952-94e2-d26fe18d0e8c completed startedAt=1790698752 users=[our_queued="queued at kill"] items=userMessage,agentMessage
++9800 thread/queue/list after 6s: []

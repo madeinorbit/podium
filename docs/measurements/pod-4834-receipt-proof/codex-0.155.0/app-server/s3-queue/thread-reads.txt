@@ -1,0 +1,4 @@
++13976 thread/read end:
+   turn 01a0edf2-ee6b-71c3-a78b-caec7d701179 completed startedAt=1790698516 users=[our_busy="SLOWTEXT busy"] items=userMessage,agentMessage
+   turn 01a0edf3-1936-7701-90a0-80a3f2d1d9da completed startedAt=1790698527 users=[our_second="second while busy"] items=userMessage,agentMessage
++13979 thread/queue/list end: []
