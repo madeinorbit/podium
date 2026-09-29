@@ -4,8 +4,9 @@
  * bootstrap), over the same replay feed.
  *
  * COUNTS (always): rows installed per table, cold rows registered, and the
- * observables MobX reports building (`spy` "add" events, per map), with no
- * model built. Counts need no quiet box.
+ * observables MobX reports building (`spy` "add" events, per map), with one
+ * object per issue the worklist holds (and the sessions those read), no
+ * other. Counts need no quiet box.
  *
  * WALLS (`POD_POOL_BOOT_WALLS=1` only): `create()` to a bootstrapped pool,
  * spy off and the reads fence disabled, arms interleaved with the order
@@ -97,6 +98,9 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
       session: pool.residency?.size('session') ?? 0,
     },
     models: pool.stats.counters.modelsCreated,
+    issueModels: pool.modelCount('issue'),
+    sessionModels: pool.modelCount('session'),
+    held: pool.worklist.size(),
     observables: Object.values(built).reduce((a, b) => a + b, 0),
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
     byMap: built,
@@ -133,7 +137,9 @@ describe('bootstrap in the count harness', () => {
       expect(lazy.rows.issue).toBe(feed.corpus.sliceIssues.length - coldIssues)
       expect(lazy.rows.issue + lazy.cold.issue).toBe(all.rows.issue)
       expect(lazy.rows.session + lazy.cold.session).toBe(all.rows.session)
-      expect(lazy.models).toBe(0)
+      // One object per issue the worklist holds, and the sessions those read.
+      expect(lazy.issueModels).toBe(lazy.held)
+      expect(lazy.models).toBe(lazy.issueModels + lazy.sessionModels)
       expect(lazy.observables).toBeLessThan(all.observables)
       const cell: Record<string, unknown> = { scale, counts: { lazy, allResident: all } }
       if (WALLS) {
