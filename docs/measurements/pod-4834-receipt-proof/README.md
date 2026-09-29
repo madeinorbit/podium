@@ -1,5 +1,9 @@
 # POD-4834 — receipt proof, measured on the real CLIs
 
+**All programs in one table: [`grid.md`](grid.md).** The Claude terminal section below is the
+first run (S1–S3); its idle order is superseded by `claude-2.1.284/results.md` (17 runs: the hook
+comes before the record, and the record usually after the model request).
+
 Ground truth for "the model received the prompt" is the fake model server: it logs every model
 request with the messages it carries (`fake-model-server.ts`). Hooks are logged by `hooklog.sh`
 (set `HOOK_LOG`), the harness's own history file is read in **file order** (a record's
