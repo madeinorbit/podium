@@ -8,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -52,6 +53,95 @@ function fakeForeign(dir: string): string {
   chmodSync(p, 0o755)
   return p
 }
+
+function fakeHost(path: string, features: number): string {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `#!/bin/sh\necho "podium-host test features=${features}"\n`)
+  chmodSync(path, 0o755)
+  return path
+}
+
+describe('Rust release host selection (H5)', () => {
+  let root: string
+  const saved = Object.fromEntries(
+    ['PODIUM_STATE_DIR', 'PODIUM_HOST_BIN', 'PODIUM_HOME'].map((key) => [key, process.env[key]]),
+  )
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ph-resolve-'))
+    process.env.PODIUM_STATE_DIR = join(root, 'state')
+    process.env.PODIUM_HOME = join(root, 'payload')
+    delete process.env.PODIUM_HOST_BIN
+  })
+  afterEach(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    resolveHostBin({ fresh: true })
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  const rustPath = (): string => join(root, 'payload', 'podium-host-rs')
+
+  it('reserves feature level 2 for the Rust screen host', () => {
+    expect(HOST_FEATURES).toBe(2)
+  })
+
+  it('prefers the payload Rust host over a materialized C host', () => {
+    const rust = fakeHost(rustPath(), 2)
+    fakeHost(defaultHostCachePath(), 1)
+    expect(resolveHostBin({ fresh: true })).toBe(rust)
+  })
+
+  it('prefers the payload Rust host over a verified managed C host', () => {
+    const c = fakeHost(join(managedHostDir(), 'podium-host'), 1)
+    writeFileSync(
+      join(managedHostDir(), 'manifest.json'),
+      JSON.stringify({ features: 1, sourceHash: vendoredHostSourceHash() }),
+    )
+    symlinkSync(c, defaultHostCachePath())
+    const rust = fakeHost(rustPath(), 2)
+    expect(resolveHostBin({ fresh: true })).toBe(rust)
+  })
+
+  it('uses the materialized C host when the payload has no Rust binary', () => {
+    const c = fakeHost(defaultHostCachePath(), 1)
+    expect(resolveHostBin({ fresh: true })).toBe(c)
+    expect(hostBinFeatures(c)).toBe(1)
+  })
+
+  it('falls back to C when the Rust binary cannot run as a host', () => {
+    fakeForeign(dirname(rustPath()))
+    writeFileSync(rustPath(), '#!/bin/sh\nexit 1\n')
+    chmodSync(rustPath(), 0o755)
+    const c = fakeHost(defaultHostCachePath(), 1)
+    expect(resolveHostBin({ fresh: true })).toBe(c)
+  })
+
+  it('falls back to C when the Rust binary lacks feature level 2', () => {
+    fakeHost(rustPath(), 1)
+    const c = fakeHost(defaultHostCachePath(), 1)
+    expect(resolveHostBin({ fresh: true })).toBe(c)
+  })
+
+  it('honors an explicit C host even when a Rust host is shipped', () => {
+    fakeHost(rustPath(), 2)
+    const c = fakeHost(join(root, 'explicit-c'), 1)
+    process.env.PODIUM_HOST_BIN = c
+    expect(resolveHostBin({ fresh: true })).toBe(c)
+  })
+
+  it('honors an explicit Rust host', () => {
+    process.env.PODIUM_HOST_BIN = fakeHost(join(root, 'explicit-rust'), 2)
+    expect(resolveHostBin({ fresh: true })).toBe(process.env.PODIUM_HOST_BIN)
+  })
+
+  it('does not hide an invalid explicit override behind the shipped Rust host', () => {
+    fakeHost(rustPath(), 2)
+    process.env.PODIUM_HOST_BIN = join(root, 'missing')
+    expect(resolveHostBin({ fresh: true })).toBeUndefined()
+  })
+})
 
 describe('podium-host binary resolution', () => {
   const savedState = process.env.PODIUM_STATE_DIR
