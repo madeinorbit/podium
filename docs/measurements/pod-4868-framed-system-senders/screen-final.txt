@@ -1,0 +1,29 @@
+ ▝▝   ▝▝   ~/work
+▎ Auto mode is now Claude Code's default permission mode.
+▎ Auto mode lets Claude handle permission prompts automatically. Claude checks each tool call for risky actions and prompt injection before executing, runs the ones it assesses as
+▎ lower-risk, and blocks the rest.
+▎ https://code.claude.com/docs/en/permission-modes
+❯ Do task ALPHA: list what you would change.
+● API Error: 500 fake outage. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:47868).
+✻ Brewed for 0s · done 6:49 PM
+❯ [podium message msg_4b1c0a2e-9f3d-5e21-8a4b-6c7d8e9f0a1b · from system:auto-continue · to your session]
+  continue
+  [end podium message msg_4b1c0a2e-9f3d-5e21-8a4b-6c7d8e9f0a1b]
+  Ran 1 shell command
+● answer r6
+✻ Baked for 0s · done 6:49 PM
+❯ [podium message msg_7e2d4c1a-3b5f-5a69-9c8d-1e2f3a4b5c6d · from automation:aut_nightly · to your session]
+  Run the NIGHTLY check and report what changed.
+  [end podium message msg_7e2d4c1a-3b5f-5a69-9c8d-1e2f3a4b5c6d]
+● answer r8
+✻ Brewed for 0s · done 6:50 PM
+❯ [podium message msg_9a8b7c6d-5e4f-5a3b-8c2d-1e0f9a8b7c6d · from automation:aut_nightly · to your session]
+  Run the NIGHTLY check and report what changed.
+  [end podium message msg_9a8b7c6d-5e4f-5a3b-8c2d-1e0f9a8b7c6d]
+  Ran 1 shell command
+● answer r3
+✻ Worked for 0s · done 6:51 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
