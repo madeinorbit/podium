@@ -601,6 +601,70 @@ This is agent mail, not the operator's latest prompt.
     expect(userRow?.dataset.pinnable).toBeUndefined()
     expect(container.querySelector('[data-testid="pinned-brief"]')).toBeNull()
   })
+
+  it('mounts the pinned-brief shelf before the feed so DOM order matches visual order', async () => {
+    // POD-4829. The shelf is drawn OVER the top of the feed (absolute), but it
+    // was mounted AFTER the scroller in DOM order — so any DOM-order reader
+    // (text scrape, screen reader, tab order) met the scrolled-off operator
+    // prompt AGAIN at the bottom, just before the composer's "Transcript
+    // updated." live region, while the phone (which has no shelf) showed it
+    // once. The transcript carries the prompt once; the shelf is the repeat.
+    // It persists across reload and restart because it is derived from scroll
+    // geometry, not from delivery state, and it carries a clock (unlike a
+    // pending bubble) because it copies the row's own time.
+    const promptText = 'the scrolled-off operator prompt'
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [
+          {
+            id: 'u1',
+            cursor: 'c1',
+            role: 'user',
+            text: promptText,
+            ts: '2026-09-29T13:59:00.000Z',
+          },
+          item('a1', 'c2', 'the answer'),
+        ],
+        head: 'c1',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+
+    const shelf = container.querySelector('[data-testid="pinned-brief"]')
+    const scroller = container.querySelector('[data-feed-scroller]')
+    expect(shelf).not.toBeNull()
+    expect(scroller).not.toBeNull()
+    if (!shelf || !scroller) return
+    // The shelf carries the prompt's own words — that copy is the repeat the
+    // harness scraped at the bottom of the desktop chat.
+    expect(shelf.textContent).toContain(promptText)
+    // Structural rule: DOM order matches visual order. The shelf is drawn over
+    // the top of the feed, so it comes first in the DOM.
+    expect(shelf.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    // The reported symptom: nothing after the feed tail may repeat the prompt.
+    const tail = container.querySelector('[data-testid="feed-tail-slot"]')
+    expect(tail).not.toBeNull()
+    if (!tail) return
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+    walker.currentNode = tail
+    let repeatAfterTail = false
+    let node = walker.nextNode()
+    while (node) {
+      if (node.textContent?.includes(promptText)) {
+        repeatAfterTail = true
+        break
+      }
+      node = walker.nextNode()
+    }
+    expect(repeatAfterTail).toBe(false)
+  })
 })
 
 describe('ChatView composer', () => {
