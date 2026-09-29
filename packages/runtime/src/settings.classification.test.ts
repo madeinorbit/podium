@@ -178,7 +178,8 @@ describe('the composed blob still parses exactly as before', () => {
         loadPerCore: 1.5,
         maxIdleSessions: 8,
         idleMinutes: 30,
-        idleShellMinutes: 1,
+        // POD-4429 (af800b39b): the shell-idle default moved 1 -> 60.
+        idleShellMinutes: 60,
         backstopMinutes: 2880,
       },
       notifications: { web: true, ntfyTopic: '', telegramBotToken: '', telegramChatId: '' },

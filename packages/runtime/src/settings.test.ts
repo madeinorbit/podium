@@ -190,8 +190,10 @@ describe('normalizeSettings — idle-session target', () => {
     ).toBeNull()
   })
 
-  it('defaults idleShellMinutes to one and migrates legacy hours', () => {
-    expect(normalizeSettings({}).hibernation.idleShellMinutes).toBe(1)
+  it('defaults idleShellMinutes to sixty and migrates legacy hours', () => {
+    // POD-4429 (af800b39b): one minute parked an open dock shell sitting at
+    // its prompt one minute after the last keystroke. The default is sixty.
+    expect(normalizeSettings({}).hibernation.idleShellMinutes).toBe(60)
     expect(normalizeSettings({ hibernation: { idleShellMinutes: 48 } }).hibernation.idleShellMinutes).toBe(48)
     expect(normalizeSettings({ hibernation: { idleShellHours: 2 } }).hibernation.idleShellMinutes).toBe(120)
   })
