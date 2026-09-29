@@ -14,7 +14,7 @@
  * halves: it survives well past the old ceiling in silence, and it yields the
  * instant the daemon speaks — whatever the daemon says.
  */
-import { asSessionId, type TranscriptItem } from '@podium/model'
+import { asSessionId, type MessageRecordWire, type TranscriptItem } from '@podium/model'
 import { renderHook } from '@testing-library/react'
 import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -31,7 +31,29 @@ const REFUSED = Object.assign(new Error('offline'), { data: { code: 'BAD_REQUEST
 const chatSend = outboxChatSendActions(() => ({
   sessions: { sendText: { mutate: sendText } },
 }))
-const ledger = vi.fn(async () => [] as never)
+/** The synced message records the hook reads (POD-4764) — set per test. */
+let messageRecords: MessageRecordWire[] = []
+const storeListeners = new Set<() => void>()
+const store: UseChatSendOptions['store'] = {
+  getSnapshot: () =>
+    ({
+      messageRecords,
+      outboxDeadLetters: [],
+      chatSendsFor: chatSend.chatSendsFor,
+    }) as unknown as ReturnType<UseChatSendOptions['store']['getSnapshot']>,
+  subscribe: (listener) => {
+    storeListeners.add(listener)
+    return () => storeListeners.delete(listener)
+  },
+}
+const queuedRecord = (id: string, body: string): MessageRecordWire => ({
+  id,
+  sessionId: asSessionId('s-1'),
+  senderUserId: 'usr_me',
+  body,
+  createdAt: '2026-08-24T10:00:01.000Z',
+  status: 'stored',
+})
 
 let strictModeResult: UseChatSendResult | null = null
 
@@ -48,9 +70,10 @@ function opts(
 ): UseChatSendOptions {
   return {
     sessionId: asSessionId('s-1'),
+    store,
     trpc: {
       sessions: { sendText: { mutate: sendText } },
-      messages: { ledger: { query: ledger }, cancel: { mutate: vi.fn() } },
+      messages: { cancel: { mutate: vi.fn() }, dismissNotice: { mutate: vi.fn() } },
     } as unknown as Store['trpc'],
     sendChat: chatSend.sendChat,
     chatSendsFor: chatSend.chatSendsFor,
@@ -66,7 +89,6 @@ function opts(
     headless: false,
     superThread: undefined,
     compact: false,
-    active: true,
     composer: { sendable: true, canResume: false },
     ownThreadIds: undefined,
     blocks: [],
@@ -87,8 +109,7 @@ const IDLE_SINCE = '2026-08-24T10:00:00.000Z'
 beforeEach(() => {
   vi.useFakeTimers()
   sendText.mockClear()
-  ledger.mockClear()
-  ledger.mockResolvedValue([] as never)
+  messageRecords = []
   strictModeResult = null
 })
 afterEach(() => {
@@ -98,17 +119,7 @@ afterEach(() => {
 
 describe('useChatSend optimistic window', () => {
   it('keeps the conversation live after root StrictMode rehearses its effect', async () => {
-    ledger.mockResolvedValue([
-      {
-        id: 'msg_strict',
-        from: 'operator',
-        to: 'session:s-1',
-        status: 'queued',
-        body: 'still live',
-        createdAt: '2026-08-24T10:00:01.000Z',
-        injectedAt: null,
-      },
-    ] as never)
+    messageRecords = [queuedRecord('msg_strict', 'still live')]
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
@@ -127,8 +138,7 @@ describe('useChatSend optimistic window', () => {
         await Promise.resolve()
       })
 
-      expect(ledger).toHaveBeenCalledTimes(2)
-      expect(strictModeResult?.queuedMessages.map((message) => message.id)).toEqual(['msg_strict'])
+      expect(strictModeResult?.pending.map((bubble) => bubble.deliveryId)).toEqual(['msg_strict'])
       act(() => {
         strictModeResult?.setDraft('after rehearsal')
       })
@@ -280,17 +290,7 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('keeps a restored durable message visible when it is interrupted', async () => {
-    ledger.mockResolvedValueOnce([
-      {
-        id: 'msg_restored',
-        from: 'operator',
-        to: 'session:s-1',
-        status: 'queued',
-        body: 'cancel after refresh',
-        createdAt: '2026-08-24T10:00:01.000Z',
-        injectedAt: null,
-      },
-    ] as never)
+    messageRecords = [queuedRecord('msg_restored', 'cancel after refresh')]
     const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
@@ -302,7 +302,6 @@ describe('useChatSend optimistic window', () => {
     expect(result.current.interruptMessageId).toBe('msg_restored')
     act(() => result.current.markInterrupted('msg_restored'))
 
-    expect(result.current.queuedMessages).toEqual([])
     expect(result.current.pending).toEqual([
       expect.objectContaining({
         deliveryId: 'msg_restored',

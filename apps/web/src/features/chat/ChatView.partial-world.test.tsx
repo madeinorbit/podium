@@ -60,7 +60,6 @@ const fakeTrpc = {
     answerAskUserQuestion: { mutate: answerAsk },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
-  messages: { ledger: { query: vi.fn(async (): Promise<unknown> => []) } },
 }
 
 let storeSessions: SessionMeta[] = []

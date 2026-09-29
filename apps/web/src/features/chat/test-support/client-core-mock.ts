@@ -5,9 +5,11 @@ import { vi } from 'vitest'
 // provider-backed reads reached by these renders.
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
+  ...(await import('./fake-store-handle').then(({ fakeStoreHandle }) => ({
+    useStoreHandle: () => fakeStoreHandle,
+  }))),
   useModelCatalog: () => ({}),
   // Served harness descriptors (POD-4475): provider-free suites render
   // against the bundled copy.
   useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
-  useStoreHandle: () => ({ getSnapshot: () => ({ issues: [] }) }),
 }))

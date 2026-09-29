@@ -1,5 +1,6 @@
 import {
   asSessionId,
+  type MessageRecordWire,
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
@@ -10,6 +11,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import './test-support/client-core-mock'
+import { resetFakeStore, setFakeStore } from './test-support/fake-store-handle'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 // ---------------------------------------------------------------------------
@@ -73,8 +75,8 @@ const fakeTrpc = {
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
   messages: {
-    ledger: { query: vi.fn(async (): Promise<unknown> => []) },
     cancel: { mutate: vi.fn(async () => ({ status: 'cancelled' })) },
+    dismissNotice: { mutate: vi.fn(async () => ({ ok: true, dismissed: true })) },
   },
 }
 
@@ -208,6 +210,10 @@ beforeEach(() => {
   storeExitKind = undefined
   fakeUiValues.clear()
   fakeUiListeners.clear()
+  // The chat reads its sent messages' records and the outbox off the store
+  // handle (POD-4764); the outbox here is the real one the sends drain from.
+  resetFakeStore()
+  setFakeStore({ chatSendsFor: chatSend.chatSendsFor })
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -219,6 +225,19 @@ afterEach(() => {
   chatSend.reset()
   vi.clearAllMocks()
 })
+
+/** A synced record of a message sent into s1 (POD-4764). */
+function sentRecord(id: string, body: string, over: Partial<MessageRecordWire> = {}): MessageRecordWire {
+  return {
+    id,
+    sessionId: asSessionId('s1'),
+    senderUserId: 'usr_me',
+    body,
+    createdAt: '2026-06-03T00:00:01.000Z',
+    status: 'stored',
+    ...over,
+  }
+}
 
 async function flush(): Promise<void> {
   // Let pending microtasks (the awaited tRPC query) settle inside act.
@@ -686,94 +705,75 @@ describe('ChatView composer', () => {
     )
   })
 
-  it('restores a queued chat message from the durable ledger after refresh', async () => {
-    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
-      {
-        id: 'msg_queued',
-        from: 'operator',
-        to: 'session:s1',
-        body: 'please do this next',
-        createdAt: '2026-06-03T00:00:01.000Z',
-        status: 'queued',
-        queuePosition: 2,
-      },
-    ])
+  it('shows a queued message from its synced record after a refresh', async () => {
+    setFakeStore({ messageRecords: [sentRecord('msg_queued', 'please do this next')] })
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
 
-    const queued = container.querySelector('[data-testid="queued-chat-message"]')
+    const queued = container.querySelector('[data-testid="chat-message-record"]')
     expect(queued?.textContent).toContain('please do this next')
     // One noun for every not-yet-delivered bubble, whatever parked it.
     expect(queued?.textContent).toContain('pending · sends after this turn')
-    expect(queued?.textContent).toContain('pending · sends after this turn · queue position 2')
     expect(queued?.querySelector('.msg-action--retract')).not.toBeNull()
     // The bubble IS the queue notice now: the composer no longer repeats the
     // count above the field.
     expect(container.querySelector('[data-notice="queue"]')).toBeNull()
   })
 
-  it('restores a dead-lettered chat message with its reason, and offers no resend under a new id', async () => {
-    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
-      {
-        id: 'msg_failed',
-        from: 'operator',
-        to: 'session:s1',
-        body: 'please try this again',
-        createdAt: '2026-06-03T00:00:01.000Z',
-        status: 'dead_letter',
-        deliveryDeferredReason: 'never-live',
-      },
-      {
-        id: 'msg_other_session',
-        from: 'operator',
-        to: 'session:s2',
-        body: 'do not show this here',
-        createdAt: '2026-06-03T00:00:02.000Z',
-        status: 'dead_letter',
-        deliveryDeferredReason: 'teardown',
-      },
-      {
-        id: 'msg_delivered',
-        from: 'operator',
-        to: 'session:s1',
-        body: 'already delivered',
-        createdAt: '2026-06-03T00:00:03.000Z',
-        status: 'delivered',
-      },
-      {
-        id: 'msg_delivered_then_failed',
-        from: 'operator',
-        to: 'session:s1',
-        body: 'delivery later failed',
-        createdAt: '2026-06-03T00:00:04.000Z',
-        status: 'dead_letter',
-        deliveredAt: '2026-06-03T00:00:04.500Z',
-        deliveredTo: 'session:s1',
-        deliveryDeferredReason: 'delivery-failed',
-      },
-    ])
+  it('shows a message the server says did not arrive with its reason, and "send again" puts its words back', async () => {
+    setFakeStore({
+      messageRecords: [
+        sentRecord('msg_failed', 'please try this again', { status: 'failed', reason: 'never-live' }),
+        sentRecord('msg_other_session', 'do not show this here', {
+          sessionId: asSessionId('s2'),
+          status: 'failed',
+          reason: 'teardown',
+        }),
+        // Confirmed and first seen that way: history, shown by the transcript.
+        sentRecord('msg_delivered', 'already delivered', {
+          status: 'confirmed',
+          transcriptItem: { id: 'entry-1' },
+        }),
+        sentRecord('msg_unknown', 'did this land?', { status: 'unknown' }),
+      ],
+    })
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
 
-    const failed = container.querySelector('[data-testid="dead-lettered-chat-message"]')
+    const failed = container.querySelector('[data-delivery="failed"]')
     expect(failed?.textContent).toContain('please try this again')
     expect(failed?.textContent).toContain('not delivered · agent not accepting input')
     expect(container.textContent).not.toContain('do not show this here')
     expect(container.textContent).not.toContain('already delivered')
-    expect(container.textContent).toContain('delivery later failed')
-    expect(container.textContent).toContain('not delivered · delivery failed')
+    const unknown = container.querySelector('[data-delivery="unknown"]')
+    expect(unknown?.textContent).toContain('it may or may not have arrived')
+    // Never offered without saying it may already be there.
+    expect(
+      unknown?.querySelector('[aria-label="Send again — it may already have arrived"]'),
+    ).not.toBeNull()
 
-    // POD-4762: the server holds this message and gave up on it. Sending its
-    // text again would be a SECOND message — a duplicate whenever the first was
-    // in fact typed ('delivery-failed') — so the row offers no retry at all.
-    expect(container.querySelector('[aria-label="Retry failed message"]')).toBeNull()
+    // POD-4762: the server holds this message and gave up on it; resending it
+    // would be a SECOND message. "Send again" is the person's choice to write a
+    // NEW one: the words go back into the composer, the old notice goes.
     expect(container.querySelector('[aria-label="Retry sending message"]')).toBeNull()
+    await act(async () => {
+      failed?.querySelector<HTMLButtonElement>('[aria-label="Send again"]')?.click()
+      await Promise.resolve()
+    })
+    await flush()
+    // The composer's draft is the store's: the words land there.
+    expect(storeActions.setSessionDraft).toHaveBeenLastCalledWith(
+      asSessionId('s1'),
+      'please try this again',
+    )
+    expect(fakeTrpc.messages.dismissNotice.mutate).toHaveBeenCalledWith({ id: 'msg_failed' })
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
   })
+
 
 
   /**
@@ -796,7 +796,6 @@ describe('ChatView composer', () => {
     beforeEach(() => {
       storeSessions = [meta({ status: 'live' })]
       storeDrafts = { s1: 'ship it' }
-      fakeTrpc.messages.ledger.query.mockResolvedValue([])
     })
 
     afterEach(() => {
@@ -885,27 +884,19 @@ describe('ChatView composer', () => {
   })
 
   it('stops calling a queued message pending once the CLI has been handed it', async () => {
-    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
-      {
-        id: 'msg_injected',
-        from: 'operator',
-        to: 'session:s1',
-        body: 'merge this branch',
-        createdAt: '2026-06-03T00:00:01.000Z',
-        // Typed into the harness, not yet taken as a turn. The agent may already
-        // be acting on it — Claude Code shows queued input to the running turn —
-        // so a bubble that still says "sends after this turn" sits under the work
-        // it caused and offers a Retract that can no longer retract (POD-1242).
-        injectedAt: '2026-06-03T00:00:02.000Z',
-        status: 'queued',
-      },
-    ])
+    // Typed into the harness, not yet taken as a turn. The agent may already be
+    // acting on it — Claude Code shows queued input to the running turn — so a
+    // bubble that still says "sends after this turn" sits under the work it
+    // caused and offers a Retract that can no longer retract (POD-1242).
+    setFakeStore({
+      messageRecords: [sentRecord('msg_injected', 'merge this branch', { status: 'typed' })],
+    })
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
 
-    const queued = container.querySelector('[data-testid="queued-chat-message"]')
+    const queued = container.querySelector('[data-testid="chat-message-record"]')
     expect(queued?.textContent).toContain('merge this branch')
     expect(queued?.textContent).not.toContain('pending')
     expect(queued?.querySelector('.msg-action--retract')).toBeNull()
@@ -913,17 +904,13 @@ describe('ChatView composer', () => {
     expect(queued?.querySelector('.transcript-you-bubble--queued')).toBeNull()
   })
 
-  it('retracts a pending durable message and removes it from the transcript', async () => {
-    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
-      {
-        id: 'msg_retract',
-        from: 'operator',
-        to: 'session:s1',
-        body: 'do not send this',
-        createdAt: '2026-06-03T00:00:01.000Z',
-        status: 'queued',
-      },
-    ])
+  it('retracts a pending message by its id and removes it from the transcript', async () => {
+    setFakeStore({ messageRecords: [sentRecord('msg_retract', 'do not send this')] })
+    fakeTrpc.messages.cancel.mutate.mockImplementationOnce(async () => {
+      // The server cancels it; the feed lets it go.
+      setFakeStore({ messageRecords: [] })
+      return { status: 'cancelled' }
+    })
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
@@ -937,6 +924,7 @@ describe('ChatView composer', () => {
       retract?.click()
       await Promise.resolve()
     })
+    await flush()
 
     expect(fakeTrpc.messages.cancel.mutate).toHaveBeenCalledWith({ id: 'msg_retract' })
     expect(container.textContent).not.toContain('do not send this')
@@ -1122,7 +1110,6 @@ describe('ChatView delivered send boundary', () => {
   beforeEach(() => {
     storeSessions = [meta({ status: 'live' })]
     storeDrafts = { s1: 'already delivered' }
-    fakeTrpc.messages.ledger.query.mockResolvedValue([])
   })
 
   it('does not rewrite a delivered bubble as failed when a provider error follows', async () => {
@@ -1177,7 +1164,7 @@ describe('ChatView delivered send boundary', () => {
  * that and then handed the operator a terminal they had not asked for. These pin
  * the three halves of the answer: the panel stays on the surface the send came
  * from, the message reads as QUEUED rather than as eternally in flight, and the
- * durable row is pulled in at once so it is still there after you walk away.
+ * server's record of it takes over the bubble by id (POD-4764).
  */
 describe('ChatView sending into a hibernated session', () => {
   const submit = async (): Promise<void> => {
@@ -1229,25 +1216,33 @@ describe('ChatView sending into a hibernated session', () => {
     const bubble = container.querySelector('.transcript-pending')
     expect(bubble?.textContent).toContain('pick this back up')
     // 'pending' is the one word every not-yet-delivered bubble wears since
-    // 5bc2fd241; the restored-from-ledger case above already asserts it. What
+    // 5bc2fd241; the restored-from-record case above already asserts it. What
     // this case is really about is the NEGATIVE below — the bubble must not sit
     // in "sending…", which is the state that becomes a lie once the turn parks.
     expect(bubble?.textContent).toContain('pending')
     expect(bubble?.textContent).not.toContain('sending…')
   })
 
-  it('pulls the durable ledger row in at once, so leaving does not lose it', async () => {
+  it('follows the record by id once the server stores the message', async () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
-    const before = fakeTrpc.messages.ledger.query.mock.calls.length
     await submit()
     await flush()
+    const messageId = fakeTrpc.sessions.resumeAndSend.mutate.mock.calls.at(-1)?.[0].mutationId
+    expect(messageId).toMatch(/^msg_/)
 
-    expect(fakeTrpc.messages.ledger.query.mock.calls.length).toBeGreaterThan(before)
-    expect(fakeTrpc.messages.ledger.query).toHaveBeenLastCalledWith(
-      expect.objectContaining({ sessionId: asSessionId('s1') }),
-    )
+    setFakeStore({
+      messageRecords: [
+        sentRecord(messageId as string, 'pick this back up', {
+          status: 'confirmed',
+          transcriptItem: { id: 'entry-9' },
+        }),
+      ],
+    })
+    await flush()
+    // Confirmed, and its history entry not on screen yet: still one bubble.
+    expect(container.querySelectorAll('.transcript-pending')).toHaveLength(1)
   })
 })

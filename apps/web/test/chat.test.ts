@@ -3,9 +3,7 @@ import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildChatRows,
-  type PendingItem,
   pairToolResults,
-  reconcilePending,
   ticksFromOffsets,
   toolBatchTitle,
 } from '../src/features/chat/chat'
@@ -155,8 +153,6 @@ describe('toolBatchTitle', () => {
   })
 })
 
-const pend = (text: string, id = text): PendingItem => ({ id, text, at: 0, state: 'sending' })
-
 describe('shouldPinOnReset', () => {
   it('always re-pins on a reset regardless of current pin state', () => {
     expect(shouldPinOnReset(true, false)).toBe(true)
@@ -165,56 +161,5 @@ describe('shouldPinOnReset', () => {
   it('preserves the current pin state on an incremental append', () => {
     expect(shouldPinOnReset(false, true)).toBe(true)
     expect(shouldPinOnReset(false, false)).toBe(false)
-  })
-})
-
-describe('reconcilePending', () => {
-  it('drops a pending entry once a matching new user text appears', () => {
-    const out = reconcilePending(
-      [pend('run the tests')],
-      [item({ role: 'user', text: 'run the tests' })],
-    )
-    expect(out).toEqual([])
-  })
-  it('keeps pending entries with no matching new user text', () => {
-    const out = reconcilePending([pend('hello')], [item({ role: 'user', text: 'something else' })])
-    expect(out).toEqual([pend('hello')])
-  })
-  it('consumes one real occurrence per pending (FIFO) for duplicate texts', () => {
-    const out = reconcilePending(
-      [pend('ok', 'a'), pend('ok', 'b')],
-      [item({ role: 'user', text: 'ok' })],
-    )
-    expect(out).toEqual([pend('ok', 'b')])
-  })
-  it('matches on trimmed text', () => {
-    expect(reconcilePending([pend('hi')], [item({ role: 'user', text: '  hi  ' })])).toEqual([])
-  })
-  it('matches attachment turns by canonical path after transcript text normalization', () => {
-    const path = '/home/u/.podium/uploads/s1/shot.png'
-    const pending: PendingItem = {
-      ...pend(`${path}\nmerge it`),
-      tags: [{ kind: 'image', label: 'shot.png' }],
-      toolPaths: [path],
-    }
-    const echoed = item({
-      role: 'user',
-      text: 'merge it',
-      tags: [{ kind: 'image', label: 'shot.png' }],
-      toolPaths: [path],
-    })
-    expect(reconcilePending([pending], [echoed])).toEqual([])
-  })
-  it('does not reconcile attachment turns with different upload paths', () => {
-    const pending: PendingItem = {
-      ...pend('/uploads/a.png\nreview this'),
-      toolPaths: ['/uploads/a.png'],
-    }
-    const echoed = item({
-      role: 'user',
-      text: 'review this',
-      toolPaths: ['/uploads/b.png'],
-    })
-    expect(reconcilePending([pending], [echoed])).toEqual([pending])
   })
 })

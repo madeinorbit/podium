@@ -64,7 +64,6 @@ const fakeTrpc = {
     answerAskUserQuestion: { mutate: vi.fn(async () => {}) },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
-  messages: { ledger: { query: vi.fn(async (): Promise<unknown> => []) } },
 }
 
 let storeSessions: SessionMeta[] = []
@@ -137,11 +136,12 @@ vi.mock('@/lib/markdown', () => ({
 
 vi.mock('@podium/client-core/react', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
+  const { fakeStoreHandle } = await import('./test-support/fake-store-handle')
   return {
     ...actual,
     // See the note above: the only member this view takes off the module
     // directly, and the one the app-store mock therefore cannot cover.
-    useStoreHandle: () => ({ getSnapshot: () => ({ issues: [] }) }),
+    useStoreHandle: () => fakeStoreHandle,
   }
 })
 

@@ -65,7 +65,6 @@ function render(
         stickyEnabled={false}
         isOperatorPromptRow={() => false}
         pending={[]}
-        restoredQueued={[]}
         onRetractQueued={async () => {}}
         overlay={overlay}
         turnPreview={null}

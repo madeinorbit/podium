@@ -13,11 +13,13 @@
  *     (await import('./test-support/presence-mock')).presenceSeamStub())
  */
 
+import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
+
 export function presenceSeamStub(): Record<string, unknown> {
   return {
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
-    useStoreHandle: () => ({ getSnapshot: () => ({ issues: [] }) }),
+    useStoreHandle: () => fakeStoreHandle,
     useModelCatalog: () => ({}),
     // Served harness descriptors (POD-4475): provider-free suites render
     // against the bundled copy.

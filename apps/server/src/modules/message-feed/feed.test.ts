@@ -25,7 +25,7 @@ import {
 } from '@podium/model'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Store } from '../../store'
+import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import type { MessageRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -34,7 +34,7 @@ import { MessageFeedPublisher } from './feed'
 const S1 = asSessionId('ses_one')
 const ALICE = asUserId('usr_alice')
 
-const stores: Store[] = []
+const stores: SessionStore[] = []
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close()
 })

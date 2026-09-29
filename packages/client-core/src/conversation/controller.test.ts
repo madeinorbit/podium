@@ -1,81 +1,320 @@
-import { asSessionId, type SessionOffer, type TranscriptItem } from '@podium/model'
+import { asSessionId, type MessageRecordWire, type SessionOffer, type TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import type { OutboxChatSend } from '../engine/chat-send'
 import { createConversationController } from './controller'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((yes) => {
+  let reject!: (cause: unknown) => void
+  const promise = new Promise<T>((yes, no) => {
     resolve = yes
+    reject = no
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
-function transcript() {
-  let items: TranscriptItem[] = []
+/** A port whose value the test moves, like the transcript and the store. */
+function source<T>(initial: T) {
+  let value = initial
   const listeners = new Set<() => void>()
   return {
     port: {
-      getSnapshot: () => ({ items }),
+      getSnapshot: () => value,
       subscribe(listener: () => void) {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
     },
-    set(next: TranscriptItem[]) {
-      items = next
+    get: () => value,
+    set(next: T) {
+      value = next
       for (const listener of listeners) listener()
     },
   }
+}
+
+function transcript() {
+  const items = source<{ items: TranscriptItem[] }>({ items: [] })
+  return { port: items.port, set: (next: TranscriptItem[]) => items.set({ items: next }) }
+}
+
+function records(initial: MessageRecordWire[] = []) {
+  return source<readonly MessageRecordWire[]>(initial)
 }
 
 function user(id: string, text: string, extras: Partial<TranscriptItem> = {}): TranscriptItem {
   return { id, role: 'user', text, ...extras }
 }
 
+function record(id: string, over: Partial<MessageRecordWire> = {}): MessageRecordWire {
+  return {
+    id,
+    sessionId: asSessionId('s1'),
+    senderUserId: 'usr_me',
+    body: `the words of ${id}`,
+    createdAt: '2026-09-29T10:00:00.000Z',
+    status: 'stored',
+    ...over,
+  }
+}
+
 function offer(createdAt = '2026-08-30T12:00:00.000Z'): SessionOffer {
   return { message: 'Choose', actions: [{ label: 'Do it', prompt: 'do it' }], createdAt }
 }
 
-describe('conversation controller contract', () => {
-  it('restarts cleanly after an adapter effect releases its resources', async () => {
+const states = (controller: { getSnapshot(): { bubbles: { deliveryId: string; state: string }[] } }) =>
+  controller.getSnapshot().bubbles.map((bubble) => `${bubble.deliveryId}:${bubble.state}`)
+
+/**
+ * A MESSAGE'S BUBBLE FOLLOWS ITS SYNCED RECORD, BY ID (POD-4764). This device's
+ * send shows until the server's record of it arrives; the record says where it
+ * stands; the bubble leaves when the history entry the record names is on
+ * screen. No ledger poll, and no transcript text is ever compared.
+ */
+describe('conversation controller over synced records', () => {
+  it('hands a send over to its record, and drops it when the named history entry arrives', async () => {
     const feed = transcript()
-    const reads: Array<ReturnType<typeof deferred<unknown>>> = []
+    const synced = records()
     const controller = createConversationController({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
+      records: synced.port,
       createDeliveryId: () => 'msg-1',
-      deliver: vi.fn(),
-      readQueue: () => {
-        const next = deferred<unknown>()
-        reads.push(next)
-        return next.promise
-      },
+      deliver: async () => ({ state: 'sent' }),
     })
+    controller.start()
+    await controller.submit({ text: 'please ship it' })
+    expect(states(controller)).toEqual(['msg-1:sent'])
 
-    const rehearsed = controller.start()
-    controller.stop()
-    const mounted = controller.start()
-    expect(reads).toHaveLength(2)
-
-    reads[0]?.resolve([])
-    reads[1]?.resolve([
-      {
-        id: 'mounted',
-        from: 'operator',
-        to: 'session:s1',
-        status: 'queued',
-        body: 'still live',
-        createdAt: '2026-08-30T12:00:00.000Z',
-      },
+    synced.set([record('msg-1', { body: 'please ship it', status: 'stored' })])
+    expect(states(controller)).toEqual(['msg-1:queued'])
+    expect(controller.getSnapshot().bubbles[0]?.retractable).toBe(true)
+    synced.set([record('msg-1', { body: 'please ship it', status: 'typed' })])
+    expect(states(controller)).toEqual(['msg-1:sent'])
+    synced.set([
+      record('msg-1', { status: 'confirmed', transcriptItem: { id: 'entry-7', cursor: 'c7' } }),
     ])
-    await Promise.all([rehearsed, mounted])
+    expect(states(controller)).toEqual(['msg-1:sent'])
 
-    expect(controller.getSnapshot().queued.map((message) => message.id)).toEqual(['mounted'])
+    // The history carries it under DIFFERENT text — the harness rewrote it —
+    // and the id alone retires the bubble: the message shows once.
+    feed.set([user('entry-7', '<user_query>please ship it</user_query>')])
+    expect(controller.getSnapshot().bubbles).toEqual([])
     controller.dispose()
   })
 
-  it('owns a controlled draft, exact-wire retry, offer restoration, and echo reconciliation', async () => {
+  it('never retires a bubble on matching text', async () => {
     const feed = transcript()
+    const synced = records([record('msg-1', { body: 'same words', status: 'typed' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    feed.set([user('entry-1', 'same words')])
+    expect(states(controller)).toEqual(['msg-1:sent'])
+    controller.dispose()
+  })
+
+  it('shows a message sent from another device, with the status its record carries', () => {
+    const synced = records([record('msg-other', { status: 'dispatched' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-other', text: 'the words of msg-other', state: 'sent', retractable: true },
+    ])
+    synced.set([record('msg-other', { status: 'unknown' })])
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-other', state: 'unknown', notice: 'unknown' },
+    ])
+    controller.dispose()
+  })
+
+  it('shows no bubble for a record first seen confirmed — that is history', () => {
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records([record('msg-old', { status: 'confirmed', transcriptItem: { id: 'e1' } })])
+        .port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    controller.dispose()
+  })
+
+  it('lets a confirmed record that names no history entry go: there is no id to wait for', () => {
+    const synced = records([record('msg-1', { status: 'typed' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    synced.set([record('msg-1', { status: 'confirmed' })])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    controller.dispose()
+  })
+
+  it('drops a send whose record came and went (cancelled, dismissed, out of the window)', async () => {
+    const synced = records()
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => ({ state: 'queued' }),
+    })
+    controller.start()
+    await controller.submit({ text: 'maybe' })
+    // Answered, but the feed has not carried the record yet: it keeps showing.
+    expect(states(controller)).toEqual(['msg-1:queued'])
+    synced.set([record('msg-1', { body: 'maybe' })])
+    synced.set([])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    expect(controller.getSnapshot().pending).toEqual([])
+    controller.dispose()
+  })
+
+  it('retracts by id, hiding the bubble meanwhile and restoring it when refused', async () => {
+    const synced = records([record('msg-1', { status: 'stored' })])
+    const answer = deferred<void>()
+    const retract = vi.fn(() => answer.promise)
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+      retract,
+    })
+    controller.start()
+    const retracting = controller.retract('msg-1')
+    expect(retract).toHaveBeenCalledWith('msg-1')
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    answer.reject(new Error('already typed'))
+    await expect(retracting).rejects.toThrow('already typed')
+    expect(states(controller)).toEqual(['msg-1:queued'])
+    controller.dispose()
+  })
+
+  it('offers "send again" on a message the server says did not arrive: the text returns to the composer and the notice goes', async () => {
+    const synced = records([record('msg-1', { status: 'failed', reason: 'teardown' })])
+    const dismissNotice = vi.fn(async () => {
+      synced.set([])
+    })
+    const deliver = vi.fn()
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver,
+      dismissNotice,
+    })
+    controller.start()
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { state: 'failed', notice: 'failed', error: 'not delivered · session torn down' },
+    ])
+    // Not a resend of this message: retry does nothing for a server notice.
+    await controller.retry('msg-1')
+    expect(deliver).not.toHaveBeenCalled()
+
+    await controller.sendAgain('msg-1')
+    expect(controller.getSnapshot().draft).toBe('the words of msg-1')
+    expect(dismissNotice).toHaveBeenCalledWith('msg-1')
+    expect(deliver).not.toHaveBeenCalled()
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    controller.dispose()
+  })
+
+  it('follows the outbox when a send that gave up is retried or discarded elsewhere', async () => {
+    const sends = source<readonly OutboxChatSend[]>([])
+    const deliver = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error("not sent — couldn't reach the server"), {
+        retryable: true,
+      }))
+      .mockResolvedValueOnce({ state: 'sent' })
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      outbox: { held: () => sends.get(), subscribe: sends.port.subscribe },
+      createDeliveryId: () => 'msg-1',
+      deliver,
+    })
+    controller.start()
+    await controller.submit({ text: 'from the tunnel' })
+    expect(states(controller)).toEqual(['msg-1:failed'])
+
+    // The recovery panel re-issues the SAME entry: the bubble follows it again.
+    const held = {
+      mutationId: 'msg-1',
+      sessionId: asSessionId('s1'),
+      text: 'from the tunnel',
+      wake: false,
+      queuedAt: 1,
+    } as unknown as OutboxChatSend
+    sends.set([{ ...held, state: 'sending' }])
+    expect(states(controller)).toEqual(['msg-1:sending'])
+    await vi.waitFor(() => expect(states(controller)).toEqual(['msg-1:sent']))
+    expect(deliver.mock.calls.map(([turn]) => turn.deliveryId)).toEqual(['msg-1', 'msg-1'])
+    controller.dispose()
+  })
+
+  it('lets a failed send go when the outbox no longer holds it', async () => {
+    const sends = source<readonly OutboxChatSend[]>([])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      outbox: { held: () => sends.get(), subscribe: sends.port.subscribe },
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => {
+        throw new Error("not sent — couldn't reach the server")
+      },
+    })
+    controller.start()
+    await controller.submit({ text: 'never mind' })
+    expect(states(controller)).toEqual(['msg-1:failed'])
+    sends.set([])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    controller.dispose()
+  })
+
+  it('retires a send with no record by the next user entry, whatever its text', async () => {
+    const feed = transcript()
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      reconcile: 'next-user-item',
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => ({ state: 'sent' }),
+    })
+    controller.start()
+    await controller.submit({ text: 'first' })
+    await controller.submit({ text: 'second' })
+    feed.set([user('u1', 'something else entirely')])
+    expect(controller.getSnapshot().bubbles.map((bubble) => bubble.text)).toEqual(['second'])
+    controller.dispose()
+  })
+})
+
+describe('conversation controller contract', () => {
+  it('owns a controlled draft, exact-wire retry and offer restoration', async () => {
     const drafts: string[] = []
     const deliver = vi
       .fn()
@@ -83,14 +322,14 @@ describe('conversation controller contract', () => {
       .mockResolvedValueOnce({ state: 'queued' })
     const controller = createConversationController({
       sessionId: asSessionId('s1'),
-      transcript: feed.port,
+      transcript: transcript().port,
       initialDraft: 'remembered',
       onDraftChange: (text) => drafts.push(text),
       createDeliveryId: () => 'msg-1',
       deliver,
       dismissOffer: vi.fn(async () => {}),
     })
-    await controller.start()
+    controller.start()
     controller.updateContext({ canInterrupt: true, offer: offer(), agentPhase: 'idle' })
     controller.setDraft('edited')
     await controller.submit({
@@ -107,66 +346,7 @@ describe('conversation controller contract', () => {
       '/uploads/shot.png\nlook',
       '/uploads/shot.png\nlook',
     ])
-    feed.set([user('echo', 'look', { toolPaths: ['/uploads/shot.png'] })])
-    expect(controller.getSnapshot().pending).toEqual([])
-    controller.dispose()
-  })
-
-  it('projects durable queue identity and retracts it optimistically', async () => {
-    const feed = transcript()
-    const retract = vi.fn(async () => {})
-    const controller = createConversationController({
-      sessionId: asSessionId('s1'),
-      transcript: feed.port,
-      createDeliveryId: () => 'msg-1',
-      deliver: async () => ({ state: 'queued' }),
-      readQueue: async () => [
-        {
-          id: 'msg-1',
-          from: 'operator',
-          to: 'session:s1',
-          status: 'queued',
-          body: 'hello',
-          createdAt: '2026-08-30T12:00:00.000Z',
-          injectedAt: null,
-        },
-      ],
-      retract,
-    })
-    await controller.start()
-    await controller.submit({ text: 'hello' })
-    await controller.refreshQueue()
-    expect(controller.getSnapshot().projected.pending[0]?.durable?.id).toBe('msg-1')
-    await controller.retract('msg-1')
-    expect(retract).toHaveBeenCalledWith('msg-1')
-    expect(controller.getSnapshot().pending).toEqual([])
-    expect(controller.getSnapshot().queued).toEqual([])
-    controller.dispose()
-  })
-
-  it('restores a durable row when retraction is refused', async () => {
-    const feed = transcript()
-    const row = {
-      id: 'queued-1',
-      from: 'operator',
-      to: 'session:s1',
-      status: 'queued',
-      body: 'keep me',
-      createdAt: '2026-08-30T12:00:00.000Z',
-    }
-    const controller = createConversationController({
-      sessionId: asSessionId('s1'),
-      transcript: feed.port,
-      createDeliveryId: () => 'msg-1',
-      deliver: vi.fn(),
-      readQueue: async () => [row],
-      retract: vi.fn(async () => {
-        throw new Error('already injected')
-      }),
-    })
-    await controller.start()
-    await expect(controller.retract('queued-1')).rejects.toThrow('already injected')
-    expect(controller.getSnapshot().queued.map((message) => message.id)).toEqual(['queued-1'])
+    expect(controller.getSnapshot().pending[0]).toMatchObject({ state: 'queued' })
     controller.dispose()
   })
 
@@ -182,7 +362,7 @@ describe('conversation controller contract', () => {
       createDeliveryId: () => 'msg-1',
       deliver: () => delivered,
     })
-    await controller.start()
+    controller.start()
     controller.updateContext({ canInterrupt: false, offer: offer('old') })
     const sending = controller.sendOffer('answer', 'old')
     expect(controller.getSnapshot().offer).toBeNull()
@@ -204,7 +384,7 @@ describe('conversation controller contract', () => {
       deliver: vi.fn(),
       interrupt,
     })
-    await controller.start()
+    controller.start()
     controller.updateContext({
       canInterrupt: true,
       latestOperatorPrompt: 'last prompt',
@@ -233,7 +413,7 @@ describe('conversation controller contract', () => {
       deliver: async () => ({ state: 'queued' }),
       interrupt,
     })
-    await controller.start()
+    controller.start()
     controller.updateContext({ canInterrupt: true, agentPhase: 'working' })
     await controller.submit({ text: 'stop this' })
     expect(controller.getSnapshot().interruptMessageId).toBe('msg-1')
@@ -263,11 +443,9 @@ describe('conversation controller contract', () => {
         now: () => 0,
         setTimeout: (callback) => timers.push(callback),
         clearTimeout: () => {},
-        setInterval: () => 0,
-        clearInterval: () => {},
       },
     })
-    await controller.start()
+    controller.start()
     controller.updateContext({ canInterrupt: true, agentPhase: 'idle', agentSince: 't0' })
     await controller.submit({ text: 'Write the numbers from 1 to 400' })
     expect(controller.getSnapshot().justSent).toBe(true)
@@ -292,11 +470,9 @@ describe('conversation controller contract', () => {
         now: () => 0,
         setTimeout: () => 0,
         clearTimeout: () => {},
-        setInterval: () => 0,
-        clearInterval: () => {},
       },
     })
-    await controller.start()
+    controller.start()
     controller.updateContext({ canInterrupt: true, agentPhase: 'idle', agentSince: 't0' })
     await controller.submit({ text: 'Write the numbers from 1 to 400' })
 
@@ -306,211 +482,6 @@ describe('conversation controller contract', () => {
     controller.dispose()
   })
 
-  it('rejects an older queue read after a newer snapshot lands', async () => {
-    const feed = transcript()
-    const reads: Array<ReturnType<typeof deferred<unknown>>> = []
-    const readQueue = vi.fn(() => {
-      const next = deferred<unknown>()
-      reads.push(next)
-      return next.promise
-    })
-    const controller = createConversationController({
-      sessionId: asSessionId('s1'),
-      transcript: feed.port,
-      createDeliveryId: () => 'msg-1',
-      deliver: vi.fn(),
-      readQueue,
-    })
-    const starting = controller.start()
-    reads[0]?.resolve([])
-    await starting
-
-    const older = controller.refreshQueue()
-    const newer = controller.refreshQueue()
-    reads[2]?.resolve([
-      {
-        id: 'new',
-        from: 'operator',
-        to: 'session:s1',
-        status: 'queued',
-        body: 'newer',
-        createdAt: '2026-08-30T12:00:02.000Z',
-      },
-    ])
-    await newer
-    reads[1]?.resolve([
-      {
-        id: 'old',
-        from: 'operator',
-        to: 'session:s1',
-        status: 'queued',
-        body: 'older',
-        createdAt: '2026-08-30T12:00:01.000Z',
-      },
-    ])
-    await older
-    expect(controller.getSnapshot().queued.map((message) => message.id)).toEqual(['new'])
-    controller.dispose()
-  })
-
-  it('does not let a pre-retract queue read resurrect the cancelled row', async () => {
-    const feed = transcript()
-    const stale = deferred<unknown>()
-    const row = {
-      id: 'queued-1',
-      from: 'operator',
-      to: 'session:s1',
-      status: 'queued',
-      body: 'later',
-      createdAt: '2026-08-30T12:00:00.000Z',
-    }
-    const readQueue = vi.fn().mockResolvedValueOnce([row]).mockReturnValueOnce(stale.promise)
-    const controller = createConversationController({
-      sessionId: asSessionId('s1'),
-      transcript: feed.port,
-      createDeliveryId: () => 'msg-1',
-      deliver: vi.fn(),
-      readQueue,
-      retract: vi.fn(async () => {}),
-    })
-    await controller.start()
-    const reading = controller.refreshQueue()
-    await controller.retract('queued-1')
-    stale.resolve([row])
-    await reading
-    expect(controller.getSnapshot().queued).toEqual([])
-    controller.dispose()
-  })
-
-  it('removes a row returned by a poll that began while retract was committing', async () => {
-    const feed = transcript()
-    const cancel = deferred<void>()
-    const stale = deferred<unknown>()
-    const row = {
-      id: 'queued-1',
-      from: 'operator',
-      to: 'session:s1',
-      status: 'queued',
-      body: 'later',
-      createdAt: '2026-08-30T12:00:00.000Z',
-    }
-    const readQueue = vi.fn().mockResolvedValueOnce([row]).mockReturnValueOnce(stale.promise)
-    const controller = createConversationController({
-      sessionId: asSessionId('s1'),
-      transcript: feed.port,
-      createDeliveryId: () => 'msg-1',
-      deliver: vi.fn(),
-      readQueue,
-      retract: () => cancel.promise,
-    })
-    await controller.start()
-    const retracting = controller.retract('queued-1')
-    const reading = controller.refreshQueue()
-    stale.resolve([row])
-    await reading
-    expect(controller.getSnapshot().queued).toEqual([])
-    cancel.resolve()
-    await retracting
-    expect(controller.getSnapshot().queued).toEqual([])
-    controller.dispose()
-  })
-
-  it('pauses and resumes fast acknowledgement polling with activation', async () => {
-    vi.useFakeTimers()
-    const feed = transcript()
-    const readQueue = vi.fn(async () => [])
-    const controller = createConversationController({
-      sessionId: asSessionId('s1'),
-      transcript: feed.port,
-      createDeliveryId: () => 'msg-1',
-      deliver: async () => ({ state: 'queued' }),
-      readQueue,
-      queueRefreshMs: 5_000,
-      queuedAckRefreshMs: 1_000,
-    })
-    try {
-      await controller.start()
-      controller.setActive(false)
-      await controller.submit({ text: 'wait' })
-      await Promise.resolve()
-      const inactiveReads = readQueue.mock.calls.length
-      await vi.advanceTimersByTimeAsync(2_000)
-      expect(readQueue).toHaveBeenCalledTimes(inactiveReads)
-
-      controller.setActive(true)
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(readQueue.mock.calls.length).toBeGreaterThan(inactiveReads)
-
-      controller.setActive(false)
-      const pausedReads = readQueue.mock.calls.length
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(readQueue).toHaveBeenCalledTimes(pausedReads)
-    } finally {
-      controller.dispose()
-      vi.useRealTimers()
-    }
-  })
-})
-
-describe.each([
-  { client: 'desktop', queueRefreshMs: 5_000, queuedAckRefreshMs: 1_000 },
-  { client: 'ios', queueRefreshMs: 5_000, queuedAckRefreshMs: 1_000 },
-] as const)('$client conversation parity', ({ client, queueRefreshMs, queuedAckRefreshMs }) => {
-  it('runs the same controlled-draft, durable-id, offer, retry, and retract contract', async () => {
-    const feed = transcript()
-    const deliveryId = `msg-${client}`
-    const deliver = vi.fn().mockRejectedValueOnce(new Error('retry')).mockResolvedValueOnce({
-      state: 'queued',
-    })
-    const retract = vi.fn(async () => {})
-    const controller = createConversationController({
-      sessionId: asSessionId('s1'),
-      transcript: feed.port,
-      initialDraft: 'draft',
-      createDeliveryId: () => deliveryId,
-      deliver,
-      dismissOffer: vi.fn(async () => {}),
-      readQueue: async () => [
-        {
-          id: deliveryId,
-          from: 'operator',
-          to: 'session:s1',
-          status: 'queued',
-          body: 'ship',
-          createdAt: new Date(Date.now()).toISOString(),
-        },
-      ],
-      retract,
-      queueRefreshMs,
-      queuedAckRefreshMs,
-    })
-    await controller.start()
-    controller.updateContext({ canInterrupt: false, offer: offer() })
-    await controller.dismissOffer(offer().createdAt)
-    await controller.submit({ text: 'ship' })
-    await controller.retry('pending-1')
-    await controller.refreshQueue()
-    expect(controller.getSnapshot()).toMatchObject({
-      draft: '',
-      offer: null,
-      projected: {
-        pending: [
-          {
-            id: 'pending-1',
-            deliveryId,
-            text: 'ship',
-            wire: 'ship',
-            state: 'queued',
-            kind: 'message',
-            durable: { id: deliveryId, text: 'ship', injectedAt: null },
-          },
-        ],
-      },
-    })
-    await controller.retract(deliveryId)
-    expect(controller.getSnapshot().projected).toEqual({ pending: [], queued: [] })
-    controller.dispose()
-  })
 })
 
 /**
@@ -542,9 +513,9 @@ describe('conversation controller over a durable send', () => {
     })
 
     // A StrictMode rehearsal: start, stop, start. The send is asked after once.
-    void controller.start()
+    controller.start()
     controller.stop()
-    await controller.start()
+    controller.start()
     expect(deliver).toHaveBeenCalledTimes(1)
     expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ deliveryId: 'msg_held' }))
     // Following a held send is not a new send: nothing reads as "just sent".
@@ -569,7 +540,7 @@ describe('conversation controller over a durable send', () => {
         createDeliveryId: () => 'msg-1',
         deliver: () => new Promise(() => {}),
       })
-      await controller.start()
+      controller.start()
       void controller.submit({ text: 'offline for a while' })
       await vi.advanceTimersByTimeAsync(90_000)
       expect(controller.getSnapshot().pending[0]?.state).toBe('sending')
@@ -594,7 +565,7 @@ describe('conversation controller over a durable send', () => {
       deliver,
       discard,
     })
-    await controller.start()
+    controller.start()
     await controller.submit({ text: 'hello?' })
     expect(controller.getSnapshot().pending[0]).toMatchObject({
       state: 'failed',
@@ -624,7 +595,7 @@ describe('conversation controller over a durable send', () => {
       createDeliveryId: () => 'msg-once',
       deliver,
     })
-    await controller.start()
+    controller.start()
     await controller.submit({ text: 'again' })
     expect(controller.getSnapshot().pending[0]?.state).toBe('failed')
 

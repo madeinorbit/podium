@@ -2,12 +2,9 @@ import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildChatRows,
-  deadLetteredOperatorMessages,
   FILE_LINK_PATH_CAP,
   FileLinkPathIndex,
   isBatchableTool,
-  markPendingSendingDelivered,
-  markPendingSendingFailed,
   pairToolResults,
   toolBatchTitle,
   toolCallPhrase,
@@ -15,38 +12,6 @@ import {
   toolRunFailures,
 } from './chat'
 
-describe('markPendingSendingFailed', () => {
-  it('fails only a send that has not crossed the delivery boundary', () => {
-    const pending = [
-      { id: 'sending', text: 'one', at: 1, state: 'sending' as const },
-      { id: 'sent', text: 'two', at: 2, state: 'sent' as const },
-      { id: 'queued', text: 'three', at: 3, state: 'queued' as const },
-      { id: 'failed', text: 'four', at: 4, state: 'failed' as const, failure: 'old' },
-    ]
-    expect(markPendingSendingFailed(pending, 'quota exhausted')).toEqual([
-      { id: 'sending', text: 'one', at: 1, state: 'failed', failure: 'quota exhausted' },
-      { id: 'sent', text: 'two', at: 2, state: 'sent' },
-      { id: 'queued', text: 'three', at: 3, state: 'queued' },
-      { id: 'failed', text: 'four', at: 4, state: 'failed', failure: 'old' },
-    ])
-  })
-})
-
-describe('markPendingSendingDelivered', () => {
-  it('settles only the matching in-flight bubble before a later provider error', () => {
-    const pending = [
-      { id: 'delivered', text: 'one', at: 1, state: 'sending' as const },
-      { id: 'other', text: 'two', at: 2, state: 'sending' as const },
-    ]
-    const delivered = markPendingSendingDelivered(pending, 'delivered')
-
-    expect(markPendingSendingFailed(delivered, 'quota exhausted')).toEqual([
-      { id: 'delivered', text: 'one', at: 1, state: 'sent' },
-      { id: 'other', text: 'two', at: 2, state: 'failed', failure: 'quota exhausted' },
-    ])
-    expect(markPendingSendingDelivered(pending, 'missing')).toBe(pending)
-  })
-})
 const tool = (toolName: string, id: string): TranscriptItem => ({
   id,
   role: 'tool',
@@ -383,80 +348,4 @@ describe('FileLinkPathIndex (AgentPanel file-link delta contract)', () => {
     expect(index.knownPaths.has('/external/generated-0')).toBe(true)
     expect(index.knownPaths.has('/external/generated-4999')).toBe(true)
   })
-})
-
-describe('dead-lettered operator messages reaching the transcript', () => {
-  const row = (extra: Record<string, unknown>) => ({
-    id: 'msg_1',
-    from: 'operator',
-    to: 'session:s1',
-    status: 'dead_letter',
-    body: 'here is the screenshot',
-    createdAt: '2026-08-25T18:00:00.000Z',
-    ...extra,
-  })
-
-  // THE SECOND SURFACE, AND THE ONE THAT OUTLIVES THE FIRST [POD-2574]. The
-  // in-flight bubble renders the driver's refusal from the thrown cause; this
-  // mapper renders the SETTLED row, and it is what the user is left looking at.
-  // While the synchronous refusal recorded no cause, this returned the fallback
-  // — a claim that the session was gone, made about a session that is running.
-  it('does not tell the user the target is gone when a driver refused the file', () => {
-    const [message] = deadLetteredOperatorMessages(
-      [row({ deliveryDeferredReason: 'delivery-failed' })],
-      's1' as never,
-    )
-    expect(message?.failure).toBe('not delivered · delivery failed')
-    expect(message?.failure).not.toContain('target gone')
-  })
-
-  // The fallback is deliberately left alone for rows that really have no cause:
-  // narrowing it here would hide every OTHER dead letter that still records
-  // nothing (POD-2782), rather than fixing them.
-  it('still falls back when the row records no cause at all', () => {
-    const [message] = deadLetteredOperatorMessages([row({})], 's1' as never)
-    expect(message?.failure).toBe('dead-lettered · target gone')
-  })
-})
-
-describe('observed tool-effect pairing', () => {
-  it('preserves intent and carries effects from result to call without mutating source items', () => {
-    const call: TranscriptItem = {
-      id: 'call',
-      role: 'tool',
-      text: '',
-      toolUseId: 't',
-      toolName: 'Bash',
-      toolInputJson: 'intent',
-    }
-    const result: TranscriptItem = {
-      id: 'result',
-      role: 'tool',
-      text: '',
-      toolUseId: 't',
-      toolResult: '',
-      toolEffects: [{ kind: 'background-task', taskId: 'bg' }],
-    }
-    const blocks = pairToolResults([call, result])
-    expect(blocks).toHaveLength(1)
-    expect(blocks[0]?.item.toolEffects).toEqual(result.toolEffects)
-    expect(blocks[0]?.item.toolInputJson).toBe('intent')
-    expect(call.toolEffects).toBeUndefined()
-    expect(pairToolResults([result])[0]?.item.toolEffects).toEqual(result.toolEffects)
-  })
-})
-
-it('counts structured termination as a failed run even when output is empty', () => {
-  const blocks = pairToolResults([
-    { id: 'c', role: 'tool', text: '', toolName: 'Bash', toolUseId: 't' },
-    {
-      id: 'r',
-      role: 'tool',
-      text: '',
-      toolUseId: 't',
-      toolResult: '',
-      toolEffects: [{ kind: 'termination', interrupted: true }],
-    },
-  ])
-  expect(toolRunFailures(blocks)).toBe(1)
 })

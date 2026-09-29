@@ -221,7 +221,6 @@ function renderFeed(items: TranscriptItem[], turnPreview: TurnPreview | null): v
         stickyEnabled={false}
         isOperatorPromptRow={() => false}
         pending={[]}
-        restoredQueued={[]}
         onRetractQueued={async () => {}}
         overlay={null}
         turnPreview={turnPreview}
