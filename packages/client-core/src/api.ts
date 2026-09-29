@@ -420,20 +420,18 @@ export interface PodiumClientApi {
       { threadId: ThreadId },
       { threadId: ThreadId; podiumSessionId?: SessionId }
     >
-    /** The thread's most recent durable turn failure for post-reload
-     *  restoration (POD-4806): the failed input's id, its words when the turn
-     *  never reached a harness (null when the transcript carries the prompt),
-     *  the failure text, and when it was recorded. Selected server-side by
-     *  column — clients never match prose to find it. */
-    latestTurnFailure: ApiQuery<{ threadId: ThreadId }, SuperagentTurnFailure | null>
   }
 }
 
 /**
  * A durable superagent turn failure (POD-4806). Mirrors the server's
- * `SuperagentTurnFailure` field for field — web's tsc checks the live
- * AppRouter client against this seam, so drift fails the typecheck rather
- * than reaching a phone.
+ * `SuperagentTurnFailure` field for field: the web reads it off its
+ * AppRouter-typed client and the phone declares it in its hand-written
+ * extras, so drift fails a typecheck rather than reaching a phone.
+ *
+ * Deliberately NOT on the `PodiumClientApi` seam below: the seam is what the
+ * SHARED store/actions layer calls, and restoration is read by the two
+ * shells (web's headless hook, the phone screen), not by shared code.
  */
 export interface SuperagentTurnFailure {
   inputId: string

@@ -1,4 +1,4 @@
-import type { PodiumClientApi } from '@podium/client-core/api'
+import type { PodiumClientApi, SuperagentTurnFailure } from '@podium/client-core/api'
 import {
   parseServer,
   workspaceRequestInit,
@@ -133,10 +133,12 @@ interface MobileTrpcExtras {
     // interfaces. `listThreads` is served by the shared PodiumClientApi seam and
     // answers `SuperThreadView[]` — the type the superagent SLICE publishes — so
     // the phone and the desktop render one thread shape; `latestTurnFailure`
-    // rides the same seam as `SuperagentTurnFailure | null` for the same
-    // reason. `history` stays deleted outright rather than re-typed: it is the
+    // rides here (not the shared seam, which is only what the shared
+    // store/actions layer calls) as `SuperagentTurnFailure | null` for the
+    // same reason. `history` stays deleted outright rather than re-typed: it is the
     // FROZEN legacy buffer, and this app never calls it (see SuperagentScreen
     // for why folding it back in is a trap). Only turn control is mobile's own.
+    latestTurnFailure: QueryProcedure<{ threadId: ThreadId }, SuperagentTurnFailure | null>
     interruptTurn: MutationProcedure<{ threadId: ThreadId }>
     clear: MutationProcedure<{ threadId: ThreadId }>
   }
