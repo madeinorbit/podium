@@ -156,6 +156,8 @@ export const fixtureManifest: AgentManifest = {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      // The fixture writes an ISO `ts` on every record.
+      transcriptTimestamps: { resolutionMs: 1 },
     },
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },

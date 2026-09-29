@@ -219,6 +219,9 @@ export const claudeCodeManifest: AgentManifest = {
         hook: claudeHookAcceptCorrelation,
         'transcript-echo': transcriptEchoAcceptCorrelation,
       },
+      // Every record carries an ISO `timestamp` at millisecond resolution
+      // (checked against real transcripts, 2026-09-29).
+      transcriptTimestamps: { resolutionMs: 1 },
       // Claude's hook channel is the richest of any harness, so `UserPromptSubmit`
       // anchors an accept the way a protocol ack would — the same signal
       // reattachment-design anchors turn epochs to. Transcript echo is the

@@ -139,6 +139,10 @@ export const cursorManifest: AgentManifest = {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      // Cursor's agent-transcripts records are bare `{role, message}` — no
+      // time field at all (checked against real files, 2026-09-29). The echo
+      // proof rests on position alone (POD-4838).
+      transcriptTimestamps: 'absent',
     },
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },

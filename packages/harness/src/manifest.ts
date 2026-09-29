@@ -1363,6 +1363,22 @@ export interface TerminalAcceptCorrelations {
   'transcript-echo'?: TerminalAcceptCorrelation<TranscriptItem>
 }
 
+/**
+ * WHETHER A HARNESS'S TRANSCRIPT ENTRIES SAY WHEN THEY WERE WRITTEN (POD-4838).
+ *
+ * The echo proof matches by content, and short prompts repeat, so a record
+ * counts toward a send only if the harness wrote it after the send started.
+ * Position answers that inside one transcript segment. Across segments — a
+ * resume onto a new file, a rotation, a first read that began after the send —
+ * offsets compare nothing, and the entry's own timestamp is the only answer.
+ *
+ * `resolutionMs` is how finely the harness records that time; it is the only
+ * slack the comparison allows, since the harness and the daemon share a clock.
+ * `'absent'` means the entries carry no usable time: the proof then rests on
+ * position alone, and a record in a segment the send never saw proves nothing.
+ */
+export type TranscriptTimestampFidelity = { resolutionMs: number } | 'absent'
+
 /** Today's stack, named. There is no new mechanism here — `launch()` above is
  *  still the spawn — but the family needs an id and needs to say what it can
  *  prove about a send. */
@@ -1377,6 +1393,11 @@ export interface TerminalRuntimeSpec {
   sendProof: readonly ('hook' | 'transcript-echo')[]
   /** Omitted matchers cannot prove an accept; the driver never guesses one. */
   acceptCorrelation?: TerminalAcceptCorrelations
+  /** Whether the transcript the echo proof reads says when each entry was
+   *  written. REQUIRED: every harness answers from its real files, not its
+   *  reader, because a reader that accepts a `timestamp` field proves nothing
+   *  about a CLI that never writes one. See {@link TranscriptTimestampFidelity}. */
+  transcriptTimestamps: TranscriptTimestampFidelity
   /** Provider-poll state transitions are this terminal driver's lifecycle source. */
   lifecycleFromState?: boolean
 }
