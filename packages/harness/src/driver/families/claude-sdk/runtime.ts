@@ -853,7 +853,11 @@ export function createClaudeSdkRuntime(
       }
     }
     core.delivering = undefined
-    if (!core.disposed) watchReceipt(core, userItemId, options)
+    if (core.disposed) {
+      options.onUnrecorded?.('Claude session closed before its transcript record was seen')
+    } else {
+      watchReceipt(core, userItemId, options)
+    }
     if (!core.alive) {
       // Stopped while the ack was on its way: the CLI took the line, so it is
       // accepted, but no turn opens on a session that has ended.

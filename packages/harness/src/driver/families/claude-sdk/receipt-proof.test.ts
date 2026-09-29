@@ -406,6 +406,18 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     expect(w.readArchive).toHaveBeenCalledTimes(reads)
   })
 
+  it('closes a held receipt when teardown races the queued acknowledgement', async () => {
+    const w = await world()
+    const confirmed = vi.fn()
+    const unrecorded = vi.fn()
+    const receipt = send(w.handle, confirmed, unrecorded)
+    w.frame(ack.lifecycleQueued)
+    w.dispose()
+    await expect(receipt).resolves.toMatchObject({ outcome: 'accepted', held: 'memory' })
+    expect(unrecorded).toHaveBeenCalledTimes(1)
+    expect(confirmed).not.toHaveBeenCalled()
+  })
+
   it('keeps the shared recovery stop when no stable message id was supplied', async () => {
     const w = await world()
     await w.handle.send(
