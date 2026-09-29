@@ -468,7 +468,7 @@ describe('the manifest-driven interrupt (POD-3981)', () => {
 })
 
 describe('row cancellation at the terminal submit boundary', () => {
-  it('fences the delayed Enter and confirmation nudges after cancellation', async () => {
+  it('an abort after the paste still submits it, then stops nudging and waiting', async () => {
     const abort = new AbortController()
     const { ports, written } = terminal({
       needsSubmitVerification: () => true,
@@ -483,8 +483,20 @@ describe('row cancellation at the terminal submit boundary', () => {
     expect(written).toHaveLength(1)
     abort.abort()
     expect((await delivery).outcome).toBe('unverified')
-    expect(written).toHaveLength(1)
-    expect(written).not.toContain('\r')
+    // The paste and its one Enter — never the paste alone, never a nudge.
+    expect(written).toHaveLength(2)
+    expect(written[1]).toBe('\r')
+  })
+
+  it('an abort before the paste types nothing', async () => {
+    const abort = new AbortController()
+    abort.abort()
+    const { ports, written } = terminal({})
+    const receipt = await createTerminalInjection(ports).deliver('never typed', {
+      origin: 'human', delivery: 'when-ready', signal: abort.signal,
+    })
+    expect(receipt).toMatchObject({ outcome: 'refused' })
+    expect(written).toEqual([])
   })
 })
 

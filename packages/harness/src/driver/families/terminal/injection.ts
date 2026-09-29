@@ -507,8 +507,13 @@ export function createTerminalInjection(
     let lateEcho: AcceptWatch | undefined
     try {
       ports.write(payload.bytes)
+      // A PASTE IS ALWAYS SUBMITTED (POD-4776). Once its bytes are in the
+      // composer, stopping short of the Enter would leave the text sitting in
+      // the agent's prompt, to be sent along with whatever the operator types
+      // next. An abort after this point ends the wait for proof below, never
+      // the submit itself.
       setTimer(() => {
-        if (!options.signal?.aborted && ports.running()) ports.write('\r')
+        if (ports.running()) ports.write('\r')
       }, SUBMIT_CR_DELAY_MS)
 
       const verificationStartedAt = ports.now()

@@ -4,6 +4,7 @@
 import type { Declared } from '../manifest.js'
 import type { SessionId, TranscriptItemRef } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
+import type { RetractTooLate } from '@podium/protocol/daemon'
 
 // ---------------------------------------------------------------------------
 // Turns and control — the one write path (spec §3)
@@ -288,6 +289,14 @@ export interface Refusal {
    *  control flow — that is what `reason` is for. */
   detail?: string
 }
+
+/**
+ * A RETRACT'S ANSWER, BY ROW ID (POD-4776). `ok` only while the row has not
+ * started typing: the delivery queue then drops it and it is never typed. Once
+ * typing has started nothing is withdrawn — the row runs to its own outcome —
+ * and the refusal says how far it got in `tooLate`.
+ */
+export type DeliveryCancelResult = { ok: true } | (Refusal & { tooLate?: RetractTooLate })
 
 /**
  * THE FOUR OUTCOMES. `send` resolves to exactly one of these — the spec's

@@ -96,6 +96,7 @@ import {
   type AttachEndpoint,
   type AttachmentStageResult,
   type ConfigureRequest,
+  type DeliveryCancelResult,
   type DriverCapabilities,
   type DriverProcedureOverrides,
   type EventStreamStart,
@@ -1252,18 +1253,15 @@ export function createHeadlessRuntime(
         }
       },
       send: (input, options) => send(session, input, options),
-      async cancelDelivery(rowId: string): Promise<Refusal | { ok: true }> {
+      // A headless row is a turn the moment `send` accepts it: there is no
+      // waiting stage a retract could still win (POD-4776). A running turn for
+      // the row is too late, and a retract never stops it — that is Stop's job.
+      async cancelDelivery(rowId: string): Promise<DeliveryCancelResult> {
         const live = session.liveTurn
         if (!live || live.rowId !== rowId) {
           return refuse('not_running', 'no live delivery for this row')
         }
-        live.interrupted = true
-        try {
-          await live.handle.interrupt()
-        } catch {
-          // Best-effort; the rejection fences the turn.
-        }
-        return { ok: true }
+        return { ...refuse('busy', 'the row is already a running turn'), tooLate: 'delivered' }
       },
       async stageAttachment(): Promise<AttachmentStageResult> {
         return refuse('unsupported', 'headless turns carry text only')

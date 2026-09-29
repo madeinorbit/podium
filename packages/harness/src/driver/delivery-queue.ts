@@ -45,6 +45,8 @@ export function withDeliveryQueue(
     interrupt: boolean
     /** The cut was asked for once; the row now waits for the boundary. */
     interruptRequested?: boolean
+    /** Set the moment the driver is asked to type the row, cleared only by a
+     *  refusal that proves nothing was typed. While set, a retract loses. */
     inFlight?: Promise<TurnReceipt>
   }
   const rows = new Map<string, Row>()
@@ -211,7 +213,9 @@ export function withDeliveryQueue(
           // The agent went busy between the state read and the send: the same
           // turn-boundary wait as above, with the same no-deadline rule.
           // Bounding this race would fail rows on long turns through the back
-          // door. Re-checks the state on the next pass.
+          // door. Re-checks the state on the next pass. Nothing was typed, so
+          // the row is retractable again while it waits.
+          delete row.inFlight
           await pause(200)
           continue
         }
@@ -279,36 +283,38 @@ export function withDeliveryQueue(
       at: new Date().toISOString(),
     }
   }
+  /**
+   * A RETRACT WINS ONLY BEFORE TYPING (POD-4776; POD-4720 §4 rule 5).
+   *
+   * A row still waiting is dropped and never typed: `ok`, and the `dropped`
+   * outcome goes to the server on the durable path like any other. Once the
+   * driver has been asked to type it, nothing is withdrawn — aborting a send
+   * mid-way is how a paste was left in the agent's prompt without its Enter —
+   * so the row runs to its own outcome and the answer says how far it got.
+   * An id never seen keeps a `dropped` tombstone, so a delayed admission of
+   * the same row cannot type what was retracted.
+   */
   handle.cancelDelivery = async (id) => {
     const row = rows.get(id)
+    if (row?.inFlight) {
+      return { reason: 'busy', detail: 'typing already started', tooLate: 'typing' }
+    }
     if (row) {
       row.abort.abort()
-      // Cancellation cannot retract a protocol acknowledgement already in flight.
-      // Preserve that proof and tell the server the row could not be retracted.
-      const receipt = await row.inFlight?.catch(() => undefined)
-      if (receipt?.outcome === 'accepted') {
-        settle(id, 'delivered', undefined, undefined, receipt.transcriptItem)
-        return { reason: 'busy', detail: 'the row was already delivered' }
-      }
-      if (receipt && receipt.outcome !== 'refused') {
-        settle(
-          id,
-          'failed',
-          'cancellation could not retract an unconfirmed delivery; check the transcript before retrying',
-          'unconfirmed',
-        )
-        return { reason: 'busy', detail: 'delivery may already have occurred' }
-      }
       settle(id, 'dropped')
-    } else if (finished.get(id)?.outcome === 'delivered') {
-      emit(finished.get(id)!)
-      return { reason: 'busy', detail: 'the row was already delivered' }
-    } else if (!finished.has(id)) {
-      // Cancel may arrive before an in-flight admission RPC. Keep a tombstone
-      // so that late admission cannot resurrect work already retracted.
-      settle(id, 'dropped')
+      return { ok: true }
     }
-    return { ok: true }
+    const prior = finished.get(id)
+    if (!prior) {
+      settle(id, 'dropped')
+      return { ok: true }
+    }
+    if (prior.outcome === 'dropped') return { ok: true }
+    // The retract lost to an outcome the server may not have yet: say it again.
+    emit(prior)
+    return prior.outcome === 'delivered'
+      ? { reason: 'busy', detail: 'the row was already delivered', tooLate: 'delivered' }
+      : { reason: 'busy', detail: 'the row already settled as a failure', tooLate: 'failed' }
   }
   for (const method of ['stop', 'kill', 'hibernate'] as const) {
     if (!handle[method]) continue

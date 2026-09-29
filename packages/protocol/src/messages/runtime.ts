@@ -137,6 +137,27 @@ export const Refusal = z.object({
 })
 export type Refusal = z.infer<typeof Refusal>
 
+/**
+ * WHY A RETRACT CAME TOO LATE (POD-4776). A retract wins only while the daemon
+ * has not started typing the row; otherwise it answers with how far the row
+ * got: `typing` (the keystrokes went out, the outcome is still coming),
+ * `delivered` (the agent has it) or `failed` (it already settled as a failure,
+ * which may itself mean "typed, not proven"). The row's own delivery outcome
+ * still travels on its own path; this only tells the retract why it lost.
+ */
+export const RetractTooLate = z.enum(['typing', 'delivered', 'failed'])
+export type RetractTooLate = z.infer<typeof RetractTooLate>
+
+/** A retract's answer, by row id: withdrawn before typing, or refused. A
+ *  refusal carrying `tooLate` is the daemon's word that the row got that far;
+ *  one without it (an older daemon, no handle) says only that it was not
+ *  withdrawn. */
+export const DeliveryCancelResult = z.union([
+  z.object({ ok: z.literal(true) }),
+  Refusal.extend({ tooLate: RetractTooLate.optional() }),
+])
+export type DeliveryCancelResult = z.infer<typeof DeliveryCancelResult>
+
 // ---------------------------------------------------------------------------
 // The four send outcomes
 // ---------------------------------------------------------------------------
@@ -988,7 +1009,11 @@ export const RuntimeLifecycleResultMessage = z.object({
   /** A refusal is an OUTCOME, not an error: `hibernate` without a resume ref
    *  is expected and the caller handles it. */
   // Optional for older peers: ok alone acknowledges the verb, not process death.
-  result: z.union([z.object({ ok: z.literal(true), retirement: z.literal('confirmed').optional() }), Refusal]),
+  // `tooLate` answers a `cancelRowId` request only (POD-4776); older servers strip it.
+  result: z.union([
+    z.object({ ok: z.literal(true), retirement: z.literal('confirmed').optional() }),
+    Refusal.extend({ tooLate: RetractTooLate.optional() }),
+  ]),
 })
 export type RuntimeLifecycleResultMessage = z.infer<typeof RuntimeLifecycleResultMessage>
 

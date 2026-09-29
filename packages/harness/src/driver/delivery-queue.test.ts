@@ -85,7 +85,7 @@ describe('durable row delivery', () => {
       outcome: 'dropped',
     })
   })
-  it('preserves provider acceptance that wins an in-flight cancellation race', async () => {
+  it('a retract while typing withdraws nothing, says typing, and the row runs to its outcome', async () => {
     const f = fixture()
     f.ready()
     let accept!: (receipt: Awaited<ReturnType<typeof f.send>>) => void
@@ -99,7 +99,15 @@ describe('durable row delivery', () => {
     )
     await vi.advanceTimersByTimeAsync(0)
     expect(f.send).toHaveBeenCalledTimes(1)
-    const cancellation = f.handle.cancelDelivery!('one')
+    expect(await f.handle.cancelDelivery!('one')).toMatchObject({
+      reason: 'busy',
+      tooLate: 'typing',
+    })
+    // The send is never cut mid-way: its signal stays clear, so the driver
+    // finishes the submit it started.
+    const options = f.send.mock.calls[0]![1] as { signal: AbortSignal }
+    expect(options.signal.aborted).toBe(false)
+    expect(f.emit).not.toHaveBeenCalled()
     accept({
       outcome: 'accepted',
       turnEpoch: 1,
@@ -107,13 +115,41 @@ describe('durable row delivery', () => {
       provenBy: 'protocol-ack',
       at: new Date().toISOString(),
     })
-    expect(await cancellation).toMatchObject({ reason: 'busy' })
     await vi.advanceTimersByTimeAsync(0)
     expect(f.emit).toHaveBeenCalledExactlyOnceWith({
       t: 'delivery',
       rowId: 'one',
       outcome: 'delivered',
     })
+  })
+
+  it('a row the driver refused as busy typed nothing, so a retract wins again', async () => {
+    const f = fixture()
+    f.ready()
+    f.send.mockResolvedValueOnce({ outcome: 'refused', refusal: { reason: 'busy' } } as never)
+    await f.handle.send(
+      { id: 'one', rowId: 'one', text: 'a' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(await f.handle.cancelDelivery!('one')).toEqual({ ok: true })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'one', outcome: 'dropped' })
+  })
+
+  it('a retract after a failure says failed and repeats the failure, never ok', async () => {
+    const f = fixture()
+    f.ready()
+    f.send.mockResolvedValue({ outcome: 'unverified' } as never)
+    await f.handle.send({ rowId: 'lost', text: 'once' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(0)
+    const failure = f.emit.mock.calls[0]![0]
+    expect(failure).toMatchObject({ outcome: 'failed', cause: 'unconfirmed' })
+    f.emit.mockClear()
+    expect(await f.handle.cancelDelivery!('lost')).toMatchObject({ reason: 'busy', tooLate: 'failed' })
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith(failure)
   })
 
   it('never retries an ambiguous write and reports a recoverable failure', async () => {
@@ -204,7 +240,10 @@ describe('durable row delivery', () => {
     await f.handle.send({ rowId: 'accepted', text: 'once' }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(0)
     f.emit.mockClear()
-    expect(await f.handle.cancelDelivery!('accepted')).toMatchObject({ reason: 'busy' })
+    expect(await f.handle.cancelDelivery!('accepted')).toMatchObject({
+      reason: 'busy',
+      tooLate: 'delivered',
+    })
     expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'accepted', outcome: 'delivered' })
     expect(f.send).toHaveBeenCalledTimes(1)
   })
@@ -313,9 +352,9 @@ describe('durable row delivery', () => {
     f.send.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
     await f.handle.send({ rowId: 'ambiguous', text: 'once' }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(0)
-    const cancel = f.handle.cancelDelivery!('ambiguous')
+    expect(await f.handle.cancelDelivery!('ambiguous')).toMatchObject({ reason: 'busy', tooLate: 'typing' })
     finish({ outcome: 'unverified' } as never)
-    expect(await cancel).toMatchObject({ reason: 'busy' })
+    await vi.advanceTimersByTimeAsync(0)
     expect(f.emit).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }),
     )

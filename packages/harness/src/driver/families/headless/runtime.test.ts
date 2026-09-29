@@ -584,15 +584,18 @@ describe('headless dispatch', () => {
     }
   })
 
-  it('cancels only the delivery row it names', async () => {
+  it('a retract of a row already running as a turn is too late and stops nothing', async () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const input = { ...makeTurn(sessionId, { turnId: 'rowed' }), rowId: 'row-1' }
       await handle.send(input, { origin: 'system', delivery: 'when-ready' })
       expect(await handle.cancelDelivery?.('row-other')).toMatchObject({ reason: 'not_running' })
-      expect(await handle.cancelDelivery?.('row-1')).toMatchObject({ ok: true })
-      expect(runners.turns[0]?.interrupted).toBe(true)
+      expect(await handle.cancelDelivery?.('row-1')).toMatchObject({
+        reason: 'busy',
+        tooLate: 'delivered',
+      })
+      expect(runners.turns[0]?.interrupted).toBe(false)
     } finally {
       runtime.dispose()
     }

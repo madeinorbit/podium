@@ -1057,6 +1057,11 @@ export const queuedMessages = sqliteTable(
     delivery: text().default('when-ready').notNull(),
     // Staged file refs the row carries to the daemon, as JSON; null = none.
     attachmentsJson: text('attachments_json'),
+    // A RETRACT WAITING FOR THE AGENT'S MACHINE (POD-4776), epoch ms. Set when
+    // a retract of a row the daemon already holds could not reach it; every
+    // later forward sends the retract instead of the row, and only the
+    // daemon's answer settles it. Null = no retract pending.
+    retractRequestedAt: integer('retract_requested_at'),
   },
   (table) => [
     index('queued_messages_session').on(table.sessionId, table.queuedAt),
@@ -2168,6 +2173,11 @@ export const messages = sqliteTable(
     // the old one). A stamp, not a status: the delivery ledger still says what
     // happened to the message.
     noticeDismissedAt: text('notice_dismissed_at'),
+    // THE SENDER ASKED TO RETRACT IT [POD-4776]: a stamp, not a status. The
+    // retract wins only if it reaches the agent's machine before typing starts;
+    // the delivery status then says `cancelled`, and otherwise says how far the
+    // message got — which, beside this stamp, is "too late to retract".
+    retractRequestedAt: text('retract_requested_at'),
   },
   (table) => [
     index('idx_messages_delivered_to').on(table.deliveredTo),
