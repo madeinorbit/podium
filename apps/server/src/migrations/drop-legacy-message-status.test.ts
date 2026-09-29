@@ -14,8 +14,8 @@
  *  - a second boot applies nothing and changes nothing.
  */
 
-import { asIssueId, asSessionId, type MessageDeliveryStatus } from '@podium/model'
 import { MessageExpiryReader } from '@podium/janitor'
+import { asIssueId, asSessionId, type MessageDeliveryStatus } from '@podium/model'
 import { bunSqliteClient, openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it, vi } from 'vitest'
@@ -344,7 +344,8 @@ describe('the drop-legacy-message-status migration', () => {
         LEGACY_INDEXES.some((name) => new RegExp(`INDEX ${name}\\b`).test(d)),
       ),
     )
-    console.log('DEBUG reads', reads.length, 'onLegacy', onLegacy.length, JSON.stringify(reads.map((q) => [plan(legacy, q), plan(upgraded, q)])))
+    // Some reads really did lean on a dropped index: the comparison is not vacuous.
+    expect(onLegacy.length).toBeGreaterThan(0)
     for (const sql of onLegacy) {
       expect(plan(upgraded, sql).join('\n'), sql).toMatch(/INDEX idx_messages_/)
     }
