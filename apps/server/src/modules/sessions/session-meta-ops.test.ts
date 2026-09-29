@@ -72,7 +72,7 @@ async function fixture(file = ':memory:') {
       setWorkState: vi.fn(), setArchived: vi.fn(), clearAllSnoozes: vi.fn(), suppressNativeDraft: vi.fn(),
     },
     toPtyInput: vi.fn(),
-    sendContinueViaContract: vi.fn(async () => ({ ok: true as const })),
+    sendContinue: vi.fn(async () => ({ ok: true as const })),
     view: { buildProjectionPass: async () => ({} as never), principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn((s: Session) => s.toMeta({ readAt: null, snoozedUntil: null })) },
   }
   return { store, session, sessions, repository, ports, ops: new SessionMetaOps(ports) }
@@ -249,8 +249,33 @@ describe('continueSession contract routing', () => {
     }
     sessions.set(sessionId, session)
     expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
-    expect(ports.sendContinueViaContract).toHaveBeenCalledWith(sessionId)
+    // With no runtime checkpoint, the errored turn is when the phase began.
+    expect(ports.sendContinue).toHaveBeenCalledWith({ sessionId, erroredTurn: `since:${stamp}` })
     expect(ports.toPtyInput).not.toHaveBeenCalled()
+  })
+
+  // One message per errored turn (POD-4846): the runtime gate's turn epoch
+  // names the turn when the session has one.
+  it("names the errored turn by the runtime gate's turn epoch", async () => {
+    const { ops, ports, sessions, session, store } = await fixture()
+    session.status = 'live'
+    session.agentState = {
+      phase: 'errored',
+      since: stamp,
+      nativeSubagentCount: 0,
+      error: { class: 'server_error', retryable: true },
+    }
+    sessions.set(sessionId, session)
+    await store.events.saveRuntimeEventCheckpoint({
+      sessionId,
+      observerGeneration: 1,
+      cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+      turnEpoch: 7,
+      closedTurnEpoch: 7,
+      updatedAt: stamp,
+    })
+    expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
+    expect(ports.sendContinue).toHaveBeenCalledWith({ sessionId, erroredTurn: 'epoch:7' })
   })
 
   it('types a raw continue for a shell, which has no driver to call', async () => {
@@ -265,7 +290,7 @@ describe('continueSession contract routing', () => {
     }
     sessions.set(sessionId, session)
     expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
-    expect(ports.sendContinueViaContract).not.toHaveBeenCalled()
+    expect(ports.sendContinue).not.toHaveBeenCalled()
     expect(ports.toPtyInput).toHaveBeenCalledWith(store.hostMachineId, expect.objectContaining({
       sessionId,
       inputOrigin: 'auto_continue',

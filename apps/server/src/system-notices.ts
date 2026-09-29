@@ -1,4 +1,6 @@
-import type { IssueId } from '@podium/model'
+import { AUTO_CONTINUE_SENDER } from '@podium/commands'
+import type { IssueId, SessionId } from '@podium/model'
+import { autoContinueMessageId } from './message-ids'
 import type { MessageDeliveryService } from './modules/messages/service'
 
 /**
@@ -31,5 +33,35 @@ export function systemIssueNotice(
       },
     )
     return r.message.id
+  }
+}
+
+/**
+ * AUTO-CONTINUE IS A MESSAGE (POD-4846): the 'continue' the server types into
+ * an errored agent, as one row from `system:auto-continue` per errored turn.
+ * Typed bare — it is a key press standing in for the person, the one server
+ * sender without an envelope (`deliversUnwrapped`) — with the `auto_continue`
+ * input origin, so it neither clears a standing offer nor reads as the person
+ * in the chat feed. `wait`: it only ever goes to a running session.
+ */
+export function autoContinueSender(
+  messages: Pick<MessageDeliveryService, 'send'>,
+): (input: { sessionId: SessionId; erroredTurn: string }) => Promise<{ ok: boolean; reason?: string }> {
+  return async ({ sessionId, erroredTurn }) => {
+    const r = await messages.send(
+      { kind: 'system', name: AUTO_CONTINUE_SENDER },
+      {
+        messageId: autoContinueMessageId(sessionId, erroredTurn),
+        to: { kind: 'session', id: sessionId },
+        kind: 'message',
+        urgency: 'next-turn',
+        lifecycle: 'wait',
+        body: 'continue',
+      },
+    )
+    // Stored is accepted; only a continue that ended undelivered failed.
+    return r.disposition === 'dead_letter'
+      ? { ok: false, ...(r.reason ? { reason: r.reason } : {}) }
+      : { ok: true }
   }
 }

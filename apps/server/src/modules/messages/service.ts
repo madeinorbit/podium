@@ -39,6 +39,7 @@ import {
 } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
+  AUTO_CONTINUE_SENDER,
   exemptFromWakeCooldown,
   type MailSenderPrincipal,
   type PlacementDecision,
@@ -160,11 +161,12 @@ interface InboxDeliveryInput {
    *  person typing into the session, and the inbox acts on that difference —
    *  `prepareInboxSend` clears a standing offer for a person-send only
    *  [spec:SP-c7f1, POD-118, POD-552]; a person's words a job delivers (an
-   *  automation's prompt, POD-4846) stamp `system`. Was `'mail'` alone until
+   *  automation's prompt, POD-4846) stamp `system`; auto-continue's key press
+   *  keeps `auto_continue`. Was `'mail'` alone until
    *  offer-action delivery started riding this substrate (POD-729); the port is
    *  deliberately narrower than `SessionInbox`'s own `InboxSendInput` so it
    *  keeps naming what delivery actually sends. */
-  inputOrigin?: 'controller' | 'mail' | 'system'
+  inputOrigin?: 'controller' | 'mail' | 'system' | 'auto_continue'
   principal: InboxPrincipalReference
   sourceMessageId: string
 }
@@ -527,6 +529,19 @@ const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a 
  */
 const deliveredByAJob = (m: MessageRow): boolean =>
   m.fromKind === 'operator' && m.attribution?.actor.kind === 'system'
+
+/**
+ * How a delivered message presents as input. A person typing (`controller`)
+ * clears a standing offer [spec:SP-c7f1] and opens a user turn (POD-552);
+ * agent/system/superagent mail (`mail`) never consumes an offer the human has
+ * not acted on [POD-118]; a person's words a job delivers are `system`
+ * (POD-4846); auto-continue's key press keeps its own `auto_continue`.
+ */
+function inputOriginOf(m: MessageRow): 'controller' | 'mail' | 'system' | 'auto_continue' {
+  if (m.fromKind === 'operator') return deliveredByAJob(m) ? 'system' : 'controller'
+  if (m.fromKind === 'system' && m.fromName === AUTO_CONTINUE_SENDER) return 'auto_continue'
+  return 'mail'
+}
 
 /** A failure notice's words: what happened (default "was not delivered"), why,
  *  and the one next step. */
@@ -1403,12 +1418,7 @@ export class MessageDeliveryService {
       sessionId,
       text,
       ...(message.attachments?.length ? { attachments: message.attachments } : {}),
-      inputOrigin:
-        message.fromKind !== 'operator'
-          ? ('mail' as const)
-          : deliveredByAJob(message)
-            ? ('system' as const)
-            : ('controller' as const),
+      inputOrigin: inputOriginOf(message),
       principal,
       sourceMessageId: message.id,
     }

@@ -347,6 +347,7 @@ export {
   spawnAgentInput,
 } from './mail/contracts'
 export {
+  AUTO_CONTINUE_SENDER,
   deliversUnwrapped,
   exemptFromWakeCooldown,
   isHumanPrincipal,

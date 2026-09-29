@@ -30,3 +30,10 @@ export const spawnPromptMessageId = (sessionId: SessionId): string =>
  *  that prompt is a second message. */
 export const automationPromptMessageId = (runId: string, sessionId: SessionId): string =>
   derivedMessageId(`automation-prompt\u0000${runId}\u0000${sessionId}`)
+
+/** The auto-continue for one errored turn of one session (POD-4846). The retry
+ *  loop fires again while the session stays errored; every firing inside the
+ *  same errored turn is this one message, and a retry that errors again is a
+ *  new turn and a new message. */
+export const autoContinueMessageId = (sessionId: SessionId, erroredTurn: string): string =>
+  derivedMessageId(`auto-continue\u0000${sessionId}\u0000${erroredTurn}`)

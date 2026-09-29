@@ -197,7 +197,7 @@ import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from
 import { SessionStore } from './store'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
-import { systemIssueNotice } from './system-notices'
+import { autoContinueSender, systemIssueNotice } from './system-notices'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
@@ -1459,6 +1459,10 @@ export class SessionRegistry {
         sessionId: SessionId
         text: string
       }) => Promise<string>
+      continueSession?: (input: {
+        sessionId: SessionId
+        erroredTurn: string
+      }) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       injected?: (messageId: string, sessionId: SessionId) => Promise<void>
       unconfirmed?: (messageId: string, sessionId: SessionId, reason: string) => Promise<void>
@@ -1519,6 +1523,11 @@ export class SessionRegistry {
       recordSpawnPrompt: async (input) => {
         if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
         return await queuedApplyHooks.spawnPrompt(input)
+      },
+      // Auto-continue is a message (POD-4846).
+      sendContinue: async (input) => {
+        if (!queuedApplyHooks.continueSession) throw new Error('the message ledger is not wired yet')
+        return await queuedApplyHooks.continueSession(input)
       },
       // Refuses rather than stranding: a removal that cannot end its messages
       // must not commit (POD-4816).
@@ -2191,6 +2200,7 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
     queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
+    queuedApplyHooks.continueSession = autoContinueSender(messagesSvc)
     queuedApplyHooks.sessionsRemoved = async (sessionIds, opts) =>
       await messagesSvc.failMessagesToRemovedSessions(sessionIds, opts)
     queuedApplyHooks.handingOn = async (messageId, sessionId) =>
