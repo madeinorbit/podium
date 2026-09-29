@@ -14,9 +14,10 @@
  * context, so its owner is the object (as a declared computed's is): it is
  * named `<Class>@<id>.<group>` and the census attributes it to its row.
  *
- * Outside a reaction there is nothing to observe the result, so it is
- * computed afresh and not kept; with `computedRequiresReaction` on (the
- * tests) that read warns exactly as reading a declared computed does.
+ * Read where no derivation is tracking (an action, an untracked read, no
+ * reaction at all) there is nothing to observe the result, so it is computed
+ * afresh and not kept; with `computedRequiresReaction` on (the tests) a read
+ * outside every batch warns, exactly as reading a declared computed does.
  */
 
 import {
@@ -43,7 +44,10 @@ export function cachedGroup<T extends { readonly id: string }, V>(
     const cached = live.get(target)
     if (cached !== undefined) return cached.get()
     if (!_isComputingDerivation()) {
-      if (_getGlobalState().computedRequiresReaction) {
+      // As a computed read with no observer: silent inside a batch (an action,
+      // a reaction's run, an untracked read inside one), warned outside all.
+      const state = _getGlobalState()
+      if (state.inBatch === 0 && state.computedRequiresReaction) {
         console.warn(
           `[mobx] Computed value '${debugNameOf(target)}.${group}' is being read outside a reactive context. Doing a full recompute.`,
         )
