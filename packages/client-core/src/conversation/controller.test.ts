@@ -188,9 +188,11 @@ describe('conversation controller over synced records', () => {
     controller.dispose()
   })
 
-  it('retracts by id, hiding the bubble meanwhile and restoring it when refused', async () => {
-    const synced = records([record('msg-1', { status: 'stored' })])
-    const answer = deferred<void>()
+  // POD-4776: a retract is a request the agent's machine answers, and the
+  // bubble says where it stands — never a silent vanish.
+  it('a retract says it is on its way, then retracted when the server says cancelled', async () => {
+    const synced = records([record('msg-1', { status: 'dispatched' })])
+    const answer = deferred<MessageRecordWire['status']>()
     const retract = vi.fn(() => answer.promise)
     const controller = createConversationController({
       sessionId: asSessionId('s1'),
@@ -201,33 +203,168 @@ describe('conversation controller over synced records', () => {
       retract,
     })
     controller.start()
+    expect(controller.getSnapshot().bubbles).toMatchObject([{ state: 'sent', retractable: true }])
     const retracting = controller.retract('msg-1')
     expect(retract).toHaveBeenCalledWith('msg-1')
-    expect(controller.getSnapshot().bubbles).toEqual([])
-    answer.reject(new Error('already typed'))
-    await expect(retracting).rejects.toThrow('already typed')
-    expect(states(controller)).toEqual(['msg-1:queued'])
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-1', retract: 'requested', retractable: false },
+    ])
+    answer.resolve('cancelled')
+    await retracting
+    // The record leaves the feed; the answer stays on this device.
+    synced.set([])
+    expect(states(controller)).toEqual(['msg-1:retracted'])
+    expect(controller.getSnapshot().interruptMessageId).toBeNull()
     controller.dispose()
   })
 
-  it('keeps a retracted bubble hidden until the feed says so, and shows it again if the message moved on instead', async () => {
-    const synced = records([record('msg-1', { status: 'stored' }), record('msg-2', { status: 'stored' })])
+  it('a retract that came too late says so, from the record, on every device', async () => {
+    const synced = records([record('msg-1', { status: 'dispatched' })])
     const controller = createConversationController({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
       createDeliveryId: () => 'msg-new',
       deliver: vi.fn(),
-      retract: async () => {},
+      retract: async () => {
+        synced.set([record('msg-1', { status: 'typing', retractRequestedAt: '2026-09-29T10:00:01.000Z' })])
+        return 'typing'
+      },
     })
     controller.start()
-    // The server agreed; its record has not left the feed yet. No flash back.
     await controller.retract('msg-1')
-    await controller.retract('msg-2')
-    expect(controller.getSnapshot().bubbles).toEqual([])
-    // msg-1 leaves the feed (cancelled); msg-2 was typed after all.
-    synced.set([record('msg-2', { status: 'typed' })])
-    expect(states(controller)).toEqual(['msg-2:sent'])
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-1', state: 'sent', retract: 'too-late', retractable: false },
+    ])
+    // A retract still waiting for the machine reads as asked, not as done.
+    synced.set([record('msg-1', { status: 'dispatched', retractRequestedAt: '2026-09-29T10:00:01.000Z' })])
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-1', retract: 'requested', retractable: false },
+    ])
+    controller.dispose()
+  })
+
+  it('a retract that fails says why on the bubble, and the bubble stays retractable', async () => {
+    const synced = records([record('msg-1', { status: 'stored' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+      retract: async () => {
+        throw new Error('server unreachable')
+      },
+    })
+    controller.start()
+    await controller.retract('msg-1')
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-1', state: 'queued', retractable: true, retractError: 'server unreachable' },
+    ])
+    controller.dispose()
+  })
+
+  it('retract shows exactly while the status still allows it to win', () => {
+    const statuses: MessageRecordWire['status'][] = [
+      'stored', 'dispatched', 'reached-machine', 'typing', 'typed', 'unknown', 'failed',
+    ]
+    const synced = records(statuses.map((status, index) => record(`msg-${index}`, { status })))
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+      retract: vi.fn(),
+    })
+    controller.start()
+    expect(
+      controller.getSnapshot().bubbles.map((bubble) => [bubble.record?.status, bubble.retractable]),
+    ).toEqual([
+      ['stored', true],
+      ['dispatched', true],
+      ['reached-machine', true],
+      ['typing', false],
+      ['typed', false],
+      ['unknown', true],
+      ['failed', false],
+    ])
+    controller.dispose()
+  })
+
+  it('a send still in this device outbox is discarded here, never asked of the server', async () => {
+    const held: OutboxChatSend[] = []
+    const outboxListeners = new Set<() => void>()
+    const discard = vi.fn(async (id: string) => {
+      held.splice(held.findIndex((send) => send.mutationId === id), 1)
+    })
+    const retract = vi.fn()
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      outbox: {
+        held: () => held,
+        subscribe: (listener) => {
+          outboxListeners.add(listener)
+          return () => outboxListeners.delete(listener)
+        },
+      },
+      createDeliveryId: () => 'msg-1',
+      // Never answered: the server is out of reach and the outbox holds it.
+      deliver: () => new Promise(() => {}),
+      discard,
+      retract,
+    })
+    controller.start()
+    void controller.submit({ text: 'not yet' })
+    held.push({
+      mutationId: 'msg-1' as OutboxChatSend['mutationId'],
+      sessionId: asSessionId('s1'),
+      text: 'not yet',
+      wake: false,
+      queuedAt: 0,
+      state: 'sending',
+    })
+    await vi.waitFor(() => expect(states(controller)).toEqual(['msg-1:sending']))
+    expect(controller.getSnapshot().bubbles[0]?.retractable).toBe(true)
+    await controller.retract(controller.getSnapshot().bubbles[0]!.id)
+    expect(discard).toHaveBeenCalledWith('msg-1')
+    expect(retract).not.toHaveBeenCalled()
+    expect(states(controller)).toEqual(['msg-1:retracted'])
+    controller.dispose()
+  })
+
+  it('a send already on its way to the server is the server\'s to answer', async () => {
+    const held: OutboxChatSend[] = [
+      {
+        mutationId: 'msg-1' as OutboxChatSend['mutationId'],
+        sessionId: asSessionId('s1'),
+        text: 'in flight',
+        wake: false,
+        queuedAt: 0,
+        state: 'sending',
+      },
+    ]
+    const retract = vi.fn(async () => 'cancelled' as const)
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      outbox: { held: () => held, subscribe: () => () => {} },
+      createDeliveryId: () => 'msg-1',
+      deliver: () => new Promise(() => {}),
+      // The outbox refuses to discard an entry it is sending right now.
+      discard: async () => {
+        throw new Error('cannot discard msg-1 from sending')
+      },
+      retract,
+    })
+    controller.start()
+    void controller.submit({ text: 'in flight' })
+    await controller.retract(controller.getSnapshot().bubbles[0]!.id)
+    expect(retract).toHaveBeenCalledWith('msg-1')
+    expect(states(controller)).toEqual(['msg-1:retracted'])
     controller.dispose()
   })
 

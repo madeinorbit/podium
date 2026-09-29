@@ -1,4 +1,4 @@
-import { deadLetterDeliveryLine } from '@podium/model'
+import { deadLetterDeliveryLine, MessageDelivery } from '@podium/model'
 import type { MessageRecordWire, TranscriptItem, TranscriptTag } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
@@ -15,7 +15,7 @@ export interface ConversationPendingTurn {
   /** Exact payload delivered to the agent. Retry never reconstructs it from `text`. */
   wire: string
   at: number
-  state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
+  state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted' | 'retracted'
   kind: 'message' | 'offer'
   error?: string
   /** False when a failed turn cannot succeed by being sent again as it is — the
@@ -53,14 +53,26 @@ export type ConversationBubbleState =
   /** Nobody can say whether it arrived. */
   | 'unknown'
   | 'interrupted'
+  /** Taken back before the agent's machine started typing it (POD-4776). */
+  | 'retracted'
 
 /** One bubble below the transcript. */
 export interface ConversationBubble extends Omit<ConversationPendingTurn, 'state'> {
   state: ConversationBubbleState
   /** The server's record of the message, once the feed carries it. */
   record?: MessageRecordWire
-  /** The sender may still take it back. */
+  /** The sender may still take it back: its status still allows a retract to
+   *  win, and none was asked for yet (POD-4776). */
   retractable: boolean
+  /**
+   * Where a retract of it stands (POD-4776): asked and still on its way to the
+   * agent's machine (`requested`), or answered too late — the machine had
+   * already started typing it (`too-late`). A retract that won is the
+   * `retracted` state. Absent when nobody asked.
+   */
+  retract?: 'requested' | 'too-late'
+  /** Why this device's retract of it did not go through. */
+  retractError?: string
   /** A failed or unknown message the SERVER holds: the way on is "send again"
    *  (a new message, by the user's choice) or dismissing the notice — never a
    *  resend of this one. Absent for a send this device never got through. */
@@ -75,11 +87,29 @@ export interface ConversationProjectionInput {
   /** Records this view saw before they were confirmed: only those may show a
    *  bubble once confirmed (an older confirmed record is history). */
   readonly seenOpen: ReadonlySet<string>
-  /** Message ids being retracted or dismissed right now: hidden meanwhile. */
+  /** Message ids being dismissed right now: hidden meanwhile. */
   readonly hidden: ReadonlySet<string>
+  /** This device's retracts still waiting for their answer to reach the record,
+   *  and the ones that failed with why (POD-4776). */
+  readonly retracting?: ReadonlyMap<string, { error?: string }>
 }
 
-const RETRACTABLE = new Set<MessageRecordWire['status']>(['stored', 'dispatched', 'reached-machine'])
+/** A retract can still win: the lifecycle lets the status move to `cancelled`. */
+const statusAllowsRetract = (status: MessageRecordWire['status']): boolean =>
+  MessageDelivery.canMove(status, 'cancelled')
+
+/** A local send the server may hold and has not confirmed. */
+const LOCAL_RETRACTABLE = new Set<ConversationPendingTurn['state']>(['sending', 'queued', 'sent'])
+
+function retractOf(record: MessageRecordWire): ConversationBubble['retract'] {
+  if (!record.retractRequestedAt || record.status === 'cancelled') return undefined
+  if (statusAllowsRetract(record.status)) return 'requested'
+  if (record.status === 'typing' || record.status === 'typed' || record.status === 'confirmed') {
+    return 'too-late'
+  }
+  // Failed or expired: its notice already says what happened.
+  return undefined
+}
 
 function recordState(record: MessageRecordWire): ConversationBubbleState {
   switch (record.status) {
@@ -97,7 +127,7 @@ function recordState(record: MessageRecordWire): ConversationBubbleState {
     case 'unknown':
       return 'unknown'
     case 'cancelled':
-      return 'interrupted'
+      return 'retracted'
   }
 }
 
@@ -136,7 +166,8 @@ function fromRecord(record: MessageRecordWire): ConversationBubble {
       : {}),
     state,
     record,
-    retractable: RETRACTABLE.has(record.status),
+    retractable: statusAllowsRetract(record.status) && !record.retractRequestedAt,
+    ...(retractOf(record) ? { retract: retractOf(record) } : {}),
     ...(state === 'failed' ? { notice: 'failed' as const, error: failureOf(record) } : {}),
     ...(state === 'unknown' ? { notice: 'unknown' as const } : {}),
   }
@@ -154,16 +185,30 @@ export function projectConversation(input: ConversationProjectionInput): Convers
   const byId = new Map(input.records.map((record) => [record.id, record]))
   const bubbles: ConversationBubble[] = []
   const covered = new Set<string>()
+  const retracting = input.retracting ?? new Map<string, { error?: string }>()
+  /** This device's retract in flight shows as asked until the record says so. */
+  const withLocalRetract = (bubble: ConversationBubble): ConversationBubble => {
+    const local = retracting.get(bubble.deliveryId)
+    if (local === undefined) return bubble
+    if (local.error !== undefined) return { ...bubble, retractError: local.error }
+    return { ...bubble, retractable: false, retract: bubble.retract ?? 'requested' }
+  }
   for (const turn of input.turns) {
     covered.add(turn.deliveryId)
     if (input.hidden.has(turn.deliveryId)) continue
     const record = byId.get(turn.deliveryId)
+    if (turn.state === 'retracted') {
+      // Taken back on this device's word: it stays as the answer, whatever
+      // the feed does with the record now.
+      bubbles.push({ ...turn, retractable: false })
+      continue
+    }
     if (record === undefined) {
-      bubbles.push({ ...turn, retractable: turn.state === 'queued' })
+      bubbles.push(withLocalRetract({ ...turn, retractable: LOCAL_RETRACTABLE.has(turn.state) }))
       continue
     }
     if (!recordShows(record, onScreen, input.seenOpen)) continue
-    const fromServer = fromRecord(record)
+    const fromServer = withLocalRetract(fromRecord(record))
     bubbles.push(
       turn.state === 'interrupted'
         ? { ...fromServer, ...turn, state: 'interrupted', record, retractable: false }
@@ -186,7 +231,7 @@ export function projectConversation(input: ConversationProjectionInput): Convers
   for (const record of input.records) {
     if (covered.has(record.id) || input.hidden.has(record.id)) continue
     if (!recordShows(record, onScreen, input.seenOpen)) continue
-    bubbles.push(fromRecord(record))
+    bubbles.push(withLocalRetract(fromRecord(record)))
   }
   return bubbles.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
 }

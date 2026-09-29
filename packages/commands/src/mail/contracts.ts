@@ -655,13 +655,20 @@ export const mailCancelContract: CommandContract<typeof mailCancelInput> = {
   exposure: ['trpc'],
   delivery: DURABLE_QUEUED_ONLINE,
   redaction: NO_SECRETS,
-  ownership: { creates: [], note: 'Transitions an existing queued row to cancelled.' },
+  ownership: {
+    creates: [],
+    note:
+      'Stamps the retract request on an existing pending row; the row becomes cancelled only on ' +
+      "the answer of the machine holding it, or at once when nothing past the server ever held it (POD-4776).",
+  },
   attribution: MAIL_ATTRIBUTION,
   errorConsistency: MESSAGE_ID_ORACLE_RULE,
   cli: { positional: ['id'], summary: 'Retract a queued message' },
   conflict: 'cmd',
   conflictRule:
-    'Sender-only queued-to-cancelled transition; delivery wins if the row has already left queued.',
+    'Sender-only request; it wins only before the agent\'s machine starts typing. The answer is the ' +
+    'returned deliveryStatus: cancelled, a status past typing (too late), or still pending while the ' +
+    'machine has not answered.',
 }
 
 export const mailDismissNoticeInput = z.object({ id: z.string() })

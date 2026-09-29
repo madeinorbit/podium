@@ -81,8 +81,9 @@ export interface ConversationControllerOptions {
   onDraftChange?: (text: string) => void
   createDeliveryId(): string
   deliver(turn: ConversationPendingTurn): Promise<ConversationDeliveryResult | void>
-  /** Take back a message the server still holds, by its id. */
-  retract?: (messageId: string) => Promise<void>
+  /** Ask the server to take back a message, by its id; answers the status it
+   *  had after the request (POD-4776). */
+  retract?: (messageId: string) => Promise<MessageRecordWire['status'] | undefined>
   /** Let a failed send go, by its delivery id — the sender's durable copy is
    *  dropped with the bubble, so nothing sends it later (POD-4762). */
   discard?: (deliveryId: string) => Promise<void>
@@ -158,12 +159,18 @@ export class ConversationController {
   private readonly seenRecord = new Set<string>()
   private readonly seenOpen = new Set<string>()
   /**
-   * Message ids being retracted or dismissed. Hidden while the request is in
+   * Message ids whose notice is being dismissed. Hidden while the request is in
    * flight (`null`), and after the server agreed, until its record leaves the
    * feed or moves on from the status it had then — the answer and the feed's
    * update travel separately, and the bubble must not flash back between them.
    */
   private readonly hidden = new Map<string, MessageRecordWire['status'] | null>()
+  /**
+   * This device's retracts (POD-4776): in flight, or answered but not yet on
+   * the record (`{}`), until the record carries the request or leaves; or
+   * failed, with why, until the next attempt.
+   */
+  private readonly retracting = new Map<string, { error?: string }>()
 
   constructor(private readonly options: ConversationControllerOptions) {
     this.clock = options.clock ?? defaultClock
@@ -335,14 +342,74 @@ export class ConversationController {
     await this.discard(id)
   }
 
-  /** Take back a message the server still holds. */
+  /**
+   * TAKE A MESSAGE BACK (POD-4776). A send still waiting in this device's
+   * outbox is discarded here — it never left, so nothing else can type it. One
+   * the server holds is a request the agent's machine answers: the bubble says
+   * the retract is on its way, then what came of it — `retracted`, or "too
+   * late" once the machine had started typing it. A request that fails says so
+   * on the bubble; it never vanishes silently.
+   */
   async retract(id: string): Promise<void> {
     const bubble = this.bubble(id)
-    if (!bubble?.retractable || !this.options.retract) return
+    if (!bubble?.retractable) return
     const messageId = bubble.deliveryId
-    await this.hideWhile(messageId, async () => {
-      await this.options.retract?.(messageId)
-      this.dropTurn(messageId)
+    this.retracting.set(messageId, {})
+    this.patch({})
+    try {
+      if (bubble.record === undefined && bubble.state === 'sending' && this.options.discard) {
+        if (await this.discardFromOutbox(messageId)) {
+          this.retracting.delete(messageId)
+          this.markRetracted(messageId)
+          return
+        }
+      }
+      if (!this.options.retract) throw new Error('this conversation cannot retract messages')
+      const status = await this.options.retract(messageId)
+      if (status === 'cancelled') {
+        this.retracting.delete(messageId)
+        this.markRetracted(messageId)
+      }
+    } catch (error) {
+      this.retracting.set(messageId, { error: errorText(error) })
+      this.patch({})
+    }
+  }
+
+  /** Drop a send this device still holds; false when it already left. */
+  private async discardFromOutbox(messageId: string): Promise<boolean> {
+    try {
+      await this.options.discard?.(messageId)
+    } catch {
+      // In flight to the server right now: it is the server's to answer.
+      return false
+    }
+    const held = this.options.outbox?.held() ?? []
+    return !held.some((send) => (send.mutationId as string) === messageId)
+  }
+
+  private markRetracted(messageId: string): void {
+    const turn = this.state.pending.find((candidate) => candidate.deliveryId === messageId)
+    const bubble = this.state.bubbles.find((candidate) => candidate.deliveryId === messageId)
+    const retracted: ConversationPendingTurn | undefined = turn
+      ? { ...turn, state: 'retracted' }
+      : bubble && {
+          id: `retracted-${messageId}`,
+          deliveryId: messageId,
+          text: bubble.text,
+          wire: bubble.wire,
+          at: bubble.at,
+          state: 'retracted',
+          kind: bubble.kind,
+        }
+    if (!retracted) {
+      this.patch({})
+      return
+    }
+    this.patch({
+      pending: turn
+        ? this.state.pending.map((candidate) => (candidate === turn ? retracted : candidate))
+        : [...this.state.pending, retracted],
     })
   }
 
@@ -399,7 +466,7 @@ export class ConversationController {
             candidate.state !== 'unknown' &&
             beforeInterrupt(candidate.at),
         )
-    if (!bubble || bubble.state === 'interrupted') return
+    if (!bubble || bubble.state === 'interrupted' || bubble.state === 'retracted') return
     const turn = this.state.pending.find((candidate) => candidate.deliveryId === bubble.deliveryId)
     this.patch({
       pending: turn
@@ -555,7 +622,10 @@ export class ConversationController {
     this.patch({
       pending: this.state.pending.map((candidate) =>
         candidate.id !== turn.id ||
-        (candidate.state === 'interrupted' && turn.state !== 'interrupted')
+        // An answer that settled it (interrupted, retracted) outlives a late
+        // delivery result for the same turn.
+        ((candidate.state === 'interrupted' || candidate.state === 'retracted') &&
+          turn.state !== candidate.state)
           ? candidate
           : turn,
       ),
@@ -587,10 +657,19 @@ export class ConversationController {
     for (const [id, status] of this.hidden) {
       if (status !== null && present.get(id)?.status !== status) this.hidden.delete(id)
     }
+    // A retract's answer is on the record now (or the record left): the record
+    // speaks for it from here.
+    for (const [id, local] of this.retracting) {
+      const record = present.get(id)
+      if (local.error === undefined && record?.retractRequestedAt !== undefined) {
+        this.retracting.delete(id)
+      }
+    }
     const pending = this.state.pending.filter(
       (turn) =>
         turn.reconcile === 'next-user-item' ||
         turn.state === 'interrupted' ||
+        turn.state === 'retracted' ||
         present.has(turn.deliveryId) ||
         !this.seenRecord.has(turn.deliveryId),
     )
@@ -761,12 +840,15 @@ export class ConversationController {
       transcript: this.options.transcript.getSnapshot().items,
       seenOpen: this.seenOpen,
       hidden: new Set(this.hidden.keys()),
+      retracting: this.retracting,
     })
     const latest = bubbles.findLast(
       (bubble) => bubble.state !== 'failed' && bubble.state !== 'unknown',
     )
     const interruptMessageId =
-      latest === undefined || latest.state === 'interrupted' ? null : latest.deliveryId
+      latest === undefined || latest.state === 'interrupted' || latest.state === 'retracted'
+        ? null
+        : latest.deliveryId
     this.state = { ...this.state, ...patch, bubbles, interruptMessageId }
     for (const listener of this.listeners) listener()
   }
