@@ -528,6 +528,10 @@ export const RuntimeSendRequestMessage = z.object({
   // way out). Optional; absent means "session sticky".
   model: z.string().optional(),
   effort: z.string().optional(),
+  // Routine mail the daemon may coalesce into one digest turn (POD-4716).
+  // Optional so frames from older servers still parse — absent means "deliver
+  // alone", the previous behaviour.
+  coalescable: z.boolean().optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
 

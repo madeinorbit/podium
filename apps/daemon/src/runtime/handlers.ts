@@ -212,6 +212,7 @@ export const runtimeHandlers: Pick<
           rowId: msg.rowId,
           deliveryRecovery: msg.deliveryRecovery,
           initialPrompt: msg.initialPrompt,
+          ...(msg.coalescable ? { coalescable: true as const } : {}),
           text: msg.text,
           attachments: msg.attachments,
           ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),

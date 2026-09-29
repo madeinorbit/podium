@@ -33,6 +33,17 @@ export interface TurnInput {
   /** Creation prompts retain at-most-once submission across ambiguous receipts. */
   initialPrompt?: boolean
   /**
+   * Routine mail the daemon may coalesce (POD-4716).
+   *
+   * Set by the server for lifecycle-wait, non-response routine rows (kind
+   * ack/notification, or urgency fyi without expectsResponse). The daemon's
+   * delivery queue batches contiguous coalescable rows into ONE typed turn
+   * (a digest), settling each rowId individually. Urgent and expect-response
+   * rows leave this absent and keep one-turn-per-row behaviour.
+   * OPTIONAL, ABSENT MEANS ABSENT: older servers never send it.
+   */
+  coalescable?: boolean
+  /**
    * HEADLESS PER-TURN POLICY (POD-4386).
    *
    * The legacy headless port carried these per turn (HeadlessTurnRequestMessage:

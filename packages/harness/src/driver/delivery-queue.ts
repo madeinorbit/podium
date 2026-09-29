@@ -110,6 +110,35 @@ export function withDeliveryQueue(
     if (turns.length) onHeldAbandoned?.({ turns, reason })
   }
   const isHeld = (row: Row): boolean => row.options.daemonHeld === true
+  /**
+   * Routine mail the server marked coalescable (POD-4716): lifecycle-wait,
+   * non-response ack/notification/fyi with no attachments. Only these may ride
+   * a digest. Held direct sends, recovery replays, creation prompts and rows
+   * with attachments always travel alone — combining them would lose an
+   * identity, a retry guard or bytes the queue cannot re-encode.
+   */
+  const isCoalescable = (row: Row): boolean =>
+    row.input.coalescable === true &&
+    !isHeld(row) &&
+    !row.input.deliveryRecovery &&
+    !row.input.initialPrompt &&
+    !(row.input.attachments?.length) &&
+    !row.abort.signal.aborted
+  /**
+   * One typed turn for N routine rows (POD-4716). The full rendered bodies ride
+   * along — each already carries its `[podium message id · from …]` frame — so
+   * no sender or id is lost; the header names the count and points at the
+   * inbox for the pull path. Urgent and expect-response rows never enter here.
+   */
+  function renderDigest(entries: readonly { id: string; text: string }[]): string {
+    const bodies = entries.map((e) => e.text).join('\n\n---\n\n')
+    return (
+      `[podium digest: ${entries.length} routine message(s) coalesced — ` +
+      `run 'podium issue mail inbox' to read them]\n\n` +
+      `${bodies}\n\n` +
+      `[end podium digest]`
+    )
+  }
   async function drain() {
     if (draining) return
     draining = true
@@ -157,6 +186,111 @@ export function withDeliveryQueue(
               await pause(200)
             }
             continue
+          }
+          // Idle and ready: coalesce leading routine rows into ONE digest turn
+          // (POD-4716). A boot/bind re-forward of N old fyi rows and N rows
+          // queued behind a busy turn both land here as a contiguous run; typing
+          // them one by one is the flood. Non-coalescable rows (urgent,
+          // expect-response, held, recovery, prompts, attachments) stop the run
+          // so order is preserved — they keep one-turn-per-row behaviour.
+          if (isCoalescable(row)) {
+            const collect = (): Array<[string, Row]> => {
+              const batch: Array<[string, Row]> = []
+              for (const entry of rows.entries()) {
+                const [bid, brow] = entry
+                if (brow.abort.signal.aborted) {
+                  rows.delete(bid)
+                  continue
+                }
+                if (!isCoalescable(brow)) break
+                batch.push(entry)
+              }
+              return batch
+            }
+            let batch = collect()
+            // A lone routine row waits one short window for siblings (POD-4716):
+            // a boot re-forward hands N rows one RPC at a time while idle, and
+            // typing the first immediately would still open N turns (the first
+            // alone, the rest as a digest). 200ms batches the burst without
+            // delaying a truly solitary fyi past a human-noticeable gap.
+            if (batch.length === 1) {
+              await pause(200)
+              if (row.abort.signal.aborted) continue
+              const stateAfter = await handle.state()
+              if (stateAfter.phase !== 'idle' || !ready()) continue
+              batch = collect()
+            }
+            if (batch.length > 1) {
+              const digest = renderDigest(batch.map(([bid, brow]) => ({ id: bid, text: brow.input.text })))
+              const combined = send(
+                { text: digest },
+                {
+                  origin: batch[0]![1].options.origin,
+                  delivery: 'when-ready',
+                  deliveryAttempt: true,
+                },
+              )
+              for (const [, brow] of batch) brow.inFlight = combined
+              let digestReceipt: TurnReceipt
+              try {
+                digestReceipt = await combined
+              } catch {
+                digestReceipt = {
+                  outcome: 'unverified',
+                  deliveredAs: 'when-ready',
+                  verificationWindowMs: 0,
+                  at: new Date().toISOString(),
+                }
+              }
+              for (const [, brow] of batch) brow.inFlight = undefined
+              if (digestReceipt.outcome === 'accepted') {
+                for (const [bid, brow] of batch) {
+                  if (brow.abort.signal.aborted) continue
+                  settle(bid, 'delivered')
+                }
+                continue
+              }
+              if (
+                digestReceipt.outcome === 'refused' &&
+                ['busy', 'needs_user', 'lease_held'].includes(digestReceipt.refusal.reason)
+              ) {
+                const oldest = Math.min(...batch.map(([, brow]) => brow.admittedAt))
+                if (Date.now() - oldest >= BOUNDARY_CEILING_MS) {
+                  for (const [bid] of batch) settle(bid, 'failed', 'the agent stayed busy before accepting this input')
+                } else {
+                  await pause(200)
+                }
+                continue
+              }
+              if (
+                digestReceipt.outcome === 'refused' &&
+                ['unsupported', 'session_ended', 'staging_failed', 'invalid_value'].includes(
+                  digestReceipt.refusal.reason,
+                )
+              ) {
+                for (const [bid] of batch)
+                  settle(bid, 'failed', digestReceipt.refusal.detail ?? digestReceipt.refusal.reason)
+                continue
+              }
+              // Unverified or queued: same never-retype rule as the single path —
+              // each row fails recoverably with the receipt so the server holds
+              // for echo/boundary instead of dead-lettering a typed digest.
+              for (const [bid] of batch) {
+                if (digestReceipt.outcome === 'unverified') {
+                  settle(
+                    bid,
+                    'failed',
+                    'delivery could not be confirmed; check the transcript before retrying',
+                    digestReceipt,
+                  )
+                } else {
+                  settle(bid, 'failed', 'delivery could not be confirmed; check the transcript before retrying')
+                }
+              }
+              continue
+            }
+            // A lone coalescable row falls through to the single path below so
+            // its rendering is byte-identical to before.
           }
           row.inFlight = send(
             { ...row.input, rowId: undefined },

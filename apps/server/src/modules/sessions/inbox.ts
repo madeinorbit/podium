@@ -191,6 +191,36 @@ export interface QueuedInboxMessage {
   sourceMessageId: string | null
 }
 
+/**
+ * Whether a ledger-backed durable row is routine mail the daemon may coalesce
+ * (POD-4716): lifecycle-wait, non-response rows of kind ack/notification or
+ * urgency fyi, with no attachments, arriving as mail. Urgent, wake,
+ * expect-response, question and operator rows stay false and keep
+ * one-turn-per-row behaviour. The server never holds or batches on this
+ * answer — it only marks; the daemon owns delivery.
+ */
+export function isCoalescableMailRow(
+  message:
+    | {
+        kind: string
+        urgency: string
+        lifecycle: string
+        expectsResponse?: boolean
+        attachments?: readonly unknown[]
+      }
+    | null
+    | undefined,
+  inputOrigin: string | undefined,
+): boolean {
+  if (!message) return false
+  if (inputOrigin !== 'mail') return false
+  if (message.lifecycle !== 'wait') return false
+  if (message.expectsResponse) return false
+  if (message.kind === 'question') return false
+  if (message.attachments?.length) return false
+  return message.kind === 'ack' || message.kind === 'notification' || message.urgency === 'fyi'
+}
+
 export interface InboxQueuePort {
   enqueue(row: {
     id: string
@@ -349,7 +379,19 @@ export interface SessionInboxDeps {
     text: string
     origin: ObservationInputOrigin
     principal: InboxPrincipalReference
+    /** Routine mail the daemon may coalesce (POD-4716). Absent = deliver alone. */
+    coalescable?: boolean
   }): Promise<TurnReceipt>
+  /**
+   * Whether a durable row backed by `sourceMessageId` is routine mail the
+   * daemon may coalesce (POD-4716). Read at forward time from the ledger, so
+   * no durable-schema change is needed and boot re-forwards classify the same
+   * way. Absent = never coalescable (fixtures, non-mail rows).
+   */
+  coalescableForSource?: (
+    sourceMessageId: string | null,
+    row: QueuedInboxMessage,
+  ) => boolean | Promise<boolean>
   /**
   * REQUEST an interrupt through the runtime contract — the only delivery an
   * agent session has.
@@ -1180,10 +1222,17 @@ export class SessionInbox {
         try {
           // Await custody in FIFO order. A queued receipt is NOT acceptance;
           // only the fenced delivery event can settle the durable row.
+          // Routine mail rides with its coalescable mark (POD-4716), read from
+          // the ledger at forward time so boot re-forwards classify the same
+          // way without a durable-schema change.
+          const coalescable = this.deps.coalescableForSource
+            ? await this.deps.coalescableForSource(row.sourceMessageId, row)
+            : false
           const receipt = await this.deps.contractDeliver({
             sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin,
             principal: row.principal, deliveryRecovery: recovery,
             initialPrompt: isInitialPromptRow(sessionId, row),
+            ...(coalescable ? { coalescable: true as const } : {}),
           })
           if (!current()) return
           if (receipt.outcome !== 'queued' && receipt.outcome !== 'accepted') {

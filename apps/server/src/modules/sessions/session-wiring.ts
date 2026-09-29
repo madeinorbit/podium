@@ -43,6 +43,7 @@ import {
   archivedSessionSendReason,
   inboxActorColumns,
   inboxActorFromColumns,
+  isCoalescableMailRow,
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
   terminalSessionSendFailureReason,
@@ -542,7 +543,21 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         origin: input.origin,
         delivery: 'when-ready',
         principal: input.principal,
+        ...(input.coalescable ? { coalescable: true as const } : {}),
       }),
+    // Routine mail the daemon may coalesce (POD-4716), read from the ledger at
+    // forward time so boot re-forwards classify the same way. The server never
+    // holds or batches on this answer — it only marks; the daemon owns delivery.
+    coalescableForSource: async (sourceMessageId, row) => {
+      if (!sourceMessageId) return false
+      let message
+      try {
+        message = await store.messages.getMessage(sourceMessageId)
+      } catch {
+        return false
+      }
+      return isCoalescableMailRow(message, row.inputOrigin)
+    },
     // Stop follows the same contract delivery route, including headed sessions.
     contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
     // Late-bound for the same reason the two above it are.

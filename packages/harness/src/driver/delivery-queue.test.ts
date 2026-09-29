@@ -399,4 +399,73 @@ describe('durable row delivery', () => {
     )
   })
 
+  // POD-4716: routine mail flooded sessions — N old fyi rows each opened its own
+  // turn after a boot re-forward. The daemon now coalesces contiguous
+  // coalescable rows into ONE digest turn, settling each rowId individually.
+  // Urgent and expect-response rows keep one-turn-per-row behaviour.
+  describe('POD-4716 routine-mail digest', () => {
+    it('coalesces N queued fyi rows behind a busy turn into exactly one typed turn', async () => {
+      const f = fixture()
+      const options = { origin: 'mail', delivery: 'when-ready' } as const
+      const N = 20
+      for (let i = 0; i < N; i++) {
+        await f.handle.send(
+          { id: `m${i}`, rowId: `m${i}`, text: `body ${i}`, coalescable: true },
+          options,
+        )
+      }
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(f.send).not.toHaveBeenCalled()
+      expect(f.emit).not.toHaveBeenCalled()
+      f.ready()
+      await vi.advanceTimersByTimeAsync(1000)
+      // Exactly one turn typed for all N rows.
+      expect(f.send).toHaveBeenCalledTimes(1)
+      const typed = String(f.send.mock.calls[0]![0].text)
+      for (let i = 0; i < N; i++) expect(typed).toContain(`body ${i}`)
+      // Every row settled delivered by that one turn; none typed twice.
+      expect(f.emit).toHaveBeenCalledTimes(N)
+      expect(f.emit.mock.calls.map(([event]) => event)).toEqual(
+        Array.from({ length: N }, (_, i) => ({ t: 'delivery', rowId: `m${i}`, outcome: 'delivered' })),
+      )
+    })
+
+    it('coalesces a boot re-forward of N old fyi rows into one digest, never N turns', async () => {
+      const f = fixture()
+      f.ready()
+      const options = { origin: 'mail', delivery: 'when-ready' } as const
+      const N = 20
+      for (let i = 0; i < N; i++) {
+        await f.handle.send(
+          { id: `old${i}`, rowId: `old${i}`, text: `old body ${i}`, coalescable: true },
+          options,
+        )
+      }
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(f.send).toHaveBeenCalledTimes(1)
+      expect(f.emit).toHaveBeenCalledTimes(N)
+      expect(f.emit.mock.calls.map(([event]) => event.outcome)).toEqual(Array(N).fill('delivered'))
+    })
+
+    it('keeps urgent rows one-turn-each and preserves order around a digest', async () => {
+      const f = fixture()
+      const mail = { origin: 'mail', delivery: 'when-ready' } as const
+      await f.handle.send({ id: 'u1', rowId: 'u1', text: 'urgent one' }, mail)
+      await f.handle.send({ id: 'f1', rowId: 'f1', text: 'fyi one', coalescable: true }, mail)
+      await f.handle.send({ id: 'f2', rowId: 'f2', text: 'fyi two', coalescable: true }, mail)
+      await f.handle.send({ id: 'u2', rowId: 'u2', text: 'urgent two' }, mail)
+      f.ready()
+      await vi.advanceTimersByTimeAsync(2000)
+      // Urgent rows type alone; the contiguous fyi pair types once as a digest.
+      expect(f.send).toHaveBeenCalledTimes(3)
+      expect(f.send.mock.calls.map(([input]) => String(input.text))).toEqual([
+        'urgent one',
+        expect.stringContaining('fyi one'),
+        'urgent two',
+      ])
+      expect(String(f.send.mock.calls[1]![0].text)).toContain('fyi two')
+      expect(f.emit.mock.calls.map(([event]) => event.rowId)).toEqual(['u1', 'f1', 'f2', 'u2'])
+      expect(f.emit.mock.calls.every(([event]) => event.outcome === 'delivered')).toBe(true)
+    })
+  })
 })
