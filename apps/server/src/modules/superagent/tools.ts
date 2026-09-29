@@ -275,9 +275,7 @@ export async function buildSuperagentTools(
     {
       spec: {
         name: 'send_to_agent',
-        description:
-          'Send a message to a session. It arrives as your message (from the superagent), ' +
-          'and wakes the session if it is parked.',
+        description: 'Type a message into a running session, as if the user typed it.',
         parameters: {
           type: 'object',
           properties: { sessionId: { type: 'string' }, text: { type: 'string' } },
@@ -365,9 +363,9 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        // The superagent's message (POD-4846): a wake message, so a parked
-        // session is resumed; enveloped, with a delivery status and an id.
-        if (!ownerUserId) return 'failed: unknown superagent thread'
+        // The superagent's message (POD-4846), like send_to_agent's, but a wake
+        // message: a parked session is resumed. Enveloped, with a delivery
+        // status and an id.
         const r = await superagentSender(modules.messages, ownerUserId)({
           sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',

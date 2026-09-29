@@ -693,7 +693,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = await harness()
     expect(
       await h.sa.callMcpTool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' }),
-    ).toBe('failed: unknown session')
+    ).toBe('failed: dead-lettered: session no longer exists')
   })
 
   it("continue_session sends 'continue' through the contract to an errored live session only", async () => {

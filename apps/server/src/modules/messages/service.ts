@@ -476,7 +476,7 @@ export function senderFromInboxPrincipal(principal: InboxPrincipalReference): Me
   }
 }
 
-/** How the target session presents at delivery time.
+/** How the target session presents at delivery time. */
 
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 

@@ -9,12 +9,13 @@ import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
  * any mail: inside the envelope (the superagent is "you, automated", not you),
  * waking a parked session, followed by its delivery status. A failure found
  * later tells the operator (POD-4778); one found at send time is this call's
- * answer. `messageId` names a message with a fact behind it — a new session's
+ * answer. With no thread owner known, the superagent speaks for the default
+ * owner, as `send_to_agent` always has. `messageId` names a message with a fact behind it — a new session's
  * first message is its spawn prompt — so a repeat stores it once.
  */
 export function superagentSender(
   messages: Pick<MessageDeliveryService, 'send'>,
-  ownerUserId: UserId,
+  ownerUserId: UserId | undefined,
 ): (input: {
   sessionId: SessionId
   text: string
@@ -22,14 +23,16 @@ export function superagentSender(
 }) => Promise<{ ok: boolean; reason?: string }> {
   return async ({ sessionId, text, messageId }) => {
     const r = await messages.send(
-      {
-        kind: 'superagent',
-        attribution: {
-          actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
-          onBehalfOf: ownerUserId,
-        },
-        delegationRef: SUPERAGENT_AGENT_IDENTITY,
-      },
+      ownerUserId
+        ? {
+            kind: 'superagent',
+            attribution: {
+              actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
+              onBehalfOf: ownerUserId,
+            },
+            delegationRef: SUPERAGENT_AGENT_IDENTITY,
+          }
+        : { kind: 'superagent' },
       {
         ...(messageId ? { messageId } : {}),
         to: { kind: 'session', id: sessionId },
