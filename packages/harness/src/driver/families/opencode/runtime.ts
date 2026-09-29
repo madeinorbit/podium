@@ -1778,6 +1778,12 @@ export function createOpencodeRuntime(
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
           ...(transcriptItem ? { transcriptItem } : {}),
+          // The ids the prompt is stored under: ours, or the hashed form an
+          // id OpenCode cannot take becomes (POD-4841).
+          harnessRef: [
+            { kind: 'opencode-message', id: ids.messageID },
+            { kind: 'opencode-part', id: ids.textPartId },
+          ],
           /**
            * WHAT ACTUALLY HAPPENED, not what was asked for.
            *
