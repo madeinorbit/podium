@@ -189,6 +189,13 @@ export interface PoolRelationsOptions {
   read?(relation: string, id: string): void
   /** Elements touched by maintenance (`indexUpdates`). */
   onWrite?(elements: number): void
+  /**
+   * POD-4745 — `member` joined the issueless set of `collection` at
+   * `target`, as it happens, by any cause (its own row, a collapse flip, a
+   * root gained or lost). Residency settles what it can keep once the
+   * publication's rows are in; never call back into the engine from here.
+   */
+  onIssuelessJoin?(collection: string, target: string, member: string): void
 }
 
 export class PoolRelations implements RelationReader {
@@ -333,6 +340,16 @@ export class PoolRelations implements RelationReader {
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
     this.options.read?.(link.relation, id)
+    return link.forward.get(id) ?? null
+  }
+
+  /** The raw forward slot of `from:id` (maintenance: untracked, no presence check; POD-4745). */
+  forwardTarget(from: EntityName, id: string, relation: string): string | null {
+    const link = this.links.get(`${from}.${relation}`)
+    if (link === undefined) {
+      specOf(this.schema, from, relation)
+      throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
+    }
     return link.forward.get(id) ?? null
   }
 
@@ -688,6 +705,7 @@ export class PoolRelations implements RelationReader {
       set.add(id)
       this.touched(1)
       this.wrote(link.collection, target)
+      this.options.onIssuelessJoin?.(link.collection, target, id)
     }
   }
 

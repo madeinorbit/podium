@@ -19,8 +19,8 @@ import { writeResult } from '../../../harness/src/results'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence, type ReadFence } from '../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
-import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { RowView } from '../../../shared/src/row-view'
+import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
@@ -46,7 +46,14 @@ const residentIssues = (() => {
   const sessions = new Map(corpus.sliceSessions.map((session) => [session.sessionId, session]))
   const cold = tableColdRule(
     SCHEMA,
-    (entity) => (entity === 'issue' ? issues : entity === 'session' ? sessions : undefined),
+    (entity) =>
+      entity === 'issue'
+        ? issues
+        : entity === 'session'
+          ? sessions
+          : entity === 'worktree'
+            ? new Map(corpus.sliceWorktrees.map((lane) => [lane.path, lane]))
+            : undefined,
     corpus.fixedNow,
   )
   return corpus.sliceIssues.filter((issue) => !cold('issue', issue.id))

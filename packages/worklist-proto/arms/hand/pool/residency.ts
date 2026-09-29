@@ -40,7 +40,11 @@
  *    member ingest that can keep a COLD row shown reads that row by id and
  *    installs it with its dependents (`member`). A cold row's `finishOf` is
  *    kept beside its id, so deciding it reads nothing. Deadlines only pass,
- *    so the clock never makes a cold row hot.
+ *    so the clock never makes a cold row hot. The rule's `lane` source (R3,
+ *    POD-4745) is applied the MobX pool's way: the engine's issueless-set
+ *    joins and a lane member's own update are settled once the publication's
+ *    rows are in (`settleLanes`), warming a cold owner of the lane a member
+ *    can keep shown.
  * AN UPDATE TO A COLD ROW THAT LEAVES IT COLD relinks it and is not stored
  * (the choice the brief asks for, and Ma3's): the kernel holds the value and
  * a later load reads the current one, so a heartbeat on a closed issue's
@@ -80,11 +84,16 @@ import {
   coldByRule,
   coldFinishOf,
   type EntityName,
+  type KeptBySpec,
   keepDeadline,
   keeperEntities,
   keeperOf,
+  type LaneSource,
+  laneKeepOf,
+  laneSources,
   type MemberKeep,
   type ModelSchema,
+  tableColdContext,
   viaTargetOf,
 } from '../../../shared/src/schema'
 import {
@@ -122,6 +131,12 @@ export interface ResidencyOptions {
   readonly now: () => number
   readonly windowMs?: number
   readonly schedule?: Schedule
+  /**
+   * The relation engine, as the rule's `lane` source reads it (POD-4745),
+   * read lazily (the engine is built after residency). Without it a `lane`
+   * source keeps nothing.
+   */
+  readonly lanes?: () => LaneReader
   /** A cell asked whether `entity:id` is cold (the pool records the running cell). */
   asked(entity: EntityName, id: string): void
   /** `entity:id` entered or left the registry (the pool emits a `residency` delta). */
@@ -130,6 +145,13 @@ export interface ResidencyOptions {
   peeked(entity: EntityName, id: string): void
   /** A known cold row was updated and stays cold (the pool emits a `coldRow` delta). */
   rewritten(entity: EntityName, id: string): void
+}
+
+/** What a `lane` source reads of the relation engine (uncounted maintenance reads). */
+export interface LaneReader {
+  members(from: EntityName, id: string, relation: string): Iterable<string>
+  issueless(from: EntityName, id: string, relation: string): Iterable<string>
+  forwardTarget(from: EntityName, id: string, relation: string): string | null
 }
 
 /** What residency did since the last reset (the pool's stats reset zeroes it). */
@@ -167,10 +189,18 @@ export class Residency {
   private readonly schedule: Schedule
   /** Entities whose rows can keep an `unlessShown` row resident (the schema's `keptBy`). */
   private readonly keeperKinds: ReadonlySet<EntityName>
-  /** `owner:id` → member id → how long it keeps the owner shown, for EVERY known member row. */
-  private readonly keeps = new Map<string, Map<string, MemberKeep>>()
-  /** `member:id` → the `owner:id` it is indexed under. */
-  private readonly keeperKey = new Map<string, string>()
+  /** Per `members` source: owner id → member id → how long it keeps the owner shown, for EVERY known member row. */
+  private readonly keeps = new Map<KeptBySpec, Map<string, Map<string, MemberKeep>>>()
+  /** `member:id` → the source and owner id it is indexed under. */
+  private readonly keeperKey = new Map<string, { source: KeptBySpec; owner: string }>()
+  /** The schema's `lane` sources (R3, POD-4745). */
+  private readonly laneSources: readonly LaneSource[]
+  /** Per `lane` source: member id → how long it keeps the owners of its lane shown, for every UNOWNED member row. */
+  private readonly laneKeeps = new Map<KeptBySpec, Map<string, MemberKeep>>()
+  /** Per `lane` source: members whose lane may keep a cold owner shown, settled by `settleLanes`. */
+  private readonly laneDirty = new Map<LaneSource, Set<string>>()
+  /** A `replace`'s rule over the new slice, while it is being placed (`reindex` → `replaced`). */
+  private placing: ColdContext | null = null
   /** A cold `unlessShown` row's `finishOf`, kept with its id (its members decay from it). */
   private readonly finish = new Map<string, number | null>()
   /** The highest clock seen (`now`). */
@@ -192,6 +222,11 @@ export class Residency {
     this.schedule = options.schedule ?? realSchedule
     const { schema } = options
     this.keeperKinds = keeperEntities(schema)
+    this.laneSources = laneSources(schema)
+    for (const lane of this.laneSources) {
+      this.laneKeeps.set(lane.source, new Map())
+      this.laneDirty.set(lane, new Set())
+    }
     const prefixTargets = new Set<EntityName>()
     for (const spec of Object.values(schema)) {
       for (const relation of Object.values(spec.relations)) {
@@ -263,13 +298,32 @@ export class Residency {
     return coldByRule(this.options.schema, entity, row, this.context())
   }
 
-  /** The pool's answers to the rule: what it holds, its member index, its clock. */
+  /** The pool's answers to the rule: what it holds, its member indexes, its lanes, its clock. */
   private context(): ColdContext {
     return {
       now: this.now(),
       coldTarget: (to, id) => this.coldTarget(to, id),
-      keeps: (entity, id) => this.keeps.get(`${entity}:${id}`)?.values() ?? [],
+      keeps: (_entity, source, key) => this.keepsAt(source, key),
     }
+  }
+
+  /**
+   * The keeps `source` holds at `key`: a `members` source from its index; a
+   * `lane` source from the engine's issueless set of the lane named `key`
+   * (the lane's own members, never a scan) and each one's indexed deadline.
+   */
+  private keepsAt(source: KeptBySpec, key: string): Iterable<MemberKeep> {
+    if (source.kind === 'members') return this.keeps.get(source)?.get(key)?.values() ?? []
+    const lane = this.laneSources.find((found) => found.source === source)
+    const reader = this.options.lanes?.() ?? null
+    if (lane === undefined || reader === null) return []
+    const deadlines = this.laneKeeps.get(source) as Map<string, MemberKeep>
+    const out: MemberKeep[] = []
+    for (const member of reader.issueless(lane.lane, key, lane.relation)) {
+      const keep = deadlines.get(member)
+      if (keep !== undefined) out.push(keep)
+    }
+    return out
   }
 
   /** Whether `to:id` is cold by rule: registered cold, or held and cold by rule. */
@@ -400,21 +454,13 @@ export class Residency {
     entity: EntityName,
     id: string,
     value: StoredRow,
-    staged: (to: EntityName, id: string) => object | undefined,
     out: IngestOut,
     pinned = false,
   ): void {
     const hot = target.read[entity].get(id) !== undefined
-    const { schema } = this.options
-    const ctx: ColdContext = {
-      now: this.now(),
-      coldTarget: (to, key) => {
-        const row = staged(to, key)
-        return row !== undefined && coldByRule(schema, to, row, ctx)
-      },
-      keeps: (owner, key) => this.keeps.get(`${owner}:${key}`)?.values() ?? [],
-    }
-    if (coldByRule(schema, entity, value, ctx)) {
+    const ctx = this.placing
+    if (ctx === null) throw new Error('[pool] place() outside a replace (reindex first)')
+    if (coldByRule(this.options.schema, entity, value, ctx)) {
       if (pinned) {
         this.unregister(entity, id)
         put(target, entity, id, value, out)
@@ -473,18 +519,93 @@ export class Residency {
     for (const byTarget of this.dependents.values()) byTarget.clear()
     this.keeps.clear()
     this.keeperKey.clear()
+    for (const deadlines of this.laneKeeps.values()) deadlines.clear()
+    for (const dirty of this.laneDirty.values()) dirty.clear()
+    this.placing = null
     this.finish.clear()
   }
 
   /**
-   * A `replace` (`reseed`), before any row is placed: the member index over
-   * the NEW slice, so each placed row's rule reads the members it will have.
+   * A `replace` (`reseed`), before any row is placed: the member indexes over
+   * the NEW slice, and the rule over it (`tableColdContext`: its rows, its
+   * members, its lanes resolved from scratch), so each placed row's rule
+   * reads what it will have. The engine's lanes move only as rows are placed,
+   * so they cannot answer here.
    */
   reindex(staged: (entity: EntityName) => ReadonlyMap<string, unknown>): void {
     this.keeps.clear()
     this.keeperKey.clear()
+    for (const deadlines of this.laneKeeps.values()) deadlines.clear()
     for (const entity of this.keeperKinds) {
-      for (const [id, row] of staged(entity)) this.indexMember(entity, id, row as object)
+      for (const [id, row] of staged(entity)) {
+        // A row with an explicit owner is no lane member: read it once.
+        const keeper = this.indexMember(entity, id, row as object)
+        this.indexLane(entity, id, keeper === null ? (row as object) : undefined)
+      }
+    }
+    this.placing = tableColdContext(this.options.schema, staged, this.now())
+  }
+
+  /**
+   * A `replace` has placed every row: its rule decided each one over the
+   * whole new slice, so the lane joins its placement caused are settled.
+   */
+  replaced(): void {
+    this.placing = null
+    for (const dirty of this.laneDirty.values()) dirty.clear()
+  }
+
+  /**
+   * The engine moved `member` into the issueless set of `collection`
+   * (POD-4745): a lane may now be kept by it. Settled with the publication
+   * (`settleLanes`), never inside the engine's own maintenance.
+   */
+  laneJoined(collection: string, member: string): void {
+    for (const lane of this.laneSources) {
+      if (`${lane.lane}.${lane.relation}` === collection) this.laneDirty.get(lane)?.add(member)
+    }
+  }
+
+  /**
+   * Warm every COLD owner a lane's member can now keep shown (after the
+   * publication's rows are in): for each member that joined a lane or
+   * changed, its current lane (the engine's forward), when the engine counts
+   * it there (issueless, not collapsed), and each cold owner checked out at
+   * that lane whose finish its deadline has not passed. Warming can move
+   * lanes again, so it runs until nothing is left.
+   */
+  settleLanes(target: IngestTarget, out: IngestOut): void {
+    const reader = this.options.lanes?.() ?? null
+    if (reader === null) return
+    for (;;) {
+      let work: [LaneSource, string] | null = null
+      for (const [lane, dirty] of this.laneDirty) {
+        const first = dirty.values().next()
+        if (first.done === true) continue
+        dirty.delete(first.value)
+        work = [lane, first.value]
+        break
+      }
+      if (work === null) return
+      const [lane, member] = work
+      const keep = this.laneKeeps.get(lane.source)?.get(member)
+      if (keep === undefined) continue
+      const at = reader.forwardTarget(lane.member, member, lane.prefixName)
+      if (at === null) continue
+      let counted = false
+      for (const id of reader.issueless(lane.lane, at, lane.relation)) {
+        if (id === member) {
+          counted = true
+          break
+        }
+      }
+      if (!counted) continue
+      for (const owner of [...reader.members(lane.lane, at, lane.owners)]) {
+        if (!this.isCold(lane.owner, owner)) continue
+        const finish = this.finish.get(`${lane.owner}:${owner}`) ?? null
+        if (this.now() > keepDeadline(keep, finish)) continue
+        this.warm(target, lane.owner, owner, out)
+      }
     }
   }
 
@@ -503,30 +624,46 @@ export class Residency {
     out: IngestOut,
   ): void {
     this.unindexMember(entity, id)
-    if (value === undefined) return
-    const keeper = this.indexMember(entity, id, value)
+    const keeper = value === undefined ? null : this.indexMember(entity, id, value)
+    // A lane member's deadline (a row with an explicit owner is none), and a
+    // re-check of its lane once the publication is in when it can keep: its
+    // own update can extend how long.
+    if (this.indexLane(entity, id, keeper === null ? value : undefined)) {
+      for (const lane of this.laneSources) {
+        if (lane.member === entity) this.laneDirty.get(lane)?.add(id)
+      }
+    }
     if (keeper === null || !this.isCold(keeper.to, keeper.id)) return
     const finish = this.finish.get(`${keeper.to}:${keeper.id}`) ?? null
     if (this.now() > keepDeadline(keeper.keep, finish)) return
-    const row = this.options.load(keeper.to as LoadableEntity, keeper.id) as StoredRow | undefined
+    this.warm(target, keeper.to, keeper.id, out)
+  }
+
+  /** Install the cold row `entity:id` because a member can keep it shown, with its dependents. */
+  private warm(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
+    const row = this.options.load(entity as LoadableEntity, id) as StoredRow | undefined
     if (row === undefined) return // its removal is on the way
-    this.unregister(keeper.to, keeper.id)
-    put(target, keeper.to, keeper.id, row, out)
+    this.unregister(entity, id)
+    put(target, entity, id, row, out)
     this.counters.warmed += 1
-    this.warmDependents(target, keeper.to, keeper.id, out)
+    this.warmDependents(target, entity, id, out)
   }
 
   private indexMember(entity: EntityName, id: string, row: object): ReturnType<typeof keeperOf> {
     const keeper = keeperOf(this.options.schema, entity, row)
     if (keeper === null) return null
-    const key = `${keeper.to}:${keeper.id}`
-    let members = this.keeps.get(key)
+    let byOwner = this.keeps.get(keeper.source)
+    if (byOwner === undefined) {
+      byOwner = new Map()
+      this.keeps.set(keeper.source, byOwner)
+    }
+    let members = byOwner.get(keeper.id)
     if (members === undefined) {
       members = new Map()
-      this.keeps.set(key, members)
+      byOwner.set(keeper.id, members)
     }
     members.set(id, keeper.keep)
-    this.keeperKey.set(`${entity}:${id}`, key)
+    this.keeperKey.set(`${entity}:${id}`, { source: keeper.source, owner: keeper.id })
     return keeper
   }
 
@@ -534,9 +671,31 @@ export class Residency {
     const key = this.keeperKey.get(`${entity}:${id}`)
     if (key === undefined) return
     this.keeperKey.delete(`${entity}:${id}`)
-    const members = this.keeps.get(key)
+    const byOwner = this.keeps.get(key.source)
+    const members = byOwner?.get(key.owner)
     members?.delete(id)
-    if (members?.size === 0) this.keeps.delete(key)
+    if (members?.size === 0) byOwner?.delete(key.owner)
+  }
+
+  /**
+   * Index (or, with no row, drop) `entity:id`'s deadline under every `lane`
+   * source it is a member entity of. True when it is an unowned member whose
+   * deadline has not passed at the clock (a function of its owner's finish
+   * may not have): only then can it keep anything.
+   */
+  private indexLane(entity: EntityName, id: string, row: object | undefined): boolean {
+    let live = false
+    for (const lane of this.laneSources) {
+      if (lane.member !== entity) continue
+      const deadlines = this.laneKeeps.get(lane.source) as Map<string, MemberKeep>
+      const keep = row === undefined ? null : laneKeepOf(lane, row)
+      if (keep === null) deadlines.delete(id)
+      else {
+        deadlines.set(id, keep)
+        if (typeof keep === 'function' || this.now() <= keep) live = true
+      }
+    }
+    return live
   }
 
   /** Relink a cold row with its new value, keeping only its id. */

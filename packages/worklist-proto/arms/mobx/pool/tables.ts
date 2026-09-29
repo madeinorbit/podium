@@ -128,7 +128,7 @@ export interface IngestTarget {
    */
   readonly residency?: Pick<
     Residency,
-    'capable' | 'ingest' | 'place' | 'forget' | 'ids' | 'reindex'
+    'capable' | 'ingest' | 'place' | 'forget' | 'ids' | 'reindex' | 'replaced'
   >
 }
 

@@ -105,7 +105,6 @@ export function reseed(
     last.set(key, record)
   }
   for (const record of last.values()) ingestRecord(staging, record, scratch)
-  const staged = (to: EntityName, id: string): object | undefined => incoming[to].get(id)
   residency?.reindex((entity) => incoming[entity])
   for (const entity of ENTITIES) {
     const next = incoming[entity]
@@ -120,11 +119,12 @@ export function reseed(
       for (const id of residency.ids(entity))
         if (!next.has(id)) residency.forget(target, entity, id)
       for (const [id, row] of next)
-        residency.place(target, entity, id, row, staged, out, pinned?.(entity, id) ?? false)
+        residency.place(target, entity, id, row, out, pinned?.(entity, id) ?? false)
       continue
     }
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
+  residency?.replaced()
 }
 
 /** A table set the scan can walk. */
@@ -372,8 +372,10 @@ export function diffResidency(
     }
     feed.set(kind, rows)
   }
-  // The rule over the feed at the clock the pool reads it against.
-  const ctx = tableColdContext(schema, (entity) => feed.get(entity), residency.now())
+  // The rule over the feed at the clock the pool reads it against: every
+  // table, since the rule's lane source resolves lanes over the lanes too.
+  const known = knownTables(source)
+  const ctx = tableColdContext(schema, (entity) => known[entity], residency.now())
   for (const entity of Object.keys(schema) as EntityName[]) {
     if (!residency.capable(entity)) continue
     const rows = feed.get(entity)

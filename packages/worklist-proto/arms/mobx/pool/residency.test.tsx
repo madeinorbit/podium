@@ -12,6 +12,7 @@ import { act } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
+import { runLegacyDerivation, visibleIssueRows } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { RowSource } from '../../../shared/src/arm'
 import {
@@ -22,7 +23,7 @@ import {
 import { settableLocals } from '../../../shared/src/locals-source'
 import type { RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
+import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
@@ -44,7 +45,14 @@ const sessionById = new Map(corpus.sliceSessions.map((session) => [session.sessi
  */
 const coldRule = tableColdRule(
   SCHEMA,
-  (entity) => (entity === 'issue' ? issueById : entity === 'session' ? sessionById : undefined),
+  (entity) =>
+    entity === 'issue'
+      ? issueById
+      : entity === 'session'
+        ? sessionById
+        : entity === 'worktree'
+          ? new Map(corpus.sliceWorktrees.map((lane) => [lane.path, lane]))
+          : undefined,
   corpus.fixedNow,
 )
 const isCold = (issue: SliceIssue | undefined): boolean =>
@@ -89,8 +97,10 @@ function records(): { issues: RowRecord[]; sessions: RowRecord[]; worktrees: Row
 
 let open: Rig[] = []
 
-function rig(options: { fence?: boolean; realTimer?: boolean } = {}): Rig {
-  const replay = createReplaySource(records())
+function rig(
+  options: { fence?: boolean; realTimer?: boolean; rows?: ReturnType<typeof records> } = {},
+): Rig {
+  const replay = createReplaySource(options.rows ?? records())
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   const loads: string[] = []
   const counted: RowSource = {
@@ -725,5 +735,236 @@ describe('transitions', () => {
     expect(tracked(() => pool.tables.issue.has(untouched!.id))).toBe(true)
     expect(hotIds(pool, 'issue')).toBe(hotIssues.length + 2)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
+  })
+})
+
+/**
+ * POD-4745 (R3) — the rule's lane source. An issueless session running in an
+ * issue's own checkout is one of its seats by containment
+ * (`indexSessionOwnership`, session-ownership.ts:152-158), so it keeps a
+ * closed issue drawn. The fixture has no closed row kept by such a session
+ * alone, so each case builds one: a finished human child nothing else can
+ * keep (cold by rule on the plain corpus, no member session), checked
+ * out at a path no scan reports (the issue's own path is a root all the same),
+ * and a run that never finished somewhere around it.
+ */
+describe('the lane source (R3, POD-4745)', () => {
+  const LANE = '/r3/lane'
+  // A finished human child past its own decay window: drawn only while a
+  // session keeps it, and placed under its nearest drawn ancestor or at the
+  // top level (never dropped like a top-level agent row).
+  const target = corpus.sliceIssues.find(
+    (issue) =>
+      isCold(issue) &&
+      issue.parentId != null &&
+      issue.audience === 'human' &&
+      issue.archived !== true &&
+      issue.deletedAt == null &&
+      issue.stage !== 'proposed' &&
+      issue.stage !== 'shipping' &&
+      issue.startedBySession == null &&
+      !corpus.sliceSessions.some((session) => session.issueId === issue.id),
+  )
+  if (target === undefined) throw new Error('no cold finished human child without sessions')
+  const issueId = target.id
+  const openIssue = hotIssues.find((issue) => issue.closedAt == null)!
+  /** The run: an issueless live session, never finished (it keeps without limit). */
+  const RUN = 'r3-run'
+  const run = (patch: Partial<SliceSession> = {}): SliceSession => ({
+    sessionId: RUN,
+    cwd: `${LANE}/src`,
+    agentKind: 'claude-code',
+    headless: false,
+    status: 'live',
+    archived: false,
+    lastActiveAt: new Date(corpus.fixedNow).toISOString(),
+    stoppedAt: null,
+    readAt: null,
+    unread: false,
+    ...patch,
+  })
+  const lane = (path: string): SliceWorktree => ({ path, repoPath: '/r3', repoName: 'r3' })
+  const runRecord = (patch: Partial<SliceSession> = {}): RowRecord => ({
+    kind: 'session',
+    id: RUN,
+    value: run(patch),
+  })
+  /** The corpus rows with the target checked out at `worktreePath`, plus `sessions` and `lanes`. */
+  function rows(
+    worktreePath: string | null,
+    sessions: readonly SliceSession[],
+    lanes: readonly string[] = [],
+  ): ReturnType<typeof records> {
+    const base = records()
+    return {
+      issues: base.issues.map((record) =>
+        record.id === issueId ? issueRecord(issueId, { worktreePath }) : record,
+      ),
+      sessions: [
+        ...base.sessions,
+        ...sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+      ],
+      worktrees: [
+        ...base.worktrees,
+        ...lanes.map((path) => ({ kind: 'worktree' as const, id: path, value: lane(path) })),
+      ],
+    }
+  }
+  const resident = (pool: MobxPool, id = issueId) => tracked(() => pool.tables.issue.has(id))
+  /** Warmed in the publication's own action: resident, nothing queued, the partition clean. */
+  function expectWarmed(r: Rig): void {
+    expect(resident(r.pool)).toBe(true)
+    expect(r.pool.residency?.isCold('issue', issueId)).toBe(false)
+    expect(r.pool.residency?.counters.warmed).toBeGreaterThanOrEqual(1)
+    expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  }
+  function expectCold(r: Rig): void {
+    expect(r.pool.residency?.isCold('issue', issueId)).toBe(true)
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  }
+
+  it('a closed issue only an issueless run in its checkout keeps is resident at startup and drawn, as the oracle draws it', () => {
+    const r = rig({ rows: rows(LANE, [run()]) })
+    expect(resident(r.pool)).toBe(true)
+    expect(r.pool.residency?.isCold('issue', issueId)).toBe(false)
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+    const drawn = tracked(() => [...r.pool.worklist.order])
+    // The oracle: the legacy derivation over the same corpus change.
+    const legacy = buildCorpus(1)
+    // Both spellings: the legacy model takes the projection's when present.
+    const wire = legacy.issues.find((issue) => issue.id === issueId)!
+    ;(wire as { worktreePath?: string | null }).worktreePath = LANE
+    const projection = legacy.issueProjections.find((issue) => issue.id === issueId)
+    if (projection !== undefined) (projection as { worktreePath?: string }).worktreePath = LANE
+    const template = legacy.sessions.find((session) => session.issueId == null)!
+    legacy.sessions.push({
+      ...template,
+      sessionId: RUN,
+      issueId: undefined,
+      cwd: `${LANE}/src`,
+      agentKind: 'claude-code',
+      status: 'live',
+      archived: false,
+      headless: false,
+      lastActiveAt: new Date(corpus.fixedNow).toISOString(),
+      stoppedAt: undefined,
+      agentState: undefined,
+      resume: undefined,
+    } as unknown as (typeof legacy.sessions)[number])
+    const locals = { selectedIssueId: null, coarseNow: legacy.fixedNow }
+    const oracle = visibleIssueRows(runLegacyDerivation(legacy, locals), locals).map(
+      (row) => row.issue.id,
+    )
+    expect(oracle).toContain(issueId)
+    expect(drawn).toContain(issueId)
+    expect([...drawn].sort()).toEqual([...oracle].sort())
+    // Without the run the same row is cold and not drawn (the case is live).
+    const control = rig({ rows: rows(LANE, []) })
+    expect(control.pool.residency?.isCold('issue', issueId)).toBe(true)
+    expect(tracked(() => [...control.pool.worklist.order])).not.toContain(issueId)
+  })
+
+  it('stays resident after the run leaves the checkout (nothing makes a hot row cold)', () => {
+    const r = rig({ rows: rows(LANE, [run()]) })
+    r.push({ type: 'update', rows: [runRecord({ cwd: '/elsewhere' })] })
+    expect(resident(r.pool)).toBe(true)
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  })
+
+  it('warms when a run arrives in the checkout', () => {
+    const r = rig({ rows: rows(LANE, []) })
+    expectCold(r)
+    r.pool.stats.reset()
+    r.push({ type: 'update', rows: [runRecord()] })
+    expectWarmed(r)
+  })
+
+  it('warms when a run in the checkout loses its issueId', () => {
+    const r = rig({ rows: rows(LANE, [run({ issueId: openIssue.id })]) })
+    expectCold(r)
+    r.pool.stats.reset()
+    r.push({ type: 'update', rows: [runRecord()] })
+    expectWarmed(r)
+  })
+
+  it('warms when an issueless run moves into the checkout', () => {
+    const r = rig({ rows: rows(LANE, [run({ cwd: '/elsewhere' })]) })
+    expectCold(r)
+    r.pool.stats.reset()
+    r.push({ type: 'update', rows: [runRecord({ cwd: `${LANE}/deeper/still` })] })
+    expectWarmed(r)
+  })
+
+  it('warms when a scanned lane that held the run disappears', () => {
+    const inner = `${LANE}/inner`
+    const r = rig({ rows: rows(LANE, [run({ cwd: `${inner}/x` })], [inner]) })
+    expectCold(r)
+    r.pool.stats.reset()
+    r.push({ type: 'update', rows: [{ kind: 'worktree', id: inner, value: undefined }] })
+    expectWarmed(r)
+  })
+
+  it("warms when the issue's own checkout becomes the run's lane", () => {
+    // The run sits under a scanned lane; the issue then checks out a path
+    // between them, which takes the run (a new, longer root).
+    const r = rig({ rows: rows(null, [run({ cwd: `${LANE}/src` })], ['/r3']) })
+    expectCold(r)
+    r.pool.stats.reset()
+    r.push({ type: 'update', rows: [issueRecord(issueId, { worktreePath: LANE })] })
+    expectWarmed(r)
+  })
+
+  it('warms when the issue checks out a lane the run already sits in (its own rule reads the lane)', () => {
+    // No session moves: only the issue's update can see the run.
+    const r = rig({ rows: rows(null, [run({ cwd: `${LANE}/src` })], [LANE]) })
+    expectCold(r)
+    r.pool.stats.reset()
+    r.push({ type: 'update', rows: [issueRecord(issueId, { worktreePath: LANE })] })
+    expect(resident(r.pool)).toBe(true)
+    expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  })
+
+  it('warms when a resume-twin collapse flips the run in', () => {
+    const resume = { kind: 'claude', value: 'r3-twin' }
+    const twin = run({
+      sessionId: 'r3-twin',
+      cwd: '/elsewhere',
+      status: 'hibernated',
+      resume,
+    })
+    const r = rig({
+      rows: rows(LANE, [run({ status: 'exited', resume }), twin]),
+    })
+    // The hibernated twin outranks the run: the run is collapsed away.
+    expectCold(r)
+    r.pool.stats.reset()
+    r.push({
+      type: 'update',
+      rows: [
+        {
+          kind: 'session',
+          id: 'r3-twin',
+          value: {
+            ...twin,
+            status: 'exited',
+            lastActiveAt: new Date(corpus.fixedNow - 1000).toISOString(),
+          },
+        },
+      ],
+    })
+    expectWarmed(r)
+  })
+
+  it('leaves the issue cold when the run cannot keep it (finished long ago, headless, owned)', () => {
+    const r = rig({ rows: rows(LANE, []) })
+    const days = (n: number) => new Date(corpus.fixedNow - n * 24 * 60 * 60 * 1000).toISOString()
+    r.pool.stats.reset()
+    r.push({ type: 'update', rows: [runRecord({ stoppedAt: days(30), readAt: days(29) })] })
+    r.push({ type: 'update', rows: [runRecord({ headless: true })] })
+    r.push({ type: 'update', rows: [runRecord({ issueId: openIssue.id })] })
+    expectCold(r)
+    expect(r.pool.residency?.counters.warmed).toBe(0)
   })
 })

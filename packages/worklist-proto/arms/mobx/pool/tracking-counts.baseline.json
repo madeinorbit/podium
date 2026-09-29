@@ -1,6 +1,6 @@
 {
-  "updatedBy": "POD-4748",
-  "reason": "first baseline, the counts at integrate/4545-round-three 38df58ac9 (the before-values for POD-4755 and POD-4757)",
+  "updatedBy": "POD-4745",
+  "reason": "the complete cold rule reads its new inputs at bootstrap (each unowned session's deadline fields, each candidate issue's worktreePath)",
   "counts": {
     "1x.firstPaint.byOwner.GroupNode.computeds": 56,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
@@ -76,7 +76,7 @@
     "1x.phases.ingest.built.set": 56,
     "1x.phases.ingest.changes": 19774,
     "1x.phases.ingest.distinctRows": 9667,
-    "1x.phases.ingest.rowReads": 227549,
+    "1x.phases.ingest.rowReads": 234067,
     "1x.phases.nodeConstruction.built.atom": 2112,
     "1x.phases.nodeConstruction.built.computed": 67584,
     "1x.phases.nodeConstruction.built.object": 2112,
@@ -202,7 +202,7 @@
     "4x.phases.ingest.built.set": 169,
     "4x.phases.ingest.changes": 79563,
     "4x.phases.ingest.distinctRows": 38584,
-    "4x.phases.ingest.rowReads": 904592,
+    "4x.phases.ingest.rowReads": 930474,
     "4x.phases.nodeConstruction.built.atom": 8432,
     "4x.phases.nodeConstruction.built.computed": 269824,
     "4x.phases.nodeConstruction.built.object": 8432,

@@ -90,7 +90,6 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
   const staging: IngestTarget = { read: incoming, write: incoming }
   for (const record of rows) ingestRecord(staging, record, scratch)
   const residency = target.residency
-  const staged = (to: EntityName, id: string): object | undefined => incoming[to].get(id)
   residency?.reindex((entity) => incoming[entity])
   for (const entity of ENTITIES) {
     const table = target.write[entity]
@@ -104,11 +103,12 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
       for (const id of residency.ids(entity)) {
         if (!next.has(id)) residency.forget(target, entity, id, out)
       }
-      for (const [id, row] of next) residency.place(target, entity, id, row, staged, out)
+      for (const [id, row] of next) residency.place(target, entity, id, row, out)
       continue
     }
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
+  residency?.replaced(target, out)
 }
 
 /**
@@ -396,8 +396,10 @@ function residencyProblems(
       ),
     )
   }
-  // The rule over the feed at the clock the pool reads it against.
-  const ctx = tableColdContext(schema, (entity) => feed.get(entity), residency.now())
+  // The rule over the feed at the clock the pool reads it against: every
+  // table, since the rule's lane source resolves lanes over the lanes too.
+  const known = knownTables(pool, source)
+  const ctx = tableColdContext(schema, (entity) => known[entity], residency.now())
   for (const entity of Object.keys(schema) as EntityName[]) {
     if (!residency.capable(entity)) continue
     const rows = feed.get(entity)

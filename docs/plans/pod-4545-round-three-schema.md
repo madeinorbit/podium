@@ -326,8 +326,9 @@ So the schema declares residency per entity:
   predicate reads can show it** (`cold.kind: 'unlessShown'`, amended by
   POD-4665, §5.1): its own standing and each member session give the latest
   clock instant they could keep it in the list, and the row is cold once every
-  one of them has passed. `dependsOn` names the own fields; `keptBy.dependsOn`
-  the session fields.
+  one of them has passed. `dependsOn` names the own fields; each `keptBy`
+  source's `dependsOn` the session fields (POD-4745 added the second source,
+  the issueless sessions of the issue's own checkout).
 - **`session`** — cold *via* the `issue` relation. A session row cannot decide
   its own residency; it is cold exactly when its issue is cold. The declaration
   says `via`, not a predicate, because faking a predicate over a field the row
@@ -391,15 +392,37 @@ row R-VIS hides may be resident.
 | Input | Deadline (legacy definition it bounds) |
 |---|---|
 | The issue itself (`shownUntil`) | active human issue, or closed top-level human issue (the fold does not decay): never passes. Finished human child: the later of the unread window (7 d past finish) and the read window (24 h past the later of finish and `readAt`), `issueVisibleInSidebar`. Excluded (archived, deleted, `proposed`, `shipping`), agent-audience or unfinished-and-inactive: already passed (`rows.ts:62-106`). |
-| Each member session (`keptBy`, over `sessions`) | archived or shell: already passed (`isRowSeat`). Never finished: never passes. Finished run: 7 d unread / 24 h past read (`sessionRetainsWorklistRow`). Idle finished turn: the same windows counted from the issue's finish (`finishOf`), or never while the issue is unfinished (`visibility.ts:44-70`). |
+| Each member session (`keptBy` `members`, over `sessions`) | archived or shell: already passed (`isRowSeat`). Never finished: never passes. Finished run: 7 d unread / 24 h past read (`sessionRetainsWorklistRow`). Idle finished turn: the same windows counted from the issue's finish (`finishOf`), or never while the issue is unfinished (`visibility.ts:44-70`). |
+| Each issueless session its own checkout seats (`keptBy` `lane`, R3, POD-4745) | The same deadline as a member session. |
 
 Members are the rows naming the issue by the raw foreign key, with the
 relation's `where` applied (a headless session keeps nothing), **before**
-resume-twin collapse. What the bound leaves out only makes extra rows
-resident: the rescue (a finished row is never rescued), nesting and placement
-(they only hide), the unread rollup (both windows are allowed), collapse (every
-raw member counts), and R3 (issueless sessions owned by the issue's worktree).
-At 1x and 4x, no closed row is kept by an R3 session alone.
+resume-twin collapse. Lane members (POD-4745) are the sessions the `prefix`
+relation seats in the lane the issue's `worktreePath` names, as the relation
+holds them (headless out, resume twins collapsed, the lane resolved over the
+scanned lanes plus every issue's own checkout), whose `issueId` is absent:
+exactly the sessions `indexSessionOwnership` adds to the issue by containment
+(`session-ownership.ts:152-158`). The issue reads its own lane, never a scan.
+What the bound leaves out only makes extra rows resident: the rescue (a
+finished row is never rescued), nesting and placement (they only hide), the
+unread rollup (both windows are allowed), and collapse for explicit members
+(every raw member counts).
+
+**The bound is complete (POD-4745), except a clock rewind.** Before POD-4745
+the rule left R3 out, because no closed row at 1x or 4x was kept by an R3
+session alone. That was a property of the corpus, not a guarantee, so an arm
+had to evaluate every cold row at bootstrap to be safe (the MobX plain pass:
+24-26 ms at 1x, 101-114 ms at 4x on flatblock). With the lane source, every
+input R-VIS reads is an input of the rule, so a row R-VIS shows at the pool's
+clock is never cold by rule. The one way a cold row can still be shown is a
+clock rewind: the pool reads the highest clock it has seen, so a rewind never
+warms a row, and a row the rewound clock would show loads on first access.
+Measured after the change (`arms/mobx/pool/bootstrap.test.ts`,
+`harness/src/cold-rule.test.ts`, flatblock, the landed tree): the partition is
+unchanged, as the corpus predicts: 2,736 resident / 2,131 cold issues and
+2,548 / 1,756 sessions at 1x; 10,977 / 8,491 and 10,448 / 6,768 at 4x; both
+pools equal the rule and no drawn row is cold. What the lane source changes is
+the guarantee, not today's numbers.
 
 **What a pool does with it** (`arms/*/pool/residency.ts`, the same code shape
 in both arms). It keeps a plain index of every member row's deadline by the
@@ -409,6 +432,21 @@ to its id. Two things are new:
   issue by id and installs it with its dependents before routing the member
   (warm path 3). Nothing else reads a row.
 - The issue's own update re-evaluates the rule from the index, with no read.
+- The lane source (POD-4745) reads the relation engine's maintained issueless
+  set for the lane, plus a plain map of each unowned session's deadline. A
+  session can join a lane without its own row changing (a scanned lane
+  appears or disappears, an issue's checkout becomes a new longer root, a
+  resume-twin collapse flips), so the engine reports every join as it happens
+  and a session's own update marks it too. Once the publication's rows are
+  in, each such session's lane is checked and every cold issue checked out
+  there whose finish its deadline has not passed is warmed (warm path 3,
+  bounded by that lane's issues). The engine's lanes move only as a
+  `replace` places rows, so the MobX pool places each row by its standing
+  and explicit members, then checks every unowned session whose deadline can
+  still keep against its lane once the new slice is in, in the same action
+  (engine reads only, no second pass over the rows). The paused hand pool
+  places by the rule over the whole new slice (`tableColdContext`, lanes
+  resolved from scratch).
 
 The pool reads the clock as the highest `coarseNow` it has seen, so a clock
 rewind never warms a row (the channel does not promise monotony). Deadlines
@@ -460,9 +498,9 @@ deferred).
 **What (b) does not change.** Mb1's visible set still has a node per known
 issue and reads a cold row by id to answer its visibility, which it needs for
 nesting through cold ancestors and for any row whose data arrives later. The
-bootstrap reads that remain (3,112 at 1x) are those. An arm may now assume a
-cold row is hidden at bootstrap, but not afterwards, because R3 and a clock
-rewind are outside the bound. A drawn row whose data arrives a moment later
+bootstrap reads that remain (3,112 at 1x) are those. Since POD-4745 an arm
+may assume a cold row is hidden, at bootstrap and afterwards, unless the clock
+has rewound (the only input outside the bound). A drawn row whose data arrives a moment later
 (`RowView.loading`) is still a case every list handles.
 
 **The cold-bootstrap wall under (b)** (POD-4572, the first browser run of the

@@ -124,7 +124,9 @@ describe('bootstrap in the count harness', () => {
             ? new Map(feed.corpus.sliceIssues.map((issue) => [issue.id, issue]))
             : entity === 'session'
               ? new Map(feed.corpus.sliceSessions.map((session) => [session.sessionId, session]))
-              : undefined,
+              : entity === 'worktree'
+                ? new Map(feed.corpus.sliceWorktrees.map((lane) => [lane.path, lane]))
+                : undefined,
         feed.corpus.fixedNow,
       )
       const coldIssues = feed.corpus.sliceIssues.filter((issue) => cold('issue', issue.id)).length

@@ -361,6 +361,8 @@ export class MobxPool {
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             ...(lazy.outOfMemory === undefined ? {} : { outOfMemory: lazy.outOfMemory }),
+            // The rule's lane source (R3, POD-4745) reads the engine, built below.
+            lanes: () => this.graph,
           })
     this.residency = residency
     this.stats = createStats(residency)
@@ -453,6 +455,8 @@ export class MobxPool {
               },
               changed: (entity: EntityName, id: string) => residency.notify(entity, id),
             },
+            onIssuelessJoin: (collection: string, _target: string, member: string) =>
+              residency.laneJoined(collection, member),
           }),
     })
     this.relations = reads.wrapRelations(this.graph)
@@ -1049,7 +1053,11 @@ export class MobxPool {
     this.graph.begin()
     runInAction(() => {
       if (event.type === 'replace') reseed(this.target, event.rows, out)
-      else for (const record of event.rows) ingestRecord(this.target, record, out)
+      else {
+        for (const record of event.rows) ingestRecord(this.target, record, out)
+        // POD-4745: a lane member that can now keep a cold owner shown warms it.
+        this.residency?.settleLanes(this.target, out)
+      }
       this.graph.flush()
       this.syncWorklist(event)
     })

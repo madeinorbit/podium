@@ -10,7 +10,8 @@
  *   set, a session when its issue is. Written out here as the control arm
  *   only; the schema no longer declares it.
  * - DECLARED, `SCHEMA.issue.cold` (`unlessShown`): closed AND nothing R-VIS
- *   reads (the issue's own standing, its member sessions) can show it at the
+ *   reads (the issue's own standing, its member sessions, the issueless
+ *   sessions its own checkout seats, POD-4745) can show it at the
  *   clock. Applied through `coldByRule` over the feed's rows, exactly as the
  *   pools' re-partition and the gate's partition check apply it.
  *
@@ -95,7 +96,7 @@ async function measure(scale: 1 | 4) {
       legacyDerivationFromStore(ctx.engine.getSnapshot(), now),
       locals,
     ).map((row) => row.issue.id)
-    const table = (kind: 'issue' | 'session') =>
+    const table = (kind: 'issue' | 'session' | 'worktree') =>
       new Map(
         feeds.rows.source
           .snapshot(kind)
@@ -104,6 +105,7 @@ async function measure(scale: 1 | 4) {
       )
     const issues = table('issue')
     const sessions = table('session')
+    const lanes = table('worktree')
 
     const controlIssue = (id: string) => issues.get(id)?.['closedAt'] != null
     const control = score(order, issues, sessions, (entity, id) => {
@@ -113,7 +115,14 @@ async function measure(scale: 1 | 4) {
     })
     const rule = tableColdContext(
       SCHEMA,
-      (entity) => (entity === 'issue' ? issues : entity === 'session' ? sessions : undefined),
+      (entity) =>
+        entity === 'issue'
+          ? issues
+          : entity === 'session'
+            ? sessions
+            : entity === 'worktree'
+              ? lanes
+              : undefined,
       now,
     )
     const declaredCold = (entity: EntityName, id: string): boolean => {

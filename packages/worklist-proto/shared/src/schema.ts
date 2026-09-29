@@ -20,7 +20,8 @@
  * those are the row view contract (L1b) and the worklist phase. A rule that
  * reads more than one entity's fields is not a schema rule, with ONE declared
  * exception: the issue's residency (`cold: unlessShown`, POD-4665) reads its
- * member sessions, because a row the list draws must be resident and the
+ * member sessions (explicit ones, and since POD-4745 the issueless ones its
+ * own checkout seats), because a row the list draws must be resident and the
  * sessions are what keep a closed issue drawn. It is an upper bound on
  * visibility, not visibility.
  *
@@ -271,7 +272,7 @@ export type ColdSpec =
 /**
  * POD-4665 — cold when `predicate` holds AND nothing the visible rule reads
  * can show the row: the row's own standing ({@link UnlessShownColdSpec.shownUntil})
- * and the members of one declared `hasMany` ({@link KeptBySpec}) each say how
+ * and the members of each declared source ({@link KeptBySpec}) each say how
  * long they can show it, as a deadline on the slice clock (`coarseNow`,
  * inclusive: a deadline `t` shows the row while `coarseNow <= t`). The rule is
  * a SUPERSET of visibility, never a restatement of it: every deadline is the
@@ -294,18 +295,48 @@ export interface UnlessShownColdSpec {
    * when it does not decay at all (read by the member side only).
    */
   readonly finishOf: (row: Readonly<Record<string, unknown>>) => number | null
-  readonly keptBy: KeptBySpec
+  /** Every source of members that can keep the row shown; cold only when none can. */
+  readonly keptBy: readonly KeptBySpec[]
+  readonly why: string
+}
+
+/** One source of members that can keep an `unlessShown` row shown. */
+export type KeptBySpec = MembersKeptBySpec | LaneKeptBySpec
+
+/**
+ * Members by reference: the rows of one `hasMany` (its inverse `belongsTo`,
+ * by the RAW foreign key with the relation's `where` applied, before any
+ * collapse) that can keep their row shown.
+ */
+export interface MembersKeptBySpec {
+  readonly kind: 'members'
+  /** A `hasMany` on the cold entity, the inverse of a `belongsTo`. */
+  readonly relation: string
+  /** Member fields `keep` reads. */
+  readonly dependsOn: readonly string[]
+  readonly keep: (member: Readonly<Record<string, unknown>>) => MemberKeep
   readonly why: string
 }
 
 /**
- * The member side of an `unlessShown` rule: the rows of one `hasMany` (its
- * inverse `belongsTo`, by the RAW foreign key with the relation's `where`
- * applied, before any collapse) that can keep their row shown.
+ * POD-4745 — members by containment (slice §2 R3): the rows a `prefix`
+ * relation seats in the row's OWN lane that no explicit owner claims. The
+ * row names its lane through `through` (a `belongsTo`, by its raw foreign
+ * key); the lane's `relation` is a `hasMany` whose inverse is the `prefix`,
+ * read as the relation holds it (the prefix's `where`, collapsed twins out,
+ * the lane resolved over the union root set); a member counts only while its
+ * `unownedBy` foreign key is ABSENT (the legacy tests `issueId !== undefined`,
+ * `session-ownership.ts:152-158`). Bounded by the lane's members: a row reads
+ * its own lane, never a scan.
  */
-export interface KeptBySpec {
-  /** A `hasMany` on the cold entity, the inverse of a `belongsTo`. */
+export interface LaneKeptBySpec {
+  readonly kind: 'lane'
+  /** A `belongsTo` on the cold entity naming its lane. */
+  readonly through: string
+  /** A `hasMany` on the lane whose inverse is a `prefix` on the member entity. */
   readonly relation: string
+  /** A `belongsTo` on the member entity: members whose raw foreign key is set are not counted. */
+  readonly unownedBy: string
   /** Member fields `keep` reads. */
   readonly dependsOn: readonly string[]
   readonly keep: (member: Readonly<Record<string, unknown>>) => MemberKeep
@@ -419,12 +450,15 @@ const SESSION_STATUS_RANK: Readonly<Record<string, number>> = {
 // Upper bounds on R-VIS (slice spec §3; executable definition: the legacy
 // `buildUnifiedRows`, `rows.ts:51-118`, with `sessionRetainsWorklistRow` and
 // `issueVisibleInSidebar` from `slices/worklist/visibility.ts`). Each is the
-// latest instant its input could keep the row visible. What is left out only
-// makes a row resident that R-VIS hides: the rescue (a finished row is never
-// rescued, `rows.ts:147`), nesting and placement (they only hide), the
-// unread rollup (both decay windows are allowed), resume-twin collapse (every
-// raw member counts), and R3 (issueless sessions owned by the issue's
-// worktree: 0 closed rows at 1x or 4x are kept by one alone, POD-4665).
+// latest instant its input could keep the row visible. The inputs are every
+// input R-VIS has: the issue's own standing, its explicit members (R2) and the
+// issueless sessions its own checkout seats (R3, POD-4745). What is left out
+// only makes a row resident that R-VIS hides: the rescue (a finished row is
+// never rescued, `rows.ts:147`), nesting and placement (they only hide), the
+// unread rollup (both decay windows are allowed), and resume-twin collapse
+// for explicit members (every raw member counts). So the bound is complete:
+// a row R-VIS shows at the pool's clock is never cold by rule. Only a clock
+// rewind can show a cold row (the pool reads the highest clock it has seen).
 
 /** `SIDEBAR_FINISHED_GRACE_MS` (`visibility.ts:18`). */
 const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -486,6 +520,9 @@ function issueShownUntil(row: Readonly<Record<string, unknown>>): number {
 function issueFinishOf(row: Readonly<Record<string, unknown>>): number | null {
   return issueFinished(row) ? epochMs(row['closedAt'] ?? row['updatedAt']) : null
 }
+
+/** The session fields {@link sessionKeep} reads. */
+const SESSION_KEEP_FIELDS = ['archived', 'agentKind', 'stoppedAt', 'agentState', 'unread', 'readAt']
 
 /**
  * How long a session can keep its issue shown (`sessionRetainsWorklistRow`,
@@ -647,7 +684,7 @@ export const SCHEMA: ModelSchema = defineSchema({
     },
     cold: {
       kind: 'unlessShown',
-      when: 'closedAt != null, and neither the issue itself nor any member session can keep it in the list at the current clock',
+      when: 'closedAt != null, and neither the issue itself, nor any member session, nor any issueless session in its own checkout can keep it in the list at the current clock',
       dependsOn: [
         'closedAt',
         'archived',
@@ -662,12 +699,24 @@ export const SCHEMA: ModelSchema = defineSchema({
       predicate: (row) => row['closedAt'] != null,
       shownUntil: issueShownUntil,
       finishOf: issueFinishOf,
-      keptBy: {
-        relation: 'sessions',
-        dependsOn: ['archived', 'agentKind', 'stoppedAt', 'agentState', 'unread', 'readAt'],
-        keep: sessionKeep,
-        why: 'A retained session keeps a closed issue in the list (R-VIS 2); 294 of the 376 closed rows visible at 1x are there for one.',
-      },
+      keptBy: [
+        {
+          kind: 'members',
+          relation: 'sessions',
+          dependsOn: SESSION_KEEP_FIELDS,
+          keep: sessionKeep,
+          why: 'A retained session keeps a closed issue in the list (R-VIS 2); 294 of the 376 closed rows visible at 1x are there for one.',
+        },
+        {
+          kind: 'lane',
+          through: 'worktree',
+          relation: 'sessions',
+          unownedBy: 'issue',
+          dependsOn: SESSION_KEEP_FIELDS,
+          keep: sessionKeep,
+          why: "R3 (POD-4745): an issueless session running in the issue's own checkout is one of its seats by containment (`indexSessionOwnership`, session-ownership.ts:152-158), and a retained seat keeps the row shown exactly as an explicit member does. Without it the bound held only on today's data (no closed row at 1x or 4x is kept by such a session alone), and an arm had to evaluate every cold row at bootstrap to be safe.",
+        },
+      ],
       why: 'Audit §7: every issue is instantiated at bootstrap, including ~2,600 closed ones. Closed issues stay on disk until touched, EXCEPT one the list can draw (POD-4665): on the live-shaped corpus 376 of the 732 visible rows at 1x are closed, 45 of them in the first 96-row window, and a drawn row that is cold paints as a placeholder and loads a moment later.',
     },
   },
@@ -928,11 +977,13 @@ export interface ColdContext {
   /** Whether `to:id` is known and cold by rule (a `via` row's target). */
   coldTarget(to: EntityName, id: string): boolean
   /**
-   * The keeps of the members of `entity:id`'s `keptBy` relation (an
-   * `unlessShown` entity): every member row naming it by the raw foreign key
-   * with the relation's `where` passed ({@link keeperOf}).
+   * The keeps of the members one `source` of an `unlessShown` entity's
+   * `keptBy` holds at `key` ({@link keptByKey}): for `members`, every member
+   * row naming the row by the raw foreign key with the relation's `where`
+   * passed ({@link keeperOf}); for `lane`, every unowned member the lane
+   * named `key` seats ({@link laneKeepOf}).
    */
-  keeps(entity: EntityName, id: string): Iterable<MemberKeep>
+  keeps(entity: EntityName, source: KeptBySpec, key: string): Iterable<MemberKeep>
 }
 
 /**
@@ -940,10 +991,10 @@ export interface ColdContext {
  * `never` is always resident, `own` is the entity's predicate over its row,
  * `via` is cold when the row it inherits from ({@link viaTargetOf}) is known
  * and cold by rule, which `ctx.coldTarget` answers; `unlessShown` is cold when
- * its predicate holds and every deadline, its own and each member's, has
- * passed at `ctx.now` (POD-4665). POD-4580 (Ha3) shares it so a pool, its
- * rebuild and the gate's partition check apply one rule; both arms import it
- * (the MobX arm since POD-4568 G2).
+ * its predicate holds and every deadline, its own and each member's of every
+ * source, has passed at `ctx.now` (POD-4665, POD-4745). POD-4580 (Ha3) shares
+ * it so a pool, its rebuild and the gate's partition check apply one rule;
+ * both arms import it (the MobX arm since POD-4568 G2).
  */
 export function coldByRule(
   schema: ModelSchema,
@@ -957,11 +1008,13 @@ export function coldByRule(
   if (spec.kind === 'own') return spec.predicate(fields)
   if (spec.kind === 'unlessShown') {
     if (!spec.predicate(fields) || ctx.now <= spec.shownUntil(fields)) return false
-    const id = fields[schema[entity].key]
-    if (typeof id !== 'string') return true
     const finish = spec.finishOf(fields)
-    for (const keep of ctx.keeps(entity, id)) {
-      if (ctx.now <= keepDeadline(keep, finish)) return false
+    for (const source of spec.keptBy) {
+      const key = keptByKey(schema, entity, fields, source)
+      if (key === null) continue
+      for (const keep of ctx.keeps(entity, source, key)) {
+        if (ctx.now <= keepDeadline(keep, finish)) return false
+      }
     }
     return true
   }
@@ -975,56 +1028,182 @@ export function keepDeadline(keep: MemberKeep, finish: number | null): number {
   return finish === null ? Number.POSITIVE_INFINITY : keep(finish)
 }
 
-/** The `belongsTo` a `keptBy` relation is the inverse of, on the member entity. */
-function keptByLink(
+/**
+ * Where `source` holds the members of `row` of the `unlessShown` entity
+ * `entity`: its own key for `members`; the raw foreign key of `through` (its
+ * lane) for `lane`. Null when the row has none.
+ */
+export function keptByKey(
   schema: ModelSchema,
   entity: EntityName,
-): { readonly member: EntityName; readonly link: BelongsToSpec } | null {
+  row: object,
+  source: KeptBySpec,
+): string | null {
+  const fields = row as Readonly<Record<string, unknown>>
+  const field =
+    source.kind === 'members'
+      ? schema[entity].key
+      : laneOf(schema, entity, source).through.foreignKey
+  const key = fields[field]
+  return typeof key === 'string' && key.length > 0 ? key : null
+}
+
+/** A `members` source, resolved: the member entity and the `belongsTo` naming the owner. */
+interface MembersLink {
+  readonly source: MembersKeptBySpec
+  readonly member: EntityName
+  readonly link: BelongsToSpec
+}
+
+/** The `members` sources of `entity`'s `keptBy`, resolved (throws on a malformed one). */
+function membersLinks(schema: ModelSchema, entity: EntityName): MembersLink[] {
   const spec = schema[entity].cold
-  if (spec.kind !== 'unlessShown') return null
-  const relation = schema[entity].relations[spec.keptBy.relation]
+  if (spec.kind !== 'unlessShown') return []
+  const out: MembersLink[] = []
+  for (const source of spec.keptBy) {
+    if (source.kind !== 'members') continue
+    const relation = schema[entity].relations[source.relation]
+    if (relation?.kind !== 'hasMany') {
+      throw new Error(`[schema] ${entity}.cold.keptBy must name a hasMany (got ${relation?.kind})`)
+    }
+    const link = schema[relation.to].relations[relation.inverse]
+    if (link?.kind !== 'belongsTo') {
+      throw new Error(`[schema] ${entity}.cold.keptBy's inverse must be a belongsTo (got ${link?.kind})`)
+    }
+    out.push({ source, member: relation.to, link })
+  }
+  return out
+}
+
+/**
+ * A `lane` source of an `unlessShown` entity, resolved against the schema
+ * (POD-4745). For the issue: `issue.worktree` → `worktree.sessions` (the
+ * inverse of the `session.worktree` prefix), unowned by `session.issue`, and
+ * the owners a member at a lane can keep are `worktree.issues`.
+ */
+export interface LaneSource {
+  readonly owner: EntityName
+  readonly source: LaneKeptBySpec
+  /** The owner's `belongsTo` naming its lane (`issue.worktree`). */
+  readonly through: BelongsToSpec
+  /** The lane entity (`worktree`). */
+  readonly lane: EntityName
+  /** The lane's collection of owners, `through`'s inverse (`issues`). */
+  readonly owners: string
+  /** The lane's collection the members sit in (`sessions`). */
+  readonly relation: string
+  /** The member entity (`session`). */
+  readonly member: EntityName
+  /** The member's `prefix` relation name and spec (`session.worktree`). */
+  readonly prefixName: string
+  readonly prefix: PrefixSpec
+  /** The member's `belongsTo` whose raw foreign key must be absent (`session.issue`). */
+  readonly unowned: BelongsToSpec
+}
+
+/** A `lane` source's resolution, or the reason it does not resolve. */
+function resolveLane(
+  schema: ModelSchema,
+  owner: EntityName,
+  source: LaneKeptBySpec,
+): LaneSource | string {
+  const through = schema[owner].relations[source.through]
+  if (through?.kind !== 'belongsTo') return `through "${source.through}" must name a belongsTo`
+  const lane = through.to
+  const relation = schema[lane].relations[source.relation]
   if (relation?.kind !== 'hasMany') {
-    throw new Error(`[schema] ${entity}.cold.keptBy must name a hasMany (got ${relation?.kind})`)
+    return `relation "${lane}.${source.relation}" must name a hasMany`
   }
-  const link = schema[relation.to].relations[relation.inverse]
-  if (link?.kind !== 'belongsTo') {
-    throw new Error(`[schema] ${entity}.cold.keptBy's inverse must be a belongsTo (got ${link?.kind})`)
+  const prefix = schema[relation.to].relations[relation.inverse]
+  if (prefix?.kind !== 'prefix') {
+    return `"${lane}.${source.relation}"'s inverse must be a prefix (got ${prefix?.kind})`
   }
-  return { member: relation.to, link }
+  const unowned = schema[relation.to].relations[source.unownedBy]
+  if (unowned?.kind !== 'belongsTo') {
+    return `unownedBy "${relation.to}.${source.unownedBy}" must name a belongsTo`
+  }
+  return {
+    owner,
+    source,
+    through,
+    lane,
+    owners: through.inverse,
+    relation: source.relation,
+    member: relation.to,
+    prefixName: relation.inverse,
+    prefix,
+    unowned,
+  }
+}
+
+function laneOf(schema: ModelSchema, owner: EntityName, source: LaneKeptBySpec): LaneSource {
+  const found = resolveLane(schema, owner, source)
+  if (typeof found === 'string') throw new Error(`[schema] ${owner}.cold.keptBy (lane): ${found}`)
+  return found
+}
+
+/** Every `lane` source in the schema, resolved (throws on a malformed one). */
+export function laneSources(schema: ModelSchema): readonly LaneSource[] {
+  const out: LaneSource[] = []
+  for (const owner of Object.keys(schema) as EntityName[]) {
+    const spec = schema[owner].cold
+    if (spec.kind !== 'unlessShown') continue
+    for (const source of spec.keptBy) {
+      if (source.kind === 'lane') out.push(laneOf(schema, owner, source))
+    }
+  }
+  return out
 }
 
 /** The entities whose rows can keep an `unlessShown` row of another entity resident. */
 export function keeperEntities(schema: ModelSchema): ReadonlySet<EntityName> {
   const out = new Set<EntityName>()
   for (const entity of Object.keys(schema) as EntityName[]) {
-    const found = keptByLink(schema, entity)
-    if (found !== null) out.add(found.member)
+    for (const found of membersLinks(schema, entity)) out.add(found.member)
   }
+  for (const lane of laneSources(schema)) out.add(lane.member)
   return out
 }
 
 /**
- * The row `row` of `entity` can keep resident, and how long ({@link KeptBySpec}):
- * by the RAW foreign key of the `keptBy` relation's inverse, with that
- * relation's `where` applied (a headless session keeps nothing), before any
- * collapse; null when it names nothing.
+ * The row `row` of `entity` can keep resident through a `members` source,
+ * and how long ({@link MembersKeptBySpec}): by the RAW foreign key of the
+ * relation's inverse, with that relation's `where` applied (a headless
+ * session keeps nothing), before any collapse; null when it names nothing.
  */
 export function keeperOf(
   schema: ModelSchema,
   entity: EntityName,
   row: object,
-): { readonly to: EntityName; readonly id: string; readonly keep: MemberKeep } | null {
+): {
+  readonly to: EntityName
+  readonly id: string
+  readonly source: MembersKeptBySpec
+  readonly keep: MemberKeep
+} | null {
   const fields = row as Readonly<Record<string, unknown>>
   for (const owner of Object.keys(schema) as EntityName[]) {
-    const found = keptByLink(schema, owner)
-    if (found === null || found.member !== entity) continue
-    const spec = schema[owner].cold as UnlessShownColdSpec
-    if (found.link.where !== undefined && !found.link.where.test(fields)) return null
-    const key = fields[found.link.foreignKey]
-    if (typeof key !== 'string' || key.length === 0) return null
-    return { to: owner, id: key, keep: spec.keptBy.keep(fields) }
+    for (const found of membersLinks(schema, owner)) {
+      if (found.member !== entity) continue
+      if (found.link.where !== undefined && !found.link.where.test(fields)) return null
+      const key = fields[found.link.foreignKey]
+      if (typeof key !== 'string' || key.length === 0) return null
+      return { to: owner, id: key, source: found.source, keep: found.source.keep(fields) }
+    }
   }
   return null
+}
+
+/**
+ * How long `row` of `lane.member` can keep, through `lane`, the owners of
+ * whatever lane seats it (POD-4745): its keep while it is UNOWNED (the raw
+ * `unownedBy` foreign key absent), else null. Which lane seats it (the
+ * prefix's `where`, collapse, the union roots) is the relation's to say, not
+ * the row's.
+ */
+export function laneKeepOf(lane: LaneSource, row: object): MemberKeep | null {
+  const fields = row as Readonly<Record<string, unknown>>
+  return fields[lane.unowned.foreignKey] === undefined ? lane.source.keep(fields) : null
 }
 
 /** `schema[entity].cold.finishOf(row)` for an `unlessShown` entity, else null. */
@@ -1036,28 +1215,99 @@ export function coldFinishOf(schema: ModelSchema, entity: EntityName, row: objec
 }
 
 /**
+ * The ids `rule` collapses away over whole `rows` ({@link collapseLosers} per
+ * group): what a from-scratch reader applies before reading a relation.
+ */
+export function collapsedIds(
+  rule: CollapseSpec | undefined,
+  rows: Iterable<readonly [string, unknown]>,
+): Set<string> {
+  const out = new Set<string>()
+  if (rule === undefined) return out
+  const groups = new Map<string, CollapseMember[]>()
+  for (const [id, row] of rows) {
+    const fields = row as Readonly<Record<string, unknown>>
+    const key = rule.groupKey(fields)
+    if (key === null) continue
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, [{ id, row: fields }])
+    else group.push({ id, row: fields })
+  }
+  for (const group of groups.values()) for (const id of collapseLosers(rule, group)) out.add(id)
+  return out
+}
+
+/**
+ * A `lane` source over whole tables: lane key → the keeps of the unowned
+ * members it seats, resolved from scratch exactly as the engines hold the
+ * relation (collapsed twins out, the prefix's `where`, the longest root of
+ * the union set: the lane table's keys plus every `alsoRoots` value).
+ */
+function laneKeepsOver(
+  schema: ModelSchema,
+  lane: LaneSource,
+  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
+): Map<string, MemberKeep[]> {
+  const out = new Map<string, MemberKeep[]>()
+  const members = tables(lane.member)
+  if (members === undefined) return out
+  const roots = new Set<string>(tables(lane.prefix.to)?.keys() ?? [])
+  for (const root of extraRootsOf(lane.prefix, (entity) => tables(entity)?.values())) {
+    roots.add(root)
+  }
+  const collapsed = collapsedIds(schema[lane.member].collapse, members)
+  for (const [id, row] of members) {
+    if (collapsed.has(id)) continue
+    const fields = row as Readonly<Record<string, unknown>>
+    if (lane.prefix.where !== undefined && !lane.prefix.where.test(fields)) continue
+    const keep = laneKeepOf(lane, fields)
+    if (keep === null) continue
+    const path = fields[lane.prefix.sourceField]
+    if (typeof path !== 'string') continue
+    let at: string | null = null
+    for (const candidate of prefixCandidates(normalizeRootPath(path))) {
+      if (roots.has(candidate)) {
+        at = candidate
+        break
+      }
+    }
+    if (at === null) continue
+    const keeps = out.get(at)
+    if (keeps === undefined) out.set(at, [keep])
+    else keeps.push(keep)
+  }
+  return out
+}
+
+/**
  * The rule over whole row tables at `now`: `coldTarget` recurses by rule over
- * `tables`, `keeps` reads an index of every member row built once here. What
- * a rebuild, a re-partition's staged slice and the gate's check pass.
+ * `tables`, `keeps` reads an index of every member row built once here, per
+ * source. What a rebuild, a re-partition's staged slice and the gate's check
+ * pass. A `lane` source resolves its lanes over the lane table too, so pass
+ * every entity's table.
  */
 export function tableColdContext(
   schema: ModelSchema,
   tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
   now: number,
 ): ColdContext {
-  const index = new Map<string, MemberKeep[]>()
+  const index = new Map<KeptBySpec, Map<string, MemberKeep[]>>()
   for (const member of keeperEntities(schema)) {
     for (const row of tables(member)?.values() ?? []) {
       const keeper = keeperOf(schema, member, row as object)
       if (keeper === null) continue
-      const key = `${keeper.to}:${keeper.id}`
-      let keeps = index.get(key)
-      if (keeps === undefined) {
-        keeps = []
-        index.set(key, keeps)
+      let byKey = index.get(keeper.source)
+      if (byKey === undefined) {
+        byKey = new Map()
+        index.set(keeper.source, byKey)
       }
-      keeps.push(keeper.keep)
+      const keeps = byKey.get(keeper.id)
+      if (keeps === undefined) byKey.set(keeper.id, [keeper.keep])
+      else keeps.push(keeper.keep)
     }
+  }
+  for (const lane of laneSources(schema)) {
+    index.set(lane.source, laneKeepsOver(schema, lane, tables))
   }
   const ctx: ColdContext = {
     now,
@@ -1065,7 +1315,7 @@ export function tableColdContext(
       const row = tables(to)?.get(id)
       return row !== undefined && coldByRule(schema, to, row as object, ctx)
     },
-    keeps: (entity, id) => index.get(`${entity}:${id}`) ?? [],
+    keeps: (_entity, source, key) => index.get(source)?.get(key) ?? [],
   }
   return ctx
 }
@@ -1268,14 +1518,30 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       }
     }
     if (entity.cold.kind === 'unlessShown') {
-      const relation = entity.relations[entity.cold.keptBy.relation]
-      const back = relation === undefined ? undefined : schema[relation.to].relations[relation.inverse]
-      if (relation?.kind !== 'hasMany' || back?.kind !== 'belongsTo') {
-        problems.push(`${from}.cold.keptBy must name a hasMany whose inverse is a belongsTo`)
-      } else {
-        for (const field of entity.cold.keptBy.dependsOn) {
-          if (!(field in schema[relation.to].fields)) {
-            problems.push(`${from}.cold.keptBy.dependsOn names undeclared ${relation.to} field "${field}"`)
+      for (const source of entity.cold.keptBy) {
+        let member: EntityName
+        if (source.kind === 'members') {
+          const relation = entity.relations[source.relation]
+          const back =
+            relation === undefined ? undefined : schema[relation.to].relations[relation.inverse]
+          if (relation?.kind !== 'hasMany' || back?.kind !== 'belongsTo') {
+            problems.push(`${from}.cold.keptBy must name a hasMany whose inverse is a belongsTo`)
+            continue
+          }
+          member = relation.to
+        } else {
+          const lane = resolveLane(schema, from, source)
+          if (typeof lane === 'string') {
+            problems.push(`${from}.cold.keptBy (lane): ${lane}`)
+            continue
+          }
+          member = lane.member
+        }
+        for (const field of source.dependsOn) {
+          if (!(field in schema[member].fields)) {
+            problems.push(
+              `${from}.cold.keptBy.dependsOn names undeclared ${member} field "${field}"`,
+            )
           }
         }
       }

@@ -411,6 +411,8 @@ export class HandPool {
             changed: (entity, id) => coldMoves.push({ kind: 'residency', entity, id }),
             peeked: (entity, id) => graph.track(coldRows, `${entity}:${id}`),
             rewritten: (entity, id) => coldMoves.push({ kind: 'coldRow', entity, id }),
+            // The rule's lane source (R3, POD-4745) reads the engine, built below.
+            lanes: () => this.engine,
           })
     this.residency = residency
     this.stats = createStats(graph, () => this.residency)
@@ -434,6 +436,7 @@ export class HandPool {
       onWrite: (elements) => {
         stats.indexUpdates += elements
       },
+      onIssuelessJoin: (collection, _target, member) => residency?.laneJoined(collection, member),
     })
     this.relations = reads.wrapRelations(this.engine)
     this.inputs = {
@@ -1159,7 +1162,11 @@ export class HandPool {
         pins.size === 0 ? undefined : (entity, id) => entity === 'issue' && pins.has(id),
       )
       this.clearCachesForReplace()
-    } else for (const record of event.rows) ingestRecord(this.target, record, out)
+    } else {
+      for (const record of event.rows) ingestRecord(this.target, record, out)
+      // POD-4745: a lane member that can now keep a cold owner shown warms it.
+      this.residency?.settleLanes(this.target, out)
+    }
     this.commitIngest(out, event.type === 'replace')
   }
 

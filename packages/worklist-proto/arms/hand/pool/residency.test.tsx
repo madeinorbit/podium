@@ -43,7 +43,14 @@ const sessionById = new Map(corpus.sliceSessions.map((session) => [session.sessi
  */
 const coldRule = tableColdRule(
   SCHEMA,
-  (entity) => (entity === 'issue' ? issueById : entity === 'session' ? sessionById : undefined),
+  (entity) =>
+    entity === 'issue'
+      ? issueById
+      : entity === 'session'
+        ? sessionById
+        : entity === 'worktree'
+          ? new Map(corpus.sliceWorktrees.map((lane) => [lane.path, lane]))
+          : undefined,
   corpus.fixedNow,
 )
 const isCold = (issue: SliceIssue | undefined): boolean =>

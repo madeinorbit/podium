@@ -21,6 +21,8 @@ import {
   type EntityName,
   expectedLazy,
   keeperOf,
+  laneKeepOf,
+  laneSources,
   longestPrefixPath,
   type ModelSchema,
   normalizeRootPath,
@@ -150,8 +152,12 @@ describe('the declared schema', () => {
     expect(cold.predicate({ closedAt: '2026-09-01T00:00:00.000Z' })).toBe(true)
     expect(cold.predicate({ closedAt: null })).toBe(false)
     expect(cold.predicate({})).toBe(false)
-    // POD-4665: the members that can keep it shown are its sessions.
-    expect(cold.keptBy.relation).toBe('sessions')
+    // POD-4665: the members that can keep it shown are its sessions; POD-4745:
+    // and the issueless sessions its own checkout seats (R3).
+    expect(cold.keptBy).toMatchObject([
+      { kind: 'members', relation: 'sessions' },
+      { kind: 'lane', through: 'worktree', relation: 'sessions', unownedBy: 'issue' },
+    ])
 
     // A session cannot decide its own residency: it inherits the issue's.
     expect(SCHEMA.session.cold).toMatchObject({ kind: 'via', relation: 'issue' })
@@ -277,6 +283,47 @@ describe('validateStructure', () => {
     expect(validateStructure(schema).join('\n')).toMatch(
       /collapse\.recency "lastActiveAt" is not among its fields/,
     )
+  })
+
+  /** The schema with the issue's lane source replaced by `change` of it. */
+  function withLane(change: Record<string, unknown>): ModelSchema {
+    const schema = clone()
+    const cold = SCHEMA.issue.cold
+    if (cold.kind !== 'unlessShown') throw new Error('unreachable')
+    ;(schema as Record<string, unknown>).issue = {
+      ...schema.issue,
+      cold: {
+        ...cold,
+        keptBy: cold.keptBy.map((source) =>
+          source.kind === 'lane' ? { ...source, ...change } : source,
+        ),
+      },
+    }
+    return schema
+  }
+
+  it('fires when the lane source names a lane through something other than a belongsTo', () => {
+    expect(validateStructure(withLane({ through: 'children' })).join('\n')).toMatch(
+      /issue\.cold\.keptBy \(lane\): through "children" must name a belongsTo/,
+    )
+  })
+
+  it("fires when the lane source's members are not a prefix relation's inverse", () => {
+    expect(validateStructure(withLane({ relation: 'issues' })).join('\n')).toMatch(
+      /"worktree\.issues"'s inverse must be a prefix \(got belongsTo\)/,
+    )
+  })
+
+  it('fires when the lane source names an owner link that is not a belongsTo', () => {
+    expect(validateStructure(withLane({ unownedBy: 'worktree' })).join('\n')).toMatch(
+      /unownedBy "session\.worktree" must name a belongsTo/,
+    )
+  })
+
+  it('fires when the lane source reads a member field that is not declared', () => {
+    expect(
+      validateStructure(withLane({ dependsOn: ['stoppedAt', 'issueRef'] })).join('\n'),
+    ).toMatch(/issue\.cold\.keptBy\.dependsOn names undeclared session field "issueRef"/)
   })
 })
 
@@ -523,16 +570,19 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     issues: readonly Record<string, unknown>[],
     sessions: readonly Record<string, unknown>[] = [],
     now = NOW,
+    lanes: readonly string[] = [],
+    schema: ModelSchema = SCHEMA,
   ) {
     const tables = {
       issue: new Map(issues.map((row) => [row['id'] as string, row])),
       session: new Map(sessions.map((row) => [row['sessionId'] as string, row])),
+      worktree: new Map(lanes.map((path) => [path, { path }])),
     } as Record<string, Map<string, unknown>>
-    const ctx = tableColdContext(SCHEMA, (entity) => tables[entity], now)
+    const ctx = tableColdContext(schema, (entity) => tables[entity], now)
     return {
-      issue: (id: string) => coldByRule(SCHEMA, 'issue', tables['issue']!.get(id) as object, ctx),
+      issue: (id: string) => coldByRule(schema, 'issue', tables['issue']!.get(id) as object, ctx),
       session: (id: string) =>
-        coldByRule(SCHEMA, 'session', tables['session']!.get(id) as object, ctx),
+        coldByRule(schema, 'session', tables['session']!.get(id) as object, ctx),
     }
   }
 
@@ -662,6 +712,102 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     expect(recent.issue('idleRecent')).toBe(false)
   })
 
+  /**
+   * POD-4745 (R3): an issueless session running in the issue's own checkout
+   * is one of its seats by containment (`indexSessionOwnership`,
+   * session-ownership.ts:152-158), so it keeps a closed issue shown exactly
+   * as an explicit member does. Each closed issue here is agent-audience (it
+   * never shows on its own) and has no explicit member: only its lane can
+   * keep it. Returns the issues the rule keeps resident.
+   */
+  function laneKept(schema: ModelSchema): string[] {
+    const wt = (name: string) => `/repo/.worktrees/${name}`
+    const closed = (id: string, more: object = {}): Record<string, unknown> =>
+      child(id, 30, { audience: 'agent', worktreePath: wt(id), ...more })
+    const issueless = (sessionId: string, cwd: string, more: object = {}) => ({
+      sessionId,
+      cwd,
+      lastActiveAt: ago(30),
+      ...more,
+    })
+    const idle = { agentState: { phase: 'idle', since: ago(40), idle: { kind: 'done' } } }
+    const twin = (status: string, lastActiveAt: string) => ({
+      resume: { kind: 'claude', value: 'r-twin' },
+      status,
+      lastActiveAt,
+    })
+    const issues = [
+      'open',
+      'nested',
+      'unscanned',
+      'owned',
+      'nullOwner',
+      'headless',
+      'shell',
+      'stoppedOld',
+      'stoppedRecent',
+      'idleOld',
+      'stolen',
+      'twinLoser',
+      'twinWinner',
+      'noLane',
+    ].map((id) => closed(id))
+    issues[issues.length - 1] = closed('noLane', { worktreePath: null })
+    const rule = ruleAt(
+      issues,
+      [
+        // A run that never finished, in the checkout itself and deeper.
+        issueless('s-open', wt('open')),
+        issueless('s-nested', `${wt('nested')}/packages/app`),
+        // No scan reported this checkout: the issue's own path is a root all the same.
+        issueless('s-unscanned', `${wt('unscanned')}/src`),
+        // Owned elsewhere: an explicit member of ANOTHER issue never counts here.
+        issueless('s-owned', wt('owned'), { issueId: 'elsewhere' }),
+        // The legacy tests `issueId !== undefined`: a null owner is an owner.
+        issueless('s-nullOwner', wt('nullOwner'), { issueId: null }),
+        // Not a member of the lane, or not a seat.
+        issueless('s-headless', wt('headless'), { headless: true }),
+        issueless('s-shell', wt('shell'), { agentKind: 'shell' }),
+        // The same decay windows as an explicit member.
+        issueless('s-stoppedOld', wt('stoppedOld'), { stoppedAt: ago(20) }),
+        issueless('s-stoppedRecent', wt('stoppedRecent'), { stoppedAt: ago(3) }),
+        // An idle finished turn decays from the OWNER's finish (30 days ago).
+        issueless('s-idleOld', wt('idleOld'), idle),
+        // A deeper scanned lane is the longest root: it takes the session.
+        issueless('s-stolen', `${wt('stolen')}/inner/x`),
+        // Resume twins collapse to one: the loser is not in any lane.
+        issueless('s-twinLoser', wt('twinLoser'), twin('exited', ago(40))),
+        issueless('s-twinWinner', wt('twinWinner'), twin('hibernated', ago(35))),
+      ],
+      NOW,
+      // The scan: the repo root, every checkout but `unscanned`, and a lane inside `stolen`'s.
+      [
+        '/repo',
+        ...issues
+          .filter((row) => row['id'] !== 'unscanned' && row['id'] !== 'noLane')
+          .map((row) => row['worktreePath'] as string),
+        `${wt('stolen')}/inner`,
+      ],
+      schema,
+    )
+    return issues.map((row) => row['id'] as string).filter((id) => !rule.issue(id))
+  }
+
+  it('keeps resident a closed issue an issueless session in its own checkout can keep shown (R3)', () => {
+    expect(laneKept(SCHEMA)).toEqual(['open', 'nested', 'unscanned', 'stoppedRecent', 'twinWinner'])
+  })
+
+  it('negative control: without the lane clause, R3 keeps nothing', () => {
+    const schema = clone()
+    const cold = SCHEMA.issue.cold
+    if (cold.kind !== 'unlessShown') throw new Error('unreachable')
+    ;(schema as Record<string, unknown>).issue = {
+      ...schema.issue,
+      cold: { ...cold, keptBy: cold.keptBy.filter((source) => source.kind !== 'lane') },
+    }
+    expect(laneKept(schema)).toEqual([])
+  })
+
   it('only ever turns cold as the clock moves forward (deadlines pass)', () => {
     const issues = [child('a', 6), child('b', 1, { audience: 'agent' }), child('c', 8)]
     const sessions = [session('s', 'b', { stoppedAt: ago(1) })]
@@ -673,6 +819,23 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
       }
     }
     expect(ruleAt(issues, sessions, NOW + 365 * DAY).issue('a')).toBe(true)
+  })
+
+  it('counts a lane member only while it is unowned (laneKeepOf)', () => {
+    const [lane] = laneSources(SCHEMA)
+    expect(lane).toMatchObject({
+      owner: 'issue',
+      lane: 'worktree',
+      owners: 'issues',
+      member: 'session',
+      prefixName: 'worktree',
+    })
+    expect(laneKeepOf(lane!, { sessionId: 's', cwd: '/w' })).toBe(Number.POSITIVE_INFINITY)
+    expect(laneKeepOf(lane!, session('s', 'i1'))).toBeNull()
+    expect(laneKeepOf(lane!, { sessionId: 's', cwd: '/w', issueId: null })).toBeNull()
+    expect(laneKeepOf(lane!, { sessionId: 's', cwd: '/w', archived: true })).toBe(
+      Number.NEGATIVE_INFINITY,
+    )
   })
 
   it('names the member by its raw reference, headless excluded (keeperOf)', () => {

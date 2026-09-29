@@ -279,6 +279,14 @@ export interface PoolRelationsOptions {
   ) => void
   /** Residency (POD-4567): slots of rows that are not resident stay plain. */
   readonly cold?: ColdSlots
+  /**
+   * POD-4745 — `member` joined the issueless set of `collection` at
+   * `target` (inside the action, as it happens, by any cause: its own row,
+   * a collapse flip, a root gained or lost). Residency settles what it can
+   * keep once the publication's rows are in; never call back into the engine
+   * from here.
+   */
+  readonly onIssuelessJoin?: (collection: string, target: string, member: string) => void
 }
 
 /** What ingest needs from the engine. */
@@ -306,6 +314,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     added: boolean,
   ) => void
   private readonly cold: ColdSlots | null
+  private readonly onIssuelessJoin: (collection: string, target: string, member: string) => void
   private readonly links = new Map<string, Link>()
   /** Links by the entity their collection belongs to (buckets keyed by its ids). */
   private readonly incoming = new Map<EntityName, Link[]>()
@@ -330,6 +339,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.onElements = options.onElements ?? (() => {})
     this.onBucket = options.onBucket ?? (() => {})
     this.cold = options.cold ?? null
+    this.onIssuelessJoin = options.onIssuelessJoin ?? (() => {})
     for (const from of Object.keys(this.schema) as EntityName[]) {
       const entity = this.schema[from]
       this.outgoing.set(from, [])
@@ -890,6 +900,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     if (!set.has(id)) {
       set.add(id)
       this.touched(1)
+      this.onIssuelessJoin(link.collection, target, id)
     }
   }
 

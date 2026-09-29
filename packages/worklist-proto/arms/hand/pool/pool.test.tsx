@@ -42,7 +42,14 @@ const residentIssues = (() => {
   const sessions = new Map(corpus.sliceSessions.map((session) => [session.sessionId, session]))
   const cold = tableColdRule(
     SCHEMA,
-    (entity) => (entity === 'issue' ? issues : entity === 'session' ? sessions : undefined),
+    (entity) =>
+      entity === 'issue'
+        ? issues
+        : entity === 'session'
+          ? sessions
+          : entity === 'worktree'
+            ? new Map(corpus.sliceWorktrees.map((lane) => [lane.path, lane]))
+            : undefined,
     corpus.fixedNow,
   )
   return corpus.sliceIssues.filter((issue) => !cold('issue', issue.id))
