@@ -2,10 +2,10 @@ import type { SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionHandle, RuntimeEvent } from '../../host.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
-import { createClaudeSdkRuntime, type ClaudeSdkRuntimeHost } from './runtime.js'
-import { createClaudeStreamClient, type ClaudeStreamTransport } from './protocol.js'
-import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 import records from './__fixtures__/transcript-receipts.json' with { type: 'json' }
+import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
+import { type ClaudeStreamTransport, createClaudeStreamClient } from './protocol.js'
+import { type ClaudeSdkRuntimeHost, createClaudeSdkRuntime } from './runtime.js'
 
 const SESSION = 'claude-receipt-proof' as SessionId
 const NATIVE = ack.lifecycleQueued.session_id
