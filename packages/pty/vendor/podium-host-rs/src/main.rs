@@ -19,10 +19,10 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -73,17 +73,13 @@ fn bind_socket(path: &Path) -> UnixListener {
             if !st.file_type().is_socket() {
                 die!("{shown} exists and is not a socket");
             }
-            match UnixStream::connect(path) {
-                Ok(_) => {
+            match sys::probe_socket(path) {
+                sys::Probe::Listening => {
                     let _ = writeln!(io::stderr(), "podium-host: already running at {shown}");
                     std::process::exit(3);
                 }
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
-                    ) => {}
-                Err(e) => die!(
+                sys::Probe::Stale => {}
+                sys::Probe::Failed(e) => die!(
                     "{shown}: cannot probe the existing socket: {}",
                     sys::strerror(&e)
                 ),
@@ -101,21 +97,27 @@ fn bind_socket(path: &Path) -> UnixListener {
     let bound = UnixListener::bind(path);
     rustix::process::umask(old);
     let listener = bound.unwrap_or_else(|e| die!("bind {shown}: {}", sys::strerror(&e)));
-    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    let _ = listener.set_nonblocking(true);
+    if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
+        die!("chmod {shown}: {}", sys::strerror(&e));
+    }
+    if let Err(e) = listener.set_nonblocking(true) {
+        die!("{shown}: {}", sys::strerror(&e));
+    }
     listener
 }
 
 /// Spawn the child on a pty or on pipes. std's Command does the fork and exec
 /// and reports an exec (or chdir) failure as an error from `spawn`, so
 /// `create` fails instead of hosting a dead child.
-fn spawn_child(opts: &CreateOpts, cwd: &OsStr) -> Child {
+/// Returns the child and the read end of the signal pipe: the handlers are
+/// installed after the pty is set up (POSIX leaves grantpt unspecified once
+/// SIGCHLD is caught) and before the child can exit.
+fn spawn_child(opts: &CreateOpts, cwd: OwnedFd) -> (Child, File) {
     let [program, args @ ..] = opts.command.as_slice() else {
         unreachable!("args::parse requires a command")
     };
     let mut cmd = process::Command::new(OsStr::from_bytes(program.as_bytes()));
     cmd.args(args.iter().map(|a| OsStr::from_bytes(a.as_bytes())));
-    cmd.current_dir(cwd);
     let ws = sys::Winsize {
         ws_col: opts.cols,
         ws_row: opts.rows,
@@ -145,7 +147,8 @@ fn spawn_child(opts: &CreateOpts, cwd: &OsStr) -> Child {
     };
     // A session (and so a process group) of its own, so SIGNAL and KILL
     // reach the whole group.
-    sys::new_session_in_child(&mut cmd, !opts.no_pty);
+    sys::prepare_child(&mut cmd, cwd, !opts.no_pty);
+    let sig_fd = sys::install_signals().unwrap_or_else(|e| fail("signals", e));
     #[expect(
         clippy::zombie_processes,
         reason = "the host loop reaps it with waitpid(-1), as host.c does"
@@ -160,23 +163,25 @@ fn spawn_child(opts: &CreateOpts, cwd: &OsStr) -> Child {
     drop(cmd); // closes the parent's copies of the child's ends
     let pid = sys::child_pid(&child);
     for f in [Some(&io.output), io.input.as_ref()].into_iter().flatten() {
-        sys::set_nonblock(f);
+        sys::set_nonblock(f).unwrap_or_else(|e| fail("nonblock", e));
     }
-    Child {
+    let child = Child {
         pid,
         io,
         has_pty: !opts.no_pty,
         ws,
-    }
+    };
+    (child, sig_fd)
 }
 
 /// Double-fork into the background; the original process waits for the
 /// daemonized host to report "started" (or an error) and exits accordingly.
-fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: &OsStr) -> ! {
+fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: OwnedFd, ring: Ring) -> ! {
     // Identify the socket we bound, and name it absolutely: the host chdirs to
     // "/" and must not unlink someone else's socket at exit (POD-4842 C-4, C-6).
     let sock_id = sys::socket_id(&listener);
-    let sock_path = std::path::absolute(&opts.socket).unwrap_or_else(|_| PathBuf::from(&opts.socket));
+    let sock_path =
+        std::path::absolute(&opts.socket).unwrap_or_else(|_| PathBuf::from(&opts.socket));
     // CLOEXEC on both ends: the child must not inherit the report pipe, or the
     // original process would wait for EOF until the whole session ended.
     let (report_r, report_w) = io::pipe().unwrap_or_else(|e| die!("pipe: {}", sys::strerror(&e)));
@@ -214,30 +219,24 @@ fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: &OsStr) -> 
     // The host. stdin/stdout go to /dev/null now; stderr keeps going to the
     // report pipe until we are up, then to /dev/null too.
     drop(report_r);
+    // From here every failure reaches the original process through the
+    // report pipe on stderr, and it exits 1 with that message.
+    if rustix::stdio::dup2_stderr(&report_w).is_err() {
+        process::exit(1);
+    }
     let devnull = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open("/dev/null")
-        .ok();
-    if let Some(d) = &devnull {
-        let _ = rustix::stdio::dup2_stdin(d);
-        let _ = rustix::stdio::dup2_stdout(d);
+        .unwrap_or_else(|e| die!("/dev/null: {}", sys::strerror(&e)));
+    if let Err(e) = rustix::stdio::dup2_stdin(&devnull).and(rustix::stdio::dup2_stdout(&devnull)) {
+        die!("/dev/null: {}", sys::strerror(&e.into()));
     }
-    let saved_err = rustix::io::fcntl_dupfd_cloexec(rustix::stdio::stderr(), 0).ok();
-    let _ = rustix::stdio::dup2_stderr(&report_w);
-    let sig_fd = sys::install_signals().unwrap_or_else(|e| die!("pipe: {}", sys::strerror(&e)));
-    let child = spawn_child(&opts, cwd); // dies (to the report pipe) on failure
+    let (child, sig_fd) = spawn_child(&opts, cwd); // dies (to the report pipe) on failure
     let _ = std::env::set_current_dir("/");
     let _ = (&report_w).write_all(b"OK\n");
-    if let Some(back) = devnull
-        .as_ref()
-        .map(AsFd::as_fd)
-        .or(saved_err.as_ref().map(AsFd::as_fd))
-    {
-        let _ = rustix::stdio::dup2_stderr(back);
-    }
-    drop((devnull, saved_err, report_w));
-    let ring = Ring::new(opts.ring_bytes);
+    let _ = rustix::stdio::dup2_stderr(&devnull);
+    drop((devnull, report_w));
     Host::new(
         sock_path,
         sock_id,
@@ -263,18 +262,21 @@ fn main() {
             // Before the host opens anything of its own: nothing this process
             // inherited may reach the child (POD-4842 C-7).
             sys::cloexec_inherited_fds();
-            let cwd = OsStr::from_bytes(opts.cwd.as_deref().unwrap_or(b".")).to_owned();
-            // Opened only to refuse a bad --cwd up front, as host.c does; the
-            // child changes into it by path.
-            if let Err(e) = fs::OpenOptions::new()
+            let cwd_path = OsStr::from_bytes(opts.cwd.as_deref().unwrap_or(b"."));
+            // Opened now and KEPT: the child fchdirs to this fd, so the
+            // directory checked here is the one it starts in, whatever happens
+            // to the path meanwhile (as host.c; POD-4843 RS-3).
+            let cwd = fs::OpenOptions::new()
                 .read(true)
                 .custom_flags(libc::O_DIRECTORY)
-                .open(&cwd)
-            {
-                die!("cwd {}: {}", cwd.to_string_lossy(), sys::strerror(&e));
-            }
+                .open(cwd_path)
+                .unwrap_or_else(|e| {
+                    die!("cwd {}: {}", cwd_path.to_string_lossy(), sys::strerror(&e))
+                });
+            // Allocated before `create` reports success, as host.c does.
+            let ring = Ring::new(opts.ring_bytes);
             let listener = bind_socket(Path::new(&opts.socket));
-            daemonize_then_run(opts, listener, &cwd)
+            daemonize_then_run(opts, listener, cwd.into(), ring)
         }
         Err(args::ArgError::Usage) => usage(),
         Err(args::ArgError::Die(msg)) => die!("{msg}"),

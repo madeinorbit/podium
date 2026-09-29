@@ -564,6 +564,11 @@ impl Host {
         while !self.clients[ci].out.is_empty() {
             let c = &mut self.clients[ci];
             match (&c.stream).write(c.out.pending()) {
+                Ok(0) => {
+                    // A socket that takes nothing is gone; never spin on it.
+                    self.client_close(ci);
+                    return false;
+                }
                 Ok(n) => c.out.advance(n),
                 Err(e) if is_transient(&e) => return true,
                 Err(_) => {
@@ -827,7 +832,8 @@ impl Host {
                     continue;
                 }
                 let c = &self.clients[ci];
-                if (c.closing && c.out.is_empty()) || c.overflowed || c.out.len() > self.out_limit() {
+                if (c.closing && c.out.is_empty()) || c.overflowed || c.out.len() > self.out_limit()
+                {
                     self.client_close(ci);
                 }
             }

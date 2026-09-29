@@ -27,8 +27,8 @@ pub fn strerror(e: &io::Error) -> String {
     }
 }
 
-pub fn set_nonblock(fd: impl AsFd) {
-    let _ = rustix::io::ioctl_fionbio(fd, true);
+pub fn set_nonblock(fd: impl AsFd) -> io::Result<()> {
+    Ok(rustix::io::ioctl_fionbio(fd, true)?)
 }
 
 pub fn get_winsize(fd: impl AsFd) -> Option<Winsize> {
@@ -68,7 +68,7 @@ fn peer_uid(sock: &UnixStream) -> Option<u32> {
             (&raw mut xu).cast(),
             &mut len,
         );
-        (r == 0).then_some(xu.cr_uid)
+        (r == 0 && xu.cr_version == libc::XUCRED_VERSION).then_some(xu.cr_uid)
     }
 }
 
@@ -142,8 +142,14 @@ unsafe fn errno_location() -> *mut libc::c_int {
 /// close-on-exec, so none of them reaches the child (host.c lets them
 /// through: POD-4842 C-7). Call before the host opens anything of its own.
 pub fn cloexec_inherited_fds() {
-    let dir = if cfg!(target_os = "linux") { "/proc/self/fd" } else { "/dev/fd" };
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let dir = if cfg!(target_os = "linux") {
+        "/proc/self/fd"
+    } else {
+        "/dev/fd"
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let fds: Vec<libc::c_int> = entries
         .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
         .filter(|&fd| fd > 2)
@@ -190,20 +196,23 @@ pub fn remove_own_socket(path: &std::path::Path, id: Option<(u64, u64)>) {
 /// end, nonblocking) and ignore SIGPIPE.
 pub fn install_signals() -> io::Result<std::fs::File> {
     let (r, w) = io::pipe()?; // CLOEXEC both ends
-    set_nonblock(&r);
-    set_nonblock(&w);
+    set_nonblock(&r)?;
+    set_nonblock(&w)?;
     // The handler owns the write end for the life of the process.
     SIG_PIPE_W.store(OwnedFd::from(w).into_raw_fd(), Ordering::Relaxed);
     // SAFETY: the handler touches only atomics and write(2), both
     // async-signal-safe; the struct is zeroed plain data with an empty mask.
-    unsafe {
+    let installed = unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
         sa.sa_sigaction = on_signal as *const () as libc::sighandler_t;
         libc::sigemptyset(&mut sa.sa_mask);
-        for s in [libc::SIGCHLD, libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-            libc::sigaction(s, &sa, std::ptr::null_mut());
-        }
-        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        [libc::SIGCHLD, libc::SIGTERM, libc::SIGINT, libc::SIGHUP]
+            .iter()
+            .all(|&s| libc::sigaction(s, &sa, std::ptr::null_mut()) == 0)
+            && libc::signal(libc::SIGPIPE, libc::SIG_IGN) != libc::SIG_ERR
+    };
+    if !installed {
+        return Err(io::Error::last_os_error());
     }
     Ok(OwnedFd::from(r).into())
 }
@@ -247,14 +256,18 @@ pub fn openpty(ws: Winsize) -> io::Result<(OwnedFd, OwnedFd)> {
     Ok((master, slave))
 }
 
-/// Make the spawned child the leader of a new session, as host.c's child is
-/// in both modes; with a pty, also make its stdin (the slave) the session's
-/// controlling terminal — what login_tty(3) does inside forkpty(3).
-pub fn new_session_in_child(cmd: &mut Command, controlling_tty: bool) {
-    // SAFETY: the closure runs between fork and exec; setsid and the
-    // TIOCSCTTY ioctl are async-signal-safe and allocate nothing.
+/// Set up the spawned child between fork and exec: change into the `--cwd`
+/// directory by the fd opened at startup (never by path again), and make it
+/// the leader of a new session, as host.c's child is in both modes; with a
+/// pty, also make its stdin (the slave) the session's controlling terminal —
+/// what login_tty(3) does inside forkpty(3).
+pub fn prepare_child(cmd: &mut Command, cwd: OwnedFd, controlling_tty: bool) {
+    // SAFETY: the closure runs between fork and exec; fchdir, setsid and the
+    // TIOCSCTTY ioctl are async-signal-safe and allocate nothing (errors
+    // convert to io::Error without allocating).
     unsafe {
         cmd.pre_exec(move || {
+            rustix::process::fchdir(&cwd)?;
             rustix::process::setsid()?;
             if controlling_tty {
                 // rustix's stdin() is a plain BorrowedFd of fd 0; std's
@@ -263,5 +276,36 @@ pub fn new_session_in_child(cmd: &mut Command, controlling_tty: bool) {
             }
             Ok(())
         });
+    }
+}
+
+pub enum Probe {
+    /// Something is listening there (it accepted, or its queue is full).
+    Listening,
+    /// Nothing listens: a stale socket file.
+    Stale,
+    Failed(io::Error),
+}
+
+/// Is a host already listening at `path`? A NONBLOCKING connect: a listener
+/// whose accept queue is full answers EAGAIN at once, where a blocking
+/// connect (host.c, and this port before POD-4843 RS-4) would hang `create`.
+pub fn probe_socket(path: &std::path::Path) -> Probe {
+    use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType};
+    let attempt = || -> rustix::io::Result<()> {
+        let fd = rustix::net::socket_with(
+            AddressFamily::UNIX,
+            SocketType::STREAM,
+            SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
+            None,
+        )?;
+        rustix::net::connect(&fd, &SocketAddrUnix::new(path)?)
+    };
+    use rustix::io::Errno;
+    match attempt() {
+        Ok(()) => Probe::Listening,
+        Err(e) if e == Errno::AGAIN || e == Errno::INPROGRESS => Probe::Listening,
+        Err(e) if e == Errno::CONNREFUSED || e == Errno::NOENT => Probe::Stale,
+        Err(e) => Probe::Failed(e.into()),
     }
 }
