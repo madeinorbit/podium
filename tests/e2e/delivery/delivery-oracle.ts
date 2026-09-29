@@ -70,8 +70,6 @@ export interface ServerRow {
   readonly sessionId: string
   readonly body: string
   readonly deliveryStatus: MessageDeliveryStatus | undefined
-  /** The legacy status column, kept for the report only. */
-  readonly status?: string
   /** Why the server ended or held it (`delivery_deferred_reason`), for the report. */
   readonly reason?: string
 }

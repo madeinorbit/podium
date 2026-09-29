@@ -914,8 +914,8 @@ export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
  * prompt is recoverable by a reader and a vanished one is not.
  *
  * WHAT THAT OBLIGES OF WHOEVER HANDLES THIS FRAME: be IDEMPOTENT UNDER REPEATS,
- * keyed on `turnId`. Idempotent, not necessarily deduplicating — a status write
- * guarded on `status = 'queued'` is already safe however often it is replayed,
+ * keyed on `turnId`. Idempotent, not necessarily deduplicating — a guarded
+ * `delivery_status` move is already safe however often it is replayed,
  * and append-only observation events may legitimately fire once per receipt.
  * The same rule, stated the same way, governs `RuntimeQueueDrainAbandonedMessage`,
  * whose replay-until-acknowledged transport makes repeats routine rather than
@@ -987,8 +987,8 @@ export type QueueDrainAbandonedReason = z.infer<typeof QueueDrainAbandonedReason
  * Consumers must therefore be IDEMPOTENT UNDER REPEATS, keyed on turn id, so
  * hearing a replay corrects the same receipt once — the same rule, in the same
  * words, as `RuntimeSendResultMessage`. Idempotent rather than deduplicating:
- * a status write guarded on `status = 'queued'` is already safe however often it
- * is replayed, and append-only observation events may legitimately fire once per
+ * a guarded `delivery_status` move is already safe however often it is
+ * replayed, and append-only observation events may legitimately fire once per
  * report.
  */
 export const RuntimeQueueDrainAbandonedMessage = z.object({
