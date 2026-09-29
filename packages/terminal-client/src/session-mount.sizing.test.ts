@@ -886,3 +886,61 @@ describe('mountSession eligibility-gated sizing', () => {
     mounted.dispose()
   })
 })
+
+/**
+ * THE THREE TRIGGERS, AND NOTHING ELSE (POD-3190 rev 3, POD-4772).
+ *
+ * The browser states its grid when the measured grid may have changed, on a
+ * reveal and on an attach. It keeps no record of its asks and compares
+ * nothing, so every trigger sends, and no other event does.
+ */
+describe('mountSession size triggers', () => {
+  it('EVERY attach states the box — the first one too, which the server dedups', () => {
+    // The first attach used to be skipped as a repeat of the mount's ask. On the
+    // phone's native bridge the mount's ask can land before the native socket
+    // connection exists and be dropped; the attach is what repairs it.
+    withResizeObserver()
+    withFittableAddon()
+    const { hub, calls, attached } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+      crop: 'scroll',
+    })
+    try {
+      calls.asks.length = 0
+      attached()
+      expect(calls.asks).toEqual([
+        { geometry: { cols: 150, rows: 50 }, visible: true, mode: 'native', claimControl: false },
+      ])
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it('a role change asks nothing: the server already holds this box', () => {
+    // The role-change trigger is deleted. A spectator's statement is recorded
+    // by the server whoever sent it, and a controller change reconciles
+    // against that record.
+    withResizeObserver()
+    withFittableAddon()
+    const { hub, calls, attached, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+      crop: 'scroll',
+    })
+    try {
+      attached()
+      state(80, 24, 'spectator')
+      calls.asks.length = 0
+      state(80, 24, 'controller')
+      state(80, 24, 'spectator')
+      expect(calls.asks).toEqual([])
+    } finally {
+      mounted.dispose()
+    }
+  })
+})
