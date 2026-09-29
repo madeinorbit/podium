@@ -22,6 +22,7 @@ import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemo
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { SessionRegistry } from '../../server/src/relay'
+import { assignHostMachine } from '../../server/src/test-support/host-daemon'
 import { buildReport } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import type { DaemonContext } from './control/context'
@@ -84,6 +85,9 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
   it('replays after reconnect until the durable row is terminal and acknowledged', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const machineId: MachineId = registry.sessionStore.hostMachineId
+    // The host machine must be enrolled for agent execution, or no session can
+    // be placed on it ("no assigned and available daemon").
+    await assignHostMachine(registry.sessionStore)
     const outbox = createQueueDrainOutbox(temp())
     const sockets = [new FakeSocket(), new FakeSocket()]
     let socketIndex = 0
