@@ -38,7 +38,7 @@ import type {
 } from '../../capabilities.js'
 import { decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
-import { DriverRefusalError } from '../../errors.js'
+import { DeliveryUnprovenError, DriverRefusalError, wasNeverSent } from '../../errors.js'
 import {
   createRuntimeEventStream,
   type EventStreamStart,
@@ -247,6 +247,8 @@ interface PromptDelivery {
   decide(): void
   /** Answers the send; the first call wins. */
   settle(receipt: TurnReceipt): void
+  /** Answers the send as unproven: Grok may hold it (POD-4839). */
+  fail(error: Error): void
 }
 
 interface DriverSession {
@@ -1444,7 +1446,7 @@ export function createGrokAcpRuntime(
     if (session.transcriptIds.has(grokUserItemId(promptId))) {
       return Promise.resolve(acceptHeld(session, promptId, options, deliveredAs))
     }
-    return new Promise<TurnReceipt>((resolve) => {
+    return new Promise<TurnReceipt>((resolve, reject) => {
       let answered = false
       let decide!: () => void
       const decided = new Promise<void>((done) => {
@@ -1466,6 +1468,11 @@ export function createGrokAcpRuntime(
           if (answered) return
           answered = true
           resolve(receipt)
+        },
+        fail(error) {
+          if (answered) return
+          answered = true
+          reject(error)
         },
       }
       session.prompt = delivery
@@ -1496,20 +1503,29 @@ export function createGrokAcpRuntime(
     })
   }
 
-  /** Grok answered the request with an error before naming the prompt: it
-   *  never took it. Refused, no turn, and the session is free again. */
+  /**
+   * THE REQUEST FAILED BEFORE GROK NAMED THE PROMPT: no turn opened, and the
+   * session is free again. A refusal only when the request was never written
+   * (POD-4839). An error reply or a closed pipe after the write is unproven:
+   * no Grok error reply is measured as recording nothing, and a model error
+   * there is recorded (POD-4834), so the prompt may be in the history.
+   */
   function refuseDelivery(session: DriverSession, delivery: PromptDelivery, error: unknown): void {
     if (session.prompt === delivery) {
       session.prompt = undefined
       session.busy = false
     }
-    delivery.settle({
-      outcome: 'refused',
-      refusal: {
-        reason: 'not_running',
-        detail: error instanceof Error ? error.message : String(error),
-      },
-    })
+    if (wasNeverSent(error)) {
+      delivery.settle({
+        outcome: 'refused',
+        refusal: {
+          reason: 'not_running',
+          detail: error instanceof Error ? error.message : String(error),
+        },
+      })
+    } else {
+      delivery.fail(new DeliveryUnprovenError('grok session/prompt', error))
+    }
     delivery.decide()
     wakeIdle(session)
     if (!session.disposed) void drainQueue(session)
@@ -1604,15 +1620,15 @@ export function createGrokAcpRuntime(
     session.disposed = true
     abandonQueue(session, 'teardown')
     // A send Grok has not named yet is answered: nothing more will come.
+    // It was written, so Grok may hold it: unproven, never refused (POD-4839).
     const delivery = session.prompt
     if (delivery && !delivery.acked) {
-      delivery.settle({
-        outcome: 'refused',
-        refusal: {
-          reason: 'not_running',
-          detail: 'the Grok session ended before it took the prompt',
-        },
-      })
+      delivery.fail(
+        new DeliveryUnprovenError(
+          'grok session/prompt',
+          'the Grok session ended before it named the prompt',
+        ),
+      )
       delivery.decide()
     }
     /**
@@ -1694,8 +1710,12 @@ export function createGrokAcpRuntime(
      * it gets the POD-2297 answer. A failure after the ack is a turn failure,
      * reported by `finishPrompt`.
      */
-    const receipt = await deliverPrompt(session, queued.input, queued.options, 'queue')
-    if (receipt.outcome === 'refused') reportAbandoned(session, [queued], 'delivery-failed')
+    const receipt = await deliverPrompt(session, queued.input, queued.options, 'queue').catch(
+      () => undefined,
+    )
+    if (!receipt || receipt.outcome === 'refused') {
+      reportAbandoned(session, [queued], 'delivery-failed')
+    }
   }
 
   function buildHandle(session: DriverSession): AgentSessionHandle {
