@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test'
 import { makeTrpc } from '../../../apps/web/src/app/trpc'
 import { nativeAccountId } from '../../../packages/runtime/src/settings'
+import { E2E_ACCOUNT_IDENTITY_ENV, E2E_LONG_IDENTITY_EMAIL } from '../account-identity-fixture'
 import { RELAY } from './_harness'
 
 test.skip(
@@ -66,17 +67,19 @@ function accountsSection(page: Page) {
 }
 
 test('native account profile labels render when available', async ({ page }) => {
+  test.skip(
+    process.env[E2E_ACCOUNT_IDENTITY_ENV] !== '1',
+    'requires the seeded long-identity fixture (run with PODIUM_E2E_ACCOUNT_IDENTITY=1)',
+  )
   const trpc = makeTrpc('http://localhost:8799')
   const accounts = await trpc.accounts.list.query()
-  const identities = accounts
-    .filter(
-      (account) =>
-        (account.id === 'native:codex' || account.id === 'native:grok') &&
-        account.status === 'connected' &&
-        account.identity?.includes('@'),
-    )
-    .map((account) => account.identity as string)
-  test.skip(identities.length === 0, 'local Codex/Grok profile metadata is unavailable')
+  // The seeded login arrives through the catalog under a fingerprinted id when
+  // the host holds another login for the same harness — match the fixture
+  // address itself, never host state.
+  const rows = accounts.filter(
+    (account) => account.status === 'connected' && account.identity === E2E_LONG_IDENTITY_EMAIL,
+  )
+  expect(rows.length).toBeGreaterThan(0)
 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
@@ -88,23 +91,25 @@ test('native account profile labels render when available', async ({ page }) => 
   await settings.getByRole('button', { name: 'Accounts', exact: true }).click()
 
   const section = accountsSection(page)
-  for (const identity of identities) {
-    const value = section.locator('span').filter({ hasText: identity }).first()
-    await expect(value).toBeVisible()
-    // The badge renders the FULL identity with word-boundary wrapping
-    // (break-words, never truncate — POD-452/POD-456), so the line count is
-    // data-dependent: a ~36-char "Name · email" stays on one line at this
-    // width while a ~98-char one wraps to three, both with zero horizontal
-    // overflow. Assert the design guarantee (fully rendered, never clipped),
-    // not the line count.
-    const layout = await value.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-      whiteSpace: getComputedStyle(element).whiteSpace,
-    }))
-    expect(layout.whiteSpace).toBe('normal')
-    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1)
-  }
+  // The address renders twice: the outer pill and the inner identity span.
+  // Assert on the inner span itself, so a wrapping regression (nowrap) fails
+  // the overflow assertion on the element that actually wraps.
+  const value = section.locator('span').filter({ hasText: E2E_LONG_IDENTITY_EMAIL }).last()
+  await expect(value).toBeVisible()
+  // The badge renders the FULL identity with word-boundary wrapping
+  // (break-words, never truncate — POD-452/POD-456): the ~99-char fixture
+  // address wraps to multiple lines at this width with zero horizontal
+  // overflow. Assert the design guarantee (fully rendered, never clipped),
+  // not the line count.
+  const layout = await value.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    whiteSpace: getComputedStyle(element).whiteSpace,
+  }))
+  // Overflow first: it is the design guarantee. whiteSpace pins the mechanism
+  // (a nowrap "fix" must fail here too, not silently satisfy the pixels).
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1)
+  expect(layout.whiteSpace).toBe('normal')
 })
 
 test('new sessions allows effort with automatic model selection', async ({ page }) => {
@@ -242,7 +247,10 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
   // suffixes) instead of 'Codex (ChatGPT)'.
   await expect(account).toContainText(/^Codex/)
   await account.click()
-  await expect(page.getByRole('option', { name: /^Codex/ })).toBeVisible()
+  // Every connected Codex login adds its own suffixed option next to the base
+  // descriptor one (the POD-4730 long-identity fixture does so deterministically),
+  // so assert at least one Codex option rather than exactly one.
+  await expect(page.getByRole('option', { name: /^Codex/ }).first()).toBeVisible()
   await expect(page.getByRole('option', { name: /Anthropic API/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /OpenAI API/ })).toBeVisible()
   await expect(page.getByRole('option', { name: /OpenRouter API/ })).toBeVisible()
