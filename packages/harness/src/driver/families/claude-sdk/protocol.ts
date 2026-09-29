@@ -38,6 +38,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { HeadlessTurnEvent } from '@podium/protocol'
+import { RequestNotSentError } from '../../errors.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from './classify.js'
 
@@ -438,6 +439,9 @@ export function createClaudeStreamClient(
         /** First of the two wins; the other is then a no-op. */
         accept(acceptance: ClaudeStreamTurnAcceptance): void
         refuse(error: Error): void
+        /** The user line went to the CLI's stdin: from here a refusal may
+         *  follow a line the CLI recorded (POD-4839). */
+        lineWritten: boolean
         output: string
         partial: string
         partialUuid: string
@@ -951,8 +955,15 @@ export function createClaudeStreamClient(
           if (turn.acceptance) return
           // Settled for good: a late ack for a turn already over is no receipt.
           turn.acceptance = { uuid: turn.uuid, duplicate: false }
-          refuse(error)
+          // A line never written is a proven "no"; one written may be in the
+          // transcript whatever ended the turn, and stays unproven (POD-4839).
+          refuse(
+            turn.lineWritten
+              ? error
+              : Object.assign(new RequestNotSentError(error.message), { cause: error }),
+          )
         },
+        lineWritten: false,
         output: '',
         partial: '',
         partialUuid: '',
@@ -978,6 +989,7 @@ export function createClaudeStreamClient(
       void handshake
         .then(() => {
           if (turn.settled || closed) return
+          turn.lineWritten = true
           writeLine(userMessageLine(prompt, turn.uuid))
         })
         .catch((error: unknown) => {
