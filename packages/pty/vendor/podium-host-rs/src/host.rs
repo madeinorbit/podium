@@ -23,9 +23,11 @@ const READ_CHUNK: usize = 65536;
 
 /// Bytes queued for one client. Sent from a cursor, so a partial write costs
 /// nothing; the buffer is reset once everything in it has gone, and the sent
-/// prefix is dropped once it is both large and at least half the buffer, so a
-/// client that never quite drains cannot pin what it was already sent (the
-/// queue limits count only unsent bytes).
+/// prefix is dropped once it is both large and a quarter of the buffer (also
+/// before appending, so new frames reuse the space). A client that never quite
+/// drains therefore cannot pin what it was already sent (the queue limits
+/// count only unsent bytes): the buffer stays within 4/3 of what is pending,
+/// at no more than three moves per byte, amortized.
 #[derive(Default)]
 struct Outbox {
     buf: Vec<u8>,
@@ -47,15 +49,20 @@ impl Outbox {
         if self.is_empty() {
             self.buf.clear();
             self.sent = 0;
-        } else if self.sent >= Self::COMPACT_AT && self.sent * 2 >= self.buf.len() {
-            // Each byte moves at most once per doubling: amortized O(1).
+        } else {
+            self.compact();
+        }
+    }
+    const COMPACT_AT: usize = 64 * 1024;
+    fn compact(&mut self) {
+        if self.sent >= Self::COMPACT_AT && self.sent * 4 >= self.buf.len() {
             self.buf.drain(..self.sent);
             self.sent = 0;
         }
     }
-    const COMPACT_AT: usize = 64 * 1024;
     /// Where new frames are appended.
     fn tail(&mut self) -> &mut Vec<u8> {
+        self.compact();
         &mut self.buf
     }
 }
@@ -907,7 +914,7 @@ mod tests {
             assert_eq!(out.len(), 1024);
         }
         assert!(
-            out.buf.len() <= 2 * Outbox::COMPACT_AT + chunk.len(),
+            out.buf.len() <= Outbox::COMPACT_AT + 2 * chunk.len(),
             "{}",
             out.buf.len()
         );
