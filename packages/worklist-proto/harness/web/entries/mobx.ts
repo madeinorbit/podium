@@ -17,17 +17,14 @@
 
 import { observable, reaction, runInAction } from 'mobx'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
-import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
-import { buildCorpus } from '../../src/fixture/index'
-import { mountPage, readScale } from '../entrylib'
+import { startEngineOnCorpus } from '../../../shared/src/scenarios'
+import { mountPage, pageEngineOptions, readPageCorpus, stagePoint } from '../entrylib'
 
 // POD-4561: the bundle is fetched, parsed and evaluated (every static import).
 const scriptAt = performance.now()
 
-const scale = readScale()
 const params = new URLSearchParams(window.location.search)
 const sha = params.get('sha') ?? 'dev'
-const corpus = buildCorpus(scale, FIXTURE_SEED)
 
 /** The trap's proof plants (never a timing run). */
 function plantConsole(kind: string | null): void {
@@ -47,13 +44,21 @@ function plantConsole(kind: string | null): void {
 
 // No top-level await and no module binding for the runtime: an async
 // module's generator keeps its awaited values alive, and a principal switch
-// must be able to drop the old runtime (POD-4561).
-void startEngineOnCorpus(corpus).then((boot) => {
+// must be able to drop the old runtime (POD-4561). The boot below is an async
+// function that returns once the page is mounted, and no closure in it holds
+// the runtime. POD-4747: the stage points stop a `?layers=1` page for the
+// layer-split driver; otherwise they resolve at once.
+void (async () => {
+  await stagePoint('script')
+  const { corpus, scale, cell } = readPageCorpus()
+  await stagePoint('fixture')
+  const boot = await startEngineOnCorpus(corpus, pageEngineOptions())
   mountPage({
     arm: 'mobx',
     createArm: () => mobxPoolArm,
     boot,
     scale,
+    cell,
     counts: {
       issues: corpus.stats.issues,
       sessions: corpus.stats.sessions,
@@ -66,4 +71,4 @@ void startEngineOnCorpus(corpus).then((boot) => {
     // POD-4671 fixed: no parity allowance.
   })
   plantConsole(params.get('consoleplant'))
-})
+})()

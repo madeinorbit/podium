@@ -292,6 +292,8 @@ export function corpusFromLive(live: LiveCollections, coarseNow: number): Fixtur
   return {
     seed: 0,
     scale: 1 as CorpusScale,
+    cell: null,
+    units: [],
     fixedNow: coarseNow,
     issues: live.issues,
     issueProjections: live.issueProjections,

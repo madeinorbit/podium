@@ -58,7 +58,12 @@ export default defineConfig({
     ],
   },
   build: {
-    outDir: 'dist',
+    // POD-4747: `PROTO_LAYERS=1` builds the layer-split pages
+    // (`harness/browser/layers.ts`) unminified into `dist-layers`, so a heap
+    // snapshot names every class by its source name. Timing always serves
+    // `dist`.
+    outDir: process.env['PROTO_LAYERS'] === '1' ? 'dist-layers' : 'dist',
+    minify: process.env['PROTO_LAYERS'] !== '1',
     emptyOutDir: true,
     sourcemap: false,
     rollupOptions: {

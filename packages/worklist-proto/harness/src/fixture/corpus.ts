@@ -15,6 +15,21 @@
  * Determinism: one mulberry32 stream per build, no `Math.random`, no
  * `Date.now()` — every timestamp derives from `FIXED_NOW`. Two builds with the
  * same `(scale, seed)` are deep-equal (proven by `corpus.test.ts`).
+ *
+ * TWO AXES (POD-4747). `buildCorpus(scale)` grows everything together. A
+ * workspace grows along two axes that cost differently: HISTORY (closed,
+ * archived and deleted work and its sessions, past every visibility window)
+ * grows forever, and ACTIVE work (open issues, live sessions, visible rows,
+ * worktree lanes) grows with usage. `buildCorpusCell({ history, active })`
+ * grows them separately. Every role in the unit plan belongs to one axis
+ * (`ROLE_AXIS`). A cell is the 1x unit (`full`, byte-identical to
+ * `buildCorpus(1)`), then `active - 1` ACTIVE units (the active roles only,
+ * with their lanes and sessions), then `history - 1` HISTORY epochs (the
+ * history roles only, no lanes, no live session, each one an older stretch
+ * of the workspace: its clock sits `EPOCH_MS` further back per epoch). Each
+ * added unit draws from its own seeded stream and links only inside itself,
+ * so adding history leaves every active row of the cell as it was, and adding
+ * active work leaves every history row as it was (`cells.test.ts`).
  */
 
 import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-core/replica'
@@ -62,6 +77,52 @@ export const BASE_COUNTS = {
 } as const
 
 export type CorpusScale = 1 | 2 | 4
+
+/**
+ * POD-4747: one cell of the two-axis grid. `history` multiplies the history
+ * roles (the 1x unit's history plus `history - 1` epochs); `active` multiplies
+ * the active roles (the 1x unit's active work plus `active - 1` active units).
+ */
+export interface CorpusCell {
+  history: number
+  active: CorpusScale
+}
+
+/** The cells the growth test compares: the base, history x10, active x4. */
+export const GROWTH_CELLS = {
+  base: { history: 1, active: 1 },
+  history10: { history: 10, active: 1 },
+  active4: { history: 1, active: 4 },
+} as const satisfies Record<string, CorpusCell>
+
+/** `h10a1` for `{ history: 10, active: 1 }`: the label pages, runs and docs use. */
+export const cellLabel = (cell: CorpusCell): string => `h${cell.history}a${cell.active}`
+
+/** The inverse of `cellLabel`; throws on anything else. */
+export function parseCell(label: string): CorpusCell {
+  const match = /^h(\d+)a(\d+)$/.exec(label)
+  const history = Number(match?.[1])
+  const active = Number(match?.[2])
+  if (
+    match === null ||
+    !Number.isInteger(history) ||
+    history < 1 ||
+    history > MAX_HISTORY ||
+    (active !== 1 && active !== 2 && active !== 4)
+  )
+    throw new Error(`[fixture] bad cell ${label} (want h<1..${MAX_HISTORY}>a<1|2|4>)`)
+  return { history, active: active as CorpusScale }
+}
+
+/** A unit's contribution: the whole live-shaped unit, or one axis of it. */
+export type UnitPart = 'full' | 'active' | 'history'
+
+/** How far back each history epoch's clock sits: past every visibility window
+ *  (the longest is the 7-day unread-finished one) and as long as the unit's
+ *  own creation window (3-120 days), so each epoch's issues were filed before
+ *  the next one's. */
+export const EPOCH_MS = 120 * 24 * 60 * 60 * 1000
+const MAX_HISTORY = 20
 
 /** Discovery scan entries at a scale: the roots, and one per worktree. */
 export const scanEntries = (scale: CorpusScale): number =>
@@ -133,10 +194,24 @@ export interface EdgedAsker {
   sessionId: string
 }
 
+/** POD-4747: where one unit's rows sit in the corpus arrays (end exclusive):
+ *  issues in id order (`issues[k].id === i<k>`), sessions in minting order. */
+export interface UnitSpan {
+  part: UnitPart
+  issues: [number, number]
+  sessions: [number, number]
+}
+
 /** Everything the oracle and the row stream need, in both spellings. */
 export interface FixtureCorpus {
   seed: number
+  /** The legacy scale; for a cell, its active factor (what the page's
+   *  scale-keyed rules, such as the pinned section's size, see). */
   scale: CorpusScale
+  /** POD-4747: the two-axis cell, or null for a `buildCorpus(scale)` corpus. */
+  cell: CorpusCell | null
+  /** POD-4747: every unit, in minting order. */
+  units: UnitSpan[]
   fixedNow: number
   /** Legacy wire rows (`store.issues`, replica `issues` kind for `readAt`). */
   issues: IssueWire[]
@@ -670,6 +745,24 @@ const LEAF_ROLES = new Set<Role>([
   'rescueParent',
   'sessless',
 ])
+/**
+ * POD-4747: the growth axis of each role. History is finished or put-away
+ * work that no row shows: hidden closed issues, archived and deleted ones.
+ * Everything else is active work: every role that earns a row (closed rows in
+ * the fold included) and the open hidden work (backlog, proposed, hidden
+ * review and in-progress children, shipping).
+ */
+const HISTORY_ROLES = new Set<Role>([
+  'humanDone',
+  'humanDoneArch',
+  'humanDeleted',
+  'humanArchOpen',
+  'agentDone',
+  'agentDoneArch',
+  'agentArch',
+])
+const axisOfRole = (role: Role): 'active' | 'history' =>
+  HISTORY_ROLES.has(role) ? 'history' : 'active'
 
 // ---------------------------------------------------------------------------
 // Repos and lanes (per unit). Live: 9 repo rows, 17 roots, 504 worktrees of
@@ -764,6 +857,16 @@ interface Mint {
 
 type SessionRecord = Record<string, unknown>
 
+/** The planted shapes (POD-4550, POD-4551), as `plant` leaves them. */
+interface Planted {
+  unscannedIdx: number
+  unscannedPath: string
+  unscannedOrphan: SessionRecord
+  askerChildren: Set<number>
+  edgedAskers: EdgedAsker[]
+  resumeTwins: ResumeTwinGroup[]
+}
+
 function fail(message: string): never {
   throw new Error(`[fixture] ${message}`)
 }
@@ -772,11 +875,32 @@ const pad = (n: number, width: number): string => String(n).padStart(width, '0')
 
 export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   if (scale !== 1 && scale !== 2 && scale !== 4) fail(`unsupported scale ${scale}`)
-  const rng = mulberry32(seed * 1000 + scale)
+  return build(seed, scale, null)
+}
+
+/** POD-4747: the corpus at one cell of the two-axis grid (see the header). */
+export function buildCorpusCell(cell: CorpusCell, seed = 4443): FixtureCorpus {
+  return build(seed, cell.active, parseCell(cellLabel(cell)))
+}
+
+function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): FixtureCorpus {
+  // A legacy build draws everything from one stream. A cell's unit 0 draws
+  // from `buildCorpus(1)`'s stream and every added unit from its own, and
+  // each pass that touches a unit's rows first `enter`s that unit (its stream
+  // and its clock), so no unit's rows depend on how many others were added.
+  let rng = mulberry32(seed * 1000 + (cell === null ? scale : 1))
+  /** The unit's clock: `FIXED_NOW`, or further back for a history epoch. */
+  let now = FIXED_NOW
+  const streams: Array<{ rng: () => number; now: number }> = [{ rng, now }]
+  const enter = (unit: number): void => {
+    if (cell === null) return
+    const stream = streams[unit] ?? fail(`no stream for unit ${unit}`)
+    rng = stream.rng
+    now = stream.now
+  }
   const pick = <T>(items: readonly T[]): T => items[Math.floor(rng() * items.length)] as T
   const int = (lo: number, hi: number): number => lo + Math.floor(rng() * (hi - lo + 1))
-  const ago = (minMs: number, maxMs: number): string =>
-    iso(FIXED_NOW - (minMs + rng() * (maxMs - minMs)))
+  const ago = (minMs: number, maxMs: number): string => iso(now - (minMs + rng() * (maxMs - minMs)))
   const weighted = <T>(items: ReadonlyArray<readonly [T, number]>): T => {
     const total = items.reduce((sum, [, w]) => sum + w, 0)
     let r = rng() * total
@@ -817,6 +941,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   }
   /** Per-unit facts the later passes need. */
   const units: Array<{
+    part: UnitPart
     first: number
     end: number
     rootPaths: string[]
@@ -857,8 +982,72 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   if (roots.length !== BASE_COUNTS.rootLanes) fail('root plan drift')
   const standalone: GitRepositoryWire[] = []
   let wtSeq = 0
+  const spans: UnitSpan[] = []
+  /** Issues a unit of `part` mints: the plan's roles on that axis (`proposed`
+   *  takes the rest of the full unit, and is active). */
+  const unitIssues = (part: UnitPart): number => {
+    if (part === 'full') return BASE_COUNTS.issues
+    const history = PLAN.filter((spec) => axisOfRole(spec.role) === 'history').reduce(
+      (sum, spec) => sum + spec.stages.reduce((n, [, c]) => n + c, 0),
+      0,
+    )
+    return part === 'history' ? history : BASE_COUNTS.issues - history
+  }
+  /** A session's axis: its issue's, or for an unbound one, history once it
+   *  has stopped (a decayed run) and active while it has not. */
+  const sessionAxis = (s: SessionRecord): 'active' | 'history' => {
+    const id = s['issueId']
+    if (typeof id === 'string') return axisOfRole(mints[mintOf(id)]!.role)
+    return s['stoppedAt'] !== undefined ? 'history' : 'active'
+  }
 
-  for (let unit = 0; unit < scale; unit++) mintUnit(unit)
+  const parts: UnitPart[] =
+    cell === null
+      ? Array.from({ length: scale }, () => 'full' as const)
+      : [
+          'full',
+          ...Array.from({ length: cell.active - 1 }, () => 'active' as const),
+          ...Array.from({ length: cell.history - 1 }, () => 'history' as const),
+        ]
+  /** POD-4747: sessions per axis of the planted unit 0: what each added
+   *  active unit and history epoch mints (null in a legacy build). */
+  let axisSessions: Record<'active' | 'history', number> | null = null
+  /** The same for unit 0's shells bound to an issue. */
+  let axisShells: Record<'active' | 'history', number> | null = null
+  let planted: Planted
+  if (cell === null) {
+    for (let unit = 0; unit < scale; unit++) mintUnit(unit, 'full')
+    planted = plant(scale)
+  } else {
+    // Unit 0 is planted before anything is added, exactly as `buildCorpus(1)`
+    // plants it; the added units then mint the planted unit's per-axis counts.
+    mintUnit(0, 'full')
+    planted = plant(1)
+    axisSessions = { active: 0, history: 0 }
+    axisShells = { active: 0, history: 0 }
+    for (const s of sessions) {
+      axisSessions[sessionAxis(s)] += 1
+      if (s['agentKind'] === 'shell' && typeof s['issueId'] === 'string')
+        axisShells[sessionAxis(s)] += 1
+    }
+    const ordinal = { active: 0, history: 0 }
+    parts.forEach((part, unit) => {
+      if (part === 'full') return
+      const k = ++ordinal[part]
+      streams.push({
+        rng: mulberry32(seed * 1000 + (part === 'active' ? 100 : 200) + k),
+        now: part === 'history' ? FIXED_NOW - k * EPOCH_MS : FIXED_NOW,
+      })
+      enter(unit)
+      const start = sessions.length
+      mintUnit(unit, part)
+      for (const s of sessions.slice(start))
+        if (sessionAxis(s) !== part)
+          fail(`${part} unit ${unit} minted ${String(s['sessionId'])} on the other axis`)
+    })
+  }
+  const { unscannedIdx, unscannedPath, unscannedOrphan, askerChildren, edgedAskers, resumeTwins } =
+    planted
 
   // The scan: every root with all its worktrees, then the standalone entry a
   // real scan reports for each linked worktree.
@@ -876,62 +1065,67 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   // -------------------------------------------------------------------------
   // One workspace unit.
   // -------------------------------------------------------------------------
-  function mintUnit(unit: number): void {
+  function mintUnit(unit: number, part: UnitPart): void {
     const first = mints.length
+    const sessionsFirst = sessions.length
+    /** The roles this part mints: all of them, or one axis's. */
+    const mints_ = (role: Role): boolean => part === 'full' || axisOfRole(role) === part
     // -- worktrees (the discovery scan) -----------------------------------------
     // Each unit adds its worktrees under the SAME roots: the workspace grows
-    // inside its repos (live: one repo holds 89% of the issues).
+    // inside its repos (live: one repo holds 89% of the issues). A history
+    // epoch adds none: finished work's worktrees are gone.
     const freeLanes = new Map<string, string[]>()
     const lanes: string[] = []
     const named = unit === 0 ? ['alpha', 'beta'] : [`u${unit}alpha`, `u${unit}beta`]
-    let forkBudget = FORK_TRAP_EXTRA
-    roots.forEach((root, r) => {
-      const { path, rid, machineId } = root
-      const worktrees = root.worktrees
-      const unitStart = worktrees.length
-      for (let w = 0; w < ROOT_WORKTREES[r]!; w++) {
-        const nested = w < ROOT_NESTED[r]!
-        let wt = nested ? `${path}/.worktrees/w${pad(wtSeq, 5)}` : `/w/${unit}t${pad(wtSeq, 5)}`
-        // The named forks (the prefix-ownership cover) sit among the elsewhere
-        // lanes of the biggest root; the extra traps are spread through the
-        // three big roots.
-        const namedAt = r === 0 && !nested ? w - ROOT_NESTED[0]! : -1
-        if (namedAt >= 0 && namedAt < 4)
-          wt = `/w/${named[namedAt >> 1]}${namedAt % 2 === 1 ? '-fork' : ''}`
-        const prev = worktrees.length > unitStart ? worktrees.at(-1)?.path : undefined
-        if (
-          namedAt < 0 || namedAt >= 5
-            ? forkBudget > 0 &&
-              r < 3 &&
-              prev !== undefined &&
-              w % 7 === 0 &&
-              !prev.endsWith('-b') &&
-              !prev.endsWith('-fork')
-            : false
-        ) {
-          wt = `${prev}-b`
-          forkBudget--
+    let forkBudget = part === 'history' ? 0 : FORK_TRAP_EXTRA
+    if (part !== 'history')
+      roots.forEach((root, r) => {
+        const { path, rid, machineId } = root
+        const worktrees = root.worktrees
+        const unitStart = worktrees.length
+        for (let w = 0; w < ROOT_WORKTREES[r]!; w++) {
+          const nested = w < ROOT_NESTED[r]!
+          let wt = nested ? `${path}/.worktrees/w${pad(wtSeq, 5)}` : `/w/${unit}t${pad(wtSeq, 5)}`
+          // The named forks (the prefix-ownership cover) sit among the elsewhere
+          // lanes of the biggest root; the extra traps are spread through the
+          // three big roots.
+          const namedAt = r === 0 && !nested ? w - ROOT_NESTED[0]! : -1
+          if (namedAt >= 0 && namedAt < 4)
+            wt = `/w/${named[namedAt >> 1]}${namedAt % 2 === 1 ? '-fork' : ''}`
+          const prev = worktrees.length > unitStart ? worktrees.at(-1)?.path : undefined
+          if (
+            namedAt < 0 || namedAt >= 5
+              ? forkBudget > 0 &&
+                r < 3 &&
+                prev !== undefined &&
+                w % 7 === 0 &&
+                !prev.endsWith('-b') &&
+                !prev.endsWith('-fork')
+              : false
+          ) {
+            wt = `${prev}-b`
+            forkBudget--
+          }
+          wtSeq++
+          worktrees.push({ path: wt, branch: 'task' })
+          lanes.push(wt)
+          freeLanes.set(rid, [...(freeLanes.get(rid) ?? []), wt])
+          standalone.push({
+            path: wt,
+            kind: 'repository',
+            branch: 'task',
+            worktrees: [],
+            machineId,
+          } as unknown as GitRepositoryWire)
+          sliceWorktrees.push({
+            path: wt,
+            repoId: rid,
+            repoPath: path,
+            repoName: path.slice(1),
+            prefix: typeof ROOT_REPO[r] === 'number' ? PREFIXES[ROOT_REPO[r] as number] : null,
+          })
         }
-        wtSeq++
-        worktrees.push({ path: wt, branch: 'task' })
-        lanes.push(wt)
-        freeLanes.set(rid, [...(freeLanes.get(rid) ?? []), wt])
-        standalone.push({
-          path: wt,
-          kind: 'repository',
-          branch: 'task',
-          worktrees: [],
-          machineId,
-        } as unknown as GitRepositoryWire)
-        sliceWorktrees.push({
-          path: wt,
-          repoId: rid,
-          repoPath: path,
-          repoName: path.slice(1),
-          prefix: typeof ROOT_REPO[r] === 'number' ? PREFIXES[ROOT_REPO[r] as number] : null,
-        })
-      }
-    })
+      })
     if (forkBudget !== 0) fail(`fork-trap budget left ${forkBudget}`)
     // Lanes an issue can name: shuffled per repo so naming is spread out.
     for (const [rid, list] of freeLanes) freeLanes.set(rid, shuffle(list))
@@ -942,6 +1136,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     if (proposedCount < 0) fail(`unit plan exceeds ${BASE_COUNTS.issues} issues`)
     const byRole = new Map<Role, number[]>()
     for (const spec of PLAN) {
+      if (!mints_(spec.role)) continue
       const stages =
         spec.role === 'proposed' ? [['proposed', proposedCount] as [string, number]] : spec.stages
       const list: number[] = []
@@ -974,7 +1169,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       byRole.set(spec.role, list)
     }
     const end = mints.length
-    if (end - first !== BASE_COUNTS.issues) fail(`unit ${unit} has ${end - first} issues`)
+    if (end - first !== unitIssues(part)) fail(`unit ${unit} has ${end - first} issues`)
     const roleList = (role: Role): number[] => byRole.get(role) ?? []
 
     // -- hierarchy ---------------------------------------------------------------
@@ -999,7 +1194,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
         const weights = (spec.depth ?? [1]).map((w, d) => [d + 2, w] as const)
         const depth = weighted(weights)
         const inMission = NESTED_ROLES.has(spec.role) || rng() < (spec.inMission ?? 0)
-        pending.push({ i, depth, inMission })
+        // A history epoch has no mission (every mission root is active work).
+        pending.push({ i, depth, inMission: inMission && missions.length > 0 })
       })
     }
     // Hidden-tree roots: never a human open issue a visible descendant could
@@ -1075,11 +1271,13 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     visibleTop.forEach((i, k) => {
       setRepo(i, topRepos[k]!)
     })
-    // The `#seq` cover and the closed-only group.
-    setRepo(roleList('topReview')[0]!, 'a')
-    setRepo(roleList('topClosed')[0]!, 'a')
-    setRepo(roleList('topClosed')[1]!, 6)
-    setRepo(roleList('topClosed')[2]!, 6)
+    // The `#seq` cover and the closed-only group (rows: active work only).
+    if (part !== 'history') {
+      setRepo(roleList('topReview')[0]!, 'a')
+      setRepo(roleList('topClosed')[0]!, 'a')
+      setRepo(roleList('topClosed')[1]!, 6)
+      setRepo(roleList('topClosed')[2]!, 6)
+    }
     for (let i = first; i < end; i++) {
       const m = mints[i]!
       if (m.repo !== '' || m.parent !== null) continue
@@ -1146,20 +1344,20 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       (a, b) => mints[a]!.depth - mints[b]!.depth || a - b,
     )
     const createdMs = new Map<number, number>()
-    const LATEST_CREATE = FIXED_NOW - 2.5 * DAY_MS
+    const LATEST_CREATE = now - 2.5 * DAY_MS
     for (const i of byDepthFirst) {
       const m = mints[i]!
       const t =
         m.parent === null
-          ? FIXED_NOW - (3 * DAY_MS + rng() * 117 * DAY_MS)
+          ? now - (3 * DAY_MS + rng() * 117 * DAY_MS)
           : Math.min(createdMs.get(m.parent)! + 10 * MIN_MS + rng() * 2 * DAY_MS, LATEST_CREATE)
       createdMs.set(i, t)
       m.createdAt = iso(t)
     }
     const after = (i: number, minMs: number, maxMs: number): string => {
       const born = createdMs.get(i)! + HOUR_MS
-      const lo = Math.max(FIXED_NOW - maxMs, born)
-      const hi = Math.max(FIXED_NOW - minMs, lo)
+      const lo = Math.max(now - maxMs, born)
+      const hi = Math.max(now - minMs, lo)
       return iso(lo + rng() * (hi - lo))
     }
     for (let i = first; i < end; i++) {
@@ -1195,6 +1393,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
         .slice(0, 5),
     )
     units.push({
+      part,
       first,
       end,
       rootPaths,
@@ -1206,6 +1405,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       goneSeq: 0,
     })
     mintSessions(unit, byRole)
+    spans.push({ part, issues: [first, end], sessions: [sessionsFirst, sessions.length] })
   }
 
   // -------------------------------------------------------------------------
@@ -1214,9 +1414,14 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   // -------------------------------------------------------------------------
   function mintSessions(unit: number, byRole: Map<Role, number[]>): void {
     const u = units[unit]!
+    const { part } = u
     const roleList = (role: Role): number[] => byRole.get(role) ?? []
     const start = sessions.length
-    const target = BASE_COUNTS.sessions
+    // An added unit mints the planted unit 0's sessions on its own axis.
+    const target =
+      part === 'full'
+        ? BASE_COUNTS.sessions
+        : (axisSessions?.[part] ?? fail(`${part} unit ${unit} before unit 0 was planted`))
     const gone = (): string => `/gone/${unit}g${pad(u.goneSeq++, 5)}`
     const rootLaneOf = (i: number): string => u.primaryRoot.get(mints[i]!.repo) ?? u.rootPaths[0]!
     /** Where a bound session runs: the issue's worktree, else its repo root
@@ -1442,7 +1647,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     const finishedRun = (i: number, share: number): void => {
       const v: Variant = rng() < share ? (rng() < 0.6 ? 'doneTurn' : 'exitedRecent') : 'retained'
       const m = mints[i]!
-      if (v !== 'retained' && Date.parse(m.closedAt!) < FIXED_NOW - 6 * DAY_MS) {
+      if (v !== 'retained' && Date.parse(m.closedAt!) < now - 6 * DAY_MS) {
         // Kept only within 7 days of the close; the child was created at
         // least 2.5 days ago, so this stays after its creation.
         m.closedAt = ago(26 * HOUR_MS, 2.4 * DAY_MS)
@@ -1530,7 +1735,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       return VISIBLE_ROLES.has(m.role) && !inQuiet(i) && m.role !== 'mission' && !m.closed
     })
     // Live orphans: running in a visible issue's worktree, owned by the prefix.
-    for (let k = 0; k < 8; k++) {
+    // Unbound runs that never stopped are active work: no history epoch has them.
+    for (let k = 0; k < (part === 'history' ? 0 : 8); k++) {
       const i = orphanTargets[k % orphanTargets.length]
       if (i === undefined) fail('no visible worktree for the live orphans')
       const s = base(`${mints[i]!.worktree}/sub${k % 3 === 0 ? '/deep' : ''}`)
@@ -1548,16 +1754,20 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     }
     // Four unbound runs in a repo root that never stopped: the worktree rows
     // live shows (4) — a root lane no issue names.
-    for (let k = 0; k < 4; k++)
+    for (let k = 0; k < (part === 'history' ? 0 : 4); k++)
       rowSession(null, 'retained', u.rootPaths[(3 + 4 * unit + k) % u.rootPaths.length]!)
+    // Decayed unbound runs are history: no active unit has them. A history
+    // epoch's lanes are gone, so what ran in one ran in a vanished checkout.
+    const decayed = part === 'active' ? 0 : 1
     const rootCwd = (): string => `${pick(u.rootPaths)}${rng() < 0.5 ? '' : '/packages/app'}`
-    for (let k = 0; k < 68; k++) history(null, rootCwd())
-    for (let k = 0; k < 11; k++) history(null, `${pick(u.lanes)}/tmp`)
-    for (let k = 0; k < 203; k++) history(null, gone())
+    const laneCwd = (): string => (u.lanes.length > 0 ? pick(u.lanes) : gone())
+    for (let k = 0; k < 68 * decayed; k++) history(null, rootCwd())
+    for (let k = 0; k < 11 * decayed; k++) history(null, `${laneCwd()}/tmp`)
+    for (let k = 0; k < 203 * decayed; k++) history(null, gone())
     // Shells: 21% of sessions, never in the sidebar (sidebarSessions).
-    for (let k = 0; k < 70; k++) history(null, rootCwd(), 'shell')
-    for (let k = 0; k < 20; k++) history(null, pick(u.lanes), 'shell')
-    for (let k = 0; k < 270; k++) history(null, gone(), 'shell')
+    for (let k = 0; k < 70 * decayed; k++) history(null, rootCwd(), 'shell')
+    for (let k = 0; k < 20 * decayed; k++) history(null, laneCwd(), 'shell')
+    for (let k = 0; k < 270 * decayed; k++) history(null, gone(), 'shell')
     const withSessions = [
       ...new Set(
         sessions
@@ -1565,7 +1775,10 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
           .flatMap((s) => (typeof s['issueId'] === 'string' ? [s['issueId'] as string] : [])),
       ),
     ]
-    for (let k = 0; k < 540; k++) {
+    // Shells on issues that have sessions; an added unit takes unit 0's on its axis.
+    const boundShells =
+      part === 'full' ? 540 : (axisShells?.[part] ?? fail(`${part} unit before unit 0`))
+    for (let k = 0; k < boundShells; k++) {
       const issueId = pick(withSessions)
       const i = mintOf(issueId)
       history(i, rng() < 0.3 ? rootLaneOf(i) : cwdFor(i), 'shell')
@@ -1589,17 +1802,18 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   }
 
   // -------------------------------------------------------------------------
-  // Planted shapes (whole corpus). They reuse rows the corpus already has, so
-  // every count stays exact.
+  // Planted shapes (every unit minted so far: the whole legacy corpus, a
+  // cell's unit 0). They reuse rows the corpus already has, so every count
+  // stays exact.
   // -------------------------------------------------------------------------
-  const allOf = (role: Role): number[] => {
+  function allOf(role: Role): number[] {
     const out: number[] = []
     mints.forEach((m, i) => {
       if (m.role === role) out.push(i)
     })
     return out
   }
-  const sessionsOfIssue = (): Map<string, SessionRecord[]> => {
+  function sessionsOfIssue(): Map<string, SessionRecord[]> {
     const map = new Map<string, SessionRecord[]>()
     for (const s of sessions) {
       const id = s['issueId']
@@ -1611,181 +1825,186 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     return map
   }
 
-  // -- unscanned worktree (POD-4550, handover from POD-4546) ---------------------------
-  // A live issue can name a worktree the discovery scan never reported (a
-  // checkout on another machine, one made outside Podium, a scan that has not
-  // run yet). Its path lives ONLY on `issue.worktreePath`: it is in no repo's
-  // `worktrees` and no session's cwd equals it. A prefix relation that only
-  // materialises worktrees the scan reached silently drops the sessions under
-  // it. The case: the last sessionless visible root (so the seat is the ONLY
-  // thing that can make it working) gets an unscanned path, and the first live
-  // working orphan moves under it.
-  const unscannedIdx = allOf('sessless').at(-1)
-  if (unscannedIdx === undefined) fail('no sessionless visible root for the unscanned worktree')
-  const unscannedPath = `/w/unscanned-${idOf(unscannedIdx)}`
-  mints[unscannedIdx]!.worktree = unscannedPath
-  const unscannedOrphan = sessions.find(
-    (s) =>
-      s['issueId'] == null &&
-      s['status'] === 'live' &&
-      (s['agentState'] as { phase?: string } | undefined)?.phase === 'working' &&
-      /\/sub(\/deep)?$/.test(s['cwd'] as string),
-  )
-  if (unscannedOrphan === undefined)
-    fail('no live working orphan to seat under the unscanned worktree')
-  unscannedOrphan['cwd'] = `${unscannedPath}/sub`
+  /** `plantScale` groups of each shape: the scale of the corpus minted so far. */
+  function plant(plantScale: number): Planted {
+    // -- unscanned worktree (POD-4550, handover from POD-4546) ---------------------------
+    // A live issue can name a worktree the discovery scan never reported (a
+    // checkout on another machine, one made outside Podium, a scan that has not
+    // run yet). Its path lives ONLY on `issue.worktreePath`: it is in no repo's
+    // `worktrees` and no session's cwd equals it. A prefix relation that only
+    // materialises worktrees the scan reached silently drops the sessions under
+    // it. The case: the last sessionless visible root (so the seat is the ONLY
+    // thing that can make it working) gets an unscanned path, and the first live
+    // working orphan moves under it.
+    const unscannedIdx = allOf('sessless').at(-1)
+    if (unscannedIdx === undefined) fail('no sessionless visible root for the unscanned worktree')
+    const unscannedPath = `/w/unscanned-${idOf(unscannedIdx)}`
+    mints[unscannedIdx]!.worktree = unscannedPath
+    const unscannedOrphan = sessions.find(
+      (s) =>
+        s['issueId'] == null &&
+        s['status'] === 'live' &&
+        (s['agentState'] as { phase?: string } | undefined)?.phase === 'working' &&
+        /\/sub(\/deep)?$/.test(s['cwd'] as string),
+    )
+    if (unscannedOrphan === undefined)
+      fail('no live working orphan to seat under the unscanned worktree')
+    unscannedOrphan['cwd'] = `${unscannedPath}/sub`
 
-  // -- hidden askers and resume twins (POD-4551) ----------------------------------
-  // Sessions come from the tail of the history on hidden closed issues; the
-  // roots are sessionless visible roots (active human stage, no sessions, no
-  // children, no worktree), so each shape alone decides what its root's row
-  // shows.
-  const donorRoles = new Set<Role>(['agentDone', 'agentDoneArch', 'humanDoneArch'])
-  const donors = sessions
-    .filter((s) => {
-      const id = s['issueId']
-      if (typeof id !== 'string' || s['agentKind'] === 'shell' || s['stoppedAt'] === undefined)
-        return false
-      return donorRoles.has(mints[mintOf(id)]!.role)
-    })
-    .reverse()
-  const takeDonor = (): SessionRecord => {
-    const donor = donors.shift()
-    if (donor === undefined) fail('hidden history too small for the POD-4551 shapes')
-    return donor
-  }
-  const cwdOfIssue = (i: number): string => {
-    const m = mints[i]!
-    return m.worktree ?? units[m.unit]!.primaryRoot.get(m.repo) ?? '/repo-000'
-  }
-  const reseat = (
-    issueIdx: number,
-    fields: {
-      status: string
-      activeAgoMs: number
-      phase: string
-      offer?: boolean
-      stoppedAgoMs?: number
-      resume?: { kind: string; value: string }
-    },
-  ): string => {
-    const s = takeDonor()
-    const activeAt = iso(FIXED_NOW - fields.activeAgoMs)
-    s['issueId'] = idOf(issueIdx)
-    s['cwd'] = cwdOfIssue(issueIdx)
-    s['status'] = fields.status
-    s['archived'] = false
-    s['lastActiveAt'] = activeAt
-    s['readAt'] = iso(FIXED_NOW - fields.activeAgoMs + 5 * MIN_MS)
-    s['unread'] = false
-    s['agentState'] = { phase: fields.phase, since: activeAt, nativeSubagentCount: 0 }
-    if (fields.stoppedAgoMs === undefined) delete s['stoppedAt']
-    else s['stoppedAt'] = iso(FIXED_NOW - fields.stoppedAgoMs)
-    if (fields.offer) s['offer'] = { message: 'Needs input', actions: [], createdAt: activeAt }
-    else delete s['offer']
-    if (fields.resume) s['resume'] = fields.resume
-    return s['sessionId'] as string
-  }
-  // Not `review`: a review-stage root asks on its own account (a pending
-  // decision), which would hide whether the shape's ask reached it.
-  const sessionlessRoots = allOf('sessless').filter((i) => i !== unscannedIdx)
+    // -- hidden askers and resume twins (POD-4551) ----------------------------------
+    // Sessions come from the tail of the history on hidden closed issues; the
+    // roots are sessionless visible roots (active human stage, no sessions, no
+    // children, no worktree), so each shape alone decides what its root's row
+    // shows.
+    const donorRoles = new Set<Role>(['agentDone', 'agentDoneArch', 'humanDoneArch'])
+    const donors = sessions
+      .filter((s) => {
+        const id = s['issueId']
+        if (typeof id !== 'string' || s['agentKind'] === 'shell' || s['stoppedAt'] === undefined)
+          return false
+        return donorRoles.has(mints[mintOf(id)]!.role)
+      })
+      .reverse()
+    const takeDonor = (): SessionRecord => {
+      const donor = donors.shift()
+      if (donor === undefined) fail('hidden history too small for the POD-4551 shapes')
+      return donor
+    }
+    const cwdOfIssue = (i: number): string => {
+      const m = mints[i]!
+      return m.worktree ?? units[m.unit]!.primaryRoot.get(m.repo) ?? '/repo-000'
+    }
+    const reseat = (
+      issueIdx: number,
+      fields: {
+        status: string
+        activeAgoMs: number
+        phase: string
+        offer?: boolean
+        stoppedAgoMs?: number
+        resume?: { kind: string; value: string }
+      },
+    ): string => {
+      const s = takeDonor()
+      const activeAt = iso(FIXED_NOW - fields.activeAgoMs)
+      s['issueId'] = idOf(issueIdx)
+      s['cwd'] = cwdOfIssue(issueIdx)
+      s['status'] = fields.status
+      s['archived'] = false
+      s['lastActiveAt'] = activeAt
+      s['readAt'] = iso(FIXED_NOW - fields.activeAgoMs + 5 * MIN_MS)
+      s['unread'] = false
+      s['agentState'] = { phase: fields.phase, since: activeAt, nativeSubagentCount: 0 }
+      if (fields.stoppedAgoMs === undefined) delete s['stoppedAt']
+      else s['stoppedAt'] = iso(FIXED_NOW - fields.stoppedAgoMs)
+      if (fields.offer) s['offer'] = { message: 'Needs input', actions: [], createdAt: activeAt }
+      else delete s['offer']
+      if (fields.resume) s['resume'] = fields.resume
+      return s['sessionId'] as string
+    }
+    // Not `review`: a review-stage root asks on its own account (a pending
+    // decision), which would hide whether the shape's ask reached it.
+    const sessionlessRoots = allOf('sessless').filter((i) => i !== unscannedIdx)
 
-  // Hidden askers (the L1d shape, POD-4549): an asking session on an archived
-  // or proposed child of a visible root. The legacy flat pass skips hidden
-  // issues (rows.ts:63-69) and the worktree lanes suppress their sessions
-  // (rows.ts:201-210), so the ask detaches: the root must NOT read asking. A
-  // pool that bubbles through the formal subtree turns the root amber.
-  const hasChild = new Set(mints.flatMap((m) => (m.parent === null ? [] : [m.parent])))
-  // Open leaves only (a closed child's offer no longer asks, motionPhase), with
-  // no worktree; spin-off edges are minted after, and skip these leaves.
-  // Archived and proposed alternate until the scarcer runs out.
-  const hiddenLeaf = (m: Mint, i: number): boolean =>
-    !hasChild.has(i) && m.worktree === null && !m.closed && m.parent === null
-  const archivedLeaves = allOf('humanArchOpen').filter((i) => hiddenLeaf(mints[i]!, i))
-  const proposedLeaves = allOf('proposed').filter((i) => hiddenLeaf(mints[i]!, i))
-  const ASKERS_1X = 20
-  const edgedAskers: EdgedAsker[] = []
-  const askerChildren = new Set<number>()
-  for (let k = 0; k < ASKERS_1X * scale; k++) {
-    const root = sessionlessRoots[k]
-    if (root === undefined) fail('not enough sessionless roots for the askers')
-    // Each root takes a hidden leaf of its own unit.
-    const unit = mints[root]!.unit
-    const pool = k % 2 === 0 ? archivedLeaves : proposedLeaves
-    const at = pool.findIndex((i) => mints[i]!.unit === unit)
-    const child = at < 0 ? undefined : pool.splice(at, 1)[0]
-    if (child === undefined) fail('not enough hidden leaves for the askers')
-    mints[child]!.parent = root
-    mints[child]!.depth = mints[root]!.depth + 1
-    mints[child]!.repo = mints[root]!.repo
-    mints[child]!.repoPath = mints[root]!.repoPath
-    askerChildren.add(child)
-    const sessionId = reseat(child, {
-      status: 'live',
-      activeAgoMs: 20 * MIN_MS + k * MIN_MS,
-      phase: 'idle',
-      offer: true,
-    })
-    edgedAskers.push({ rootId: idOf(root), childId: idOf(child), sessionId })
-  }
-
-  // Resume twins (dedupeSessionsByResume, session-identity.ts:45; the runtime
-  // applies it to every session read, optimism.ts:876). One group of each
-  // kind per scale unit, each on its own sessionless visible root:
-  // - inactive: an older hibernated ask + a newer exited run. Rank beats
-  //   recency, so the collapse keeps the ask: the root reads asking. A pool
-  //   that breaks on recency alone keeps the exited run and loses the ask.
-  // - tie: two hibernated rows, an older ask and a newer quiet one. Equal
-  //   rank, so the most recent wins: the root reads NOT asking. Without the
-  //   collapse the stale ask shows (the disabled-collapse control).
-  // - live: a live working run + an older hibernated ask. A group touching a
-  //   live row is kept in full: the root reads working AND asking. A pool
-  //   that collapses it anyway loses the ask.
-  const resumeTwins: ResumeTwinGroup[] = []
-  const twinRoots = sessionlessRoots.slice(ASKERS_1X * scale)
-  for (let k = 0; k < scale; k++) {
-    const kinds: ResumeTwinKind[] = ['inactive', 'tie', 'live']
-    kinds.forEach((kind, g) => {
-      const root = twinRoots[3 * k + g]
-      if (root === undefined) fail('not enough sessionless roots for the resume twins')
-      const ref = { kind: 'codex-thread', value: `thread-twin-${kind}-${k}` }
-      const ask = reseat(root, {
-        status: 'hibernated',
-        activeAgoMs: 6 * HOUR_MS,
+    // Hidden askers (the L1d shape, POD-4549): an asking session on an archived
+    // or proposed child of a visible root. The legacy flat pass skips hidden
+    // issues (rows.ts:63-69) and the worktree lanes suppress their sessions
+    // (rows.ts:201-210), so the ask detaches: the root must NOT read asking. A
+    // pool that bubbles through the formal subtree turns the root amber.
+    const hasChild = new Set(mints.flatMap((m) => (m.parent === null ? [] : [m.parent])))
+    // Open leaves only (a closed child's offer no longer asks, motionPhase), with
+    // no worktree; spin-off edges are minted after, and skip these leaves.
+    // Archived and proposed alternate until the scarcer runs out.
+    const hiddenLeaf = (m: Mint, i: number): boolean =>
+      !hasChild.has(i) && m.worktree === null && !m.closed && m.parent === null
+    const archivedLeaves = allOf('humanArchOpen').filter((i) => hiddenLeaf(mints[i]!, i))
+    const proposedLeaves = allOf('proposed').filter((i) => hiddenLeaf(mints[i]!, i))
+    const ASKERS_1X = 20
+    const edgedAskers: EdgedAsker[] = []
+    const askerChildren = new Set<number>()
+    for (let k = 0; k < ASKERS_1X * plantScale; k++) {
+      const root = sessionlessRoots[k]
+      if (root === undefined) fail('not enough sessionless roots for the askers')
+      // Each root takes a hidden leaf of its own unit.
+      const unit = mints[root]!.unit
+      const pool = k % 2 === 0 ? archivedLeaves : proposedLeaves
+      const at = pool.findIndex((i) => mints[i]!.unit === unit)
+      const child = at < 0 ? undefined : pool.splice(at, 1)[0]
+      if (child === undefined) fail('not enough hidden leaves for the askers')
+      mints[child]!.parent = root
+      mints[child]!.depth = mints[root]!.depth + 1
+      mints[child]!.repo = mints[root]!.repo
+      mints[child]!.repoPath = mints[root]!.repoPath
+      askerChildren.add(child)
+      const sessionId = reseat(child, {
+        status: 'live',
+        activeAgoMs: 20 * MIN_MS + k * MIN_MS,
         phase: 'idle',
         offer: true,
-        resume: ref,
       })
-      const other =
-        kind === 'inactive'
-          ? reseat(root, {
-              status: 'exited',
-              activeAgoMs: 3 * HOUR_MS,
-              phase: 'ended',
-              stoppedAgoMs: 3 * HOUR_MS,
-              resume: ref,
-            })
-          : kind === 'tie'
+      edgedAskers.push({ rootId: idOf(root), childId: idOf(child), sessionId })
+    }
+
+    // Resume twins (dedupeSessionsByResume, session-identity.ts:45; the runtime
+    // applies it to every session read, optimism.ts:876). One group of each
+    // kind per scale unit, each on its own sessionless visible root:
+    // - inactive: an older hibernated ask + a newer exited run. Rank beats
+    //   recency, so the collapse keeps the ask: the root reads asking. A pool
+    //   that breaks on recency alone keeps the exited run and loses the ask.
+    // - tie: two hibernated rows, an older ask and a newer quiet one. Equal
+    //   rank, so the most recent wins: the root reads NOT asking. Without the
+    //   collapse the stale ask shows (the disabled-collapse control).
+    // - live: a live working run + an older hibernated ask. A group touching a
+    //   live row is kept in full: the root reads working AND asking. A pool
+    //   that collapses it anyway loses the ask.
+    const resumeTwins: ResumeTwinGroup[] = []
+    const twinRoots = sessionlessRoots.slice(ASKERS_1X * plantScale)
+    for (let k = 0; k < plantScale; k++) {
+      const kinds: ResumeTwinKind[] = ['inactive', 'tie', 'live']
+      kinds.forEach((kind, g) => {
+        const root = twinRoots[3 * k + g]
+        if (root === undefined) fail('not enough sessionless roots for the resume twins')
+        const ref = { kind: 'codex-thread', value: `thread-twin-${kind}-${k}` }
+        const ask = reseat(root, {
+          status: 'hibernated',
+          activeAgoMs: 6 * HOUR_MS,
+          phase: 'idle',
+          offer: true,
+          resume: ref,
+        })
+        const other =
+          kind === 'inactive'
             ? reseat(root, {
-                status: 'hibernated',
-                activeAgoMs: 2 * HOUR_MS,
-                phase: 'idle',
+                status: 'exited',
+                activeAgoMs: 3 * HOUR_MS,
+                phase: 'ended',
+                stoppedAgoMs: 3 * HOUR_MS,
                 resume: ref,
               })
-            : reseat(root, {
-                status: 'live',
-                activeAgoMs: 60 * 1000,
-                phase: 'working',
-                resume: ref,
-              })
-      resumeTwins.push({
-        kind,
-        issueId: idOf(root),
-        ref,
-        sessionIds: [ask, other],
-        keptSessionIds: kind === 'live' ? [ask, other] : kind === 'inactive' ? [ask] : [other],
+            : kind === 'tie'
+              ? reseat(root, {
+                  status: 'hibernated',
+                  activeAgoMs: 2 * HOUR_MS,
+                  phase: 'idle',
+                  resume: ref,
+                })
+              : reseat(root, {
+                  status: 'live',
+                  activeAgoMs: 60 * 1000,
+                  phase: 'working',
+                  resume: ref,
+                })
+        resumeTwins.push({
+          kind,
+          issueId: idOf(root),
+          ref,
+          sessionIds: [ask, other],
+          keptSessionIds: kind === 'live' ? [ask, other] : kind === 'inactive' ? [ask] : [other],
+        })
       })
-    })
+    }
+
+    return { unscannedIdx, unscannedPath, unscannedOrphan, askerChildren, edgedAskers, resumeTwins }
   }
 
   // -------------------------------------------------------------------------
@@ -1839,6 +2058,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   }
   for (let i = 0; i < n; i++) {
     const m = mints[i]!
+    enter(m.unit)
     if (askerChildren.has(i) || m.role === 'sbsNested' || m.role === 'sessless') continue
     if (rng() < specOf.get(m.role)!.df) mintOrigin(i)
   }
@@ -1849,6 +2069,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   const startedBy = new Map<number, string>()
   for (let i = 0; i < n; i++) {
     const m = mints[i]!
+    enter(m.unit)
     if (askerChildren.has(i)) continue
     if (m.role === 'sbsNested') {
       const rows = starterRows[m.unit]!
@@ -1876,6 +2097,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   const coordinator = new Map<number, string>()
   for (let i = 0; i < n; i++) {
     const m = mints[i]!
+    enter(m.unit)
     // Live counts coordinators over every issue; only issues with a session
     // can have one here, so the per-kind share is lifted to match.
     const p = Math.min(0.95, specOf.get(m.role)!.coord * COORD_LIFT)
@@ -1923,6 +2145,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   }
   for (let i = 0; i < n; i++) {
     const m = mints[i]!
+    enter(m.unit)
     if (rng() >= (blockShare[m.role] ?? 0) * BLOCK_LIFT) continue
     const count = weighted([
       [1, 42],
@@ -1949,8 +2172,11 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   // duplicate 15, blocked-by 12, waits-on 10, duplicates 3, and one edge of
   // a type no code knows.
   for (const u of units) {
+    enter(units.indexOf(u))
     const pool = unitOriginPool[units.indexOf(u)]!
-    for (const [type, count] of [
+    // An added unit carries the unit's mix in proportion to its issues.
+    const share = (u.end - u.first) / BASE_COUNTS.issues
+    for (const [type, full] of [
       ['related', 234],
       ['supersedes', 25],
       ['duplicate', 15],
@@ -1959,6 +2185,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       ['duplicates', 3],
       ['bogus', 1],
     ] as const) {
+      const count = u.part === 'full' ? full : Math.round(full * share)
       for (let c = 0; c < count; c++) {
         const from = pick(pool)
         let to = pick(pool)
@@ -1967,6 +2194,9 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       }
     }
   }
+  // A cell numbers each unit's edges together (stable: unit 0's in the order
+  // `buildCorpus(1)` numbers them), so an added unit shifts no edge id.
+  if (cell !== null) deps.sort((a, b) => mints[a.from]!.unit - mints[b.from]!.unit)
   const depsOf = new Map<number, Array<{ id: string; type: string }>>()
   const issueDeps: IssueDepProjection[] = deps.map((d, k) => {
     const list = depsOf.get(d.from) ?? []
@@ -1986,11 +2216,14 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   // needsHuman (live 0.9%), on hidden open work only: it is an attention
   // input spec §6 keeps out of the comparison.
   const needsHuman = new Set<number>()
-  for (const u of units) {
+  units.forEach((u, unit) => {
+    // Finished history asks nothing of a human.
+    if (u.part === 'history') return
+    enter(unit)
     const open: number[] = []
     for (let i = u.first; i < u.end; i++) if (!isVisibleRow(i) && !mints[i]!.closed) open.push(i)
     for (const i of shuffle(open).slice(0, NEEDS_HUMAN_1X)) needsHuman.add(i)
-  }
+  })
 
   // -------------------------------------------------------------------------
   // Wire rows.
@@ -2015,6 +2248,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   const issues: IssueWire[] = []
   const issueProjections: IssueProjection[] = []
   mints.forEach((m, i) => {
+    enter(m.unit)
     const title = drafts.has(i) ? 'Draft' : titleOf(i)
     const deferUntil = deferOf(m)
     const wireDeps = depsOf.get(i) ?? []
@@ -2101,8 +2335,10 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     ;(issues[i] as unknown as Record<string, unknown>)[key] = value
   }
 
-  // Pins (live: 21 pinned rows, 36 pinned issues).
+  // Pins (live: 21 pinned rows, 36 pinned issues). A pin keeps an issue in
+  // view: no history epoch has one.
   for (const u of units) {
+    if (u.part === 'history') continue
     const inUnit = (i: number): boolean => i >= u.first && i < u.end
     const pinnedRows = [
       ...allOf('topReview').filter(inUnit).slice(1, 9),
@@ -2166,6 +2402,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     if (oldestFirst.length >= 3) setSortKey(oldestFirst[1]!, siblingSecond)
   }
   for (const u of units) {
+    enter(units.indexOf(u))
     const closedTop = allOf('topClosed').filter((i) => i >= u.first && i < u.end)
     // Tucked closed rows (explicit dismissal into the closed fold), past the
     // grace window.
@@ -2188,6 +2425,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     if (at > (lastActivity.get(id) ?? 0)) lastActivity.set(id, at)
   }
   mints.forEach((m, i) => {
+    enter(m.unit)
     if (!(m.closed || m.archived || m.deleted)) {
       setWire(i, 'readAt', ago(30 * MIN_MS, 2 * DAY_MS))
       return
@@ -2326,8 +2564,13 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     depsByType,
     sessionsWithResume: typedSessions.filter((s) => s.resume != null).length,
   }
-  if (stats.issues !== BASE_COUNTS.issues * scale) fail('issue count drift')
-  if (stats.sessions !== BASE_COUNTS.sessions * scale) fail('session count drift')
+  const wantSessions = parts.reduce(
+    (sum, part) => sum + (part === 'full' ? BASE_COUNTS.sessions : axisSessions![part]),
+    0,
+  )
+  if (stats.issues !== parts.reduce((sum, part) => sum + unitIssues(part), 0))
+    fail('issue count drift')
+  if (stats.sessions !== wantSessions) fail('session count drift')
   if (stats.repos !== scanEntries(scale)) fail('repo count drift')
   if (stats.repoRows !== BASE_COUNTS.repoRows) fail('repo row drift')
   if (stats.worktrees !== BASE_COUNTS.worktrees * scale) fail('worktree count drift')
@@ -2335,6 +2578,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   return {
     seed,
     scale,
+    cell,
+    units: spans,
     fixedNow: FIXED_NOW,
     issues,
     issueProjections,

@@ -41,6 +41,8 @@ export interface RunPlan {
   arm: string
   plant: string | null
   scale: Scale
+  /** POD-4747: the two-axis corpus cell, when the run is on one. */
+  cell?: string | null
   scenarios: ScenarioName[]
   samples: number
   warmup: number
@@ -72,7 +74,7 @@ export function plannedRounds(
 export function describePlan(plan: RunPlan, out: string): string[] {
   const label = plan.plant ? `${plan.arm}+${plan.plant}` : plan.arm
   return [
-    `[browser] dry run: ${label} ${plan.scale}x, ${plan.warmup} warm-up + ${plan.samples} measured rounds, load ceiling ${plan.maxLoad}`,
+    `[browser] dry run: ${label} ${plan.cell ?? `${plan.scale}x`}, ${plan.warmup} warm-up + ${plan.samples} measured rounds, load ceiling ${plan.maxLoad}`,
     ...plannedRounds(plan).map(
       (r) => `  ${r.warmup ? `warm-up ${r.sample}` : `sample ${r.sample}`}: ${r.order.join(', ')}`,
     ),
@@ -115,10 +117,13 @@ export function runShortfalls(
   return out
 }
 
-/** What `matrix.ts` promised: every (arm, scale) pair once per round. */
+/** What `matrix.ts` promised: every (arm, scale) pair once per round, or
+ *  (POD-4747) every (arm, cell) pair when the matrix runs two-axis cells. */
 export interface MatrixPlan {
   arms: string[]
   scales: Scale[]
+  /** POD-4747: the two-axis cells (`h10a1`); absent on a scale matrix. */
+  cells?: string[]
   rounds: number
   samples: number
   warmup: number
@@ -126,8 +131,9 @@ export interface MatrixPlan {
   maxLoad: number
 }
 
-export function matrixRunFile(round: number, arm: string, scale: Scale): string {
-  return `r${round}-${arm}-${scale}x.json`
+/** One matrix invocation's output file: `r0-mobx-4x.json`, or `r0-mobx-h10a1.json` for a cell. */
+export function matrixRunFile(round: number, arm: string, scaleOrCell: Scale | string): string {
+  return `r${round}-${arm}-${typeof scaleOrCell === 'number' ? `${scaleOrCell}x` : scaleOrCell}.json`
 }
 
 const labelOf = (r: { arm: string; plant: string | null }): string =>

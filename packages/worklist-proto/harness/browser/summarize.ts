@@ -30,16 +30,14 @@
  *   excess taken as at least `SLOPE_MIN_EXCESS_MS`. The raw p50 ratio is
  *   printed beside it, not budgeted.
  *
- * Lifecycle budgets (POD-4561, methodology §1a, stated on the CONTROL's
- * measured values before any lifecycle run; one page load per sample, so the
- * p50 is compared — the typical load, not its compile/GC tail):
- * - coldBootstrap: actionMs p50 <= 1.1 × the control's;
- * - principalSwitch: actionMs p50 <= 2 × the control's;
- * - retained heap: coldBootstrap's heapAfter p50 (forced GC, the list drawn)
- *   <= 1.1 × the control's;
- * - no growth: principalSwitch and rescope heapAfter / heapBefore p50 <= the
- *   control's + 0.05 (the harness and kernel's own growth is the control's too);
- * - rescope's wall is reported: §1a sets it no budget.
+ * Lifecycle (POD-4561) is REPORTED here, never budgeted: the p50 wall, the
+ * phases, and the heap before and after each step. G6's multiples of the
+ * control (cold bootstrap and retained heap within 1.1x, a switch within 2x,
+ * growth within the control's + 0.05) are gone (POD-4747: the operator
+ * rejected ratio budgets as arbitrary, decision I4). The growth test that
+ * replaces G6 runs on the two-axis cells and judges each arm against itself
+ * as history and active work grow: `growth.ts`, which also refuses to leave
+ * a principal switch's leak unjudged.
  *
  * A low read count (the reads fence) is not proof of constant work: the fence
  * counts entity rows, not an arm's walks over its own per-row caches. The
@@ -89,16 +87,6 @@ export function excessSlope(
   return (arm4x - floor4x) / Math.max(arm1x - floor1x, SLOPE_MIN_EXCESS_MS)
 }
 
-/** POD-4561: lifecycle wall budgets, multiples of the control's actionMs p50. */
-export const LIFECYCLE_WALL_BUDGET: Partial<Record<LifecycleScenario, number>> = {
-  coldBootstrap: 1.1,
-  principalSwitch: 2,
-}
-/** coldBootstrap's retained heap (heapAfter p50) over the control's. */
-export const RETAINED_HEAP_BUDGET = 1.1
-/** principalSwitch and rescope: heapAfter / heapBefore p50 above the control's. */
-export const HEAP_GROWTH_ALLOWANCE = 0.05
-
 export interface LifecycleCell {
   arm: string
   scenario: LifecycleScenario
@@ -111,17 +99,6 @@ export interface LifecycleCell {
   /** p50 of heapAfter / heapBefore (`usedSize`, both after a forced GC). */
   growth: number | null
   maxLoad: number
-}
-
-export interface LifecycleVerdict {
-  arm: string
-  scenario: LifecycleScenario
-  scale: Scale
-  check: 'wall' | 'retained heap' | 'heap growth'
-  value: number
-  control: number
-  budget: number
-  verdict: 'within' | 'OVER'
 }
 
 const inMb = (bytes: number | null): number | null => (bytes === null ? null : bytes / 1e6)
@@ -163,47 +140,6 @@ export function lifecycleCells(runs: RunOutput[]): LifecycleCell[] {
       maxLoad: Math.max(...records.map((r) => r.loadavg)),
     }
   })
-}
-
-/**
- * Every lifecycle cell that is not the control's, held to the budgets above
- * against the control's cell at the same scenario and scale. A missing
- * control cell yields no verdict (`gridShortfalls` refuses such a set first).
- */
-export function lifecycleVerdicts(table: LifecycleCell[]): LifecycleVerdict[] {
-  const out: LifecycleVerdict[] = []
-  const controlOf = (c: LifecycleCell): LifecycleCell | undefined =>
-    table.find((x) => x.arm === 'control' && x.scenario === c.scenario && x.scale === c.scale)
-  const judge = (
-    c: LifecycleCell,
-    check: LifecycleVerdict['check'],
-    value: number | null,
-    control: number | null,
-    budget: (control: number) => number,
-  ): void => {
-    if (value === null || control === null) return
-    const b = budget(control)
-    out.push({
-      arm: c.arm,
-      scenario: c.scenario,
-      scale: c.scale,
-      check,
-      value,
-      control,
-      budget: b,
-      verdict: value <= b ? 'within' : 'OVER',
-    })
-  }
-  for (const c of table) {
-    const control = controlOf(c)
-    if (c.arm === 'control' || control === undefined) continue
-    const wall = LIFECYCLE_WALL_BUDGET[c.scenario]
-    if (wall !== undefined) judge(c, 'wall', c.actionMs.p50, control.actionMs.p50, (v) => v * wall)
-    if (c.scenario === 'coldBootstrap')
-      judge(c, 'retained heap', c.heapAfterMb, control.heapAfterMb, (v) => v * RETAINED_HEAP_BUDGET)
-    else judge(c, 'heap growth', c.growth, control.growth, (v) => v + HEAP_GROWTH_ALLOWANCE)
-  }
-  return out
 }
 
 export interface Cell {
@@ -345,6 +281,11 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
     )
     return 2
   }
+  // POD-4747: two-axis cells are judged by the growth test, never on this grid.
+  if ((plans[0]?.cells?.length ?? 0) > 0 || ok.some((r) => (r.cell ?? null) !== null)) {
+    print('CELL RUNS (not summarised here): summarise a --cells matrix with growth.ts')
+    return 2
+  }
   // Complete or nothing: no cell is withheld or provisional (POD-4562).
   const shortfalls = gridShortfalls(ok, {
     minSamples: MIN_SAMPLES_FOR_P95,
@@ -439,7 +380,6 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
     (a, b) =>
       a.scenario.localeCompare(b.scenario) || a.arm.localeCompare(b.arm) || a.scale - b.scale,
   )
-  const verdicts = lifecycleVerdicts(lifecycle)
   if (lifecycle.length > 0) {
     print('')
     print(
@@ -456,15 +396,6 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
           `${f(c.heapBeforeMb)} → ${f(c.heapAfterMb)} | ${f(c.growth, 3)} | ${c.maxLoad.toFixed(2)} |`,
       )
     }
-    print('')
-    print('| Arm | Lifecycle | Scale | Check | value | control | budget | verdict |')
-    print('|---|---|---|---|---|---|---|---|')
-    for (const v of verdicts) {
-      const digits = v.check === 'heap growth' ? 3 : 2
-      print(
-        `| ${v.arm} | ${v.scenario} | ${v.scale}x | ${v.check} | ${f(v.value, digits)} | ${f(v.control, digits)} | ${f(v.budget, digits)} | ${v.verdict} |`,
-      )
-    }
   }
   if (jsonOut !== undefined) {
     writeFileSync(
@@ -475,7 +406,6 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
           cells: table,
           slopes,
           lifecycle,
-          lifecycleVerdicts: verdicts,
           failed: failed.map((x) => x.path),
         },
         null,

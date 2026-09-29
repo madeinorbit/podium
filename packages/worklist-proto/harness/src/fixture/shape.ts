@@ -500,3 +500,201 @@ export function renderComparison(
   ]
   return lines.join('\n')
 }
+
+// ------------------------------------------------------------- two axes (POD-4747)
+
+/**
+ * Which axis a row belongs to, decided from the rows and the oracle alone
+ * (never from the generator's own labels, so a builder that mislabels a unit
+ * is caught): an issue is HISTORY when it is archived, deleted, or closed with
+ * no row in the oracle's list (past every visibility window); a session is
+ * history when its issue is, or, unbound, once it has stopped. Everything
+ * else is ACTIVE work.
+ */
+export interface AxisSplit {
+  historyIssues: Set<string>
+  historySessions: Set<string>
+  visibleRows: Set<string>
+}
+
+export function splitAxes(corpus: FixtureCorpus, snapshot?: SliceSnapshot): AxisSplit {
+  const snap =
+    snapshot ?? projectSnapshot(runLegacyDerivation(corpus, LOCALS_OF(corpus)), LOCALS_OF(corpus))
+  const visibleRows = new Set(Object.keys(snap.rowsById))
+  const historyIssues = new Set<string>()
+  for (const i of corpus.issues) {
+    const archived = (i as { archived?: boolean }).archived === true
+    const closed = str(i, 'closedAt') !== null
+    if (archived || str(i, 'deletedAt') !== null || (closed && !visibleRows.has(i.id)))
+      historyIssues.add(i.id)
+  }
+  const historySessions = new Set<string>()
+  for (const s of corpus.sessions) {
+    const bound = s.issueId == null ? null : (s.issueId as string)
+    if (bound !== null ? historyIssues.has(bound) : s.stoppedAt != null)
+      historySessions.add(s.sessionId)
+  }
+  return { historyIssues, historySessions, visibleRows }
+}
+
+const LOCALS_OF = (corpus: FixtureCorpus): SliceLocals => ({
+  selectedIssueId: null,
+  coarseNow: corpus.fixedNow,
+})
+
+/** One axis's size and shape: counts, and shares of the axis's own issues,
+ *  sessions or (active) visible rows. */
+export interface AxisMeasures {
+  issues: number
+  sessions: number
+  /** Shares of the axis's issues. */
+  issueShares: Record<string, number>
+  /** Shares of the axis's sessions. */
+  sessionShares: Record<string, number>
+  /** Active only: visible rows and their shares (empty for history). */
+  visibleRows: number
+  rowShares: Record<string, number>
+  /** Active only: worktree lanes (the scan's linked worktrees). */
+  lanes: number
+}
+
+export interface TwoAxisMeasures {
+  history: AxisMeasures
+  active: AxisMeasures
+}
+
+/** Measure both axes of a corpus (the oracle runs once over it). */
+export function measureAxes(corpus: FixtureCorpus): TwoAxisMeasures {
+  const locals = LOCALS_OF(corpus)
+  const snapshot = projectSnapshot(runLegacyDerivation(corpus, locals), locals)
+  const split = splitAxes(corpus, snapshot)
+  const depths = depthsOf(corpus.issues)
+  const depsFrom = new Map<string, string[]>()
+  for (const dep of corpus.issueDeps) {
+    const from = str(dep, 'fromId') ?? ''
+    depsFrom.set(from, [...(depsFrom.get(from) ?? []), str(dep, 'type') ?? '?'])
+  }
+  const measure = (history: boolean): AxisMeasures => {
+    const issues = corpus.issues.filter((i) => split.historyIssues.has(i.id) === history)
+    const sessions = corpus.sessions.filter(
+      (s) => split.historySessions.has(s.sessionId) === history,
+    )
+    const issueCounts: Record<string, number> = {}
+    const bump = (counts: Record<string, number>, key: string, by = 1): void => {
+      counts[key] = (counts[key] ?? 0) + by
+    }
+    for (const i of issues) {
+      if (str(i, 'closedAt') === null) bump(issueCounts, 'open')
+      if ((i as { archived?: boolean }).archived === true) bump(issueCounts, 'archived')
+      if (str(i, 'deletedAt') !== null) bump(issueCounts, 'deleted')
+      if (str(i, 'parentId') !== null) bump(issueCounts, 'with parent')
+      if (str(i, 'startedBySession') !== null) bump(issueCounts, 'startedBySession')
+      if (str(i, 'coordinatorSessionId') !== null) bump(issueCounts, 'coordinatorSessionId')
+      if ((i as { audience?: string }).audience === 'agent') bump(issueCounts, 'agent audience')
+      bump(
+        issueCounts,
+        `depth ${Math.min(depths.get(i.id) ?? 1, 4)}${(depths.get(i.id) ?? 1) >= 4 ? '+' : ''}`,
+      )
+      for (const type of depsFrom.get(i.id) ?? []) bump(issueCounts, `\`${type}\` deps`)
+    }
+    const bound = new Set<string>(issues.map((i) => i.id))
+    let sessionsOfAxisIssues = 0
+    const sessionCounts: Record<string, number> = {}
+    for (const s of sessions) {
+      if (s.issueId == null) bump(sessionCounts, 'unbound')
+      else if (bound.has(s.issueId as string)) sessionsOfAxisIssues++
+      if (s.agentKind === 'shell') bump(sessionCounts, 'shell')
+      if (s.status === 'live') bump(sessionCounts, 'live')
+      if (s.archived === true) bump(sessionCounts, 'archived')
+      if (s.resume != null) bump(sessionCounts, 'resume')
+    }
+    // Sessions per issue, as a share of the axis's issues.
+    bump(issueCounts, 'bound sessions', sessionsOfAxisIssues)
+    const share = (counts: Record<string, number>, of: number): Record<string, number> =>
+      Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v / Math.max(1, of)]))
+    const rows = history ? [] : Object.values(snapshot.rowsById)
+    const topLevel = history ? 0 : new Set(snapshot.order.groups.flatMap((g) => g.rowIds)).size
+    const rowCounts: Record<string, number> = {}
+    if (!history) {
+      for (const row of rows) {
+        if (row.closed) bump(rowCounts, 'closed fold')
+        if (row.asking) bump(rowCounts, 'asking')
+        if (row.working) bump(rowCounts, 'working')
+        bump(rowCounts, `phase ${row.phase}`)
+      }
+      bump(rowCounts, 'pinned', snapshot.order.pinnedIds.length)
+      bump(rowCounts, 'grouped (top level)', topLevel)
+    }
+    return {
+      issues: issues.length,
+      sessions: sessions.length,
+      issueShares: share(issueCounts, issues.length),
+      sessionShares: share(sessionCounts, sessions.length),
+      visibleRows: rows.length,
+      rowShares: share(rowCounts, rows.length),
+      lanes: history ? 0 : corpus.sliceWorktrees.length,
+    }
+  }
+  return { history: measure(true), active: measure(false) }
+}
+
+/**
+ * The rows of one axis, keyed and serialised canonically (object keys
+ * sorted): issues in all three spellings, sessions, and the dependency edges
+ * they own. For ACTIVE work also everything active work is drawn from: the
+ * scan, the worktree lanes, and the oracle's list itself. Two corpora whose
+ * axis rows are equal are the same on that axis, row for row.
+ */
+export function axisRows(corpus: FixtureCorpus, axis: 'history' | 'active'): Map<string, string> {
+  const locals = LOCALS_OF(corpus)
+  const snapshot = projectSnapshot(runLegacyDerivation(corpus, locals), locals)
+  const split = splitAxes(corpus, snapshot)
+  const mine = (issueId: string): boolean =>
+    split.historyIssues.has(issueId) === (axis === 'history')
+  const out = new Map<string, string>()
+  const put = (key: string, value: unknown): void => {
+    out.set(key, canonicalJson(value))
+  }
+  corpus.issues.forEach((issue, k) => {
+    if (!mine(issue.id)) return
+    put(`issue:${issue.id}`, issue)
+    put(`issueProjection:${issue.id}`, corpus.issueProjections[k])
+    put(`sliceIssue:${issue.id}`, corpus.sliceIssues[k])
+  })
+  corpus.sessions.forEach((s, k) => {
+    if (split.historySessions.has(s.sessionId) !== (axis === 'history')) return
+    put(`session:${s.sessionId}`, s)
+    put(`sliceSession:${s.sessionId}`, corpus.sliceSessions[k])
+  })
+  for (const dep of corpus.issueDeps) {
+    if (mine(str(dep, 'fromId') ?? '')) put(`dep:${str(dep, 'id')}`, dep)
+  }
+  if (axis === 'active') {
+    put('scan', corpus.repos)
+    put('worktrees', corpus.sliceWorktrees)
+    put('oracle', snapshot)
+  }
+  return out
+}
+
+/** The first key where two axis-row maps differ, or null when equal. */
+export function firstAxisDifference(a: Map<string, string>, b: Map<string, string>): string | null {
+  for (const [key, value] of a) {
+    if (!b.has(key)) return `${key}: only in the first`
+    if (b.get(key) !== value) return `${key}: differs`
+  }
+  for (const key of b.keys()) if (!a.has(key)) return `${key}: only in the second`
+  return null
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, inner: unknown) =>
+    inner !== null && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(
+          Object.entries(inner as Record<string, unknown>).sort(([x], [y]) =>
+            x < y ? -1 : x > y ? 1 : 0,
+          ),
+        )
+      : inner,
+  )
+}

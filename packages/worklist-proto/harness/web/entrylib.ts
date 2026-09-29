@@ -134,6 +134,7 @@ import {
   applyStageMove,
   applyTitleRename,
   echoAcknowledgedMarkReads,
+  FIXTURE_SEED,
   pendingWrites,
   pickVisibleHeartbeat,
   type ScenarioEngine,
@@ -143,7 +144,13 @@ import {
 } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
 import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
-import type { FixtureCorpus } from '../src/fixture/index'
+import {
+  buildCorpus,
+  buildCorpusCell,
+  cellLabel,
+  type FixtureCorpus,
+  parseCell,
+} from '../src/fixture/index'
 import { oracleSnapshot, type RowViews, rowViewsFromStore } from '../src/oracle/index'
 import {
   currentScope,
@@ -258,6 +265,8 @@ export interface ProtoPage {
   held: boolean
   arm: string
   scale: 1 | 2 | 4
+  /** POD-4747: the two-axis cell (`h10a1`), or null on a `?scale=` page. */
+  cell: string | null
   corpus: ProtoCorpusCounts
   runtimeSha: string
   /** Untimed: pick the next change's target by rule and assert it is drawn. */
@@ -435,6 +444,23 @@ function createTimedCommitLog(): TimedCommitLog {
  */
 export const FIRST_WINDOW_ROWS = 96
 
+/**
+ * POD-4747: the first window on a two-axis cell page (`?cell=`), the same at
+ * every cell so the cells' walls compare. At `h1a4` the oracle's first group
+ * is not legacy 4x's: below the 84 pinned rows the first open root with
+ * children is row 114 (the first childless open root is row 84), outside a
+ * 96-row window. 124 rows of 56 px plus two 40 px headers is 7,024 px; the
+ * driver's cell viewport is 1600×7400 (`run.ts`, `CELL_VIEWPORT`).
+ */
+export const CELL_FIRST_WINDOW_ROWS = 124
+
+/** The page's first window: a cell page's, or the scale pages' 96 rows. */
+export function firstWindowRows(): number {
+  return new URLSearchParams(window.location.search).get('cell') === null
+    ? FIRST_WINDOW_ROWS
+    : CELL_FIRST_WINDOW_ROWS
+}
+
 export interface MountPageOptions {
   arm: string
   /** The arm over one engine: the page builds it at boot and again, over a
@@ -442,6 +468,8 @@ export interface MountPageOptions {
   createArm: (boot: ScenarioEngine) => Arm
   boot: ScenarioEngine
   scale: 1 | 2 | 4
+  /** POD-4747: the two-axis cell label (`readPageCorpus`); null or absent on a `?scale=` page. */
+  cell?: string | null
   counts: { issues: number; sessions: number; repos: number; worktrees: number }
   runtimeSha: string
   el: Element
@@ -455,6 +483,65 @@ export interface MountPageOptions {
 export function readScale(): 1 | 2 | 4 {
   const raw = new URLSearchParams(window.location.search).get('scale')
   return raw === '2' ? 2 : raw === '4' ? 4 : 1
+}
+
+/**
+ * POD-4747: the page's corpus — a two-axis cell (`?cell=h10a1`,
+ * `buildCorpusCell`) or a legacy scale (`?scale=`). A cell's `scale` is its
+ * active factor: what the scale-keyed page rules (the pinned section's size)
+ * see.
+ */
+export function readPageCorpus(): { corpus: FixtureCorpus; scale: 1 | 2 | 4; cell: string | null } {
+  const raw = new URLSearchParams(window.location.search).get('cell')
+  if (raw !== null) {
+    const cell = parseCell(raw)
+    return {
+      corpus: buildCorpusCell(cell, FIXTURE_SEED),
+      scale: cell.active,
+      cell: cellLabel(cell),
+    }
+  }
+  const scale = readScale()
+  return { corpus: buildCorpus(scale, FIXTURE_SEED), scale, cell: null }
+}
+
+/** POD-4747: a boot stage the page is stopped at (`?layers=1`). */
+export interface PageStage {
+  name: string
+  go: () => void
+}
+
+declare global {
+  interface Window {
+    __stage?: PageStage
+  }
+}
+
+/**
+ * POD-4747 (`?layers=1`, the layer-split driver `harness/browser/layers.ts`):
+ * stop at the named boot stage until the driver has taken the heap there and
+ * calls `window.__stage.go()`. Without `?layers=1` it resolves at once.
+ */
+/** POD-4747: what a page's engine boot takes: the stage points and, on a
+ *  `?layers=1` page, the kernel's own copy of every row. */
+export function pageEngineOptions(): { stage: (name: string) => Promise<void>; ownRows: boolean } {
+  return {
+    stage: stagePoint,
+    ownRows: new URLSearchParams(window.location.search).get('layers') === '1',
+  }
+}
+
+export function stagePoint(name: string): Promise<void> {
+  if (new URLSearchParams(window.location.search).get('layers') !== '1') return Promise.resolve()
+  return new Promise((resolve) => {
+    window.__stage = {
+      name,
+      go: () => {
+        window.__stage = undefined
+        resolve()
+      },
+    }
+  })
 }
 
 /** One built arm over one engine: everything a principal switch disposes. */
@@ -472,6 +559,8 @@ export function mountPage(options: MountPageOptions): void {
   // runtime on a principal switch: nothing on the page keeps the old one
   // alive, so the switch's retained heap is the arm's, not the harness's.
   const { createArm, scale, counts, runtimeSha, el, scriptAt, parityAllowance } = options
+  const cell = options.cell ?? null
+  const windowRows = firstWindowRows()
   const armName = options.arm
   let boot = options.boot
   let engine = boot.engine
@@ -581,7 +670,7 @@ export function mountPage(options: MountPageOptions): void {
   function firstWindow(): string[] {
     const { order } = oracleSnapshot(engine.getSnapshot())
     return [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
-      .slice(0, FIRST_WINDOW_ROWS)
+      .slice(0, windowRows)
       .filter(rules.root)
   }
   const mountedIds = (): Set<string> =>
@@ -1265,6 +1354,7 @@ export function mountPage(options: MountPageOptions): void {
     held,
     arm: armName,
     scale,
+    cell,
     corpus: corpusCounts(),
     runtimeSha,
     prepare,
@@ -1317,6 +1407,7 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     held: false,
     arm,
     scale: readScale(),
+    cell: null,
     corpus: { issues: 0, sessions: 0, repos: 0, worktrees: 0, rows: 0 },
     runtimeSha,
     prepare: () => Promise.reject(new Error(`[proto] ${arm} not implemented: ${reason}`)),

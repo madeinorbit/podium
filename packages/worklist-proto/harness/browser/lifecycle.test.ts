@@ -1,17 +1,13 @@
-// POD-4561 (L5e): the lifecycle cells' completeness and their control-relative budgets.
+// POD-4561 (L5e): the lifecycle cells' completeness and their report. POD-4747
+// removed G6's control-relative budgets (the growth test, `growth.ts`,
+// replaces them): the summary reports lifecycle and judges none of it.
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { gridShortfalls, MATRIX_PLAN_FILE, type MatrixPlan, matrixRunFile } from './complete'
 import { LIFECYCLE_SCENARIOS, MIN_SAMPLES_FOR_P95, type RunOutput } from './records'
-import {
-  HEAP_GROWTH_ALLOWANCE,
-  lifecycleCells,
-  lifecycleVerdicts,
-  RETAINED_HEAP_BUDGET,
-  runSummary,
-} from './summarize'
+import { runSummary } from './summarize'
 import { completeRun } from './test-fixtures'
 
 const MB = 1e6
@@ -90,88 +86,28 @@ describe('gridShortfalls over lifecycle cells', () => {
   })
 })
 
-describe('lifecycleVerdicts (methodology §1a, multiples of the control)', () => {
-  const verdictsOf = (arm: RunOutput) => lifecycleVerdicts(lifecycleCells([CONTROL, arm]))
-
-  it('passes an arm at the control on every check', () => {
-    const verdicts = verdictsOf(
-      lifecycleRun('hand', {
-        heap: { coldBootstrap: [20, 22], principalSwitch: [24, 22], rescope: [36, 42] },
-      }),
-    )
-    expect(verdicts.map((v) => `${v.scenario} ${v.check}`).sort()).toEqual([
-      'coldBootstrap retained heap',
-      'coldBootstrap wall',
-      'principalSwitch heap growth',
-      'principalSwitch wall',
-      'rescope heap growth',
-    ])
-    expect(verdicts.every((v) => v.verdict === 'within')).toBe(true)
-  })
-
-  it('fails a cold bootstrap over 1.1x the control and a switch over 2x', () => {
-    const slow = verdictsOf(lifecycleRun('hand', { wall: 111 }))
-    expect(slow.find((v) => v.scenario === 'coldBootstrap' && v.check === 'wall')).toMatchObject({
-      control: 100,
-      verdict: 'OVER',
-    })
-    expect(slow.find((v) => v.scenario === 'principalSwitch' && v.check === 'wall')?.verdict).toBe(
-      'within',
-    )
-    const slower = verdictsOf(lifecycleRun('hand', { wall: 201 }))
-    expect(
-      slower.find((v) => v.scenario === 'principalSwitch' && v.check === 'wall')?.verdict,
-    ).toBe('OVER')
-  })
-
-  it('fails a retained heap over 1.1x the control after cold bootstrap', () => {
-    const heavy = verdictsOf(lifecycleRun('mobx', { heap: { coldBootstrap: [20, 22 * 1.11] } }))
-    const retained = heavy.find((v) => v.check === 'retained heap')
-    expect(retained).toMatchObject({ control: 22, verdict: 'OVER' })
-    expect(retained?.budget).toBeCloseTo(22 * RETAINED_HEAP_BUDGET, 5)
-  })
-
-  it('fails growth past the control plus 5% after a switch or a rescope (the leak plant)', () => {
-    // The control: 24 -> 22 MB on a switch (0.917), 36 -> 42 MB on a rescope (1.167).
-    const leak = verdictsOf(
-      lifecycleRun('noop', {
-        plant: 'leak:8',
-        heap: { principalSwitch: [32, 38.9], rescope: [44.9, 67.2] },
-      }),
-    )
-    const growth = leak
-      .filter((v) => v.check === 'heap growth')
-      .sort((a, b) => a.scenario.localeCompare(b.scenario))
-    expect(growth.map((v) => [v.scenario, v.verdict])).toEqual([
-      ['principalSwitch', 'OVER'],
-      ['rescope', 'OVER'],
-    ])
-    expect(growth[0]?.budget).toBeCloseTo(22 / 24 + HEAP_GROWTH_ALLOWANCE, 5)
-    // Growth inside the band passes: the kernel's own growth is the control's too.
-    const within = verdictsOf(lifecycleRun('hand', { heap: { rescope: [40, 40 * 1.2] } }))
-    expect(within.find((v) => v.scenario === 'rescope')?.verdict).toBe('within')
-  })
-
-  it('gives the control no verdict: it is the reference', () => {
-    expect(lifecycleVerdicts(lifecycleCells([CONTROL])).map((v) => v.arm)).toEqual([])
-  })
-})
-
 describe('runSummary over a lifecycle-only set', () => {
-  it('prints the lifecycle tables and no hot-path table', () => {
+  it('prints the lifecycle table, no hot-path table and no control-relative verdict', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-4561-'))
     writeFileSync(join(dir, 'control.json'), JSON.stringify(CONTROL))
     writeFileSync(join(dir, 'hand.json'), JSON.stringify(lifecycleRun('hand', { wall: 250 })))
     const lines: string[] = []
     expect(runSummary([dir], (line) => lines.push(line))).toBe(0)
     const headers = lines.filter((line) => line.startsWith('| Arm |'))
-    expect(headers).toHaveLength(2)
+    expect(headers).toHaveLength(1)
     expect(headers[0]).toContain('| Lifecycle |')
+    // 2.5x the control's wall is reported, and judged nowhere here (POD-4747).
+    expect(lines.some((line) => line.startsWith('| hand | coldBootstrap | 1x |'))).toBe(true)
+    expect(lines.some((line) => /OVER|within/.test(line))).toBe(false)
+  })
+
+  it('refuses a cells matrix: the growth test summarises it (POD-4747)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod-4747-'))
+    writeFileSync(join(dir, 'control.json'), JSON.stringify({ ...CONTROL, cell: 'h10a1' }))
+    const lines: string[] = []
+    expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
     expect(lines).toContain(
-      '| hand | coldBootstrap | 1x | wall | 250.00 | 100.00 | 110.00 | OVER |',
-    )
-    expect(lines).toContain(
-      '| hand | principalSwitch | 1x | wall | 250.00 | 100.00 | 200.00 | OVER |',
+      'CELL RUNS (not summarised here): summarise a --cells matrix with growth.ts',
     )
   })
 

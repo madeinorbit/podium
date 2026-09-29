@@ -32,8 +32,9 @@ apply; the Stage 0 control (`POD-4286-stage0-baseline.md`) is what the arms must
 | Any single hot-path event | ≤ 8 ms main-thread, p95, at live corpus | 2 derives per click before Stage 0, 1 after |
 | Row click, input to paint, inside the slice | ≤ 16 ms p95 at live corpus, ≤ 32 ms at 4× corpus | 407 ms p50 for the whole app switch (includes transcript load and layout) |
 | Cost follows the change, not the corpus | the work-per-change check: every scenario #1–#10 at 1× and 4× corpus; rows read, derivations run and distinct elements walked grow by at most the changed item's own neighbourhood (family, and the groups a moved row leaves and enters), computed from the corpus (revised 2026-09-28, below) | whole-world derive: every count grows ×4 with the corpus |
-| Bootstrap at live corpus | ≤ 1.1× control; principal switch ≤ 2× control | control measured in Stage 0 |
-| Memory | retained heap ≤ 1.1× control at live corpus, no growth after rescope | — |
+| Memory and cold start as history grows | the growth test (POD-4747): history ×10 at constant active work leaves the arm's retained heap and cold start flat, within the spread of repeated runs | the kernel holds every row: its heap and boot grow with history today |
+| Memory and cold start as active work grows | the growth test: active work ×4 at constant history grows them at most linearly | — |
+| Principal switch | no old-principal object survives a forced GC (driver); its heap against a cold build's is reported (growth test) | — |
 | Bundle | ≤ +60 KB gzip on web, no native-incompatible dependency | — |
 
 Performance is a gate every arm must pass: an arm whose per-event work stays flat from 1× to 4×
@@ -51,6 +52,24 @@ that avoided counted reads) while missing the real risk; the slope budget judged
 an arbitrary ratio. Walls stay a measurement. Memory and cold-start growth are POD-4747's growth
 test (history ×10 flat, active work ×4 at most linear), which replaces the ratio budgets on
 bootstrap and heap.
+
+**Revised 2026-09-28 (POD-4747; operator decisions I2 and I4).** The scale target is tens of
+thousands of issues, and a workspace grows along two axes that cost differently. HISTORY
+(closed, archived and deleted work and its sessions, past every visibility window) grows
+forever; ACTIVE work (open issues, live sessions, visible rows, worktree lanes) grows with
+usage. G6 (cold bootstrap and retained heap within 1.1× the control, a switch within 2×,
+growth within the control's + 0.05) is replaced by the growth test, which judges each arm
+against itself on the two-axis cells (`buildCorpusCell`, §5.7): history ×10 at constant active
+work must leave the arm's retained heap (coldBootstrap `heapAfter − heapBefore`) and its cold
+start flat; active ×4 at constant history may grow them at most linearly (≤ 4 × base); the
+per-change walls (the arm's time above the no-op floor's, round by round) stay flat as active
+work grows ×4; a principal switch's heap is reported against a cold build's. "Flat" is within the
+noise of repeated runs, never a constant: each check's tolerance is the larger spread (max − min)
+of the per-round medians of the two cells it compares (`harness/browser/growth.ts`, at least
+three rounds). The booted page before any arm (fixture, the kernel's rows and indexes, the
+runtime) is reported beside it and split by layer from heap snapshots
+(`harness/browser/layers.ts`); it grows with history by spec today, which is what the deferred
+memory cutoff (review §4.7) is for. Results: `docs/measurements/POD-4747.md`.
 
 ## 2. What is actually slow today
 
@@ -316,6 +335,15 @@ Those are where the three approaches differ; without them the comparison is book
 - **Three corpus sizes.** The live-shaped fixture at 1×, 2× and 4× (4,867 / 9,734 / 19,468
   issues) so growth with the corpus (§1a, the work-per-change check at 1× and 4×) is measured,
   not argued.
+- **Two growth axes (POD-4747).** `buildCorpusCell({ history, active })`: the 1× unit
+  (byte-identical to `buildCorpus(1)`), plus `active − 1` active units (the plan's active roles,
+  their lanes and sessions) and `history − 1` history epochs (the history roles only: no lane, no
+  live session, each epoch's clock 120 days further back). The growth cells are `h1a1` (4,867
+  issues), `h10a1` (27,601 issues, 30,611 sessions: every active row, lane and visible row as at
+  `h1a1`) and `h1a4` (11,890 issues: exactly 4× the active issues, sessions, lanes and 732 → 2,928
+  visible rows, every history row as at `h1a1`). The axis of each row is read from the rows and
+  the oracle, never from the generator (`harness/src/fixture/cells.test.ts`), and each axis keeps
+  the base cell's shape within 20% at every cell.
 - **Counts first, walls second.** Rows committed, computed re-evaluations, reactions run, index
   bucket updates; walls interleaved with arm order rotated and load recorded, under the bench
   lease.
@@ -337,12 +365,13 @@ Those are where the three approaches differ; without them the comparison is book
 | 8 | Coarse clock tick | rows whose band moved | bands | ≤ 8 ms |
 | 9 | Optimistic echo and rejection | as 2 | as 2 | no full rebuild |
 | 10 | 50-event burst through `batch()` | bounded | bounded | one action |
-| 11 | Principal switch over a fresh replica | full, once | full, once | ≤ 2× control |
-| 12 | Cold bootstrap at live corpus | full, once | full, once | ≤ 1.1× control; heap ≤ 1.1× |
+| 11 | Principal switch over a fresh replica | full, once | full, once | measured; heap reported against a cold build (growth test); no survivor (driver) |
+| 12 | Cold bootstrap | full, once | full, once | measured; the growth test (#16) judges it |
 | 13 | Rescope growth then back | full, once each | full | no leak after disposal |
 
 | 14 | Growth: scenarios 1–10 repeated at 4× corpus | same as at 1×, or more by at most the changed item's neighbourhood | same | the work-per-change check (counts); walls measured, not gated |
 | 15 | Coexistence: arm screen mounted beside the legacy sidebar on one kernel | arm counts unchanged from 1–3; legacy counts unchanged from the control | — | no cross-wake |
+| 16 | Growth test (POD-4747): 1–5, 8, 11, 12 on the cells `h1a1`, `h10a1`, `h1a4` | — | — | history ×10: retained heap and cold start flat; active ×4: at most linear, walls above the floor flat; tolerance = spread of repeated rounds |
 
 Scenarios 1–3 are milestone 1 and the kill gate. Scenario 14 is the work-per-change check
 (§1a, revised 2026-09-28). Every wall is measured in Chromium against the live-shaped fixture, interleaved, load

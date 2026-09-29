@@ -31,15 +31,21 @@
  * `--resume` and `summarize.ts` read local files. The remote checkout must be
  * at the commit being timed, with `harness/web/dist` built there.
  *
- *   bun packages/worklist-proto/harness/browser/matrix.ts \
+ *   bun --conditions=@podium/source packages/worklist-proto/harness/browser/matrix.ts \
  *     --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor [--host flatblock]
  *   bun packages/worklist-proto/harness/browser/summarize.ts \
  *     packages/worklist-proto/harness/browser/results/floor
+ *
+ * CELLS (POD-4747): `--cells h1a1,h10a1,h1a4` interleaves (arm, cell) pairs
+ * instead of (arm, scale) pairs, each invocation `run.ts --cell <cell>`, into
+ * `r<round>-<arm>-<cell>.json`; `growth.ts` summarises such a directory
+ * (`summarize.ts` refuses it).
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hostname, loadavg } from 'node:os'
 import { dirname, join } from 'node:path'
+import { cellLabel, parseCell } from '../src/fixture/index'
 import {
   checkMaxLoad,
   failedPathFor,
@@ -72,7 +78,15 @@ for (const arm of arms) {
   if (!(ARMS as readonly string[]).includes(name ?? '')) throw new Error(`unknown arm ${arm}`)
   if (plant !== undefined && name !== 'noop') throw new Error(`plants are for noop only (${arm})`)
 }
-const scales = arg(argv, '--scales', '1,2,4').split(',').map(Number) as Scale[]
+const cells = arg(argv, '--cells', '')
+  .split(',')
+  .filter((c) => c !== '')
+  .map((c) => cellLabel(parseCell(c)))
+if (cells.length > 0 && argv.includes('--scales'))
+  throw new Error('--cells and --scales are exclusive')
+const scales = (
+  cells.length > 0 ? [] : arg(argv, '--scales', '1,2,4').split(',').map(Number)
+) as Scale[]
 const rounds = Number(arg(argv, '--rounds', '4'))
 const samples = arg(argv, '--samples', '5')
 const warmup = arg(argv, '--warmup', '1')
@@ -108,7 +122,13 @@ function load1(): number {
   return result.status === 0 && Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
 }
 
-const pairs = arms.flatMap((arm) => scales.map((scale) => ({ arm, scale })))
+/** One invocation per (arm, scale), or per (arm, cell) on a cells matrix. */
+const pairs = arms.flatMap((arm) =>
+  cells.length > 0
+    ? cells.map((cell) => ({ arm, scale: cell as Scale | string }))
+    : scales.map((scale) => ({ arm, scale: scale as Scale | string })),
+)
+const labelOf = (scale: Scale | string): string => (typeof scale === 'number' ? `${scale}x` : scale)
 const orderOf = (round: number): typeof pairs => [
   ...pairs.slice(round % pairs.length),
   ...pairs.slice(0, round % pairs.length),
@@ -117,6 +137,7 @@ const orderOf = (round: number): typeof pairs => [
 const plan: MatrixPlan = {
   arms,
   scales,
+  ...(cells.length > 0 ? { cells } : {}),
   rounds,
   samples: Number(samples),
   warmup: Number(warmup),
@@ -129,12 +150,12 @@ if (argv.includes('--dry-run')) {
   for (let round = 0; round < rounds; round += 1) {
     console.log(
       `  round ${round}: ${orderOf(round)
-        .map((p) => `${p.arm} ${p.scale}x`)
+        .map((p) => `${p.arm} ${labelOf(p.scale)}`)
         .join(', ')}`,
     )
   }
   console.log(
-    `  complete = ${arms.length * scales.length * rounds} ok runs; per (arm, scale, scenario) ${rounds * plan.samples} samples, every record at load <= ${maxLoad}`,
+    `  complete = ${pairs.length * rounds} ok runs; per (arm, scale, scenario) ${rounds * plan.samples} samples, every record at load <= ${maxLoad}`,
   )
   process.exit(0)
 }
@@ -182,7 +203,7 @@ outer: for (let round = 0; round < rounds; round += 1) {
       existsSync(out) &&
       (JSON.parse(readFileSync(out, 'utf-8')) as RunOutput).status === 'ok'
     ) {
-      console.log(`[matrix] round ${round} ${arm} ${scale}x already passed; kept`)
+      console.log(`[matrix] round ${round} ${arm} ${labelOf(scale)} already passed; kept`)
       continue
     }
     for (const earlier of [out, failedOut]) {
@@ -201,12 +222,14 @@ outer: for (let round = 0; round < rounds; round += 1) {
       }
       const [name, plant] = arm.split('+') as [ArmName, string | undefined]
       const runArgs = [
+        // The driver imports the fixture (the rescope truth, the cells), whose
+        // workspace packages resolve only to source (no dist is ever built).
+        '--conditions=@podium/source',
         'packages/worklist-proto/harness/browser/run.ts',
         '--arm',
         name,
         ...(plant !== undefined ? ['--plant', plant] : []),
-        '--scale',
-        String(scale),
+        ...(typeof scale === 'number' ? ['--scale', String(scale)] : ['--cell', scale]),
         '--samples',
         samples,
         '--warmup',
@@ -254,11 +277,11 @@ outer: for (let round = 0; round < rounds; round += 1) {
           failedOut.replace(/\.failed\.json$/, `.try${k}.failed.json`)
         while (existsSync(tried(n))) n += 1
         renameSync(failedOut, tried(n))
-        console.log(`[matrix] round ${round} ${arm} ${scale}x failed on load; retrying`)
+        console.log(`[matrix] round ${round} ${arm} ${labelOf(scale)} failed on load; retrying`)
         continue
       }
       console.error(
-        `[matrix] round ${round} ${arm} ${scale}x FAILED (exit ${result.status}); see ${failedOut}`,
+        `[matrix] round ${round} ${arm} ${labelOf(scale)} FAILED (exit ${result.status}); see ${failedOut}`,
       )
       failed = true
       break outer

@@ -51,6 +51,11 @@
  * `<out>.failed.json` for diagnosis, and any earlier file at `--out` is
  * removed first. `--dry-run` prints the plan and exits without a browser.
  *
+ * CELLS (POD-4747). `--cell h10a1` loads the two-axis corpus cell instead of
+ * a scale (`buildCorpusCell`: history x10, active x1); the page's scale is
+ * the cell's active factor. Every scenario runs on a cell except rescope (a
+ * scope change onto the legacy 2x corpus, not growth).
+ *
  * Timing runs under the bench lease of the machine it runs on (`bench:<hostname>`);
  * round three times on flatblock through `matrix.ts --host flatblock`, which
  * takes `bench:flatblock` itself and passes `--no-lease`.
@@ -61,7 +66,7 @@
  * `commits`. See `docs/plans/pod-4441-harness.md` for the mapping.
  *
  * Run (heavy — browser + production build traffic):
- *   bun scripts/test-heavy.ts -- bun packages/worklist-proto/harness/browser/run.ts \
+ *   bun scripts/test-heavy.ts -- bun --conditions=@podium/source packages/worklist-proto/harness/browser/run.ts \
  *     --arm noop --scale 1 --samples 5 --out packages/worklist-proto/harness/browser/results/noop-1x.json
  */
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -70,6 +75,7 @@ import { createServer, type Server } from 'node:http'
 import { hostname, loadavg, uptime } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { chromium, type Page } from '@playwright/test'
+import { cellLabel, parseCell } from '../src/fixture/index'
 import type {
   ProtoLifecycleResult,
   ProtoOracleCheck,
@@ -106,6 +112,10 @@ import {
  *  at 4x on the reshaped fixture: 96 rows of 56 px plus two 40 px headers is
  *  5,456 px; POD-4560). */
 const VIEWPORT = { width: 1600, height: 5800 }
+/** POD-4747: every two-axis cell page's viewport, the same at every cell (its
+ *  124-row first window, `CELL_FIRST_WINDOW_ROWS` in `entrylib.ts`). Cell
+ *  walls compare with each other, never with scale runs. */
+const CELL_VIEWPORT = { width: 1600, height: 7400 }
 
 /** The arms held to the oracle in check mode; the control (whole-list redraw)
  *  and the no-op page (draws nothing) exist to fail it and are reported only. */
@@ -152,6 +162,8 @@ interface Sample {
 interface Args {
   arm: ArmName
   scale: Scale
+  /** POD-4747: the two-axis cell label, or null for a `--scale` run. */
+  cell: string | null
   scenarios: ScenarioName[]
   samples: number
   warmup: number
@@ -181,7 +193,11 @@ function parseArgs(argv: string[]): Args {
   if (!(ARMS as readonly string[]).includes(arm)) {
     throw new Error(`--arm must be one of ${ARMS.join(', ')} (got ${arm})`)
   }
-  const scale = Number(get('--scale', '1'))
+  const rawCell = get('--cell')
+  const cell = rawCell === undefined ? null : parseCell(rawCell)
+  if (cell !== null && get('--scale') !== undefined)
+    throw new Error('--cell and --scale are exclusive (a cell sets its own scale)')
+  const scale = cell?.active ?? Number(get('--scale', '1'))
   if (scale !== 1 && scale !== 2 && scale !== 4)
     throw new Error(`--scale must be 1, 2 or 4 (got ${scale})`)
   const scenarios = ((get('--scenarios', SCENARIOS.join(',')) ?? '').split(',') as string[]).map(
@@ -192,23 +208,28 @@ function parseArgs(argv: string[]): Args {
       throw new Error(`unknown scenario ${scenario} (want ${ALL_SCENARIOS.join(', ')})`)
     }
   }
-  if (scenarios.includes('rescope')) rescopeScale(scale as Scale)
+  if (scenarios.includes('rescope')) {
+    if (cell !== null)
+      throw new Error('rescope grows onto the legacy 2x corpus: never on a --cell run')
+    rescopeScale(scale as Scale)
+  }
   const consolePlant = get('--console-plant')
   if (
     consolePlant !== undefined &&
     (arm !== 'mobx' || !['warn', 'reaction'].includes(consolePlant))
   )
     throw new Error('--console-plant is warn or reaction, for --arm mobx only')
+  const label = cell === null ? `${scale}x` : cellLabel(cell)
   return {
     arm: arm as ArmName,
     scale: scale as Scale,
+    cell: cell === null ? null : cellLabel(cell),
     scenarios: scenarios as ScenarioName[],
     // Per page load: each click takes a fresh mounted row (a window holds ~17).
     samples: Number(get('--samples', '5')),
     warmup: Number(get('--warmup', '1')),
     maxLoad: checkMaxLoad(Number(get('--max-load', String(MAX_LOAD)))),
-    out:
-      get('--out', `packages/worklist-proto/harness/browser/results/${arm}-${scale}x.json`) ?? '',
+    out: get('--out', `packages/worklist-proto/harness/browser/results/${arm}-${label}.json`) ?? '',
     port: Number(get('--port', '8751')),
     serve: get('--serve', 'packages/worklist-proto/harness/web/dist') ?? '',
     // `matrix.ts` holds the lease around each invocation itself.
@@ -335,6 +356,7 @@ async function main(): Promise<number> {
     arm: args.arm,
     plant: args.plant,
     scale: args.scale,
+    cell: args.cell,
     quietMs: null,
     maxLoad: args.maxLoad,
     corpus: null,
@@ -369,7 +391,8 @@ async function main(): Promise<number> {
     server = await serveDist(args.serve, args.port)
     const plant = args.plant === null ? '' : `&plant=${encodeURIComponent(args.plant)}`
     const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}${args.markSettle ? '' : '&marksettle=0'}${args.consolePlant === null ? '' : `&consoleplant=${args.consolePlant}`}`
-    const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}${plant}${proof}`
+    const corpus = args.cell === null ? `scale=${args.scale}` : `cell=${args.cell}`
+    const url = `http://127.0.0.1:${args.port}/${args.arm}.html?${corpus}&sha=${runtimeSha}${plant}${proof}`
     /**
      * One page load of the arm in its own browser context (a fresh renderer:
      * nothing cached, a heap of its own), booted and ready; null when the arm
@@ -377,7 +400,9 @@ async function main(): Promise<number> {
      * waiting for the driver.
      */
     const openPage = async (hold: boolean): Promise<OpenPage | null> => {
-      const context = await browser.newContext({ viewport: VIEWPORT })
+      const context = await browser.newContext({
+        viewport: args.cell === null ? VIEWPORT : CELL_VIEWPORT,
+      })
       const page = await context.newPage()
       page.on('pageerror', (error) => fail(`page error: ${error.message}`))
       // THE CONSOLE TRAP (POD-4572, M3 note N3): MobX reports a throw inside
@@ -528,6 +553,7 @@ async function main(): Promise<number> {
           arm: args.arm,
           plant: args.plant,
           scale: args.scale,
+          cell: args.cell,
           scenario,
           sample,
           warmup,
@@ -605,7 +631,7 @@ async function main(): Promise<number> {
                   ' ',
                 )} heap=${((taken.heapBefore?.usedSize ?? 0) / 1e6).toFixed(1)}->${((taken.heapAfter?.usedSize ?? 0) / 1e6).toFixed(1)}MB`
         console.log(
-          `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
+          `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.cell ?? `${args.scale}x`} ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
             `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +
             `by=${record.endedBy} commits=${record.commits} longTasks=${record.longTasks} ` +
             `stray=${record.strayCommits} target=${result.target} parity=${parity.arm === parity.oracle ? 'ok' : 'MISMATCH'}` +

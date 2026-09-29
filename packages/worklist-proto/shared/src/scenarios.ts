@@ -158,18 +158,26 @@ export class ScenarioCache implements KernelCacheRead {
   }
 }
 
-/** Install the fixture rows as kernel entities, in bulk. */
-export function seedCacheFromCorpus(corpus: FixtureCorpus): ScenarioCache {
+/** Install the fixture rows as kernel entities, in bulk: the fixture's own
+ *  objects, or (POD-4747 `ownRows`) a copy of each, as a kernel reading its
+ *  disk holds. */
+export function seedCacheFromCorpus(
+  corpus: FixtureCorpus,
+  options: { ownRows?: boolean } = {},
+): ScenarioCache {
   const cache = new ScenarioCache()
+  const own = <T>(value: T): T => (options.ownRows === true ? structuredClone(value) : value)
   const rows: { entity: KernelEntity; entityId: string; value: unknown }[] = []
-  for (const issue of corpus.issues) rows.push({ entity: 'issue', entityId: issue.id, value: issue })
+  for (const issue of corpus.issues)
+    rows.push({ entity: 'issue', entityId: issue.id, value: own(issue) })
   for (const projection of corpus.issueProjections)
-    rows.push({ entity: 'issueProjection', entityId: projection.id, value: projection })
+    rows.push({ entity: 'issueProjection', entityId: projection.id, value: own(projection) })
   for (const session of corpus.sessions)
-    rows.push({ entity: 'session', entityId: session.sessionId, value: session })
+    rows.push({ entity: 'session', entityId: session.sessionId, value: own(session) })
   for (const repo of corpus.repoProjections)
-    rows.push({ entity: 'repo', entityId: repo.id, value: repo })
-  for (const dep of corpus.issueDeps) rows.push({ entity: 'issueDep', entityId: dep.id, value: dep })
+    rows.push({ entity: 'repo', entityId: repo.id, value: own(repo) })
+  for (const dep of corpus.issueDeps)
+    rows.push({ entity: 'issueDep', entityId: dep.id, value: own(dep) })
   cache.install(rows)
   return cache
 }
@@ -676,6 +684,19 @@ export interface EngineOptions {
   outbox?: 'legacy' | 'kernel'
   /** POD-4555: the outbox's connectivity. Default: the platform probes. */
   network?: { isOnline: () => boolean; onlineEvents: OnlineEvents }
+  /**
+   * POD-4747: awaited once the durable cache is seeded (`'cache'`), before
+   * the replica and the runtime exist: the layer-split driver takes the heap
+   * there (`harness/web/entrylib.ts` `stagePoint`).
+   */
+  stage?: (name: 'cache') => Promise<void>
+  /**
+   * POD-4747: seed the durable cache with its OWN copy of every row, as the
+   * kernel holds rows it decoded from disk, instead of the fixture's objects
+   * by reference. The layer split sets it, so the kernel's rows are measured
+   * as the kernel's and the fixture's as the harness's.
+   */
+  ownRows?: boolean
 }
 
 const settle = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -689,7 +710,8 @@ export async function startEngineOnCorpus(
   corpus: FixtureCorpus,
   opts: EngineOptions = {},
 ): Promise<ScenarioEngine> {
-  const cache = seedCacheFromCorpus(corpus)
+  const cache = seedCacheFromCorpus(corpus, { ownRows: opts.ownRows === true })
+  await opts.stage?.('cache')
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const newReplica = () => createKernelReplica({ cache, side })
   let rejectArmed = false

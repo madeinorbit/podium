@@ -55,3 +55,17 @@ scale, measured by the same `measureShape` the live comparison uses.
   planted as before.
 - The #2 target (`pickTargets`) has a family larger than one level of the
   reads budget (`PHASE_FAMILY_FLOOR`), so a sibling re-read fails #2.
+
+Two axes (POD-4747): `buildCorpusCell({ history, active })` grows history
+(closed, archived and deleted work and its sessions) and active work (open
+issues, live sessions, visible rows, lanes) separately. A cell is the 1x unit
+(byte-identical to `buildCorpus(1)`), then `active - 1` active units (the
+plan's active roles, with their lanes and sessions) and `history - 1` history
+epochs (the history roles only, no lanes, no live session, each epoch's clock
+120 days further back). Every added unit has its own seeded stream and links
+only inside itself. The growth cells: `h1a1` 4,867 issues; `h10a1` 27,601
+issues / 30,611 sessions, every active row and the visible list as at `h1a1`;
+`h1a4` 11,890 issues, exactly 4x the active issues, sessions, lanes and
+visible rows (2,928), every history row as at `h1a1`. `cells.test.ts` reads
+each row's axis from the rows and the oracle (`splitAxes`), proves those
+invariants row for row, and holds each axis's shape within 20% of the base.

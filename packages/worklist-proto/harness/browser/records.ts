@@ -43,6 +43,8 @@ export interface TimingRecord {
   /** A timer self-test plant (`--plant`), summarised under its own label. */
   plant: string | null
   scale: Scale
+  /** POD-4747: the two-axis corpus cell (`h10a1`); absent or null on a `--scale` run. */
+  cell?: string | null
   scenario: ScenarioName
   sample: number
   /** Warm-up rounds are recorded, never summarised. */
@@ -96,6 +98,8 @@ export interface RunOutput {
   arm: ArmName
   plant: string | null
   scale: Scale
+  /** POD-4747: the two-axis corpus cell (`h10a1`); absent or null on a `--scale` run. */
+  cell?: string | null
   /** The page settle's quiet window, ms. */
   quietMs: number | null
   maxLoad: number

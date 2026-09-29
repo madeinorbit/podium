@@ -272,8 +272,8 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 | Any other hot-path event (rename, stage move, clock, visible heartbeat) | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
 | Row click, engine selection write to the arm's commit (POD-4559; was the pointer event) | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
 | Cost follows the change, not the corpus | **The work-per-change check (POD-4746)**: every fence scenario at 1x and 4x; rows read, derivations run and distinct elements walked may grow by at most the changed items' neighbourhood at 4x, computed from the corpus (see "Work per change"). Replaces G3's wall slope (≤ 1.2) and the per-scenario reads budgets | `work-per-change.test.tsx` in CI; `summarize.ts` still prints the wall slope as a measurement, not a gate |
-| Bootstrap / principal switch | `actionMs` p50 ≤ 1.1x / ≤ 2x the control's, at 1x (POD-4561) | driver `coldBootstrap`/`principalSwitch` on held pages; `summarize.ts` lifecycle verdicts (see "Lifecycle walls") |
-| Memory | coldBootstrap `heapAfter` p50 ≤ 1.1x the control's; principalSwitch and rescope `heapAfter/heapBefore` p50 ≤ the control's + 0.05; no object of the old principal alive after the switch's forced GC (POD-4561) | same; the survivor check fails the run |
+| Memory and cold start | **The growth test (POD-4747)**, replacing G6's multiples of the control: history ×10 at constant active work leaves the arm's retained heap (coldBootstrap `heapAfter − heapBefore`) and its cold start flat; active ×4 grows them at most linearly; per-change walls above the floor flat as active grows ×4; a switch's heap is reported against a cold build's. Tolerance = the larger spread of the two cells' per-round medians (see "Growth test") | driver on the two-axis cells (`matrix.ts --cells`), judged by `growth.ts`; `summarize.ts` reports lifecycle and judges none of it |
+| Principal switch | no object of the old principal alive after the switch's forced GC (POD-4561) | driver: the survivor check fails the run |
 | Bundle | ≤ +60 KB gzip on web, no native-incompatible dep | entry chunk sizes in build output; native lane mount |
 
 Per-scenario row budgets are methodology §5.8 (#1: 0 rows; #2: 1 + ancestors;
@@ -613,10 +613,11 @@ await and no module binding, and `mountPage` keeps no reference to the old
 runtime after a switch. After the fix, both runtimes are collected and a
 switch shrinks the heap (control 24.6 → 22.9 MB).
 
-**Budgets** (methodology §1a, set in `summarize.ts` before any lifecycle run,
-each against the CONTROL's measured p50 at 1x from the same matrix; one page
-load per sample, so the p50, the typical load, is compared, not its
-compile/GC tail):
+**Budgets — SUPERSEDED by the growth test (POD-4747, 2026-09-28; see "Growth
+test").** The operator rejected ratio budgets as arbitrary (decision I4); the
+table below is what `summarize.ts` judged until then (methodology §1a, set
+before any lifecycle run, each against the CONTROL's measured p50 at 1x from
+the same matrix). `summarize.ts` now reports lifecycle and judges none of it:
 
 | Check | Budget |
 |---|---|
@@ -1326,3 +1327,65 @@ resolves to `react-native-web`. Excluded from the root node/unit lanes
 (`nodeTestExclude` — the POD-1220 Flow hazard); runs via
 `bun run --filter @podium/worklist-proto test`. Same scenarios, same
 assertion, same heartbeat failure shape as web (39/37 at SMALL).
+
+## Growth test (POD-4747)
+
+G6 compared cold start and heap to 1.1× the legacy control. The growth test
+judges each arm against itself as the workspace grows along its two axes
+(methodology §1a, revised 2026-09-28). The corpus is `buildCorpusCell`
+(`harness/src/fixture/corpus.ts`; its axes proven in `cells.test.ts`); the
+driver takes `--cell h10a1` and the matrix `--cells`:
+
+```bash
+# on flatblock, the checkout at the commit being timed, dist built there
+bun --conditions=@podium/source packages/worklist-proto/harness/browser/matrix.ts \
+  --host flatblock --remote-dir <checkout> \
+  --arms noop,control,mobx,noop+hold:1 --cells h1a1,h10a1,h1a4 --rounds 4 --samples 5 \
+  --scenarios heartbeat,visibleHeartbeat,rename,stagemove,clock,click,coldBootstrap,principalSwitch \
+  --tag growth
+bun --conditions=@podium/source packages/worklist-proto/harness/browser/growth.ts \
+  packages/worklist-proto/harness/browser/results/growth
+```
+
+(Every driver imports the fixture, whose workspace packages resolve only to
+source: run them with `--conditions=@podium/source`; the matrix passes it to
+each `run.ts`.)
+
+| Check | Cells | Passes when |
+|---|---|---|
+| history flat | `h1a1` → `h10a1` | the arm's retained heap (coldBootstrap `heapAfter − heapBefore`) and cold start (`actionMs`) grow by no more than the tolerance |
+| active linear | `h1a1` → `h1a4` | the same metrics at `h1a4` ≤ 4 × their `h1a1` value + the tolerance |
+| active flat (walls) | `h1a1` → `h1a4` | each hot-path wall, as the arm's per-round median minus the no-op's in the same round, grows by no more than the tolerance (the no-op's own wall is the kernel write and the feed: reported under `engine`); the history axis is judged the same way |
+| switch vs cold (reported) | each cell | principalSwitch `heapAfter` against coldBootstrap `heapAfter`; never an arm failure: the two pages differ by more than the arm (the floor's switched page holds 2.2 MB less than its cold page at 1x). The leak gate is the driver's survivor check |
+
+**Tolerance, from repeated runs.** Each check's tolerance is the larger spread
+(max − min) of the per-round medians of the two series it compares: two
+cells are "flat" when they differ by less than one cell differs from itself
+across rounds. `growth.ts` refuses fewer than three rounds, a missing or
+failed run, a short cell, two machines or two runtime SHAs. The booted page
+before any arm (`heapBefore`, `engineMs`) is reported as `engine`, never as an
+arm: it holds the fixture, the kernel's rows and indexes and the runtime, and
+grows with history by spec until the memory cutoff exists.
+
+**Can say NO.** `noop+hold:1` keeps one small object per known issue: its
+retained heap must fail history ×10 while the plain floor passes (the summary
+prints `PLANT NOT CAUGHT` otherwise); `growth.test.ts` proves every check
+fails its planted shape (a heap that grows, a superlinear arm, a wall above
+the floor, a switch that holds more than a cold build, marked as a report).
+
+**The floor's rows (changed here).** The no-op draws the oracle's first window
+over the boot store. Before POD-4747 it derived those rows inside `create`,
+so a lifecycle step charged the floor a legacy derivation over every issue;
+they are now derived once at page boot (`noopFrozenRows`, untimed), and a
+floor build is only what building any arm costs.
+
+**Memory by layer** (`harness/browser/layers.ts`, heap only, not timing):
+one held `?layers=1` page per (arm, cell) stops at each boot stage (the
+bundle, the fixture, the durable cache, the kernel replica and runtime, the
+arm); at each the driver reads the forced-GC heap and takes a V8 heap
+snapshot, and a layer is what its stage added, by constructor (objects new
+since the previous snapshot: heap object ids only grow). A layers page gives
+the kernel its own copy of each row (`ownRows`), as a kernel decoding its disk
+holds; timing pages hand it the fixture's objects. The pages must be the
+unminified build (`PROTO_LAYERS=1`, into `dist-layers`), so every class keeps
+its source name.

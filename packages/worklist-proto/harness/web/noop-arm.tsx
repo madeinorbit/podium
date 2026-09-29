@@ -35,6 +35,20 @@
  * `retain:1` keeps the disposed store (its handle, and through it the feed
  * and the runtime it was built over) in a page global, so a principal switch
  * leaves the old principal alive and the driver's survivor check must fail.
+ *
+ * GROWTH PLANT (POD-4747, the growth test's can-say-NO proof): `hold:1`
+ * builds and keeps one small object per known issue (every issue row the
+ * feed holds), the shape of a pool that indexes every row it knows: its
+ * retained heap grows with history, and history x10 must fail the growth
+ * test while the plain floor passes it.
+ *
+ * THE FLOOR'S ROWS (POD-4747). The rows the floor draws are the oracle's
+ * over the boot store, derived ONCE when the page boots (`noopFrozenRows`,
+ * untimed, like the fixture and the engine), never inside `create`: the
+ * oracle derives over every issue, so inside a lifecycle step's window it
+ * charged the floor a legacy derivation that grows with history. A build
+ * of the floor is now what building any arm costs and nothing else: the
+ * feed, the locals channel and a mount of the drawn rows.
  */
 
 import { createElement, type ReactElement } from 'react'
@@ -52,11 +66,13 @@ import {
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../shared/src/stats'
+import { localsOfEngine } from '../src/engine-locals'
 import { oracleSnapshot, rowViewsFromStore } from '../src/oracle/index'
+import { firstWindowRows } from './entrylib'
 
 /** Rows drawn: the first window (`FIRST_WINDOW_ROWS`) plus the rows a page's
  *  stage moves pull into it (one per round), like a windowed arm's overscan. */
-const DRAWN_ROWS = 108
+const OVERSCAN_ROWS = 12
 
 const NOOP_ACTIONS: RowActions = { select: () => {} }
 
@@ -82,20 +98,20 @@ function zeroStats(): ArmStats {
 }
 
 export type NoopPlant = {
-  kind: 'sync' | 'late' | 'walk' | 'build' | 'leak' | 'retain'
+  kind: 'sync' | 'late' | 'walk' | 'build' | 'leak' | 'retain' | 'hold'
   ms: number
 } | null
 
-const PLANT_KINDS = new Set(['sync', 'late', 'walk', 'build', 'leak', 'retain'])
+const PLANT_KINDS = new Set(['sync', 'late', 'walk', 'build', 'leak', 'retain', 'hold'])
 
-/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>` / `build:<ms>` / `leak:<mb>` / `retain:1`; null when absent. */
+/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>` / `build:<ms>` / `leak:<mb>` / `retain:1` / `hold:1`; null when absent. */
 export function readPlant(): NoopPlant {
   const raw = new URLSearchParams(window.location.search).get('plant')
   if (raw === null) return null
   const [kind, ms] = raw.split(':')
   if (!PLANT_KINDS.has(kind ?? '') || !Number.isFinite(Number(ms))) {
     throw new Error(
-      `[noop] bad plant ${raw} (want sync:<ms>, late:<ms>, walk:<passes>, build:<ms>, leak:<mb> or retain:1)`,
+      `[noop] bad plant ${raw} (want sync:<ms>, late:<ms>, walk:<passes>, build:<ms>, leak:<mb>, retain:1 or hold:1)`,
     )
   }
   return { kind: kind as NonNullable<NoopPlant>['kind'], ms: Number(ms) }
@@ -109,7 +125,24 @@ function heapBlock(mb: number): number[] {
 /** Where `leak:<mb>` and `retain:1` put what they should have dropped. */
 const leaked: unknown[] = []
 
-export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
+/** The rows the floor draws, and the snapshot it reports forever. */
+export interface NoopFrozen {
+  snapshot: SliceSnapshot
+  rows: RowProps['row'][]
+}
+
+/** POD-4747: the floor's rows, from the oracle over `boot`'s store (at page boot, untimed). */
+export function noopFrozenRows(boot: ScenarioEngine): NoopFrozen {
+  const store = boot.engine.getSnapshot()
+  const snapshot: SliceSnapshot = oracleSnapshot(store)
+  const views = rowViewsFromStore(store, localsOfEngine(boot.engine))
+  const ordered = [...snapshot.order.pinnedIds, ...snapshot.order.groups.flatMap((g) => g.rowIds)]
+  const drawn = firstWindowRows() + OVERSCAN_ROWS
+  const rows = ordered.slice(0, drawn).flatMap((id) => (views[id] ? [views[id]] : []))
+  return { snapshot, rows }
+}
+
+export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant, frozenRows: NoopFrozen): Arm {
   return {
     create(source, locals): ArmHandle {
       if (plant?.kind === 'build') {
@@ -119,10 +152,15 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
         }
       }
       let block = plant?.kind === 'leak' ? heapBlock(plant.ms) : null
+      // `hold:1`: one object per known issue, kept for the handle's life.
+      let held: Array<{ id: string }> | null =
+        plant?.kind === 'hold'
+          ? source.snapshot('issue').map((record) => ({ id: record.id }))
+          : null
       let redraw = (): void => {}
       const onChange = (event?: RowSourceEvent): void => {
         if (plant === null) return
-        if (plant.kind === 'build' || plant.kind === 'retain') return
+        if (plant.kind === 'build' || plant.kind === 'retain' || plant.kind === 'hold') return
         if (plant.kind === 'leak') {
           if (event?.type === 'replace' && block !== null) {
             leaked.push(block)
@@ -149,16 +187,14 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
       }
       const offSource = source.subscribe(onChange)
       const offLocals = locals.subscribe(() => onChange())
-      const store = boot.engine.getSnapshot()
-      const frozen: SliceSnapshot = oracleSnapshot(store)
-      const views = rowViewsFromStore(store, locals.get())
-      const ordered = [...frozen.order.pinnedIds, ...frozen.order.groups.flatMap((g) => g.rowIds)]
-      const rows = ordered.slice(0, DRAWN_ROWS).flatMap((id) => (views[id] ? [views[id]] : []))
+      const { snapshot: frozen, rows } = frozenRows
       let root: ReturnType<typeof createRoot> | null = null
       const handle: ArmHandle = {
         snapshot: () => frozen,
         stats: zeroStats(),
         dispose() {
+          if (held !== null) held.length = 0
+          held = null
           if (plant?.kind === 'retain') leaked.push({ handle, source, boot })
           if (block !== null) leaked.push(block)
           block = null
