@@ -4,14 +4,10 @@ import { HARNESS_REF_MAX, HarnessRef, mergeHarnessRefs } from './transcript'
 describe("the agent program's own ids for a message (POD-4841)", () => {
   it('keeps every id once, in the order first learned', () => {
     expect(
-      mergeHarnessRefs(
-        [{ kind: 'codex-turn', id: 't1' }],
-        undefined,
-        [
-          { kind: 'codex-turn', id: 't1' },
-          { kind: 'codex-client-message', id: 'msg_1' },
-        ],
-      ),
+      mergeHarnessRefs([{ kind: 'codex-turn', id: 't1' }], undefined, [
+        { kind: 'codex-turn', id: 't1' },
+        { kind: 'codex-client-message', id: 'msg_1' },
+      ]),
     ).toEqual([
       { kind: 'codex-turn', id: 't1' },
       { kind: 'codex-client-message', id: 'msg_1' },
@@ -30,7 +26,12 @@ describe("the agent program's own ids for a message (POD-4841)", () => {
   it('says nothing for no ids, and drops an entry with an empty kind or id', () => {
     expect(mergeHarnessRefs()).toBeUndefined()
     expect(mergeHarnessRefs([], undefined)).toBeUndefined()
-    expect(mergeHarnessRefs([{ kind: '', id: 'x' }, { kind: 'k', id: '' }])).toBeUndefined()
+    expect(
+      mergeHarnessRefs([
+        { kind: '', id: 'x' },
+        { kind: 'k', id: '' },
+      ]),
+    ).toBeUndefined()
   })
 
   it('stops at the cap, keeping the first ids', () => {

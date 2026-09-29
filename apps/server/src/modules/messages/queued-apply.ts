@@ -1,4 +1,9 @@
-import { type HarnessRef, MessageDelivery, type SessionId, type TranscriptItemRef } from '@podium/model'
+import {
+  type HarnessRef,
+  MessageDelivery,
+  type SessionId,
+  type TranscriptItemRef,
+} from '@podium/model'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import type { MessageDeliveryDeps } from './service'
