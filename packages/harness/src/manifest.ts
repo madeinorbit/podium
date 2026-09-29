@@ -1,7 +1,7 @@
 import { stat } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentQuotaWire, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentQuotaWire, HarnessRef, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type {
   AgentInstruction,
   AgentObservation,
@@ -1356,6 +1356,12 @@ export interface TerminalAcceptCorrelation<Observation> {
   accepts(observation: Observation): boolean
   fingerprint(observation: Observation): string | null
   fingerprintText(text: string): string | null
+  /**
+   * The program's own ids the observation carries for the prompt it is about
+   * (POD-4841) — Claude's `prompt_id` on `UserPromptSubmit`. Read only from an
+   * observation that credited a send; absent where the channel names none.
+   */
+  harnessRef?(observation: Observation): HarnessRef | undefined
 }
 
 export interface TerminalAcceptCorrelations {

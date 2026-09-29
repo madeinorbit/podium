@@ -1552,7 +1552,10 @@ export function createTerminalRuntime(
     // Preserve that distinction for the absent-instrumentation warning.
     session.hookSeen = true
     // A hook names no history entry; the echo that follows it does (POD-4774).
-    creditAcceptWaiter(session.hookWaiters, correlation, payload, {})
+    // It may carry the program's own id for the prompt (POD-4841); whether
+    // that id can be the send's is the injection machine's call.
+    const harnessRef = correlation.harnessRef?.(payload)
+    creditAcceptWaiter(session.hookWaiters, correlation, payload, harnessRef ? { harnessRef } : {})
   }
 
   /**
