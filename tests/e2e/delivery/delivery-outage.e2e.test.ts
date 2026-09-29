@@ -567,7 +567,11 @@ describe('message delivery under real failures', { retry: 0 }, () => {
     try {
       const session = only(world.sessionIds, 'session')
       const phone = world.device('phone')
-      world.setTurnMs(session, 20_000)
+      // Longer than the cut, the retract's unanswered request (10 s) and the
+      // reconnect together: the daemon must still be holding the message when
+      // the retract reaches it. A turn ending during the cut would let it type
+      // the message first — a legitimate "too late", not this scenario.
+      world.setTurnMs(session, 45_000)
       const busy = phone.send(session, 'keeps the agent busy')
       await waitTyped(world, busy.id)
       const retracted = phone.send(session, 'retracted while the machine is away')
@@ -577,8 +581,17 @@ describe('message delivery under real failures', { retry: 0 }, () => {
       await world.device('laptop').retract(session, retracted.id)
       const whileAway = (await world.rows()).find((row) => row.id === retracted.id)
       expect(whileAway?.deliveryStatus).toBe('dispatched')
-      world.setTurnMs(session, 300)
       world.link.restore()
+      // The daemon answered the retract while the busy turn still runs.
+      await waitFor(
+        async () =>
+          (await world.rows()).find((row) => row.id === retracted.id)?.deliveryStatus ===
+          'cancelled',
+        30_000,
+        `${retracted.id} cancelled by the daemon after the reconnect`,
+        () => world.logs(),
+      )
+      expect(world.typedCount(retracted.id)).toBe(0)
       await judge(world, 'device-retract-offline', [
         delivered(busy.id, session),
         { id: retracted.id, sessionId: session, expect: 'retracted', sender: 'phone' },
