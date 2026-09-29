@@ -16,10 +16,10 @@
  * harness switch replaced by section dispatch — which is what deletes the
  * `harness-branching` violations those files carried.
  */
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
-import { createServer, type RequestListener, type Server } from 'node:http'
-import { createConnection } from 'node:net'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { createServer, type RequestListener } from 'node:http'
 import { dirname } from 'node:path'
+import { listenUserSocket, type UserSocketServer } from '@podium/runtime/user-socket'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -250,29 +250,14 @@ export async function startHookIngest(opts: {
     HOOK_INGEST_ENDPOINT.name,
   )
 
-  let socketServer: Server | undefined
-  let socketOwned = false
+  // Only this OS user can reach the socket, so only this user can impersonate
+  // a hook payload (packages/runtime/src/user-socket.ts).
+  let socketServer: UserSocketServer | undefined
   if (opts.socketPath) {
     try {
-      await prepareSocketPath(opts.socketPath)
-      const unixServer = createServer(onRequest)
-      socketServer = unixServer
-      await new Promise<void>((resolve, reject) => {
-        unixServer.once('error', reject)
-        unixServer.listen(opts.socketPath, () => resolve())
-      })
-      socketOwned = true
-      // Only this user should be able to impersonate a hook payload.
-      await chmod(opts.socketPath, 0o600)
+      socketServer = await listenUserSocket(opts.socketPath, onRequest, 'hook ingest socket')
     } catch (err) {
-      const failedSocketServer = socketServer
-      await Promise.all([
-        new Promise<void>((resolve) => server.close(() => resolve())),
-        failedSocketServer?.listening
-          ? new Promise<void>((resolve) => failedSocketServer.close(() => resolve()))
-          : Promise.resolve(),
-      ])
-      if (socketOwned) await rm(opts.socketPath, { force: true })
+      await new Promise<void>((resolve) => server.close(() => resolve()))
       throw err
     }
   }
@@ -283,42 +268,12 @@ export async function startHookIngest(opts: {
     ...(opts.socketPath ? { socketPath: opts.socketPath } : {}),
     endpointFor: (sessionId) => `http://127.0.0.1:${port}/hooks/${sessionId}`,
     close: async () => {
-      const openSocketServer = socketServer
       await Promise.all([
         new Promise<void>((resolve) => server.close(() => resolve())),
-        openSocketServer
-          ? new Promise<void>((resolve) => openSocketServer.close(() => resolve()))
-          : Promise.resolve(),
+        socketServer?.close(),
       ])
-      if (opts.socketPath) await rm(opts.socketPath, { force: true })
     },
   }
-}
-
-/**
- * A crashed daemon can leave the filesystem name behind. Remove only a stale
- * socket; never unlink a listener belonging to another Podium instance.
- */
-async function prepareSocketPath(path: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  const live = await new Promise<boolean>((resolve, reject) => {
-    const socket = createConnection(path)
-    socket.once('connect', () => {
-      socket.destroy()
-      resolve(true)
-    })
-    socket.once('error', (err: NodeJS.ErrnoException) => {
-      socket.destroy()
-      if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') resolve(false)
-      else reject(err)
-    })
-  })
-  if (live) {
-    const err = new Error(`hook ingest socket already in use: ${path}`) as NodeJS.ErrnoException
-    err.code = 'EADDRINUSE'
-    throw err
-  }
-  await rm(path, { force: true })
 }
 
 // ---------------------------------------------------------------------------

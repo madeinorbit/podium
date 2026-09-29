@@ -28,6 +28,7 @@ const instanceService = (state: {
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   caller: { userId: UserId }
+  connect?: { publicUrlChanged(): void } | undefined
   modules?:
     | {
         bus: import('../bus').EventBus
@@ -59,6 +60,8 @@ const instanceService = (state: {
     completeHostSetup: state.modules
       ? async (actor, agentExecution, passwordHash) => await state.modules!.machines.completeHostSetup(actor, agentExecution, passwordHash)
       : undefined,
+    // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
+    onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
     // POD-4179: setup.complete records the host machine's grantee.
     grantHostMachine: state.modules
       ? async (ownerUserId) => await state.modules!.machines.grantHostMachineIfUnowned(ownerUserId)

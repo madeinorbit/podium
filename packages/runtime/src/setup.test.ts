@@ -9,6 +9,7 @@ import {
   applyJoin,
   applyLocalSetupDefault,
   applyMode,
+  applyPublicUrl,
   applyServerUrl,
   applySetup,
   consumePairCode,
@@ -545,11 +546,6 @@ describe('setup core', () => {
       expect(ephemeralTunnelWarning('https://a-b-c.trycloudflare.com')).toMatch(/quick tunnel/i)
       expect(ephemeralTunnelWarning('wss://a-b-c.trycloudflare.com')).toMatch(/quick tunnel/i)
     })
-    it('names the supervised tunnel, and keeps the manual re-point for boxes without it (POD-4640)', () => {
-      const warning = ephemeralTunnelWarning('https://a-b-c.trycloudflare.com')
-      expect(warning).toContain('podium tunnel enable')
-      expect(warning).toContain('podium set-server <new-url>')
-    })
     it('does not flag stable hosts (incl. lookalike domains)', () => {
       expect(ephemeralTunnelWarning('https://box.ts.net')).toBeUndefined()
       expect(ephemeralTunnelWarning('https://nottrycloudflare.com')).toBeUndefined()
@@ -639,6 +635,62 @@ describe('the deployment owns mode and public URL (PDM-26)', () => {
     expect(applySetup({ publicUrl: 'https://b.example', confirmUrlChange: true }).publicUrl).toBe(
       'https://b.example',
     )
+  })
+
+  describe('applyPublicUrl — a local program sets the server URL (POD-4640)', () => {
+    const A = 'https://prairie-otter-lamp-nine.trycloudflare.com'
+    const B = 'https://copper-hill-mango-seven.trycloudflare.com'
+
+    it('records the URL on a host and keeps everything else', () => {
+      saveConfig({ mode: 'server', networkOption: 'cloudflare-tunnel', port: 18787 })
+      expect(applyPublicUrl(`${A}/`)).toEqual({ ok: true, publicUrl: A, changed: true })
+      expect(loadConfig()).toMatchObject({
+        mode: 'server',
+        publicUrl: A,
+        networkOption: 'cloudflare-tunnel',
+        port: 18787,
+      })
+    })
+
+    it('the same URL writes nothing', () => {
+      saveConfig({ mode: 'all-in-one', publicUrl: A })
+      expect(applyPublicUrl(A)).toEqual({ ok: true, publicUrl: A, changed: false })
+    })
+
+    it('replacing a different live URL needs the explicit confirmation', () => {
+      saveConfig({ mode: 'all-in-one', publicUrl: A })
+      expect(applyPublicUrl(B)).toMatchObject({ ok: false, reason: 'refused' })
+      expect(loadConfig().publicUrl).toBe(A)
+      expect(applyPublicUrl(B, { confirmUrlChange: true })).toEqual({
+        ok: true,
+        publicUrl: B,
+        changed: true,
+      })
+    })
+
+    it('refuses while PODIUM_PUBLIC_URL owns the URL, and says so', () => {
+      saveConfig({ mode: 'all-in-one', publicUrl: A })
+      vi.stubEnv('PODIUM_PUBLIC_URL', 'https://podium.example.com')
+      expect(applyPublicUrl(B, { confirmUrlChange: true })).toMatchObject({
+        ok: false,
+        reason: 'refused',
+        error: expect.stringContaining('PODIUM_PUBLIC_URL'),
+      })
+      expect(loadConfig().publicUrl).toBe(A)
+    })
+
+    it('never turns a daemon, a client or an unconfigured box into a host', () => {
+      for (const config of [{ mode: 'daemon' as const, serverUrl: 'wss://x' }, { mode: 'client' as const, serverUrl: 'wss://x' }, {}]) {
+        saveConfig(config)
+        expect(applyPublicUrl(A, { confirmUrlChange: true })).toMatchObject({ ok: false, reason: 'refused' })
+        expect(loadConfig().publicUrl).toBeUndefined()
+      }
+    })
+
+    it('a string that is not a URL is invalid, not refused', () => {
+      saveConfig({ mode: 'server' })
+      expect(applyPublicUrl('not a url')).toMatchObject({ ok: false, reason: 'invalid' })
+    })
   })
 
   it('confirmUrlChange is a flag, never a config key', () => {

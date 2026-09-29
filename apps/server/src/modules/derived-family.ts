@@ -161,6 +161,14 @@ export interface FamilyState {
   readonly readiness?: Context['readiness']
   readonly requestCoordinatorRestart?: Context['requestCoordinatorRestart']
   /**
+   * PODIUM CONNECT'S PUBLISHER, for one family: `setup.complete` writes the
+   * public URL and prods it so the new URL is published now rather than on the
+   * publisher's 5-minute tick (POD-4640). Optional, like `readiness`: a server
+   * assembled without Connect (tests, the in-process MCP caller) simply has
+   * nothing to prod.
+   */
+  readonly connect?: Context['connect']
+  /**
    * THIS PROCESS's event-loop accounting rings (loop design §7.2), for
    * `perf.snapshot`. On the bundle for the same reason as `repos` and
    * `telemetry`: exactly one family reads it, and naming it here is a smaller
@@ -429,6 +437,7 @@ export const familyState = (ctx: Context): FamilyState => ({
     ? { requestCoordinatorRestart: ctx.requestCoordinatorRestart }
     : {}),
   ...(ctx.loopAccounting ? { loopAccounting: ctx.loopAccounting } : {}),
+  ...(ctx.connect ? { connect: ctx.connect } : {}),
   caller: {
     userId: callerUserId(ctx),
     sessionState: sessionStatePrincipalFor(ctx.principal),

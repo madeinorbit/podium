@@ -89,6 +89,13 @@ export interface InstanceDeps {
    */
   readonly onFleetChannelChanged?: ((channel: FleetUpdateChannel) => Promise<void>) | undefined
   /**
+   * Called after `setup.complete` wrote a DIFFERENT public URL (POD-4640). The
+   * composition root prods the Connect publisher with it, so the new URL is
+   * published now rather than on the publisher's next 5-minute tick — the same
+   * prod the server's control socket gives a rotated tunnel URL.
+   */
+  readonly onPublicUrlChanged?: (() => void) | undefined
+  /**
    * Live readiness, for `setup.activate` (POD-2766). READ AT APPLY, not captured
    * at construction: the whole point of the command is that it refuses an
    * instance that is no longer activation-pending, and a snapshot taken when the
@@ -357,12 +364,14 @@ export class InstanceService {
         message: 'Confirm running without a login password.',
       })
     }
+    const previousPublicUrl = loadConfig().publicUrl
     const cfg = applySetup({
       publicUrl: v.normalized,
       ...(input.networkOption ? { networkOption: input.networkOption } : {}),
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.confirmUrlChange ? { confirmUrlChange: true } : {}),
     })
+    if (cfg.publicUrl !== previousPublicUrl) this.deps.onPublicUrlChanged?.()
     // Honours the kill switches: an env that says "do not track" wins over an
     // answer the UI should not have collected.
     if (input.telemetry && shouldAskForConsent()) await this.setConsent(input.telemetry)

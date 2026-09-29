@@ -121,7 +121,9 @@ import { MobilePairingManager } from './mobile-pairing'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
-import { watchPublicUrl } from './modules/connect/public-url-watch'
+import { controlSocketHandler } from './control-socket'
+import { applyPublicUrl } from '@podium/runtime/setup'
+import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -657,15 +659,14 @@ export async function startServer(
   // Keeps Connect's record of where this server is reachable current. Started
   // once the listener is up (below); reads PODIUM_CONNECT and the public URL
   // per tick, so both land without a restart. The base URL is a boot fact.
-  const readConnectPublicUrl = (): string | undefined =>
-    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
   const connectPublisher = new ConnectPublisher({
     client: connectClient({
       baseUrl: resolveConnectBaseUrl(config, process.env),
       identity: () => installation,
     }),
     identity: () => installation,
-    publicUrl: readConnectPublicUrl,
+    publicUrl: () =>
+      serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env),
     enabled: () => store.settings.resolve('connectEnabled').value,
     log: createLogger('server:connect'),
   })
@@ -2459,14 +2460,28 @@ export async function startServer(
       targetsResolvedOnBoot = true
       bootStage('health exposed', healthStarted)
       if (!recoveryOnly && !rehearsal) connectPublisher.start()
-      // A URL written by another process (the quick-tunnel wrapper, POD-4640)
-      // reaches Connect in seconds rather than on the publisher's 5-minute tick.
-      const publicUrlWatch =
+      // Local programs (the quick-tunnel utility first) reach this server on a
+      // user-only unix socket; a new public URL written there reaches Connect at
+      // once instead of on the publisher's 5-minute tick (POD-4640). A socket that
+      // cannot be bound costs only that; the server serves regardless.
+      const controlSocket =
         recoveryOnly || rehearsal
-          ? { stop: () => {} }
-          : watchPublicUrl({
-              read: readConnectPublicUrl,
-              onChange: () => connectPublisher.publicUrlChanged(),
+          ? undefined
+          : await listenUserSocket(
+              serverControlSocketPath({ instanceId }),
+              controlSocketHandler({
+                setPublicUrl: (url, opts) => {
+                  const result = applyPublicUrl(url, opts)
+                  if (result.ok && result.changed) connectPublisher.publicUrlChanged()
+                  return result
+                },
+              }),
+              'server control socket',
+            ).catch((error: unknown) => {
+              log.warn('control socket unavailable; local programs cannot reach this server', {
+                err: error,
+              })
+              return undefined
             })
       resolve({
         port: server.port,
@@ -2501,7 +2516,7 @@ export async function startServer(
               ['updates.stopTargetRefresh', () => targetRefresh.stop()],
               // A publish that outlives the server would advertise a URL that
               // is about to stop answering; the next boot republishes anyway.
-              ['connect.stopPublicUrlWatch', () => publicUrlWatch.stop()],
+              ['controlSocket.close', async () => await controlSocket?.close()],
               ['connect.stop', () => connectPublisher.stop()],
               ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
               // Same hazard, same window (POD-2097): an armed operation deadline

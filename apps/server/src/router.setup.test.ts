@@ -185,6 +185,34 @@ describe('setup tRPC', () => {
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     expect(loadConfig().mode).toBe('all-in-one')
   })
+  it('a URL written by setup.complete prods the Connect publisher, and only when it changed (POD-4640)', async () => {
+    installSetupParent()
+    const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const publicUrlChanged = vi.fn()
+    const api = appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      users: registry.sessionStore.users,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      connect: { check: vi.fn(), publicUrlChanged },
+    })
+    await api.setup.complete({ publicUrl: 'https://a.example', acknowledgeNoPassword: true })
+    expect(publicUrlChanged).toHaveBeenCalledTimes(1)
+    await api.setup.complete({ publicUrl: 'https://a.example', acknowledgeNoPassword: true })
+    expect(publicUrlChanged).toHaveBeenCalledTimes(1)
+    await api.setup.complete({
+      publicUrl: 'https://b.example',
+      acknowledgeNoPassword: true,
+      confirmUrlChange: true,
+    })
+    expect(publicUrlChanged).toHaveBeenCalledTimes(2)
+  })
   it('info reports the current mode + publicUrl (for Settings → Network)', async () => {
     // appVersion is the baked build version ('dev' from source) [POD-838].
     const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'

@@ -98,8 +98,9 @@ export interface Context {
    *  is what keeps a control-plane restart from being a remote bounce lever. */
   readiness?: () => ServerReadiness
   /** Podium Connect (PDM-51): `connect.check` asks the cloud whether a public URL
-   *  is reachable. Optional: absent when Connect is not wired (tests). */
-  connect?: Pick<ConnectPublisher, 'check'>
+   *  is reachable; `publicUrlChanged` publishes a URL Settings just wrote (POD-4640).
+   *  Optional: absent when Connect is not wired (tests). */
+  connect?: Pick<ConnectPublisher, 'check' | 'publicUrlChanged'>
   /** This server process is supervised and replaced by the native desktop shell. */
   desktopSupervised?: boolean
   /** Installed coordinator-only exact-target delivery before the process-manager restart. */
