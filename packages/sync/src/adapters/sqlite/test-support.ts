@@ -44,6 +44,7 @@ export const testQueuedMessages = sqliteTable(
     sourceMessageId: text('source_message_id'),
     delivery: text().default('when-ready').notNull(),
     attachmentsJson: text('attachments_json'),
+    retractRequestedAt: integer('retract_requested_at'),
   },
   (table) => [
     index('queued_messages_session').on(table.sessionId, table.queuedAt),
@@ -216,6 +217,7 @@ export function createTestSyncDatabase(): SqlDatabase {
        source_message_id TEXT,
        delivery      TEXT NOT NULL DEFAULT 'when-ready',
        attachments_json TEXT,
+       retract_requested_at INTEGER,
        CONSTRAINT queued_messages_principal_kind CHECK (principal_kind IN ('user','agent','system')),
        CONSTRAINT queued_messages_actor_kind CHECK (actor_kind IN ('user','agent','system'))
      )`,

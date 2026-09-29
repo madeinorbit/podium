@@ -12,7 +12,7 @@ import {
   type SessionId,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
-import type { TurnReceipt } from '@podium/protocol/daemon'
+import type { DeliveryCancelResult, TurnReceipt } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import {
@@ -84,7 +84,9 @@ function harness(
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
   const sent: unknown[] = []
   const contractCalls: unknown[] = []
-  const contractCancel = vi.fn(async (_sessionId: SessionId, _rowId: string) => ({ ok: true as const }))
+  const contractCancel = vi.fn(
+    async (_sessionId: SessionId, _rowId: string): Promise<DeliveryCancelResult> => ({ ok: true }),
+  )
   const contractResolvers: Array<(receipt: TurnReceipt) => void> = []
   const contractInterrupts: SessionId[] = []
   const contractConfigures: { sessionId: SessionId; model?: string; effort?: string }[] = []
@@ -115,6 +117,7 @@ function harness(
     resurrections.push({ sessionId, principal })
   })
   const interrupted = vi.fn(async () => {})
+  const typing = vi.fn(async (_input: { sourceMessageId: string; sessionId: SessionId }) => {})
   const interruptedPending = vi.fn(async () => {})
   const unconfirmed = vi.fn(
     async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {},
@@ -207,6 +210,20 @@ function harness(
         const index = rows.findIndex((row) => row.id === id)
         if (index >= 0) rows.splice(index, 1)
       },
+      deleteUnreserved: async (id: string) => {
+        const index = rows.findIndex((row) => row.id === id && row.deliveryOwner !== 'daemon')
+        if (index < 0) return false
+        rows.splice(index, 1)
+        return true
+      },
+      requestRetract: async (id: string, at: number) => {
+        const row = rows.find((candidate) => candidate.id === id)
+        if (row) row.retractRequestedAt ??= at
+      },
+      clearRetract: async (id: string) => {
+        const row = rows.find((candidate) => candidate.id === id)
+        if (row) delete row.retractRequestedAt
+      },
       sessionsWithPending: async () => [...new Set(rows.map((row) => row.sessionId))],
     },
     daemon: { sendInput: (_machineId, message) => sent.push(message) },
@@ -216,6 +233,7 @@ function harness(
       applied,
       injected,
       interrupted,
+      typing,
       interruptedPending,
       unconfirmed,
       named,
@@ -331,6 +349,7 @@ function harness(
     applied,
     injected,
     interrupted,
+    typing,
     interruptedPending,
     unconfirmed,
     named,
@@ -770,7 +789,7 @@ describe('SessionInbox authorization and identity', () => {
       sourceMessageId: 'msg_cancelled',
       principal: agentPrincipal(),
     })
-    expect(await h.inbox.cancelQueuedMessage(SID, 'msg_cancelled')).toBe(true)
+    expect(await h.inbox.retract(SID, 'msg_cancelled')).toBe('cancelled')
 
     await vi.advanceTimersByTimeAsync(7_000)
 
@@ -1446,7 +1465,7 @@ describe('SessionInbox authorization and identity', () => {
     })
   })
 
-  it('cancels the named queued prompt through the driver without removing an earlier one', async () => {
+  it('withdraws the named queued prompt, never an earlier one, without asking a daemon that never had it', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working', contractInterrupt: { ok: true } })
     await h.inbox.queueText({
       sessionId: SID,
@@ -1470,7 +1489,8 @@ describe('SessionInbox authorization and identity', () => {
     ).toEqual({ ok: true, requested: 'protocol' })
 
     expect(h.rows.map((row) => row.sourceMessageId)).toEqual(['message-keep'])
-    expect(h.contractCancel).toHaveBeenCalledWith(SID, expect.any(String))
+    // No daemon ever held the row, so nothing past the server can type it.
+    expect(h.contractCancel).not.toHaveBeenCalled()
     expect(h.contractInterrupts).toEqual([SID])
     expect(h.sent).toEqual([])
     expect(h.interrupted).toHaveBeenCalledWith({
@@ -2218,7 +2238,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       await h.inbox.deliveryOutcome(sessionId, { rowId, outcome: 'dropped' })
       return { ok: true }
     })
-    expect(await h.inbox.cancelQueuedMessage(SID, 'cancel-source')).toBe(true)
+    expect(await h.inbox.retract(SID, 'cancel-source')).toBe('cancelled')
     expect(h.contractCancel).toHaveBeenCalledWith(SID, 'cancel-source')
     expect(h.rows.map((row) => row.id)).toEqual(['keep-source'])
     expect(h.session.queuedMessageCount).toBe(1)
@@ -2809,7 +2829,7 @@ describe('agent drain via the runtime contract', () => {
   // drain always forwards — so there is no legacy arm to flip between.
   // Daemon custody (POD-4291) survives the rollout removal: a daemon-owned row
   // still needs a successful driver cancel, and later sends still forward.
-  it('releases daemon custody only after driver cancellation succeeds', async () => {
+  it('a daemon-held row leaves only on the daemon\'s ok; too late leaves it to its outcome', async () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
       contractReceipts: [] })
@@ -2817,16 +2837,81 @@ describe('agent drain via the runtime contract', () => {
       sourceMessageId: 'mail-cancel' })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(1)
-    h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
-    expect(await h.inbox.cancelQueuedMessage(SID, 'mail-cancel')).toBe(false)
-    expect(h.rows).toHaveLength(1)
-    expect(h.sent).toEqual([])
-    expect(await h.inbox.cancelQueuedMessage(SID, 'mail-cancel')).toBe(true)
+    h.contractCancel.mockResolvedValueOnce({ reason: 'busy', tooLate: 'typing' })
+    expect(await h.inbox.retract(SID, 'mail-cancel')).toBe('too-late')
+    expect(h.rows).toEqual([expect.objectContaining({ id: 'mail-cancel', deliveryOwner: 'daemon' })])
+    expect(h.rows[0]?.retractRequestedAt).toBeUndefined()
+    expect(h.typing).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'mail-cancel', sessionId: SID })
+    expect(h.interrupted).not.toHaveBeenCalled()
+    expect(await h.inbox.retract(SID, 'mail-cancel')).toBe('cancelled')
     expect(h.contractCancel).toHaveBeenCalledTimes(2)
+    expect(h.rows).toEqual([])
+    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'mail-cancel', sessionId: SID })
     await h.inbox.queueText({ sessionId: SID, text: 'after cancel', mutationId: asMutationId('after-cancel') })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(h.contractCalls).toHaveLength(2)
     expect(h.sent).toEqual([])
+  })
+
+  it('a row no daemon holds is withdrawn here, without asking one', async () => {
+    const h = harness({ agentKind: 'codex', status: 'hibernated' })
+    await h.inbox.queueText({ sessionId: SID, text: 'still here', sourceMessageId: 'held', principal: agentPrincipal() })
+    expect(h.rows).toEqual([expect.objectContaining({ id: 'held' })])
+    expect(h.rows[0]?.deliveryOwner).not.toBe('daemon')
+    expect(await h.inbox.retract(SID, 'held')).toBe('cancelled')
+    expect(h.contractCancel).not.toHaveBeenCalled()
+    expect(h.rows).toEqual([])
+    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'held', sessionId: SID })
+  })
+
+  it('a retract the machine cannot answer waits on the row and goes first on the next bind', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
+      contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'typed later?', mutationId: asMutationId('offline-owned'),
+      sourceMessageId: 'offline' })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.contractCalls).toHaveLength(1)
+    // The machine went away: the request times out as not_running.
+    h.contractCancel.mockResolvedValueOnce({ reason: 'not_running' })
+    expect(await h.inbox.retract(SID, 'offline')).toBe('waiting')
+    expect(h.rows).toEqual([expect.objectContaining({ id: 'offline', retractRequestedAt: expect.any(Number) })])
+    expect(h.interrupted).not.toHaveBeenCalled()
+    expect(h.typing).not.toHaveBeenCalled()
+    // Nothing on the server decides it: a sweep with the machine still away
+    // asks again and changes nothing.
+    h.contractCancel.mockResolvedValueOnce({ reason: 'not_running' })
+    await h.inbox.sweepQueuedInputs()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toHaveLength(1)
+    // Reconnect: the bind's forward sends the retract, never the row again.
+    await h.inbox.drain(SID, { justBound: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCancel).toHaveBeenLastCalledWith(SID, 'offline')
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.rows).toEqual([])
+    expect(h.interrupted).toHaveBeenCalledExactlyOnceWith({ sourceMessageId: 'offline', sessionId: SID })
+  })
+
+  it('a retract that reaches the machine too late on reconnect leaves the row to its outcome', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
+      contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'typed during the cut', mutationId: asMutationId('late-owned'),
+      sourceMessageId: 'late' })
+    await vi.advanceTimersByTimeAsync(1_000)
+    h.contractCancel.mockResolvedValueOnce({ reason: 'not_running' })
+    expect(await h.inbox.retract(SID, 'late')).toBe('waiting')
+    h.contractCancel.mockResolvedValueOnce({ reason: 'busy', tooLate: 'delivered' })
+    await h.inbox.drain(SID, { justBound: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toEqual([expect.objectContaining({ id: 'late' })])
+    expect(h.rows[0]?.retractRequestedAt).toBeUndefined()
+    expect(h.interrupted).not.toHaveBeenCalled()
+    // Its delivered outcome settles it as any other.
+    await h.inbox.deliveryOutcome(SID, { rowId: 'late', outcome: 'delivered' })
+    expect(h.rows).toEqual([])
+    expect(h.applied).toHaveBeenCalledWith({ sessionId: SID, sourceMessageId: 'late' })
   })
 
   // No flag, no legacy queue: agent rows forward from the first admission, and a

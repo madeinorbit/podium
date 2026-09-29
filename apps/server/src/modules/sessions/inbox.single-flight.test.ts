@@ -29,6 +29,9 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
         enqueue: async () => true,
         list: async () => [],
         delete: async () => {},
+        deleteUnreserved: async () => false,
+        requestRetract: async () => {},
+        clearRetract: async () => {},
         sessionsWithPending: async () => {
           sessionsWithPendingCalls += 1
           await onEnumerate()

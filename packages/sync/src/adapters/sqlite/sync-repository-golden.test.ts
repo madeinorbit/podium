@@ -205,6 +205,7 @@ describe('the statements themselves', () => {
       'source_message_id',
       'delivery',
       'attachments_json',
+      'retract_requested_at',
     ])
     expect(projection('upstream_outbox')).toEqual(['mutation_id', 'proc', 'queued_at'])
   })

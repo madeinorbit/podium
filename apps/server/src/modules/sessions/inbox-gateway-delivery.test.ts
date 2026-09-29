@@ -157,6 +157,20 @@ function harness(
         const index = rows.findIndex((row) => row.id === id)
         if (index >= 0) rows.splice(index, 1)
       },
+      deleteUnreserved: async (id: string) => {
+        const index = rows.findIndex((row) => row.id === id && row.deliveryOwner !== 'daemon')
+        if (index < 0) return false
+        rows.splice(index, 1)
+        return true
+      },
+      requestRetract: async (id: string, at: number) => {
+        const row = rows.find((candidate) => candidate.id === id)
+        if (row) row.retractRequestedAt ??= at
+      },
+      clearRetract: async (id: string) => {
+        const row = rows.find((candidate) => candidate.id === id)
+        if (row) delete row.retractRequestedAt
+      },
       sessionsWithPending: async () => [...new Set(rows.map((row) => row.sessionId))],
     },
     daemon: { sendInput: (_machineId: unknown, message: unknown) => sent.push(message) },
