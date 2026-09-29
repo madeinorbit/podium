@@ -366,7 +366,10 @@ const NEEDS_USER = {
 async function echo(svc: MessageDeliveryService, sessionId: SessionId, ...ids: string[]): Promise<void> {
   await svc.onTranscriptDelta(
     sessionId,
-    ids.map((id) => ({ role: 'user', text: `[podium message ${id} · from x · to y]\nbody\n[end podium message ${id}]` })),
+    ids.map((id) => ({
+      role: 'user',
+      text: `[podium message ${id} · from x · to y]\nbody\n[end podium message ${id}]`,
+    })),
   )
 }
 
@@ -3385,7 +3388,10 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     )
     // An assistant turn merely quoting the id must not self-confirm it.
     await svc.onTranscriptDelta(asSessionId('s1'), [
-      { role: 'assistant', text: `[podium message ${r.message.id} · from x · to y]\nx\n[end podium message ${r.message.id}]` },
+      {
+        role: 'assistant',
+        text: `[podium message ${r.message.id} · from x · to y]\nx\n[end podium message ${r.message.id}]`,
+      },
     ])
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // Nor an echo seen in a DIFFERENT session than the one we pushed to.
@@ -3636,6 +3642,12 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     ).toHaveLength(1)
   })
 
+  /** A frame as the server renders it: head line, body, closing line. */
+  const frame = (id: string, body: string) =>
+    `[podium message ${id} · from x · to y]\n${body}\n[end podium message ${id}]`
+  const status = async (store: Awaited<ReturnType<typeof openTestStore>>, id: string) =>
+    (await store.messages.getMessage(id))?.deliveryStatus
+
   it('onTranscriptDelta confirms each item by its own frame across a multi-item delta', async () => {
     const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
     const mk = async (body: string) =>
@@ -3646,14 +3658,14 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     const a = await mk('a')
     const b = await mk('b')
     await svc.onTranscriptDelta(asSessionId('s1'), [
-      { role: 'user', text: `[podium message ${a} · from x · to y]\na\n[end podium message ${a}]` },
-      { role: 'user', text: `[podium message ${b} · from x · to y]\nb\n[end podium message ${b}]` },
+      { role: 'user', text: frame(a, 'a') },
+      { role: 'user', text: frame(b, 'b') },
     ])
-    expect((await store.messages.getMessage(a))!.deliveryStatus).toBe('confirmed')
-    expect((await store.messages.getMessage(b))!.deliveryStatus).toBe('confirmed')
+    expect(await status(store, a)).toBe('confirmed')
+    expect(await status(store, b)).toBe('confirmed')
   })
 
-  it('a wrapped message whose body quotes another pending message\'s frame confirms only itself (POD-4860)', async () => {
+  it("a message quoting another pending message's frame confirms only itself (POD-4860)", async () => {
     // Bodies are not escaped: a mail that quotes another mail's frame carries
     // that frame's id INSIDE its own. Echoing the quoting mail proves only the
     // quoting mail arrived; the quoted one may never have.
@@ -3664,13 +3676,11 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
         { to: { kind: 'session', id: asSessionId('s1') }, body, urgency: 'next-turn' },
       )).message
     const quoted = await send('the original')
-    const quoting = await send(
-      `you were sent this:\n[podium message ${quoted.id} · from x · to y]\nthe original\n[end podium message ${quoted.id}]\nplease check`,
-    )
-    const typed = await svc.renderFor((await store.messages.getMessage(quoting.id))!, asSessionId('s1'))
+    const quoting = await send(`you were sent this:\n${frame(quoted.id, 'the original')}\ncheck it`)
+    const typed = await svc.renderFor(quoting, asSessionId('s1'))
     await svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: typed }])
-    expect((await store.messages.getMessage(quoting.id))!.deliveryStatus).toBe('confirmed')
-    expect((await store.messages.getMessage(quoted.id))!.deliveryStatus).toBe('dispatched')
+    expect(await status(store, quoting.id)).toBe('confirmed')
+    expect(await status(store, quoted.id)).toBe('dispatched')
   })
 
   it('an entry that only mentions a frame, without being that frame, confirms nothing (POD-4860)', async () => {
@@ -3684,9 +3694,9 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       // The operator pasting the head line into their own prompt.
       { role: 'user', text: `what does [podium message ${id} · from x · to y] mean?` },
       // A frame followed by more of the person's words: the entry is not the frame.
-      { role: 'user', text: `[podium message ${id} · from x · to y]\nx\n[end podium message ${id}]\nand also this` },
+      { role: 'user', text: `${frame(id, 'x')}\nand also this` },
     ])
-    expect((await store.messages.getMessage(id))!.deliveryStatus).toBe('dispatched')
+    expect(await status(store, id)).toBe('dispatched')
   })
 
   it('a frame typed after its attachment paths still confirms (POD-4860)', async () => {
@@ -3697,11 +3707,11 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       { kind: 'superagent' },
       { to: { kind: 'session', id: asSessionId('s1') }, body: 'see file', urgency: 'next-turn' },
     )
-    const typed = await svc.renderFor((await store.messages.getMessage(r.message.id))!, asSessionId('s1'))
+    const typed = await svc.renderFor(r.message, asSessionId('s1'))
     await svc.onTranscriptDelta(asSessionId('s1'), [
       { role: 'user', text: `/tmp/a.png\n/tmp/b.txt\n${typed}\n` },
     ])
-    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
+    expect(await status(store, r.message.id)).toBe('confirmed')
   })
 })
 
@@ -4637,7 +4647,7 @@ describe('duplicate delivery of a queue-parked message [POD-1703]', () => {
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
 
     // An operator body renders UNWRAPPED — no `[podium message <id>]` frame — so
-    // ECHO_ID_RE can never match it and no echo will ever arrive. Pre-fix the
+    // `echoedFrameId` finds no id in it and no echo will ever arrive. Pre-fix the
     // window expired and the sweep typed the person's own message again, every
     // 90 seconds, until the cap.
     clock += LONG_AFTER_MS * 6
