@@ -88,6 +88,7 @@ export const GROK_ACP_DRIVER_ID = 'grok-acp'
 export const GROK_ACP_EVENT_LOG_LIMIT = 512
 const GROK_ACP_SEEN_EVENT_ID_LIMIT = 2048
 const WHEN_READY_TIMEOUT_MS = 10 * 60_000
+const RECEIPT_WATCH_MS = 120_000
 
 export interface GrokAcpEndpoint {
   transport: GrokAcpClientConfig['transport']
@@ -202,22 +203,22 @@ const grokPromptRef = (promptId: string): HarnessRef => [{ kind: 'grok-prompt', 
 /**
  * ONE `session/prompt` ON ITS WAY THROUGH GROK (POD-4837).
  *
- * `acked` once Grok names the promptId (queue ack, a stamped update, or the
- * reply to the request): the turn opens then, never at the write. `recorded`
- * once Grok's stream shows the prompt got past its `UserPromptSubmit` hook,
- * which is when Grok writes it to history: the entry is named then.
+ * `acked` once Grok names the promptId in its queue or updates: the turn opens
+ * then, never at the write. `recorded` only after reading its user chunk from
+ * updates.jsonl (or a load replay), bound by the following turn records.
  */
 interface PromptDelivery {
   promptId: string
-  /** What the driver sent; Grok's own copy from the queue ack replaces it. */
-  text: string
   origin: SendOptions['origin']
   deliveredAs: 'when-ready' | 'queue' | 'interrupt' | 'at-boundary'
   onTranscriptItem: SendOptions['onTranscriptItem']
+  onUnrecorded: SendOptions['onUnrecorded']
+  written: boolean
   acked: boolean
   recorded: boolean
+  unrecorded: boolean
+  deadline: number
   epoch: number | undefined
-  ackedAt: string | undefined
   /** Resolves once the ack came or the attempt ended without one. */
   decided: Promise<void>
   decide(): void
@@ -259,11 +260,14 @@ interface DriverSession {
   nativeArchiveOffset: number
   nativeArchivePrimed: boolean
   nativeArchiveSyncRunning: boolean
+  nativeArchiveRead: Promise<void>
+  receiptWatches: Map<string, PromptDelivery>
+  recordedPromptIds: Set<string>
   toolCallIds: Set<string>
   toolResults: Map<string, BufferedToolResult>
   /** A user record being read: its id is decided by the update that ends it
    *  (see {@link flushUser}); `fallbackId` serves a build that stamps none. */
-  userBuffer: { fallbackId: string; text: string; at: string } | undefined
+  userBuffer: { fallbackId: string; text: string; at: string; promptIndex?: number } | undefined
   assistantBuffer: { id: string; text: string; at: string } | undefined
   /** The prompt out to Grok and not yet finished (POD-4837). The session is
    *  `busy` from the write, before the ack opens its turn. */
@@ -455,7 +459,7 @@ export function createGrokAcpRuntime(
    * the turn's first update stamped with its promptId; a `session/load` replays
    * it in that order (measured on grok 1.0.44, `__fixtures__/live-frames.jsonl`).
    * The buffer is therefore named by the update that ends it: the item is
-   * `grok-user-<promptId>`, the same id the live send named. A build that stamps
+   * `grok-user-<promptId>`, the same id the receipt names. A build that stamps
    * no promptId falls back to the record's own event id.
    */
   function flushUser(
@@ -468,8 +472,75 @@ export function createGrokAcpRuntime(
     session.userBuffer = undefined
     const text = buffer.text.trim()
     if (!text) return
+    if (native?.promptId && session.recordedPromptIds.has(native.promptId)) return
     const id = native?.promptId ? grokUserItemId(native.promptId) : buffer.fallbackId
     addItem(session, { id, role: 'user', text, ts: buffer.at }, buffer.at, provenance, native)
+    if (native?.promptId) {
+      session.recordedPromptIds.add(native.promptId)
+      markRecorded(session, native.promptId)
+    }
+  }
+
+  /** Only Grok's file or session/load replay can supply a prompt entry. Live
+   * output, hook verdicts and replies never substitute for this record. Read
+   * it before wire deduplication: its following stamp may already be seen live. */
+  function ingestRecordedPrompt(
+    session: DriverSession,
+    notification: GrokAcpSessionUpdate,
+    provenance: ObservationProvenance,
+  ): void {
+    const { update, _meta: meta } = notification.params
+    const promptId = grokAcpPromptId(notification)
+    const updateMeta = record(update._meta)
+    const promptIndex = typeof updateMeta?.promptIndex === 'number' ? updateMeta.promptIndex : undefined
+    const ordinal = grokAcpEventOrdinal(meta?.eventId)
+    const native: NativeObservation = {
+      eventId: meta?.eventId,
+      ordinal,
+      ...(promptId ? { promptId } : {}),
+      replayedBeforeCheckpoint: provenance === 'replay' && ordinal !== undefined && ordinal <= session.providerEventSeq,
+    }
+    if (update.sessionUpdate === 'user_message_chunk') {
+      // A new entry is a boundary even if it is an invisible automatic wake.
+      // Never merge two prompts or match either one by its text.
+      const current = session.userBuffer
+      if (current && (promptIndex === undefined || current.promptIndex !== promptIndex)) {
+        flushUser(session, provenance)
+      }
+      if (updateMeta?.hideFromScrollback === true) {
+        session.userBuffer = undefined
+        return
+      }
+      const text = updateText(update)
+      if (!text) return
+      if (session.userBuffer) session.userBuffer.text += text
+      else session.userBuffer = {
+        fallbackId: `grok-user-${meta?.eventId ?? session.seq + 1}`,
+        text,
+        at: iso(meta?.agentTimestampMs),
+        ...(promptIndex !== undefined ? { promptIndex } : {}),
+      }
+      if (promptId) flushUser(session, provenance, native)
+      return
+    }
+    // Submit hooks belong to the NEXT prompt, before its user record. They
+    // cannot name a preceding unbound entry when a turn's stamps are missing.
+    if ((update.sessionUpdate === 'hook_execution' || update.sessionUpdate === 'hook_run_started') &&
+      update.event_name === 'user_prompt_submit') {
+      flushUser(session, provenance)
+      return
+    }
+    if (update.sessionUpdate === 'turn_completed' && meta?.cancellationCategory === 'HookDenied') {
+      flushUser(session, provenance)
+      return
+    }
+    if (promptIndex !== undefined && session.userBuffer?.promptIndex !== undefined &&
+      promptIndex !== session.userBuffer.promptIndex) {
+      flushUser(session, provenance)
+      return
+    }
+    if (promptId) flushUser(session, provenance, native)
+    else if (update.sessionUpdate === 'turn_completed') flushUser(session, provenance)
   }
 
   function flushAssistant(
@@ -561,21 +632,10 @@ export function createGrokAcpRuntime(
     const kind = typeof update.sessionUpdate === 'string' ? update.sessionUpdate : ''
     switch (kind) {
       case 'user_message_chunk': {
-        const text = updateText(update)
-        if (!text) return
-        const current = session.userBuffer
-        if (current) current.text += text
-        else {
-          session.userBuffer = {
-            fallbackId: `grok-user-${native.eventId ?? session.seq + 1}`,
-            text,
-            at,
-          }
-        }
+        // The history reader owns prompt entries, not the live ACP pipe.
         return
       }
       case 'agent_message_chunk': {
-        flushUser(session, provenance, native)
         const text = updateText(update)
         if (!text) return
         const current = session.assistantBuffer
@@ -615,7 +675,6 @@ export function createGrokAcpRuntime(
         return
       }
       case 'tool_call': {
-        flushUser(session, provenance, native)
         flushAssistant(session, provenance, native)
         const id =
           (typeof update.toolCallId === 'string' && update.toolCallId) ||
@@ -694,7 +753,6 @@ export function createGrokAcpRuntime(
       }
       case 'response_completed':
       case 'turn_completed':
-        flushUser(session, provenance, native)
         flushAssistant(session, provenance, native)
         return
       default:
@@ -703,55 +761,22 @@ export function createGrokAcpRuntime(
   }
 
   /**
-   * GROK HAS WRITTEN THE PROMPT TO ITS HISTORY (POD-4837).
-   *
-   * Grok records the prompt after its `UserPromptSubmit` hooks and before the
-   * model call (measured on grok 1.0.44). A hook that blocks the prompt ends
-   * the turn `cancelled` as `HookDenied` and nothing is recorded. So only
-   * updates that come after that point prove it: an allowing hook verdict, the
-   * turn's output, or its end for any reason but a cancel. Anything else only
-   * waits — a cancelled turn may have ended before Grok wrote the prompt.
-   */
-  function provesRecorded(notification: GrokAcpSessionUpdate): boolean {
-    const update = notification.params.update
-    switch (update.sessionUpdate) {
-      case 'user_message_chunk':
-      case 'agent_message_chunk':
-      case 'agent_thought_chunk':
-      case 'tool_call':
-      case 'tool_call_update':
-      case 'plan':
-        return true
-      case 'hook_execution': {
-        if (update.event_name !== 'user_prompt_submit') return true
-        const runs = Array.isArray(update.runs) ? update.runs : []
-        return !runs.some((run) => record(record(run)?.status)?.blocked === true)
-      }
-      case 'turn_completed':
-        return update.stop_reason !== 'cancelled'
-      default:
-        return false
-    }
-  }
-
-  /**
    * GROK NAMED THE PROMPT: THE SEND IS ACCEPTED AND ITS TURN OPENS (POD-4837).
    *
    * Every signal that carries our promptId lands here: the queue ack (the
-   * earliest, measured 4–90 ms after the write), an update of the turn, or the
-   * reply to the request itself. Until then the session was taken but no turn
-   * was open.
+   * earliest, measured 4–90 ms after the write) or an update of the turn.
+   * The reply is the turn's end, never an acknowledgement or receipt proof.
    */
-  function ackPrompt(session: DriverSession, promptId: string, groksText?: string): void {
+  function ackPrompt(session: DriverSession, promptId: string): void {
     const delivery = session.prompt
     if (!delivery || delivery.promptId !== promptId || delivery.acked) return
     delivery.acked = true
-    if (groksText) delivery.text = groksText
     const at = iso()
     session.turnEpoch += 1
     const epoch = session.turnEpoch
     delivery.epoch = epoch
-    delivery.ackedAt = at
+    delivery.deadline = Date.now() + RECEIPT_WATCH_MS
+    session.receiptWatches.set(promptId, delivery)
     session.openTurnEpoch = epoch
     foldState(session, { kind: 'prompt_submitted' }, at, 'live')
     emit(
@@ -764,27 +789,34 @@ export function createGrokAcpRuntime(
       turnEpoch: epoch,
       deliveredAs: delivery.deliveredAs,
       provenBy: 'protocol-ack',
+      held: 'memory',
       harnessRef: grokPromptRef(promptId),
       at,
     })
     delivery.decide()
+    void startNativeArchiveSync(session)
   }
 
   /**
-   * THE ENTRY EXISTS: ADD IT, UNDER OUR ID, AND NAME IT (POD-4837).
-   *
-   * The item carries Grok's own copy of the text when the queue ack gave one.
-   * The receipt went back on the ack, so the entry is named through
-   * `onTranscriptItem`, once.
+   * The history reader has added Grok's actual user entry. Name it once for
+   * the held receipt, even if its turn already ended before the file was read.
    */
   function markRecorded(session: DriverSession, promptId: string): void {
-    const delivery = session.prompt
-    if (!delivery || delivery.promptId !== promptId || !delivery.acked || delivery.recorded) return
+    const delivery = session.receiptWatches.get(promptId) ??
+      (session.prompt?.written ? session.prompt : undefined)
+    if (!delivery || delivery.promptId !== promptId || delivery.recorded || delivery.unrecorded) return
+    if (!delivery.acked) ackPrompt(session, promptId)
     delivery.recorded = true
+    session.receiptWatches.delete(promptId)
     const id = grokUserItemId(promptId)
-    const at = delivery.ackedAt ?? iso()
-    addItem(session, { id, role: 'user', text: delivery.text, ts: at }, at, 'live')
     delivery.onTranscriptItem?.({ id }, grokPromptRef(promptId))
+  }
+
+  function markUnrecorded(session: DriverSession, delivery: PromptDelivery, reason: string): void {
+    if (!delivery.acked || delivery.recorded || delivery.unrecorded) return
+    delivery.unrecorded = true
+    session.receiptWatches.delete(delivery.promptId)
+    delivery.onUnrecorded?.(reason)
   }
 
   function ingestQueueChanged(session: DriverSession, frame: GrokAcpFrame): void {
@@ -795,11 +827,11 @@ export function createGrokAcpRuntime(
     if (!delivery || delivery.acked) return
     const queue = parsed.data
     if (queue.runningPromptId === delivery.promptId) {
-      ackPrompt(session, delivery.promptId, queue.runningText)
+      ackPrompt(session, delivery.promptId)
       return
     }
     const entry = queue.entries.find((candidate) => candidate.id === delivery.promptId)
-    if (entry) ackPrompt(session, delivery.promptId, entry.text)
+    if (entry) ackPrompt(session, delivery.promptId)
   }
 
   function ingestNotification(
@@ -809,6 +841,14 @@ export function createGrokAcpRuntime(
   ): void {
     const notification = parseGrokAcpSessionUpdate(frame)
     if (!notification || notification.params.sessionId !== session.grokSessionId) return
+    if (provenance === 'replay') ingestRecordedPrompt(session, notification, provenance)
+    const promptId = grokAcpPromptId(notification)
+    if (notification.params.update.sessionUpdate === 'turn_completed' &&
+      notification.params.update.stop_reason === 'cancelled' &&
+      notification.params._meta?.cancellationCategory === 'HookDenied' && promptId) {
+      const delivery = session.receiptWatches.get(promptId)
+      if (delivery) markUnrecorded(session, delivery, 'dropped by a Grok hook')
+    }
     const eventId = notification.params._meta?.eventId
     const ordinal = grokAcpEventOrdinal(eventId)
     // Every event Podium treats as causal must carry the provider cursor. The
@@ -834,19 +874,16 @@ export function createGrokAcpRuntime(
       session.providerEventSeq = ordinal
       persist(session)
     }
-    const promptId = grokAcpPromptId(notification)
     const native: NativeObservation = {
       ...(eventId ? { eventId } : {}),
       ordinal,
       ...(promptId ? { promptId } : {}),
       replayedBeforeCheckpoint,
     }
-    // An update stamped with the prompt's id is Grok naming it, and may prove
-    // it recorded: both are decided before the update lands, so the prompt's
-    // entry precedes the answer it prompted.
+    // A live update naming our id can acknowledge it, but cannot prove that
+    // the user record exists. Only ingestRecordedPrompt names the entry.
     if (provenance === 'live' && promptId && session.prompt?.promptId === promptId) {
       ackPrompt(session, promptId)
-      if (provesRecorded(notification)) markRecorded(session, promptId)
     }
     ingestTranscriptUpdate(session, notification.params.update, at, provenance, native)
     const payload = {
@@ -859,7 +896,13 @@ export function createGrokAcpRuntime(
     })
   }
 
-  async function syncNativeArchiveOnce(session: DriverSession): Promise<void> {
+  function syncNativeArchiveOnce(session: DriverSession): Promise<void> {
+    const read = session.nativeArchiveRead.then(() => readNativeArchive(session))
+    session.nativeArchiveRead = read.catch(() => undefined)
+    return read
+  }
+
+  async function readNativeArchive(session: DriverSession): Promise<void> {
     if (!host.readNativeUpdates || session.disposed) return
     const chunk = await host.readNativeUpdates({
       sessionId: session.sessionId,
@@ -868,38 +911,55 @@ export function createGrokAcpRuntime(
       offset: session.nativeArchiveOffset,
     })
     if (!chunk) return
-    session.nativeArchiveOffset = chunk.offset
-    if (!session.nativeArchivePrimed) {
-      session.nativeArchiveOffset += chunk.bytes.length
-      session.nativeArchivePrimed = true
-      return
+    if (session.disposed) return
+    if (chunk.offset < session.nativeArchiveOffset) {
+      session.userBuffer = undefined
+      for (const delivery of session.receiptWatches.values()) {
+        markUnrecorded(session, delivery, 'Grok history changed before its prompt record was seen')
+      }
     }
-
+    session.nativeArchiveOffset = chunk.offset
+    const priming = !session.nativeArchivePrimed
     const text = new TextDecoder().decode(chunk.bytes)
     let consumed = 0
     for (const line of text.split('\n').slice(0, -1)) {
       consumed += new TextEncoder().encode(line + '\n').length
       if (!line.trim()) continue
       try {
-        ingestNotification(session, JSON.parse(line) as GrokAcpFrame, 'live')
+        const frame = JSON.parse(line) as GrokAcpFrame
+        const notification = parseGrokAcpSessionUpdate(frame)
+        if (notification?.params.sessionId === session.grokSessionId) {
+          ingestRecordedPrompt(session, notification, 'live')
+        }
+        // The initial read supplies prompt proof too, but replaying the rest
+        // would repeat the projection already built by session/load.
+        if (!priming) ingestNotification(session, frame, 'live')
       } catch {
         // Grok owns this append-only file. A malformed provider line is not a
         // reason to stop observing later complete frames.
+        session.userBuffer = undefined
       }
     }
     session.nativeArchiveOffset += consumed
+    session.nativeArchivePrimed = true
     await session.ingestChain
   }
 
   async function startNativeArchiveSync(session: DriverSession): Promise<void> {
-    if (!host.readNativeUpdates || session.nativeArchiveSyncRunning || session.disposed) return
+    if (session.nativeArchiveSyncRunning || session.disposed) return
     session.nativeArchiveSyncRunning = true
     try {
-      while (!session.disposed && session.lease?.kind === 'human-controller') {
+      while (!session.disposed &&
+        (session.lease?.kind === 'human-controller' || session.receiptWatches.size > 0)) {
         try {
           await syncNativeArchiveOnce(session)
         } catch {
           // A transient read failure must not permanently disconnect native sync.
+        }
+        for (const delivery of session.receiptWatches.values()) {
+          if (Date.now() >= delivery.deadline) {
+            markUnrecorded(session, delivery, 'Grok transcript receipt watch ended without a record')
+          }
         }
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, host.nativeArchivePollMs ?? 250)
@@ -1087,6 +1147,9 @@ export function createGrokAcpRuntime(
       nativeArchiveOffset: 0,
       nativeArchivePrimed: false,
       nativeArchiveSyncRunning: false,
+      nativeArchiveRead: Promise.resolve(),
+      receiptWatches: new Map(),
+      recordedPromptIds: new Set(),
       toolCallIds: new Set(),
       toolResults: new Map(),
       userBuffer: undefined,
@@ -1126,7 +1189,6 @@ export function createGrokAcpRuntime(
          * instead of appearing before the assistant text it interrupted.
          */
         const at = iso()
-        flushUser(session, 'live')
         flushAssistant(session, 'live')
         addInterruptMarker(session, epoch, at)
       },
@@ -1328,9 +1390,11 @@ export function createGrokAcpRuntime(
     // already-enqueued translation so the response settlement cannot overwrite
     // a richer causal failure with its generic stop reason.
     await session.ingestChain.catch(() => undefined)
+    // The 402 path has no output; its user chunk is bound by the file's
+    // turn_completed prompt_id. An unreadable file stays open for late proof.
+    await syncNativeArchiveOnce(session).catch(() => undefined)
     if (session.disposed || session.openTurnEpoch !== epoch) return
     const at = iso()
-    flushUser(session, 'live')
     flushAssistant(session, 'live')
     session.busy = false
     session.prompt = undefined
@@ -1404,10 +1468,8 @@ export function createGrokAcpRuntime(
    *
    * The prompt carries the message id as `_meta.promptId`, which Grok keeps as
    * the turn's id. The receipt waits for Grok to name that id ({@link
-   * ackPrompt}); the session is taken from the write. A JSON-RPC error or a
-   * closed pipe before the ack is a refusal, and no turn opened. There is no
-   * window: the reply to the request names the prompt too, so the wait always
-   * ends in an answer from Grok.
+   * ackPrompt}); the session is taken from the write. A response alone leaves
+   * it unproven, and a closed pipe is a refusal only if it was never written.
    *
    * A MESSAGE GROK ALREADY HOLDS is not sent again. Grok runs a repeated
    * promptId as a second turn (measured), so an earlier attempt whose receipt
@@ -1422,7 +1484,7 @@ export function createGrokAcpRuntime(
     deliveredAs: PromptDelivery['deliveredAs'],
   ): Promise<TurnReceipt> {
     const promptId = input.id ?? globalThis.crypto.randomUUID()
-    if (session.transcriptIds.has(grokUserItemId(promptId))) {
+    if (session.recordedPromptIds.has(promptId)) {
       return Promise.resolve(acceptHeld(session, promptId, options, deliveredAs))
     }
     return new Promise<TurnReceipt>((resolve, reject) => {
@@ -1433,14 +1495,16 @@ export function createGrokAcpRuntime(
       })
       const delivery: PromptDelivery = {
         promptId,
-        text: input.text,
         origin: options.origin,
         deliveredAs,
         onTranscriptItem: options.onTranscriptItem,
+        onUnrecorded: options.onUnrecorded,
+        written: false,
         acked: false,
         recorded: false,
+        unrecorded: false,
+        deadline: Number.POSITIVE_INFINITY,
         epoch: undefined,
-        ackedAt: undefined,
         decided,
         decide,
         settle(receipt) {
@@ -1458,27 +1522,48 @@ export function createGrokAcpRuntime(
       session.busy = true
       session.interruptRequestedEpoch = undefined
       session.lastTurnFailure = undefined
-      // The ack can land inside this call, before it returns.
-      void session.client
-        .call<unknown>(GROK_ACP_METHODS.sessionPrompt, {
-          sessionId: session.grokSessionId,
-          prompt: [{ type: 'text', text: input.text }],
-          _meta: { promptId },
-        })
-        .then(
-          (raw) => {
-            // The reply to our own request names the prompt, on a build that
-            // sent no ack before it.
-            ackPrompt(session, promptId)
-            if (delivery.epoch === undefined) return
-            return finishPrompt(session, delivery.epoch, GrokAcpPromptResultSchema.parse(raw))
-          },
-          (error) => {
-            if (delivery.epoch !== undefined)
-              return finishPrompt(session, delivery.epoch, undefined, error)
-            refuseDelivery(session, delivery, error)
-          },
-        )
+      // Reserve the session before the asynchronous history read. Another
+      // send or interrupt must see this pending attempt, not an idle session.
+      void (async () => {
+        if (host.readNativeUpdates) await syncNativeArchiveOnce(session).catch(() => undefined)
+        if (session.disposed || !session.endpoint.alive()) {
+          delivery.settle({ outcome: 'refused', refusal: { reason: 'not_running' } })
+          delivery.decide()
+          return
+        }
+        if (session.recordedPromptIds.has(promptId)) {
+          session.prompt = undefined
+          session.busy = false
+          delivery.settle(acceptHeld(session, promptId, options, deliveredAs))
+          delivery.decide()
+          wakeIdle(session)
+          return
+        }
+        // The ack can land inside this call, before it returns.
+        delivery.written = true
+        void session.client
+          .call<unknown>(GROK_ACP_METHODS.sessionPrompt, {
+            sessionId: session.grokSessionId,
+            prompt: [{ type: 'text', text: input.text }],
+            _meta: { promptId },
+          })
+          .then(
+            async (raw) => {
+              if (delivery.epoch === undefined) await syncNativeArchiveOnce(session).catch(() => undefined)
+              if (delivery.epoch === undefined) {
+                refuseDelivery(session, delivery, new Error('Grok replied without acknowledging or recording the prompt'))
+                return
+              }
+              return finishPrompt(session, delivery.epoch, GrokAcpPromptResultSchema.parse(raw))
+            },
+            async (error) => {
+              if (delivery.epoch === undefined) await syncNativeArchiveOnce(session).catch(() => undefined)
+              if (delivery.epoch !== undefined)
+                return finishPrompt(session, delivery.epoch, undefined, error)
+              refuseDelivery(session, delivery, error)
+            },
+          )
+      })()
     })
   }
 
@@ -1603,13 +1688,17 @@ export function createGrokAcpRuntime(
     // It was written, so Grok may hold it: unproven, never refused (POD-4839).
     const delivery = session.prompt
     if (delivery && !delivery.acked) {
-      delivery.fail(
+      if (!delivery.written) delivery.settle({ outcome: 'refused', refusal: { reason: 'not_running' } })
+      else delivery.fail(
         new DeliveryUnprovenError(
           'grok session/prompt',
           'the Grok session ended before it named the prompt',
         ),
       )
       delivery.decide()
+    }
+    for (const held of session.receiptWatches.values()) {
+      markUnrecorded(session, held, 'Grok session closed before its transcript record was seen')
     }
     /**
      * RELEASE ANYONE WAITING ON A SESSION THAT WILL NEVER ANSWER
