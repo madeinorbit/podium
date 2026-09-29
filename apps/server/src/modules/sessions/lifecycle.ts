@@ -433,6 +433,9 @@ export class SessionLifecycle {
   private rebindHeadless(...args: any[]): void {
     ;(this.sessionClientPlane as any).rebindHeadless(...args)
   }
+  private reestablishHeadless(...args: any[]): void {
+    ;(this.sessionClientPlane as any).reestablishHeadless(...args)
+  }
   private pushPriorities(): void {
     this.state.pushPriorities()
   }

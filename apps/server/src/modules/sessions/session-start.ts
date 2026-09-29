@@ -69,13 +69,14 @@ import type {
   SessionBindingSpawnInstruction,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { nativeAccountId, resolveRole } from '@podium/runtime'
+import { resolveRole } from '@podium/runtime'
 import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
 import { createdByForBinding } from './command-plane'
 import { authorSpawnBinding } from './binding-mint'
+import { selectHarnessAccountId } from './harness-account'
 import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
@@ -464,23 +465,19 @@ export class SessionStart {
             await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
             'coding',
           ).accountId
-    // A native role default names the CLI whose login it represents. Since the
-    // coding default is shared across agent kinds, an omitted account must not
-    // carry a different CLI's identity into per-session driver resolution. An
-    // explicit account is user intent and remains byte-for-byte unchanged for
-    // the existing downstream compatibility/refusal behavior.
-    const inheritedNativePrefix = `native:${input.agentKind}`
-    const inheritedMatchesAgent =
-      inheritedAccountId === inheritedNativePrefix ||
-      inheritedAccountId?.startsWith(inheritedNativePrefix + ':')
+    // The harness-login rule lives in ONE place (POD-4827 review 2):
+    // `selectHarnessAccountId` — the superagent's headless establishment
+    // calls the same function with its superagent-or-coding preference, so
+    // the composer path and the superagent path resolve the same account
+    // for the same settings. An explicit account is user intent and remains
+    // byte-for-byte unchanged for the existing downstream
+    // compatibility/refusal behavior.
     const selectedAccountId =
       input.accountId !== undefined
         ? input.accountId
-        : input.agentKind !== 'shell' &&
-            inheritedAccountId?.startsWith('native:') &&
-            !inheritedMatchesAgent
-          ? nativeAccountId(input.agentKind)
-          : inheritedAccountId
+        : input.agentKind === 'shell' || inheritedAccountId === undefined
+          ? inheritedAccountId
+          : selectHarnessAccountId(input.agentKind, inheritedAccountId)
     const accountId =
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined

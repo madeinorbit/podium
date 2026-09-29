@@ -29,7 +29,8 @@ import {
   type ThreadId,
   type UserId,
 } from '@podium/model'
-import { resolveRole, superagentHarnessAgent } from '@podium/runtime'
+import { resolveRole, nativeAccountId, superagentHarnessAgent } from '@podium/runtime'
+import { TRPCError } from '@trpc/server'
 import {
   harnessPremintsHeadlessResumeId,
   harnessResumeKind,
@@ -63,6 +64,7 @@ import {
   type GlobalRepoDigest,
 } from './global'
 import { classifyHarnessError, type HarnessErrorKind } from './harness-error'
+import { selectHarnessAccountId } from '../sessions/harness-account'
 import {
   type Args,
   buildSuperagentTools,
@@ -116,6 +118,16 @@ export interface SuperagentTurnFailure {
  * `clear` and `restart` both refused (they check the same flag), and the user
  * saw a spinner with no error and no way out. A bounded ladder ending in a
  * VISIBLE failure is strictly better than an invisible infinite one.
+ *
+ * KEPT after POD-4827 review 2 (the review asked whether it only papered over
+ * the missing establish): the ladder covers genuine transients — the
+ * fire-and-forget establish race (a first turn dispatched before the daemon
+ * binds reports `not_running` once, then delivers), transport timeouts, and
+ * brief disconnects. What it no longer papers over is the
+ * permanently-handleless session: a daemon restart between establish and
+ * first turn is healed at daemon attach (the reconciler re-sends the
+ * establish frame for never-bound headless sessions), so by the time the
+ * ladder runs the handle is back.
  */
 export const TURN_DISPATCH_MAX_ATTEMPTS = 6
 /** Backoff for retryable dispatch, capped. Attempt n waits 1s·2^(n-1) ≤ 30s. */
@@ -645,6 +657,11 @@ export class SuperagentService {
       await this.store.superagent.deleteQueuedInput(queued.inputId)
       this.queuedHarness.delete(queued.inputId)
       this.turnInFlight.delete(threadId)
+      // A typed refusal (a TRPCError such as the offline-machine refusal)
+      // keeps its code across the durable write: rewrapping it in a bare
+      // Error would turn the client's typed error back into a 500 (POD-4827).
+      // Anything else still reports the persisted message.
+      if (err instanceof TRPCError) throw err
       throw new Error(message)
     }
   }
@@ -734,17 +751,65 @@ export class SuperagentService {
     const bound = thread.podiumSessionId
     if (bound && await this.sessionById(bound)) return bound
     const agent = HarnessAgent.safeParse(thread.agentKind)
+    const settings = await this.store.settings.getSettingsFor(thread.ownerUserId)
+    const harness = agent.success ? agent.data : superagentHarnessAgent(settings)
+    const cwd = await this.threadCwd(thread)
+    // The daemon fences every headless turn on (turnId, requestDigest,
+    // accountId): a session without an account mints a digest the daemon
+    // refuses as `invalid_value` before anything runs (POD-4827 — the past-the-
+    // gate red test pins the refusal). Headed spawns resolve this in
+    // SessionStart.spawn; headless sessions never did. Resolve the same way
+    // here (role default, harness-native fallback, per-machine fingerprint) so
+    // the first turn verifies. The machine probe is the offline-tolerant legacy
+    // resolution, never the capability gate: a refused box must still reach
+    // `requireOnlineSession`'s actionable refusal below, not die here.
+    const probeMachine = await this.modules.machines.resolveMachine(undefined, cwd)
+    const accountId = await this.headlessAccountFor(thread.ownerUserId, harness, probeMachine)
     const { sessionId } = await this.modules.headless.createHeadlessSession({
       ownerUserId: thread.ownerUserId,
-      agentKind: agent.success
-        ? agent.data
-        : superagentHarnessAgent(await this.store.settings.getSettingsFor(thread.ownerUserId)),
-      cwd: await this.threadCwd(thread),
+      agentKind: harness,
+      cwd,
       title: thread.title ?? thread.id,
       spawnedBy: spawnedByTag({ kind: 'superagent', threadId: asThreadId(thread.id) }),
+      accountId,
     })
     await this.store.superagent.updateSuperagentThreadBinding(thread.id, { podiumSessionId: sessionId })
     return sessionId
+  }
+
+  /**
+   * Which harness login a headless turn is fenced on (POD-4827).
+   *
+   * The digest the turn mints covers this id and the daemon recomputes it
+   * before dispatch, so it must be stable per session and non-empty — and it
+   * should name the login the harness will actually run under, the way headed
+   * rows do. The role PREFERENCE here is the superagent's own: its role when
+   * it names this harness, else the coding role. The SELECTION from that
+   * preference is the one shared rule (`selectHarnessAccountId`, the same
+   * function `SessionStart.spawn` calls), so the composer path and the
+   * superagent path resolve the same account for the same settings.
+   * Never throws: settings/inventory reads must not break establishment — the
+   * worst case is a harness-level login error at dispatch, which names the
+   * repair instead of refusing the turn as a digest mismatch.
+   */
+  private async headlessAccountFor(
+    ownerUserId: UserId,
+    agent: HarnessAgent,
+    machineId: MachineId,
+  ): Promise<AccountId> {
+    try {
+      const settings = await this.store.settings.getSettingsFor(ownerUserId)
+      const superBackend = resolveRole(settings, 'superagent')
+      const roleAccount =
+        superBackend.execution === 'harness' && superBackend.harness === agent
+          ? superBackend.accountId
+          : resolveRole(settings, 'coding').accountId
+      const selected = selectHarnessAccountId(agent, roleAccount)
+      const resolved = await this.modules.machines.nativeAccountIdForMachine(machineId, agent, selected)
+      return resolved || nativeAccountId(agent)
+    } catch {
+      return nativeAccountId(agent)
+    }
   }
 
   private async prepareQueuedInput(
@@ -1415,7 +1480,17 @@ export class SuperagentService {
     } catch {
       name = machineId
     }
-    throw new Error(`machine '${name}' is offline — bring its daemon online, then retry.`)
+    // A refusal, not a crash: tRPC renders a bare Error as 500
+    // INTERNAL_SERVER_ERROR with the server stack (POD-4827 re-check), while
+    // the machine picker answers an offline machine as PRECONDITION_FAILED —
+    // the same code every other machine refusal uses. The stack is cleared so
+    // no server internals reach the client on any build.
+    const refusal = new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `machine '${name}' is offline — bring its daemon online, then retry.`,
+    })
+    refusal.stack = undefined
+    throw refusal
   }
 
   /**
