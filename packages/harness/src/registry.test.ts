@@ -825,7 +825,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       runtime: {
         server: unsupported('no server mode'),
         embedded: unsupported('no library to host'),
-        terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+        terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'], transcriptTimestamps: 'absent' },
         select: () => 'generic-pty',
       },
       state: unsupported('no state instrumentation yet'),
