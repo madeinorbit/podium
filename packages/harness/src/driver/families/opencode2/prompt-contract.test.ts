@@ -100,22 +100,23 @@ describe('OpenCode version selects the request contract', () => {
     ).toBe(driver)
   })
 
-  it.each(['0.0.0-beta-18866-dev', '0.0.0-beta-188660', '1.18.33\n0.0.0-beta-18866'])(
-    'does not admit a preview substring in %s',
-    (version) => {
-      expect(evaluateOpencode2VersionProbe(version, true).drivable).toBe(false)
-    },
-  )
+  it.each([
+    '0.0.0-beta-18866-dev',
+    '0.0.0-beta-188660',
+    '1.18.33\n0.0.0-beta-18866',
+  ])('does not admit a preview substring in %s', (version) => {
+    expect(evaluateOpencode2VersionProbe(version, true).drivable).toBe(false)
+  })
 
-  it.each(['0.0.0-beta-18743', '0.0.0-beta-18866'])(
-    'does not admit %s from a failed probe',
-    (version) => {
-      expect(evaluateOpencode2VersionProbe(version, false)).toMatchObject({
-        drivable: false,
-        reason: 'unprobeable',
-      })
-    },
-  )
+  it.each([
+    '0.0.0-beta-18743',
+    '0.0.0-beta-18866',
+  ])('does not admit %s from a failed probe', (version) => {
+    expect(evaluateOpencode2VersionProbe(version, false)).toMatchObject({
+      drivable: false,
+      reason: 'unprobeable',
+    })
+  })
 
   it('prefers stable v1 when stable and preview binaries are both available', () => {
     expect(
@@ -142,13 +143,19 @@ describe('OpenCode version selects the request contract', () => {
     })
     const sessionId = send.path.split('/')[2]
     if (!sessionId) throw new Error('Missing measured v1 session id')
-    await expect(createOpencodeClient(config(fetch)).prompt(sessionId, send.body)).resolves.toEqual({})
+    await expect(createOpencodeClient(config(fetch)).prompt(sessionId, send.body)).resolves.toEqual(
+      {},
+    )
     expect(fetch).toHaveBeenCalledOnce()
   })
 
   it('excludes stable v2 even though its nested prompt shape was accepted', () => {
     const send = frame<PromptBody>(stable, 'http.send', 'S1')
-    const reply = frame<{ data: { id: string; prompt: { text: string } } }>(stable, 'http.reply', 'S1')
+    const reply = frame<{ data: { id: string; prompt: { text: string } } }>(
+      stable,
+      'http.reply',
+      'S1',
+    )
     expect(send.body).toEqual({
       id: reply.body.data.id,
       prompt: { text: 'V2S1 ALPHA idle queue' },
@@ -164,23 +171,26 @@ describe('OpenCode version selects the request contract', () => {
 })
 
 describe('OpenCode measured v2 wire frames', () => {
-  it.each(['S1', 'S5a.1', 'S5a.2', 'S5d.2', 'S5e.2'])(
-    'sends the accepted beta-18866 body and sender id for %s',
-    async (label) => {
-      const send = frame<PromptBody>(beta, 'http.send', label)
-      const reply = frame(beta, 'http.reply', label)
-      const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
-        expect(new URL(String(url)).pathname).toBe(send.path)
-        expect(init?.method).toBe(send.method)
-        expect(JSON.parse(String(init?.body))).toEqual(send.body)
-        return response(reply)
-      })
-      await expect(
-        createOpencode2Client(config(fetch)).prompt(sessionFor(send), inputFor(send)),
-      ).resolves.toEqual({ textPartId: `${send.body.id}:0` })
-      expect(fetch).toHaveBeenCalledOnce()
-    },
-  )
+  it.each([
+    'S1',
+    'S5a.1',
+    'S5a.2',
+    'S5d.2',
+    'S5e.2',
+  ])('sends the accepted beta-18866 body and sender id for %s', async (label) => {
+    const send = frame<PromptBody>(beta, 'http.send', label)
+    const reply = frame(beta, 'http.reply', label)
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      expect(new URL(String(url)).pathname).toBe(send.path)
+      expect(init?.method).toBe(send.method)
+      expect(JSON.parse(String(init?.body))).toEqual(send.body)
+      return response(reply)
+    })
+    await expect(
+      createOpencode2Client(config(fetch)).prompt(sessionFor(send), inputFor(send)),
+    ).resolves.toEqual({ textPartId: `${send.body.id}:0` })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
 
   it('replays stable 400 Missing key prompt for the preview shape without a lookup', async () => {
     const send = frame<PromptBody>(stable, 'http.send', 'S10.othershape')
@@ -234,7 +244,9 @@ describe('OpenCode measured v2 wire frames', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
-  it.each([400, 404, 500])('preserves the original 409 when the lookup answers %s', async (status) => {
+  it.each([
+    400, 404, 500,
+  ])('preserves the original 409 when the lookup answers %s', async (status) => {
     const send = frame<PromptBody>(beta, 'http.send', 'S5f.cross')
     const conflict = frame(beta, 'http.reply', 'S5f.cross')
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) =>
@@ -268,8 +280,9 @@ describe('OpenCode measured v2 wire frames', () => {
 
   it('does not credit a 200 admission naming a different message id', async () => {
     const send = frame<PromptBody>(beta, 'http.send', 'S1')
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      new Response(JSON.stringify({ data: { id: 'msg_other', sessionID: sessionFor(send) } })),
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ data: { id: 'msg_other', sessionID: sessionFor(send) } })),
     )
     await expect(
       createOpencode2Client(config(fetch)).prompt(sessionFor(send), inputFor(send)),

@@ -151,16 +151,12 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
        */
       let response: Response
       try {
-        response = await request(
-          'POST',
-          `/api/session/${encodeURIComponent(sessionId)}/prompt`,
-          {
-            id: body.messageID,
-            text,
-            ...(files.length > 0 ? { files } : {}),
-            delivery: 'queue',
-          },
-        )
+        response = await request('POST', `/api/session/${encodeURIComponent(sessionId)}/prompt`, {
+          id: body.messageID,
+          text,
+          ...(files.length > 0 ? { files } : {}),
+          delivery: 'queue',
+        })
       } catch (error) {
         if (!(error instanceof OpencodeHttpError) || error.status !== 409) throw error
         // Ids are unique per database. Both measured builds answer 409 for
@@ -236,15 +232,13 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
             ...(model?.id ? { modelID: model.id } : {}),
             ...(model?.providerID ? { providerID: model.providerID } : {}),
           },
-          parts: parts.map(
-            (part, index) => ({
-              ...part,
-              id: partId(id, index),
-              messageID: id,
-              sessionID: sessionId,
-              type: String(part.type ?? 'text'),
-            }),
-          ),
+          parts: parts.map((part, index) => ({
+            ...part,
+            id: partId(id, index),
+            messageID: id,
+            sessionID: sessionId,
+            type: String(part.type ?? 'text'),
+          })),
         }
       })
     },
