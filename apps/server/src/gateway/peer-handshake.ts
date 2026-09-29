@@ -20,6 +20,7 @@ import {
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CAP_TERMINAL_PICTURE_V1,
   type CapabilityRef,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
@@ -113,6 +114,7 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
     }),
     supportedCaps: [
       CAP_TERMINAL_OUTPUT_BINARY_V1,
+      CAP_TERMINAL_PICTURE_V1,
       CAP_TERMINAL_INPUT_BINARY_V1,
       // POD-3239: a daemon that reports the grid it APPLIED. Supported here from
       // the moment the frame exists so the negotiation is in place; the session

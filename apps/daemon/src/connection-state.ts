@@ -9,6 +9,7 @@ import {
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CAP_TERMINAL_PICTURE_V1,
   createHandshakeDialer,
   DAEMON_WIRE_VERSION,
   MIN_DAEMON_WIRE_VERSION,
@@ -207,7 +208,9 @@ export interface DaemonConnection {
   close(): Promise<void>
 }
 
-const assertOutputBatch = (batch: DaemonPtyOutputBatch): void => {
+type DaemonPtyDataBatch = Exclude<DaemonPtyOutputBatch, { type: 'ptyPicture' }>
+
+const assertOutputBatch = (batch: DaemonPtyDataBatch): void => {
   if (
     !Number.isSafeInteger(batch.sourceFrames) ||
     batch.sourceFrames < 1 ||
@@ -220,7 +223,7 @@ const assertOutputBatch = (batch: DaemonPtyOutputBatch): void => {
 }
 
 const legacyOutputMessage = (
-  batch: DaemonPtyOutputBatch,
+  batch: DaemonPtyDataBatch,
 ): Extract<DaemonMessage, { type: 'agentFrameBatch' }> => {
   return {
     type: 'agentFrameBatch',
@@ -929,6 +932,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
           (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
         ),
         CAP_TERMINAL_OUTPUT_BINARY_V1,
+        CAP_TERMINAL_PICTURE_V1,
         CAP_TERMINAL_INPUT_BINARY_V1,
         // POD-3239: this daemon reports the grid it applied after every resize
         // it dispatches, which is what licenses the server to stop writing the
@@ -1212,6 +1216,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return ready
     },
     sendOutput(batch) {
+      // B1 widens the item contract only; B2 enables picture transmission.
+      if (batch.type === 'ptyPicture') return
       if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') return
       assertOutputBatch(batch)

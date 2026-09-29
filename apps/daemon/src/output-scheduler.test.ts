@@ -7,11 +7,14 @@ function harness() {
   const flushed: DaemonPtyOutputBatch[] = []
   const bytes = (value: string): Uint8Array => Buffer.from(value)
   const decoded = () =>
-    flushed.map((batch) => ({
-      sid: batch.sessionId,
-      sourceFrames: batch.sourceFrames,
-      bytes: Buffer.from(batch.bytes).toString(),
-    }))
+    flushed.map((batch) => {
+      if (batch.type === 'ptyPicture') throw new Error('data fixture received a picture')
+      return {
+        sid: batch.sessionId,
+        sourceFrames: batch.sourceFrames,
+        bytes: Buffer.from(batch.bytes).toString(),
+      }
+    })
   let immediate: (() => void) | null = null
   const timers = new Map<number, () => void>()
   let timerId = 0

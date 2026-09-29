@@ -351,6 +351,8 @@ export class SessionDaemonLifecycle {
   }
 
   handleOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
+    // Picture handling arrives in B2; never count a picture as a data frame.
+    if (batch.type === 'ptyPicture') return
     const session = this.sessions.get(batch.sessionId)
     if (!session || session.machineId !== principal.machine) return
     session.terminal.acceptOutput(batch.bytes, batch.sourceFrames)

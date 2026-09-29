@@ -26,6 +26,7 @@
 
 import * as model from '@podium/model'
 import { z } from 'zod'
+import * as binaryEnvelope from '../binary-envelope'
 import * as maintenance from '../maintenance'
 import * as approvals from '../messages/approvals'
 import * as automations from '../messages/automations'
@@ -71,6 +72,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['approvals', approvals],
   ['model', model],
   ['automations', automations],
+  ['binary-envelope', binaryEnvelope],
   ['browser-open', browserOpen],
   ['client', client],
   ['codex', codex],

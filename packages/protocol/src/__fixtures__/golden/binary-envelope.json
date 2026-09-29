@@ -1,0 +1,258 @@
+{
+  "family": "binary-envelope",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "BinaryEnvelopeHeader",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\"}"
+    },
+    {
+      "schema": "BinaryEnvelopeHeader",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\"}"
+    },
+    {
+      "schema": "ClientOutputBinaryMetadata",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "epoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\",\"sessionId\":\"sessionId\",\"seq\":1,\"epoch\":1}"
+    },
+    {
+      "schema": "ClientOutputBinaryMetadata",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "epoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\",\"sessionId\":\"sessionId\",\"seq\":1,\"epoch\":1}"
+    },
+    {
+      "schema": "ClientPtyInputMetadata",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "type": "ptyInput",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyInput\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "ClientPtyInputMetadata",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "type": "ptyInput",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyInput\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "DaemonPtyInputMetadata",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "type": "ptyInput",
+        "sessionId": "sessionId",
+        "inputOrigin": "human"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyInput\",\"sessionId\":\"sessionId\",\"inputOrigin\":\"human\"}"
+    },
+    {
+      "schema": "DaemonPtyInputMetadata",
+      "variant": "full/arm0",
+      "wire": {
+        "v": 1,
+        "type": "ptyInput",
+        "sessionId": "sessionId",
+        "inputOrigin": "human",
+        "attribution": {
+          "actor": {
+            "kind": "user",
+            "id": "attribution.actor.id"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyInput\",\"sessionId\":\"sessionId\",\"inputOrigin\":\"human\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"attribution.actor.id\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
+    },
+    {
+      "schema": "DaemonPtyInputMetadata",
+      "variant": "full/arm1",
+      "wire": {
+        "v": 1,
+        "type": "ptyInput",
+        "sessionId": "sessionId",
+        "inputOrigin": "controller",
+        "attribution": {
+          "actor": {
+            "kind": "agent",
+            "id": "attribution.actor.id"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyInput\",\"sessionId\":\"sessionId\",\"inputOrigin\":\"controller\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"attribution.actor.id\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
+    },
+    {
+      "schema": "DaemonPtyInputMetadata",
+      "variant": "full/arm2",
+      "wire": {
+        "v": 1,
+        "type": "ptyInput",
+        "sessionId": "sessionId",
+        "inputOrigin": "steward",
+        "attribution": {
+          "actor": {
+            "kind": "machine",
+            "id": "attribution.actor.id"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyInput\",\"sessionId\":\"sessionId\",\"inputOrigin\":\"steward\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"attribution.actor.id\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
+    },
+    {
+      "schema": "DaemonPtyInputMetadata",
+      "variant": "full/arm3",
+      "wire": {
+        "v": 1,
+        "type": "ptyInput",
+        "sessionId": "sessionId",
+        "inputOrigin": "mail",
+        "attribution": {
+          "actor": {
+            "kind": "system",
+            "job": "attribution.actor.job"
+          },
+          "onBehalfOf": "attribution.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyInput\",\"sessionId\":\"sessionId\",\"inputOrigin\":\"mail\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"attribution.actor.job\"},\"onBehalfOf\":\"attribution.onBehalfOf\"}}"
+    },
+    {
+      "schema": "DaemonPtyOutputMetadata",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput",
+        "sessionId": "sessionId",
+        "sourceFrames": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\",\"sessionId\":\"sessionId\",\"sourceFrames\":1}"
+    },
+    {
+      "schema": "DaemonPtyOutputMetadata",
+      "variant": "full/arm0",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput",
+        "sessionId": "sessionId",
+        "sourceFrames": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\",\"sessionId\":\"sessionId\",\"sourceFrames\":1}"
+    },
+    {
+      "schema": "DaemonPtyOutputMetadata",
+      "variant": "full/arm1",
+      "wire": {
+        "v": 1,
+        "type": "ptyPicture",
+        "sessionId": "sessionId",
+        "reason": "cut",
+        "cols": 2,
+        "rows": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyPicture\",\"sessionId\":\"sessionId\",\"reason\":\"cut\",\"cols\":2,\"rows\":2}"
+    },
+    {
+      "schema": "PtyOutputBinaryMetadata",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "epoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\",\"sessionId\":\"sessionId\",\"seq\":1,\"epoch\":1}"
+    },
+    {
+      "schema": "PtyOutputBinaryMetadata",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "type": "ptyOutput",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "epoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"type\":\"ptyOutput\",\"sessionId\":\"sessionId\",\"seq\":1,\"epoch\":1}"
+    }
+  ]
+}

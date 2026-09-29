@@ -16,6 +16,7 @@ import {
   BINARY_ENVELOPE_MAX_MESSAGE_BYTES,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CAP_TERMINAL_PICTURE_V1,
   DaemonPtyInputMetadata,
   type DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
@@ -282,10 +283,37 @@ describe('the daemon socket speaks the permanent envelope', () => {
   ])('negotiates pictures only with binary output: %j', async ({ caps, accepted }) => {
     const { reg, ws } = await authenticatedSocket(caps)
     try {
-      expect(JSON.parse(ws.sent[0]!)).toMatchObject({ type: 'peerHelloOk', caps: accepted })
+      expect(JSON.parse(ws.sent[0] ?? '')).toMatchObject({ type: 'peerHelloOk', caps: accepted })
       expect(ws.terminate).not.toHaveBeenCalled()
     } finally {
-      await reg.store.close()
+      await reg.dispose()
+      await reg.sessionStore.close()
+    }
+  })
+
+  it.each([
+    'reset',
+    'cut',
+  ])('parses a %s picture without routing it as data in B1', async (reason) => {
+    const { reg, ws } = await authenticatedSocket([
+      CAP_TERMINAL_OUTPUT_BINARY_V1,
+      CAP_TERMINAL_PICTURE_V1,
+    ])
+    const route = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
+    try {
+      await ws.emit(
+        'message',
+        binaryFrame(
+          { v: 1, type: 'ptyPicture', sessionId: 'session-picture', reason, cols: 120, rows: 40 },
+          Uint8Array.of(0x1b, 0x63),
+        ),
+        true,
+      )
+      expect(ws.terminate).not.toHaveBeenCalled()
+      expect(route).not.toHaveBeenCalled()
+    } finally {
+      await reg.dispose()
+      await reg.sessionStore.close()
     }
   })
 

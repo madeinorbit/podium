@@ -1,6 +1,6 @@
 {
   "family": "terminal",
-  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "note": "Golden wire fixtures (POD-360). Generated \u2014 regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
       "schema": "AgentColorMessage",
@@ -332,6 +332,7 @@
           "cols": 1,
           "rows": 1
         },
+        "pictures": true,
         "draftSyncEngine": true,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
@@ -341,7 +342,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"]}"
+      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"pictures\":true,\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"]}"
     },
     {
       "schema": "ControllerChangedMessage",
@@ -560,12 +561,14 @@
           "cols": 1,
           "rows": 1
         },
-        "cause": "request"
+        "cause": "request",
+        "birth": true,
+        "pictures": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"geometryApplied\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"cause\":\"request\"}"
+      "encoded": "{\"type\":\"geometryApplied\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"cause\":\"request\",\"birth\":true,\"pictures\":true}"
     },
     {
       "schema": "GeometryMessage",

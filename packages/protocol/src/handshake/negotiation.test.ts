@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MIN_DAEMON_WIRE_VERSION, DAEMON_WIRE_VERSION } from '../version'
+import { createHandshakeDialer } from './dialer'
 import {
   isReservedCap,
   negotiateCapabilities,
@@ -43,11 +44,25 @@ describe('capability negotiation (ADR 5 D3.3)', () => {
     { offered: [picture], supported: [picture], accepted: [] },
     { offered: [picture, binary], supported: [binary], accepted: [binary] },
     { offered: [binary], supported: [picture, binary], accepted: [binary] },
-    { offered: [picture, 'terminal.input.binary.v1'], supported: [picture, 'terminal.input.binary.v1'], accepted: ['terminal.input.binary.v1'] },
+    {
+      offered: [picture, 'terminal.input.binary.v1'],
+      supported: [picture, 'terminal.input.binary.v1'],
+      accepted: ['terminal.input.binary.v1'],
+    },
   ])('requires negotiated binary output for pictures: %j', ({ offered, supported, accepted }) => {
     const result = negotiateCapabilities(offered, supported)
     expect(result.accepted).toEqual(accepted)
     expect(result.ignored).toEqual(offered.filter((cap) => !accepted.includes(cap)))
+    const dialer = createHandshakeDialer({
+      credential: { kind: 'machineToken', token: 'test' },
+      caps: supported,
+    })
+    dialer.hello()
+    expect(
+      dialer.receive(
+        JSON.stringify({ type: 'peerHelloOk', v: DAEMON_WIRE_VERSION, caps: offered }),
+      ),
+    ).toMatchObject({ action: 'established', caps: { accepted } })
   })
 
   it('returns the intersection, never the offer echoed back', () => {

@@ -1,3 +1,4 @@
+import { DaemonPtyOutputMetadata } from '../binary-envelope'
 import { SYNC_WIRE_FIXTURES } from './sync-stream.fixtures'
 /**
  * Golden wire fixtures for the entity schemas relocated to `@podium/model`
@@ -71,7 +72,7 @@ import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
 import { ServerMessage } from './server'
-import { GeometryAppliedMessage, ViewportRequestMessage } from './terminal'
+import { BindMessage, GeometryAppliedMessage, ViewportRequestMessage } from './terminal'
 
 export interface WireFixture {
   /** Stable golden key. Never rename without regenerating deliberately. */
@@ -655,6 +656,56 @@ export const WIRE_FIXTURES: WireFixture[] = [
       cause: 'request',
     },
   },
+  {
+    name: 'geometryApplied.birthLegacy',
+    schema: GeometryAppliedMessage,
+    value: {
+      type: 'geometryApplied',
+      sessionId: 'sess-1',
+      geometry: { cols: 120, rows: 40 },
+      cause: 'request',
+      birth: true,
+    },
+  },
+  {
+    name: 'geometryApplied.birthPictures',
+    schema: GeometryAppliedMessage,
+    value: {
+      type: 'geometryApplied',
+      sessionId: 'sess-1',
+      geometry: { cols: 120, rows: 40 },
+      cause: 'request',
+      birth: true,
+      pictures: true,
+    },
+  },
+  {
+    name: 'bind.legacy',
+    schema: BindMessage,
+    value: { type: 'bind', sessionId: 'sess-1', cmd: 'sh', cwd: '/work', agentKind: 'shell' },
+  },
+  {
+    name: 'bind.pictures',
+    schema: BindMessage,
+    value: {
+      type: 'bind',
+      sessionId: 'sess-1',
+      cmd: 'sh',
+      cwd: '/work',
+      agentKind: 'shell',
+      pictures: true,
+    },
+  },
+  {
+    name: 'daemonPtyOutput.legacy',
+    schema: DaemonPtyOutputMetadata,
+    value: { v: 1, type: 'ptyOutput', sessionId: 'sess-1', sourceFrames: 2 },
+  },
+  ...(['reset', 'cut'] as const).map((reason) => ({
+    name: `daemonPtyOutput.picture.${reason}`,
+    schema: DaemonPtyOutputMetadata,
+    value: { v: 1, type: 'ptyPicture', sessionId: 'sess-1', reason, cols: 120, rows: 40 },
+  })),
 
   // ---- issue aggregate + projections (issues.ts) ----
   { name: 'issueStage', schema: IssueStage, value: 'in_progress' },

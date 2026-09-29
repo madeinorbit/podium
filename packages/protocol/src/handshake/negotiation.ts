@@ -12,6 +12,7 @@
  * (`./acceptor.order.test.ts`).
  */
 
+import { CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_PICTURE_V1 } from '../messages/terminal'
 import { versionSupport, type WireVersionOffer } from '../version'
 import {
   type HandshakeRejectReason,
@@ -94,6 +95,9 @@ export const negotiateCapabilities = (
   supported: readonly string[],
 ): CapabilityNegotiation => {
   const supportedSet = new Set(supported)
+  const binaryOutput =
+    offered.includes(CAP_TERMINAL_OUTPUT_BINARY_V1) &&
+    supportedSet.has(CAP_TERMINAL_OUTPUT_BINARY_V1)
   const accepted: string[] = []
   const ignored: string[] = []
   const reserved: string[] = []
@@ -104,7 +108,8 @@ export const negotiateCapabilities = (
       reserved.push(token)
       continue
     }
-    if (supportedSet.has(token)) accepted.push(token)
+    if (supportedSet.has(token) && (token !== CAP_TERMINAL_PICTURE_V1 || binaryOutput))
+      accepted.push(token)
     else ignored.push(token)
   }
   return { accepted, ignored, reserved }

@@ -87,6 +87,9 @@ export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
 /** Client capability: this connection accepts v1 binary PTY output envelopes.
  * Missing capability data is the legacy JSON/base64 output contract. */
 export const CAP_TERMINAL_OUTPUT_BINARY_V1 = 'terminal.output.binary.v1'
+/** Daemon/server capability: picture items in binary output. Offer and accept
+ * only alongside CAP_TERMINAL_OUTPUT_BINARY_V1. */
+export const CAP_TERMINAL_PICTURE_V1 = 'terminal.picture.v1'
 /** Client capability: this connection sends v1 binary PTY input envelopes. */
 export const CAP_TERMINAL_INPUT_BINARY_V1 = 'terminal.input.binary.v1'
 
@@ -762,6 +765,8 @@ export const GeometryAppliedMessage = z.object({
    * reads a plain report, exactly as before.
    */
   birth: z.boolean().optional(),
+  /** On a birth report, this terminal supports negotiated picture items. */
+  pictures: z.literal(true).optional(),
 })
 export type GeometryAppliedMessage = z.infer<typeof GeometryAppliedMessage>
 
@@ -790,6 +795,8 @@ export const BindMessage = z.object({
    * the behaviour that shipped before this and so is not a regression.
    */
   geometry: Geometry.optional(),
+  /** This session supports picture items on the negotiated binary output link. */
+  pictures: z.literal(true).optional(),
   // Draft Sync v2 (POD-859): true when the daemon runs its composer scrape/inject
   // engine for this session. Surfaced in SessionMeta so a client retires its own
   // sampler/flush. Additive; older daemons omit it (no engine).

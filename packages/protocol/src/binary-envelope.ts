@@ -6,7 +6,7 @@
  * payload remains uninterpreted bytes. Bounds are checked before metadata is
  * sliced, decoded, or parsed, so an untrusted length cannot allocate freely.
  */
-import { Attribution, SessionIdField } from '@podium/model'
+import { Attribution, Geometry, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import { ObservationInputOrigin } from './messages/runtime-state'
 
@@ -30,8 +30,7 @@ export type PtyOutputBinaryMetadata = z.infer<typeof PtyOutputBinaryMetadata>
 
 export const ClientOutputBinaryMetadata = PtyOutputBinaryMetadata
 
-/** V1 daemon-to-server PTY output metadata. Unknown additive fields survive. */
-export const DaemonPtyOutputMetadata = z
+const DaemonPtyDataMetadata = z
   .object({
     v: z.literal(1),
     type: z.literal('ptyOutput'),
@@ -39,6 +38,24 @@ export const DaemonPtyOutputMetadata = z
     sourceFrames: z.number().int().positive().safe().max(DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES),
   })
   .passthrough()
+
+const DaemonPtyPictureMetadata = z
+  .object({
+    v: z.literal(1),
+    type: z.literal('ptyPicture'),
+    sessionId: SessionIdField,
+    reason: z.enum(['reset', 'cut']),
+    cols: Geometry.shape.cols,
+    rows: Geometry.shape.rows,
+  })
+  .passthrough()
+
+/** V1 daemon-to-server output items. Pictures require terminal.picture.v1;
+ * unknown additive fields survive on both items. Data keeps its old wire shape. */
+export const DaemonPtyOutputMetadata = z.discriminatedUnion('type', [
+  DaemonPtyDataMetadata,
+  DaemonPtyPictureMetadata,
+])
 export type DaemonPtyOutputMetadata = z.infer<typeof DaemonPtyOutputMetadata>
 /** V1 browser-client-to-server PTY input metadata. Identity is transport-derived. */
 export const ClientPtyInputMetadata = z
@@ -64,7 +81,7 @@ export type DaemonPtyInputMetadata = z.infer<typeof DaemonPtyInputMetadata>
 
 /** Supported framing header. Plane schemas validate fields beyond this header. */
 export const BinaryEnvelopeHeader = z
-  .object({ v: z.literal(1), type: z.enum(['ptyOutput', 'ptyInput']) })
+  .object({ v: z.literal(1), type: z.enum(['ptyOutput', 'ptyInput', 'ptyPicture']) })
   .passthrough()
 export type BinaryEnvelopeHeader = z.infer<typeof BinaryEnvelopeHeader>
 

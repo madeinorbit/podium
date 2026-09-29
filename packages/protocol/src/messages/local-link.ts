@@ -1,4 +1,5 @@
 import type { Attribution, MachineId, SessionId } from '@podium/model'
+import type { DaemonPtyOutputMetadata } from '../binary-envelope'
 import type { MachineChallenge, PeerHello, PeerHelloReply } from '../handshake/envelope'
 import type { ControlMessage } from './control'
 import type { DaemonMessage } from './daemon'
@@ -35,12 +36,24 @@ export type LocalDaemonAttachment =
  *   in-process is a transport optimization, never a local-credential trust
  *   shortcut (ADR 9 D6 M4). Only an established reply exposes delivery.
  */
-export interface DaemonPtyOutputBatch {
-  readonly sessionId: SessionId
-  readonly sourceFrames: number
-  /** Immutable after delivery: local routing and terminal replay may retain this exact view. */
-  readonly bytes: Uint8Array
-}
+export type DaemonPtyOutputBatch =
+  | {
+      /** Absent on existing data batches; pictures always carry a discriminator. */
+      readonly type?: 'ptyOutput'
+      readonly sessionId: SessionId
+      readonly sourceFrames: number
+      /** Immutable after delivery: local routing and replay may retain this exact view. */
+      readonly bytes: Uint8Array
+    }
+  | {
+      readonly type: 'ptyPicture'
+      readonly sessionId: SessionId
+      readonly reason: Extract<DaemonPtyOutputMetadata, { type: 'ptyPicture' }>['reason']
+      readonly cols: number
+      readonly rows: number
+      /** Immutable after delivery, like data. Pictures are not source frames or activity. */
+      readonly bytes: Uint8Array
+    }
 
 /** Canonical server-to-daemon PTY input after authority and origin are resolved. */
 export interface DaemonPtyInputBatch {

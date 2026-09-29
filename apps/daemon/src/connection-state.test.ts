@@ -7,6 +7,7 @@ import { asMachineId, asSessionId } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CAP_TERMINAL_PICTURE_V1,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
@@ -117,7 +118,7 @@ describe('daemon connection credential state machine', () => {
     )
     await state.start()
     expect(hello?.caps).toContain(CAP_TERMINAL_OUTPUT_BINARY_V1)
-    expect(hello?.caps).toContain('terminal.picture.v1')
+    expect(hello?.caps).toContain(CAP_TERMINAL_PICTURE_V1)
     expect(hello).toMatchObject({
       type: 'peerHello',
       peerRole: 'machine',
@@ -667,6 +668,34 @@ it('sends exact binary output only when the remote handshake accepts it', async 
   expect(h.sendApplicationFrame).not.toHaveBeenCalled()
   await h.state.close()
 })
+
+it.each([
+  { caps: [] },
+  { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] },
+  { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_PICTURE_V1] },
+])('does not send picture items in the parser-only step (%j)', async ({ caps }) => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({ ...ok, caps })
+  await started
+  try {
+    const sent = h.socket.sent.length
+    h.state.sendOutput({
+      type: 'ptyPicture',
+      sessionId: asSessionId('session-picture'),
+      reason: 'reset',
+      cols: 120,
+      rows: 40,
+      bytes: Uint8Array.of(0x1b, 0x63),
+    })
+    expect(h.socket.sent).toHaveLength(sent)
+    expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  } finally {
+    await h.state.close()
+  }
+})
+
 it('receives exact binary PTY input only when the remote handshake accepts it', async () => {
   const h = remoteHarness()
   const started = h.state.start()
