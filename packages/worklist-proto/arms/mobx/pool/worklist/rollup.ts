@@ -572,7 +572,11 @@ const COLD_FACTS: OwnFacts = { ...UNKNOWN_FACTS, state: 'cold' }
 
 /** The own row's decision facts (`rowPendingDecision`'s row half). */
 export function ownFactsPartOf(input: RollupInputs, id: string): OwnFacts {
-  const issue = input.loadedIssue(id)
+  return ownFactsOf(input.loadedIssue(id))
+}
+
+/** The decision facts of an own row as the in-memory read answers it. */
+export function ownFactsOf(issue: Loaded<SliceIssue>): OwnFacts {
   if (issue === LOADING) return COLD_FACTS
   if (issue === undefined) return UNKNOWN_FACTS
   return {
@@ -754,39 +758,20 @@ export interface Attention {
 
 /**
  * The attention group of issue `id`: one composition over its nest children's
- * cached groups. The own facts are read once, and only for a present row (a
- * cold own row queues its load).
+ * cached groups. The own facts are read only for a present row (a cold own
+ * row queues its load).
  */
 export function attentionOf(
   input: RollupInputs,
   id: string,
-  self: Pick<RollupSelf, 'present' | 'rosterIds' | 'openOwn' | 'tip'>,
+  self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip'>,
 ): Attention {
   input.counted()
-  let facts: OwnFacts | undefined
-  const own = {
-    get present() {
-      return self.present
-    },
-    get ownFacts() {
-      facts ??= ownFactsPartOf(input, id)
-      return facts
-    },
-    get rosterIds() {
-      return self.rosterIds
-    },
-    get openOwn() {
-      return self.openOwn
-    },
-    get tip() {
-      return self.tip
-    },
-  }
-  const ownAttention = ownAttentionPartOf(input, own)
+  const ownAttention = ownAttentionPartOf(input, self)
   return {
     ownAttention,
     aggregate: aggregatePartOf(input, id, { ownAttention }),
-    seatActivity: seatActivityPartOf(input, id, own),
+    seatActivity: seatActivityPartOf(input, id, self),
   }
 }
 

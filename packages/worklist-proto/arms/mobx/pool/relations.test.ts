@@ -1069,11 +1069,12 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
    * map's three levels written, then read once by `flush`), the flipped-issue
    * check, the dedupe key pair (`new Set([oldKey, newKey])`), the replay
    * source's row entry and listener copy, the read fence's first sight of a
-   * new row, the model cache's delete of a removed one. The prefix index
+   * new row, the model cache's delete of a removed one, and the one object's
+   * memo entry when the worklist takes a new issue. The prefix index
    * (`place`) adds or deletes one entry per ancestor path of the row's path,
    * creates or drops at most one set per path, and records the placement once.
    */
-  const PLAIN_BOOKKEEPING = 16
+  const PLAIN_BOOKKEEPING = 17
   const plainBound = (path: string | null): number =>
     PLAIN_BOOKKEEPING + (path === null ? 0 : 2 * [...ancestorPaths(path)].length + 1)
   const big: RowRecord[] = [lane('/repo')]

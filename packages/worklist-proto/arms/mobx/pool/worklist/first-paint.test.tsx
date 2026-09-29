@@ -10,7 +10,7 @@
  * - visibility nodes: MobX's own graph. Every reaction MobX tracks is
  *   collected (`Reaction.prototype.track`), and from the pool's visibility
  *   reactions the graph is walked through each derivation's `observing_`
- *   (MobX's dependency list) to the distinct `IssueNode@n` / `SessionNode@n`
+ *   (MobX's dependency list) to the distinct `IssueModel@n` / `SessionModel@n`
  *   objects behind them. Nothing here asks the pool what it built.
  * - first paint: the DOM right after mount, before any load lands. A visible
  *   row that is cold draws as a loading placeholder (`data-loading-row`); the
@@ -182,7 +182,7 @@ describe('visible collection: bootstrap and first paint (outside measures)', () 
     // The instruments saw something: a visibility reaction per known issue,
     // and every placeholder resolved once the loads landed.
     expect(cell.nodesFromMobxGraph.visibilityReactions).toBe(cell.poolCounters.issueNodes)
-    expect((cell.nodesFromMobxGraph as Record<string, number>)['IssueNode']).toBe(
+    expect((cell.nodesFromMobxGraph as Record<string, number>)['IssueModel']).toBe(
       cell.poolCounters.issueNodes,
     )
     expect(cell.firstPaint.loadingRows).toBe(cell.firstPaint.coldVisible)

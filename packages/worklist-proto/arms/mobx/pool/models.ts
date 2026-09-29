@@ -59,7 +59,7 @@ import {
   buildRowView,
   type IssueParts,
   type Label,
-  labelOf,
+  labelOfRow,
   loadingPartOf,
   type OwnPart,
   originIdPartOf,
@@ -82,7 +82,7 @@ import {
   type Loaded,
   type OwnAttention,
   type OwnFacts,
-  ownFactsPartOf,
+  ownFactsOf,
   type Progress,
   progressOf,
   type Rollup,
@@ -180,7 +180,7 @@ function installFields(prototype: EntityModel, entity: EntityName): void {
 /**
  * THE issue: its row, its row view, its visibility, its roll-ups and its
  * edits. The groups (cached values) are `facts`, `rank`, `members`,
- * `presence`, `nesting`, `tip`, `attention`, `progress`, `label` and `view`.
+ * `presence`, `nesting`, `tip`, `attention`, `progress`, `loaded` and `view`.
  */
 export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
   constructor(id: string, host: ModelHost) {
@@ -194,7 +194,7 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
       tip: computedStruct,
       attention: computedStruct,
       progress: computedStruct,
-      label: computedStruct,
+      loaded: computedStruct,
       view: computedStruct,
       // Plain: the edit, and reads of the groups or parts run where read.
       update: false,
@@ -218,6 +218,7 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
       seatActivity: false,
       unitOwn: false,
       unitsBelow: false,
+      label: false,
       displayRef: false,
       displayTitle: false,
       own: false,
@@ -283,15 +284,24 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     return progressOf(this.host.rollupInputs, this.id, this)
   }
 
-  get label(): Label {
-    return labelOf(this.host.inputs, this.id, this.facts?.part)
+  /**
+   * What the IN-MEMORY row gives (one read of it, which queues a cold row's
+   * load): its decision facts for the roll-up (`state` says whether it is in
+   * memory) and its label for the view and a spin-off's origin tick. Cached,
+   * so a view or a composition re-running reads no row.
+   */
+  get loaded(): { readonly facts: OwnFacts; readonly label: Label } {
+    const row = this.host.rollupInputs.loadedIssue(this.id)
+    return {
+      facts: ownFactsOf(row),
+      label: labelOfRow(this.host.inputs, this.id, row === LOADING ? undefined : row),
+    }
   }
 
   /** The L1b row view; undefined while the row is not in memory (its load queued) or gone. */
   get view(): RowView | undefined {
     this.host.stats.rowsDerived += 1
-    const row = this.host.row('issue', this.id)
-    if (row === undefined || row === LOADING) return undefined
+    if (this.loaded.facts.state !== 'ready') return undefined
     return buildRowView(this.host.inputs, this.id, this)
   }
 
@@ -377,6 +387,10 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     return this.progress.unitsBelow
   }
 
+  get label(): Label {
+    return this.loaded.label
+  }
+
   get displayRef(): string | undefined {
     return this.label.displayRef
   }
@@ -423,7 +437,7 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
   }
 
   get ownFacts(): OwnFacts {
-    return ownFactsPartOf(this.host.rollupInputs, this.id)
+    return this.loaded.facts
   }
 
   get childIds(): readonly string[] {

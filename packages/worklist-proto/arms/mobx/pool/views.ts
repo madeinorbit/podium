@@ -440,20 +440,21 @@ export function loadingPartOf(
   return loading
 }
 
-/** The label group: the row's own ref and title, and what a spin-off's origin tick copies. */
+/** The row's label: its own ref and title, and what a spin-off's origin tick copies. */
 export interface Label {
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
-  /** The own part's `seq`; undefined when the issue is unknown. */
+  /** The row's `seq`; undefined when the issue is not in memory. */
   readonly seq: number | undefined
 }
 
-/** The label group of issue `id`, over its own part. */
-export function labelOf(input: ViewInputs, id: string, own: OwnPart | undefined): Label {
+/** The label of issue `id` from its in-memory row (undefined: every field undefined). */
+export function labelOfRow(input: ViewInputs, id: string, issue: SliceIssue | undefined): Label {
+  if (issue === undefined) return { displayRef: undefined, displayTitle: undefined, seq: undefined }
   return {
-    displayRef: displayRefPartOf(own, prefixPartOf(input, repoTargetPartOf(input, id))),
-    displayTitle: displayTitlePartOf(input, id, sessionIdsPartOf(input, id)),
-    seq: own?.seq,
+    displayRef: displayRefOf(issue.seq, prefixPartOf(input, repoTargetPartOf(input, id))),
+    displayTitle: displayTitleOf(issue, () => firstMemberOf(input, sessionIdsPartOf(input, id))),
+    seq: issue.seq,
   }
 }
 
