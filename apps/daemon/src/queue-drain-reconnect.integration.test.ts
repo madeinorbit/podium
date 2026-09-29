@@ -9,7 +9,7 @@ import {
   type MachineId,
   SOLE_USER_ID,
 } from '@podium/model'
-import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
+import { DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
 
 /**
  * The owner the legacy-binding migration stamps: the RETIRED LITERAL, matching
@@ -18,6 +18,7 @@ import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
  * daemon is a separate process with no database to resolve a member from.
  */
 const SINGLE_OPERATOR = asUserId(SOLE_USER_ID)
+
 import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
@@ -28,8 +29,8 @@ import { createDaemonConnection, type DaemonConnection } from './connection-stat
 import type { DaemonContext } from './control/context'
 import { dispatchControlMessage } from './control/registry'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
-import { createRuntimeEventOutbox } from './runtime-event-outbox'
 import { daemonRuntimeHost } from './runtime/host'
+import { createRuntimeEventOutbox } from './runtime-event-outbox'
 
 const roots: string[] = []
 const helloOk: PeerHelloReply = {
@@ -82,7 +83,15 @@ class FakeSocket extends EventEmitter {
 }
 
 describe('queue-drain abandonment across a daemon disconnect', () => {
-  it('replays after reconnect until the durable row is terminal and acknowledged', async () => {
+  /**
+   * A teardown report written while the socket is down is replayed on the next
+   * connection until the server acknowledges it. What the report names is the
+   * message's durable row (its turn id is the row id, the message id), and a
+   * report naming a durable row discards the daemon's custody, not the work
+   * (POD-4795): the row stays queued for the next owner. This used to pin the
+   * row ending `failed`, from when a send the daemon held was a direct turn.
+   */
+  it('replays after reconnect until acknowledged, and the durable row stays queued', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const machineId: MachineId = registry.sessionStore.hostMachineId
     // The host machine must be enrolled for agent execution, or no session can
@@ -193,7 +202,8 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
           urgency: 'next-turn',
         },
       )
-      expect(sent.message.deliveryStatus).toBe('stored')
+      // Handed on as a durable row the daemon holds in custody.
+      expect(sent.message.deliveryStatus).toBe('dispatched')
 
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       sockets[0]?.close()
@@ -205,7 +215,9 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
         reason: 'teardown',
       })
       expect(outbox.pending()).toHaveLength(1)
-      expect((await registry.sessionStore.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('stored')
+      expect(
+        (await registry.sessionStore.messages.getMessage(sent.message.id))?.deliveryStatus,
+      ).toBe('dispatched')
 
       if (!retry) throw new Error('disconnect did not schedule reconnect')
       retry()
@@ -213,11 +225,16 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       sockets[1]?.message(helloOk)
       await settled()
 
-      expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
-        deliveryStatus: 'failed',
-        deliveryDeferredReason: 'teardown',
-      })
+      // The replay reached the server and was acknowledged, so the outbox is
+      // empty; the durable row is untouched and still queued.
       expect(outbox.pending()).toEqual([])
+      expect(await registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        deliveryStatus: 'dispatched',
+        deadLetteredAt: null,
+      })
+      expect(await registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(
+        true,
+      )
     } finally {
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       await connection?.close()
