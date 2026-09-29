@@ -214,9 +214,14 @@ describe('bootstrap', () => {
     // What MobX itself reports building: one table slot per HOT row.
     expect(built['pool.issue']).toBe(hotIssues.length)
     expect(built['pool.session']).toBe(hotSessions.length)
-    // One object per issue the worklist holds, cold ones included (their
-    // visibility reads the cold row by id), and the sessions those read.
-    expect(pool.modelCount('issue')).toBe(pool.worklist.size())
+    // One filing reaction per HOT issue; one object per issue read (the hot
+    // ones, and the cold ones a walk reaches: their visibility reads the
+    // cold row by id), and the sessions those read.
+    expect(pool.worklist.size()).toBe(hotIssues.length)
+    expect(pool.modelCount('issue')).toBeGreaterThanOrEqual(hotIssues.length)
+    expect(pool.modelCount('issue') - hotIssues.length).toBeLessThanOrEqual(
+      corpus.sliceIssues.length - hotIssues.length,
+    )
     expect(pool.stats.counters.modelsCreated).toBe(
       pool.modelCount('issue') + pool.modelCount('session'),
     )
@@ -267,10 +272,14 @@ describe('bootstrap', () => {
     })
   })
 
-  it('drawing builds no object beyond the held issues, the drawn rows and their origins', async () => {
+  it('drawing builds no object beyond bootstrap\'s, the drawn rows, their origins and the issues below them', async () => {
     const r = rig()
     const { pool } = r
-    const held = new Set(pool.worklist.heldIds())
+    // The issue objects bootstrap built (every hot issue's, and the cold
+    // ones its walks reached).
+    const held = new Set(
+      (pool as unknown as { models: { issue: Map<string, unknown> } }).models.issue.keys(),
+    )
     expect(pool.modelCount('issue')).toBe(held.size)
     const el = document.createElement('div')
     document.body.append(el)
@@ -297,7 +306,7 @@ describe('bootstrap', () => {
     // values (legacy `retainedSessions`), so its resident seats have an
     // object too.
     const members = new Set(
-      tracked(() => drawn.flatMap((id) => pool.worklist.issue(id!)?.retainedSeatIds ?? [])).filter(
+      tracked(() => drawn.flatMap((id) => pool.knownIssue(id!)?.retainedSeatIds ?? [])).filter(
         (id) => tracked(() => pool.resident('session', id)) === 'resident',
       ),
     )
@@ -314,7 +323,35 @@ describe('bootstrap', () => {
         }),
       ),
     )
-    const issueModels = new Set([...held, ...drawn, ...origins]).size
+    // A drawn row's roll-ups compose over the issues below it (its formal
+    // children's units, its nest candidates down the raw parent edge, its
+    // spin-offs' tips, the issues its sessions started), so one bootstrap
+    // never read gets its object on first read (a cold one is read by id,
+    // never loaded).
+    const descendants = new Set<string>()
+    tracked(() => {
+      const queue = drawn.map((id) => id!)
+      const reach = (id: string): void => {
+        if (descendants.has(id)) return
+        descendants.add(id)
+        queue.push(id)
+      }
+      for (let at = 0; at < queue.length; at += 1) {
+        const id = queue[at]!
+        for (const relation of ['children', 'treeChildren', 'spinOffs'] as const) {
+          for (const below of pool.relations.many('issue', id, relation)) reach(below)
+        }
+        for (const session of pool.knownIssue(id)?.memberIds ?? []) {
+          for (const started of pool.relations.many('session', session, 'startedIssues')) reach(started)
+        }
+      }
+    })
+    const built = new Set(
+      (pool as unknown as { models: { issue: Map<string, unknown> } }).models.issue.keys(),
+    )
+    const expected = new Set([...held, ...drawn, ...origins])
+    expect([...built].filter((id) => !expected.has(id) && !descendants.has(id))).toEqual([])
+    const issueModels = built.size
     expect(pool.modelCount('issue')).toBe(issueModels)
     expect(pool.modelCount('session')).toBeGreaterThanOrEqual(members.size)
     expect(pool.stats.counters.modelsCreated).toBe(
@@ -368,10 +405,10 @@ describe('the loader', () => {
     // retention by id: per-row feed reads, never loads (`hydrated` below
     // stays 2, and they stay cold).
     const loaded = [`issue:${a!.id}`, `issue:${b!.id}`]
-    const coldChildren = tracked(() => [...pool.worklist.formalChildren(a!.id)]).filter((id) =>
+    const coldChildren = tracked(() => [...pool.relations.many('issue', a!.id, 'children')]).filter((id) =>
       pool.residency?.isCold('issue', id),
     )
-    const coldMembers = tracked(() => [...(pool.worklist.issue(a!.id)?.memberIds ?? [])]).filter(
+    const coldMembers = tracked(() => [...(pool.knownIssue(a!.id)?.memberIds ?? [])]).filter(
       (id) => pool.residency?.isCold('session', id),
     )
     const byId = r.loads.filter((key) => !loaded.includes(key))
@@ -550,7 +587,7 @@ describe('lazy relations', () => {
     // latest, else `updatedAt`. These are finished runs of a closed issue
     // past their keep, so none is retained, and the loaded row shows the
     // issue's own stamp, not its sessions' (the pre-POD-4679 value).
-    expect(tracked(() => pool.worklist.issue(issue.id)?.retainedSeatIds)).toEqual([])
+    expect(tracked(() => pool.knownIssue(issue.id)?.retainedSeatIds)).toEqual([])
     const latest = Math.max(...sessions.map((session) => Date.parse(session.lastActiveAt)))
     expect(latest).not.toBe(Date.parse(issue.updatedAt))
     expect(last.activityAt).toBe(Date.parse(issue.updatedAt))

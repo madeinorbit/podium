@@ -159,7 +159,7 @@ describe('fence steps #1-#4', () => {
         // row's retained seats, whose stamps `activityAt` reads (POD-4679:
         // legacy `retainedSessions`), not every session naming the issue.
         const family = tracked(
-          () => plantedPool!.worklist.issue(ctx.targets.visibleRootId)!.retainedSeatIds.length,
+          () => plantedPool!.knownIssue(ctx.targets.visibleRootId)!.retainedSeatIds.length,
         )
         expect(readsBudget).toBe(3)
         expect(family).toBeGreaterThan(readsBudget)

@@ -51,38 +51,39 @@
  * read only by the presence group, and only when it needs them, so they are
  * computed inside it and not cached apart.
  *
- * THE COLLECTION IS MAINTAINED, NOT RE-ENUMERATED. Every issue the worklist
- * holds (the lazy closure: visible, present and keeping rows, their
- * ancestors, and their formal subtrees; not every known issue) holds one
- * reaction on its `visible`, which adds or deletes its id in one observable
- * set. A row the worklist does not hold reads as hidden and keeping nothing,
- * which the closure guarantees by construction (the plain pass evaluates
- * every known issue, so anything present or keeping is in the closure).
- * Holds are taken and released per changed issue record (`ensure`); the only
- * whole-table walk is `enumerate.ts` `knownIssueIds`, at a `replace`.
+ * NEST CHILDREN ARE DERIVED (`nestBelowPartOf`, `nestedPartOf`). A present
+ * row's nest children are the present rows whose `nestParent` it is. They
+ * are found down the raw parent edge (`issue.treeChildren`, through ANY
+ * issue, as the nest walk goes up through any issue): a present child is
+ * one, a hidden child passes on the present rows below it. The started-by
+ * fallback adds the issues its own sessions started (`session.startedIssues`).
+ * Each candidate is kept only when its own `nestParent` names this row, so
+ * the one rule (`nestParentPartOf`) decides and the derivation only finds.
+ * The formal children, which the progress roll-up composes over, are the
+ * relation engine's own `issue.children` bucket.
  *
- * CROSS-ISSUE READS STAY TRACKED. A group that looks up another issue reads
- * the held map's slot for that id, so a hold taken later re-runs the reader:
- * a parent whose child was not held re-reads the child's `keeps` once it is,
- * and likewise up the nest chain.
+ * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every issue in memory
+ * holds ONE reaction (`VisibleCollection.track`, taken when its row enters
+ * the table and released when it leaves), on what it files: its placement
+ * and rank while it is visible, nothing while it is not. The effect moves
+ * that row alone in the visible order and in the groups' lanes
+ * (`sorted-lanes.ts`, `groups.ts`). A row not in memory is hidden by the
+ * cold rule, so it files nothing and holds no reaction; its object is still
+ * built on first read when another issue's walk reaches it (a cold ancestor,
+ * a cold child).
  *
- * THE ORDER is a computed over the set: the visible ids sorted by each held
- * issue's cached `rank` (`compareRank`). It re-runs when membership changes or
- * a VISIBLE row's rank changes, reads no row, and is shallow-equal across runs
- * that leave the order unchanged, so the list redraws only when the order
- * moves.
+ * CROSS-ISSUE READS STAY TRACKED. A group that looks up another issue asks
+ * the pool for it (`VisibleInputs.issue`), which answers the issue's object
+ * while the issue is known and undefined otherwise, both tracked: an issue
+ * that becomes known later re-runs the reader.
+ *
+ * THE ORDER is maintained like the lanes: the visible ids in L1b rank order
+ * (`compareRank`), a row moved alone when it enters, leaves or changes rank.
+ * No reader of the product reads it (the list reads the groups); the
+ * snapshot and the tests do.
  */
 
-import {
-  compareStructural,
-  compareShallow,
-  computed,
-  makeObservable,
-  type ObservableMap,
-  type ObservableSet,
-  observable,
-  reaction,
-} from 'mobx'
+import { compareStructural, computed, makeObservable, reaction } from 'mobx'
 import { type RelationLinks, refs } from '../../../../shared/src/links'
 import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
@@ -94,7 +95,7 @@ import {
   parseMs,
   rankOfPart,
 } from '../views'
-import { type Placement, placementOfPart } from './groups'
+import { type Filing, type Placement, placementOfPart } from './groups'
 import {
   type Attention,
   attentionOf,
@@ -112,6 +113,7 @@ import {
   tipPartOf,
   waitingPartOf,
 } from './rollup'
+import { SortedLanes } from './sorted-lanes'
 
 /** `SIDEBAR_FINISHED_UNREAD_WINDOW_MS` (`visibility.ts:22`). */
 export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
@@ -124,7 +126,7 @@ export interface VisibleInputs {
   issueRow(id: string): SliceIssue | undefined
   /** A session's row, hot or cold; undefined when unknown. */
   sessionRow(id: string): SliceSession | undefined
-  /** Another issue the worklist holds; undefined when it holds none. */
+  /** Another known issue's parts (its object in the live pool); undefined when unknown. */
   issue(id: string): IssueVisibility | undefined
   /** A session's parts (its object in the live pool). */
   session(id: string): SessionVisibility
@@ -150,9 +152,9 @@ export interface VisibleInputs {
    * tracked). Its own member so a plant can take away exactly its tracking.
    */
   progressFacts(id: string): ProgressFacts | undefined
-  /** The present rows whose `nestParent` is `id` (the inverse, maintained; never a walk). */
+  /** The present rows whose `nestParent` is `id` (the live pool's derived `nested` group). */
   nested(id: string): Iterable<string>
-  /** The known issues whose declared `issue.parent` is `id` (filed from each one's forward slot). */
+  /** The known issues whose declared `issue.parent` is `id` (the relation engine's `children` bucket). */
   formalChildren(id: string): Iterable<string>
   /**
    * The explicit seats (`issue.sessions`) as the relation yields them: every
@@ -480,6 +482,8 @@ export interface IssueVisibility extends RollupParts, Members {
   readonly finished: boolean | undefined
   /** R-GROUP 3's "nothing in the subtree waits": the aggregate under this row. */
   readonly waiting: boolean
+  /** The present rows found down the raw parent edge through hidden rows (`nestBelowPartOf`). */
+  readonly nestBelow: readonly string[]
 }
 
 /** The roll-up parts' inputs over the visibility inputs: held issues for rows, sessions for seats. */
@@ -775,6 +779,52 @@ export function nestingOf(
   return { nestParent, placed, visible: placed }
 }
 
+const NONE: readonly string[] = Object.freeze([]) as readonly string[]
+
+/**
+ * The present rows below `id` down the raw parent edge (`issue.treeChildren`,
+ * archived and deleted issues included, as the nest walk goes up through any
+ * issue): a present child is one, a hidden child passes on its own. Every
+ * row the nest walk from a present descendant would stop at `id` is here
+ * (and a few it would not: a parent cycle), so it is a candidate list that
+ * `nestedPartOf` filters by each row's own `nestParent`. A walk down a
+ * cycle ends at the first present row, and no present row is above a cycle
+ * of hidden ones, so the recursion ends.
+ */
+export function nestBelowPartOf(input: VisibleInputs, id: string): readonly string[] {
+  const below: string[] = []
+  for (const childId of input.links.issue.treeChildren.ids(id)) {
+    const child = input.issue(childId)
+    if (child === undefined) continue
+    if (child.present) below.push(childId)
+    else below.push(...child.nestBelow)
+  }
+  return below.length === 0 ? NONE : below.sort()
+}
+
+/**
+ * The present rows nested under `id` (the inverse of `nestParentPartOf`): the
+ * candidates below it, and the issues its member sessions started (the
+ * started-by fallback), each kept when its own `nestParent` is `id`.
+ */
+export function nestedPartOf(
+  input: VisibleInputs,
+  id: string,
+  self: Pick<IssueVisibility, 'present' | 'memberIds' | 'nestBelow'>,
+): readonly string[] {
+  if (!self.present) return NONE
+  const nested: string[] = []
+  for (const childId of self.nestBelow) {
+    if (input.issue(childId)?.nestParent === id) nested.push(childId)
+  }
+  for (const sessionId of self.memberIds) {
+    for (const started of input.links.session.startedIssues.ids(sessionId)) {
+      if (input.issue(started)?.nestParent === id) nested.push(started)
+    }
+  }
+  return nested.length === 0 ? NONE : nested.sort()
+}
+
 /** L1b `rankOf` over the own row: the fields it reads, band from the clock (spec R-ORDER). */
 export function rankPartOf(input: VisibleInputs, id: string): RowRank | undefined {
   const issue = input.issueRow(id)
@@ -881,6 +931,9 @@ export function directVisibility(
     get waiting() {
       return waitingPartOf(parts)
     },
+    get nestBelow() {
+      return once('nestBelow', () => nestBelowPartOf(input, id))
+    },
     get ownFacts() {
       return once('ownFacts', () => ownFactsPartOf(rollupInputs, id))
     },
@@ -932,7 +985,7 @@ export function directNested(
   return nested
 }
 
-/** Visible ids in L1b rank order (the rebuild's order; the live `order` sorts the same way). */
+/** Visible ids in L1b rank order (the rebuild's order; the live `order` holds the same list, maintained). */
 export function sortByRank(
   ids: Iterable<string>,
   rankOfId: (id: string) => RowRank | undefined,
@@ -947,9 +1000,9 @@ export function sortByRank(
   )
 }
 
-// ----------------------------------------------------------------- live holds
+// ------------------------------------------------------------ the collection
 
-/** One issue the worklist holds: its parts, and where its row goes. */
+/** One known issue as the worklist reads it: its parts, and where its row goes. */
 export interface HeldIssue extends IssueVisibility {
   readonly id: string
   readonly placement: Placement | undefined
@@ -960,277 +1013,119 @@ export interface VisibleHost {
   readonly counters: VisibleCounters
   /** The one object of issue `id`, built on first request. */
   issue(id: string): HeldIssue
-  /** The collection let go of `id`: the pool may forget its object. */
-  released(id: string): void
-  /**
-   * File one row's layout placement: the visible id's current placement, or
-   * undefined when it has none (invisible or unknown). Called from the row's
-   * layout reaction and when it is released; the groups file it into their
-   * maintained buckets.
-   */
-  filePlacement(id: string, placement: Placement | undefined): void
+  /** File one row into the groups' lanes (`WorklistGroups.file`). */
+  fileGroups(id: string, filing: Filing | undefined): void
 }
 
 /** The collection's own counters (`MobxPool.stats.counters` carries them). */
 export interface VisibleCounters {
-  /** Issues taken into the worklist (the lazy closure, not one per known issue). */
+  /** Filing reactions taken (one per issue in memory, and per issue kept out of memory beside the rule). */
   issueNodes: number
-  /** Runs of the order computed. */
-  orderSorts: number
-  /** Ids sorted across those runs (the visible count per run). */
-  orderElements: number
-  /** Visible-set membership flips (an id added or deleted). */
+  /** Visible-set membership flips (an id entering or leaving). */
   membershipFlips: number
-  /** Ids (re)filed into the groups' lanes (`groups.ts`): one per placement change. */
+  /** Rows filed into the groups (`groups.ts`): one per filing change. */
   groupRuns: number
-  /** Lane members around those filings (the lanes a filing re-sorts), not the visible count. */
+  /** Lanes those filings changed (each moves one row), never the rows around it. */
   groupElements: number
 }
 
+/** The order's one key. */
+const VISIBLE = 'visible'
+
+/** What a row files: its placement and rank while visible, else nothing. */
+function filingOf(issue: HeldIssue): Filing | undefined {
+  if (!issue.visible) return undefined
+  const { placement, rank } = issue
+  return placement === undefined || rank === undefined ? undefined : { placement, rank }
+}
+
 /**
- * The visible collection: the issues the worklist holds, their four
- * maintenance reactions each, one observable set of visible ids, and the
- * order over it.
+ * The visible collection: one filing reaction per tracked issue, the visible
+ * order it maintains, and (through the host) the groups' lanes.
  */
 export class VisibleCollection {
-  /** The visible ids, maintained by the held issues' reactions. Unordered. */
-  readonly ids: ObservableSet<string>
-  /**
-   * The held issues, OBSERVABLE: a group that looks up another issue (a
-   * parent, a child, a starter's owner) tracks that id's slot, so an issue
-   * held later (an evicted parent re-added) re-runs it.
-   */
-  private readonly held: ObservableMap<string, HeldIssue>
-  /**
-   * THE NEST CHILDREN, the inverse of each held issue's `nestParent`: parent
-   * id to the present rows nested under it. Maintained by one reaction per
-   * held issue, like `ids`, and keyed by id so it outlives a parent that is
-   * released. The attention roll-up composes over it (`rollup.ts`).
-   */
-  private readonly nestedBy: ObservableMap<string, ObservableSet<string>>
-  /**
-   * THE FORMAL CHILDREN, filed the same way from each held issue's declared
-   * `issue.parent` forward slot: the progress roll-up composes over it.
-   */
-  private readonly childrenBy: ObservableMap<string, ObservableSet<string>>
-  /** Each held issue's reactions, by id (maintenance only, never read by a derivation). */
+  /** The visible ids in rank order, one row moved per filing. */
+  private readonly visible = new SortedLanes<string, RowRank>(compareRank, 'pool.visible')
+  /** Each tracked issue's filing reaction, by id (maintenance only, never read by a derivation). */
   private readonly stops = new Map<string, () => void>()
-  /** The parent each id was last filed under, per index (maintenance only). */
-  private readonly filedUnder = {
-    nested: new Map<string, string>(),
-    formal: new Map<string, string>(),
-  }
 
   constructor(private readonly host: VisibleHost) {
-    this.ids = observable.set<string>(undefined, { deep: false, name: 'pool.visible' })
-    this.held = observable.map<string, HeldIssue>(undefined, {
-      deep: false,
-      name: 'pool.visible.held',
-    })
-    this.nestedBy = observable.map<string, ObservableSet<string>>(undefined, {
-      deep: false,
-      name: 'pool.visible.nested',
-    })
-    this.childrenBy = observable.map<string, ObservableSet<string>>(undefined, {
-      deep: false,
-      name: 'pool.visible.children',
-    })
-    makeObservable<
-      VisibleCollection,
-      | 'held'
-      | 'nestedBy'
-      | 'childrenBy'
-      | 'stops'
-      | 'filedUnder'
-      | 'host'
-      | 'file'
-      | 'add'
-      | 'drop'
-    >(this, {
-      ids: false,
-      held: false,
-      nestedBy: false,
-      childrenBy: false,
+    makeObservable<VisibleCollection, 'visible' | 'stops' | 'host' | 'file'>(this, {
+      visible: false,
       stops: false,
-      filedUnder: false,
       host: false,
-      order: computed({ equals: compareShallow }),
-      issue: false,
-      nested: false,
-      formalChildren: false,
+      order: computed,
       file: false,
-      // Maintenance called inside actions, never observed.
-      add: false,
-      drop: false,
-      ensure: false,
-      syncReplace: false,
-      heldIds: false,
-      has: false,
+      track: false,
+      untrack: false,
+      tracks: false,
+      trackedIds: false,
       size: false,
       clear: false,
     })
   }
 
-  /**
-   * The visible ids in L1b rank order: a view-time sort of the visible set
-   * over each held issue's cached `rank`. Reads no row.
-   */
+  /** The visible ids in L1b rank order: a copy of the maintained list (only the snapshot and tests read it). */
   get order(): readonly string[] {
-    const counters = this.host.counters
-    counters.orderSorts += 1
-    counters.orderElements += this.ids.size
-    return sortByRank(this.ids, (id) => this.held.get(id)?.rank)
+    return this.visible.lane(VISIBLE).slice()
   }
 
-  /** TRACKED: the held issue `id` (hot or cold), else undefined. */
-  issue(id: string): HeldIssue | undefined {
-    return this.held.get(id)
-  }
-
-  /** TRACKED: the present rows nested under `id` (unordered). */
-  nested(id: string): Iterable<string> {
-    return this.nestedBy.get(id) ?? []
-  }
-
-  /** TRACKED: the known issues whose declared parent is `id` (unordered). */
-  formalChildren(id: string): Iterable<string> {
-    return this.childrenBy.get(id) ?? []
-  }
-
-  /** Move `id` in one index to `parent` (null: out). Inside an action. */
-  private file(index: 'nested' | 'formal', id: string, parent: string | null): void {
-    const by = index === 'nested' ? this.nestedBy : this.childrenBy
-    const filed = this.filedUnder[index]
-    const before = filed.get(id)
-    if (before === parent) return
-    if (before !== undefined) {
-      const siblings = by.get(before)
-      siblings?.delete(id)
-      if (siblings?.size === 0) by.delete(before)
-      filed.delete(id)
-    }
-    if (parent === null) return
-    let siblings = by.get(parent)
-    if (siblings === undefined) {
-      siblings = observable.set<string>(undefined, { deep: false })
-      by.set(parent, siblings)
-    }
-    siblings.add(id)
-    filed.set(id, parent)
-  }
-
-  /** Hold one issue and build its four reactions (call inside an action). */
-  private add(id: string): void {
+  /**
+   * Take issue `id`'s filing reaction (call inside an action; a tracked
+   * issue is left as it is). It runs when the action ends and files the row
+   * wherever it belongs; afterwards it re-files the row when its filing
+   * changes, and only then.
+   */
+  track(id: string): void {
+    if (this.stops.has(id)) return
     const issue = this.host.issue(id)
-    const counters = this.host.counters
-    const stop = reaction(
-      () => issue.visible,
-      (visible) => {
-        if (visible === this.ids.has(id)) return
-        if (visible) this.ids.add(id)
-        else this.ids.delete(id)
-        counters.membershipFlips += 1
-      },
-      { fireImmediately: true, name: `pool.visible.${id}` },
+    this.stops.set(
+      id,
+      reaction(
+        () => filingOf(issue),
+        (filing) => this.file(id, filing),
+        { fireImmediately: true, equals: compareStructural, name: `pool.file.${id}` },
+      ),
     )
-    const stopNest = reaction(
-      () => issue.nestParent,
-      (parent) => this.file('nested', id, parent),
-      { fireImmediately: true, name: `pool.nested.${id}` },
-    )
-    const stopFormal = reaction(
-      () => issue.formalParent,
-      (parent) => this.file('formal', id, parent),
-      { fireImmediately: true, name: `pool.children.${id}` },
-    )
-    // The layout filing. Visible rows file their placement; an invisible row
-    // files nothing, so the groups hold exactly the visible set without ever
-    // enumerating it. `placement` is structural, so a mark-read (read-state
-    // lane only) never fires this.
-    const stopLayout = reaction(
-      () => (issue.visible ? issue.placement : undefined),
-      (placement) => this.host.filePlacement(id, placement),
-      { fireImmediately: true, name: `pool.layout.${id}`, equals: compareStructural },
-    )
-    this.held.set(id, issue)
-    this.stops.set(id, () => {
-      stop()
-      stopNest()
-      stopFormal()
-      stopLayout()
-    })
-    counters.issueNodes += 1
+    this.host.counters.issueNodes += 1
   }
 
-  /** Release one issue: its reactions and every filing (call inside an action). */
-  private drop(id: string): void {
-    const held = this.stops.get(id)
-    if (held === undefined) return
-    held()
+  /** Release issue `id`'s reaction and take its row out of every list (inside an action). */
+  untrack(id: string): void {
+    const stop = this.stops.get(id)
+    if (stop === undefined) return
+    stop()
     this.stops.delete(id)
-    this.held.delete(id)
-    this.file('nested', id, null)
-    this.file('formal', id, null)
-    this.host.filePlacement(id, undefined)
-    if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
-    this.host.released(id)
+    this.file(id, undefined)
   }
 
-  /**
-   * Bring the named issues' holds in line with whether each is known (call
-   * inside the action that changed it): a newly known issue is held with its
-   * reactions, a gone one is released and leaves the set. Held issues NOT
-   * named are left alone: an update keeps what it has.
-   */
-  ensure(ids: Iterable<string>, known: (id: string) => boolean): void {
-    for (const id of ids) {
-      if (known(id)) {
-        if (this.stops.has(id)) continue
-        this.add(id)
-        continue
-      }
-      this.drop(id)
-    }
+  /** Move row `id` to where `filing` puts it (inside an action). */
+  private file(id: string, filing: Filing | undefined): void {
+    const was = this.visible.has(id)
+    this.visible.file(id, filing === undefined ? undefined : VISIBLE, filing?.rank)
+    if (was !== (filing !== undefined)) this.host.counters.membershipFlips += 1
+    this.host.fileGroups(id, filing)
   }
 
-  /**
-   * A `replace` re-seeds the holds to exactly `ids` (call inside the action):
-   * the lazy closure the plain pass found, nothing else. Held issues outside
-   * it are hidden by construction, so they leave the set (and their filings)
-   * rather than sit unobserved.
-   */
-  syncReplace(ids: Iterable<string>, known: (id: string) => boolean): void {
-    const want = new Set(ids)
-    this.ensure(want, known)
-    for (const id of [...this.stops.keys()]) {
-      if (!want.has(id)) this.drop(id)
-    }
-  }
-
-  /** The held issue ids (a `replace` re-syncs them with the known ids). */
-  heldIds(): string[] {
-    return [...this.stops.keys()]
-  }
-
-  /** Whether `id` is held (the pool skips held seeds). */
-  has(id: string): boolean {
+  /** Whether issue `id` holds a filing reaction (maintenance: plain). */
+  tracks(id: string): boolean {
     return this.stops.has(id)
   }
 
-  /** Issues held (tests: lifecycle). */
+  /** The tracked issue ids (tests). */
+  trackedIds(): string[] {
+    return [...this.stops.keys()]
+  }
+
+  /** Issues tracked (tests: lifecycle). */
   size(): number {
     return this.stops.size
   }
 
-  /** Stop every reaction and release every issue (the pool's dispose; call inside an action). */
+  /** Stop every reaction and empty the order (the pool's dispose; call inside an action). */
   clear(): void {
     for (const stop of this.stops.values()) stop()
     this.stops.clear()
-    this.held.clear()
-    this.nestedBy.clear()
-    this.childrenBy.clear()
-    this.filedUnder.nested.clear()
-    this.filedUnder.formal.clear()
-    this.ids.clear()
+    this.visible.clear()
   }
 }

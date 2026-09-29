@@ -19,25 +19,23 @@
  * being loaded. A change that leaves the placement equal (a rename, a phase
  * change, a heartbeat) files nothing.
  *
- * THE LAYOUT IS MAINTAINED, NOT RE-ENUMERATED. One reaction per held issue
- * (`pool.layout.<id>`, `VisibleCollection.add`) files its
- * placement into the buckets below when it changes, like the visible set
- * itself: a stage move files one id between two lanes, and the counters
- * (`counters.groupRuns`, `counters.groupElements`) count the filed id and the
- * lanes it re-sorts — never the visible count. The old view-time layout
- * (`layoutOf` over the whole visible order, still the pure function the
- * rebuild and the scaling plant use) re-ran over every visible row per stage
- * move (732 elements at 1x, 2,928 at 4x) and failed the excess-slope budget.
+ * THE LAYOUT IS MAINTAINED, ONE ROW AT A TIME. The one filing reaction per
+ * issue (`VisibleCollection.track`) hands its visible row's placement and
+ * rank to `WorklistGroups.file`, which keeps every list below IN ORDER by
+ * moving that row alone (`sorted-lanes.ts`: out at its old place, in at its
+ * new one, by binary search): the pinned section and, per group, its
+ * members by rank (the head gives the group's label and its place among the
+ * groups), its open lane by rank and its closed fold newest first. No lane
+ * is re-sorted and none is enumerated to file a row, so a stage move costs
+ * the moved row and the lanes it leaves and enters, never the visible count,
+ * and a change that leaves a row's place alone (a rename, a phase change, a
+ * label) moves nothing and redraws no lane. The group keys sort each
+ * group's head rank: O(groups), re-run only when a head changes.
  *
- * THE LANES SORT AT VIEW TIME, PER GROUP (audit §7: Linear sorts a collection
- * when a view reads it). Each lane is a shallow-compared computed over its
- * own bucket's set and its members' ranks: a filing re-sorts only its own
- * group's lanes, so a lane change redraws only its own header. The group
- * keys sort each bucket's head rank (one computed per group over its own
- * lanes), so a move inside a bucket re-validates O(lane) plus O(groups) —
- * never O(visible) — and usually re-runs nothing outside its bucket at all.
- * The latch re-inserts a selected row at its rank by comparing ranks, never
- * through a whole-order index.
+ * A READER READS MEMBERS, NOT FILINGS. A lane is the order; anything else
+ * about a member (the head's label, the latched row's rank) is read from the
+ * member's own cached values, tracked, never from what was filed. A reader
+ * gets a copy of a lane, cached until that lane moves, never the live list.
  *
  * THE SNAPSHOT'S LAYOUT HAS NO SELECTION (spec §7: the oracle projects the
  * unselected baseline). The UI's lanes add the R-GROUP 5 latch
@@ -47,18 +45,11 @@
  * latch is one computed, so a click on any other row re-runs nothing here.
  */
 
-import {
-  compareStructural,
-  compareShallow,
-  computed,
-  makeObservable,
-  type ObservableMap,
-  type ObservableSet,
-  observable,
-} from 'mobx'
+import { compareShallow, compareStructural, computed, makeObservable } from 'mobx'
 import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import type { SliceGroup, SliceOrder } from '../../../../shared/src/slice-types'
 import type { OwnPart } from '../views'
+import { SortedLanes } from './sorted-lanes'
 import type { VisibleCounters } from './visible'
 
 /** Where one visible row goes (R-GROUP), before selection. */
@@ -117,17 +108,13 @@ export interface LayoutGroup {
 export interface Layout {
   readonly pinnedIds: readonly string[]
   readonly groups: readonly LayoutGroup[]
-  /** The same groups by key (a group node finds its own without a scan). */
-  readonly byKey: ReadonlyMap<string, LayoutGroup>
-  /** Each placed id's position in `order` (the latch re-inserts a row at its rank). */
-  readonly rankIndex: ReadonlyMap<string, number>
 }
 
 /**
  * The grouping itself, over ids in rank order and each one's placement. The
- * rebuild and the tests call it; the live pool files incrementally instead
- * (`WorklistGroups.file`), and the scaling plant calls this to show what a
- * whole-list layout costs. The maintained buckets hold the same result: same
+ * rebuild and the tests call it; the live pool files one row at a time
+ * instead (`WorklistGroups.file`), and the scaling plant calls this to show
+ * what a whole-list layout costs. The maintained lanes hold the same result: same
  * pinned order, same group order (first-member rank order; ranks are total,
  * L1b `compareRank`), same lanes (open in rank order, closed newest first
  * with ties in rank order).
@@ -138,14 +125,12 @@ export function layoutOf(
 ): Layout {
   const pinnedIds: string[] = []
   const byKey = new Map<string, { label: string; open: string[]; closed: [string, number][] }>()
-  const rankIndex = new Map<string, number>()
-  order.forEach((id, index) => {
+  for (const id of order) {
     const placement = placementOfId(id)
-    if (placement === undefined) return
-    rankIndex.set(id, index)
+    if (placement === undefined) continue
     if (placement.pinned) {
       pinnedIds.push(id)
-      return
+      continue
     }
     let bucket = byKey.get(placement.repoKey)
     if (bucket === undefined) {
@@ -154,21 +139,18 @@ export function layoutOf(
     }
     if (placement.closed) bucket.closed.push([id, placement.foldMs])
     else bucket.open.push(id)
-  })
+  }
   const groups: LayoutGroup[] = []
-  const groupsByKey = new Map<string, LayoutGroup>()
   for (const [key, bucket] of byKey) {
-    const group: LayoutGroup = {
+    groups.push({
       key,
       label: bucket.label,
       rowIds: bucket.open,
       // Stable: ties keep rank order (L1b `compareClosedFold`).
       closedIds: bucket.closed.sort((a, b) => b[1] - a[1]).map(([id]) => id),
-    }
-    groups.push(group)
-    groupsByKey.set(key, group)
+    })
   }
-  return { pinnedIds, groups, byKey: groupsByKey, rankIndex }
+  return { pinnedIds, groups }
 }
 
 /** The layout as the frozen `SliceOrder` (copies: the snapshot must not alias live arrays). */
@@ -188,10 +170,14 @@ export function sliceOrderOf(layout: Layout): SliceOrder {
 
 /** What the groups read from the pool. */
 export interface GroupsHost {
-  /** The visible ids in rank order (`VisibleCollection.order`). */
-  order(): readonly string[]
-  /** A held issue's cached rank and placement. */
-  node(id: string): { readonly rank: RowRank | undefined; readonly placement: Placement | undefined } | undefined
+  /** TRACKED: a known issue's cached rank, placement and visibility; undefined when unknown. */
+  node(id: string):
+    | {
+        readonly rank: RowRank | undefined
+        readonly placement: Placement | undefined
+        readonly visible: boolean
+      }
+    | undefined
   /** TRACKED: the selected issue id, or null. */
   selectedId(): string | null
   /** TRACKED: `SliceLocals.selectedIssueWasFolded`. */
@@ -199,284 +185,184 @@ export interface GroupsHost {
   readonly counters: VisibleCounters
 }
 
-const EMPTY: readonly string[] = Object.freeze([]) as readonly string[]
-
-/** One group's filed members, unordered: the lanes sort them at view time. */
-export interface Bucket {
-  readonly open: ObservableSet<string>
-  readonly closed: ObservableSet<string>
+/** What one visible row files: its placement and its rank. */
+export interface Filing {
+  readonly placement: Placement
+  readonly rank: RowRank
 }
 
-/** The lane a placement files into (pinned rows file into the pinned set, not a bucket). */
-function laneOf(placement: Placement): 'open' | 'closed' {
-  return placement.closed ? 'closed' : 'open'
+/** A closed fold's order: newest `foldMs` first, ties in rank order (L1b `compareClosedFold`). */
+interface FoldSort {
+  readonly foldMs: number
+  readonly rank: RowRank
 }
 
-/** Ids with a rank, in L1b rank order (unranked ids are transient and stay out, as in `order`). */
-function rankSorted(
-  ids: Iterable<string>,
+function compareFold(a: FoldSort, b: FoldSort): number {
+  return b.foldMs - a.foldMs || compareRank(a.rank, b.rank)
+}
+
+/** The first index in `lane` (rank order) whose member ranks after `rank`. */
+function rankInsertionPoint(
+  lane: readonly string[],
+  rank: RowRank,
   rankOfId: (id: string) => RowRank | undefined,
-): string[] {
-  const ranked: { id: string; rank: RowRank }[] = []
-  for (const id of ids) {
-    const rank = rankOfId(id)
-    if (rank !== undefined) ranked.push({ id, rank })
+): number {
+  let lo = 0
+  let hi = lane.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    const at = rankOfId(lane[mid] as string)
+    if (at !== undefined && compareRank(at, rank) < 0) lo = mid + 1
+    else hi = mid
   }
-  ranked.sort((a, b) => compareRank(a.rank, b.rank))
-  return ranked.map(({ id }) => id)
+  return lo
 }
 
-/** A fold: newest `foldMs` first, ties in rank order (L1b `compareClosedFold`). */
-function sortClosedFold(
-  ids: Iterable<string>,
-  rankOfId: (id: string) => RowRank | undefined,
-  foldMsOfId: (id: string) => number,
-): string[] {
-  const ranked: { id: string; rank: RowRank; foldMs: number }[] = []
-  for (const id of ids) {
-    const rank = rankOfId(id)
-    if (rank === undefined) continue
-    ranked.push({ id, rank, foldMs: foldMsOfId(id) })
-  }
-  ranked.sort((a, b) => b.foldMs - a.foldMs || compareRank(a.rank, b.rank))
-  return ranked.map(({ id }) => id)
-}
-
-/** One group's lanes as the UI draws them (the latch applied), each list shallow-compared. */
+/** One group's lanes as the UI draws them (the latch applied). */
 export class GroupNode {
   constructor(
     readonly key: string,
     private readonly groups: WorklistGroups,
   ) {
-    makeObservable<GroupNode, 'groups' | 'bucket'>(this, {
+    makeObservable<GroupNode, 'groups' | 'latchedHere'>(this, {
       key: false,
       groups: false,
-      bucket: computed,
+      latchedHere: false,
+      headRank: computed({ equals: compareStructural }),
       label: computed,
-      headRank: computed,
-      baseRowIds: computed({ equals: compareShallow }),
-      baseClosedIds: computed({ equals: compareShallow }),
+      baseRowIds: computed,
+      baseClosedIds: computed,
       rowIds: computed({ equals: compareShallow }),
       closedIds: computed({ equals: compareShallow }),
     })
   }
 
-  /** The filed bucket, or undefined once its last member files out. */
-  private get bucket(): Bucket | undefined {
-    return this.groups.bucket(this.key)
-  }
-
-  /** The rank-first member's rank, or undefined when no member has one. */
+  /** The rank-first member's rank (open or closed), or undefined once the group is empty. */
   get headRank(): RowRank | undefined {
-    const bucket = this.bucket
-    if (bucket === undefined) return undefined
-    let best: RowRank | null = null
-    for (const lane of [bucket.open, bucket.closed] as const) {
-      for (const id of lane) {
-        const rank = this.groups.rankOf(id)
-        if (rank === undefined) continue
-        if (best === null || compareRank(rank, best) < 0) best = rank
-      }
-    }
-    return best ?? undefined
+    const head = this.groups.members.lane(this.key)[0]
+    return head === undefined ? undefined : this.groups.rankOf(head)
   }
 
-  /** The rank-first member's label (`folds.ts:200-203`). */
+  /** The rank-first member's label (`folds.ts:200-203`), read from that member. */
   get label(): string {
-    const bucket = this.bucket
-    if (bucket === undefined) return ''
-    let bestRank: RowRank | null = null
-    let bestLabel = ''
-    for (const lane of [bucket.open, bucket.closed] as const) {
-      for (const id of lane) {
-        const rank = this.groups.rankOf(id)
-        if (rank === undefined) continue
-        const memberLabel = this.groups.filedLabel(id)
-        if (memberLabel === undefined) continue
-        if (bestRank === null || compareRank(rank, bestRank) < 0) {
-          bestRank = rank
-          bestLabel = memberLabel
-        }
-      }
-    }
-    return bestLabel
+    const head = this.groups.members.lane(this.key)[0]
+    return head === undefined ? '' : (this.groups.placementOf(head)?.label ?? '')
   }
 
-  /** The open lane, in rank order, no selection (the snapshot's lane). */
+  /** The open lane in rank order, no selection (the snapshot's lane): a copy of the maintained list. */
   get baseRowIds(): readonly string[] {
-    const bucket = this.bucket
-    if (bucket === undefined) return EMPTY
-    return rankSorted(bucket.open, (id) => this.groups.rankOf(id))
+    return this.groups.open.lane(this.key).slice()
   }
 
-  /** The closed fold, newest first, no selection (the snapshot's lane). */
+  /** The closed fold, newest first, no selection: a copy of the maintained list. */
   get baseClosedIds(): readonly string[] {
-    const bucket = this.bucket
-    if (bucket === undefined) return EMPTY
-    return sortClosedFold(
-      bucket.closed,
-      (id) => this.groups.rankOf(id),
-      (id) => this.groups.filedFoldMs(id),
-    )
+    return this.groups.closed.lane(this.key).slice()
   }
 
-  /** The open lane, in rank order, plus a latched selected row at its rank. */
+  /** The open lane plus a latched selected row at its rank. */
   get rowIds(): readonly string[] {
-    const bucket = this.bucket
-    if (bucket === undefined) return EMPTY
     const lane = this.baseRowIds
-    const latched = this.groups.latchedOpenId
-    if (latched === null || !bucket.closed.has(latched)) return lane
-    const latchedRank = this.groups.rankOf(latched)
-    if (latchedRank === undefined) return lane
-    const index = lane.findIndex((id) => {
-      const rank = this.groups.rankOf(id)
-      return rank !== undefined && compareRank(rank, latchedRank) > 0
-    })
+    const latched = this.latchedHere()
+    if (latched === null) return lane
+    const rank = this.groups.rankOf(latched)
+    if (rank === undefined) return lane
     const open = [...lane]
-    open.splice(index === -1 ? open.length : index, 0, latched)
+    open.splice(rankInsertionPoint(lane, rank, (id) => this.groups.rankOf(id)), 0, latched)
     return open
   }
 
-  /** The closed fold, newest first, less a latched selected row. */
+  /** The closed fold less a latched selected row. */
   get closedIds(): readonly string[] {
-    const bucket = this.bucket
-    if (bucket === undefined) return EMPTY
     const lane = this.baseClosedIds
+    const latched = this.latchedHere()
+    return latched === null ? lane : lane.filter((id) => id !== latched)
+  }
+
+  /** The latched row when it is filed in this group's fold, else null. */
+  private latchedHere(): string | null {
     const latched = this.groups.latchedOpenId
-    if (latched === null || !lane.includes(latched)) return lane
-    return lane.filter((id) => id !== latched)
+    if (latched === null) return null
+    return this.groups.placementOf(latched)?.repoKey === this.key ? latched : null
   }
 }
 
+/** The pinned section's one key. */
+const PINNED = 'pinned'
+
 /**
- * The groups over the visible order: the filed buckets (snapshot, no
+ * The groups over the visible rows: the maintained lanes (snapshot, no
  * selection), the group keys and pinned ids the list reads, one `GroupNode`
  * per key for the headers and lanes, and the latch.
  */
 export class WorklistGroups {
-  /** Group nodes by key, built on first access (an identity memo, like the pool's models). */
+  /**
+   * Group nodes by key, built on first access: an identity memo (the node a
+   * key answers never changes), read inside `keys`; every value the node
+   * gives is tracked (`clock.ts` lists it).
+   */
   private readonly nodes = new Map<string, GroupNode>()
-  /** The last filed placement per visible id (plain: lanes subscribe through the sets below). */
-  private readonly filed = new Map<string, Placement>()
-  /** The filed buckets by key, stable while non-empty. */
-  private readonly buckets: ObservableMap<string, Bucket>
-  /** The filed pinned ids, unordered: `pinnedIds` sorts them at view time. */
-  private readonly pinnedSet: ObservableSet<string>
+  /** The pinned section, by rank. */
+  readonly pinned = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.pinned')
+  /** Each group's members (open and closed), by rank: the head labels and places the group. */
+  readonly members = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.members')
+  /** Each group's open lane, by rank. */
+  readonly open = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.open')
+  /** Each group's closed fold, newest first. */
+  readonly closed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.closed')
 
   constructor(private readonly host: GroupsHost) {
-    this.buckets = observable.map<string, Bucket>(undefined, {
-      deep: false,
-      name: 'pool.groups.buckets',
-    })
-    this.pinnedSet = observable.set<string>(undefined, {
-      deep: false,
-      name: 'pool.groups.pinned',
-    })
-    makeObservable<WorklistGroups, 'nodes' | 'filed' | 'buckets' | 'pinnedSet' | 'host' | 'unfile' | 'enfile' | 'count'>(this, {
+    makeObservable<WorklistGroups, 'nodes' | 'host'>(this, {
       nodes: false,
-      filed: false,
-      buckets: false,
-      pinnedSet: false,
       host: false,
-      pinnedIds: computed({ equals: compareShallow }),
+      pinned: false,
+      members: false,
+      open: false,
+      closed: false,
+      pinnedIds: computed,
       keys: computed({ equals: compareShallow }),
       latchedOpenId: computed,
       layout: false,
-      bucket: false,
       rankOf: false,
-      filedLabel: false,
-      filedFoldMs: false,
+      placementOf: false,
       file: false,
       group: false,
       clear: false,
-      // Plain imperative helpers inside file()'s action context: they mutate
-      // the filed buckets/sets and counters but are never observed directly.
-      unfile: false,
-      enfile: false,
-      count: false,
     })
   }
 
   /**
-   * File one id's placement: add it, move it between lanes or buckets, or
-   * drop it when it has none (invisible or unknown). Inside an action (the
-   * filing reaction's effect, or the pool's own). Costs the filed id and the
-   * lanes it re-sorts (`counters.groupRuns`, `counters.groupElements`), never
-   * the visible count.
+   * File one row: its placement and rank while it is visible, undefined when
+   * it is not (hidden, unknown or released). Inside an action (the filing
+   * reaction's effect). Moves the row alone in each list it leaves or enters
+   * (`counters.groupRuns` counts the filings, `counters.groupElements` the
+   * lanes they changed), never the visible count.
    */
-  file(id: string, placement: Placement | undefined): void {
-    const before = this.filed.get(id)
-    if (placement === undefined) {
-      if (before === undefined) return
-      const left = this.unfile(id, before)
-      this.filed.delete(id)
-      this.count(left)
-      return
-    }
-    if (before !== undefined && compareStructural(before, placement)) return
-    // A move within one bucket re-sorts one set of lanes: count them once.
-    const same =
-      before !== undefined &&
-      (before.pinned ? placement.pinned : !placement.pinned && before.repoKey === placement.repoKey)
-    const left = before === undefined ? 0 : this.unfile(id, before)
-    const around = this.enfile(id, placement)
-    this.filed.set(id, placement)
-    this.count(same ? around : left + around)
-  }
-
-  /** Drop `id` filed as `placement`; returns the lane members left behind. */
-  private unfile(id: string, placement: Placement): number {
-    if (placement.pinned) {
-      this.pinnedSet.delete(id)
-      return this.pinnedSet.size
-    }
-    const bucket = this.buckets.get(placement.repoKey)
-    if (bucket === undefined) return 0
-    bucket[laneOf(placement)].delete(id)
-    const left = bucket.open.size + bucket.closed.size
-    if (left === 0) this.buckets.delete(placement.repoKey)
-    return left
-  }
-
-  /** Add `id` filed as `placement`; returns the lane members around it. */
-  private enfile(id: string, placement: Placement): number {
-    if (placement.pinned) {
-      this.pinnedSet.add(id)
-      return this.pinnedSet.size
-    }
-    let bucket = this.buckets.get(placement.repoKey)
-    if (bucket === undefined) {
-      bucket = {
-        open: observable.set<string>(undefined, { deep: false, name: 'pool.groups.lane' }),
-        closed: observable.set<string>(undefined, { deep: false, name: 'pool.groups.lane' }),
-      }
-      this.buckets.set(placement.repoKey, bucket)
-    }
-    bucket[laneOf(placement)].add(id)
-    return bucket.open.size + bucket.closed.size
-  }
-
-  private count(elements: number): void {
+  file(id: string, filing: Filing | undefined): void {
+    const placement = filing?.placement
+    const rank = filing?.rank
+    const group = placement !== undefined && !placement.pinned ? placement.repoKey : undefined
+    let moved = this.pinned.file(id, placement?.pinned === true ? PINNED : undefined, rank)
+    moved += this.members.file(id, group, rank)
+    moved += this.open.file(id, placement?.closed === false ? group : undefined, rank)
+    moved += this.closed.file(
+      id,
+      placement?.closed === true ? group : undefined,
+      placement === undefined || rank === undefined ? undefined : { foldMs: placement.foldMs, rank },
+    )
     const counters = this.host.counters
     counters.groupRuns += 1
-    counters.groupElements += elements
+    counters.groupElements += moved
   }
 
-  /** The pinned ids in rank order: the PINNED section. */
+  /** The pinned ids in rank order (the PINNED section): a copy of the maintained list. */
   get pinnedIds(): readonly string[] {
-    return rankSorted(this.pinnedSet, (id) => this.rankOf(id))
+    return this.pinned.lane(PINNED).slice()
   }
 
-  /** The group keys in spec order: each bucket's head rank, sorted (ranks are total, L1b). */
+  /** The group keys in spec order: each group's head rank, sorted (ranks are total, L1b). */
   get keys(): readonly string[] {
-    // Subscribe to the visible order without walking it: this keeps `order`
-    // alive (and its sort counter honest) while the list is mounted, and
-    // re-sorts the keys when membership or a rank actually moves. No per-id
-    // reads here: a stage move touches only the moved bucket.
-    this.host.order()
     const heads: { key: string; rank: RowRank }[] = []
-    for (const key of this.buckets.keys()) {
+    for (const key of this.members.keys()) {
       const rank = this.group(key).headRank
       if (rank !== undefined) heads.push({ key, rank })
     }
@@ -486,63 +372,49 @@ export class WorklistGroups {
 
   /**
    * R-GROUP 5 (`closedFoldEligible`, L1b `groupKeyOf`): the selected row when
-   * the grace window folded it and it was open when clicked; else null. Reads
-   * the selection and that one row's placement.
+   * it is visible, the grace window folded it and it was open when clicked;
+   * else null. Reads the selection and that one row.
    */
   get latchedOpenId(): string | null {
     const id = this.host.selectedId()
     if (id === null || this.host.foldLatch()) return null
-    const placement = this.host.node(id)?.placement
-    if (placement === undefined || placement.pinned || !placement.closed || placement.dismissed) {
+    const node = this.host.node(id)
+    const placement = node?.placement
+    if (
+      node?.visible !== true ||
+      placement === undefined ||
+      placement.pinned ||
+      !placement.closed ||
+      placement.dismissed
+    ) {
       return null
     }
     return id
   }
 
-  /** The grouped visible rows, no selection: assembled from the filed buckets (snapshot and tests). */
+  /** The grouped visible rows, no selection: copied from the maintained lanes (snapshot and tests). */
   get layout(): Layout {
-    const order = this.host.order()
-    const rankIndex = new Map<string, number>()
-    order.forEach((id, index) => {
-      // `layoutOf` indexes a row exactly when it places it.
-      if (this.filed.has(id)) rankIndex.set(id, index)
-    })
-    const pinnedIds = [...this.pinnedIds]
-    const groups: LayoutGroup[] = []
-    const byKey = new Map<string, LayoutGroup>()
-    for (const key of this.keys) {
+    // The unselected baseline (spec §7): the latch never reaches the snapshot.
+    const groups = this.keys.map((key): LayoutGroup => {
       const node = this.group(key)
-      // The unselected baseline (spec §7): the latch never reaches the snapshot.
-      const group: LayoutGroup = {
+      return {
         key,
         label: node.label,
         rowIds: [...node.baseRowIds],
         closedIds: [...node.baseClosedIds],
       }
-      groups.push(group)
-      byKey.set(key, group)
-    }
-    return { pinnedIds, groups, byKey, rankIndex }
+    })
+    return { pinnedIds: [...this.pinnedIds], groups }
   }
 
-  /** The filed bucket of group `key` (tracked), or undefined. */
-  bucket(key: string): Bucket | undefined {
-    return this.buckets.get(key)
-  }
-
-  /** A known issue's cached rank (tracked), or undefined. */
+  /** TRACKED: a known issue's cached rank, or undefined. */
   rankOf(id: string): RowRank | undefined {
     return this.host.node(id)?.rank
   }
 
-  /** A filed id's group label, or undefined once it files out. */
-  filedLabel(id: string): string | undefined {
-    return this.filed.get(id)?.label
-  }
-
-  /** A filed id's fold stamp, or 0 once it files out. */
-  filedFoldMs(id: string): number {
-    return this.filed.get(id)?.foldMs ?? 0
+  /** TRACKED: a known issue's cached placement, or undefined. */
+  placementOf(id: string): Placement | undefined {
+    return this.host.node(id)?.placement
   }
 
   /** The node of group `key` (built on first access). */
@@ -555,11 +427,12 @@ export class WorklistGroups {
     return node
   }
 
-  /** Forget every filing and group node (the pool's dispose). */
+  /** Forget every filing and group node (the pool's dispose; inside an action). */
   clear(): void {
     this.nodes.clear()
-    this.filed.clear()
-    this.buckets.clear()
-    this.pinnedSet.clear()
+    this.pinned.clear()
+    this.members.clear()
+    this.open.clear()
+    this.closed.clear()
   }
 }

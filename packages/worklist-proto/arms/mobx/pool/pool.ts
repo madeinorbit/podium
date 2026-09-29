@@ -42,10 +42,9 @@
  * body runs; `notifications` counts actions that changed pool state;
  * `indexUpdates` counts relation slots written (forward entries and
  * buckets; `counters.bucketElements` the elements inside them);
- * `rollupsDerived` counts runs of an issue's two roll-up groups
+ * `rollupsDerived` counts runs of an issue's two roll-up compositions
  * (`worklist/rollup.ts` `attentionOf`: its own attention, the subtree
- * aggregate and seat activity; `progressOf`: its own unit and the units
- * below).
+ * aggregate and seat activity; `unitsBelowPartOf`: the units below).
  * The pool's own counters are in `counters`.
  */
 
@@ -59,6 +58,7 @@ import {
   makeObservable,
   type ObservableMap,
   observable,
+  observe,
   runInAction,
 } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
@@ -80,7 +80,7 @@ import {
   WriteContractError,
 } from '../../../shared/src/write-contract'
 import { DeadlineClock } from './clock'
-import { builtIds, issueIdsOf, knownIssueIds, reseed } from './enumerate'
+import { builtIds, issueIdsOf, reseed } from './enumerate'
 import {
   type EntityModel,
   type IssueModel,
@@ -103,13 +103,9 @@ import type { RepoRow, ViewInputs } from './views'
 import { sliceOrderOf, WorklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import {
-  directNested,
-  directSessionVisibility,
-  directVisibility,
-  type IssueVisibility,
+  type HeldIssue,
   readAtOf,
   rollupInputsOf,
-  standingOf,
   VisibleCollection,
   type VisibleCounters,
   type VisibleInputs,
@@ -160,8 +156,6 @@ function createStats(residency: Residency | null): PoolStats {
     rowsRemoved: 0,
     bucketElements: 0,
     issueNodes: 0,
-    orderSorts: 0,
-    orderElements: 0,
     membershipFlips: 0,
     groupRuns: 0,
     groupElements: 0,
@@ -182,8 +176,6 @@ function createStats(residency: Residency | null): PoolStats {
       counters.rowsRemoved = 0
       counters.bucketElements = 0
       counters.issueNodes = 0
-      counters.orderSorts = 0
-      counters.orderElements = 0
       counters.membershipFlips = 0
       counters.groupRuns = 0
       counters.groupElements = 0
@@ -337,6 +329,14 @@ export class MobxPool {
   private readonly target: IngestTarget
   private selectedId: string | null
   /**
+   * Issues kept out of memory beside the cold rule (`PoolLazyOptions
+   * .outOfMemory`) that the rule would keep resident: they may show, so they
+   * hold a filing reaction like an issue in memory (their visibility reads
+   * the row by id). Empty unless the option is given.
+   */
+  private readonly heldOut = new Set<string>()
+  private readonly outOfMemory: (entity: EntityName, id: string) => boolean
+  /**
    * POD-4678 — clears the maintained seat mirror (a closure over it, so the
    * copy sweep never walks the mirror: it holds only ids, never rows).
    * Functions are skipped by the sweep; closures stay a review item.
@@ -351,6 +351,7 @@ export class MobxPool {
     writes?: WriteSeam,
   ) {
     this.writes = writes ?? null
+    this.outOfMemory = lazy?.outOfMemory ?? (() => false)
     this.tables = createObservableTables()
     this.fenced = reads.wrapTables(this.tables)
     const fenced = this.fenced
@@ -519,8 +520,8 @@ export class MobxPool {
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       // Only asked for an issue in memory (`originTickPartOf`): its object.
       parts: (id) => this.issueObject(id),
-      rollup: (id) => this.worklist.issue(id)?.rollup,
-      retainedSeats: (id) => this.worklist.issue(id)?.retainedSeatIds ?? [],
+      rollup: (id) => this.knownIssue(id)?.rollup,
+      retainedSeats: (id) => this.knownIssue(id)?.retainedSeatIds ?? [],
       // POD-4678 (sent back item 1, plant/old): the mirror IS the relation —
       // every id it yields counts, exactly as `many()` yields do.
       // `[...seats].sort()` (landed code verbatim) re-reads the whole family
@@ -550,7 +551,7 @@ export class MobxPool {
       // Hot or cold: a cold row is read by id through the feed, never loaded.
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
-      issue: (id) => this.worklist.issue(id),
+      issue: (id) => this.knownIssue(id),
       session: (id) => this.object('session', id) as SessionModel,
       passed: (t) => this.clock.passed(t),
       reached: (t) => this.clock.reached(t),
@@ -559,8 +560,8 @@ export class MobxPool {
       // Option A (POD-4571): progress reads a cold child by id, never loading it.
       progressFacts: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       issueRead: (id) => this.readCursor(id),
-      nested: (id) => this.worklist.nested(id),
-      formalChildren: (id) => this.worklist.formalChildren(id),
+      nested: (id) => this.issueObject(id).nested,
+      formalChildren: (id) => links.issue.children.ids(id),
       // POD-4678 (item 1, plant/old): the mirror IS the relation — every id
       // yielded counts, exactly as `many()` yields do. Spread + sort
       // (`[...seats].sort()`, landed code verbatim) re-reads the whole family:
@@ -587,16 +588,14 @@ export class MobxPool {
     this.rollupInputs = rollupInputsOf(this.visibleInputs)
     this.worklist = new VisibleCollection({
       counters: stats.counters,
-      issue: (id) => this.object('issue', id) as IssueModel,
-      released: (id) => this.release('issue', id),
-      filePlacement: (id, placement) => this.groups.file(id, placement),
+      issue: (id) => this.issueObject(id),
+      fileGroups: (id, filing) => this.groups.file(id, filing),
     })
     this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
       name: 'pool.foldLatch',
     })
     this.groups = new WorklistGroups({
-      order: () => this.worklist.order,
-      node: (id) => this.worklist.issue(id),
+      node: (id) => this.knownIssue(id),
       // At most one entry (`select`): the key walk is the selection itself.
       selectedId: () => this.selection.keys().next().value ?? null,
       foldLatch: () => this.foldLatch.get(),
@@ -607,17 +606,12 @@ export class MobxPool {
       | 'models'
       | 'target'
       | 'selectedId'
+      | 'heldOut'
+      | 'outOfMemory'
       | 'select'
-      | 'syncWorklist'
+      | 'followTable'
+      | 'followHeldOut'
       | 'clearSeats'
-      | 'plainScope'
-      | 'issueRowOf'
-      | 'expandRoots'
-      | 'rawOne'
-      | 'residencyCapable'
-      | 'rawMany'
-      | 'sessionLinkedIssues'
-      | 'ensureIssues'
       | 'object'
       | 'release'
     >(this, {
@@ -637,15 +631,17 @@ export class MobxPool {
       rollupInputs: false,
       object: false,
       issueObject: false,
+      knownIssue: false,
       release: false,
       edit: false,
       row: false,
       readCursor: false,
-      knows: false,
       stats: false,
       models: false,
       target: false,
       selectedId: false,
+      heldOut: false,
+      outOfMemory: false,
       clearSeats: false,
       reads: false,
       residency: false,
@@ -664,17 +660,14 @@ export class MobxPool {
       snapshot: false,
       dispose: false,
       select: false,
-      syncWorklist: false,
-      // POD-4705: maintenance called inside actions, never observed.
-      plainScope: false,
-      issueRowOf: false,
-      expandRoots: false,
-      rawOne: false,
-      residencyCapable: false,
-      rawMany: false,
-      sessionLinkedIssues: false,
-      ensureIssues: false,
+      // Maintenance called inside actions, never observed.
+      followTable: false,
+      followHeldOut: false,
     })
+    // Every issue in memory holds its filing reaction: taken when its row
+    // enters the table, released when it leaves (inside the action that
+    // moved it; the reaction first runs when that action ends).
+    observe(this.tables.issue, (change) => this.followTable(change.type, change.name))
     runInAction(() => this.select(locals.selectedIssueId))
     residency?.onDue(() => this.hydrate())
   }
@@ -726,11 +719,6 @@ export class MobxPool {
     return this.readStates.get(id)
   }
 
-  /** Whether the pool knows the issue `id`, hot or cold (plain: maintenance, inside actions). */
-  knows(id: string): boolean {
-    return this.tables.issue.has(id) || this.residency?.isCold('issue', id) === true
-  }
-
   /** Every RESIDENT issue id, in table order. Re-derived only when membership changes. */
   get issueIds(): readonly string[] {
     return issueIdsOf(this)
@@ -760,12 +748,12 @@ export class MobxPool {
 
   /**
    * Forget the object of `entity:id` once nothing can ask for it again as
-   * the same row: an issue neither in memory nor held by the worklist, a
+   * the same row: an issue neither in memory nor tracked by the worklist, a
    * session no longer known, any other row no longer in memory.
    */
   private release(entity: EntityName, id: string): void {
     if (this.tables[entity].has(id)) return
-    if (entity === 'issue' && this.worklist.has(id)) return
+    if (entity === 'issue' && this.worklist.tracks(id)) return
     if (entity === 'session' && this.residency?.isCold('session', id) === true) return
     this.models[entity].delete(id)
   }
@@ -773,6 +761,17 @@ export class MobxPool {
   /** The one object of issue `id`, built on first request (untracked: an identity memo). */
   issueObject(id: string): IssueModel {
     return this.object('issue', id) as IssueModel
+  }
+
+  /**
+   * TRACKED: the object of issue `id` while the pool knows the issue (in
+   * memory or cold), else undefined: a cross-issue read (a parent, a child,
+   * a starter's owner) that reaches an unknown id re-runs when it becomes
+   * known. A presence probe, not a row read.
+   */
+  knownIssue(id: string): HeldIssue | undefined {
+    const known = this.tables.issue.has(id) || this.residency?.known('issue', id) === true
+    return known ? this.issueObject(id) : undefined
   }
 
   /** A model's edit (`issue.title = x`): one transaction of the write layer's log. */
@@ -816,243 +815,12 @@ export class MobxPool {
   }
 
   /**
-   * POD-4705 — the visibility parts over plain reads (call only inside an
-   * action, where reads subscribe to nothing): the same part functions the
-   * live nodes memoize (`directVisibility`), evaluated without building a
-   * node or a reaction. Row reads go through the live inputs (fenced, and
-   * projecting pending edits under the write arm), so the pass answers what
-   * the nodes would; cold rows are never evaluated (a cold row reads as
-   * hidden, exactly as a missing node does, and the rebuild this mirrors
-   * stops at them the same way); relations come from the raw engine.
-   * Sessions recompute per read (pure functions of their row, no memo).
-   *
-   * `nested` is real when the caller passes the known ids (a `replace`'s one
-   * sanctioned walk) and a loud stub otherwise: the per-change read set
-   * (present/keeps/formalParent) never reaches the nest index, so a read
-   * there means the read set grew and the scope must grow with it.
-   * `formalChildren` answers from the parts' own children (what the live
-   * filing mirrors); `seats` is unused since POD-4678 item 2
-   * (`seatIdsPartOf` reads the maintained list).
-   */
-  private plainScope(knownIds: readonly string[] | null): {
-    readonly partsOf: (id: string) => IssueVisibility
-  } {
-    const memo = new Map<string, IssueVisibility>()
-    const partsOf = (id: string): IssueVisibility => directVisibility(plain, id, memo)
-    let nested: ReadonlyMap<string, readonly string[]> | null = null
-    const rawRelations: RelationReader = {
-      one: (from, id, relation) => this.rawOne(from, id, relation),
-      many: (from, id, relation) => this.rawMany(from, id, relation),
-      size: (from, id, relation) => this.graph.size(from, id, relation),
-      // POD-4671: a maintained subset, engine-direct like size (the plain
-      // pass counts nothing; both arms resolved in favour of both).
-      subset: (from, id, relation, subset) => this.graph.subset(from, id, relation, subset),
-    }
-    // Row reads go through the one reader (fenced, and projecting pending
-    // edits): the plain pass answers what the nodes would, including
-    // optimism. Bootstrap counts nothing, and per-change evaluation runs
-    // only where a node may genuinely be built.
-    const live = this.visibleInputs
-    const plain: VisibleInputs = {
-      links: relationLinks(rawRelations, this.graph.schema),
-      issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
-      sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
-      // Exactly what a live derivation reads: a held row's parts (hot or
-      // cold — a cold ancestor's node carries the nest walk past it), else
-      // unknown for hot rows without a node. Cold unheld rows read as
-      // hidden, which is what their missing node answers live. (The rebuild
-      // has no cold rows and evaluates all of them; the pass only needs
-      // live-equivalence.)
-      issue: (id) =>
-        this.tables.issue.has(id) || this.worklist.has(id) ? partsOf(id) : undefined,
-      session: (id) => directSessionVisibility(plain, id),
-      issueRead: (id) => live.issueRead(id),
-      passed: (t) => live.passed(t),
-      reached: (t) => live.reached(t),
-      // Maintenance reads, never derivation access: a cold row answers its
-      // pending marker WITHOUT queuing its load (`mark`; the live reads queue,
-      // which would arm the window from inside the pass). A session's verdict
-      // reads its row here; the roll-up paths are unread.
-      loadedIssue: (id) => this.row('issue', id, 'mark') as Loaded<SliceIssue>,
-      loadedSession: (id) => this.row('session', id, 'mark') as Loaded<SliceSession>,
-      progressFacts: (id) => live.progressFacts(id),
-      nested: (id) => {
-        if (knownIds === null) {
-          throw new Error('[pool] plain pass read the nest index on a per-change scope')
-        }
-        nested ??= directNested(knownIds, partsOf)
-        return nested.get(id) ?? []
-      },
-      formalChildren: (id) => partsOf(id).childIds,
-      seats: () => [],
-      seatList: (id) => this.inputs.seatList(id),
-      counted: () => {},
-    }
-    return { partsOf }
-  }
-
-  /**
-   * POD-4705 — an issue's own row, hot or cold (call in-action): the raw
-   * table first, the feed by id second. A field read on it is free when the
-   * row arrived on this action's event (the pool stores the event's own
-   * object, already touched) and one cold feed read at most otherwise.
-   *
-   * The one read that bypasses `row` (POD-4743): the closure walk reads only
-   * the structural keys (`parentId`, the started-by owner), which no pending
-   * edit writes, and it is maintenance, so it must not count a fenced read
-   * per ancestor the way a derivation's read does.
-   */
-  private issueRowOf(id: string): SliceIssue | undefined {
-    return (this.tables.issue.get(id) ?? this.residency?.read('issue', id)) as
-      | SliceIssue
-      | undefined
-  }
-
-  /**
-   * POD-4705 — expand `roots` to the lazy node closure (call in-action):
-   * each root's ancestor chain by raw `parentId` (the same field the nest
-   * walk follows, through any issue), the started-by owner of a parentless
-   * started-by root, then every formal subtree under the union. Membership
-   * lives in a `Set` (counted like any other map/set work — a linear scan
-   * here would be O(closure²) work hidden from every counter); the walk
-   * queues below are plain arrays, iterated once each, never membership
-   * checked. Ancestors are noded even when cold: the nest walk passes
-   * THROUGH a hidden parent to the grandparent, so a missing node would stop
-   * it early. Formal descendants are noded even when hidden: the parent's
-   * progress composes over their cached units. Every root verifies its first
-   * hop (so a reparented held row picks up its new parent); the walk stops
-   * at a pre-existing held chain (complete by induction) and at unknown ids;
-   * it reads rows, never tables, and builds no observable.
-   */
-  private expandRoots(
-    roots: Iterable<string>,
-    partsOf: (id: string) => IssueVisibility,
-  ): Set<string> {
-    const closure = new Set<string>()
-    // Members whose formal subtree still needs walking queue here, seeded
-    // during the ancestor walk (no second pass over the closure): only ids
-    // with a children bucket walk at all.
-    const below: string[] = []
-    const visit = (id: string): boolean => {
-      if (closure.has(id) || !this.knows(id)) return false
-      closure.add(id)
-      if (!this.worklist.has(id) && this.graph.hasMembers('issue', id, 'children')) {
-        below.push(id)
-      }
-      return true
-    }
-    for (const root of roots) {
-      // Every root joins (held roots stay: the replace drops held rows
-      // outside the closure) and verifies its first hop (one row read, free
-      // when the row arrived on this action's event), so a reparented held
-      // row still picks up its new parent. The walk stops at a pre-existing
-      // held chain (complete by induction) and at unknown ids; membership
-      // strictly grows per step, so adversarial parent cycles end.
-      if (!this.knows(root)) continue
-      visit(root)
-      let current = root
-      for (;;) {
-        const row = this.issueRowOf(current)
-        if (row === undefined) break
-        const standing = standingOf(row)
-        let next: string | null = null
-        if (standing.parentId !== null) {
-          next = standing.parentId
-        } else if (standing.startedBy !== null && this.tables.issue.has(current)) {
-          // Parentless with a starter: the present owner carries the nest.
-          // Evaluated (hot rows only) for a member that needs it; anything
-          // else holds its owner already, since a present row is always
-          // noded. A cold member nests under nothing (hidden by rule).
-          next = partsOf(current).nestParent
-        } else {
-          break
-        }
-        if (next === null || !this.knows(next)) break
-        // Already a member (a parent cycle) ends the walk; a pre-existing
-        // held chain above is complete by induction.
-        if (!visit(next)) break
-        if (this.worklist.has(next)) break
-        current = next
-      }
-    }
-    for (let head = 0; head < below.length; head += 1) {
-      const id = below[head] as string
-      for (const child of this.rawMany('issue', id, 'children')) {
-        if (this.knows(child)) visit(child)
-      }
-    }
-    return closure
-  }
-
-  /**
-   * POD-4705 — the engine without the fence (call only inside an action).
-   * `rawOne` is what `one` answers before its presence probe, residency
-   * observation and fence count (presence is re-checked against the raw
-   * tables instead); `rawMany` is the live bucket itself. Maintenance (the
-   * linked-issue lookup and the plain pass) resolves through them and
-   * filters by the pool's own knowledge; derivations keep reading the
-   * fenced relations.
-   */
-  private rawOne(from: EntityName, id: string, relation: string): string | null {
-    const target = this.graph.forwardTarget(from, id, relation)
-    if (target === null) return null
-    const to = this.graph.schema[from].relations[relation]?.to
-    if (to === undefined) return null
-    const resident = !this.residencyCapable(to) || this.tables[to].has(target)
-    return resident ? target : null
-  }
-
-  /** Whether rows of `entity` can be cold (fence-free; `residency.capable`). */
-  private residencyCapable(entity: EntityName): boolean {
-    return this.residency?.capable(entity) === true
-  }
-
-  /**
-   * The engine's buckets without the fence (maintenance only, post-flush):
-   * the live unordered set, iterated in place — no copy, no sort. A missing
-   * bucket probes residency through the fence (like any absent read); the
-   * expansion runs it only where a node is genuinely being built.
-   */
-  private rawMany(from: EntityName, id: string, relation: string): Iterable<string> {
-    return this.graph.many(from, id, relation)
-  }
-
-  /**
-   * The issues a changed session can show (call in-action, post-flush): its
-   * explicit owner and every issue checked out at its lane. Answered through
-   * the raw engine without walking anything or counting a read. Split so the
-   * caller can treat them differently: an explicit member warms its cold
-   * owner through residency (no evaluation needed), while a lane-only
-   * session (no foreign key, never warmed) is the only way a cold lane
-   * owner flips visible (R3) and must be evaluated.
-   */
-  private sessionLinkedIssues(sessionId: string): {
-    readonly explicit: string | null
-    readonly lane: readonly string[]
-  } {
-    const explicit = this.rawOne('session', sessionId, 'issue')
-    const lanePath = this.rawOne('session', sessionId, 'worktree')
-    const lane: string[] = []
-    if (lanePath !== null) {
-      for (const issueId of this.rawMany('worktree', lanePath, 'issues')) {
-        if (this.knows(issueId)) lane.push(issueId)
-      }
-    }
-    return {
-      explicit: explicit !== null && this.knows(explicit) ? explicit : null,
-      lane,
-    }
-  }
-
-  /**
    * Close the load window now: install every queued cold row, read by id
    * through the feed, in ONE action. The window's timer calls this; so does
    * `snapshot()` while settling.
    *
-   * POD-4705: warming installs the feed's current value, which is what the
-   * cold reads already answered, so no visibility flips here and no node
-   * work follows. A row a change shows is warmed synchronously inside that
-   * change's action (`apply`), where the closure covers it.
+   * A row it installs enters the issue table, which gives it its filing
+   * reaction (`followTable`).
    */
   hydrate(): void {
     const residency = this.residency
@@ -1110,7 +878,7 @@ export class MobxPool {
         this.residency?.settleLanes(this.target, out)
       }
       this.graph.flush()
-      this.syncWorklist(event)
+      this.followHeldOut(event)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
     this.stats.counters.tableWrites += out.writes
@@ -1119,130 +887,43 @@ export class MobxPool {
   }
 
   /**
-   * The visible collection's nodes follow the event (inside its action).
-   * - a `replace` re-seeds them to the lazy closure: the plain pass
-   *   evaluates every HOT known issue (the one whole walk, `knownIssueIds`)
-   *   and nodes the present and keeping rows (visible implies present, so no
-   *   placement chain runs at bootstrap) with their ancestors and formal
-   *   subtrees — the only rows a derivation can read. Cold rows are hidden
-   *   by rule and never evaluated.
-   * - an update ensures the closure over what it named: every named issue
-   *   (exactly as the eager collection did — a rename walks nothing, a
-   *   reparent or re-add walks its raw chain), plus the issues a touched
-   *   session can show (explicit owner, lane) and the lane of a touched
-   *   worktree when the plain pass shows them (present or keeping) or their
-   *   formal parent holds a node. Cold linked rows stay out (hidden by rule;
-   *   warming makes them resident first, which re-includes them); removals
-   *   only hide. A removed session drops its node; a removed issue leaves
-   *   through `ensure`'s known check.
+   * The issue table moved (inside the action that moved it): a row entering
+   * memory takes its filing reaction, a row leaving releases it, unless the
+   * row is still kept out of memory beside the rule (`heldOut`).
    */
-  private syncWorklist(event: RowSourceEvent): void {
-    const knows = (id: string) => this.knows(id)
-    if (event.type === 'replace') {
-      const knownIds = knownIssueIds(this)
-      const { partsOf } = this.plainScope(knownIds)
-      const roots: string[] = []
-      for (const id of knownIds) {
-        // Every known issue, hot or cold: a cold row kept visible by its
-        // lane (R3, never warmed for lack of a foreign key) must still node,
-        // and bootstrap counts nothing. Cross-reads answer hot-only (a cold
-        // row reads as hidden, exactly as a missing node does), so the pass
-        // terminates like the rebuild's.
-        const parts = partsOf(id)
-        const parent = parts.formalParent
-        if (
-          parts.present ||
-          parts.keeps ||
-          (parent !== null && this.worklist.has(parent))
-        ) {
-          roots.push(id)
-        }
-      }
-      this.worklist.syncReplace(this.expandRoots(roots, partsOf), knows)
-      for (const id of builtIds(this.models.session)) this.release('session', id)
-      return
+  private followTable(type: 'add' | 'update' | 'delete', id: string): void {
+    if (type === 'add') {
+      this.heldOut.delete(id)
+      this.worklist.track(id)
+    } else if (type === 'delete' && !this.heldOut.has(id)) {
+      this.worklist.untrack(id)
     }
-    const isColdIssue = (id: string): boolean => this.residency?.isCold('issue', id) === true
-    // Membership in counted Sets (POD-4705 addendum 2): a lane fan-out over
-    // a family must not scan an array per member. `named` and `gone` stay
-    // plain arrays: they are append-only event order, never membership
-    // checked (the closure Set dedupes).
-    const named: string[] = []
-    const candidates = new Set<string>()
-    const gone: string[] = []
-    const consider = (id: string): void => {
-      if (!this.worklist.has(id) && !isColdIssue(id)) candidates.add(id)
-    }
-    // A lane-linked cold row is evaluated, never skipped: a lane-only
-    // session (no foreign key, never warmed) is the only way one flips
-    // visible (R3). An explicit member warms its cold owner through
-    // residency instead, so explicit cold rows stay out (and the heartbeat
-    // fence stays quiet).
-    const considerLane = (id: string): void => {
-      if (!this.worklist.has(id)) candidates.add(id)
-    }
-    for (const record of event.rows) {
-      if (record.kind === 'issue') {
-        if (record.value === undefined) gone.push(record.id)
-        else named.push(record.id)
-      } else if (record.kind === 'session') {
-        if (record.value === undefined) {
-          this.release('session', record.id)
-        } else {
-          const linked = this.sessionLinkedIssues(record.id)
-          if (linked.explicit !== null) consider(linked.explicit)
-          for (const issueId of linked.lane) considerLane(issueId)
-        }
-      } else if (record.kind === 'worktree' && record.value !== undefined) {
-        for (const issueId of this.rawMany('worktree', record.id, 'issues')) {
-          considerLane(issueId)
-        }
-      }
-    }
-    if (named.length === 0 && candidates.size === 0) {
-      if (gone.length > 0) this.worklist.ensure(gone, knows)
-      return
-    }
-    const { partsOf } = this.plainScope(null)
-    // An unheld linked candidate earns a node when the plain pass shows it
-    // (present or keeping — visible implies present) or when its FORMAL
-    // parent holds one: a hidden row flips or lands under a held parent only
-    // through these. The check is the where-filtered formal parent (what the
-    // filing files), not the raw one: an archived row names a raw parent it
-    // never files under. Anything else has no held reader, so building it
-    // would only commit filings.
-    const roots: string[] = [...named]
-    for (const id of candidates) {
-      const parts = partsOf(id)
-      const parent = parts.formalParent
-      if (
-        parts.present ||
-        parts.keeps ||
-        (parent !== null && this.worklist.has(parent))
-      ) {
-        roots.push(id)
-      }
-    }
-    if (roots.length === 0) return
-    const closure = this.expandRoots(roots, partsOf)
-    for (const id of gone) closure.add(id)
-    this.worklist.ensure(closure, knows)
-    if (gone.length > 0) this.worklist.ensure(gone, knows)
   }
 
   /**
-   * POD-4705 — ensure nodes for rows the write layer's pending display
-   * touches (call inside an action): a queued (or settled) edit projects
-   * through the reader's overlay, which only derivations read — a row
-   * without a node would never follow its pending verdict. The row is
-   * touched, so like any named row it earns its closure; held rows skip
-   * free. Called from the overlay refresh, after the entry is mirrored.
+   * An issue the option keeps out of memory, although the cold rule would
+   * keep it resident, may show: it holds a filing reaction while the pool
+   * knows it cold (inside the event's action). Nothing to do without the
+   * option.
    */
-  ensureIssues(ids: Iterable<string>): void {
-    const roots = [...ids]
-    if (roots.length === 0) return
-    const { partsOf } = this.plainScope(null)
-    this.worklist.ensure(this.expandRoots(roots, partsOf), (id) => this.knows(id))
+  private followHeldOut(event: RowSourceEvent): void {
+    const residency = this.residency
+    if (residency === null) return
+    for (const record of event.rows) {
+      if (record.kind !== 'issue' || !this.outOfMemory('issue', record.id)) continue
+      if (!this.tables.issue.has(record.id) && residency.isCold('issue', record.id)) {
+        this.heldOut.add(record.id)
+        this.worklist.track(record.id)
+      }
+    }
+    for (const id of [...this.heldOut]) {
+      if (this.tables.issue.has(id) || residency.isCold('issue', id)) continue
+      this.heldOut.delete(id)
+      this.worklist.untrack(id)
+    }
+    if (event.type === 'replace') {
+      for (const id of builtIds(this.models.session)) this.release('session', id)
+    }
   }
 
   /** One locals notification, one action: only the keys it names. */
@@ -1302,6 +983,7 @@ export class MobxPool {
   dispose(): void {
     runInAction(() => {
       this.worklist.clear()
+      this.heldOut.clear()
       this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()

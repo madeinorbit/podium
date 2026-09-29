@@ -104,14 +104,6 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
             kind: 'elements' as const,
           })),
         },
-        {
-          // The visible order and the groups re-sort whole on a membership change.
-          issue: 'POD-4757',
-          steps: ['#6a', '#6b', '#6c', '#6d', '#8b'].map((methodology) => ({
-            methodology,
-            kind: 'elements' as const,
-          })),
-        },
       ],
     },
   },

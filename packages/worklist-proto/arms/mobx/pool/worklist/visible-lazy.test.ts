@@ -1,16 +1,14 @@
 /**
- * POD-4705 — the lazy-visibility plant: IssueNodes are built only for issues
- * a derivation can read (visible rows, their visibility dependencies, and
- * anything touched since), never for every known issue. Boots the lazy pool
- * at 1x over the replay feed and counts from outside (the pool's own
- * counters and held ids, as the first-paint test does — nothing asks the
- * pool what it *should* have built).
+ * POD-4705, POD-4757 — the filing reactions cover the issues in memory, not
+ * every issue the pool knows. Boots the lazy pool at 1x over the replay feed
+ * and counts from outside (the pool's own counters and tracked ids, as the
+ * first-paint test does — nothing asks the pool what it *should* have built).
  *
- * - bootstrap builds fewer nodes than known issues (eager construction,
- *   today's code before this issue, holds one node per known issue and fails
- *   the strict bound), while every visible row holds one;
- * - cold rows outside the closure hold no node (at least one exists);
- * - a cold session's heartbeat builds no node and moves no row.
+ * - every issue in memory holds one filing reaction and no cold issue holds
+ *   one (a cold row is hidden by the cold rule), so bootstrap builds fewer
+ *   than the known issues (at least one is cold), and every visible row is
+ *   among them;
+ * - a cold session's heartbeat builds no reaction and moves no row.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -44,30 +42,30 @@ function boot() {
   return { corpus, replay, handle, pool: handle.pool }
 }
 
-describe('lazy visibility nodes (POD-4705)', () => {
-  it('builds nodes for the visible closure, not the corpus', () => {
+describe('filing reactions over the issues in memory (POD-4705, POD-4757)', () => {
+  it('tracks every issue in memory and no cold one', () => {
     const { pool } = boot()
     try {
-      const held = new Set(pool.worklist.heldIds())
-      const known =
-        tracked(() => pool.tables.issue.size) + (pool.residency?.size('issue') ?? 0)
+      const tracked_ = new Set(pool.worklist.trackedIds())
+      const resident = tracked(() => [...pool.tables.issue.keys()])
+      const known = resident.length + (pool.residency?.size('issue') ?? 0)
       const order = tracked(() => [...pool.worklist.order])
-      // Eager construction fails this: one node per known issue.
+      // Every known issue tracked (the old eager construction) fails this.
       expect(pool.stats.counters.issueNodes).toBeLessThan(known)
-      expect(held.size).toBeLessThan(known)
-      // Every visible row holds its node.
+      expect(new Set(resident)).toEqual(tracked_)
+      // Every visible row is tracked.
       expect(order.length).toBeGreaterThan(0)
-      for (const id of order) expect(held.has(id), `visible ${id} has no node`).toBe(true)
-      // Some cold row holds no node.
+      for (const id of order) expect(tracked_.has(id), `visible ${id} is not tracked`).toBe(true)
+      // No cold row is.
       const cold = pool.residency?.ids('issue') ?? []
       expect(cold.length).toBeGreaterThan(0)
-      expect(cold.filter((id) => !held.has(id)).length).toBeGreaterThan(0)
+      expect(cold.filter((id) => tracked_.has(id))).toEqual([])
     } finally {
       pool.dispose()
     }
   })
 
-  it('a cold heartbeat builds no node and moves no row', () => {
+  it('a cold heartbeat builds no reaction and moves no row', () => {
     const { replay, pool } = boot()
     try {
       const before = pool.stats.counters.issueNodes

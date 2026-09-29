@@ -507,12 +507,9 @@ export interface RollupInputs {
   progressFacts(id: string): ProgressFacts | undefined
   /** The `spinOffs` bucket's size (free, like `Map.size`; tracked). */
   spinOffCount(id: string): number
-  /** The nest children: present rows whose `nestParent` is `id` (maintained, not walked). */
+  /** The nest children: present rows whose `nestParent` is `id` (the live pool's derived `nested` group). */
   nested(id: string): Iterable<string>
-  /**
-   * The formal children: known issues whose declared `issue.parent` is `id`
-   * (maintained from each node's own forward slot, not re-listed).
-   */
+  /** The formal children: known issues whose declared `issue.parent` is `id` (the engine's `children` bucket). */
   formalChildren(id: string): Iterable<string>
   /** Another issue's parts (its node). */
   rollupNode(id: string): RollupParts | undefined

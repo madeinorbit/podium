@@ -95,7 +95,7 @@ function serverWrite(ctx: ScenarioEngine, id: string, patch: { title?: string; s
 function stageKeptIssue(pool: MobxPool): string {
   const id = tracked(() =>
     pool.worklist.order.find((candidate) => {
-      const node = pool.worklist.issue(candidate)
+      const node = pool.knownIssue(candidate)
       const row = pool.row('issue', candidate, 'peek') as SliceIssue | undefined
       return (
         node !== undefined &&
@@ -130,7 +130,7 @@ function shownOf(pool: MobxPool, id: string): Shown {
       readerTitle: row?.title,
       readerStage: row?.stage,
       viewTitle: rowViewOf(model)?.title,
-      visible: pool.worklist.issue(id)?.visible,
+      visible: pool.knownIssue(id)?.visible,
     }
   })
 }

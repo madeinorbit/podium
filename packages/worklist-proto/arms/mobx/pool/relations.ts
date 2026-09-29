@@ -476,9 +476,9 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
    * POD-4705 — the forward target `from:id` contributes on `relation`
    * (maintenance only, call inside an action): the twin-aware slot read
    * `one` starts from, without the target-presence check, the residency
-   * observation or any fence count. The pool's closure expansion resolves
-   * linked rows through it and filters by its own knowledge; derivations
-   * keep reading `one`. Twins never linger for a resident source
+   * observation or any fence count. Residency's lane rule resolves a
+   * member's lane through it (`LaneReader`); derivations keep reading
+   * `one`. Twins never linger for a resident source
    * (`promote` moves them on every residency gain), so the fallback cannot
    * return a stale entry post-flush.
    */
@@ -489,21 +489,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
     return link.forward.get(id) ?? link.coldForward.get(id) ?? null
-  }
-
-  /**
-   * POD-4705 — whether `from:id` holds any member on `relation`
-   * (maintenance only, call inside an action): the bucket's existence, both
-   * twins, without iterating it and without touching residency. The pool's
-   * closure expansion walks only members that have children.
-   */
-  hasMembers(from: EntityName, id: string, relation: string): boolean {
-    const link = this.collections.get(`${from}.${relation}`)
-    if (link === undefined) {
-      specOf(this.schema, from, relation)
-      throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
-    }
-    return link.buckets.has(id) || link.coldBuckets.has(id)
   }
 
   /** Whether `id`'s row is collapsed away by its entity's rule (tests). */

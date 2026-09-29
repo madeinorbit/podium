@@ -21,8 +21,9 @@
  * waiting conjunct holds open (the stub's three, from the oracle), so a
  * regression to the stub shows by name.
  *
- * FENCES: each step commits exactly the oracle-changed rows and reads within
- * its budget (the shared `assertCommits` / `assertReads`); the layout re-runs
+ * FENCES: each step commits exactly the oracle-changed rows (the shared
+ * `assertCommits`; its reads are recorded, and whether they grow with the
+ * data is the work-per-change check's, POD-4746); the layout re-runs
  * only when the order or a visible row's placement moved; a group header
  * redraws exactly when its own lanes changed, never on a row-internal change.
  */
@@ -33,7 +34,6 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   assertCommits,
-  assertReads,
   mountArmForCounts,
 } from '../../../../harness/src/count-harness'
 import {
@@ -225,7 +225,8 @@ describe('groups and closed folds (Mb2)', () => {
         })
         const { result, readsBudget } = step!
         assertCommits(result)
-        assertReads(result, { readsPerChange: readsBudget })
+        // Reads are recorded, not held to a fixed budget: whether they grow
+        // with the data is the work-per-change check's (POD-4746).
         mounted.reads.assertNoCopies(mounted.handle)
         const counters = { ...pool.stats.counters }
         const orderMoved =
@@ -304,7 +305,7 @@ describe('groups and closed folds (Mb2)', () => {
           return null
         })
       const placed = tracked(() =>
-        pool.worklist.order.map((id) => ({ id, placement: pool.worklist.issue(id)?.placement })),
+        pool.worklist.order.map((id) => ({ id, placement: pool.knownIssue(id)?.placement })),
       )
       const grace = placed.find(
         ({ placement }) => placement?.closed === true && !placement.dismissed && !placement.pinned,

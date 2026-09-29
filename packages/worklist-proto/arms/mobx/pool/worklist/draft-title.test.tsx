@@ -35,7 +35,7 @@ describe('a draft wears its first non-shell member (4x)', () => {
       expect(drafts.length, 'visible drafts at 4x').toBeGreaterThan(0)
       const shellFirst = tracked(() =>
         drafts.filter((id) => {
-          const first = pool.worklist.issue(id)?.seatIds[0]
+          const first = pool.knownIssue(id)?.seatIds[0]
           return first !== undefined && pool.visibleInputs.sessionRow(first)?.agentKind === 'shell'
         }),
       )

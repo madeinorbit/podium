@@ -1088,11 +1088,14 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
    * cached group its first reactive read builds (`cached.ts`: visible,
    * standing, present, retained; 4, whatever the bucket's size — measured
    * by POD-4758 on POD-4755's model, 15 written + 1 deleted + 5 iterated
-   * for a new issue at 4,000). The prefix index
+   * for a new issue at 4,000). With one filing reaction per issue in memory
+   * (POD-4757) a new issue writes its reaction's handle and one entry per
+   * sorted list it enters (`sorted-lanes.ts`): 17 written + 2 deleted + 4
+   * iterated, still whatever the bucket's size. The prefix index
    * (`place`) adds or deletes one entry per ancestor path of the row's path,
    * creates or drops at most one set per path, and records the placement once.
    */
-  const PLAIN_BOOKKEEPING = 21
+  const PLAIN_BOOKKEEPING = 23
   const plainBound = (path: string | null): number =>
     PLAIN_BOOKKEEPING + (path === null ? 0 : 2 * [...ancestorPaths(path)].length + 1)
   const big: RowRecord[] = [lane('/repo')]

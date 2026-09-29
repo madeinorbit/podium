@@ -52,7 +52,6 @@ import {
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
-import { knownIssueIds } from '../enumerate'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
 import { PoolRow } from '../react/row'
@@ -162,19 +161,20 @@ describe('visible collection and order (Mb1)', () => {
       for (const methodology of ['#1', '#2', '#3', '#4', '#5']) {
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
         expect(entry, methodology).toBeDefined()
-        const visibleBefore = new Set(tracked(() => [...pool.worklist.ids]))
+        const visibleBefore = new Set(tracked(() => [...pool.worklist.order]))
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         // runCountScenario read the snapshot after counting: nothing loads mid-step.
         assertCommits(result)
-        assertReads(result, { readsPerChange: readsBudget })
+        // Reads are recorded, not held to a fixed budget: whether they grow
+        // with the data is the work-per-change check's (POD-4746).
         mounted.reads.assertNoCopies(mounted.handle)
         const counters = { ...pool.stats.counters }
         if (methodology === '#1') {
-          // A heartbeat reads 0 of the visible set and re-sorts nothing.
+          // A heartbeat reads 0 of the visible set and files nothing.
           const readIds = (result.reads?.sample ?? []).map((key) => key.split(':')[1] ?? '')
           expect(result.reads?.rows ?? 0).toBeLessThanOrEqual(8)
           expect(readIds.filter((id) => visibleBefore.has(id))).toEqual([])
-          expect(counters.orderSorts).toBe(0)
+          expect(counters.groupRuns).toBe(0)
           expect(counters.membershipFlips).toBe(0)
         }
         cells.push({
@@ -186,8 +186,8 @@ describe('visible collection and order (Mb1)', () => {
           readsPerChange: result.readsPerChange,
           readsBudget,
           readsByEntity: result.reads?.byEntity,
-          orderSorts: counters.orderSorts,
-          orderElements: counters.orderElements,
+          groupRuns: counters.groupRuns,
+          groupElements: counters.groupElements,
           membershipFlips: counters.membershipFlips,
           visible: visibleBefore.size,
         })
@@ -209,7 +209,7 @@ describe('visible collection and order (Mb1)', () => {
     }
   }, 300_000)
 
-  it('a rank change sorts at most the visible count and commits only the moved row', async () => {
+  it('a rank change moves the one row, sorts nothing and commits only the moved row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
@@ -219,7 +219,7 @@ describe('visible collection and order (Mb1)', () => {
       const before = tracked(() => [...pool.worklist.order])
       // Pin the LAST visible unpinned row: band 1 → 0, so it moves to the top block.
       const target = tracked(() =>
-        [...before].reverse().find((id) => pool.worklist.issue(id)?.standing?.pinned === false),
+        [...before].reverse().find((id) => pool.knownIssue(id)?.standing?.pinned === false),
       )
       expect(target).toBeDefined()
       mounted.log.reset()
@@ -233,8 +233,10 @@ describe('visible collection and order (Mb1)', () => {
       })
       const after = tracked(() => [...pool.worklist.order])
       const counters = pool.stats.counters
-      expect(counters.orderSorts).toBe(1)
-      expect(counters.orderElements).toBeLessThanOrEqual(before.length)
+      // One filing: out of its group's member and open lanes, into the pinned section.
+      expect(counters.groupRuns).toBe(1)
+      expect(counters.groupElements).toBe(3)
+      expect(counters.membershipFlips).toBe(0)
       expect(after.indexOf(target!)).toBeLessThan(before.indexOf(target!))
       expect(new Set(after)).toEqual(new Set(before))
       // The pinned row redraws (its view's `band`/`pinned` moved); no other row commits.
@@ -396,7 +398,7 @@ const AllKnownSlot = observer(function AllKnownSlot({
 const AllKnownList = observer(function AllKnownList({ pool }: { pool: MobxPool }): ReactElement {
   return (
     <div>
-      {knownIssueIds(pool).map((id) => (
+      {[...pool.fenced.issue.keys(), ...(pool.residency?.ids('issue') ?? [])].map((id) => (
         <AllKnownSlot key={id} pool={pool} id={id} />
       ))}
     </div>

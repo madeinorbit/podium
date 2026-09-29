@@ -137,8 +137,10 @@ describe('bootstrap in the count harness', () => {
       expect(lazy.rows.issue).toBe(feed.corpus.sliceIssues.length - coldIssues)
       expect(lazy.rows.issue + lazy.cold.issue).toBe(all.rows.issue)
       expect(lazy.rows.session + lazy.cold.session).toBe(all.rows.session)
-      // One object per issue the worklist holds, and the sessions those read.
-      expect(lazy.issueModels).toBe(lazy.held)
+      // One filing reaction per issue in memory; one object per issue read
+      // (those, and the cold ones their walks reach), and the sessions those read.
+      expect(lazy.held).toBe(lazy.rows.issue)
+      expect(lazy.issueModels).toBeGreaterThanOrEqual(lazy.held)
       expect(lazy.models).toBe(lazy.issueModels + lazy.sessionModels)
       expect(lazy.observables).toBeLessThan(all.observables)
       const cell: Record<string, unknown> = { scale, counts: { lazy, allResident: all } }

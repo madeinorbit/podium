@@ -9,12 +9,8 @@
  *   (POD-4569). It iterates the fenced table's KEYS, which count each id
  *   without reading its value (POD-4621), so the enclosing computed
  *   subscribes to membership only and the walk costs what it walks.
- * - `knownIssueIds` (POD-4569): every issue id the pool knows, hot or cold,
- *   which the visible collection (`worklist/visible.ts`) syncs its nodes to
- *   at a `replace`. An update syncs only the ids it names: the collection is
- *   maintained, never re-enumerated.
  * - `builtIds`: the rows of one entity whose object the pool has built (a
- *   `replace` releases the ones it no longer knows, `MobxPool.syncWorklist`).
+ *   `replace` releases the ones it no longer knows, `MobxPool.followHeldOut`).
  *   Sized by what was built, never by the table.
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, in the
@@ -68,21 +64,9 @@ export function issueIdsOf(pool: { readonly fenced: PoolTables }): string[] {
   return [...pool.fenced.issue.keys()]
 }
 
-/**
- * Every issue id the pool KNOWS (POD-4569): the resident ones (the fenced
- * table's keys) and the cold ones (the registry). The visible collection
- * syncs its nodes to it at a `replace`; an update syncs only the ids it names.
- */
 /** The ids whose object the pool has built for one entity (a `replace` releases the unknown ones). */
 export function builtIds(models: ReadonlyMap<string, unknown>): string[] {
   return [...models.keys()]
-}
-
-export function knownIssueIds(pool: {
-  readonly fenced: PoolTables
-  readonly residency: Residency | null
-}): string[] {
-  return [...pool.fenced.issue.keys(), ...(pool.residency?.ids('issue') ?? [])]
 }
 
 /**

@@ -105,7 +105,7 @@ async function measure(scale: 1 | 4) {
   const m = mounted as ReturnType<typeof mountArmForCounts>
   const { pool } = m.handle as MobxPoolHandle
   try {
-    const visibility = [...reactions].filter((r) => r.name_.startsWith('pool.visible.'))
+    const visibility = [...reactions].filter((r) => r.name_.startsWith('pool.file.'))
     const nodes = objectsBehind(visibility)
     const order = tracked(() => [...pool.worklist.order])
     // The drawn rows in list order (Mb2 wraps each item and adds group headers).
@@ -180,10 +180,12 @@ describe('visible collection: bootstrap and first paint (outside measures)', () 
     const cell = await measure(scale)
     console.info(`[mobx-first-paint] ${JSON.stringify(cell)}`)
     writeResult(`mobx-visible-first-paint-${scale}x`, cell)
-    // The instruments saw something: a visibility reaction per known issue,
+    // The instruments saw something: a filing reaction per issue in memory,
     // and every placeholder resolved once the loads landed.
     expect(cell.nodesFromMobxGraph.visibilityReactions).toBe(cell.poolCounters.issueNodes)
-    expect((cell.nodesFromMobxGraph as Record<string, number>)['IssueModel']).toBe(
+    // Behind them: every tracked issue's object, and the cold ones their
+    // walks read (an ancestor, a child).
+    expect((cell.nodesFromMobxGraph as Record<string, number>)['IssueModel']).toBeGreaterThanOrEqual(
       cell.poolCounters.issueNodes,
     )
     expect(cell.firstPaint.loadingRows).toBe(cell.firstPaint.coldVisible)

@@ -96,10 +96,10 @@ async function edgeIds(
     const newId = `s-4683-mobx-${scale}`
     sessionIds.add(newId)
     const pool = handle.pool as unknown as {
-      worklist: { issue(id: string): { seatIds: readonly string[] } | undefined }
+      knownIssue(id: string): { seatIds: readonly string[] } | undefined
     }
-    void tracked(() => pool.worklist.issue(target)?.seatIds.length ?? 0)
-    void tracked(() => pool.worklist.issue(from)?.seatIds.length ?? 0)
+    void tracked(() => pool.knownIssue(target)?.seatIds.length ?? 0)
+    void tracked(() => pool.knownIssue(from)?.seatIds.length ?? 0)
     const joinRow: RowRecord = {
       kind: 'session',
       id: newId,

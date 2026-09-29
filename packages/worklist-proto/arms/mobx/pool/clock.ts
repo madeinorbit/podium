@@ -22,7 +22,8 @@
  * change (the crossing, or the rewind); `clock.test.ts` pins both directions.
  *
  * EVERY UNTRACKED READ A DERIVATION MAKES IN `pool/` (M3 N1), each paired
- * with a tracked read or an atom that fires when its answer can change:
+ * with a tracked read or an atom that fires when its answer can change, or
+ * an identity memo whose answer for a key never changes:
  * 1. this clock's `now` (above);
  * 2. the residency registry (`residency.ts` `isCold`, reached through
  *    `loading`/`known`): plain maps, each id's answer paired with that id's
@@ -32,10 +33,24 @@
  *    `coldBuckets`) and its residency probe: `one`/`bucket` observe the
  *    row's residency atom before reading a twin, and every twin write
  *    reports it changed (`ColdSlots.changed`);
- * 4. the pool's model memo (`pool.ts` `inputs.sessionActivity`, the plain
- *    `models.session` map): either branch ends in a tracked read of the same
- *    session slot (the model's own row read, or `model()`'s presence check).
- * Nothing else: every table, bucket and forward read is an observable read.
+ * 4. the pool's object memo (`pool.ts` `MobxPool.object`, the plain
+ *    `models` maps), reached through `knownIssue`, `issueObject` and the
+ *    inputs' `session`, `sessionActivity` and `parts`: an identity memo (an
+ *    id answers one object while the row lives), and every value read off
+ *    the object is its own tracked read; `knownIssue` answers an object only
+ *    after a tracked presence probe (the issue table's `has`, else the
+ *    residency atom);
+ * 5. the cached groups' memo (`cached.ts` `cachedGroup`, the plain `live`
+ *    map): an identity memo of each object's computed, whose `get` is the
+ *    tracked read;
+ * 6. the groups' node memo (`worklist/groups.ts` `WorklistGroups.nodes`,
+ *    read by `keys`): an identity memo of each group's node, whose values are
+ *    tracked.
+ * Nothing else: every table, bucket, forward, lane and overlay read is an
+ * observable read. What a list filed each id under (`worklist/sorted-lanes.ts`
+ * `SortedLanes.filed`) is read only by the filing itself, inside an action,
+ * never by a derivation: a lane's reader reads the lane, and anything about
+ * a member (a group's label, the head's rank) from the member, tracked.
  */
 
 import { createAtom, type IAtom } from 'mobx'

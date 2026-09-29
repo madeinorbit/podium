@@ -180,10 +180,9 @@ export function createMobxWriteApi(
     if (kind !== 'issue') return
     const display = displayOf(log, kind, id)
     if (display === undefined) {
-      if (!overlay.delete(id)) return
-      // A dropped pending display can flip the row back: make sure a node
-      // tracks it (held rows skip free).
-      pool.ensureIssues([id])
+      // A dropped display re-runs whatever read it (every row in memory holds
+      // its filing reaction).
+      overlay.delete(id)
       return
     }
     // Skip an equal write (W4): a remote on a pending field recomputes the
@@ -192,10 +191,10 @@ export function createMobxWriteApi(
     const current = overlay.pending(kind, id)
     if (current !== undefined && compareStructural(current, display)) return
     overlay.set(id, display)
-    // A new pending display can flip the row while no feed event names it:
-    // only a derivation reads the overlay, so the row needs a node to
-    // follow it (POD-4705; held rows skip free).
-    pool.ensureIssues([id])
+    // An edited row belongs in memory: the one reader's first access queues a
+    // cold one for the next load window, and once it lands its filing
+    // reaction follows the pending display like any row's.
+    pool.row('issue', id)
   }
 
   /**

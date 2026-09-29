@@ -29,13 +29,12 @@
  *
  * - `create`: `mobxPoolArm.create` outside `apply` (the pool's constructor,
  *   its stores, groups and selection; the feed subscriptions);
- * - `ingest`: `MobxPool.apply` up to the visibility pass (tables, residency,
- *   the relation engine's per-row upkeep);
+ * - `ingest`: `MobxPool.apply` up to the end of its action (tables,
+ *   residency, the relation engine's per-row upkeep);
  * - `relationUpkeep`: `PoolRelations.flush`;
- * - `visibilityPass`: `MobxPool.syncWorklist` (the plain pass over every
- *   known issue, closure expansion, session forgetting);
- * - `nodeConstruction`: `VisibleCollection.syncReplace` (the nodes and their
- *   reactions, built but not run: `apply` is one action);
+ * - `nodeConstruction`: `VisibleCollection.track` (each issue's filing
+ *   reaction, built as its row enters the table, not yet run: `apply` is
+ *   one action);
  * - `firstReactiveRun`: the rest of `apply`, where the action's batch ends
  *   and the reactions built in it first run;
  * - `firstPaint`: the window's observers.
@@ -67,8 +66,8 @@
  *
  * PLANTS (proven red, restored with cp; POD-4748): one extra computed
  * declared on every issue object (then `IssueNode`, now `IssueModel`), and one
- * extra reaction per held issue in `VisibleCollection.add`, each fail the gate
- * by growth.
+ * extra reaction per held issue in `VisibleCollection.add` (now `track`), each
+ * fail the gate by growth.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -163,11 +162,11 @@ function wrapPhases(census: Census): () => void {
   const restores = [
     phaseMethod(census, MobxPool.prototype, 'apply', 'ingest'),
     phaseMethod(census, PoolRelations.prototype, 'flush', 'relationUpkeep'),
-    phaseMethod(census, MobxPool.prototype, 'syncWorklist', 'visibilityPass', () => {
+    phaseMethod(census, MobxPool.prototype, 'followHeldOut', 'ingest', () => {
       // The rest of `apply`: its action ends and the batch's reactions run.
       if (census.phase === 'ingest') census.relabel('firstReactiveRun')
     }),
-    phaseMethod(census, VisibleCollection.prototype, 'syncReplace', 'nodeConstruction'),
+    phaseMethod(census, VisibleCollection.prototype, 'track', 'nodeConstruction'),
   ]
   return () => {
     for (const restore of restores.reverse()) restore()

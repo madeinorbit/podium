@@ -134,8 +134,8 @@ import {
   type OwnAttention,
   type OwnFacts,
   ownFactsOf,
-  type Progress,
-  progressOf,
+  unitOwnPartOf,
+  unitsBelowPartOf,
   type Rollup,
   type RollupInputs,
   rollupPartOf,
@@ -154,6 +154,8 @@ import {
   type Members,
   membersOf,
   type Nesting,
+  nestBelowPartOf,
+  nestedPartOf,
   nestingOf,
   type Presence,
   presenceOf,
@@ -400,7 +402,8 @@ function rowField<V>(field: RowViewField, compute: (issue: IssueModel) => V): (i
 /**
  * THE issue: its row, its visibility, its roll-ups and its edits. The groups
  * (cached values) are `facts`, `rank`, `members`, `presence`, `nesting`,
- * `tip`, `attention`, `progress`, `loaded`, `inMemory` and `rowRollup`, and
+ * `nestBelow`, `nested`, `tip`, `attention`, `unitOwn`, `unitsBelow`,
+ * `loaded`, `inMemory` and `rowRollup`, and
  * one per field of the row (`fields`); each is a cached group
  * (`cachedGroup`), built on first reactive read.
  */
@@ -426,13 +429,31 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     nesting: cachedGroup('nesting', (issue: IssueModel) =>
       nestingOf(issue.host.visibleInputs, issue.id, issue.standing, issue.present),
     ),
+    /** The nest candidates down the raw parent edge (read by the parent's `nestBelow` and `nested`). */
+    nestBelow: cachedGroup('nestBelow', (issue: IssueModel) =>
+      nestBelowPartOf(issue.host.visibleInputs, issue.id),
+    ),
+    /** The present rows nested under this one: the attention roll-up composes over them. */
+    nested: cachedGroup('nested', (issue: IssueModel) =>
+      nestedPartOf(issue.host.visibleInputs, issue.id, issue),
+    ),
     tip: cachedGroup('tip', (issue: IssueModel) => tipPartOf(issue.host.rollupInputs, issue.id)),
     attention: cachedGroup('attention', (issue: IssueModel) =>
       attentionOf(issue.host.rollupInputs, issue.id, issue),
     ),
-    progress: cachedGroup('progress', (issue: IssueModel) =>
-      progressOf(issue.host.rollupInputs, issue.id, issue),
+    /** Its own contribution to its formal ancestors' progress (its own row, and whether it is vacated). */
+    unitOwn: cachedGroup('unitOwn', (issue: IssueModel) =>
+      unitOwnPartOf(issue.host.rollupInputs, issue.id, issue),
     ),
+    /**
+     * The formal closure's counts, composed over its formal children's cached
+     * units: apart from `unitOwn`, so a change to its own row (a rename) walks
+     * no child.
+     */
+    unitsBelow: cachedGroup('unitsBelow', (issue: IssueModel) => {
+      issue.host.rollupInputs.counted()
+      return unitsBelowPartOf(issue.host.rollupInputs, issue.id)
+    }),
     /**
      * What the IN-MEMORY row gives (one read of it, which queues a cold row's
      * load): its decision facts for the roll-up (`state` says whether it is in
@@ -528,16 +549,20 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return IssueModel.groups.nesting(this)
   }
 
+  get nestBelow(): readonly string[] {
+    return IssueModel.groups.nestBelow(this)
+  }
+
+  get nested(): readonly string[] {
+    return IssueModel.groups.nested(this)
+  }
+
   get tip(): { readonly found: boolean; readonly pending: number } {
     return IssueModel.groups.tip(this)
   }
 
   get attention(): Attention {
     return IssueModel.groups.attention(this)
-  }
-
-  get progress(): Progress {
-    return IssueModel.groups.progress(this)
   }
 
   get loaded(): Loaded {
@@ -714,11 +739,11 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get unitOwn(): UnitOwn {
-    return this.progress.unitOwn
+    return IssueModel.groups.unitOwn(this)
   }
 
   get unitsBelow(): Units {
-    return this.progress.unitsBelow
+    return IssueModel.groups.unitsBelow(this)
   }
 
   get label(): Label {

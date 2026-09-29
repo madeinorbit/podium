@@ -128,7 +128,7 @@ describe('mobx pool on the native renderer', () => {
       // Only drawn visible rows redraw.
       const redrawn = [...mounted.log.counts.keys()]
       expect(redrawn).toContain(target)
-      const shown = new Set(tracked(() => [...handle.pool.worklist.ids]))
+      const shown = new Set(tracked(() => [...handle.pool.worklist.order]))
       expect(redrawn.filter((id) => !shown.has(id))).toEqual([])
     } finally {
       mounted.unmount()

@@ -203,10 +203,13 @@ describe('ingest', () => {
       ])
       expect(sizes[0]).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
-      // One object per issue the worklist holds (its visibility is cached on
-      // it), and the sessions those read; no worktree or repo object until
-      // one is read.
-      expect(pool.modelCount('issue')).toBe(pool.worklist.size())
+      // One filing reaction per issue in memory, one object per issue it
+      // reads (its own, and the cold ones its walks reach: an ancestor, a
+      // child), and the sessions those read; no worktree or repo object
+      // until one is read.
+      expect(pool.worklist.size()).toBe(sizes[0])
+      expect(pool.modelCount('issue')).toBeGreaterThanOrEqual(pool.worklist.size())
+      expect(pool.modelCount('issue') - pool.worklist.size()).toBeLessThanOrEqual(cold[0]!)
       expect(pool.modelCount('worktree')).toBe(0)
       expect(pool.modelCount('repo')).toBe(0)
       expect(pool.stats.counters.modelsCreated).toBe(
@@ -242,20 +245,14 @@ describe('ingest', () => {
       })
       expect(pool.stats.counters.tableWrites).toBe(0)
       expect(pool.stats.notifications).toBe(0)
-      // POD-4705: the named row is touched, so a hidden row without a node
-      // gets one (first touch) and its observing row redraws once. The
-      // touch converges the row to its eager value: only the rollup-backed
-      // progress appears (it read undefined with no node). Nothing else
-      // moves: no write, no notification, no membership flip. POD-4756: the
-      // row's fields re-derive on their own, a few of ONE row's.
-      expect(pool.stats.counters.issueNodes).toBe(nodesBefore + 1)
+      // Every issue in memory already holds its filing reaction, so nothing
+      // moves at all: no reaction built, no membership flip, no row field
+      // re-derived, no row re-rendered.
+      expect(pool.stats.counters.issueNodes).toBe(nodesBefore)
       expect(pool.stats.counters.membershipFlips).toBe(0)
-      expect([...all.rerun]).toEqual([id])
-      expect(pool.stats.rowsDerived).toBeGreaterThan(0)
-      expect(pool.stats.rowsDerived).toBeLessThanOrEqual(ROW_VIEW_FIELDS.length)
-      const after = all.views.get(id)
-      expect(after).not.toBe(before)
-      expect({ ...after, progressDone: 0, progressTotal: 0 }).toEqual(before)
+      expect([...all.rerun]).toEqual([])
+      expect(pool.stats.rowsDerived).toBe(0)
+      expect(all.views.get(id)).toBe(before)
     } finally {
       all.stop()
       r.dispose()
@@ -482,7 +479,7 @@ describe('dispose', () => {
     r.locals.set({ selectedIssueId: models[0]!.id })
     r.locals.flush()
     expect(r.listeners()).toBe(2)
-    expect(getObserverTree(pool.worklist, 'order').observers?.length ?? 0).toBeGreaterThan(0)
+    expect(getObserverTree(pool.groups, 'keys').observers?.length ?? 0).toBeGreaterThan(0)
     expect(pool.worklist.size()).toBeGreaterThan(0)
 
     await act(async () => {
@@ -497,7 +494,7 @@ describe('dispose', () => {
       expect(getObserverTree(pool.tables[entity]).observers ?? [], entity).toEqual([])
     }
     expect(tracked(() => pool.selection.size)).toBe(0)
-    expect(getObserverTree(pool.worklist, 'order').observers ?? []).toEqual([])
+    expect(getObserverTree(pool.groups, 'keys').observers ?? []).toEqual([])
     expect(pool.worklist.size()).toBe(0)
     expect(pool.modelCount('session')).toBe(0)
     // A row view is a cached group on its issue, dropped once unobserved; one
