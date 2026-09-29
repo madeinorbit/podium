@@ -226,7 +226,7 @@ export type HarnessRefEntry = z.infer<typeof HarnessRefEntry>
 export const HARNESS_REF_MAX = 16
 
 export const HarnessRef = z.array(HarnessRefEntry).max(HARNESS_REF_MAX)
-export type HarnessRef = readonly HarnessRefEntry[]
+export type HarnessRef = z.infer<typeof HarnessRef>
 
 /**
  * Every id in the lists, each once, in the order first seen, capped at
@@ -235,8 +235,8 @@ export type HarnessRef = readonly HarnessRefEntry[]
  * message's list only ever grows: nothing already known is dropped or changed.
  */
 export function mergeHarnessRefs(
-  ...lists: ReadonlyArray<HarnessRef | undefined>
-): HarnessRefEntry[] | undefined {
+  ...lists: ReadonlyArray<readonly HarnessRefEntry[] | undefined>
+): HarnessRef | undefined {
   const merged: HarnessRefEntry[] = []
   const seen = new Set<string>()
   for (const list of lists) {
