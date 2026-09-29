@@ -38,13 +38,23 @@ export const ACCOUNT_QUERIES = {
   // blob read being reinstated — taking either side wholesale would have
   // silently undone one of the two.
   list: query(noInput, async (state) => {
-    const machines = await state.machines.listMachines()
+    // ONE SOURCE (POD-4832): the online service listing — the same online +
+    // inventory the picker (`codexLoginMachines` / `machinesForAgent`) and the
+    // pane (`agentLoginCondition`) read — not the store copy, which includes
+    // offline stale rows (a daemon that has not reported since its login
+    // lapsed) and pending stale rows (the previous connection's inventory
+    // before the new daemon reports). A stale offline `in` must not keep the
+    // hub `connected` when no online machine reports the login.
+    const serviceMachines = await state.machineService.listMachines()
+    const onlineMachines = serviceMachines.filter((machine) => machine.online)
     // Served descriptors across the fleet for the provider labels (POD-4529):
     // `accountViews` resolves these over the bundled fallback, so an older
     // daemon that reported no descriptors still renders.
     const served = (
       await Promise.all(
-        machines.map(async (machine) => state.machineService.harnessDescriptorsFor(machine.id) ?? []),
+        onlineMachines.map(
+          async (machine) => state.machineService.harnessDescriptorsFor(machine.id) ?? [],
+        ),
       )
     ).flat()
     // Which native login this viewer's server AI would spend (POD-4750) — one
@@ -56,14 +66,13 @@ export const ACCOUNT_QUERIES = {
     return await Promise.all((await accountViews(
       async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
-      machines,
+      onlineMachines as unknown as Parameters<typeof accountViews>[2],
       served,
     )).map(async (account) => {
       if (account.source !== 'native' || !account.harness) return account
       const harness = account.harness as import('@podium/model').HarnessAgent
       const attempt = state.nativeLogin.attempt(harness)
-      const loginMachines = (await state.machineService
-        .listMachines())
+      const loginMachines = serviceMachines
         .filter(
           (machine) =>
             machine.online &&
