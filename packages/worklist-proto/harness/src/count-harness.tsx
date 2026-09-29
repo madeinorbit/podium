@@ -439,16 +439,25 @@ export async function runCountScenario(
     if (mounted.work === false) await step()
     else measured = await measureWork(step, { trace: mounted.work === 'trace' })
   })
-  // Reads first: `snapshot()` below walks the arm's whole output and must not
-  // be charged to the change.
+  // Reads and the arm's counters first: `snapshot()` below walks the arm's
+  // whole output and must not be charged to the change. POD-4825: a MobX row
+  // field nothing observes is recomputed by that walk, so counters read
+  // after it charged the parity projection's derivations (5 per visible row
+  // once the rows stopped reading their placement fields) to a heartbeat.
   const reads = mounted.reads.enabled ? mounted.reads.stats() : null
   const counted = measured as Awaited<ReturnType<typeof measureWork<void>>> | null
+  const armStats = mounted.handle.stats
+  const stats = {
+    rowsDerived: armStats.rowsDerived,
+    rollupsDerived: armStats.rollupsDerived,
+    indexUpdates: armStats.indexUpdates,
+    notifications: armStats.notifications,
+  }
   const snapshot = mounted.handle.snapshot()
   const expected = input.expected()
   const parity = isDeepStrictEqual(snapshot, expected)
   const commitsByRow: Record<string, number> = {}
   for (const [id, count] of mounted.log.counts) commitsByRow[id] = count
-  const stats = mounted.handle.stats
   const exact =
     viewsBefore === null || input.views === undefined
       ? null
