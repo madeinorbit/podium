@@ -165,6 +165,20 @@ export interface FakeAppServer {
   deferTurnStarted(): void
   /** Let the held-back `turn/started` through. */
   releaseTurnStarted(): void
+  /**
+   * Another client on this thread starts a turn (the stock TUI attached to
+   * it): `turn/started` arrives with no `turn/start` of ours behind it.
+   * Returns the turn's id.
+   */
+  openForeignTurn(): string
+  /**
+   * Another client's turn opens just before Codex processes our NEXT
+   * `turn/start`, so that call lands on a running turn (POD-4849). Codex then
+   * answers it with the RUNNING turn's id and holds the message like a steer
+   * (measured on 0.155.0: `docs/measurements/pod-4834-receipt-proof/
+   * codex-0.155.0/app-server/s3-turnstart/`).
+   */
+  raceForeignTurnOnNextTurnStart(): void
   /** Raise a server→client approval request; returns the ask id the driver will
    *  use (the stringified JSON-RPC id). */
   askCommandApproval(options?: { canAlwaysAllow?: boolean; command?: string }): string
@@ -266,6 +280,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   let failNext = false
   let stallNext = false
   let deferStarted = false
+  let raceForeignTurn = false
   let pendingStart: (() => void) | undefined
   /**
    * THE TURN IS STEERABLE ONLY ONCE `turn/started` HAS BEEN SENT.
@@ -333,6 +348,14 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       const release = pendingStart
       pendingStart = undefined
       release?.()
+    },
+    openForeignTurn() {
+      const turnId = `turn-${++turnSeq}`
+      announceStarted(turnId)
+      return turnId
+    },
+    raceForeignTurnOnNextTurnStart() {
+      raceForeignTurn = true
     },
     askCommandApproval(opts) {
       const id = nextRequestId++
@@ -687,8 +710,33 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
           respondError(id, -32000, 'model provider refused the turn')
           return
         }
+        if (raceForeignTurn) {
+          raceForeignTurn = false
+          server.openForeignTurn()
+        }
         server.turnStarts += 1
         server.clientUserMessageIds.push({ method: 'turn/start', id: clientIdOf(params) })
+        if (openTurn) {
+          /**
+           * A `turn/start` ON A RUNNING TURN IS SILENTLY A STEER, as measured
+           * (POD-4863, S3): the answer names the RUNNING turn, no turn opens,
+           * and the message is recorded only at that turn's next model call —
+           * `emitUserMessage` — or never, if the turn is stopped first.
+           */
+          respond(id, {
+            turn: {
+              id: openTurn,
+              items: [],
+              itemsView: 'notLoaded',
+              status: 'inProgress',
+              error: null,
+              startedAt: 1_786_700_009,
+              completedAt: null,
+              durationMs: null,
+            },
+          })
+          return
+        }
         server.lastTurnInput = Array.isArray(params.input) ? params.input : undefined
         server.lastTurnModel = {
           ...(typeof params.model === 'string' ? { model: params.model } : {}),

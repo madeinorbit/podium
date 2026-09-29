@@ -210,6 +210,16 @@ export interface SendOptions {
    * `delivered` outcome naming the entry. Daemon-local; never crosses the wire.
    */
   onTranscriptItem?: (item: TranscriptItemRef) => void
+  /**
+   * A HELD MESSAGE THE PROGRAM WILL NOT RECORD ANY MORE (POD-4849).
+   *
+   * Called at most once, only after an `accepted` receipt with `held`, when
+   * what held it ended first: the turn closed, or the session did. It proves
+   * no "no" — the program may have shown it to the model before a crash — so
+   * the delivery queue settles the row as unconfirmed, never as failed.
+   * Daemon-local; never crosses the wire.
+   */
+  onUnrecorded?: (reason: string) => void
   origin: InputOrigin
   delivery: TurnDelivery
   /**
@@ -330,6 +340,16 @@ export type TurnReceipt =
        * is never filled in by guessing.
        */
       transcriptItem?: TranscriptItemRef
+      /**
+       * THE PROGRAM TOOK IT BUT HAS NOT RECORDED IT (POD-4819 §4, POD-4849).
+       * `memory`: it holds the message in memory and can still drop it — a
+       * Codex steer, recorded only at Codex's next model call and lost when
+       * the turn is stopped before it. Not delivered: for a send with an id
+       * the driver follows with `onTranscriptItem` once recorded, or
+       * `onUnrecorded` once it will not be. Absent on a receipt that carries
+       * `transcriptItem`.
+       */
+      held?: 'memory'
       at: string
     }
   | {
