@@ -483,7 +483,6 @@ export class DeliveryWorld {
           sessionId,
           body: typeof row.body === 'string' ? row.body : '',
           deliveryStatus: row.deliveryStatus as ServerRow['deliveryStatus'],
-          ...(typeof row.status === 'string' ? { status: row.status } : {}),
           ...(typeof row.deliveryDeferredReason === 'string'
             ? { reason: row.deliveryDeferredReason }
             : {}),

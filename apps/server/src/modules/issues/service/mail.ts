@@ -207,12 +207,12 @@ export class IssueCommentsMailModule {
   /** Cheap pending check (for stop-hooks / polling). CONTEXT-AWARE [POD-909]
    *  (design §10): only messages NOT yet in the agent's context drive the
    *  "run mail inbox" nag. Substrate source of truth:
-   *    - `queued`  — never transcript-confirmed / never pulled → count it
-   *    - `delivered` — envelope echoed as a turn → already in context → EXCLUDE
-   *    - `read` / terminal — consumed or gone → EXCLUDE
-   *  `countPending` counts status='queued' only. The legacy
+   *    - pending (stored … typed, unknown) — not confirmed yet → count it
+   *    - `confirmed` — echoed as a turn or read from an inbox → EXCLUDE
+   *    - failed / expired / cancelled — gone → EXCLUDE
+   *  `countPending` counts pending rows only. The legacy
    *  issue_messages unread count is a transition fallback for pre-substrate
-   *  rows only: a dual-written twin that has left `queued` must not resurrect
+   *  rows only: a dual-written twin that is no longer pending must not resurrect
    *  the nag when the mirror lags. `senders` lets the stop-hook render the
    *  coalesced pointer ("N messages from X, Y"). */
   async mailPending(

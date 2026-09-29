@@ -1047,7 +1047,7 @@ describe('ChatView composer', () => {
           }),
         ],
       })
-      return { status: 'queued', deliveryStatus: 'typing' }
+      return { deliveryStatus: 'typing' }
     })
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)

@@ -5,14 +5,14 @@ import type { SessionStore } from '../../../store'
  * Context-aware pending-mail count for the "run mail inbox" nag [POD-909]
  * (design §10). Shared by mailPending (stop-hook) and prime so both surfaces
  * use the same predicate:
- *   unread = |substrate status=queued| + |legacy unread with no messages twin|
+ *   unread = |substrate rows still pending| + |legacy unread with no messages twin|
  * A dual-written row already delivered-as-transcript-turn (or read/terminal)
  * never resurrects the nag via a lagging issue_messages unread mirror.
  *
  * Predicate NOTE:
- * - status='queued' → not yet in context → COUNT
- * - status='delivered' (transcript echo) → already in context → EXCLUDE
- * - status='read' / terminal → consumed or gone → EXCLUDE
+ * - delivery_status pending (stored … typed, unknown) → not yet in context → COUNT
+ * - confirmed (transcript echo, or read from an inbox) → already in context → EXCLUDE
+ * - failed / expired / cancelled → gone → EXCLUDE
  * - legacy unread with a substrate twin → trust substrate (already covered or excluded)
  * - legacy unread with NO twin (pre-substrate) → COUNT
  */

@@ -125,7 +125,7 @@ export interface TurnInput {
    *    an abandonment report replayed until acknowledged. It CARRIES this id,
    *    so it is dedupable, and handlers of those outcomes must be IDEMPOTENT
    *    UNDER REPEATS. Idempotent, not necessarily deduplicating: the server's
-   *    status writes are guarded on `status = 'queued'` and are therefore safe
+   *    status writes are guarded moves on `delivery_status` and are therefore safe
    *    however often they are replayed, while append-only observation events
    *    (`reconcileReceipt`'s per-receipt transitions) legitimately emit once
    *    per occurrence and are exempt.
