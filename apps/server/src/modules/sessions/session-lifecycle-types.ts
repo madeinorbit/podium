@@ -131,6 +131,9 @@ export interface SessionLifecycleDeps {
   handOffQueuedMessage?(messageId: string, sessionId: SessionId): Promise<boolean>
   /** Advance the source intent only after queued input crosses into the PTY. */
   confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): Promise<void>
+  /** The daemon proved late that a message it had reported unconfirmed
+   *  landed (POD-4840): `unknown` → `confirmed`, nothing else moves. */
+  confirmQueuedMessageLate?(messageId: string, sessionId: SessionId): Promise<void>
   /** Record which entry in the agent's history the message became (POD-4774). */
   nameQueuedMessageEntry?(
     messageId: string,

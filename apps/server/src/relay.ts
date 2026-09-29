@@ -1470,6 +1470,7 @@ export class SessionRegistry {
         erroredTurn: string
       }) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
+      provenLate?: (messageId: string, sessionId: SessionId) => Promise<void>
       injected?: (messageId: string, sessionId: SessionId) => Promise<void>
       unconfirmed?: (messageId: string, sessionId: SessionId, reason: string) => Promise<void>
       rejected?: (
@@ -1549,6 +1550,13 @@ export class SessionRegistry {
         await queuedMessageApply.reject(messageId, reason, cause),
       confirmQueuedMessageApplied: (messageId, sessionId) =>
         queuedMessageApply.applied(messageId, sessionId),
+      confirmQueuedMessageLate: async (messageId, sessionId) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.provenLate?.(
+          messageId,
+          sessionId,
+        )
+        await completion
+      },
       nameQueuedMessageEntry: (messageId, sessionId, transcriptItem) =>
         queuedMessageApply.named(messageId, sessionId, transcriptItem),
       noteQueuedMessageInjected: (messageId, sessionId) =>
@@ -2218,6 +2226,8 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
+    queuedApplyHooks.provenLate = async (messageId, sessionId) =>
+      await messagesSvc.onQueuedInputProvenLate(messageId, sessionId)
     queuedApplyHooks.injected = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputInjected(messageId, sessionId)
     queuedApplyHooks.unconfirmed = async (messageId, sessionId, reason) =>

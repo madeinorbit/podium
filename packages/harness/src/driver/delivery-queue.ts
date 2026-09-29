@@ -137,6 +137,28 @@ export function withDeliveryQueue(
     if (rows.has(id) && !finished.has(id)) unrecordedEarly.set(id, reason)
   }
   /**
+   * AN UNCONFIRMED ROW, PROVEN LATE (POD-4840): the driver's watch outlived
+   * the window and the harness recorded the prompt after all. The row's
+   * `failed`/`unconfirmed` outcome moves forward to `delivered`, once, and
+   * the `finished` replay carries that from here on. Only that outcome moves:
+   * a row that failed without being typed, or was dropped, has nothing a
+   * late record could prove, and nothing ever leaves `delivered`. The driver
+   * arms the late watch only after answering `unverified`, and the row
+   * settles on that answer before any transcript read can resolve it.
+   */
+  function proveLate(id: string, transcriptItem?: TranscriptItemRef): void {
+    const prior = finished.get(id)
+    if (prior?.outcome !== 'failed' || prior.cause !== 'unconfirmed') return
+    const event: Outcome = {
+      t: 'delivery',
+      rowId: id,
+      outcome: 'delivered',
+      ...(transcriptItem ? { transcriptItem } : {}),
+    }
+    finished.set(id, event)
+    emit(event)
+  }
+  /**
    * An interrupt row waits ahead of every plain row, behind earlier
    * interrupts. A plain row the driver is already typing keeps its own
    * attempt — the drain holds it until it settles — so the interrupt cuts the
@@ -229,6 +251,7 @@ export function withDeliveryQueue(
               signal: row.abort.signal,
               onTranscriptItem: (item) => name(id, item),
               onUnrecorded: (reason) => unrecorded(id, reason),
+              onLateProof: ({ transcriptItem }) => proveLate(id, transcriptItem),
             },
           )
           receipt = await row.inFlight
@@ -302,12 +325,21 @@ export function withDeliveryQueue(
       // A direct send names its entry by its turn id, the id the server's
       // message carries, when the driver learns it after the receipt went
       // back (POD-4774). Same outcome frame as a row's, for the same reason.
+      // A late proof of an `unverified` direct send says `delivered` under
+      // the same id (POD-4840).
       const turnId = input.id
-      if (turnId === undefined || options.onTranscriptItem) return send(input, options)
+      if (turnId === undefined) return send(input, options)
+      const delivered = (transcriptItem?: TranscriptItemRef) =>
+        emit({
+          t: 'delivery',
+          rowId: turnId,
+          outcome: 'delivered',
+          ...(transcriptItem ? { transcriptItem } : {}),
+        })
       return send(input, {
         ...options,
-        onTranscriptItem: (transcriptItem) =>
-          emit({ t: 'delivery', rowId: turnId, outcome: 'delivered', transcriptItem }),
+        onTranscriptItem: options.onTranscriptItem ?? delivered,
+        onLateProof: options.onLateProof ?? (({ transcriptItem }) => delivered(transcriptItem)),
       })
     }
     // Durable delivery drains as when-ready, or cuts in as an interrupt.

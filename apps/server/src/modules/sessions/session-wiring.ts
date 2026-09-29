@@ -483,6 +483,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         )
         await completion
       },
+      provenLate: async ({ messageId, sessionId }) => {
+        const completion: Promise<void> | undefined = deps.confirmQueuedMessageLate?.(
+          messageId,
+          sessionId,
+        )
+        await completion
+      },
       named: async ({ messageId, sessionId, transcriptItem }) => {
         const completion: Promise<void> | undefined = deps.nameQueuedMessageEntry?.(
           messageId,
