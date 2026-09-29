@@ -593,7 +593,10 @@ describe('message delivery under real failures', { retry: 0 }, () => {
     try {
       const session = only(world.sessionIds, 'session')
       const phone = world.device('phone')
-      world.setHookDelayMs(session, 5_000)
+      // Holds the typed message in flight long enough for the retract to meet
+      // it — and stays inside the terminal driver's proof window (4.8 s), or
+      // the outcome is the unproven-typing window POD-4777 owns, not the retract.
+      world.setHookDelayMs(session, 3_000)
       const late = phone.send(session, 'retracted too late')
       await waitTyped(world, late.id)
       await world.device('laptop').retract(session, late.id)
