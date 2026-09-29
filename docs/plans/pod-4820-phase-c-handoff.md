@@ -52,3 +52,24 @@ pull queued prompts back into the input box (*read*): the box must be checked be
 Which mode each program offers natively and how a degraded mode is reported (`deliveredAs`); the
 decided timeouts (POD-4822); how a steer that arrives after the turn ended is handled on each
 program; whether to use Claude's own queue as steer, and "send now" as interrupt-without-stopping.
+
+## Measured since (POD-4834 lanes, 2026-09-29, `docs/measurements/pod-4834-receipt-proof/grid.md` §2)
+
+- **Claude SDK:** a line sent while busy joins the running turn at the next tool boundary (our uuid
+  as `source_uuid`) or becomes the next turn after streamed text; `priority: "now"` cuts streamed
+  text at once and a tool at its end, and marks the preempted line `cancelled` although it stays in
+  the conversation.
+- **Codex app-server:** a `turn/start` sent while busy is silently a steer (it returns the running
+  turn's id); `thread/queue/add` (experimental) holds a message **durably** under our id, survives
+  SIGTERM and SIGKILL and runs on its own at `thread/resume` after a SIGKILL — a candidate for
+  "when idle" sends; no transport deduplicates a repeat.
+- **Codex terminal:** Enter while busy joins the running turn after the tool or text; Tab queues it
+  as the next turn; Escape re-submits held messages as a new turn (nothing lost), unlike the
+  app-server's dropped steer.
+- **Grok ACP:** a prompt sent while busy is listed in `_x.ai/queue/changed` and runs after the
+  running one. **Grok terminal:** send-now cancels the running turn and wraps the text.
+- **OpenCode:** v1 and terminal store a busy message at once and it reaches the model at the next
+  step of the running turn; after an interrupt it stays stored and **unanswered until another prompt
+  starts a turn**. v2 `delivery: queue` runs at turn end, `steer` at the end of the running step;
+  after an interrupt or restart a pending input runs only when another prompt arrives or its id is
+  resent. Whether and how Podium then starts that turn is this phase's decision.

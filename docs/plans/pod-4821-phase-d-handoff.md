@@ -83,3 +83,17 @@ config, never real credentials).
 
 Phase D reports `not-submitted` with its proven clear (Phase B §6.1). Phase D keeps a message's own
 writes distinguishable from foreign writes (Phase B §5.3).
+
+## Measured since (POD-4834 lanes, 2026-09-29, `docs/measurements/pod-4834-receipt-proof/grid.md`)
+
+- **Codex terminal:** Ctrl-C quitting puts held and Tab-queued messages back into the input box
+  joined by `\n`; submitted again they would be one entry holding several messages. Its
+  `history.jsonl` is written for box text that Ctrl-C cleared and that was never submitted.
+- **Cursor terminal:** after a failed run the TUI restores the failed prompt into the input box, and
+  the next typed text is appended to it.
+- **Claude terminal:** Escape with a prompt queued ran the queued prompt as the next turn at once
+  (2.1.284); no queued prompt was seen pulled back into the box in these runs. Tab typed into the
+  box becomes 4 spaces; a U+200B is removed and its Enter swallowed.
+- **Grok terminal:** a tab becomes 4 spaces in the input box; its queue ("Queued · Enter to send
+  now") is shown on screen only and lost on exit.
+- **OpenCode terminal:** a paste gains a trailing space (a final newline becomes it).
