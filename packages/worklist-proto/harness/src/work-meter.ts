@@ -64,7 +64,23 @@ import { computed, Reaction } from 'mobx'
 
 type Side = 'arm' | 'outside'
 
-const side = new AsyncLocalStorage<Side>()
+/**
+ * The side follows the code through awaits (Node's `AsyncLocalStorage`). A
+ * browser page has no `node:async_hooks` (its bundle stubs the module, so the
+ * class is undefined there) and never measures work: the legacy control's
+ * page imports `insideArm` through its arm, and there the side is simply not
+ * tracked (POD-4747: constructing it unguarded threw at the page's load, so
+ * the control page never booted).
+ */
+type SideStore = Pick<AsyncLocalStorage<Side>, 'run' | 'getStore'>
+const UNTRACKED: SideStore = {
+  run<R>(_store: Side, fn: (...args: unknown[]) => R, ...args: unknown[]): R {
+    return fn(...args)
+  },
+  getStore: () => undefined,
+}
+const side: SideStore =
+  typeof AsyncLocalStorage === 'function' ? new AsyncLocalStorage<Side>() : UNTRACKED
 
 /** Run `fn` as not-the-arm (the engine, the feed, the DOM): nothing it iterates counts. */
 export function outsideArm<T>(fn: () => T): T {
