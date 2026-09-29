@@ -62,6 +62,7 @@ import {
   type TerminalRuntimeHost,
 } from './terminal-driver'
 import { terminalProfileFor } from './registry'
+import { encodeCursor } from '@podium/harness/store'
 import { testSessions } from '../session/testing.js'
 
 function shippedProfile(harness: AgentKind): TerminalHarnessProfile {
@@ -256,7 +257,10 @@ function makeWorld(options: WorldOptions): {
   const echoUserTurn = (sessionId: SessionId, text: string): void => {
     const item: TranscriptItem = {
       id: `item-${++nextId}`,
-      cursor: `c${nextId}`,
+      // A REAL CURSOR, as the tailer stamps it: the segment and an offset
+      // that grows as the file does. The echo proof places each record by it
+      // (POD-4838), so an opaque token here would prove nothing about position.
+      cursor: encodeCursor({ fileId: `transcript-${sessionId}`, offset: nextId, uuid: null, sub: 0 }),
       role: 'user',
       ts: iso(),
       text,
@@ -671,7 +675,9 @@ for (const { target } of worlds) {
 describe('shipped terminal profile coverage', () => {
   it('covers every manifest, with cursor representing the identical pi shape', () => {
     expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...SHIPPED_ARMS, 'pi'].sort())
-    expect(shippedProfile('pi')).toEqual(shippedProfile('cursor'))
+    // Pi writes a timestamp on every entry and Cursor writes none; the echo
+    // floor's timestamped path runs in the claude, codex and opencode arms.
+    expect({ ...shippedProfile('pi'), transcriptTimestamps: 'absent' }).toEqual(shippedProfile('cursor'))
     expect(terminalProfileFor('shell')).toBeUndefined()
   })
   it('keeps the adversarial shape distinct from every shipped profile', () => {

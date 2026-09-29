@@ -1387,9 +1387,11 @@ describe('the human-controller lease', () => {
  */
 describe('the echo floor', () => {
   const FILE = 'segment-one'
-  const history = async () => {
+  /** Grok's echo proof, on a harness that also writes a millisecond timestamp. */
+  const DATED: TerminalHarnessProfile = { ...GROK, transcriptTimestamps: { resolutionMs: 1 } }
+  const history = async (profile: TerminalHarnessProfile = GROK) => {
     const world = makeWorld()
-    const session = await world.runtime.driverFor('grok', GROK).create(SPEC)
+    const session = await world.runtime.driverFor('grok', profile).create(SPEC)
     const sessionId = session.binding.sessionId
     world.ready(sessionId)
     // An hour ago somebody answered "yes", and the agent went on from there.
@@ -1458,16 +1460,16 @@ describe('the echo floor', () => {
   it('does not credit a record that lies after the start but was written before it', async () => {
     // The tailer polls. A record written just before the send can reach the
     // driver just after it, past the last position the driver had seen.
-    const { world, sessionId, send } = await history()
+    const { world, sessionId, send } = await history(DATED)
     const receipt = send()
     await Promise.resolve()
-    world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 80 }, writtenAgoMs: 500 })
+    world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 80 }, writtenAgoMs: 5_000 })
     expect((await receipt).outcome).toBe('unverified')
   })
 
   it('in a new segment, credits only what was written at or after the start', async () => {
     // A resume rolls onto a new file whose offsets say nothing about the old one.
-    const { world, sessionId, send } = await history()
+    const { world, sessionId, send } = await history(DATED)
     const receipt = send()
     await Promise.resolve()
     world.echo(sessionId, 'yes', {

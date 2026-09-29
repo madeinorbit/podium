@@ -1793,7 +1793,13 @@ export function createTerminalRuntime(
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
       echoWaiters: new Set(),
-      transcriptPosition: { kind: 'unknown' },
+      // A FRESH LAUNCH STARTS ON AN EMPTY STORE. Nothing is in its transcript
+      // yet, so whatever it records later came after any send made now — which
+      // matters where the file does not exist until the first prompt (Cursor)
+      // and no delta can say so. A resume or an adopt has history the driver
+      // has not seen; it starts `unknown` until a delta places it.
+      transcriptPosition:
+        registration.resume || registration.rebind ? { kind: 'unknown' } : { kind: 'empty' },
       hookSeen: false,
       hookAbsenceWarned: false,
       userTurns: 0,
@@ -2779,11 +2785,12 @@ export function createTerminalRuntime(
 const capabilityCache = new WeakMap<TerminalHarnessProfile, DriverCapabilities>()
 
 /**
- * Fold a delta's cursors into the furthest position seen. A cursor that does
- * not decode says nothing about position and is skipped; a cursor in another
+ * Fold a delta's cursors into the furthest position seen. A cursor in another
  * segment means the store moved on (resume, new file, rotation), so the
  * position moves with it. Within one segment the MAX wins: a producer may
- * re-emit an earlier item, as OpenCode does when a part is updated.
+ * re-emit an earlier item, as OpenCode does when a part is updated. An item
+ * whose cursor does not decode cannot be placed: it ends `empty` (the store
+ * is no longer known to be empty) and leaves a known position as it was.
  */
 function advancePosition(
   from: TranscriptPosition,
@@ -2792,7 +2799,10 @@ function advancePosition(
   let position = from
   for (const item of items) {
     const parts = item.cursor ? decodeCursor(item.cursor) : null
-    if (!parts) continue
+    if (!parts) {
+      if (position.kind === 'empty') position = { kind: 'unknown' }
+      continue
+    }
     position =
       position.kind === 'at' && position.fileId === parts.fileId
         ? { ...position, offset: Math.max(position.offset, parts.offset) }
@@ -2814,7 +2824,8 @@ function advancePosition(
  *     the start, less the harness's own resolution. Same machine, same clock.
  *   - In the segment the send started in, the entry must lie AFTER the
  *     position the driver had seen.
- *   - When the transcript was empty at the start, every entry lies after it.
+ *   - When the transcript was empty at the start — a fresh launch, or a
+ *     re-read that found nothing — every entry lies after it.
  *   - Anywhere else — another segment, or a start before any delta arrived —
  *     position proves nothing, and only the timestamp can answer.
  *
@@ -2833,11 +2844,11 @@ function echoIsAfterStart(
   const writtenAtMs = timestamps !== 'absent' && item.ts ? Date.parse(item.ts) : Number.NaN
   const dated = Number.isFinite(writtenAtMs)
   if (dated && timestamps !== 'absent' && writtenAtMs < start.atMs - timestamps.resolutionMs) return false
+  if (start.position.kind === 'empty') return true
   const parts = item.cursor ? decodeCursor(item.cursor) : null
   if (parts && start.position.kind === 'at' && parts.fileId === start.position.fileId) {
     return parts.offset > start.position.offset
   }
-  if (parts && start.position.kind === 'empty') return true
   return dated
 }
 
