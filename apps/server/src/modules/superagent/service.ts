@@ -87,6 +87,18 @@ export const SUPERAGENT_HARNESS_TIMEOUT_MS = 600_000
 /** Persisted marker for a failed headless turn (a visible, durable line on the
  *  thread — never a silent fallback). */
 export const TURN_FAILED_MARKER = 'the headless harness turn failed'
+/**
+ * Never surface the daemon's internal binding gate to the operator (POD-4806).
+ * After the headless binding fix this path is unreachable, but a stale daemon
+ * or a queued spawn from before the fix can still report it — rewrite to an
+ * actionable line instead of leaking internals.
+ */
+export function sanitizeSuperagentFailure(raw: string): string {
+  if (/server-minted SessionBinding instruction is required/i.test(raw)) {
+    return 'could not start the session — please retry'
+  }
+  return raw
+}
 
 /**
  * How many times a RETRYABLE dispatch failure (transport timeout, an
@@ -575,13 +587,22 @@ export class SuperagentService {
       return { ...ack, queued: false }
     } catch (err) {
       // The FIRST send of a burst reports its own failure synchronously — the
-      // client can hand the text back for a retry. A queued one cannot (nobody
-      // is waiting on it), which is why the pump writes a visible failure line
-      // on the thread instead.
+      // client can hand the text back for a retry. It ALSO leaves the durable
+      // user + failure rows (POD-4806): without them a reload shows an empty
+      // thread, as if the message was never sent. A queued failure cannot
+      // throw to anyone, which is why the pump writes the same rows instead.
+      const threadNow = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
+      const message = await this.persistTurnFailure(
+        threadId,
+        ownerUserId,
+        text,
+        err,
+        threadNow?.podiumSessionId,
+      )
       await this.store.superagent.deleteQueuedInput(queued.inputId)
       this.queuedHarness.delete(queued.inputId)
       this.turnInFlight.delete(threadId)
-      throw err
+      throw new Error(message)
     }
   }
 
@@ -626,23 +647,13 @@ export class SuperagentService {
     })
   }
 
-  /** A queued input that never became a turn: durable line + turn-end, so the
-   *  composer reopens and the reader sees why their message did not run. */
+  /** A queued input that never became a turn: durable user + failure lines and
+   *  a turn-end, so the composer reopens and the reader sees both what they
+   *  sent and why it did not run — including after a reload (POD-4806). */
   private async failQueuedInput(queued: QueuedSuperagentInputRow, error: unknown): Promise<void> {
     this.queuedHarness.delete(queued.inputId)
-    const message = describeError(error)
-    await this.store.superagent.appendSuperagentMessage(queued.threadId, {
-      ownerUserId: queued.ownerUserId,
-      role: 'assistant',
-      content: `${TURN_FAILED_MARKER}: ${message}`,
-    })
     const sessionId = (await this.store.superagent.getSuperagentThread(queued.threadId))?.podiumSessionId
-    if (sessionId) {
-      this.modules.headless.broadcastHeadlessActivity(sessionId, {
-        kind: 'turn-end',
-        error: message,
-      })
-    }
+    await this.persistTurnFailure(queued.threadId, queued.ownerUserId, queued.text, error, sessionId)
   }
 
   /**
@@ -757,6 +768,12 @@ export class SuperagentService {
     // place that decides, so the two paths cannot mint two sessions for one
     // thread. `agentKind` was frozen above, so the row it may create is right.
     const sessionId = await this.ensureHeadlessSession({ ...thread, agentKind: agent })
+    // REFUSE FAST ON AN OFFLINE MACHINE (POD-4806, POD-4750 shape). Spawning
+    // onto a machine with no daemon only queues a spawn the daemon later
+    // refuses — and the turn then fails with an internal error while the
+    // user's message is already gone from the queue. Name the machine and
+    // say to retry, before anything durable moves.
+    await this.requireOnlineSession(sessionId)
     // First HARNESS turn = no harness session yet. A legacy thread (buffered
     // messages, no harness session) re-primes through the seed the same way.
     const firstTurn = !thread.harnessSessionId
@@ -978,6 +995,17 @@ export class SuperagentService {
     const sessionUuid = pending.payload.sessionUuid
     let harnessErrorKind: HarnessErrorKind | undefined
     try {
+      if (!agent.success) {
+        // Unknown persisted harness: still leave the durable user + failure
+        // rows (POD-4806) rather than deleting the turn silently.
+        await this.persistTurnFailure(
+          pending.threadId,
+          pending.ownerUserId,
+          typeof pending.payload.prompt === 'string' ? pending.payload.prompt : '',
+          result.error ?? `unknown persisted harness: ${pending.payload.agent}`,
+          pending.podiumSessionId,
+        )
+      }
       if (agent.success) {
         // Bind the harness session on the FIRST turn whether it succeeded or not.
         // A turn that fails after the harness minted its session (interrupt, tool
@@ -1013,16 +1041,33 @@ export class SuperagentService {
           // token as "re-authenticate" — each with distinct guidance.
           const classified = classifyHarnessError(rawError, agent.data)
           harnessErrorKind = classified.kind
+          const userFacing = sanitizeSuperagentFailure(classified.message)
+          // Persisted user + failure (POD-4806): the transcript may already
+          // hold the prompt when the harness ran, but when the turn never
+          // reached one (offline ladder spent, transport lost) these rows are
+          // the only record a reload can show.
+          try {
+            const prompt = pending.payload.prompt
+            if (typeof prompt === 'string' && prompt.length > 0) {
+              await this.store.superagent.appendSuperagentMessage(pending.threadId, {
+                ownerUserId: pending.ownerUserId,
+                role: 'user',
+                content: prompt,
+              })
+            }
+          } catch {
+            // The failure row below still lands.
+          }
           // Persisted failure notice: visible on the thread's legacy history,
           // never a silent fallback to the buffered path.
           await this.store.superagent.appendSuperagentMessage(pending.threadId, {
             ownerUserId: pending.ownerUserId,
             role: 'assistant',
-            content: `${TURN_FAILED_MARKER} (${agent.data}): ${classified.message}`,
+            content: `${TURN_FAILED_MARKER} (${agent.data}): ${userFacing}`,
           })
           this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
             kind: 'turn-end',
-            error: classified.message,
+            error: userFacing,
           })
         }
       }
@@ -1316,6 +1361,67 @@ export class SuperagentService {
     }
     await this.store.superagent.updateSuperagentThreadBinding(thread.id, { terminalSessionId: null })
     return undefined
+  }
+
+  /**
+   * Refuse a turn whose headless session lives on a machine with no daemon
+   * (POD-4806). Same shape as the Codex server-AI picker (POD-4750): name the
+   * machine, say to bring its daemon online and retry — never a hang, never
+   * an internal spawn error, and never a spawn onto a machine that cannot run
+   * it. Throws when offline; returns undefined when online or unknown.
+   */
+  private async requireOnlineSession(podiumSessionId: SessionId): Promise<void> {
+    const session = await this.sessionById(podiumSessionId)
+    const machineId = session?.machineId
+    if (!machineId) return
+    if (this.modules.machines.hasDaemon(machineId)) return
+    let name: string
+    try {
+      name = await this.modules.machines.machineName(machineId)
+    } catch {
+      name = machineId
+    }
+    throw new Error(`machine '${name}' is offline — bring its daemon online, then retry.`)
+  }
+
+  /**
+   * Leave a visible, durable record of a turn that never ran (POD-4806): the
+   * user's message as a `user` row plus the failure as an assistant row, so a
+   * reload still shows both. The harness transcript cannot carry it — the turn
+   * never reached a harness — and the ephemeral turn-end error is gone after a
+   * reload. Best-effort: a persistence miss must not mask the original error.
+   */
+  private async persistTurnFailure(
+    threadId: ThreadId,
+    ownerUserId: UserId,
+    userText: string,
+    rawError: unknown,
+    podiumSessionId?: SessionId,
+  ): Promise<string> {
+    const message = sanitizeSuperagentFailure(describeError(rawError))
+    try {
+      if (userText.length > 0) {
+        await this.store.superagent.appendSuperagentMessage(threadId, {
+          ownerUserId,
+          role: 'user',
+          content: userText,
+        })
+      }
+      await this.store.superagent.appendSuperagentMessage(threadId, {
+        ownerUserId,
+        role: 'assistant',
+        content: `${TURN_FAILED_MARKER}: ${message}`,
+      })
+    } catch {
+      // The caller's throw below still reports the failure.
+    }
+    if (podiumSessionId) {
+      this.modules.headless.broadcastHeadlessActivity(podiumSessionId, {
+        kind: 'turn-end',
+        error: message,
+      })
+    }
+    return message
   }
 
   /** Digest the outgoing harness's transcript into a handoff seed for the new

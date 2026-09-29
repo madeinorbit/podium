@@ -14,7 +14,7 @@ import type {
   ThreadId,
   UserId,
 } from '@podium/model'
-import { asAccountId, asSessionId, type MachineId } from '@podium/model'
+import { asAccountId, asAgentIdentityId, asSessionId, type MachineId } from '@podium/model'
 import type {
   HeadlessActivityEvent,
   HeadlessTurnEvent,
@@ -177,6 +177,16 @@ export class HeadlessService {
       // below promotes it the moment the first turn reports the harness's id.
       conversationBinding: 'never',
       ownerUserId: input.ownerUserId,
+      // The daemon refuses spawns without a server-minted binding (POD-4806):
+      // mint the same user-principal delegation a normal spawn carries, so a
+      // headless establish is not a path that was never meant to be reached.
+      delegation: {
+        actor: asAgentIdentityId(sessionId),
+        onBehalfOf: input.ownerUserId,
+        grantedScope: { kind: 'none' },
+        parentBindingId: null,
+        revision: 1,
+      },
       ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.accountId ? { accountId: input.accountId } : {}),
@@ -190,6 +200,8 @@ export class HeadlessService {
     // Establish the daemon-side headless session over the existing WS relay.
     // Fire-and-forget: a turn that lands before the bind reports `not_running`
     // (retryable), and `resumePendingTurns` re-drives it after reconnect.
+    // The binding is server-minted (POD-4806): without it the daemon refuses
+    // with "server-minted SessionBinding instruction is required".
     try {
       this.deps.toMachine(machineId, {
         type: 'spawn',
@@ -198,6 +210,19 @@ export class HeadlessService {
         agentKind: input.agentKind,
         cwd: input.cwd,
         geometry: this.deps.defaultGeometry(),
+        binding: {
+          principal: { kind: 'user', userId: input.ownerUserId },
+          delegation: {
+            actor: asAgentIdentityId(sessionId),
+            onBehalfOf: input.ownerUserId,
+            grantedScope: { kind: 'none' },
+            parentBindingId: null,
+            revision: 1,
+          },
+          transitionId: `spawn:${sessionId}`,
+          machineAccess: 'allowed',
+          ...(input.issueId ? { issueId: input.issueId } : {}),
+        },
         ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
         ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
         requestedDriverId: 'headless',
@@ -563,7 +588,9 @@ export class HeadlessService {
   /** (Re)establish the daemon-side headless session — the reattach equivalent
    *  for sessions with no PTY. Sends `reattach` with `requestedDriverId:
    *  'headless'`; the daemon adopts (or resumes) the headless handle and
-   *  rebinds the transcript tail. Best-effort and idempotent. */
+   *  rebinds the transcript tail. Best-effort and idempotent. Carries the
+   *  server-minted reattach binding (POD-4806) for the same reason the spawn
+   *  does — the daemon refuses a reattach without one. */
   async headlessBind(input: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -573,6 +600,7 @@ export class HeadlessService {
     const session = this.deps.getSession(input.sessionId)
     const machineId = session?.machineId ?? await this.deps.defaultMachine()
     try {
+      const ownerUserId = session?.ownerUserId
       this.deps.toMachine(machineId, {
         type: 'reattach',
         sessionId: input.sessionId,
@@ -581,6 +609,21 @@ export class HeadlessService {
         cwd: input.cwd,
         lastKnownGeometry: this.deps.defaultGeometry(),
         resume: { kind: 'headless-session', value: input.resumeValue },
+        ...(session && ownerUserId
+          ? {
+              binding: {
+                ...(session.delegation ? { delegation: session.delegation } : {}),
+                transitionId: `reattach:${input.sessionId}:1`,
+                machineAccess: 'allowed' as const,
+                sessionAccess: 'allowed' as const,
+                principal: { kind: 'system' as const },
+                adopt: {
+                  ownerUserId,
+                  ...(session.issueId ? { issueId: session.issueId } : {}),
+                },
+              },
+            }
+          : {}),
         requestedDriverId: 'headless',
       })
       return { ok: true }
