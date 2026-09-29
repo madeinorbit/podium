@@ -23,7 +23,7 @@ import type {
 } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
-import { MobxPool, type PoolLazyOptions, type RowOverlay } from './pool'
+import { MobxPool, type PoolLazyOptions, type WriteSeam } from './pool'
 import { PoolList } from './react/list'
 import { rebuildSnapshot } from './rebuild'
 
@@ -49,7 +49,7 @@ export const mobxPoolArm = {
     /** Tests: the load window and its timer (default 50 ms, `setTimeout`). */
     loader: Omit<PoolLazyOptions, 'load'> = {},
     /** The write layer's pending display (`write/arm.ts`), read by the pool's one reader. */
-    overlay?: RowOverlay,
+    writes?: WriteSeam,
   ): MobxPoolHandle {
     const row = source.row?.bind(source)
     if (row === undefined) {
@@ -57,7 +57,7 @@ export const mobxPoolArm = {
         '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
       )
     }
-    const pool = new MobxPool(reads, locals.get(), undefined, { ...loader, load: row }, overlay)
+    const pool = new MobxPool(reads, locals.get(), undefined, { ...loader, load: row }, writes)
     pool.apply({
       type: 'replace',
       rows: [

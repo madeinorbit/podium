@@ -1,12 +1,14 @@
 /**
- * POD-4743 — the write layer's pending display, as the seam the pool's one
- * reader calls (`RowOverlay`, `MobxPool.row`).
+ * The write layer as the pool sees it (`WriteSeam`): the pending display the
+ * pool's one reader lays over every row (`MobxPool.row`), and the edits a
+ * model's setters make (`issue.title = x`, `MobxPool.edit`).
  *
  * The write arm creates it, passes it to the pool at construction and to the
  * write api (`createMobxWriteApi`), which mirrors the pending log into it
- * inside its actions. The pool only reads it: every row it serves is the
- * server row with this entry laid over it, so models, row views, visibility
- * nodes and roll-ups see one value, and no reader is replaced at runtime.
+ * inside its actions and takes the model edits it forwards. The pool only
+ * reads the display: every row it serves is the server row with this entry
+ * laid over it, so models, row views, visibility and roll-ups see one value,
+ * and no reader is replaced at runtime.
  *
  * One observable map entry per issue with a pending display: the newest
  * pending value per editable field (title, stage, readAt), never a row copy
@@ -16,16 +18,44 @@
 
 import { type ObservableMap, observable } from 'mobx'
 import type { EntityName } from '../../../../shared/src/schema'
-import type { RowOverlay } from '../pool'
+import {
+  type EditPatch,
+  type TxId,
+  type WritableKind,
+  WriteContractError,
+} from '../../../../shared/src/write-contract'
+import type { WriteSeam } from '../pool'
 
 /** The editable fields of an issue row, as the overlay holds them. */
 export type IssueOverlay = { title?: string; stage?: string; readAt?: string | null }
 
-export class PendingOverlay implements RowOverlay {
+/** The write api's edit, as the overlay forwards a model's edit to it. */
+export type Editor = <K extends WritableKind>(kind: K, id: string, patch: EditPatch<K>) => TxId
+
+export class PendingOverlay implements WriteSeam {
   private readonly entries: ObservableMap<string, IssueOverlay> = observable.map<
     string,
     IssueOverlay
   >(undefined, { deep: false, name: 'write.overlays' })
+  /** The write api that owns this overlay (`createMobxWriteApi` joins it), else null. */
+  private editor: Editor | null = null
+
+  /** Join the write api that mirrors its log here: model edits go through its `edit`. */
+  join(editor: Editor): void {
+    if (this.editor !== null) throw new WriteContractError('the write overlay already has a write api')
+    this.editor = editor
+  }
+
+  /** The write api left (its dispose): model edits are refused again. */
+  leave(): void {
+    this.editor = null
+  }
+
+  /** A model's edit: one transaction of the joined write api's log. */
+  edit<K extends WritableKind>(kind: K, id: string, patch: EditPatch<K>): TxId {
+    if (this.editor === null) throw new WriteContractError('no write api owns this overlay')
+    return this.editor(kind, id, patch)
+  }
 
   /** TRACKED: the pending display of `entity:id`. Only issues carry editable fields. */
   pending(entity: EntityName, id: string): IssueOverlay | undefined {

@@ -4,9 +4,10 @@
  * FAIL every seed: the generator's forced prefix (`excludedKeeper`,
  * `orphanInWorktree`, `draftVesselStarter`) reaches the branch on every seed,
  * so a plant that stops failing means the shape no longer reaches it. Each
- * plant is installed on `IssueNode.prototype` in memory and restored in a
- * `finally` (a copy of the rule where the rule is more than a line); arm
- * files on disk are never touched.
+ * plant replaces one cached group on `IssueModel.prototype` in memory (the
+ * group recomputed with the mistake in it) and is restored in a `finally` (a
+ * copy of the rule where the rule is more than a line); arm files on disk are
+ * never touched.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -23,8 +24,8 @@ import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { IssueNode } from './visible'
-import type { IssueVisibility, VisibleInputs } from './visible'
+import { IssueModel, type ModelHost } from '../models'
+import { type IssueVisibility, membersOf, type VisibleInputs } from './visible'
 
 installMobxWarnTrap()
 
@@ -65,7 +66,7 @@ function plantOwnerOf(input: VisibleInputs, sessionId: string): string | null {
 function plantNestParentNoDraft(
   input: VisibleInputs,
   id: string,
-  self: IssueVisibility,
+  self: Pick<IssueVisibility, 'standing' | 'present'>,
 ): string | null {
   const standing = self.standing
   if (standing === undefined || !self.present) return null
@@ -211,20 +212,41 @@ async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> 
   return log
 }
 
-function patchGetter(name: 'keeps' | 'memberIds' | 'nestParent', get: (this: IssueNode) => unknown): () => void {
-  const descriptor = Object.getOwnPropertyDescriptor(IssueNode.prototype, name)
-  if (descriptor?.get === undefined) throw new Error(`[plants] no getter ${name} on IssueNode`)
-  Object.defineProperty(IssueNode.prototype, name, { get: get as never, configurable: true })
+/** The pool inputs an issue object reads (the plants recompute a group over them). */
+function inputsOf(issue: IssueModel): VisibleInputs {
+  return (issue as unknown as { host: ModelHost }).host.visibleInputs
+}
+
+/**
+ * Replace one cached group's getter on `IssueModel.prototype` (every object
+ * built after this caches the planted group); returns the restore.
+ */
+function patchGroup(
+  name: 'presence' | 'members' | 'nesting',
+  get: (this: IssueModel, original: () => unknown) => unknown,
+): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(IssueModel.prototype, name)
+  if (descriptor?.get === undefined) throw new Error(`[plants] no getter ${name} on IssueModel`)
+  const original = descriptor.get
+  Object.defineProperty(IssueModel.prototype, name, {
+    get(this: IssueModel) {
+      return get.call(this, () => original.call(this))
+    },
+    configurable: true,
+  })
   return () => {
-    Object.defineProperty(IssueNode.prototype, name, descriptor)
+    Object.defineProperty(IssueModel.prototype, name, descriptor)
   }
 }
 
 describe('visibility plants against the oracle (POD-4681)', () => {
   it('plant keeps ignoring excluded fails every seed', async () => {
-    const restore = patchGetter('keeps', function (this: IssueNode) {
-      if (this.standing === undefined) return false
-      return this.flat || this.keptBelow
+    // `keeps` without its excluded test: an excluded issue passes on its
+    // children's keep (its own flat is false).
+    const restore = patchGroup('presence', function (original) {
+      const presence = original() as IssueModel['presence']
+      if (this.standing?.excluded !== true) return presence
+      return { ...presence, keeps: this.keptBelow }
     })
     await expectPlant(
       () => {},
@@ -234,12 +256,24 @@ describe('visibility plants against the oracle (POD-4681)', () => {
   }, GATE_TIMEOUT_MS)
 
   it('plant no R3 members fails every seed', async () => {
-    // Planted at the `memberIds` composition point (R2 only, the lane's R3
-    // part dropped), mirroring the hand arm's plant line for line. Driven
-    // without the rebuild comparison (see `collectOracleLog`): the shape's
-    // row must be missing from snapshot 11 on every seed.
-    const restore = patchGetter('memberIds', function (this: IssueNode) {
-      return this.seatIds
+    // Planted at the members composition (R2 only: the lane's R3 part
+    // dropped, as the lane had no issueless session), mirroring the hand
+    // arm's plant. Driven without the rebuild comparison (see
+    // `collectOracleLog`): the shape's row must be missing from snapshot 11
+    // on every seed.
+    const restore = patchGroup('members', function () {
+      const input = inputsOf(this)
+      const relations = input.relations
+      const noLane: VisibleInputs = {
+        ...input,
+        relations: {
+          one: (from, id, relation) => relations.one(from, id, relation),
+          many: (from, id, relation) => relations.many(from, id, relation),
+          size: (from, id, relation) => relations.size(from, id, relation),
+          issueless: () => [],
+        },
+      }
+      return membersOf(noLane, this.id, this.standing)
     })
     try {
       for (const seed of SEEDS) {
@@ -256,9 +290,13 @@ describe('visibility plants against the oracle (POD-4681)', () => {
   }, GATE_TIMEOUT_MS)
 
   it('plant draft vessel ignored fails every seed', async () => {
-    const restore = patchGetter('nestParent', function (this: IssueNode) {
-      const input = (this as unknown as { input: VisibleInputs }).input
-      return plantNestParentNoDraft(input, this.id, this)
+    const restore = patchGroup('nesting', function () {
+      const input = inputsOf(this)
+      if (!this.present) return { nestParent: null, placed: false, visible: false }
+      const nestParent = plantNestParentNoDraft(input, this.id, this)
+      const placed =
+        nestParent !== null ? input.issue(nestParent)?.placed === true : this.standing?.agent === false
+      return { nestParent, placed, visible: placed }
     })
     await expectPlant(
       () => {},

@@ -62,7 +62,7 @@ import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
-import { sessionActivityOf } from './views'
+import { activityMsOf } from './views'
 
 installMobxWarnTrap()
 
@@ -137,7 +137,7 @@ describe('fence steps #1-#4', () => {
         plantedPool = handle.pool
         const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
         // The pre-POD-4568 activity: each member's row, read again on every run.
-        inputs.sessionActivity = (id) => sessionActivityOf(handle.pool.inputs.session(id))
+        inputs.sessionActivity = (id) => activityMsOf(handle.pool.inputs.session(id))
         return handle
       },
     }

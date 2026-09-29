@@ -11,15 +11,16 @@
  * L1b `compareClosedFold`). The fold verdict is views.ts `closedOf` (the one
  * the row's `closed` field uses), so a row and its lane cannot disagree.
  *
- * WHAT A ROW CONTRIBUTES is its `placement` (`placementPartOf`): the pinned
- * flag, the group key and label, the fold verdict and the fold stamp. It is a
- * `computedStruct` on the row's `IssueNode`, read from the own row hot OR cold
- * (a closed issue is cold, and 376 of 732 visible rows are cold at 1x), so a
- * row is placed without being loaded. A change that leaves the placement
- * equal (a rename, a phase change, a heartbeat) stops at the node.
+ * WHAT A ROW CONTRIBUTES is its `placement` (`placementOfPart`): the pinned
+ * flag, the group key and label, the fold verdict and the fold stamp, taken
+ * from the row's own part (`views.ts` `ownPartOfRow`, where the fold verdict
+ * is computed once per row). It is cached in the facts group of the row's
+ * object, read from the own row hot OR cold, so a row is placed without
+ * being loaded. A change that leaves the placement equal (a rename, a phase
+ * change, a heartbeat) files nothing.
  *
- * THE LAYOUT IS MAINTAINED, NOT RE-ENUMERATED (POD-4686). One reaction per
- * node (`pool.layout.<id>`, filed in `VisibleCollection.sync`) files its
+ * THE LAYOUT IS MAINTAINED, NOT RE-ENUMERATED. One reaction per held issue
+ * (`pool.layout.<id>`, `VisibleCollection.add`) files its
  * placement into the buckets below when it changes, like the visible set
  * itself: a stage move files one id between two lanes, and the counters
  * (`counters.groupRuns`, `counters.groupElements`) count the filed id and the
@@ -47,6 +48,7 @@
  */
 
 import {
+  compareStructural,
   compareShallow,
   computed,
   makeObservable,
@@ -55,9 +57,9 @@ import {
   observable,
 } from 'mobx'
 import { compareRank, type RowRank } from '../../../../shared/src/row-view'
-import type { SliceGroup, SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
-import { closedOf, foldAtOf, issueAbandoned } from '../views'
-import type { IssueNode, VisibleCounters, VisibleInputs } from './visible'
+import type { SliceGroup, SliceOrder } from '../../../../shared/src/slice-types'
+import type { OwnPart } from '../views'
+import type { VisibleCounters } from './visible'
 
 /** Where one visible row goes (R-GROUP), before selection. */
 export interface Placement {
@@ -81,31 +83,26 @@ export function repoLabelOf(repoPath: string): string {
 }
 
 /**
- * One row's placement from its own row, hot or cold, and the clock (the grace
- * deadline), with "nothing in the subtree waits" ASSUMED: the node applies
- * the waiting roll-up (Mb3) only to a row this places in the fold
- * (`withWaiting`), so a row that could never fold never reads its subtree.
+ * One row's placement from its own part (the fold verdict and the stamp the
+ * row view shows) and its repo path, with "nothing in the subtree waits"
+ * ASSUMED: the row applies the waiting roll-up only to a row this places in
+ * the fold (`withWaiting`), so a row that could never fold never reads its
+ * subtree.
  */
-export function placementOf(issue: SliceIssue, input: Pick<VisibleInputs, 'passed'>): Placement {
-  const closed = closedOf(issue, false, input)
+export function placementOfPart(part: OwnPart, repoPath: string): Placement {
   return {
-    pinned: issue.pinned === true,
-    repoKey: issue.repoId ?? issue.repoPath,
-    label: repoLabelOf(issue.repoPath),
-    closed,
-    dismissed: closed && (issueAbandoned(issue) || issue.tuckedAt != null),
-    foldMs: Date.parse(foldAtOf(issue)) || 0,
+    pinned: part.pinned,
+    repoKey: part.repoKey,
+    label: repoLabelOf(repoPath),
+    closed: part.closed,
+    dismissed: part.dismissed,
+    foldMs: Date.parse(part.foldAt) || 0,
   }
 }
 
 /** A fold candidate whose subtree waits on the human stays open (R-GROUP 3, `folds.ts:95-100`). */
 export function withWaiting(placement: Placement): Placement {
   return { ...placement, closed: false, dismissed: false }
-}
-
-export function placementPartOf(input: VisibleInputs, id: string): Placement | undefined {
-  const issue = input.issueRow(id)
-  return issue === undefined ? undefined : placementOf(issue, input)
 }
 
 /** One group of the layout: label, open lane and closed fold, each in its spec order. */
@@ -193,8 +190,8 @@ export function sliceOrderOf(layout: Layout): SliceOrder {
 export interface GroupsHost {
   /** The visible ids in rank order (`VisibleCollection.order`). */
   order(): readonly string[]
-  /** A known issue's node. */
-  node(id: string): IssueNode | undefined
+  /** A held issue's cached rank and placement. */
+  node(id: string): { readonly rank: RowRank | undefined; readonly placement: Placement | undefined } | undefined
   /** TRACKED: the selected issue id, or null. */
   selectedId(): string | null
   /** TRACKED: `SliceLocals.selectedIssueWasFolded`. */
@@ -203,18 +200,6 @@ export interface GroupsHost {
 }
 
 const EMPTY: readonly string[] = Object.freeze([]) as readonly string[]
-
-/** Two placements file the same row the same way. */
-function placementEqual(a: Placement, b: Placement): boolean {
-  return (
-    a.pinned === b.pinned &&
-    a.repoKey === b.repoKey &&
-    a.label === b.label &&
-    a.closed === b.closed &&
-    a.dismissed === b.dismissed &&
-    a.foldMs === b.foldMs
-  )
-}
 
 /** One group's filed members, unordered: the lanes sort them at view time. */
 export interface Bucket {
@@ -429,7 +414,7 @@ export class WorklistGroups {
       this.count(left)
       return
     }
-    if (before !== undefined && placementEqual(before, placement)) return
+    if (before !== undefined && compareStructural(before, placement)) return
     // A move within one bucket re-sorts one set of lanes: count them once.
     const same =
       before !== undefined &&
@@ -488,7 +473,7 @@ export class WorklistGroups {
     // Subscribe to the visible order without walking it: this keeps `order`
     // alive (and its sort counter honest) while the list is mounted, and
     // re-sorts the keys when membership or a rank actually moves. No per-id
-    // reads here — a stage move touches only the moved bucket (POD-4686).
+    // reads here: a stage move touches only the moved bucket.
     this.host.order()
     const heads: { key: string; rank: RowRank }[] = []
     for (const key of this.buckets.keys()) {

@@ -29,7 +29,7 @@
  * READ PATH. Every row a model, view, visibility part, roll-up or group
  * placement reads comes from ONE reader, `row(entity, id, absent)`
  * (POD-4743): the server row with the write layer's pending edits overlaid
- * (`RowOverlay`, the seam the write layer passes at construction), the server
+ * (`WriteSeam`, the seam the write layer passes at construction), the server
  * object itself when nothing is pending, and for a row not in memory the
  * answer the caller names (`AbsentRead`: `LOADING` with its load queued,
  * `LOADING` alone, or its current value by id through the feed). Every table
@@ -51,6 +51,7 @@
 import './enforce'
 import {
   autorun,
+  compareStructural,
   computedStruct,
   type IObservableArray,
   type IObservableValue,
@@ -70,9 +71,15 @@ import type {
   SliceSnapshot,
 } from '../../../shared/src/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
+import {
+  type EditPatch,
+  type TxId,
+  type WritableKind,
+  WriteContractError,
+} from '../../../shared/src/write-contract'
 import { DeadlineClock } from './clock'
 import { issueIdsOf, knownIssueIds, reseed } from './enumerate'
-import { type EntityModel, MODEL_CLASSES, type ModelOf, type SessionModel } from './models'
+import { type EntityModel, type IssueModel, MODEL_CLASSES, type ModelOf, type SessionModel } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
 import {
@@ -85,13 +92,14 @@ import {
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
 import { sliceOrderOf, WorklistGroups } from './worklist/groups'
-import { LOADING, type Loaded } from './worklist/rollup'
+import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import {
   directNested,
   directSessionVisibility,
   directVisibility,
   type IssueVisibility,
   readAtOf,
+  rollupInputsOf,
   standingOf,
   VisibleCollection,
   type VisibleCounters,
@@ -100,7 +108,7 @@ import {
 
 /** The pool's own counters, beside the shared `ArmStats`. */
 export interface PoolCounters extends VisibleCounters {
-  /** Models built (first access). Zero after bootstrap until something reads. */
+  /** Models built (first access): the worklist's held issues and their sessions, and drawn rows. */
   modelsCreated: number
   /** Table slots written (set to a different object, or deleted). */
   tableWrites: number
@@ -143,7 +151,6 @@ function createStats(residency: Residency | null): PoolStats {
     rowsRemoved: 0,
     bucketElements: 0,
     issueNodes: 0,
-    sessionNodes: 0,
     orderSorts: 0,
     orderElements: 0,
     membershipFlips: 0,
@@ -166,7 +173,6 @@ function createStats(residency: Residency | null): PoolStats {
       counters.rowsRemoved = 0
       counters.bucketElements = 0
       counters.issueNodes = 0
-      counters.sessionNodes = 0
       counters.orderSorts = 0
       counters.orderElements = 0
       counters.membershipFlips = 0
@@ -185,24 +191,6 @@ function createStats(residency: Residency | null): PoolStats {
   return stats
 }
 
-/** JSON-ish equality for one row field (a mark-read arrives as new identities for nothing it changes). */
-function fieldEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
-    return a.every((item, index) => fieldEqual(item, b[index]))
-  }
-  const ka = Object.keys(a)
-  const kb = Object.keys(b)
-  if (ka.length !== kb.length) return false
-  return ka.every(
-    (key) =>
-      Object.hasOwn(b, key) &&
-      fieldEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
-  )
-}
-
 /**
  * Whether the hot issue update `previous` → `next` moves only the read
  * cursor: the cursor differs (as a value) and every other field is equal.
@@ -216,7 +204,7 @@ function cursorOnlyChange(previous: object, next: object): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)])
   keys.delete('readAt')
   for (const key of keys) {
-    if (!fieldEqual(a[key], b[key])) return false
+    if (!compareStructural(a[key], b[key])) return false
   }
   return true
 }
@@ -235,16 +223,21 @@ export interface PoolLazyOptions {
 }
 
 /**
- * The write layer's pending edits, as the pool's reader applies them
- * (POD-4743). The pool calls it; the write layer implements it and passes it
- * at construction (`write/overlay.ts`), so no reader is ever replaced.
- * TRACKED: `pending` reads the entry for `entity:id` (present or not), so a
- * derivation that read the row re-runs when its pending display changes. It
- * holds only the pending fields, never a row.
+ * The write layer, as the pool sees it: the seam the write layer implements
+ * and passes at construction (`write/overlay.ts`), so no reader is ever
+ * replaced.
+ * - `pending` is what the one reader lays over a row. TRACKED: it reads the
+ *   entry for `entity:id` (present or not), so a derivation that read the row
+ *   re-runs when its pending display changes. It holds only the pending
+ *   fields, never a row.
+ * - `edit` is a model's setter (`issue.title = x`, `issue.update(patch)`):
+ *   one transaction of the write layer's edit log.
  */
-export interface RowOverlay {
+export interface WriteSeam {
   /** The newest pending value per edited field of `entity:id`, or undefined when nothing is pending. */
   pending(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
+  /** One transaction: paint the patch at once, remember the prior values, send. */
+  edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
 }
 
 /**
@@ -315,19 +308,22 @@ export class MobxPool {
   readonly readStates: ObservableMap<string, string | null>
   readonly clock: DeadlineClock
   readonly inputs: ViewInputs
-  /** What the visibility parts read (POD-4569, `worklist/visible.ts`). */
+  /** What the visibility parts read (`worklist/visible.ts`). */
   readonly visibleInputs: VisibleInputs
-  /** The visible collection and its order (POD-4569). */
+  /** What the roll-up parts read (`worklist/rollup.ts`), over the visibility inputs. */
+  readonly rollupInputs: RollupInputs
+  /** The visible collection and its order. */
   readonly worklist: VisibleCollection
-  /** The groups and closed folds over that order (POD-4570). */
+  /** The groups and closed folds over that order. */
   readonly groups: WorklistGroups
   /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch). */
   readonly foldLatch: IObservableValue<boolean>
   readonly stats: PoolStats
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
-  /** The write layer's pending edits (POD-4743); null without a write layer. */
-  readonly overlay: RowOverlay | null
+  /** The write layer (pending edits and model edits); null without one. */
+  readonly writes: WriteSeam | null
+  /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
   private selectedId: string | null
@@ -343,9 +339,9 @@ export class MobxPool {
     locals: SliceLocals,
     schema?: ModelSchema,
     lazy?: PoolLazyOptions,
-    overlay?: RowOverlay,
+    writes?: WriteSeam,
   ) {
-    this.overlay = overlay ?? null
+    this.writes = writes ?? null
     this.tables = createObservableTables()
     this.fenced = reads.wrapTables(this.tables)
     const fenced = this.fenced
@@ -494,19 +490,15 @@ export class MobxPool {
     this.selectedId = null
     // Every row below comes from the one reader (`row`); none of these
     // functions is replaced after construction (the write layer's pending
-    // edits arrive through `overlay`). A view reads rows in memory: a row that
+    // edits arrive through `writes`). A view reads rows in memory: a row that
     // is not answers undefined, its load queued.
     const inMemory = (row: Loaded<object>): object | undefined => (row === LOADING ? undefined : row)
     this.inputs = {
       relations: this.relations,
       issue: (id) => inMemory(this.row('issue', id)) as SliceIssue | undefined,
       session: (id) => inMemory(this.row('session', id)) as SliceSession | undefined,
-      // The member's cached value. A model already built is taken from the
-      // identity memo without a presence read: it reads its own slot, so a
-      // removed member answers null, and the bucket that listed it has moved.
-      sessionActivity: (id) =>
-        ((this.models.session.get(id) as SessionModel | undefined) ?? this.model('session', id))
-          ?.activityMs ?? null,
+      // The member's cached stamp, while its row is in memory.
+      sessionActivity: (id) => this.model('session', id)?.activityMs ?? null,
       repo: (id) => inMemory(this.row('repo', id)) as RepoRow | undefined,
       present: (entity, id) => fenced[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
@@ -543,7 +535,7 @@ export class MobxPool {
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       issue: (id) => this.worklist.issue(id),
-      session: (id) => this.worklist.session(id),
+      session: (id) => this.object('session', id) as SessionModel,
       passed: (t) => this.clock.passed(t),
       reached: (t) => this.clock.reached(t),
       loadedIssue: (id) => this.row('issue', id) as Loaded<SliceIssue>,
@@ -576,9 +568,11 @@ export class MobxPool {
         stats.rollupsDerived += 1
       },
     }
+    this.rollupInputs = rollupInputsOf(this.visibleInputs)
     this.worklist = new VisibleCollection({
-      visibleInputs: this.visibleInputs,
       counters: stats.counters,
+      issue: (id) => this.object('issue', id) as IssueModel,
+      released: (id) => this.release('issue', id),
       filePlacement: (id, placement) => this.groups.file(id, placement),
     })
     this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
@@ -608,6 +602,8 @@ export class MobxPool {
       | 'rawMany'
       | 'sessionLinkedIssues'
       | 'ensureIssues'
+      | 'object'
+      | 'release'
     >(this, {
       tables: false,
       fenced: false,
@@ -621,7 +617,11 @@ export class MobxPool {
       worklist: false,
       groups: false,
       foldLatch: false,
-      overlay: false,
+      writes: false,
+      rollupInputs: false,
+      object: false,
+      release: false,
+      edit: false,
       row: false,
       readCursor: false,
       knows: false,
@@ -668,7 +668,7 @@ export class MobxPool {
    * value.
    *
    * In memory: the server row with the write layer's pending edits overlaid
-   * (`RowOverlay`), or the server object itself when nothing is pending (same
+   * (`WriteSeam`), or the server object itself when nothing is pending (same
    * identity, so an idle write layer adds no commit). The overlaid object is
    * transient, never stored; a reader subscribes to the table slot and the
    * overlay entry, never to it.
@@ -692,7 +692,7 @@ export class MobxPool {
       server = residency.read(entity, id)
       if (server === undefined) return undefined
     }
-    const pending = this.overlay?.pending(entity, id)
+    const pending = this.writes?.pending(entity, id)
     return pending === undefined ? server : { ...server, ...pending }
   }
 
@@ -702,7 +702,7 @@ export class MobxPool {
    * server truth, per key, so a mark-read re-validates only its own row).
    */
   readCursor(id: string): string | null | undefined {
-    const pending = this.overlay?.pending('issue', id)
+    const pending = this.writes?.pending('issue', id)
     if (pending !== undefined && pending['readAt'] !== undefined) {
       return pending['readAt'] as string | null
     }
@@ -719,9 +719,18 @@ export class MobxPool {
     return issueIdsOf(this)
   }
 
-  /** The model of a row in the pool, built on first access; undefined when absent (tracked). */
+  /** The model of a row in memory, built on first request; undefined when absent (tracked). */
   model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined {
     if (!this.fenced[entity].has(id)) return undefined
+    return this.object(entity, id) as ModelOf[E]
+  }
+
+  /**
+   * The one object of `entity:id`, built on first request, whether or not its
+   * row is in memory (the worklist holds cold issues too; their visibility
+   * reads the cold row by id). Untracked: an identity memo.
+   */
+  private object(entity: EntityName, id: string): EntityModel {
     const models = this.models[entity]
     let model = models.get(id)
     if (model === undefined) {
@@ -729,7 +738,27 @@ export class MobxPool {
       models.set(id, model)
       this.stats.counters.modelsCreated += 1
     }
-    return model as ModelOf[E]
+    return model
+  }
+
+  /**
+   * Forget the object of `entity:id` once nothing can ask for it again as
+   * the same row: an issue neither in memory nor held by the worklist, a
+   * session no longer known, any other row no longer in memory.
+   */
+  private release(entity: EntityName, id: string): void {
+    if (this.tables[entity].has(id)) return
+    if (entity === 'issue' && this.worklist.has(id)) return
+    if (entity === 'session' && this.residency?.isCold('session', id) === true) return
+    this.models[entity].delete(id)
+  }
+
+  /** A model's edit (`issue.title = x`): one transaction of the write layer's log. */
+  edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId {
+    if (this.writes === null) {
+      throw new WriteContractError(`the pool has no write layer: cannot edit ${entity} ${id}`)
+    }
+    return this.writes.edit(entity, id, patch)
   }
 
   issue(id: string): ModelOf['issue'] | undefined {
@@ -1061,7 +1090,7 @@ export class MobxPool {
       this.graph.flush()
       this.syncWorklist(event)
     })
-    for (const [entity, id] of out.removed) this.models[entity].delete(id)
+    for (const [entity, id] of out.removed) this.release(entity, id)
     this.stats.counters.tableWrites += out.writes
     this.stats.counters.rowsRemoved += out.removed.length
     if (out.writes > 0 || out.cold > 0 || out.volatile > 0) this.stats.notifications += 1
@@ -1108,9 +1137,7 @@ export class MobxPool {
         }
       }
       this.worklist.syncReplace(this.expandRoots(roots, partsOf), knows)
-      this.worklist.forgetSessions(
-        (id) => this.tables.session.has(id) || this.residency?.isCold('session', id) === true,
-      )
+      for (const id of [...this.models.session.keys()]) this.release('session', id)
       return
     }
     const isColdIssue = (id: string): boolean => this.residency?.isCold('issue', id) === true
@@ -1138,7 +1165,7 @@ export class MobxPool {
         else named.push(record.id)
       } else if (record.kind === 'session') {
         if (record.value === undefined) {
-          this.worklist.forgetSession(record.id)
+          this.release('session', record.id)
         } else {
           const linked = this.sessionLinkedIssues(record.id)
           if (linked.explicit !== null) consider(linked.explicit)

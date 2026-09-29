@@ -71,6 +71,7 @@
 
 import type { RowView } from '../../../../shared/src/row-view'
 import type { SliceIssue, SlicePhase, SliceSession } from '../../../../shared/src/slice-types'
+import { issueAbandoned } from '../views'
 
 // ------------------------------------------------------------ session rules
 
@@ -361,33 +362,8 @@ export function pendingDecisionOf(issue: SliceIssue): 'review' | null {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished && issue.stage !== 'review') return null
   if (issue.blocked === true) return null
-  if (abandoned(issue)) return null
+  if (issueAbandoned(issue)) return null
   return issue.stage === 'review' ? 'review' : null
-}
-
-const LEGACY_CLOSE_REASONS: Readonly<Record<string, string>> = {
-  wontfix: 'cancelled',
-  wont_fix: 'cancelled',
-  "won't fix": 'cancelled',
-  'not planned': 'cancelled',
-  canceled: 'cancelled',
-  dupe: 'duplicate',
-}
-
-/** `issueAbandoned` (the canonical close reason; `views.ts` has the row's copy). */
-function abandoned(issue: ProgressFacts): boolean {
-  const raw = issue.closedReason
-  const key = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
-  const reason =
-    key === ''
-      ? null
-      : Object.hasOwn(LEGACY_CLOSE_REASONS, key)
-        ? (LEGACY_CLOSE_REASONS[key] as string)
-        : key === 'done' || key === 'cancelled' || key === 'duplicate' || key === 'superseded'
-          ? key
-          : null
-  const status = reason ?? (issue.closedReason ? 'done' : issue.stage)
-  return status === 'cancelled' || status === 'duplicate' || status === 'superseded'
 }
 
 /** `hasLeftMission` (`mission.ts:523-525`) for an issue already known to be a spin-off. */
@@ -450,7 +426,7 @@ export function unitsOf(input: {
 }
 
 export function unitOwnOf(facts: ProgressFacts, vacated: boolean): UnitOwn {
-  const gone = abandoned(facts)
+  const gone = issueAbandoned(facts)
   const member = facts.stage !== 'proposed' && !gone
   const unit = member && !vacated
   const closed = facts.stage === 'done' || Boolean(facts.closedReason)
@@ -544,12 +520,8 @@ export interface RollupInputs {
   seat(id: string): Loaded<SeatVerdict>
   /** A session's cached `lastActiveAt` (Mb1's `activityMs`). */
   seatActivity(id: string): number | null
-  /** A session's cached presence facts (Mb1's `retention`, hot or cold). */
-  presence(
-    id: string,
-  ): { readonly issueId: string | null | undefined; readonly open: boolean } | null
   spinOffIds(id: string): readonly string[]
-  /** Count one composition run (the shared `ArmStats.rollupsDerived`). */
+  /** Count one group run (the shared `ArmStats.rollupsDerived`: `attentionOf`, `progressOf`). */
   counted(): void
 }
 
@@ -582,7 +554,7 @@ export interface RollupParts {
   readonly rollup: Rollup | undefined
 }
 
-/** The parts a roll-up part reads from its own node (Mb1's visibility parts included). */
+/** What the roll-up parts read from their own issue (its visibility parts included). */
 export interface RollupSelf extends RollupParts {
   readonly present: boolean
   readonly finished: boolean | undefined
@@ -609,15 +581,6 @@ export function ownFactsPartOf(input: RollupInputs, id: string): OwnFacts {
     decision: pendingDecisionOf(issue),
     continuedByField: continuedByField(issue),
   }
-}
-
-/** `openIssues.has(id)`: an explicit session with this `issueId` present on the task. */
-export function openOwnPartOf(input: RollupInputs, id: string, self: RollupSelf): boolean {
-  for (const sessionId of self.seatIds) {
-    const presence = input.presence(sessionId)
-    if (presence !== null && presence.issueId === id && presence.open) return true
-  }
-  return false
 }
 
 /**
@@ -651,7 +614,10 @@ export function tipPartOf(
  * shell, not archived) and its own pending decision (`rowPendingDecision`,
  * `row-attention.ts:136-152`). Empty for an issue with no row.
  */
-export function ownAttentionPartOf(input: RollupInputs, self: RollupSelf): OwnAttention {
+export function ownAttentionPartOf(
+  input: RollupInputs,
+  self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip'>,
+): OwnAttention {
   if (!self.present) return EMPTY_OWN
   const facts = self.ownFacts
   if (facts.state === 'cold') return PENDING_OWN
@@ -692,8 +658,11 @@ export function formalParentPartOf(self: {
 }
 
 /** The visible-subtree aggregate: own part plus each nest child's cached aggregate. */
-export function aggregatePartOf(input: RollupInputs, id: string, self: RollupSelf): Aggregate {
-  input.counted()
+export function aggregatePartOf(
+  input: RollupInputs,
+  id: string,
+  self: Pick<RollupSelf, 'ownAttention'>,
+): Aggregate {
   const own = self.ownAttention
   if (own.cold) return aggregate({ own, children: [] })
   const children: Aggregate[] = []
@@ -711,7 +680,11 @@ export function aggregatePartOf(input: RollupInputs, id: string, self: RollupSel
  * a spin-off), asked in that order so a row with no spin-off never reads
  * its sessions.
  */
-export function unitOwnPartOf(input: RollupInputs, id: string, self: RollupSelf): UnitOwn {
+export function unitOwnPartOf(
+  input: RollupInputs,
+  id: string,
+  self: Pick<RollupSelf, 'openOwn'>,
+): UnitOwn {
   const facts = input.progressFacts(id)
   if (facts === undefined) return NO_UNIT
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
@@ -720,7 +693,6 @@ export function unitOwnPartOf(input: RollupInputs, id: string, self: RollupSelf)
 
 /** The formal closure's counts: each formal child's own contribution and its own closure. */
 export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
-  input.counted()
   const children: { own: UnitOwn; below: Units }[] = []
   for (const childId of input.formalChildren(id)) {
     const child = input.rollupNode(childId)
@@ -737,9 +709,8 @@ export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
 export function seatActivityPartOf(
   input: RollupInputs,
   id: string,
-  self: RollupSelf,
+  self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds'>,
 ): number | null {
-  input.counted()
   if (!self.present || self.ownFacts.state === 'cold') return null
   const own = self.rosterIds.map((sessionId) => input.seatActivity(sessionId))
   const children: (number | null)[] = []
@@ -750,7 +721,12 @@ export function seatActivityPartOf(
   return latestOf({ own, children })
 }
 
-export function rollupPartOf(self: RollupSelf): Rollup | undefined {
+export function rollupPartOf(
+  self: Pick<
+    RollupSelf,
+    'finished' | 'ownAttention' | 'aggregate' | 'unitOwn' | 'unitsBelow' | 'seatActivity'
+  >,
+): Rollup | undefined {
   if (self.finished === undefined) return undefined
   return rollupOf({
     finished: self.finished,
@@ -763,6 +739,69 @@ export function rollupPartOf(self: RollupSelf): Rollup | undefined {
 }
 
 /** For the fold verdict (R-GROUP 3's "nothing waiting"): the aggregate alone, not the progress. */
-export function waitingPartOf(self: RollupSelf): boolean {
+export function waitingPartOf(self: Pick<RollupSelf, 'finished' | 'aggregate'>): boolean {
   return self.finished !== undefined && askingOf(self.aggregate, self.finished)
+}
+
+// ------------------------------------------------------------ the groups
+
+/** The attention group: the row's own part, its visible subtree's aggregate and latest seat. */
+export interface Attention {
+  readonly ownAttention: OwnAttention
+  readonly aggregate: Aggregate
+  readonly seatActivity: number | null
+}
+
+/**
+ * The attention group of issue `id`: one composition over its nest children's
+ * cached groups. The own facts are read once, and only for a present row (a
+ * cold own row queues its load).
+ */
+export function attentionOf(
+  input: RollupInputs,
+  id: string,
+  self: Pick<RollupSelf, 'present' | 'rosterIds' | 'openOwn' | 'tip'>,
+): Attention {
+  input.counted()
+  let facts: OwnFacts | undefined
+  const own = {
+    get present() {
+      return self.present
+    },
+    get ownFacts() {
+      facts ??= ownFactsPartOf(input, id)
+      return facts
+    },
+    get rosterIds() {
+      return self.rosterIds
+    },
+    get openOwn() {
+      return self.openOwn
+    },
+    get tip() {
+      return self.tip
+    },
+  }
+  const ownAttention = ownAttentionPartOf(input, own)
+  return {
+    ownAttention,
+    aggregate: aggregatePartOf(input, id, { ownAttention }),
+    seatActivity: seatActivityPartOf(input, id, own),
+  }
+}
+
+/** The progress group: this issue's own unit and its formal closure's counts. */
+export interface Progress {
+  readonly unitOwn: UnitOwn
+  readonly unitsBelow: Units
+}
+
+/** The progress group of issue `id`: one composition over its formal children's cached groups. */
+export function progressOf(
+  input: RollupInputs,
+  id: string,
+  self: Pick<RollupSelf, 'openOwn'>,
+): Progress {
+  input.counted()
+  return { unitOwn: unitOwnPartOf(input, id, self), unitsBelow: unitsBelowPartOf(input, id) }
 }

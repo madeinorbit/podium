@@ -220,7 +220,7 @@ function findChain(pool: MobxPool): Chain {
       if (node.aggregate.finished.waiting) continue
       const bottom = pool.worklist.issue(id)
       const seat = bottom?.rosterIds.find((sessionId) => {
-        const verdict = pool.worklist.session(sessionId).verdict
+        const verdict = pool.visibleInputs.session(sessionId).verdict
         return (
           typeof verdict === 'object' &&
           verdict.finished !== 'waiting' &&

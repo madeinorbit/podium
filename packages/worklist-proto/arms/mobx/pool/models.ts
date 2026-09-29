@@ -1,63 +1,136 @@
 /**
- * POD-4565 (Ma1) — the pool's models: one class per schema entity, built
- * lazily by the pool the first time a row is read (Linear's "observable on
- * first access"; audit §7). Ingest never builds a model.
+ * The pool's models: ONE object per row, one class per schema entity, built
+ * by the pool the first time anything asks for it (Linear's "observable on
+ * first access"; audit §7). Ingest never builds one. The worklist asks for
+ * the issues it holds (`worklist/visible.ts`), a drawn row for its own, and
+ * both get the same object: an issue has no second, parallel object.
  *
  * A MODEL HOLDS NO ROW. It reads its row through the pool's one reader on
  * every access (`row`, `MobxPool.row`: the server row with pending edits
- * overlaid, POD-4743), a tracked read of exactly that table slot and its
- * overlay entry, so a model cannot go stale, needs no write-through, shows
- * the same value as its row view, and a replaced or re-added row reaches the
- * same model. Dropping a removed row's model only frees memory.
+ * overlaid), a tracked read of exactly that table slot and its overlay entry,
+ * so a model cannot go stale, needs no write-through, shows the same value as
+ * its row view, and a replaced or re-added row reaches the same model.
  *
  * FIELDS FROM THE SCHEMA. Every declared field of the entity
  * (`SCHEMA[entity].fields`) is a getter on the model's prototype, installed
  * by `installFields` below from the schema itself: no field list is typed
  * here. The key field answers the model's id; every other field reads the
  * row's property of the same name, or its feed spelling (`FEED_SPELLING` in
- * `shared/src/repo-from-lane.ts`, POD-4695).
- * `models.test.ts` iterates the schema and reads every field off a model.
+ * `shared/src/repo-from-lane.ts`). `models.test.ts` iterates the schema and
+ * reads every field off a model.
  *
- * DERIVED VALUES are computed getters. The issue model's `view` (the L1b row
- * view) is assembled from per-part computeds (`views.ts` `IssueParts`), each
- * reading only its own inputs; objects are compared structurally, so an
- * unchanged part or view keeps its identity and its row does not redraw.
+ * EDITS, LINEAR'S SHAPE. Every field the write contract declares editable
+ * (`FIELD_COVERAGE`, `shared/src/write-contract.ts`) also has a setter:
+ * `issue.title = x` is `issue.update({ title: x })`, and `update(patch)` is
+ * ONE transaction of the write layer's edit log (`write/edit.ts`: paint at
+ * once, remember the prior values, send). Reading the field afterwards shows
+ * the pending value, because the getter reads the one reader. Without a write
+ * layer the pool refuses the edit.
+ *
+ * DERIVED VALUES ARE CACHED IN GROUPS. Each group is one cached value (a
+ * structural computed: an unchanged group keeps its identity and stops the
+ * propagation) holding several parts computed by the pure part functions
+ * (`views.ts`, `worklist/visible.ts`, `worklist/rollup.ts`), which the
+ * rebuild runs directly. Every other getter is a plain read of a group, or a
+ * part function run inside the one group that needs it. The cut follows the
+ * readers (`visible.ts` has the rules): the rank is its own group because
+ * the order and the lanes read every visible row's rank; groups read each
+ * other's issues one way only (children up, ancestors down, spin-offs
+ * across), so no two groups wait on each other.
  */
 
 import { computed, computedStruct, makeObservable } from 'mobx'
 import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
-import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
+import type { RowOriginTick, RowRank, RowView } from '../../../shared/src/row-view'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
+import {
+  type EditableStage,
+  type EditPatch,
+  FIELD_COVERAGE,
+  type TxId,
+  type WritableKind,
+} from '../../../shared/src/write-contract'
 import type { StoredRow } from './tables'
-import { LOADING, type Loaded } from './worklist/rollup'
 import {
   activityAtPartOf,
+  activityMsOf,
   buildRowView,
-  displayRefPartOf,
-  displayTitlePartOf,
   type IssueParts,
+  type Label,
+  labelOf,
   loadingPartOf,
   type OwnPart,
   originIdPartOf,
   originRefPartOf,
   originTickPartOf,
-  ownPartOf,
   prefixPartOf,
+  rankOfPart,
   type RepoRow,
   repoTargetPartOf,
-  sessionActivityOf,
   sessionIdsPartOf,
   type ViewInputs,
 } from './views'
+import { type Placement, withWaiting } from './worklist/groups'
+import {
+  type Aggregate,
+  type Attention,
+  attentionOf,
+  formalParentPartOf,
+  LOADING,
+  type Loaded,
+  type OwnAttention,
+  type OwnFacts,
+  ownFactsPartOf,
+  type Progress,
+  progressOf,
+  type Rollup,
+  type RollupInputs,
+  rollupPartOf,
+  type SeatVerdict,
+  tipPartOf,
+  type UnitOwn,
+  type Units,
+  waitingPartOf,
+} from './worklist/rollup'
+import {
+  childIdsPartOf,
+  type HeldIssue,
+  type IssueFacts,
+  issueFactsPartOf,
+  keptBelowPartOf,
+  type Members,
+  membersOf,
+  type Nesting,
+  nestingOf,
+  type Presence,
+  presenceOf,
+  type Retention,
+  retentionOf,
+  type SessionLinks,
+  type SessionVisibility,
+  type Standing,
+  sessionLinksOf,
+  spinOffIdsPartOf,
+  unreadPartOf,
+  verdictPartOf,
+  type VisibleInputs,
+} from './worklist/visible'
 
 /** What a model reads from its pool. */
 export interface ModelHost {
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
   row(entity: EntityName, id: string): Loaded<object>
+  /** What the row view's parts read. */
   readonly inputs: ViewInputs
+  /** What the visibility parts read. */
+  readonly visibleInputs: VisibleInputs
+  /** What the roll-up parts read (one per pool, shared by every issue). */
+  readonly rollupInputs: RollupInputs
   readonly stats: ArmStats
+  /** One transaction of the write layer's edit log; throws when the pool has no write layer. */
+  edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
 }
 
 export class EntityModel {
@@ -74,10 +147,12 @@ export class EntityModel {
   }
 }
 
-/** Install one getter per declared field of `entity` on `prototype`. */
+/** Install one getter per declared field of `entity` on `prototype`, and a setter per editable one. */
 function installFields(prototype: EntityModel, entity: EntityName): void {
   const spec = SCHEMA[entity]
   const spelling = FEED_SPELLING[entity] ?? {}
+  const editable: Readonly<Record<string, unknown>> =
+    (FIELD_COVERAGE as Readonly<Record<string, Readonly<Record<string, unknown>>>>)[entity] ?? {}
   for (const field of Object.keys(spec.fields)) {
     if (field in prototype) {
       throw new Error(`[pool] ${entity}.${field} collides with a model member; rename one`)
@@ -91,31 +166,237 @@ function installFields(prototype: EntityModel, entity: EntityName): void {
         const row = this.row as Readonly<Record<string, unknown>> | undefined
         return row === undefined ? undefined : row[property]
       },
+      ...(Object.hasOwn(editable, field)
+        ? {
+            set(this: IssueModel, value: unknown): void {
+              this.update({ [field]: value } as EditPatch<'issue'>)
+            },
+          }
+        : {}),
     })
   }
 }
 
-export class IssueModel extends EntityModel implements IssueParts {
+/**
+ * THE issue: its row, its row view, its visibility, its roll-ups and its
+ * edits. The groups (cached values) are `facts`, `rank`, `members`,
+ * `presence`, `nesting`, `tip`, `attention`, `progress`, `label` and `view`.
+ */
+export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
     makeObservable(this, {
-      own: computedStruct,
-      repoTarget: computed,
-      prefix: computed,
-      displayRef: computed,
-      displayTitle: computed,
-      originRef: computed,
-      originId: computed,
-      originTick: computedStruct,
-      sessionIds: computedStruct,
-      activityAt: computed,
-      loading: computed,
+      facts: computedStruct,
+      rank: computedStruct,
+      members: computedStruct,
+      presence: computedStruct,
+      nesting: computedStruct,
+      tip: computedStruct,
+      attention: computedStruct,
+      progress: computedStruct,
+      label: computedStruct,
       view: computedStruct,
     })
   }
 
+  /** Edit this issue: one transaction of the write layer's log (paint, remember, send). */
+  update(patch: EditPatch<'issue'>): TxId {
+    return this.host.edit('issue', this.id, patch)
+  }
+
+  // ------------------------------------------------------------- the groups
+
+  /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
+  get facts(): IssueFacts | undefined {
+    return issueFactsPartOf(this.host.visibleInputs, this.id)
+  }
+
+  get rank(): RowRank | undefined {
+    const part = this.facts?.part
+    return part === undefined ? undefined : rankOfPart(this.id, part)
+  }
+
+  get members(): Members {
+    return membersOf(this.host.visibleInputs, this.id, this.standing)
+  }
+
+  get presence(): Presence {
+    return presenceOf(this.host.visibleInputs, this.id, this)
+  }
+
+  get nesting(): Nesting {
+    return nestingOf(this.host.visibleInputs, this.id, this.standing, this.present)
+  }
+
+  get tip(): { readonly found: boolean; readonly pending: number } {
+    return tipPartOf(this.host.rollupInputs, this.id)
+  }
+
+  get attention(): Attention {
+    return attentionOf(this.host.rollupInputs, this.id, this)
+  }
+
+  get progress(): Progress {
+    return progressOf(this.host.rollupInputs, this.id, this)
+  }
+
+  get label(): Label {
+    return labelOf(this.host.inputs, this.id, this.facts?.part)
+  }
+
+  /** The L1b row view; undefined while the row is not in memory (its load queued) or gone. */
+  get view(): RowView | undefined {
+    this.host.stats.rowsDerived += 1
+    const row = this.host.row('issue', this.id)
+    if (row === undefined || row === LOADING) return undefined
+    return buildRowView(this.host.inputs, this.id, this)
+  }
+
+  // --------------------------------------------------- reads of the groups
+
+  get standing(): Standing | undefined {
+    return this.facts?.standing
+  }
+
+  get seatIds(): readonly string[] {
+    return this.members.seatIds
+  }
+
+  get laneMemberIds(): readonly string[] {
+    return this.members.laneMemberIds
+  }
+
+  get memberIds(): readonly string[] {
+    return this.members.memberIds
+  }
+
+  get retainedSeatIds(): readonly string[] {
+    return this.members.retainedSeatIds
+  }
+
+  get rosterIds(): readonly string[] {
+    return this.members.rosterIds
+  }
+
+  get retained(): boolean {
+    return this.members.retained
+  }
+
+  get liveRoster(): boolean {
+    return this.members.liveRoster
+  }
+
+  get openOwn(): boolean {
+    return this.members.openOwn
+  }
+
+  get flat(): boolean {
+    return this.presence.flat
+  }
+
+  get keeps(): boolean {
+    return this.presence.keeps
+  }
+
+  get present(): boolean {
+    return this.presence.present
+  }
+
+  get nestParent(): string | null {
+    return this.nesting.nestParent
+  }
+
+  get placed(): boolean {
+    return this.nesting.placed
+  }
+
+  get visible(): boolean {
+    return this.nesting.visible
+  }
+
+  get ownAttention(): OwnAttention {
+    return this.attention.ownAttention
+  }
+
+  get aggregate(): Aggregate {
+    return this.attention.aggregate
+  }
+
+  get seatActivity(): number | null {
+    return this.attention.seatActivity
+  }
+
+  get unitOwn(): UnitOwn {
+    return this.progress.unitOwn
+  }
+
+  get unitsBelow(): Units {
+    return this.progress.unitsBelow
+  }
+
+  get displayRef(): string | undefined {
+    return this.label.displayRef
+  }
+
+  get displayTitle(): string | undefined {
+    return this.label.displayTitle
+  }
+
+  /** The row view's own fields; undefined when the issue is unknown. */
   get own(): OwnPart | undefined {
-    return ownPartOf(this.host.inputs, this.id)
+    return this.facts?.part
+  }
+
+  // ------------------------------------ parts computed where they are read
+
+  get finished(): boolean | undefined {
+    return this.standing?.finished
+  }
+
+  get formalParent(): string | null {
+    return formalParentPartOf(this)
+  }
+
+  /** R-GROUP 3's "nothing in the subtree waits". */
+  get waiting(): boolean {
+    return waitingPartOf(this)
+  }
+
+  /** The row's roll-up fields; undefined when the issue is unknown. */
+  get rollup(): Rollup | undefined {
+    return rollupPartOf(this)
+  }
+
+  /**
+   * Where the row goes (R-GROUP, `groups.ts`): read by the groups' layout for
+   * visible rows only. The waiting roll-up is read only for a row the fold
+   * would take, so a row that could never fold never reads its aggregate.
+   */
+  get placement(): Placement | undefined {
+    const settled = this.facts?.placement
+    return settled === undefined || !settled.closed || !this.waiting
+      ? settled
+      : withWaiting(settled)
+  }
+
+  get ownFacts(): OwnFacts {
+    return ownFactsPartOf(this.host.rollupInputs, this.id)
+  }
+
+  get childIds(): readonly string[] {
+    return childIdsPartOf(this.host.visibleInputs, this.id)
+  }
+
+  get spinOffIds(): readonly string[] {
+    return spinOffIdsPartOf(this.host.visibleInputs, this.id)
+  }
+
+  get keptBelow(): boolean {
+    return keptBelowPartOf(this.host.visibleInputs, this.childIds)
+  }
+
+  get unread(): boolean {
+    return unreadPartOf(this.host.visibleInputs, this.id, this.standing, this.seatIds)
   }
 
   get repoTarget(): string | null {
@@ -124,14 +405,6 @@ export class IssueModel extends EntityModel implements IssueParts {
 
   get prefix(): string | null {
     return prefixPartOf(this.host.inputs, this.repoTarget)
-  }
-
-  get displayRef(): string | undefined {
-    return displayRefPartOf(this.own, this.prefix)
-  }
-
-  get displayTitle(): string | undefined {
-    return displayTitlePartOf(this.host.inputs, this.id, this.sessionIds)
   }
 
   get originRef(): string | null {
@@ -157,23 +430,45 @@ export class IssueModel extends EntityModel implements IssueParts {
   get loading(): boolean {
     return loadingPartOf(this.host.inputs, this.originRef, this.sessionIds)
   }
-
-  /** The L1b row view, from the parts above; undefined once the row has left. */
-  get view(): RowView | undefined {
-    this.host.stats.rowsDerived += 1
-    return buildRowView(this.host.inputs, this.id, this)
-  }
 }
 
-export class SessionModel extends EntityModel {
+/** THE session: its row, and what its issues read of it. */
+export class SessionModel extends EntityModel implements SessionVisibility {
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
-    makeObservable(this, { activityMs: computed })
+    makeObservable(this, {
+      retention: computedStruct,
+      activityMs: computed,
+      links: computedStruct,
+      verdict: computedStruct,
+    })
   }
 
-  /** This session's contribution to its issue's `activityAt`, cached per session (POD-4568). */
+  /** Its part in its issue's visibility, hot or cold. */
+  get retention(): Retention | null {
+    return retentionOf(this.host.visibleInputs.sessionRow(this.id))
+  }
+
+  /** Its `lastActiveAt`, hot or cold: the unread rollup's and the row's activity stamp. */
   get activityMs(): number | null {
-    return sessionActivityOf(this.row as SliceSession | undefined)
+    return activityMsOf(this.host.visibleInputs.sessionRow(this.id))
+  }
+
+  get links(): SessionLinks {
+    return sessionLinksOf(this.host.visibleInputs, this.id)
+  }
+
+  /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
+  get verdict(): Loaded<SeatVerdict> {
+    return verdictPartOf(this.host.visibleInputs, this.id)
+  }
+
+  get issueLink(): string | null {
+    return this.links.issueLink
+  }
+
+  get worktreeLink(): string | null {
+    return this.links.worktreeLink
   }
 }
 
@@ -189,13 +484,23 @@ export class RepoModel extends EntityModel {
   }
 }
 
+/** The issue's editable fields as setters take them (`issue.stage = 'review'`). */
+interface IssueEdits {
+  get title(): string
+  set title(value: string)
+  get stage(): string
+  set stage(value: EditableStage)
+  get readAt(): string | null | undefined
+  set readAt(value: string)
+}
+
 /**
  * A model with its schema getters, typed. The getters are installed from the
  * schema at runtime (`installFields`); their TYPES come from the slice types
  * the feed rows already carry, so no field list is written here.
  */
 export type ModelOf = {
-  issue: IssueModel & Readonly<Omit<SliceIssue, 'unread'>>
+  issue: IssueModel & Readonly<Omit<SliceIssue, 'unread' | 'title' | 'stage' | 'readAt'>> & IssueEdits
   session: SessionModel & Readonly<SliceSession>
   worktree: WorktreeModel & Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>>
   repo: RepoModel & Readonly<RepoRow> & { readonly path?: string }

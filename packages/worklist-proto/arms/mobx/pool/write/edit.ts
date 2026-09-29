@@ -68,7 +68,7 @@
  */
 
 import { asMutationId } from '@podium/model'
-import { runInAction } from 'mobx'
+import { compareStructural, runInAction } from 'mobx'
 import type { RowSource } from '../../../../shared/src/arm'
 import {
   commandFor,
@@ -168,7 +168,7 @@ export function createMobxWriteApi(
   transport: WriteTransport,
   opts: { log?: PendingLog } = {},
 ): MobxWriteApi {
-  if (pool.overlay !== overlay) {
+  if (pool.writes !== overlay) {
     throw new WriteContractError('the pool was not constructed with this write overlay')
   }
   const log = opts.log ?? createPendingLog()
@@ -190,7 +190,7 @@ export function createMobxWriteApi(
     // same display, which must not notify (no commit) — structural equality
     // downstream would stop it anyway, but skipping avoids the derivation.
     const current = overlay.pending(kind, id)
-    if (current !== undefined && JSON.stringify(current) === JSON.stringify(display)) return
+    if (current !== undefined && compareStructural(current, display)) return
     overlay.set(id, display)
     // A new pending display can flip the row while no feed event names it:
     // only a derivation reads the overlay, so the row needs a node to
@@ -375,9 +375,12 @@ export function createMobxWriteApi(
     },
 
     dispose() {
+      overlay.leave()
       runInAction(() => overlay.clear())
       listeners.clear()
     },
   }
+  // A model's setter (`issue.title = x`) is this api's `edit`: one transaction.
+  overlay.join(api.edit)
   return api
 }

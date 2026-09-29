@@ -444,7 +444,7 @@ describe('dispose', () => {
     r.locals.flush()
     expect(r.listeners()).toBe(2)
     expect(getObserverTree(pool.worklist, 'order').observers?.length ?? 0).toBeGreaterThan(0)
-    expect(pool.worklist.size('issue')).toBeGreaterThan(0)
+    expect(pool.worklist.size()).toBeGreaterThan(0)
 
     await act(async () => {
       r.dispose()
@@ -459,8 +459,8 @@ describe('dispose', () => {
     }
     expect(tracked(() => pool.selection.size)).toBe(0)
     expect(getObserverTree(pool.worklist, 'order').observers ?? []).toEqual([])
-    expect(pool.worklist.size('issue')).toBe(0)
-    expect(pool.worklist.size('session')).toBe(0)
+    expect(pool.worklist.size()).toBe(0)
+    expect(pool.modelCount('session')).toBe(0)
     for (const model of models) expect(getObserverTree(model, 'view').observers ?? []).toEqual([])
     expect(pool.clock.waiting).toBe(0)
     expect(pool.residency?.hasQueued()).toBe(false)

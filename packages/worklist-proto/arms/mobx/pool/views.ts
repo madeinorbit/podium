@@ -1,49 +1,52 @@
 /**
- * POD-4565 (Ma1) — one issue's `RowView` (L1b, `shared/src/row-view.ts`) as a
- * pure function of its inputs.
+ * One issue's `RowView` (L1b, `shared/src/row-view.ts`) as a pure function of
+ * its inputs.
  *
- * ONE RULE, TWO CALLERS. The live pool runs every part below in its own
- * computed on the issue model, over tracked inputs (`models.ts`, `pool.ts`);
- * the rebuild runs the same functions directly over plain maps built from the
+ * ONE RULE, TWO CALLERS. The live pool caches these parts in groups on the
+ * one object per issue (`models.ts`, `IssueModel`), over tracked inputs; the
+ * rebuild runs the same functions directly over plain maps built from the
  * feed's snapshot (`directParts`, `rebuild.ts`). Nothing here knows which: a
  * rule cannot drift between the incremental result and its own oracle.
  *
- * WHAT Ma1 DERIVES (inputs per L1b):
+ * WHAT A VIEW DERIVES (inputs per L1b):
  * - own row: `title` (non-draft), `band`, `repoKey`, `pinned`, `sortKey`,
- *   `createdAt`, `seq`, `foldAt`;
+ *   `createdAt`, `seq`, `foldAt` (`ownPartOfRow`: the band and the fold
+ *   verdict are computed once per row, and the rank and the group placement
+ *   take them from here);
  * - one hop through a declared single-valued relation, resolved by the
  *   relation engine (`inputs.relations.one`, `relations.ts`; the rebuild's
- *   from-scratch scan in the rebuild): `displayRef` (`issue.repo` prefix)
- *   and `originTick` (`issue.discoveredFrom`). No view resolves a relation
- *   itself (M3 F2);
+ *   from-scratch scan): `displayRef` (`issue.repo` prefix) and `originTick`
+ *   (`issue.discoveredFrom`). No view resolves a relation itself;
  * - locals: `selected` (selection), and the clock through deadlines
  *   (`band`'s defer lapse, `closed`'s grace crossing);
- * - residency (POD-4567): `loading` while the origin or a member session is
- *   known but not in memory. The parts that read them skip a row that is not
- *   resident, so their value is provisional exactly while `loading` is set.
+ * - residency: `loading` while the origin or a member session is known but
+ *   not in memory. The parts that read them skip a row that is not resident,
+ *   so their value is provisional exactly while `loading` is set.
  *
- * THE ROLL-UPS (POD-4571, Mb3, `worklist/rollup.ts`): `phase`,
- * `progressDone`, `progressTotal`, `working`, `asking` and `workingSince`
- * come from the issue's worklist node (`ViewInputs.rollup`), a composition
- * over its own seats and its children's cached results; `closed`'s "zero
- * waiting" conjunct is the roll-up's `asking`, applied here over the own
- * part's settled verdict. `activityAt` takes the stamps of the row's
- * retained seats (`ViewInputs.retainedSeats`, the worklist's
- * `retainedSeatIds`: legacy `retainedSessions`, `rows.ts:98-116`; POD-4679),
- * not every explicit session. The draft title reads `issue.sessions` once
- * (`sessionIds`) through the relation accessor, maintained by the pool from the schema
- * (`relations.ts`, POD-4566): explicit members, resume twins collapsed. The
- * bucket is unordered; `sessionIds` sorts it by session id (the order is the
- * view's, M3 F1).
+ * THE ROLL-UPS (`worklist/rollup.ts`): `phase`, `progressDone`,
+ * `progressTotal`, `working`, `asking` and `workingSince` come from the
+ * issue's roll-up (`ViewInputs.rollup`), a composition over its own seats and
+ * its children's cached results; `closed`'s "zero waiting" conjunct is the
+ * roll-up's `asking`, applied here over the own part's settled verdict.
+ * `activityAt` takes the stamps of the row's retained seats
+ * (`ViewInputs.retainedSeats`: legacy `retainedSessions`, `rows.ts:98-116`),
+ * not every explicit session. The draft title reads the seat list
+ * (`sessionIds`, the maintained `issue.sessions` bucket, sorted by session
+ * id: the order is the view's).
  *
  * Rules are re-expressed from the frozen slice spec
- * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule); the deleted
- * round-two arm transcribed the same sections and passed parity. No
- * legacy view-model import.
+ * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule) and passed
+ * parity. No legacy view-model import.
  */
 
 import type { RelationReader } from '../../../shared/src/instrument/reads'
-import { isDraftNameSession, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
+import {
+  isDraftNameSession,
+  type RowOriginTick,
+  type RowRank,
+  type RowView,
+  rankOf,
+} from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
 import type { Rollup } from './worklist/rollup'
@@ -61,9 +64,10 @@ export interface RepoRow {
 }
 
 /**
- * One issue's derived parts. Each is its own memo in the live pool (a
- * computed on the issue model), so a change re-runs only the parts that read
- * it, and a part whose value did not move stops the propagation there.
+ * One issue's derived parts. The live pool caches the own part and the label
+ * (`displayRef`, `displayTitle`) in groups, and computes the rest inside the
+ * row view (`IssueModel.view`); a group whose value did not move stops the
+ * propagation there.
  *
  * Relations are split in two: the TARGET (`repoTarget`, `originRef`: the
  * engine's `one()`, which reads the relation's forward slot and the target's
@@ -92,10 +96,8 @@ export interface IssueParts {
   readonly originTick: RowOriginTick | null
   /**
    * The own sessions (`issue.sessions`: explicit members, resume twins
-   * collapsed, session-id order). One maintained read (POD-4678), cached: a
-   * member's change does not re-read the family, and the parts below walk
-   * this array, never the relation, so they touch no member row they do not
-   * need.
+   * collapsed, session-id order): the maintained list, so the parts below
+   * walk it, never the relation, and touch no member row they do not need.
    */
   readonly sessionIds: readonly string[]
   readonly activityAt: number
@@ -123,42 +125,37 @@ export interface ViewInputs {
   issue(id: string): SliceIssue | undefined
   session(id: string): SliceSession | undefined
   /**
-   * A member session's own-row part (`sessionActivityOf`): a computed on the
-   * session model in the live pool, so a parent re-composing its roll-up
-   * reads each unchanged member's cached value, not its row (POD-4568; the
-   * harness's "re-compose from cached child results"). Direct in the rebuild.
+   * A member session's activity stamp (`activityMsOf`): cached on the
+   * session's object in the live pool, so a row re-composing its activity
+   * reads each unchanged member's cached value, not its row. Direct in the
+   * rebuild.
    */
   sessionActivity(id: string): number | null
   repo(id: string): RepoRow | undefined
   /** Whether a row of `entity` is in the pool (tracks presence only). */
   present(entity: EntityName, id: string): boolean
   /**
-   * Whether a row of `entity` is known but not resident (POD-4567): the live
+   * Whether a row of `entity` is known but not resident: the live
    * pool queues its load. Always false where every row is held (the rebuild).
    */
   loading(entity: EntityName, id: string): boolean
   /** Another issue's parts (the origin of a spin-off). */
   parts(id: string): IssueParts | undefined
-  /** The issue's roll-up fields (Mb3: its worklist node's `rollup`); undefined when unknown. */
+  /** The issue's roll-up fields (its held issue's `rollup`); undefined when the worklist holds none. */
   rollup(id: string): Rollup | undefined
   /**
    * The row's retained seats (the worklist's `retainedSeatIds`: seat members
    * retained at the clock, exited ones included), whose stamps the own-row
-   * `activityAt` takes (`rows.ts:98-116`, POD-4679).
+   * `activityAt` takes (`rows.ts:98-116`).
    */
   retainedSeats(id: string): readonly string[]
   /**
-   * POD-4678 (item 1, plant/old) — the explicit seats (`issue.sessions`) as
-   * the mirror IS the relation: every yielded id counts, exactly as `many()`
-   * yields do. `[...seats].sort()` (landed code verbatim) re-reads the whole
-   * family: over budget (true state). The plant uses it and must FAIL #10.
+   * The explicit seats (`issue.sessions`) as the relation yields them: every
+   * id counts as a read, as `many()` yields do. No part reads it; the seat
+   * list below is the read.
    */
   seats(id: string): Iterable<string>
-  /**
-   * POD-4678 (item 2, O(1) real) — the maintained SORTED seat list itself,
-   * returned without iterating it. A membership change yields the new member
-   * only. `sessionIdsPartOf` reads it, never `seats()` nor `many()`.
-   */
+  /** The maintained SORTED seat list itself, returned without iterating it. */
   seatList(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
@@ -238,18 +235,26 @@ function canonicalCloseReason(value: unknown): string | null {
     : null
 }
 
-/** Abandoned: closed as cancelled, duplicate or superseded (spec §3 R-GROUP). */
-export function issueAbandoned(issue: SliceIssue): boolean {
+/**
+ * Abandoned: closed as cancelled, duplicate or superseded (spec §3 R-GROUP;
+ * `issueAbandoned` over the canonical close reason). Also R-ROLL's progress
+ * test, so it reads only the two fields a cold child's progress facts carry.
+ */
+export function issueAbandoned(issue: Pick<SliceIssue, 'closedReason' | 'stage'>): boolean {
   const reason = canonicalCloseReason(issue.closedReason)
   const status = reason ?? (issue.closedReason ? 'done' : issue.stage)
   return status === 'cancelled' || status === 'duplicate' || status === 'superseded'
 }
 
-/** Closed top-level human issue: a fold candidate (spec §3 R-GROUP). */
-export function isClosedTopLevel(issue: SliceIssue): boolean {
-  return (
-    issue.closedReason != null && (issue.parentId ?? null) === null && issue.audience === 'human'
-  )
+/**
+ * Closed top-level human issue (`isClosedTopLevelIssue`,
+ * `slices/issues.ts:318-322`): a fold candidate (spec §3 R-GROUP) and the
+ * sessionless keep's `fold` (`rows.ts:96`).
+ */
+export function isClosedTopLevel(
+  issue: Pick<SliceIssue, 'closedReason' | 'parentId' | 'audience'>,
+): boolean {
+  return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
 }
 
 /**
@@ -277,10 +282,12 @@ export function foldAtOf(issue: SliceIssue): string {
 
 // ------------------------------------------------------------------- parts
 
-/** The row-only fields of issue `id` (spec §3 R-ORDER, R-GROUP). */
-export function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
-  const issue = input.issue(id)
-  if (issue === undefined) return undefined
+/**
+ * The row-only fields of `issue` (spec §3 R-ORDER, R-GROUP): the one place
+ * the band and the fold verdict are computed for a row (the rank and the
+ * group placement take them from here).
+ */
+export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed' | 'reached'>): OwnPart {
   const closed = closedOf(issue, false, input)
   return {
     band: bandOf(issue, input),
@@ -293,6 +300,23 @@ export function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
     seq: issue.seq,
     foldAt: foldAtOf(issue),
   }
+}
+
+/** The row-only fields of issue `id`; undefined when it is not in memory. */
+export function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
+  const issue = input.issue(id)
+  return issue === undefined ? undefined : ownPartOfRow(issue, input)
+}
+
+/** L1b `rankOf` over an own part (spec R-ORDER): the band, manual key and creation. */
+export function rankOfPart(id: string, part: OwnPart): RowRank {
+  return rankOf({
+    id,
+    band: part.band,
+    sortKey: part.sortKey,
+    createdAt: part.createdAt,
+    seq: part.seq,
+  } as RowView)
 }
 
 /**
@@ -366,19 +390,13 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
   }
 }
 
-/**
- * The own sessions, one maintained read (`IssueParts.sessionIds`), already in
- * session-id order (the mirror is maintained SORTED). POD-4678 (item 2, O(1)
- * real): returned without iterating it — a membership change yields the new
- * member only. Never `seats()` (fenced, plant/old `[...seats].sort()` re-reads
- * the whole family and must FAIL #10) nor `many()`.
- */
+/** The own sessions (`IssueParts.sessionIds`): the maintained list, already in session-id order. */
 export function sessionIdsPartOf(input: ViewInputs, id: string): readonly string[] {
   return input.seatList(id)
 }
 
-/** A session's contribution to its issue's activity: its `lastActiveAt`, or null when absent. */
-export function sessionActivityOf(session: SliceSession | undefined): number | null {
+/** A session's `lastActiveAt`, epoch ms, or null (absent, empty or unparseable). */
+export function activityMsOf(session: SliceSession | undefined): number | null {
   return parseMs(session?.lastActiveAt)
 }
 
@@ -386,7 +404,7 @@ export function sessionActivityOf(session: SliceSession | undefined): number | n
  * Max `lastActiveAt` of the row's retained seats, else own `updatedAt`, else
  * 0 (`rows.ts:108-116`: `lastSession || updatedAt || 0`, so a zero stamp
  * falls back too). Not every explicit session: archived, shell and decayed
- * ones retain nothing (POD-4679). Re-composed from each seat's cached
+ * ones retain nothing. Re-composed from each seat's cached
  * contribution (`ViewInputs.sessionActivity`): a seat's change re-reads that
  * seat only.
  */
@@ -415,6 +433,20 @@ export function loadingPartOf(
     if (input.loading('session', sessionId)) loading = true
   }
   return loading
+}
+
+/** The label group: what a spin-off's origin tick copies, and the row's own title and ref. */
+export interface Label {
+  readonly displayRef: string | undefined
+  readonly displayTitle: string | undefined
+}
+
+/** The label group of issue `id`, over its own part. */
+export function labelOf(input: ViewInputs, id: string, own: OwnPart | undefined): Label {
+  return {
+    displayRef: displayRefPartOf(own, prefixPartOf(input, repoTargetPartOf(input, id))),
+    displayTitle: displayTitlePartOf(input, id, sessionIdsPartOf(input, id)),
+  }
 }
 
 /** The parts of `id` computed directly, no memo (the rebuild). */

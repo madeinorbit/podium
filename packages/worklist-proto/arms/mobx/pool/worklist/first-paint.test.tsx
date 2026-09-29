@@ -125,8 +125,8 @@ async function measure(scale: 1 | 4) {
     }
     // The harness resets the pool's stats at mount: read the held nodes instead.
     const held = {
-      issueNodes: pool.worklist.size('issue'),
-      sessionNodes: pool.worklist.size('session'),
+      issueNodes: pool.worklist.size(),
+      sessionNodes: pool.modelCount('session'),
     }
     const modelsAtPaint = pool.modelCount('issue') + pool.modelCount('session')
     phase = 'settle'

@@ -61,7 +61,7 @@ import {
   buildRowView,
   directParts,
   type RepoRow,
-  sessionActivityOf,
+  activityMsOf,
   type ViewInputs,
 } from './views'
 import { repoLabelOf } from './worklist/groups'
@@ -130,7 +130,7 @@ function rebuild(
     relations: scanRelations(tables),
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
-    sessionActivity: (id) => sessionActivityOf(tables.session.get(id) as SliceSession | undefined),
+    sessionActivity: (id) => activityMsOf(tables.session.get(id) as SliceSession | undefined),
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,
     present: (entity, id) => tables[entity].has(id),
     loading: () => false,
