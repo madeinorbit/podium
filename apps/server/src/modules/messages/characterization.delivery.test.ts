@@ -433,7 +433,10 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
     expect(h.pushes[0]!.fn).toBe('interruptText')
   })
 
-  it('caps a system sender at next-turn/wait', async () => {
+  // A system sender may WAKE (POD-4846): the steward's session-parent notice
+  // exists to resurrect a parked parent (POD-279), and it travels as a message.
+  // It still never interrupts a running turn.
+  it('caps a system sender at next-turn, and lets it wake', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
@@ -441,11 +444,8 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
       { kind: 'system', name: 'steward' },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt', lifecycle: 'wake' },
     )
-    expect(r.message).toMatchObject({ urgency: 'next-turn', lifecycle: 'wait' })
-    expect(JSON.parse(r.message.clampedFrom!).reasons).toEqual([
-      'sender cap (system)',
-      'sender cap (system)',
-    ])
+    expect(r.message).toMatchObject({ urgency: 'next-turn', lifecycle: 'wake' })
+    expect(JSON.parse(r.message.clampedFrom!).reasons).toEqual(['sender cap (system)'])
   })
 })
 
