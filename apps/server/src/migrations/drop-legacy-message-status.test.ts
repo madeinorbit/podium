@@ -95,7 +95,7 @@ function shape(db: SqlDatabase): TableShape {
     let depth = 1
     let end = m.index + m[0].length
     for (; depth > 0; end++) depth += table[end] === '(' ? 1 : table[end] === ')' ? -1 : 0
-    checks[m[1]!] = table.slice(m.index + m[0].length, end - 1).trim()
+    checks[m[1] ?? ''] = table.slice(m.index + m[0].length, end - 1).trim()
   }
   const indexes: TableShape['indexes'] = {}
   for (const i of db
