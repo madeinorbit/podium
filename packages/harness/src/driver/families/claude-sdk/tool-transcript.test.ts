@@ -48,11 +48,14 @@ interface Script {
  *  transcript items the runtime published for it. */
 async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
   let settle: (() => void) | undefined
+  let archive = ''
   const host: ClaudeSdkRuntimeHost = {
     mintSessionId: () => SESSION,
     mintResumeValue: () => RESUME,
     now: () => '2026-08-28T00:00:00.000Z',
     startTurn(input): ClaudeSdkTurnHandle {
+      archive += `${JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: RESUME,
+        message: { role: 'user', content: input.turn.text }, timestamp: host.now() })}\n`
       const done = new Promise<{ resumeValue: string; output: string }>((resolve) => {
         settle = () => resolve({ resumeValue: RESUME, output: script.output ?? 'answer' })
       })
@@ -78,7 +81,7 @@ async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
       return { items: [], hasMore: false }
     },
     async readArchive() {
-      return undefined
+      return { path: `${RESUME}.jsonl`, bytes: new TextEncoder().encode(archive) }
     },
   }
 
@@ -97,6 +100,7 @@ async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
   )
   await reading
   await vi.waitFor(() => expect(items.some((i) => i.role === 'assistant')).toBe(true))
+  runtime.dispose()
   return items
 }
 

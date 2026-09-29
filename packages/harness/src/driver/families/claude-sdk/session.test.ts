@@ -106,7 +106,17 @@ function sessionWorld(
       attachKind: 'claude-code',
     },
     engine,
-    transcript: transcript(reads),
+    transcript: {
+      ...transcript(reads),
+      readFileBytes: async () => {
+        const calls = vi.isMockFunction(engine.startTurn) ? engine.startTurn.mock.calls : []
+        return new TextEncoder().encode(calls.map((call) => {
+          const input = call[0] as StartTurnInput
+          return JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: input.resumeValue,
+            message: { role: 'user', content: input.turn.text } })
+        }).join('\n') + '\n')
+      },
+    },
     ...extra,
   })
 }

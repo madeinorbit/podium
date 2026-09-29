@@ -67,6 +67,7 @@ async function world(initialHistory = '') {
   return {
     handle, runtime, events, writes, readArchive, frame, dispose,
     append(record: unknown) { history += `${JSON.stringify(record)}\n` },
+    appendBytes(text: string) { history += text },
     exit() { for (const cb of exits) cb(null, 'SIGKILL') },
   }
 }
@@ -229,5 +230,93 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     await tick()
     expect(deliveries(w.events)).toEqual([expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: UUID } })])
     expect(userItems(w.events)).toHaveLength(1)
+  })
+
+  it('ignores another session, sidechains, synthetic prompts, and replay echoes even with our uuid', async () => {
+    const w = await world()
+    const confirmed = vi.fn()
+    const receipt = send(w.handle, confirmed)
+    w.frame(ack.lifecycleQueued)
+    await receipt
+    w.append({ ...userRecord(), sessionId: 'another-conversation' })
+    w.append({ ...userRecord(), isSidechain: true })
+    w.append({ ...userRecord(), isCompactSummary: true })
+    w.append({ ...userRecord(), isMeta: true })
+    w.append({ ...userRecord(), isReplay: true })
+    const queued = queuedRecord()
+    w.append({ ...queued, attachment: { ...queued.attachment, commandMode: 'task-notification' } })
+    await tick()
+    expect(confirmed).not.toHaveBeenCalled()
+    expect(userItems(w.events)).toEqual([])
+  })
+
+  it('waits for the complete JSONL record across a partial append', async () => {
+    const w = await world()
+    const confirmed = vi.fn()
+    const receipt = send(w.handle, confirmed)
+    w.frame(ack.lifecycleQueued)
+    await receipt
+    const line = JSON.stringify(userRecord())
+    w.appendBytes(line.slice(0, -2))
+    await tick()
+    expect(confirmed).not.toHaveBeenCalled()
+    w.appendBytes(`${line.slice(-2)}\n`)
+    await tick()
+    expect(confirmed).toHaveBeenCalledTimes(1)
+  })
+
+  it('checks the transcript after a process exit before closing its watch', async () => {
+    const w = await world()
+    const confirmed = vi.fn()
+    const unrecorded = vi.fn()
+    const receipt = send(w.handle, confirmed, unrecorded)
+    w.frame(ack.lifecycleQueued)
+    await receipt
+    w.runtime.processEvent(SESSION, { ev: 'exited', code: null, signal: 'SIGKILL', classification: 'killed' })
+    w.append(userRecord())
+    await tick()
+    expect(confirmed).toHaveBeenCalledTimes(1)
+    expect(unrecorded).not.toHaveBeenCalled()
+  })
+
+  it('closes an expired watch as unrecorded once, without claiming a failed delivery', async () => {
+    const w = await world()
+    const confirmed = vi.fn()
+    const unrecorded = vi.fn()
+    const receipt = send(w.handle, confirmed, unrecorded)
+    w.frame(ack.lifecycleQueued)
+    await receipt
+    await vi.advanceTimersByTimeAsync(121_000)
+    expect(await receipt).toMatchObject({ outcome: 'accepted', held: 'memory' })
+    expect(unrecorded).toHaveBeenCalledTimes(1)
+    expect(confirmed).not.toHaveBeenCalled()
+    const reads = w.readArchive.mock.calls.length
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(w.readArchive).toHaveBeenCalledTimes(reads)
+    expect(unrecorded).toHaveBeenCalledTimes(1)
+  })
+
+  it('teardown releases the watch and never confirms a later append', async () => {
+    const w = await world()
+    const confirmed = vi.fn()
+    const unrecorded = vi.fn()
+    const receipt = send(w.handle, confirmed, unrecorded)
+    w.frame(ack.lifecycleQueued)
+    await receipt
+    w.dispose()
+    const reads = w.readArchive.mock.calls.length
+    w.append(userRecord())
+    await tick()
+    expect(unrecorded).toHaveBeenCalledTimes(1)
+    expect(confirmed).not.toHaveBeenCalled()
+    expect(w.readArchive).toHaveBeenCalledTimes(reads)
+  })
+
+  it('keeps the shared recovery stop when no stable message id was supplied', async () => {
+    const w = await world()
+    await w.handle.send({ rowId: MESSAGE, deliveryRecovery: true, text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+    await tick()
+    expect(w.writes.map((line) => JSON.parse(line)).filter((line) => line.type === 'user')).toEqual([])
+    expect(deliveries(w.events)).toEqual([expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' })])
   })
 })
