@@ -210,6 +210,27 @@ describe('conversation controller over synced records', () => {
     controller.dispose()
   })
 
+  it('keeps a retracted bubble hidden until the feed says so, and shows it again if the message moved on instead', async () => {
+    const synced = records([record('msg-1', { status: 'stored' }), record('msg-2', { status: 'stored' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+      retract: async () => {},
+    })
+    controller.start()
+    // The server agreed; its record has not left the feed yet. No flash back.
+    await controller.retract('msg-1')
+    await controller.retract('msg-2')
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    // msg-1 leaves the feed (cancelled); msg-2 was typed after all.
+    synced.set([record('msg-2', { status: 'typed' })])
+    expect(states(controller)).toEqual(['msg-2:sent'])
+    controller.dispose()
+  })
+
   it('offers "send again" on a message the server says did not arrive: the text returns to the composer and the notice goes', async () => {
     const synced = records([record('msg-1', { status: 'failed', reason: 'teardown' })])
     const dismissNotice = vi.fn(async () => {

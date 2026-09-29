@@ -157,8 +157,13 @@ export class ConversationController {
    *  a confirmed record never seen open is history and shows no bubble. */
   private readonly seenRecord = new Set<string>()
   private readonly seenOpen = new Set<string>()
-  /** Message ids being retracted or dismissed: hidden until the answer. */
-  private readonly hidden = new Set<string>()
+  /**
+   * Message ids being retracted or dismissed. Hidden while the request is in
+   * flight (`null`), and after the server agreed, until its record leaves the
+   * feed or moves on from the status it had then — the answer and the feed's
+   * update travel separately, and the bubble must not flash back between them.
+   */
+  private readonly hidden = new Map<string, MessageRecordWire['status'] | null>()
 
   constructor(private readonly options: ConversationControllerOptions) {
     this.clock = options.clock ?? defaultClock
@@ -443,12 +448,19 @@ export class ConversationController {
   /** Hide a bubble while a request about it is in flight; it comes back if the
    *  request fails, and the synced record decides after that. */
   private async hideWhile(messageId: string, work: () => Promise<void>): Promise<void> {
-    this.hidden.add(messageId)
+    this.hidden.set(messageId, null)
     this.patch({})
     try {
       await work()
-    } finally {
+      const record = this.options.records
+        ?.getSnapshot()
+        .find((candidate) => candidate.id === messageId)
+      if (record) this.hidden.set(messageId, record.status)
+      else this.hidden.delete(messageId)
+    } catch (error) {
       this.hidden.delete(messageId)
+      throw error
+    } finally {
       this.patch({})
     }
   }
@@ -566,11 +578,14 @@ export class ConversationController {
    */
   private observeRecords(notify = true): void {
     const records = this.options.records?.getSnapshot() ?? []
-    const present = new Set<string>()
+    const present = new Map<string, MessageRecordWire>()
     for (const record of records) {
-      present.add(record.id)
+      present.set(record.id, record)
       this.seenRecord.add(record.id)
       if (record.status !== 'confirmed') this.seenOpen.add(record.id)
+    }
+    for (const [id, status] of this.hidden) {
+      if (status !== null && present.get(id)?.status !== status) this.hidden.delete(id)
     }
     const pending = this.state.pending.filter(
       (turn) =>
@@ -745,7 +760,7 @@ export class ConversationController {
       records: this.options.records?.getSnapshot() ?? [],
       transcript: this.options.transcript.getSnapshot().items,
       seenOpen: this.seenOpen,
-      hidden: this.hidden,
+      hidden: new Set(this.hidden.keys()),
     })
     const latest = bubbles.findLast(
       (bubble) => bubble.state !== 'failed' && bubble.state !== 'unknown',
