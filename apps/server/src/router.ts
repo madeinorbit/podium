@@ -8,6 +8,7 @@ import {
   IssueIdField,
   isAgentKind,
   MachineIdField,
+  type MessageRecordWire,
   ResumeRef,
   SessionIdField,
   ThreadIdField,
@@ -519,6 +520,9 @@ export const appRouter = t.router({
     // Sender-queryable message lifecycle (#834) [POD-834 §04d]: "what happened to
     // msg X" — mayView-gated in the gate (sender/recipient/admin), a pure read.
     status: mailQuery('status'),
+    // A device's own chat messages by id, when the feed no longer carries them
+    // (POD-4811): the sender's and the target session owner's, as on the feed.
+    records: mailQuery<{ records: MessageRecordWire[] }>('records'),
     // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
     // delivery ledger. Own traffic for a member, cross-user at admin grade.
     ledger: mailQuery('ledger'),

@@ -42,6 +42,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { metaAsFacts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
 import { issueTestPlumbing } from '../issues/service/test-plumbing'
+import { readMessageRecords } from '../message-feed/records'
 import { MessageGate, type MessageGateDeps } from './gate'
 import type { MachineAccess } from './handlers/context'
 import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
@@ -413,6 +414,12 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       messages: svc,
       issues,
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+      messageRecords: async (userId, ids) =>
+        await readMessageRecords(
+          { messages: store.messages, sessions: store.sessions },
+          userId,
+          ids,
+        ),
       spawnSession:
         opts?.spawnSession ??
         (async (input) => {

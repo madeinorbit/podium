@@ -146,6 +146,7 @@ async function harness(opts?: {
     messages: svc,
     issues,
     sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+    messageRecords: async () => [],
     mutations: new MutationLedger(store.sync, () => Date.now()),
     spawnSession:
       opts?.spawnSession ??

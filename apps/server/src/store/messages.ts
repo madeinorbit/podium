@@ -382,6 +382,18 @@ export class MessagesRepository {
     return r ? mapMessage(r) : null
   }
 
+  /** The rows with these ids, in one read; an id with no row is absent. The
+   *  caller bounds how many it asks for. */
+  async getMessages(ids: readonly string[]): Promise<MessageRow[]> {
+    if (ids.length === 0) return []
+    return (await this.db
+      .select()
+      .from(messagesTable)
+      .where(inArray(messagesTable.id, [...new Set(ids)]))
+      .all())
+      .map(mapMessage)
+  }
+
   /** All messages addressed to a principal, oldest first. */
   async listMessagesFor(
     to: MessagePrincipalRef,

@@ -3091,6 +3091,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
       messages: svc,
       issues: fakeIssues(),
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+      messageRecords: async () => [],
     })
   }
   const peerCap: Capability = {

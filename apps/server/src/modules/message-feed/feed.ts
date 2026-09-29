@@ -107,6 +107,7 @@ export function messageRecordOf(row: MessageRow): MessageRecordWire | null {
       : {}),
     ...(row.transcriptItem ? { transcriptItem: row.transcriptItem } : {}),
     ...(row.retractRequestedAt ? { retractRequestedAt: row.retractRequestedAt } : {}),
+    ...(row.noticeDismissedAt ? { noticeDismissedAt: row.noticeDismissedAt } : {}),
   }
 }
 

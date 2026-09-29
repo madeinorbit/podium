@@ -1,6 +1,7 @@
 /**
- * Handlers for the three MESSAGE-ID projections — `mail.show`, `mail.status` and
- * `mail.dismiss` (POD-729).
+ * Handlers for the MESSAGE-ID projections — `mail.show`, `mail.status` and
+ * `mail.dismiss` (POD-729), and the chat's by-id catch-up `mail.records`
+ * (POD-4811).
  *
  * Moved VERBATIM out of `MessageGate`'s hand-written switch. Nothing about the
  * arithmetic changed and nothing was meant to: POD-727's characterization suite
@@ -19,9 +20,11 @@ import type {
   mailCancelContract,
   mailDismissNoticeContract,
   mailDismissContract,
+  mailRecordsContract,
   mailShowContract,
   mailStatusContract,
 } from '@podium/commands'
+import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
 import type { MailHandlerContext } from './context'
 
@@ -94,4 +97,19 @@ export async function dismissNoticeHandler(
     throw new Error('only the sender of a message may dismiss its notice')
   }
   return { ok: true, dismissed: await deps.messages.dismissNotice(message.id) }
+}
+
+/**
+ * A device's own chat messages, by id, in one read (POD-4811) — the records a
+ * device that was away never saw on the feed. Answered for a PERSON only, by
+ * the feed's own rule for kind `message` (`readMessageRecords`); an agent or
+ * the system has no feed of chat records to catch up on.
+ */
+export async function recordsHandler(
+  ctx: MailHandlerContext,
+  input: ContractInput<typeof mailRecordsContract>,
+): Promise<{ records: MessageRecordWire[] }> {
+  const { principal } = ctx.caller
+  if (principal.kind !== 'user') return { records: [] }
+  return { records: await ctx.deps.messageRecords(principal.user, input.ids) }
 }

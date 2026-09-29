@@ -23,6 +23,7 @@
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type {
   IssueId,
+  MessageRecordWire,
   SessionId,
   SessionMeta,
   UserId,
@@ -54,6 +55,9 @@ export interface MessageGateDeps {
    *  REQUIRED since POD-3857: the full-list port it used to fall back to is
    *  gone, so the compiler is what keeps the gate off the projection. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
+  /** A person's own chat message records, by id, as the feed scopes them
+   *  (`readMessageRecords`, POD-4811) — `mail.records`. */
+  messageRecords(userId: UserId, ids: readonly string[]): Promise<MessageRecordWire[]>
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
    *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */

@@ -47,6 +47,9 @@ export const MessageRecordWire = z.object({
    *  retract won; beside a pending status it is still on its way to the agent's
    *  machine; beside `typing`/`typed`/`confirmed` it came too late. */
   retractRequestedAt: z.string().optional(),
+  /** When its sender dismissed its notice. The feed lets a dismissed message
+   *  go, so only a read by id (`mail.records`, POD-4811) ever carries it. */
+  noticeDismissedAt: z.string().optional(),
 })
 export type MessageRecordWire = z.infer<typeof MessageRecordWire>
 

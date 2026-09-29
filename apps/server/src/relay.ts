@@ -98,6 +98,7 @@ import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
+import { readMessageRecords } from './modules/message-feed/records'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
@@ -2392,6 +2393,12 @@ export class SessionRegistry {
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+        messageRecords: async (userId, ids) =>
+          await readMessageRecords(
+            { messages: this.store.messages, sessions: this.store.sessions },
+            userId,
+            ids,
+          ),
         mutations,
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
         // child is a FULL Podium session through the one spawn path; --new is the

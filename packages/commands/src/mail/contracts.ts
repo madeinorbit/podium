@@ -737,6 +737,58 @@ export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
   conflict: 'n/a',
 }
 
+/** How many message ids one `mail.records` read may name. */
+export const MAIL_RECORDS_MAX_IDS = 100
+
+export const mailRecordsInput = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(MAIL_RECORDS_MAX_IDS),
+})
+
+/**
+ * A DEVICE CATCHES UP ON ITS OWN MESSAGES, BY ID (POD-4811). The feed carries a
+ * chat message while it is on its way and for a short window after it is
+ * confirmed. A device that was away longer than that never sees the record of
+ * the message it sent; it asks for those ids here, all in one read, and
+ * settles its bubbles from the answer. The answer is each record as the feed
+ * would carry it (with `noticeDismissedAt` once its sender let a notice go).
+ * An id it does not name is one the server has no row for — or none this
+ * caller may see; the two are the same answer.
+ */
+export const mailRecordsContract: CommandContract<typeof mailRecordsInput> = {
+  name: 'mail.records',
+  version: 1,
+  visibility: 'personal',
+  input: mailRecordsInput,
+  policy: {
+    action: 'read',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'THE FEED’S OWN RULE. A chat message record is its sender’s and the target session owner’s ' +
+      'business, exactly as the feed scopes kind `message`; this read answers only those, so it ' +
+      'shows nobody anything their feed would not.',
+  },
+  exposure: ['trpc'],
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation: 'A query; nothing is enqueued. Stated rather than defaulted (D3 rule 1).',
+    applyTimeReauthorization: 'Evaluated at read time against the effective principal.',
+  },
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'A projection over existing rows.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'The caller supplies MESSAGE ids. One it may not see is left out of the answer exactly as one ' +
+      'that does not exist is, so the read cannot enumerate other people’s traffic.',
+  },
+  conflict: 'n/a',
+}
+
 export const mailPendingRemindersContract: CommandContract<typeof mailPendingRemindersInput> = {
   name: 'mail.pendingReminders',
   version: 1,
@@ -861,6 +913,7 @@ export const MAIL_CONTRACTS = [
   mailCancelContract,
   mailDismissNoticeContract,
   mailStatusContract,
+  mailRecordsContract,
   mailPendingRemindersContract,
   mailAskContract,
 ] as const

@@ -23,6 +23,7 @@ import {
   mailInboxConsumeContract,
   mailLedgerContract,
   mailPendingRemindersContract,
+  mailRecordsContract,
   mailReplyContract,
   mailSendContract,
   mailShowContract,
@@ -41,6 +42,7 @@ import {
   cancelHandler,
   dismissHandler,
   dismissNoticeHandler,
+  recordsHandler,
   showHandler,
   statusHandler,
 } from './handlers/projections'
@@ -79,6 +81,7 @@ export const MAIL_COMMANDS = {
   cancel: { contract: mailCancelContract, handler: cancelHandler },
   dismissNotice: { contract: mailDismissNoticeContract, handler: dismissNoticeHandler },
   status: { contract: mailStatusContract, handler: statusHandler },
+  records: { contract: mailRecordsContract, handler: recordsHandler },
   pendingReminders: {
     contract: mailPendingRemindersContract,
     handler: pendingRemindersHandler,
