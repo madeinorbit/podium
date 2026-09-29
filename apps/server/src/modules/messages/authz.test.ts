@@ -157,14 +157,15 @@ describe('queued message retraction', () => {
     })) as { id: string }
 
     await expect(
-      Promise.resolve().then(async () =>
-        await h.gate.dispatch(
-          h.agentCap(target.id, asSessionId('sTarget')),
-          undefined,
-          'cancel',
-          { id: sent.id },
-          'trpc',
-        ),
+      Promise.resolve().then(
+        async () =>
+          await h.gate.dispatch(
+            h.agentCap(target.id, asSessionId('sTarget')),
+            undefined,
+            'cancel',
+            { id: sent.id },
+            'trpc',
+          ),
       ),
     ).rejects.toThrow('only the sender of a message may cancel it')
 
@@ -174,8 +175,8 @@ describe('queued message retraction', () => {
       'cancel',
       { id: sent.id },
       'trpc',
-    )) as { status: string }
-    expect(cancelled.status).toBe('cancelled')
+    )) as { deliveryStatus: string }
+    expect(cancelled.deliveryStatus).toBe('cancelled')
     expect((await h.svc.message(sent.id))?.deliveryStatus).toBe('cancelled')
   })
 })
@@ -386,9 +387,13 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
       {
         issue: own.id,
       },
-    )) as { id: string; status: string }[]
-    expect(rows.map((m) => m.status)).toEqual(['read'])
-    expect((await h.svc.message(rows[0]!.id))!).toMatchObject({ deliveryStatus: 'confirmed', deliveredTo: 'sMe' })
+    )) as { id: string; deliveryStatus: string; readAt: string | null }[]
+    // Read from its inbox: confirmed, with the read stamped.
+    expect(rows.map((m) => [m.deliveryStatus, m.readAt !== null])).toEqual([['confirmed', true]])
+    expect((await h.svc.message(rows[0]!.id))!).toMatchObject({
+      deliveryStatus: 'confirmed',
+      deliveredTo: 'sMe',
+    })
   })
 
   it('returns a DESCENDANT issue’s box unfiltered but does NOT consume it (a peek is not a consume)', async () => {
@@ -409,7 +414,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
       {
         issue: child.id,
       },
-    )) as { id: string; body: string; status: string }[]
+    )) as { id: string; body: string; deliveryStatus: string }[]
     // In scope (the peeked issue's ancestors include the caller's subtree root):
     // the body comes back UNFILTERED even though the caller neither sent nor
     // received it. SINGLE-OPERATOR — §3.1.5 revisits who may read whose
@@ -417,7 +422,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
     expect(rows.map((m) => m.body)).toEqual(['not for the parent'])
     // And it is NOT consumed: still queued for its real recipient.
     expect((await h.svc.message(foreign.message.id))!.deliveryStatus).toBe('stored')
-    expect(rows[0]!.status).toBe('queued')
+    expect(rows[0]!.deliveryStatus).toBe('stored')
   })
 
   it('filters an OUT-OF-SCOPE peek down to rows the caller could mayView', async () => {
@@ -453,16 +458,20 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
   it('consumes the caller’s OWN principals on a bare inbox, and refuses a caller with no mailbox', async () => {
     const h = await mailHarness()
     const mine = await h.createIssue({ title: 'mine' })
-    await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: mine.id }, body: 'issue mail' })
+    await h.svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'issue', id: mine.id }, body: 'issue mail' },
+    )
     const rows = (await h.gate.dispatch(
       h.agentCap(mine.id, asSessionId('sMe')),
       undefined,
       'inbox',
       {},
     )) as {
-      status: string
+      deliveryStatus: string
+      readAt: string | null
     }[]
-    expect(rows.map((m) => m.status)).toEqual(['read'])
+    expect(rows.map((m) => [m.deliveryStatus, m.readAt !== null])).toEqual([['confirmed', true]])
 
     const noMailbox: Capability = {
       role: 'worker',
@@ -499,7 +508,10 @@ describe('read-surface and reply authz (A5)', () => {
     // THE COUNTERFACTUAL: traffic in a box the member is not a party to. Without
     // this row the filtered result and the unfiltered one are the same list and
     // the assertion below would pass on a ledger that filtered nothing.
-    await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: theirs.id }, body: 'not yours' })
+    await h.svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'issue', id: theirs.id }, body: 'not yours' },
+    )
 
     const member = h.agentCap(mine.id, asSessionId('sMe'))
     // No longer a refusal: a member may read the ledger, and gets their own row.
@@ -570,8 +582,8 @@ describe('read-surface and reply authz (A5)', () => {
       {
         id: oid,
       },
-    )) as { status: string }
-    expect(shown.status).toBe('queued')
+    )) as { deliveryStatus: string }
+    expect(shown.deliveryStatus).toBe('stored')
     expect((await h.svc.message(oid))!.deliveryStatus).toBe('dispatched')
 
     // The recipient may reply; so may the operator.
@@ -589,7 +601,10 @@ describe('read-surface and reply authz (A5)', () => {
     const h = await mailHarness()
     const to = await h.createIssue({ title: 'to' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
-    const r = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: to.id }, body: 'x' })
+    const r = await h.svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'issue', id: to.id }, body: 'x' },
+    )
     const wire = (await h.gate.dispatch(
       h.agentCap(to.id, asSessionId('sTo')),
       undefined,
@@ -597,8 +612,8 @@ describe('read-surface and reply authz (A5)', () => {
       {
         id: r.message.id,
       },
-    )) as { status: string; readAt: string | null }
-    expect(wire.status).toBe('read')
+    )) as { deliveryStatus: string; readAt: string | null }
+    expect(wire.deliveryStatus).toBe('confirmed')
     expect(wire.readAt).toBe(h.now())
   })
 
@@ -709,13 +724,14 @@ describe('the operator principal class (A6)', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     const rows: MessageRow[] = await Promise.all(
-      (['superagent', 'operator', 'system'] as const).map(async (fromKind) =>
-        (
-          await h.svc.send(
-            fromKind === 'system' ? { kind: 'system', name: 'steward' } : { kind: fromKind },
-            { to: { kind: 'issue', id: iss.id }, body: fromKind },
-          )
-        ).message,
+      (['superagent', 'operator', 'system'] as const).map(
+        async (fromKind) =>
+          (
+            await h.svc.send(
+              fromKind === 'system' ? { kind: 'system', name: 'steward' } : { kind: fromKind },
+              { to: { kind: 'issue', id: iss.id }, body: fromKind },
+            )
+          ).message,
       ),
     )
     for (const row of rows) {
@@ -825,7 +841,10 @@ describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
     const original = await legacyRow(h, `issue:#${iss.seq}`, null)
     expect(await h.svc.replyTarget(original)).toEqual({ kind: 'issue', id: iss.id })
 
-    const reply = await h.svc.sendReply({ kind: 'operator' }, { inReplyTo: original.id, body: 'ack' })
+    const reply = await h.svc.sendReply(
+      { kind: 'operator' },
+      { inReplyTo: original.id, body: 'ack' },
+    )
     expect(reply.message.toId).toBe(iss.id)
     // The legacy mirror row is written under the RESOLVED id, not the ref string.
     expect(await h.store.issues.getIssueMessage(reply.message.id)).toMatchObject({
@@ -839,7 +858,10 @@ describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
     // A ref no issue owns. Anything that doesn't resolve must NOT reach the FK.
     const original = await legacyRow(h, 'issue:#99999', 'sLegacy')
     expect(await h.svc.replyTarget(original)).toEqual({ kind: 'session', id: 'sLegacy' })
-    const reply = await h.svc.sendReply({ kind: 'operator' }, { inReplyTo: original.id, body: 'ack' })
+    const reply = await h.svc.sendReply(
+      { kind: 'operator' },
+      { inReplyTo: original.id, body: 'ack' },
+    )
     expect(reply.message).toMatchObject({ toKind: 'session', toId: 'sLegacy' })
     // Session-addressed: no mirror row at all, so no FK to violate.
     expect(await h.store.issues.getIssueMessage(reply.message.id)).toBeNull()
@@ -851,7 +873,10 @@ describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
     expect(await h.svc.replyTarget(original)).toEqual({ kind: 'operator' })
     // The reply lands in the operator box instead of raising a raw SQLite
     // FOREIGN KEY error out of the mirror insert (#463).
-    const reply = await h.svc.sendReply({ kind: 'operator' }, { inReplyTo: original.id, body: 'ack' })
+    const reply = await h.svc.sendReply(
+      { kind: 'operator' },
+      { inReplyTo: original.id, body: 'ack' },
+    )
     expect(reply.message.toKind).toBe('operator')
     expect(await h.store.issues.getIssueMessage(reply.message.id)).toBeNull()
   })
