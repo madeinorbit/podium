@@ -172,6 +172,33 @@ interface SpanDraft {
   touchedOutbox: boolean
 }
 
+/**
+ * The two regions whose commits are ordered independently (POD-4810): the
+ * replica's (entities and cursor, which always move together) and the outbox's.
+ */
+type CommitLane = 'cache' | 'outbox'
+const COMMIT_LANES: readonly CommitLane[] = ['cache', 'outbox']
+
+/**
+ * The object stores a draft's native transaction must span: every store it
+ * writes, plus the outbox when it carries preconditions (they are re-checked
+ * against durable outbox rows INSIDE that transaction). In `ALL_STORES` order.
+ */
+function scopeOf(draft: SpanDraft): string[] {
+  const touched = new Set<string>(draft.ops.map((op) => op.store))
+  if (draft.expectations.length > 0) touched.add(OUTBOX_STORE)
+  return ALL_STORES.filter((store) => touched.has(store))
+}
+
+/** The commit queues a draft joins — see `IndexedDbSyncStore.enqueueCommit`. */
+function lanesOf(draft: SpanDraft): readonly CommitLane[] {
+  const scope = scopeOf(draft)
+  const lanes: CommitLane[] = []
+  if (scope.includes(ENTITY_STORE) || scope.includes(META_STORE)) lanes.push('cache')
+  if (scope.includes(OUTBOX_STORE)) lanes.push('outbox')
+  return lanes.length === 0 ? COMMIT_LANES : lanes
+}
+
 const newDraft = (): SpanDraft => ({
   entities: new Map(),
   cursors: new Map(),
@@ -264,8 +291,16 @@ export class IndexedDbSyncStore {
   private readonly outboxRows = new Map<string, StoredOutboxRecord[]>()
   private readonly views = new Map<string, IndexedDbStoreView>()
   private nextOrdinal = 0
-  /** Serializes durable commits. Two transactions interleaving is the one race D10 forbids. */
-  private queue: Promise<unknown> = Promise.resolve()
+  /**
+   * Serializes durable commits PER REGION — see `enqueueCommit`. Two transactions
+   * over the same region interleaving is the one race D10 forbids; two over
+   * disjoint regions cannot interleave anything, and making the outbox wait for
+   * the replica's is what stalled a user's send behind a cold sync (POD-4810).
+   */
+  private readonly laneTails: Record<CommitLane, Promise<unknown>> = {
+    cache: Promise.resolve(),
+    outbox: Promise.resolve(),
+  }
   /** Spans opened by `unitOfWork.transact`, so `cacheWrites` can exclude them. */
   private readonly transactSpans = new WeakSet<IdbSpan>()
   /** Spans whose mirror publishes before durability — see `autocommitEager`. */
@@ -419,12 +454,9 @@ export class IndexedDbSyncStore {
     },
   }
 
-  /** Everything enqueued so far has reached IndexedDB (or failed). */
+  /** Everything enqueued so far, in every region, has reached IndexedDB (or failed). */
   async settled(): Promise<void> {
-    await this.queue.then(
-      () => undefined,
-      () => undefined,
-    )
+    await Promise.all(COMMIT_LANES.map((lane) => this.laneTails[lane]))
   }
 
   /**
@@ -440,6 +472,34 @@ export class IndexedDbSyncStore {
     if (this.durability() !== 'durable') return
     await this.settled()
     await this.hydrate()
+  }
+
+  /**
+   * Re-read the OUTBOX region alone from IndexedDB, replacing that part of the
+   * mirror — the fresh-truth read `OutboxStorePort.read()` needs (POD-4810).
+   *
+   * The kernel Outbox calls `read()` before EVERY state change, to rebase on what
+   * another writer may have committed. It used to be `rehydrate()`, which waited
+   * for every queued replica commit and then re-read every entity row: after a
+   * cold sync that was a whole replica's worth of structured-clone per state
+   * change, and a send is several state changes. The outbox never returned an
+   * entity row, so it now reads only its own object store, waits only for its
+   * own region's commits, and does so in a transaction whose scope excludes the
+   * replica's stores — which is what lets IndexedDB run it beside a replica
+   * transaction instead of queueing it behind one.
+   *
+   * Refuses while degraded for the same reason `rehydrate` does, and waits for
+   * the outbox lane for the same reason `rehydrate` waits for all of them: the
+   * mirror must never roll back past an outbox commit still in flight.
+   */
+  async rehydrateOutbox(): Promise<void> {
+    if (this.durability() !== 'durable') return
+    await this.laneTails.outbox
+    const tx = this.db.transaction([OUTBOX_STORE], 'readonly')
+    const outbox = (await requestAsPromise(
+      tx.objectStore(OUTBOX_STORE).getAll(),
+    )) as StoredOutboxRecord[]
+    this.adoptOutboxRows(outbox)
   }
 
   /** Test/injector seam: ADR 6 D4.5 / ADR 2 D7 rung 5 — the store cannot be read. */
@@ -542,16 +602,28 @@ export class IndexedDbSyncStore {
   }
 
   /**
-   * Push the durable half of a span onto the serial queue.
+   * Push the durable half of a span onto the serial queue of every REGION it
+   * writes.
    *
-   * Serial and not concurrent: IndexedDB will happily run two `readwrite`
-   * transactions over the same stores and resolve them in either order, and D10's
-   * "independent calls are serialized" is what stops a later commit from
-   * publishing its mirror swap before an earlier one.
+   * Serial and not concurrent within a region: IndexedDB will happily run two
+   * `readwrite` transactions over the same stores and resolve them in either
+   * order, and D10's "independent calls are serialized" is what stops a later
+   * commit from publishing its mirror swap before an earlier one.
+   *
+   * Per region and not store-wide (POD-4810). The replica region (entities and
+   * cursor) and the outbox region share no row and no mirror map, so ordering a
+   * commit of one behind a commit of the other bought nothing — and cost a user's
+   * queued write every second of a cold sync's apply. A commit that writes BOTH
+   * regions (a retirement enrolled with the frame that confirms it, a sign-out
+   * erase) joins both queues: it waits for each region's earlier commits and
+   * holds back each region's later ones, so D10's order holds exactly where the
+   * regions meet. A span with no durable writes joins both, which keeps its
+   * adoptions ordered after everything before it, as they always were.
    */
   private enqueueCommit(span: IdbSpan): Promise<void> {
     const eager = this.eagerSpans.has(span)
     const draftNow = this.drafts.get(span) ?? newDraft()
+    const lanes = lanesOf(draftNow)
     if (eager) {
       // Published BEFORE the queue runs — see `autocommitEager` for why the cache
       // port's `void` methods cannot wait, and for what that does and does not cost.
@@ -564,7 +636,7 @@ export class IndexedDbSyncStore {
       }
       span.publishAll()
     }
-    const run = this.queue.then(async () => {
+    const run = Promise.all(lanes.map((lane) => this.laneTails[lane])).then(async () => {
       const draft = eager ? draftNow : (this.drafts.get(span) ?? newDraft())
       if (!eager) {
         try {
@@ -614,15 +686,23 @@ export class IndexedDbSyncStore {
     })
     // The queue must survive a rejection, or one failed commit wedges every later
     // one behind a permanently rejected promise.
-    this.queue = run.then(
+    const tail = run.then(
       () => undefined,
       () => undefined,
     )
+    for (const lane of lanes) this.laneTails[lane] = tail
     return run
   }
 
   /**
-   * ONE native transaction over all three object stores.
+   * ONE native transaction over every object store the draft writes.
+   *
+   * Scoped to exactly those stores, not to all three (POD-4810): IndexedDB queues
+   * a `readwrite` transaction behind every earlier one whose scope OVERLAPS it, so
+   * an all-stores scope made the outbox's one-row commit wait for the replica's
+   * twenty-thousand-row one even with the adapter's own queues split. A draft
+   * that writes both regions still gets one transaction over both — the scope is
+   * narrowed only to what is written, never split.
    *
    * The precondition re-check happens HERE, inside it, against durable rows: this
    * is the version-check ADR 6 D4.6 asks for, and it is the only check that can see
@@ -630,7 +710,7 @@ export class IndexedDbSyncStore {
    * with its own mirror.
    */
   private async commitDraft(draft: SpanDraft): Promise<void> {
-    const tx = this.db.transaction([...ALL_STORES], 'readwrite')
+    const tx = this.db.transaction(scopeOf(draft), 'readwrite')
     const completion = transactionCompletion(tx)
     try {
       if (draft.expectations.length > 0) {
@@ -720,9 +800,22 @@ export class IndexedDbSyncStore {
     for (const row of meta) {
       if (row.key === CURSOR_KEY) this.cursors.set(row.principal, row.value as Cursor | null)
     }
-    // BY ORDINAL, not by key. IndexedDB hands rows back in key order, which for the
-    // outbox is `mutationId` order — so hydrating without this sort would silently
-    // re-order the queue on every reload and break ADR 3 D12's FIFO.
+    this.adoptOutboxRows(outbox)
+  }
+
+  /**
+   * Replace the outbox mirror with durable rows.
+   *
+   * BY ORDINAL, not by key. IndexedDB hands rows back in key order, which for the
+   * outbox is `mutationId` order — so hydrating without this sort would silently
+   * re-order the queue on every reload and break ADR 3 D12's FIFO.
+   *
+   * `nextOrdinal` only ever grows here. `hydrate` zeroes it first, so a cold read
+   * is unchanged; an outbox-only re-read must not hand out an ordinal a draft
+   * staged before it has already taken.
+   */
+  private adoptOutboxRows(outbox: readonly StoredOutboxRecord[]): void {
+    this.outboxRows.clear()
     for (const row of [...outbox].sort((a, b) => a.ordinal - b.ordinal)) {
       const slice = this.outboxRows.get(row.principal) ?? []
       slice.push(row)
@@ -767,7 +860,9 @@ export class IndexedDbSyncStore {
 
     const outboxRows: { principal: string; index: number; stored: StoredOutboxRecord }[] = []
     for (const [principal, slice] of this.outboxRows)
-      slice.forEach((stored, index) => outboxRows.push({ principal, index, stored }))
+      slice.forEach((stored, index) => {
+        outboxRows.push({ principal, index, stored })
+      })
     // The WHOLE record, in EVERY state. Terminal and dead-lettered entries keep
     // the author's `input` verbatim, and they are exactly the rows a scrub
     // written against the live queue would walk past.
@@ -1071,17 +1166,19 @@ class IndexedDbOutboxStore implements OutboxStorePort {
   ) {}
 
   /**
-   * The cold-start read.
+   * The fresh-truth read — at open, and before every kernel Outbox state change.
    *
-   * It rehydrates from IndexedDB first, and that is what makes a recovery in a test
-   * an honest one: a read that only returned the mirror would report what a
-   * surviving object still held rather than what committed. `rehydrate()` refuses
-   * while degraded and waits for the write queue, so it can never roll the mirror
-   * back past work still in flight.
+   * It re-reads the outbox region from IndexedDB first, and that is what makes a
+   * recovery in a test an honest one: a read that only returned the mirror would
+   * report what a surviving object still held rather than what committed — and
+   * what lets a rebase see another tab's committed work. ONLY the outbox region,
+   * never the entity rows (POD-4810): see `rehydrateOutbox`. It refuses while
+   * degraded and waits for the outbox's own commits, so it can never roll the
+   * mirror back past work still in flight.
    */
   async read(): Promise<readonly OutboxRecord[]> {
     this.store.guardReadable()
-    await this.store.rehydrate()
+    await this.store.rehydrateOutbox()
     this.store.guardReadable()
     return this.store.outboxOf(this.principal).map((row) => row.record as OutboxRecord)
   }

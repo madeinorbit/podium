@@ -167,6 +167,14 @@ export interface SqliteStoreOptions {
   readonly onSecretsScrubbed?: (report: SecretScrubReport) => void
 }
 
+/** An outbox row as SQLite returns it. */
+interface OutboxRow {
+  readonly principal: string
+  readonly mutation_id: MutationId
+  readonly ordinal: number
+  readonly record: string
+}
+
 /** One staged SQL statement, issued into the commit transaction verbatim and IN ORDER. */
 interface SqlOp {
   readonly sql: string
@@ -465,6 +473,22 @@ export class SqliteSyncStore {
     this.hydrate()
   }
 
+  /**
+   * Re-read the OUTBOX table alone, replacing that part of the mirror — the
+   * fresh-truth read `OutboxStorePort.read()` needs (POD-4810).
+   *
+   * The kernel Outbox calls `read()` before EVERY state change, to rebase on what
+   * another connection may have committed. It used to be `rehydrate()`, which
+   * SELECTed and JSON-parsed every entity row on the JS thread: right after a
+   * 21,901-row cold sync a phone spent seconds per state change on rows the
+   * outbox never returns, and a send is several state changes. Refuses while
+   * degraded for the same reason `rehydrate` does.
+   */
+  rehydrateOutbox(): void {
+    if (this.durability() !== 'durable') return
+    this.adoptOutboxRows(this.selectOutboxRows())
+  }
+
   /** Test/injector seam: ADR 6 D4.5 / ADR 2 D7 rung 5 — the store cannot be read. */
   setCorrupt(corrupt: boolean): void {
     this.corrupt = corrupt
@@ -656,7 +680,9 @@ export class SqliteSyncStore {
 
     const outboxRows: { principal: string; index: number; stored: StoredOutboxRecord }[] = []
     for (const [principal, slice] of this.outboxRows)
-      slice.forEach((stored, index) => outboxRows.push({ principal, index, stored }))
+      slice.forEach((stored, index) => {
+        outboxRows.push({ principal, index, stored })
+      })
     // Every row in every state: terminal and dead-lettered entries keep the
     // author's `input` verbatim and are the ones a live-queue scrub misses.
     const outbox = planSecretScrub(
@@ -763,15 +789,7 @@ export class SqliteSyncStore {
       key: string
       value: string
     }[]
-    // BY ORDINAL, not by primary key. SQLite hands rows back in PK order when asked
-    // for none, which for the outbox is `mutation_id` order — so hydrating without
-    // this would silently re-order the queue on every cold start and break ADR 3
-    // D12's FIFO. On mobile a cold start is routine, not exceptional.
-    const outbox = this.db
-      .prepare(
-        `SELECT principal, mutation_id, ordinal, record FROM ${OUTBOX_TABLE} ORDER BY ordinal ASC`,
-      )
-      .all() as { principal: string; mutation_id: MutationId; ordinal: number; record: string }[]
+    const outbox = this.selectOutboxRows()
 
     this.entities.clear()
     this.cursors.clear()
@@ -798,6 +816,30 @@ export class SqliteSyncStore {
     for (const row of meta) {
       if (row.key === CURSOR_KEY) this.cursors.set(row.principal, JSON.parse(row.value) as Cursor)
     }
+    this.adoptOutboxRows(outbox)
+  }
+
+  /**
+   * BY ORDINAL, not by primary key. SQLite hands rows back in PK order when asked
+   * for none, which for the outbox is `mutation_id` order — so hydrating without
+   * this would silently re-order the queue on every cold start and break ADR 3
+   * D12's FIFO. On mobile a cold start is routine, not exceptional.
+   */
+  private selectOutboxRows(): OutboxRow[] {
+    return this.db
+      .prepare(
+        `SELECT principal, mutation_id, ordinal, record FROM ${OUTBOX_TABLE} ORDER BY ordinal ASC`,
+      )
+      .all() as OutboxRow[]
+  }
+
+  /**
+   * Replace the outbox mirror with durable rows. `nextOrdinal` only ever grows
+   * here: `hydrate` zeroes it first, so a cold read is unchanged, and an
+   * outbox-only re-read must not hand out an ordinal already taken.
+   */
+  private adoptOutboxRows(outbox: readonly OutboxRow[]): void {
+    this.outboxRows.clear()
     for (const row of outbox) {
       const slice = this.outboxRows.get(row.principal) ?? []
       slice.push({
@@ -1061,17 +1103,19 @@ class SqliteOutboxStore implements OutboxStorePort {
   ) {}
 
   /**
-   * The cold-start read.
+   * The fresh-truth read — at open, and before every kernel Outbox state change.
    *
-   * It rehydrates from SQLite first, and that is what makes a recovery in a test an
-   * honest one: a read that only returned the mirror would report what a surviving
-   * object still held rather than what committed. `rehydrate()` refuses while
-   * degraded, so it can never roll the mirror back past work the session is holding
-   * in memory by design.
+   * It re-reads the outbox table from SQLite first, and that is what makes a
+   * recovery in a test an honest one: a read that only returned the mirror would
+   * report what a surviving object still held rather than what committed — and
+   * what lets a rebase see another connection's committed work. ONLY the outbox
+   * table, never the entity rows (POD-4810): see `rehydrateOutbox`. It refuses
+   * while degraded, so it can never roll the mirror back past work the session is
+   * holding in memory by design.
    */
   async read(): Promise<readonly OutboxRecord[]> {
     this.store.guardReadable()
-    this.store.rehydrate()
+    this.store.rehydrateOutbox()
     this.store.guardReadable()
     return this.store.outboxOf(this.principal).map((row) => row.record as OutboxRecord)
   }

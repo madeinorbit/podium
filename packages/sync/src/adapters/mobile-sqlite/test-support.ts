@@ -39,17 +39,11 @@
  * this file exists to rule out.
  */
 
-import type { MutationId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  ALL_TABLES,
-  CURSOR_KEY,
-  ENTITY_TABLE,
-  META_TABLE,
-  OUTBOX_TABLE,
-} from './schema'
+import type { MutationId } from '@podium/model'
+import { ALL_TABLES, CURSOR_KEY, ENTITY_TABLE, META_TABLE, OUTBOX_TABLE } from './schema'
 import type { SqlDatabaseLike, SqlStatementLike, SqlValue } from './sql'
 
 /** A real SQLite engine, named, so a failure says which one produced it. */
@@ -160,9 +154,12 @@ export function readDurable(file: string): {
       if (!present.has(table)) return empty
     }
     const entities = (
-      db
-        .prepare(`SELECT principal, entity, entity_id, value FROM ${ENTITY_TABLE}`)
-        .all() as { principal: string; entity: string; entity_id: string; value: string }[]
+      db.prepare(`SELECT principal, entity, entity_id, value FROM ${ENTITY_TABLE}`).all() as {
+        principal: string
+        entity: string
+        entity_id: string
+        value: string
+      }[]
     ).map((row) => ({
       principal: row.principal,
       entity: row.entity,
@@ -251,6 +248,12 @@ export class FaultySqlDatabase implements SqlDatabaseLike {
   writesIssued = 0
   /** Faults that fired. */
   denials = 0
+  /**
+   * Every statement prepared through this connection, verbatim (POD-4810): what a
+   * call READ is asserted from the SQL the engine was handed, so "an outbox write
+   * reads no entity rows" is an observation, not a claim about the mirror.
+   */
+  readonly prepared: string[] = []
 
   constructor(private readonly inner: SqlDatabaseLike) {}
 
@@ -267,6 +270,7 @@ export class FaultySqlDatabase implements SqlDatabaseLike {
 
   prepare(sql: string): SqlStatementLike {
     this.refuseIfDead()
+    this.prepared.push(sql)
     const statement = this.inner.prepare(sql)
     return {
       run: (...params: SqlValue[]) => {
