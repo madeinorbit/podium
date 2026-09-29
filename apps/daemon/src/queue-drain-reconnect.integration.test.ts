@@ -207,8 +207,11 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
 
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       sockets[0]?.close()
-      daemonRuntimeHost({} as DaemonContext, (message) =>
-        connection?.send(message),
+      // Abandonment goes out on the daemon's own full send (`ctx.send`), never
+      // through the driver's narrowed port (POD-4785).
+      daemonRuntimeHost(
+        { send: (message: unknown) => connection?.send(message as never) } as unknown as DaemonContext,
+        () => {},
       ).onDrainAbandoned?.({
         sessionId,
         turns: [{ id: sent.message.id, text: sent.message.body, origin: 'mail' }],

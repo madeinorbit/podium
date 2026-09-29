@@ -97,6 +97,10 @@ vi.mock('@/app/store', () => {
     drafts: {},
     setSessionDraft: vi.fn(),
     resumeAndSend: vi.fn(async () => {}),
+    // The outbox chat send actions (POD-4762); these tests never send.
+    sendChat: vi.fn(async () => ({ state: 'sent' as const })),
+    chatSendsFor: () => [],
+    discardChat: vi.fn(async () => {}),
     setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',

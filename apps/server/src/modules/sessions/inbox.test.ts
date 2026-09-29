@@ -2340,15 +2340,6 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
   })
 
-  it('applies a daemon delivered report for a direct send with no queue row [POD-4794]', async () => {
-    vi.useFakeTimers()
-    const h = harness({ contractReceipts: [] })
-    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_direct_delivered', outcome: 'delivered' })
-    expect(h.applied).toHaveBeenCalledTimes(1)
-    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_direct_delivered', sessionId: SID })
-    expect(h.rejected).toEqual([])
-  })
-
   it('holds an unproven direct-send failure for echo/boundary instead of dead-lettering it [POD-4794]', async () => {
     // POD-4802 applies with no queue row too: the bytes may have landed, so a
     // rejection would stamp a delivered message as failed. The ledger row
@@ -2388,7 +2379,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await queueOne(h, 'ambiguous', 'source-ambiguous')
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, {
-      rowId: 'ambiguous',
+      rowId: 'source-ambiguous',
       outcome: 'failed',
       reason: 'delivery could not be confirmed; check the transcript before retrying',
       cause: 'unconfirmed',
@@ -2412,14 +2403,14 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     await queueOne(h, 'legacy', 'source-legacy')
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, {
-      rowId: 'legacy',
+      rowId: 'source-legacy',
       outcome: 'failed',
       reason: 'delivery could not be confirmed; check the transcript before retrying',
     })
     expect(h.rows).toEqual([])
     expect(h.rejected).toEqual([
       expect.objectContaining({
-        queueId: 'legacy',
+        queueId: 'source-legacy',
         reason: 'delivery could not be confirmed; check the transcript before retrying',
       }),
     ])

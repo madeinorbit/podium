@@ -135,7 +135,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     expect(statusOf(row)).not.toBe('dead_letter')
   })
 
-  it('an ambiguous daemon failure leaves the ledger for the turn boundary, which delivers it', async () => {
+  it('an ambiguous daemon failure records the message unknown, never dead-lettered, across the turn boundary', async () => {
     // F16: the daemon typed the bytes but could not prove it, reported
     // failed, and the server dead-lettered a delivered message. Now the
     // ambiguous failure keeps the ledger queued and the idle edge confirms it.
@@ -206,6 +206,8 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
       'the inbox row to leave on ambiguous failure',
     )
     const stuck = await o.store.messages.getMessage(ledgerId)
+    // `unknown` (POD-4775), which older readers see as `queued`.
+    expect(stuck?.deliveryStatus).toBe('unknown')
     expect(statusOf(stuck)).toBe('queued')
     expect(stuck?.injectedAt).not.toBeNull()
     expect(stuck?.deliveredTo).toBe(sessionId)
@@ -234,11 +236,12 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
       async () => (await o.meta(sessionId)).agentState?.phase === 'idle',
       'the session to read idle',
     )
-    await waitFor(
-      async () => statusOf(await o.store.messages.getMessage(ledgerId)) === 'delivered',
-      'the boundary to deliver the ambiguous row',
-    )
-    expect(statusOf(await o.store.messages.getMessage(ledgerId))).not.toBe('dead_letter')
+    // The idle edge confirms nothing on dev/mw (POD-4661, POD-4775): the row
+    // stays `unknown` — never failed, never dead-lettered — until the echo, a
+    // receipt or an inbox read settles it.
+    const after = await o.store.messages.getMessage(ledgerId)
+    expect(after?.deliveryStatus).toBe('unknown')
+    expect(statusOf(after)).not.toBe('dead_letter')
   })
 
   it('a never-typed failure still ends visibly failed, never silently delivered', async () => {

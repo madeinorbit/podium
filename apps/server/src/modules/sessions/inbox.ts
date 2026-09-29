@@ -1574,9 +1574,8 @@ export class SessionInbox {
    * ledger row stayed queued+injected forever on an idle session, with no echo
    * coming, no turn boundary to confirm it, and nothing visible anywhere.
    *
-   * `delivered` confirms the ledger row it names (guarded downstream: a row
-   * already settled, or an id naming no message at all, is a no-op — so a
-   * late duplicate of a durable row's report cannot move anything). A proven
+   * `delivered` is left to the entry naming in `deliveryOutcome` (dev/mw's
+   * POD-4774 rule: a direct send settles on its own receipt). A proven
    * `failed` (no inner `unverified` receipt) rejects it the way the durable
    * path does: dead-letter plus the sender notice, which is also what the
    * abandonment channel already does for never-typed held turns. An UNPROVEN
@@ -1586,10 +1585,8 @@ export class SessionInbox {
    * holder ordered and already knows about: nothing to settle.
    */
   private async settleDirectDeliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
-    if (event.outcome === 'delivered') {
-      await this.deps.authorization.applied({ sourceMessageId: event.rowId, sessionId })
-      return
-    }
+    // `delivered` with no row here only names the entry (POD-4774, in
+    // `deliveryOutcome`): a direct send settles on its own receipt.
     if (event.outcome !== 'failed' || event.cause === 'unconfirmed') return
     await this.deps.authorization.rejected({
       queueId: event.rowId,

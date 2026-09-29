@@ -73,12 +73,44 @@ function world(options: { echoPrompt?: boolean } = {}): {
 const userItems = (items: readonly TranscriptItem[]): TranscriptItem[] =>
   items.filter((item) => item.role === 'user')
 
+/**
+ * The completed items the chat is shown, as the driver emits them. On this
+ * branch `transcript.history` is a Store read (POD-4782), so the live item
+ * stream — not driver memory — is where the naming must agree with the chat.
+ * Collects from `cursor` until `enough` holds, or gives up after `ms`.
+ */
+async function shownItems(
+  handle: { events(after: never): AsyncIterable<RuntimeEvent> },
+  cursor: unknown,
+  enough: (items: readonly TranscriptItem[]) => boolean,
+  ms = 2_000,
+): Promise<TranscriptItem[]> {
+  const items: TranscriptItem[] = []
+  const iterator = handle.events(cursor as never)[Symbol.asyncIterator]()
+  const deadline = Date.now() + ms
+  try {
+    while (!enough(items) && Date.now() < deadline) {
+      const next = await Promise.race([
+        iterator.next(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), deadline - Date.now())),
+      ])
+      if (next === null || next.done) break
+      const event = next.value
+      if (event.t === 'item' && event.item.kind === 'complete') items.push(event.item.item)
+    }
+  } finally {
+    void iterator.return?.()
+  }
+  return items
+}
+
 describe('the history entry a delivered Grok send became', () => {
   it("names the entry built from Grok's own echo of the prompt", async () => {
     const w = world()
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
+      const before = await handle.snapshot()
       const receipt = await handle.send(
         { id: 't1', text: 'ship it' },
         { origin: 'human', delivery: 'when-ready' },
@@ -89,9 +121,9 @@ describe('the history entry a delivered Grok send became', () => {
       // The echo's provider event id, not a driver counter.
       expect(receipt.transcriptItem).toEqual({ id: `grok-user-${server.sessionId}-1` })
       server.completeTurn()
-      const history = await handle.transcript.history({ limit: 100 })
+      const shown = await shownItems(handle, before.cursor, (items) => userItems(items).length > 0)
       // The one user item the chat shows for this prompt is the one named.
-      expect(userItems(history.items).map((item) => item.id)).toEqual([receipt.transcriptItem!.id])
+      expect(userItems(shown).map((item) => item.id)).toEqual([receipt.transcriptItem!.id])
     } finally {
       runtime.dispose()
     }
@@ -102,6 +134,7 @@ describe('the history entry a delivered Grok send became', () => {
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
+      const before = await handle.snapshot()
       const sent = handle.send(
         { id: 't1', text: 'ship it' },
         { origin: 'human', delivery: 'when-ready' },
@@ -115,18 +148,14 @@ describe('the history entry a delivered Grok send became', () => {
         transcriptItem: { id: 'grok-user-turn-1' },
       })
       w.serverFor(handle.binding.sessionId)!.completeTurn()
-      // Recorded once, ahead of the answer it prompted.
-      await expect
-        .poll(async () =>
-          (await handle.transcript.history({ limit: 100 })).items.map((item) => [
-            item.role,
-            item.id,
-          ]),
-        )
-        .toEqual([
-          ['user', 'grok-user-turn-1'],
-          ['assistant', expect.any(String)],
-        ])
+      // Shown once, ahead of the answer it prompted.
+      const shown = await shownItems(handle, before.cursor, (items) =>
+        items.some((item) => item.role === 'assistant'),
+      )
+      expect(shown.map((item) => [item.role, item.id])).toEqual([
+        ['user', 'grok-user-turn-1'],
+        ['assistant', expect.any(String)],
+      ])
     } finally {
       runtime.dispose()
     }
