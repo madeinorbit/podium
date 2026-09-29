@@ -6,6 +6,7 @@ import {
   SessionSnapshot,
   RuntimeDurableSendRequestMessage,
   RuntimeSendRequestMessage,
+  TurnReceipt,
   type RuntimeEventBody,
   type RuntimeEvent,
 } from './runtime'
@@ -109,5 +110,59 @@ describe('the entry a delivered row became (POD-4774)', () => {
       RuntimeEventMessage.safeParse({ type: 'runtimeEvent', sessionId: 'session', event: nameless })
         .success,
     ).toBe(false)
+  })
+})
+
+describe("the agent program's own ids for a message (POD-4841)", () => {
+  const harnessRef = [
+    { kind: 'codex-turn', id: 'turn-1' },
+    { kind: 'codex-client-message', id: 'msg_row' },
+  ]
+  const frame = (body: RuntimeEventBody) =>
+    RuntimeEventMessage.safeParse({ type: 'runtimeEvent', sessionId: 'session', event: event(body) })
+
+  it('carries harnessRef on a delivery outcome through the wire schema, on any outcome', () => {
+    for (const outcome of ['delivered', 'failed'] as const) {
+      const parsed = frame({ t: 'delivery', rowId: 'msg_row', outcome, harnessRef })
+      expect(parsed.success).toBe(true)
+      expect(parsed.data).toMatchObject({ event: { harnessRef } })
+    }
+  })
+
+  it('keeps a kind this build does not know', () => {
+    const parsed = frame({
+      t: 'delivery',
+      rowId: 'msg_row',
+      outcome: 'delivered',
+      harnessRef: [{ kind: 'kind-from-a-newer-daemon', id: 'x' }],
+    })
+    expect(parsed.data).toMatchObject({
+      event: { harnessRef: [{ kind: 'kind-from-a-newer-daemon', id: 'x' }] },
+    })
+  })
+
+  it('drops a malformed harnessRef and keeps the outcome: the ids never cost a delivery', () => {
+    const parsed = frame({
+      t: 'delivery',
+      rowId: 'msg_row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry' },
+      harnessRef: [{ kind: 'codex-turn', id: '' }],
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.event).toMatchObject({ outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    expect((parsed.data?.event as { harnessRef?: unknown }).harnessRef).toBeUndefined()
+  })
+
+  it('carries harnessRef on an accepted receipt', () => {
+    const receipt = TurnReceipt.parse({
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack',
+      harnessRef,
+      at,
+    })
+    expect(receipt).toMatchObject({ harnessRef })
   })
 })
