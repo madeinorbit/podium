@@ -445,7 +445,7 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt', lifecycle: 'wake' },
     )
     expect(r.message).toMatchObject({ urgency: 'next-turn', lifecycle: 'wake' })
-    expect(JSON.parse(r.message.clampedFrom!).reasons).toEqual(['sender cap (system)'])
+    expect(JSON.parse(r.message.clampedFrom ?? '{}').reasons).toEqual(['sender cap (system)'])
   })
 })
 
