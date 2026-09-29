@@ -1311,7 +1311,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
   /**
    * RE-PINNED ON THE CONTRACT (358ad0ffb POD-4427, POD-4279). This used to pin
    * 'continue\r' typed at the PTY stamped 'auto_continue'. An agent's continue
-   * now rides the receipt seam (`sendContinueViaContract`, session-wiring.ts)
+   * is a message from system:auto-continue (POD-4846, `autoContinueSender`)
    * and, like every agent send since POD-4795, is one durable row: one
    * when-ready `runtimeDurableSendRequest` carrying 'continue' with origin
    * 'auto_continue' (no send gate reads the errored phase since POD-4775).

@@ -2566,8 +2566,8 @@ describe('agent state', () => {
 
   /**
    * RE-PINNED ON THE CONTRACT (358ad0ffb POD-4427, POD-4279). This used to pin
-   * 'continue\r' typed at the PTY. An agent's continue now rides the receipt
-   * seam (`sendContinueViaContract`, session-wiring.ts): one when-ready
+   * 'continue\r' typed at the PTY. An agent's continue is now a message from
+   * system:auto-continue (POD-4846, `autoContinueSender`): one when-ready
    * `runtimeSendRequest` carrying 'continue' stamped 'auto_continue'. A plain
    * shell (POD-4278) keeps the raw keystroke. The gate is unchanged on both:
    * only while errored.
@@ -6213,8 +6213,9 @@ describe('SessionRegistry — auto-continue', () => {
     error: { class: 'server_error', retryable: true },
   }
   // An agent's continue is a when-ready contract send, not 'continue\r' typed
-  // at the PTY (358ad0ffb POD-4427, POD-4279; `sendContinueViaContract`), and
-  // like every agent send a durable row (POD-4795).
+  // at the PTY (358ad0ffb POD-4427, POD-4279), a message from
+  // system:auto-continue (POD-4846), and like every agent send a durable row
+  // (POD-4795).
   const continueInput = expect.objectContaining({
     type: 'runtimeDurableSendRequest',
     delivery: 'when-ready',
