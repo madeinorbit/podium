@@ -116,18 +116,27 @@ describe('durable row delivery', () => {
   it('never retries an ambiguous write and reports a recoverable failure', async () => {
     const f = fixture()
     f.ready()
-    f.send.mockResolvedValue({ outcome: 'unverified' } as never)
+    const unverified = {
+      outcome: 'unverified',
+      deliveredAs: 'when-ready',
+      verificationWindowMs: 4800,
+      at: new Date().toISOString(),
+    } as const
+    f.send.mockResolvedValue(unverified as never)
     await f.handle.send(
       { id: 'one', rowId: 'one', text: 'a' },
       { origin: 'human', delivery: 'when-ready' },
     )
     await vi.advanceTimersByTimeAsync(30000)
     expect(f.send).toHaveBeenCalledTimes(1)
+    // The inner unverified receipt rides along (POD-4802) so the server can
+    // tell "bytes written, unproven" from a proven loss.
     expect(f.emit).toHaveBeenCalledExactlyOnceWith({
       t: 'delivery',
       rowId: 'one',
       outcome: 'failed',
       reason: 'delivery could not be confirmed; check the transcript before retrying',
+      receipt: unverified,
     })
   })
   it('never retypes an unconfirmed creation prompt', async () => {

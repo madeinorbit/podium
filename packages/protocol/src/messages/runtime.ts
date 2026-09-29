@@ -312,7 +312,16 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
 
 export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({ t: z.literal('binding'), resume: ResumeRef, confidence: z.enum(['exact', 'heuristic']), bindingVersion: z.number().int().nonnegative(), ackRequested: z.boolean().optional(), receipt: NativeBindingReceipt.optional() }),
-  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional() }),
+  z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional(),
+    /**
+     * The inner send receipt, when the daemon has one (POD-4802). Attached
+     * only when the inner send answered `unverified`: the bytes were written
+     * but acceptance could not be proven, so the turn may already sit in the
+     * agent's context and dead-lettering it would stamp a delivered message
+     * as failed. Optional so frames from older daemons still parse — absent
+     * means the current visible-failure behaviour.
+     */
+    receipt: TurnReceipt.optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
   z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),

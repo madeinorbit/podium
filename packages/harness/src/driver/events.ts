@@ -6,6 +6,7 @@ import type { ResumeRef, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { ProcessEvent, TurnEvent } from './errors.js'
 import type { InteractionAnswered, InteractionAsked, InteractionExpired } from './interactions.js'
+import type { TurnReceipt } from './turns.js'
 
 // ---------------------------------------------------------------------------
 // The causal envelope (spec §3 rule 4)
@@ -79,7 +80,20 @@ export type RuntimeEventBody =
    * their host acknowledgement protocol until the server projection commits. */
   | { t: 'binding'; resume: ResumeRef; confidence: 'exact' | 'heuristic'; bindingVersion: number; ackRequested?: boolean; receipt?: import('@podium/protocol/daemon').NativeBindingReceipt }
   | { t: 'draft'; text: string }
-  | { t: 'delivery'; rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }
+  | {
+      t: 'delivery'
+      rowId: string
+      outcome: 'delivered' | 'failed' | 'dropped'
+      reason?: string
+      /**
+       * The inner send receipt, when the daemon has one (POD-4802). Attached
+       * only for an `unverified` inner send: the bytes were written but
+       * acceptance unproven, so the turn may already be with the agent.
+       * Absent on frames from older daemons, which keep the previous
+       * visible-failure behaviour.
+       */
+      receipt?: TurnReceipt
+    }
   | {
       /** The existing normalized state vocabulary, INCLUDING compaction — which
        *  is the re-prime boundary for `SessionSpec.instructions`. */

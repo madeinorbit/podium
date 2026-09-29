@@ -164,6 +164,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
       outcome: 'delivered' | 'failed',
       seq: number,
       reason?: string,
+      receipt?: unknown,
     ) =>
       ({
         type: 'runtimeEvent',
@@ -174,6 +175,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
           rowId: send!.rowId,
           outcome,
           ...(reason ? { reason } : {}),
+          ...(receipt ? { receipt } : {}),
           at: new Date().toISOString(),
           provenance: 'live',
           cursor: { segmentId: `delivery-${sessionId}`, components: { seq } },
@@ -181,10 +183,16 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
           turnEpoch: 0,
         },
       }) as never
-    // Typed but unproven: must NOT dead-letter.
+    // Typed but unproven: the inner unverified receipt rides along (POD-4802),
+    // so this must NOT dead-letter.
     await o.reg.gateway.routeDaemonFrame(
       o.reg.sessionStore.hostMachineId,
-      delivery('failed', 1, 'delivery could not be confirmed; check the transcript before retrying'),
+      delivery('failed', 1, 'delivery could not be confirmed; check the transcript before retrying', {
+        outcome: 'unverified',
+        deliveredAs: 'when-ready',
+        verificationWindowMs: 4800,
+        at: new Date().toISOString(),
+      }),
     )
     await waitFor(
       async () => (await o.store.sync.listQueuedMessages(sessionId)).length === 0,
@@ -224,5 +232,65 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
       'the boundary to deliver the ambiguous row',
     )
     expect((await o.store.messages.getMessage(ledgerId))?.status).not.toBe('dead_letter')
+  })
+
+  it('a never-typed failure still ends visibly failed, never silently delivered', async () => {
+    // The other half (POD-4802 review): when the bytes never left the daemon
+    // (the agent never became ready, so the inner send never ran and there is
+    // no inner receipt), the row must dead-letter with the delivery-failed
+    // wording and its retry affordance — the boundary must not confirm what
+    // was never delivered, and the row must not linger pending forever.
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId, 'working')
+    o.daemon.length = 0
+
+    const sent = await o.call.sessions.sendText({ sessionId, text: 'never typed' })
+    expect(sent.ok).toBe(true)
+    const [send] = await durableSendsOnceHandedOn(o, sessionId, 1)
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'runtimeSendResult',
+      requestId: send!.requestId,
+      sessionId,
+      receipt: {
+        outcome: 'queued',
+        position: 1,
+        deliveredAs: 'queue',
+        at: new Date().toISOString(),
+      },
+    })
+    const inboxBefore = await o.store.sync.listQueuedMessages(sessionId)
+    expect(inboxBefore).toHaveLength(1)
+    const ledgerId = inboxBefore[0]!.sourceMessageId!
+
+    const spawn = o.daemon.find(
+      (m): m is Extract<ControlMessage, { type: 'spawn' }> =>
+        m.type === 'spawn' && m.sessionId === sessionId,
+    )
+    const generation = spawn?.observationGeneration ?? 1
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: `delivery-${send!.rowId}-lost`,
+      sessionId,
+      event: {
+        t: 'delivery',
+        rowId: send!.rowId,
+        outcome: 'failed',
+        reason: 'the agent did not become ready before the delivery deadline',
+        at: new Date().toISOString(),
+        provenance: 'live',
+        cursor: { segmentId: `delivery-${sessionId}`, components: { seq: 1 } },
+        observerGeneration: generation,
+        turnEpoch: 0,
+      },
+    } as never)
+
+    await waitFor(
+      async () => (await o.store.messages.getMessage(ledgerId))?.status === 'dead_letter',
+      'the never-typed row to dead-letter',
+    )
+    const row = await o.store.messages.getMessage(ledgerId)
+    expect(row?.deliveryDeferredReason).toBe('delivery-failed')
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(0)
   })
 })

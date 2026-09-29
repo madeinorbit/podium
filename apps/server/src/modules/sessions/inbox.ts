@@ -101,21 +101,20 @@ const INITIAL_PROMPT_QUEUE_ID_PREFIX = 'session-initial-prompt:'
 const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
 
 /**
- * Delivery failures that prove nothing about whether the bytes landed
- * (POD-4802). The daemon's delivery queue settles a durable row as failed
- * when its inner send verified nothing (`unverified`) or when a re-forward
- * after a restart meets a reservation a previous owner may already have
- * written (recovery) — both worded "check the transcript before retrying".
- * Either way the turn may be sitting in the agent's context already, and
- * dead-lettering it stamps a delivered message as failed: the chat then
- * shows the transcript echo in place plus the failed bubble at the bottom,
- * forever. These rows leave the inbox (unblocking the turn-boundary
- * backstop) but never dead-letter; echo or the boundary settles the ledger.
- * Every other failure (ceilings that never typed, terminal refusals) proves
- * loss and keeps the visible rejected path below.
+ * A delivery failure that proves nothing about whether the bytes landed
+ * (POD-4802). The daemon attaches the inner send receipt when it answered
+ * `unverified`: the write went out but acceptance could not be proven, so
+ * the turn may already sit in the agent's context and dead-lettering it
+ * would stamp a delivered message as failed (the chat then shows the
+ * transcript echo in place plus the failed bubble at the bottom, forever).
+ * These rows leave the inbox (unblocking the turn-boundary backstop) but
+ * never dead-letter; echo or the boundary settles the ledger. Any failure
+ * without that receipt — ceilings that never typed, terminal refusals,
+ * recovery replays, frames from older daemons — proves loss (or predates
+ * the receipt) and keeps the visible rejected path below.
  */
-function isTranscriptAmbiguousFailure(reason: string | undefined): boolean {
-  return reason !== undefined && reason.includes('check the transcript before retrying')
+function isUnprovenWriteFailure(event: { receipt?: { outcome?: string } | undefined }): boolean {
+  return event.receipt?.outcome === 'unverified'
 }
 
 /**
@@ -1246,7 +1245,7 @@ export class SessionInbox {
   private readonly settlingDeliveries = new Map<string, Promise<void>>()
 
   /** Already ownership/generation-fenced by the runtime event gate. Repeat-safe by row id. */
-  async deliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
+  async deliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string; receipt?: TurnReceipt }): Promise<void> {
     const key = `${sessionId}:${event.rowId}`
     const pending = this.settlingDeliveries.get(key)
     if (pending) { await pending; return }
@@ -1255,7 +1254,7 @@ export class SessionInbox {
     try { await settlement } finally { this.settlingDeliveries.delete(key) }
   }
 
-  private async settleDeliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
+  private async settleDeliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string; receipt?: TurnReceipt }): Promise<void> {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
@@ -1264,7 +1263,7 @@ export class SessionInbox {
       await this.settleDelivered(session, row)
     } else if (event.outcome === 'dropped') {
       await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
-    } else if (isTranscriptAmbiguousFailure(event.reason)) {
+    } else if (isUnprovenWriteFailure(event)) {
       // The bytes may have landed: no rejection, no dead-letter, no retry
       // affordance (resending a landed turn duplicates it). The inbox row
       // still leaves below, so the turn-boundary backstop can confirm the

@@ -61,9 +61,55 @@ describe('runtime event retention contract', () => {
   })
 })
 
+describe('delivery failure receipt (POD-4802)', () => {
+  const frame = (ev: RuntimeEventBody) => ({
+    type: 'runtimeEvent',
+    deliveryId: 'delivery-row',
+    sessionId: asSessionId('session'),
+    event: event(ev),
+  })
 
-describe('durable admission command', () => {
-  it('requires migration discriminators and cannot parse as a legacy send', () => {
+  it('parses a failed delivery carrying the inner unverified receipt', () => {
+    const parsed = RuntimeEventMessage.parse(
+      frame({
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'delivery could not be confirmed; check the transcript before retrying',
+        receipt: {
+          outcome: 'unverified',
+          deliveredAs: 'when-ready',
+          verificationWindowMs: 4800,
+          at,
+        },
+      }),
+    )
+    expect(parsed.event).toMatchObject({
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'failed',
+      receipt: { outcome: 'unverified' },
+    })
+  })
+
+  it('still parses a failed delivery without a receipt (older daemon)', () => {
+    // Parser widening fallback: the receipt is optional, so frames from
+    // daemons that predate it keep the previous visible-failure behaviour.
+    const parsed = RuntimeEventMessage.parse(
+      frame({
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'delivery could not be confirmed; check the transcript before retrying',
+      }),
+    )
+    expect(parsed.event).toMatchObject({ t: 'delivery', outcome: 'failed' })
+    expect((parsed.event as { receipt?: unknown }).receipt).toBeUndefined()
+  })
+})
+
+
+describe('durable admission command', () => {  it('requires migration discriminators and cannot parse as a legacy send', () => {
     const frame = { type: 'runtimeDurableSendRequest', requestId: 'rpc', sessionId: 'session',
       turnId: 'row', rowId: 'row', deliveryRecovery: true, initialPrompt: true,
       text: 'create once', origin: 'human', delivery: 'when-ready' }

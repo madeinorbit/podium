@@ -73,9 +73,20 @@ export function withDeliveryQueue(
       const timer = setTimeout(resolve, ms)
       timer.unref?.()
     })
-  function settle(id: string, outcome: 'delivered' | 'failed' | 'dropped', reason?: string) {
+  function settle(
+    id: string,
+    outcome: 'delivered' | 'failed' | 'dropped',
+    reason?: string,
+    receipt?: TurnReceipt,
+  ) {
     if (finished.has(id)) return
-    const event: Outcome = { t: 'delivery', rowId: id, outcome, ...(reason ? { reason } : {}) }
+    const event: Outcome = {
+      t: 'delivery',
+      rowId: id,
+      outcome,
+      ...(reason ? { reason } : {}),
+      ...(receipt ? { receipt } : {}),
+    }
     finished.set(id, event)
     rows.delete(id)
     emit(event)
@@ -200,6 +211,20 @@ export function withDeliveryQueue(
         // A held row is left on its delivery event here too: the write may
         // have landed, and the transcript echo remains its settler — an
         // abandonment would dead-letter a turn that was actually typed.
+        // An unverified inner send carries its receipt (POD-4802) so the
+        // server can tell "bytes written, unproven" from a proven loss and
+        // hold the row for echo/boundary instead of dead-lettering it. The
+        // creation prompt keeps the reason-only shape: it has no boundary
+        // that could settle it later.
+        if (receipt.outcome === 'unverified' && !row.input.initialPrompt) {
+          settle(
+            id,
+            'failed',
+            'delivery could not be confirmed; check the transcript before retrying',
+            receipt,
+          )
+          continue
+        }
         settle(id, 'failed', row.input.initialPrompt
           ? 'the creation prompt was not confirmed; it will not be typed again automatically'
           : 'delivery could not be confirmed; check the transcript before retrying')
