@@ -26,6 +26,7 @@ import {
   type GitRepositoryWire,
   type IssueWire,
   type MachineWire,
+  type MessageRecordWire,
   type SessionMeta,
 } from '@podium/model'
 import { render } from '@testing-library/react'
@@ -38,6 +39,8 @@ import type { MobileTrpc } from './trpc'
 export interface MobileStoreFixture {
   sessions?: SessionMeta[]
   issues?: IssueWire[]
+  /** Synced chat message records (POD-4764), as the feed would carry them. */
+  messageRecords?: MessageRecordWire[]
   repos?: GitRepositoryWire[]
   machines?: MachineWire[]
   principal?: string
@@ -142,6 +145,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   const replica = createReplica({ storage: memoryStorage() })
   replica.applySnapshot('sessions', fixture.sessions ?? [])
   replica.applySnapshot('issues', fixture.issues ?? [])
+  replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
 

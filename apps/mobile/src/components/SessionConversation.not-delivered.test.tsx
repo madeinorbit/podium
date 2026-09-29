@@ -1,14 +1,14 @@
 /**
- * A DEAD-LETTERED OPERATOR SEND STAYS VISIBLE IN THE SESSION CHAT [POD-4704].
+ * A MESSAGE THE SERVER GAVE UP ON STAYS VISIBLE IN THE SESSION CHAT [POD-4704].
  *
- * The phone used to drop terminal ledger rows off the surface: the controller
- * keeps only `queued` rows, so a send the authority gave up on looked like a
- * send that never happened. The conversation now restores dead-lettered
- * operator rows as failed bubbles — the web chat's path, same shared wording:
- * an injected-but-unconfirmed row (delivery-failed) reads as delivery failed,
- * never as a vanished target, while a causeless row still reads target gone.
+ * The phone used to drop terminal ledger rows off the surface, so a send the
+ * authority gave up on looked like a send that never happened. The bubble now
+ * comes from the message's synced record, by id (POD-4764), with the shared
+ * wording: an injected-but-unconfirmed message (delivery-failed) reads as
+ * delivery failed, never as a vanished target, while a causeless one still
+ * reads target gone — and its way on is "Send again", a new message.
  */
-import type { SessionMeta } from '@podium/model'
+import { asSessionId, type MessageRecordWire, type SessionMeta } from '@podium/model'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -53,7 +53,7 @@ vi.mock('./TranscriptList', () => ({
       {(pendingTurns ?? []).map((turn) => (
         <div
           key={turn.id}
-          data-testid={turn.id.startsWith('dead-letter:') ? 'dead-lettered-chat-message' : 'pending'}
+          data-testid={turn.notice ? 'not-delivered-chat-message' : 'pending'}
         >
           {turn.failed ? `${turn.text} · ${turn.failed}` : turn.text}
         </div>
@@ -72,21 +72,22 @@ const live = {
   title: 'Agent',
 } as unknown as SessionMeta
 
-function deadLetterRow(over: Record<string, unknown> = {}) {
+function failedRecord(over: Partial<MessageRecordWire> = {}): MessageRecordWire {
   return {
-    from: 'operator',
-    to: 'session:sess-1',
-    status: 'dead_letter',
     id: 'msg_dead',
+    sessionId: asSessionId('sess-1'),
+    senderUserId: 'user:test',
     body: 'typed but never confirmed',
     createdAt: '2026-09-13T18:00:00.000Z',
+    status: 'failed',
     ...over,
   }
 }
 
-async function renderWithLedger(rows: unknown[]) {
+async function renderWithRecords(messageRecords: MessageRecordWire[]) {
   await renderWithMobileStore(<SessionConversation session={live} issue={undefined} />, {
     sessions: [live],
+    messageRecords,
     api: {
       sessions: {
         transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
@@ -95,27 +96,27 @@ async function renderWithLedger(rows: unknown[]) {
         resumeAndSend: { mutate: async () => ({ ok: true }) },
       },
       messages: {
-        ledger: { query: async () => rows },
         cancel: { mutate: async () => {} },
+        dismissNotice: { mutate: async () => {} },
       },
     },
   })
 }
 
-describe('dead-lettered operator sends stay visible', () => {
+describe('messages the server gave up on stay visible', () => {
   it('shows an unconfirmed send as delivery failed, never target gone', async () => {
-    await renderWithLedger([deadLetterRow({ deliveryDeferredReason: 'delivery-failed' })])
-    await waitFor(() => expect(screen.getByTestId('dead-lettered-chat-message')).toBeTruthy())
-    const text = screen.getByTestId('dead-lettered-chat-message').textContent ?? ''
+    await renderWithRecords([failedRecord({ reason: 'delivery-failed' })])
+    await waitFor(() => expect(screen.getByTestId('not-delivered-chat-message')).toBeTruthy())
+    const text = screen.getByTestId('not-delivered-chat-message').textContent ?? ''
     expect(text).toContain('typed but never confirmed')
     expect(text).toContain('delivery failed')
     expect(text).not.toContain('target gone')
   })
 
   it('keeps target gone only for a target that is really gone', async () => {
-    await renderWithLedger([deadLetterRow({})])
-    await waitFor(() => expect(screen.getByTestId('dead-lettered-chat-message')).toBeTruthy())
-    const text = screen.getByTestId('dead-lettered-chat-message').textContent ?? ''
+    await renderWithRecords([failedRecord({})])
+    await waitFor(() => expect(screen.getByTestId('not-delivered-chat-message')).toBeTruthy())
+    const text = screen.getByTestId('not-delivered-chat-message').textContent ?? ''
     expect(text).toContain('target gone')
   })
 })

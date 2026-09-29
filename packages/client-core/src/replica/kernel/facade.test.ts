@@ -74,6 +74,18 @@ describe('kind mapping', () => {
     // here so nobody reads this test as the one guarding the mapping.
   })
 
+  it('renders the chat message records (POD-4764) and lets one go by its composite change id', () => {
+    expect(kindForEntity('message')).toBe('messageRecords')
+    expect(entityForKind('messageRecords')).toBe('message')
+    const { cache, replica } = build()
+    const rowId = 's1\nusr_me\nmsg_1'
+    cache.put('message', rowId, { id: 'msg_1', sessionId: 's1', senderUserId: 'usr_me', status: 'typed' })
+    expect(replica.rows('messageRecords')).toMatchObject([{ id: 'msg_1', status: 'typed' }])
+    cache.drop('message', rowId)
+    replica.onKernelEvent({ type: 'removed', entity: 'message', entityId: rowId })
+    expect(replica.rows('messageRecords')).toEqual([])
+  })
+
   it('reports an unrendered entity as not-mine rather than throwing (ADR 2 D4 leniency)', () => {
     expect(kindForEntity('somethingPhase3AddsLater')).toBeUndefined()
   })

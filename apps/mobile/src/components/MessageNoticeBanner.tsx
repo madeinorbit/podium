@@ -1,7 +1,7 @@
 import { useStoreSelector } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import { messageNotices } from '@podium/client-core/viewmodels'
-import { router } from 'expo-router'
+import { useRouter } from 'expo-router'
 import { useContext, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
@@ -26,6 +26,7 @@ export function MessageNoticeBanner() {
     shallowEqual,
   )
   const trpc = useTrpc()
+  const router = useRouter()
   const notices = useMemo(() => messageNotices(records ?? [], sessions ?? []), [records, sessions])
   const [error, setError] = useState<string | null>(null)
   const insets = useContext(SafeAreaInsetsContext)
