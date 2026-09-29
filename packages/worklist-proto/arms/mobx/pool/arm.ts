@@ -1,44 +1,46 @@
 /**
- * POD-4565 (Ma1) — the round-three MobX arm over the pool: a `CheckableArm`
- * (`shared/src/arm.ts`). See `../README.md` ("Round three: the pool") for the
- * idiom, the write path and how to add a field.
+ * POD-4565 (Ma1) + POD-4760 — the round-three MobX pool's product entry: it
+ * builds the pool, follows the feed and the locals channel, and mounts the
+ * product lists. See `../README.md` ("Round three: the pool") for the idiom,
+ * the write path and how to add a field.
+ *
+ * Product-only: no snapshot, no rebuild, no drain hooks. The harness owns
+ * those (`harness/src/adapters/mobx-pool.ts`), on top of the pool's public
+ * API (`hydrate`, `dispose`). Strict MobX flags live only in tests
+ * (`enforce.ts` exports them, `mobx-trap.ts` applies them).
  *
  * `create` seeds the pool from the feed's snapshot (one `replace`), then
  * follows the feed (`RowSource`) and the locals channel (`LocalsSource`),
  * waking only what each notification names. Cold rows load through the
  * feed's per-row read (`RowSource.row`, POD-4567); a feed without one is
- * refused rather than silently holding every row. No JSX here: this module builds
- * the pool, and the lint fence keeps store modules out of component files.
+ * refused rather than silently holding every row. No JSX here: this module
+ * builds the pool, and the lint fence keeps store modules out of component
+ * files.
  */
 
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
-import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import type {
-  CheckableArm,
-  CheckableArmHandle,
-  LazyArmHandle,
-  LocalsSource,
-  RowSource,
-} from '../../../shared/src/arm'
+import type { ArmStats, LocalsSource, RowSource } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import { MobxPool, type PoolLazyOptions, type WriteSeam } from './pool'
 import { PoolList } from './react/list'
-import { rebuildSnapshot } from './rebuild'
-
-/** Redraw-then-load rounds `settleLoads` allows before it gives up. */
-const SETTLE_ROUNDS = 64
 
 /** Loaded on first native mount only: the node lanes cannot parse `react-native`. */
 const PoolNativeList = lazy(() => import('./native/list'))
 
-/** The pool is lazy: the shared fence's load hooks are required (G2, `LazyArmHandle`). */
-export interface MobxPoolHandle extends CheckableArmHandle {
+/**
+ * The product handle: the live pool, its stats, its lifecycle and its mounts.
+ * Harness hooks (snapshot, rebuild, drain) live in the harness adapter and
+ * are not part of the product surface.
+ */
+export interface MobxPoolHandle {
   /** The live pool (tests; the copy sweep reaches the tables through it). */
   readonly pool: MobxPool
-  settleLoads: LazyArmHandle['settleLoads']
-  pendingLoads: LazyArmHandle['pendingLoads']
+  readonly stats: ArmStats
+  dispose(): void
+  mountWeb(el: Element): () => void
+  mountNative(): ReactElement
 }
 
 export const mobxPoolArm = {
@@ -46,9 +48,9 @@ export const mobxPoolArm = {
     source: RowSource,
     locals: LocalsSource,
     reads: ReadFence = DISABLED_READ_FENCE,
-    /** Tests: the load window and its timer (default 50 ms, `setTimeout`). */
+    /** The load window and its timer (default 50 ms, `setTimeout`). */
     loader: Omit<PoolLazyOptions, 'load'> = {},
-    /** The write layer's pending display (`write/arm.ts`), read by the pool's one reader. */
+    /** The write layer's pending display (`write/overlay.ts`), read by the pool's one reader. */
     writes?: WriteSeam,
   ): MobxPoolHandle {
     const row = source.row?.bind(source)
@@ -72,22 +74,6 @@ export const mobxPoolArm = {
     return {
       pool,
       stats: pool.stats,
-      snapshot: () => pool.snapshot(),
-      rebuildFromScratch: () => rebuildSnapshot(source, locals, pool.residentIssueIds()),
-      // A change reaches a cold row when a row REDRAWS (its view reads the
-      // row in render), so a settle flushes this arm's redraws, lands what
-      // they queued, and repeats until a redraw queues nothing (G2).
-      settleLoads: () => {
-        for (let round = 0; ; round += 1) {
-          if (roots.size > 0) flushSync(() => {})
-          if (pool.pendingLoads() === 0) return
-          if (round >= SETTLE_ROUNDS) {
-            throw new Error(`[pool] loads did not settle in ${SETTLE_ROUNDS} redraw rounds`)
-          }
-          pool.settleLoads()
-        }
-      },
-      pendingLoads: () => pool.pendingLoads(),
       dispose(): void {
         offRows()
         offLocals()
@@ -115,4 +101,4 @@ export const mobxPoolArm = {
       },
     }
   },
-} satisfies CheckableArm
+}

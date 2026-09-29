@@ -1,9 +1,11 @@
 /**
- * POD-4565 (Ma1) — the enforcement ASSERTION for the pool's tests: MobX's
- * enforcement flags only warn (`enforce.ts`), so every pool test installs this
- * trap, which turns any `console.warn` into a thrown error and records it; the
- * test then fails on any recorded warning, including one MobX swallowed inside
- * a reaction. `pool.test.tsx` proves the trap fires on an untracked read.
+ * POD-4565 (Ma1) + POD-4760 — the enforcement ASSERTION for the pool's tests:
+ * strict flags live here, not in product (`enforce.ts` only exports them, so
+ * importing the pool never configures MobX). Every pool suite installs this
+ * trap, which applies the flags and turns any `console.warn` into a thrown
+ * error; the test then fails on any recorded warning, including one MobX
+ * swallowed inside a reaction. `pool.test.tsx` proves the trap fires on an
+ * untracked read.
  *
  * `{ errors: true }` (POD-4572, M3 note N3): a throw inside a reaction never
  * reaches the test; MobX catches it and reports it through `console.error`.
@@ -13,7 +15,9 @@
  * planted warning and a planted reaction error (`mobx-pool.native.test.tsx`).
  */
 
+import { configure } from 'mobx'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
+import { ENFORCEMENT } from './enforce'
 
 export interface MobxTrapState {
   readonly warnings: string[]
@@ -24,6 +28,7 @@ export interface MobxTrapState {
 export function installMobxWarnTrap(options: { errors?: boolean } = {}): MobxTrapState {
   const state: MobxTrapState = { warnings: [], errors: [] }
   beforeEach(() => {
+    configure(ENFORCEMENT)
     state.warnings.length = 0
     state.errors.length = 0
     vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {

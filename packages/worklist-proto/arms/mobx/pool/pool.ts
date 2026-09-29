@@ -26,8 +26,9 @@
  * every queued row in ONE action (`hydrate`). A row that stops being cold (a
  * reopen's sessions, an issue a session keeps shown) is installed from the
  * publication when it carries the row, else asked for the same way: the
- * window is the only per-row read (POD-4753). `snapshot()` settles the loader
- * before it answers. Without `lazy` every row is resident (Ma1/Ma2 tests).
+ * window is the only per-row read (POD-4753). The harness drains the window
+ * (`hydrate` in a loop) before it reads. Without `lazy` every row is
+ * resident (Ma1/Ma2 tests).
  *
  * READ PATH. Every row a model, view, visibility part, roll-up or group
  * placement reads comes from ONE reader, `row(entity, id, absent)`
@@ -39,7 +40,10 @@
  * read goes through the reads fence (`reads.wrapTables`), every relation read
  * through `reads.wrapRelations`; with the fence disabled both are the
  * identity. Derivations run lazily: a row field computes when a mounted row
- * (or `snapshot()`) reads it and suspends when nothing does (no `keepAlive`).
+ * reads it and suspends when nothing does (no `keepAlive`).
+ *
+ * STRICT FLAGS (POD-4760) live only in tests (`enforce.ts` exports them,
+ * `mobx-trap.ts` applies them): importing the pool never configures MobX.
  *
  * STATS (`README.md` has the definitions): `rowsDerived` counts row-field
  * body runs; `notifications` counts actions that changed pool state;
@@ -51,9 +55,7 @@
  * The pool's own counters are in `counters`.
  */
 
-import './enforce'
 import {
-  autorun,
   compareStructural,
   computedStruct,
   type IObservableArray,
@@ -67,14 +69,12 @@ import {
 } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import { relationLinks } from '../../../shared/src/links'
-import { sliceRowOf } from '../../../shared/src/row-view'
 import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type {
   LocalsKey,
   SliceIssue,
   SliceLocals,
   SliceSession,
-  SliceSnapshot,
 } from '../../../shared/src/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import {
@@ -90,7 +90,6 @@ import {
   type IssueModel,
   MODEL_CLASSES,
   type ModelOf,
-  rowViewOf,
   type SessionModel,
 } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
@@ -104,7 +103,7 @@ import {
   type PoolTables,
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
-import { sliceOrderOf, WorklistGroups } from './worklist/groups'
+import { WorklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import {
   type HeldIssue,
@@ -265,33 +264,6 @@ export type Residence = 'resident' | 'loading' | 'absent'
 export interface LazyMembers {
   readonly ready: readonly string[]
   readonly pending: number
-}
-
-/** Settle rounds before `snapshot()` gives up (a load that never lands). */
-const MAX_SETTLE_ROUNDS = 64
-
-/**
- * Run `read` inside a transient reaction and return its result, so reads made
- * outside any reaction (the harness's `snapshot()`) are tracked reads and
- * never trip `computedRequiresReaction` / `observableRequiresReaction`.
- */
-export function tracked<T>(read: () => T): T {
-  let result: { value: T } | null = null
-  let failure: { error: unknown } | null = null
-  const stop = autorun(() => {
-    try {
-      result = { value: read() }
-    } catch (error) {
-      // Rethrown to the caller below; inside the reaction MobX would log it
-      // and the caller would see only a missing result.
-      failure = { error }
-    }
-  })
-  stop()
-  if (failure !== null) throw (failure as { error: unknown }).error
-  if (result === null)
-    throw new Error('[pool] tracked() ran inside a batch; read after the action ends')
-  return (result as { value: T }).value
 }
 
 export class MobxPool {
@@ -651,20 +623,16 @@ export class MobxPool {
       clearSeats: false,
       reads: false,
       residency: false,
-      residentIssueIds: false,
       resident: false,
       lazyMany: false,
       hidden: false,
       hydrate: false,
-      settleLoads: false,
-      pendingLoads: false,
       issueIds: computedStruct,
       model: false,
       issue: false,
       modelCount: false,
       apply: false,
       applyLocals: false,
-      snapshot: false,
       dispose: false,
       select: false,
       // Maintenance called inside actions, never observed.
@@ -839,8 +807,8 @@ export class MobxPool {
 
   /**
    * Close the load window now: install every queued cold row, read by id
-   * through the feed, in ONE action. The window's timer calls this; so does
-   * `snapshot()` while settling.
+   * through the feed, in ONE action. The window's timer calls this; the
+   * harness drains it in a loop before it reads.
    *
    * A row it installs enters the issue table, which gives it its filing
    * reaction (`followTable`); the rows it no longer keeps cold are asked for
@@ -859,30 +827,6 @@ export class MobxPool {
     })
     this.stats.counters.tableWrites += out.writes
     if (out.writes > 0 || out.volatile > 0) this.stats.notifications += 1
-  }
-
-  /**
-   * Close the load window until nothing is queued: every queued row, and
-   * every row those rows' installation queues in turn (G2: the fence's
-   * `settleLoads`, inside the measured step). Returns the windows closed.
-   */
-  settleLoads(): number {
-    const residency = this.residency
-    if (residency === null) return 0
-    let rounds = 0
-    while (residency.hasQueued()) {
-      if (rounds >= MAX_SETTLE_ROUNDS) {
-        throw new Error(`[pool] loads did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
-      }
-      this.hydrate()
-      rounds += 1
-    }
-    return rounds
-  }
-
-  /** Rows queued for a load and not yet landed (G2: the fence's `pendingLoads`). */
-  pendingLoads(): number {
-    return this.residency?.queued() ?? 0
   }
 
   /** Models currently held, per entity (tests: lifecycle). */
@@ -966,45 +910,6 @@ export class MobxPool {
       if (clock) this.clock.advance(locals.coarseNow)
     })
     this.stats.notifications += 1
-  }
-
-  /**
-   * The slice output: every VISIBLE issue's row (POD-4569), grouped with
-   * closed folds and no selection (POD-4570, `groups.layout`). Settled: a visible row that is cold is
-   * asked for (it loads, as a drawn row does), and reading the rows queues
-   * the cold rows they reach; those are loaded and the rows read again until
-   * nothing is queued, as a reader that waits out its loading state would
-   * see them.
-   */
-  snapshot(): SliceSnapshot {
-    for (let round = 0; ; round += 1) {
-      const snapshot = tracked(() => {
-        const rowsById: SliceSnapshot['rowsById'] = {}
-        for (const id of this.worklist.order) {
-          // The row read as a drawn row reads it, every field (so the loads
-          // its fields reach, a spin-off's origin, settle below), then
-          // projected for parity. The issue IS its row: this copy is the
-          // snapshot's, never drawn.
-          const view = rowViewOf(this.issue(id))
-          if (view === undefined) {
-            this.resident('issue', id)
-            continue
-          }
-          rowsById[id] = sliceRowOf(view)
-        }
-        return { order: sliceOrderOf(this.groups.layout), rowsById }
-      })
-      if (this.residency?.hasQueued() !== true) return snapshot
-      if (round >= MAX_SETTLE_ROUNDS) {
-        throw new Error(`[pool] snapshot() did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
-      }
-      this.hydrate()
-    }
-  }
-
-  /** The resident issue ids (the rebuild's residency input). */
-  residentIssueIds(): ReadonlySet<string> {
-    return new Set(tracked(() => this.issueIds))
   }
 
   /** Empty every table, model cache, selection and clock registration. */

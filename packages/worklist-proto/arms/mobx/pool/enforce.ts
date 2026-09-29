@@ -1,14 +1,15 @@
 /**
- * POD-4565 (Ma1) — MobX enforcement for the round-three pool, configured
- * here and ASSERTED by the tests (`pool.test.tsx` installs a `console.warn`
- * trap that throws and fails on any recorded MobX warning).
+ * POD-4565 (Ma1) + POD-4760 — MobX enforcement for the round-three pool,
+ * APPLIED ONLY IN TESTS (`mobx-trap.ts` configures it when a pool suite
+ * installs the trap; ASSERTED by `pool.test.tsx`). Importing the pool never
+ * configures MobX, so production pages keep the default flags.
  *
  * - `enforceActions: 'always'`: every write is inside `runInAction` (one per
  *   `RowSourceEvent`, one per locals notification).
  * - `computedRequiresReaction` / `observableRequiresReaction`: a read outside
- *   a reaction or an action warns. The pool's own out-of-reaction reader
- *   (`snapshot()`) reads inside a transient reaction (`tracked` in
- *   `pool.ts`), so a warning always means a real untracked read.
+ *   a reaction or an action warns. The harness's out-of-reaction reader
+ *   (the adapter's `tracked`) reads inside a transient reaction, so a warning
+ *   always means a real untracked read.
  * - `reactionRequiresObservable`: a reaction that observes nothing warns.
  *
  * The round-two arm's `../config.ts` sets the same four flags; MobX
@@ -16,13 +17,9 @@
  * No `keepAlive` anywhere in `pool/`.
  */
 
-import { configure } from 'mobx'
-
 export const ENFORCEMENT = {
   enforceActions: 'always',
   computedRequiresReaction: true,
   observableRequiresReaction: true,
   reactionRequiresObservable: true,
 } as const
-
-configure(ENFORCEMENT)
