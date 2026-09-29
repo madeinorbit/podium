@@ -39,7 +39,7 @@ import {
 } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
-  exemptFromBrakes,
+  exemptFromWakeCooldown,
   type MailSenderPrincipal,
   type PlacementDecision,
   senderBrakeKey,
@@ -820,7 +820,7 @@ export class MessageDeliveryService {
 
     // Brake 1 — wake cooldown per (sender, target issue). Operator intent is
     // never braked. Checked at send; the sweep also honours it on retries.
-    if (lifecycle === 'wake' && !exemptFromBrakes(principalOf(from))) {
+    if (lifecycle === 'wake' && !exemptFromWakeCooldown(principalOf(from))) {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : this.issueForSession(targetSession)
       const key = `${(await this.senderKey(from))}|${issueKey ?? toId ?? ''}`
@@ -1739,7 +1739,7 @@ export class MessageDeliveryService {
     this.brakes.chargeSpawn(key, day, count + 1)
     // A spawn attempt IS a wake — record it against the cooldown so the sweep
     // does not re-run the spawn seam every 60s.
-    if (message.fromKind !== 'operator') {
+    if (!exemptFromWakeCooldown(principalOfRow(message))) {
       await this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
     }
     const r = await this.deps.spawnOnWake.spawn({ issueId, message })
@@ -1787,7 +1787,7 @@ export class MessageDeliveryService {
     // it to the session's queue, and the echo, a turn boundary or an inbox read
     // confirm it. Only a row the server still holds is ever pushed.
     if (message.deliveryStatus !== 'stored') return false
-    if (message.lifecycle === 'wake' && !exemptFromBrakes(principalOfRow(message))) {
+    if (message.lifecycle === 'wake' && !exemptFromWakeCooldown(principalOfRow(message))) {
       const key = await this.wakeKeyOfRow(message)
       if (await this.brakes.isWakeHot(key)) {
         this.scheduleWakeRetry(key, message)
@@ -1800,7 +1800,7 @@ export class MessageDeliveryService {
   /** If an attempted wake is still stored (not handed on), arm its next allowed
    *  attempt. Successful queue/spawn paths dispatch it and need no timer. */
   private async scheduleQueuedWakeRetry(message: MessageRow): Promise<void> {
-    if (message.lifecycle !== 'wake' || message.fromKind === 'operator') return
+    if (message.lifecycle !== 'wake' || exemptFromWakeCooldown(principalOfRow(message))) return
     const current = await this.deps.messages.getMessage(message.id)
     if (!current || current.deliveryStatus !== 'stored') return
     const key = await this.wakeKeyOfRow(current)
@@ -1986,8 +1986,11 @@ export class MessageDeliveryService {
         return { maxUrgency: 'interrupt', maxLifecycle: 'wake' }
       case 'peer':
         return { maxUrgency: 'next-turn', maxLifecycle: 'wake' }
+      // The server's notices never cut a running turn, and may wake: the
+      // steward's session-parent notice exists to resurrect a parked parent
+      // (POD-279), and it is a message like any other (POD-4846).
       case 'system':
-        return { maxUrgency: 'next-turn', maxLifecycle: 'wait' }
+        return { maxUrgency: 'next-turn', maxLifecycle: 'wake' }
     }
   }
 
@@ -2089,7 +2092,7 @@ export class MessageDeliveryService {
   }
 
   private async recordWake(message: MessageRow, target: SessionMeta | undefined): Promise<void> {
-    if (exemptFromBrakes(principalOfRow(message))) return
+    if (exemptFromWakeCooldown(principalOfRow(message))) return
     const issueKey = message.toKind === 'issue' ? message.toId : this.issueForSession(target)
     await this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
   }

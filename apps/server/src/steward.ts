@@ -5,15 +5,16 @@ import type {
   SessionId,
   SessionMeta,
   UserId,
-  MutationId,
   IssueId,
+  MessageLifecycle,
 } from '@podium/model'
-import { asIssueId, asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
+import { asIssueId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import { derivedMessageId } from './message-ids'
 import type { IssueService } from './modules/issues/service'
+import type { MessageDeliveryService } from './modules/messages/service'
 import type { SessionFacts } from './modules/sessions/facts'
 import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
@@ -21,17 +22,56 @@ import { NotificationArbiter } from './store/notification-facts'
 const log = createLogger('server:steward')
 
 /**
- * The id of the notice one fact sends to one session (POD-4763).
+ * The id of the notice one event sends to one session for one fact (POD-4763,
+ * POD-4846).
  *
  * DERIVED, so every attempt at the same notice carries the same id: the steward
  * sends and then claims, a crash between the two re-runs the send on the next
- * pass, and the session queue stores a row once per id, so the re-run is the row
+ * pass, and the message store keeps one row per id, so the re-run is the row
  * already there. Per fact AND target: one fact may notify several sessions, and
  * a shared id would let the first session's row stand in for everyone else's.
- * Shaped like a sender-minted message id (a UUID laid out from a hash).
+ *
+ * AND PER TRIGGERING EVENT. The notice is a message, and a message row is kept.
+ * A fact is claimed again once it is retired (the session-parent fact, when the
+ * parent observes its child) or expired (every fact, after a day), so an id from
+ * the fact alone would answer that later notice from the first one's row and
+ * never send it. The event is what is new each time; the steward's held cursor
+ * re-reads the same window from the same place, so a re-run finds the same one.
  */
-export function noticeMessageId(factKey: string, sessionId: SessionId): MutationId {
-  return asMutationId(derivedMessageId(`${factKey}\u0000${sessionId}`))
+export function noticeMessageId(factKey: string, sessionId: SessionId, eventId: number): string {
+  return derivedMessageId(`${factKey}\u0000${sessionId}\u0000${eventId}`)
+}
+
+/**
+ * THE STEWARD'S NOTICES ARE MESSAGES (POD-4846). Each is stored as a `messages`
+ * row from `system:steward` under its derived id and delivered the way mail is:
+ * inside the envelope, so the transcript carries its id, with a delivery status
+ * anyone can read. The words are the steward's, unchanged; only the frame is
+ * added.
+ *
+ * Stored is the answer. Once `send` returns, the notice is durable and its fate
+ * is the row's: a push the transport refused is re-tried by the delivery sweep,
+ * and a notice to a session that no longer exists fails on its own row. A
+ * system sender is told of no failure (there is nobody to tell). Only a send
+ * that throws before the row is stored leaves the fact unclaimed for the held
+ * cursor to re-run.
+ */
+export function stewardNoticeSender(
+  messages: Pick<MessageDeliveryService, 'send'>,
+): StewardDeps['sendNotice'] {
+  return async (sessionId, text, messageId, lifecycle) => {
+    await messages.send(
+      { kind: 'system', name: 'steward' },
+      {
+        messageId,
+        to: { kind: 'session', id: sessionId },
+        kind: 'notification',
+        urgency: 'next-turn',
+        lifecycle,
+        body: text,
+      },
+    )
+  }
 }
 
 /** One row read back from the durable event log (`podium_events`). */
@@ -220,8 +260,8 @@ export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
  * Session-spawner child→parent wake groups (M4 / POD-904). Sibling of
  * CHILD_PARENT_SUBS for the SESSION→SESSION edge (`spawnedBy = session:<id>`).
  * No issue comment — the parent may be parked with no live issue surface; the
- * nudge itself is the signal and is delivered WITH wake rights via
- * sendTextWhenReady → queueText → resurrectSession.
+ * nudge itself is the signal and is a WAKE message: it resurrects a parked
+ * parent, as any wake mail does.
  */
 interface SessionParentSub {
   /** Single-line wake text: which child + terminal state. Backtick-free. */
@@ -330,12 +370,17 @@ export interface StewardDeps {
    *  owner. A fixture supplying it must be async too — a sync double here would
    *  hide exactly the bypass this widening exists to expose. */
   sessionOwner?: (sessionId: SessionId) => Promise<UserId | undefined>
-  /** Durable-queue a nudge into a session (relay.queueText). For live sessions
-   *  this is next-turn delivery; for parked/hibernated/exited sessions with a
-   *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
-   *  filters to live/starting; session-parent wake does not — a parked parent
-   *  must be woken (POD-904 / POD-279). */
-  sendTextWhenReady: (sessionId: SessionId, text: string, mutationId?: MutationId) => Promise<void>
+  /** Send a notice to a session as a message ({@link stewardNoticeSender}).
+   *  `wait` reaches a live session on its next turn and is held for a parked
+   *  one; `wake` also resurrects a parked one. The nudges that target
+   *  live/starting sessions send `wait`; the session-parent notice sends `wake`
+   *  — a parked parent must be woken (POD-904 / POD-279). */
+  sendNotice: (
+    sessionId: SessionId,
+    text: string,
+    messageId: string,
+    lifecycle: Extract<MessageLifecycle, 'wait' | 'wake'>,
+  ) => Promise<void>
   /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
@@ -806,7 +851,7 @@ export class StewardService {
         // Durable delivery before claim [POD-925], awaited (POD-4763): a send
         // that fails throws out of the pass, the fact stays unclaimed and the
         // held cursor re-runs it under the same id.
-        await this.deps.sendTextWhenReady(s.sessionId, text, noticeMessageId(factKey, s.sessionId))
+        await this.deps.sendNotice(s.sessionId, text, noticeMessageId(factKey, s.sessionId, e.id), 'wait')
         const claimed = await this.arbiter.claim(factKey, s.sessionId, {
           source: `subscription:${sub.id}`,
           issueId,
@@ -892,9 +937,10 @@ export class StewardService {
         const note = completionNote(closed, closed ? await this.deps.issues.comments(closed.id) : [])
         await this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note, this.principal)
       }
-      // Nudge only live/starting agent sessions: queueText would RESURRECT a
-      // parked session with a resume ref (the steward must never respawn agents),
-      // and a shell would have the text typed into bash. The nudge itself stays
+      // Nudge only live/starting agent sessions: the notice is a wait message,
+      // which a parked session would only find, stale, on its next run (the
+      // steward never wakes a session for this), and a shell would have the text
+      // typed into bash. The nudge itself stays
       // single-line with no backticks and no agent-authored note interpolated —
       // the note lives in the issue comment only.
       const candidates = sessionsForIssue(
@@ -924,10 +970,11 @@ export class StewardService {
         // retry after a failed send and left no durable nudge on cursor rewind.
         const factKey = `unblock:${dependent.id}:${closedSeq}`
         if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
-        await this.deps.sendTextWhenReady(
+        await this.deps.sendNotice(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
-          noticeMessageId(factKey, s.sessionId),
+          noticeMessageId(factKey, s.sessionId, e.id),
+          'wait',
         )
         await this.arbiter.claim(factKey, s.sessionId, {
           source: 'steward.unblock',
@@ -957,7 +1004,7 @@ export class StewardService {
    *
    * Deliberately NOT already-communicated-suppressed (§07b, POD-913): this is
    * the WAKE-RIGHTS path — its entire purpose is resurrecting a PARKED parent
-   * (sendTextWhenReady → queueText resurrects; the issue-parent nudges do not).
+   * (its notice is a wake message; the issue-parent nudges send wait).
    * A message already in the ledger only proves the parent was TOLD, not that
    * it was WOKEN — a queued/wait-lifecycle message sitting unread in front of a
    * parked session does not resume it, so suppressing here on ledger content
@@ -984,7 +1031,7 @@ export class StewardService {
     // Never self-wake (a mis-tagged spawnedBy).
     if (parentId === childSessionId) return
     const parent = sessions.find((s) => s.sessionId === parentId)
-    // Parent must still exist as a session row (parked is fine — queueText wakes).
+    // Parent must still exist as a session row (parked is fine — the wake resurrects it).
     // Unknown / fully deleted parent: nothing to wake.
     if (!parent) return
     if (parent.agentKind === 'shell') return
@@ -1006,12 +1053,15 @@ export class StewardService {
     const rawLabel = child?.name || child?.title || childSessionId
     const label = firstLineCapped(rawLabel) || childSessionId
     // WAKE: durable delivery BEFORE claim [POD-925], awaited. The derived id
-    // makes crash-retry / multi-poll re-entry the queued row already there.
+    // makes crash-retry / multi-poll re-entry the stored message already there;
+    // the batch's first event is the one a re-read of the held window meets
+    // first again.
     if (await this.arbiter.isClaimed(factKey, parentId)) return
-    await this.deps.sendTextWhenReady(
+    await this.deps.sendNotice(
       parentId,
       sub.nudge(childSessionId, label),
-      noticeMessageId(factKey, parentId),
+      noticeMessageId(factKey, parentId, batch[0]!.id),
+      'wake',
     )
     await this.arbiter.claim(factKey, parentId, claimOpts)
   }
@@ -1112,10 +1162,12 @@ export class StewardService {
       // Durable delivery before claim [POD-925] — same ordering as handleUnblock.
       const factKey = `parentnudge:${group}:${parentId}:${lastChildSeq}`
       if (await this.arbiter.isClaimed(factKey, s.sessionId)) continue
-      await this.deps.sendTextWhenReady(
+      await this.deps.sendNotice(
         s.sessionId,
         sub.nudge(lastChildSeq, { remaining, total }),
-        noticeMessageId(factKey, s.sessionId),
+        // The batch's first event: a re-read of the held window meets it first again.
+        noticeMessageId(factKey, s.sessionId, batch[0]!.id),
+        'wait',
       )
       await this.arbiter.claim(factKey, s.sessionId, {
         source: 'steward.parent-nudge',

@@ -796,6 +796,7 @@
         "src/setup-enrollment.test.ts",
         "src/setup-enrollment.ts",
         "src/similarity.ts",
+        "src/steward-notices.test.ts",
         "src/steward.single-flight.test.ts",
         "src/steward.test.ts",
         "src/steward.ts",

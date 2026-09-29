@@ -192,7 +192,7 @@ import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/releas
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
-import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
+import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
@@ -3522,49 +3522,10 @@ export class SessionRegistry {
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,
-      /**
-       * Durable outbox path: the nudge survives restarts and waits out a booting
-       * TUI.
-       *
-       * MIGRATED TO THE CONTRACT AS `queue`, NOT `when-ready` (POD-1761 W4, C2).
-       * The name `sendTextWhenReady` describes the INTENT and has always been
-       * implemented as `queueText`; under the contract's split, `when-ready` is
-       * the daemon's in-memory path, which cannot resurrect a parked session. A
-       * literal reading of the name would therefore have downgraded every steward
-       * nudge from "wakes the session" to "dropped if nobody is home" — the exact
-       * class of silent regression this migration is supposed to make impossible.
-       * `queue` is server-completed and durable, so wake/resurrect semantics are
-       * preserved exactly and the receipt simply names what already happened.
-       */
-      sendTextWhenReady: async (sessionId, text, mutationId) => {
-        const result = await sessionsSvc.receiptSend(
-          'queue',
-          {
-            sessionId,
-            text,
-            ...(mutationId ? { mutationId } : {}),
-            inputOrigin: 'steward',
-          },
-          async (receipt) => {
-            // LEDGER-VISIBLE, NEVER A RESEND — the uniform `unverified` policy,
-            // applied to a sender that has no message row to stamp. A nudge that
-            // did not durably queue is worth a record; one that did is the
-            // ordinary case and says nothing new.
-            if (receipt.outcome === 'queued') return
-            await this.store.events.appendEvent({
-              ts: new Date().toISOString(),
-              kind: 'steward.nudge_receipt',
-              subject: sessionId,
-              payload: {
-                outcome: receipt.outcome,
-                ...(receipt.outcome === 'refused' ? { reason: receipt.refusal.reason } : {}),
-                ...('deliveredAs' in receipt ? { deliveredAs: receipt.deliveredAs } : {}),
-              },
-            })
-          },
-        )
-        if (!result.ok) throw new Error(result.reason ?? 'failed to durably queue steward nudge')
-      },
+      // The steward's notices are messages from `system:steward` (POD-4846):
+      // stored under their derived id, enveloped, delivered and followed like
+      // mail. Wake notices resurrect a parked session through the mail wake path.
+      sendNotice: stewardNoticeSender(messagesSvc),
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.
       notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
