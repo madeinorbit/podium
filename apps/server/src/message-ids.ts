@@ -24,3 +24,9 @@ export const failureNoticeId = (messageId: string): string =>
  *  (POD-4778). One per session. */
 export const spawnPromptMessageId = (sessionId: SessionId): string =>
   derivedMessageId(`spawn-prompt\u0000${sessionId}`)
+
+/** One automation run's prompt to one session (POD-4846). Per target as well as
+ *  per run: a resume that could not happen falls back to a fresh session, and
+ *  that prompt is a second message. */
+export const automationPromptMessageId = (runId: string, sessionId: SessionId): string =>
+  derivedMessageId(`automation-prompt\u0000${runId}\u0000${sessionId}`)

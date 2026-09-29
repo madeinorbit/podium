@@ -491,6 +491,15 @@ const SESSION_GONE: SendFailure = { kind: 'session-gone' }
 const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set(['typing', 'typed', 'unknown'])
 const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a reply.'
 
+/**
+ * A PERSON'S WORDS THAT A SERVER JOB DELIVERED (POD-4846): an automation's
+ * prompt, stored as its owner's message and attributed to the automation. Typed
+ * as the person's own words, but nobody is at the keyboard: it does not act on
+ * a standing offer, and the job records its own failure.
+ */
+const deliveredByAJob = (m: MessageRow): boolean =>
+  m.fromKind === 'operator' && m.attribution?.actor.kind === 'system'
+
 /** A failure notice's words: what happened (default "was not delivered"), why,
  *  and the one next step. */
 type FailureWords = { outcome?: string; reason: string; action: string }
@@ -1359,12 +1368,19 @@ export class MessageDeliveryService {
     // `controller` so prepareInboxSend clears a standing offer [spec:SP-c7f1]
     // and causal turn attribution treats the send as user input (POD-552).
     // Agent/system/superagent deliveries stay `mail` so they never consume an
-    // offer the human has not acted on [POD-118].
+    // offer the human has not acted on [POD-118]. A person's words a job
+    // delivers (an automation's prompt, POD-4846) are `system`: nobody is at the
+    // keyboard acting on the offer, and the words are not agent mail either.
     const input = {
       sessionId,
       text,
       ...(message.attachments?.length ? { attachments: message.attachments } : {}),
-      inputOrigin: message.fromKind === 'operator' ? ('controller' as const) : ('mail' as const),
+      inputOrigin:
+        message.fromKind !== 'operator'
+          ? ('mail' as const)
+          : deliveredByAJob(message)
+            ? ('system' as const)
+            : ('controller' as const),
       principal,
       sourceMessageId: message.id,
     }
@@ -2354,7 +2370,8 @@ export class MessageDeliveryService {
   /**
    * THE NOTICE A SENDER GETS WHEN ITS MESSAGE ENDED UNDELIVERED (POD-4778), or
    * null when there is nobody to tell: a system/steward sender (no one to tell,
-   * and it would loop). Routed back like a reply — the sending session if it
+   * and it would loop), or a person's words a job delivered (the job records
+   * its own outcome — an automation's run, POD-4846). Routed back like a reply — the sending session if it
    * still exists, else its issue, else the operator for a person's own
    * message. Reads only; the caller stores it with the failure.
    */
@@ -2362,7 +2379,7 @@ export class MessageDeliveryService {
     message: MessageRow,
     failure: SendFailure,
   ): Promise<MessageRow | null> {
-    if (message.fromKind === 'system') return null
+    if (message.fromKind === 'system' || deliveredByAJob(message)) return null
     const to = await this.replyTarget(message)
     const { outcome, reason, action } = await this.failureWords(message, failure)
     const from: MessageSender = { kind: 'system', name: 'steward' }

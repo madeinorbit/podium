@@ -4,6 +4,7 @@ import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
+import type { AutomationPrompt } from './prompt'
 import { AutomationsService, type AutomationInput } from './service'
 import { openTestStore } from '../../test-support/open-test-store'
 
@@ -200,18 +201,20 @@ async function harness(
     n += 1
     return { sessionId: asSessionId(`sess_${n}`) }
   })
-  const queueText = vi.fn(() => ({ ok: opts.queueOk ?? true, reason: 'no resume ref' }))
-  const resumeAndSend = vi.fn(() => ({
-    ok: opts.resumeOk ?? true,
-    ...(opts.resumeReason ? { reason: opts.resumeReason } : {}),
-  }))
+  // One port for both modes (POD-4846): a fresh run's prompt and a resume.
+  const deliverPrompt = vi.fn(async (p: AutomationPrompt) =>
+    p.resume
+      ? { ok: opts.resumeOk ?? true, ...(opts.resumeReason ? { reason: opts.resumeReason } : {}) }
+      : { ok: opts.queueOk ?? true, reason: 'no resume ref' },
+  )
+  const prompts = (resume: boolean) =>
+    deliverPrompt.mock.calls.map(([p]) => p).filter((p) => p.resume === resume)
   const createIssue = vi.fn(() => ({ id: asIssueId(`iss_${++issueN}`) }))
   const service = new TestAutomationsService({
     store: store.automations,
     ledger,
     createSession,
-    queueText,
-    resumeAndSend,
+    deliverPrompt,
     createIssue,
     liveSessionIds: () => new Set((opts.live ?? []).map(asSessionId)),
     principalForOwner: () => (authorized ? TEST_PRINCIPAL : undefined),
@@ -224,8 +227,9 @@ async function harness(
     service,
     ledger,
     createSession,
-    queueText,
-    resumeAndSend,
+    deliverPrompt,
+    freshPrompts: () => prompts(false),
+    resumePrompts: () => prompts(true),
     createIssue,
     setNow: (d: Date) => {
       clock = d
@@ -367,15 +371,19 @@ describe('AutomationsService.tick — spawn', () => {
     await h.service.tick()
     await h.service.tick()
 
-    expect(h.resumeAndSend).toHaveBeenCalledTimes(1)
-    expect(h.resumeAndSend).toHaveBeenCalledWith({
-      sessionId: asSessionId('sess_sleeping'),
-      text: 'Continue the queued work.',
-      mutationId: expect.stringMatching(/^arun_/),
-    })
+    expect(h.resumePrompts()).toEqual([
+      {
+        automationId: a.id,
+        ownerUserId: firstAdminMemberId(),
+        runId: expect.stringMatching(/^arun_/),
+        sessionId: asSessionId('sess_sleeping'),
+        text: 'Continue the queued work.',
+        resume: true,
+      },
+    ])
     expect(h.createIssue).not.toHaveBeenCalled()
     expect(h.createSession).not.toHaveBeenCalled()
-    expect(h.queueText).not.toHaveBeenCalled()
+    expect(h.freshPrompts()).toEqual([])
     expect(await h.service.runs(a.id)).toHaveLength(1)
     expect((await h.service.runs(a.id))[0]).toMatchObject({
       outcome: 'spawned',
@@ -475,7 +483,7 @@ describe('AutomationsService.tick — spawn', () => {
     expect(await h.store.automations.get(a.id)).toMatchObject({ enabled: false, nextRunAt: null })
   })
 
-  it('spawns at the due time with automation provenance and the prompt via queueText', async () => {
+  it("spawns at the due time with automation provenance and the prompt as the owner's message", async () => {
     const h = await harness()
     const a = await daily(h)
     h.setNow(new Date(2026, 6, 15, 9, 0, 30)) // 30s after tomorrow's occurrence
@@ -503,13 +511,17 @@ describe('AutomationsService.tick — spawn', () => {
     // The prompt is NEVER handed to createSession: initialPrompt is argv-only and
     // silently becomes a draft on opencode/cursor [spec:SP-17db].
     expect(spawn.initialPrompt).toBeUndefined()
-    expect(h.queueText).toHaveBeenCalledWith({
-      sessionId: asSessionId('sess_1'),
-      text: 'Run the test suite and report.',
-      inputOrigin: 'system',
-      // Replay-safe: the run id doubles as the outbox mutation id.
-      mutationId: expect.stringMatching(/^arun_/),
-    })
+    expect(h.freshPrompts()).toEqual([
+      {
+        automationId: a.id,
+        ownerUserId: firstAdminMemberId(),
+        // Replay-safe: the message id derives from the run id.
+        runId: expect.stringMatching(/^arun_/),
+        sessionId: asSessionId('sess_1'),
+        text: 'Run the test suite and report.',
+        resume: false,
+      },
+    ])
 
     const [run] = await h.service.runs(a.id)
     expect(run).toMatchObject({ outcome: 'spawned', sessionId: asSessionId('sess_1') })
@@ -618,7 +630,7 @@ describe('AutomationsService.tick — spawn', () => {
     expect(result).toBe('applied')
     expect(h.createIssue).not.toHaveBeenCalled()
     expect(h.createSession).not.toHaveBeenCalled()
-    expect(h.queueText).not.toHaveBeenCalled()
+    expect(h.deliverPrompt).not.toHaveBeenCalled()
     expect(await h.store.automations.getRun(runId)).toMatchObject({
       outcome: 'error',
       detail: 'automation creator account is disabled or missing',
@@ -643,12 +655,10 @@ describe('AutomationsService.tick — spawn', () => {
 
     expect(h.createIssue).toHaveBeenCalledTimes(1)
     expect(h.createSession).toHaveBeenCalledTimes(1)
-    expect(h.queueText).toHaveBeenCalledTimes(1)
-    expect(h.resumeAndSend).toHaveBeenCalledWith({
-      sessionId: asSessionId('sess_1'),
-      text: 'Continue the sweep.',
-      mutationId: expect.stringMatching(/^arun_/),
-    })
+    expect(h.freshPrompts()).toHaveLength(1)
+    expect(h.resumePrompts()).toMatchObject([
+      { sessionId: asSessionId('sess_1'), text: 'Continue the sweep.', runId: expect.stringMatching(/^arun_/) },
+    ])
     expect(await h.service.runs(a.id)).toHaveLength(2)
     expect((await h.service.runs(a.id)).every((run) => run.sessionId === 'sess_1')).toBe(true)
   })
@@ -670,7 +680,7 @@ describe('AutomationsService.tick — spawn', () => {
     h.setNow(new Date(2026, 6, 16, 9, 0, 10))
     await h.service.tick()
 
-    expect(h.resumeAndSend).toHaveBeenCalledTimes(1)
+    expect(h.resumePrompts()).toHaveLength(1)
     expect(h.createIssue).toHaveBeenCalledTimes(2)
     expect(h.createSession).toHaveBeenCalledTimes(2)
     expect((await h.service.runs(a.id)).map((run) => run.sessionId)).toEqual(['sess_2', 'sess_1'])
@@ -737,8 +747,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
       store: h.store.automations,
       ledger: h.ledger,
       createSession: live.createSession,
-      queueText: live.queueText,
-      resumeAndSend: live.resumeAndSend,
+      deliverPrompt: live.deliverPrompt,
       createIssue: live.createIssue,
       liveSessionIds: () => new Set([asSessionId('sess_1')]),
       principalForOwner: () => TEST_PRINCIPAL,
