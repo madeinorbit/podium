@@ -312,6 +312,8 @@ process.stdin.on('data', (chunk) => {
         process.stdout.write(JSON.stringify({ type: 'control_response', response: { subtype: 'error', request_id: id, error: 'unsupported' } }) + '\\n')
       }
     } else if (msg.type === 'user') {
+      // The CLI acks each line by its uuid before it runs it (POD-4836).
+      process.stdout.write(JSON.stringify({ type: 'command_lifecycle', command_uuid: msg.uuid, state: 'queued' }) + '\\n')
       openTurns += 1
     }
   }

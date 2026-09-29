@@ -51,6 +51,14 @@ function transcript(reads: Array<{ resumeValue: string; limit: number }>) {
 
 type StartTurnInput = Parameters<ClaudeEngineHost['startTurn']>[0]
 
+/** A turn the CLI took and that then failed: rejected, and handled, since the
+ *  runtime subscribes only once the line is acked. */
+function failedTurn(error: Error): Promise<never> {
+  const done = Promise.reject(error)
+  done.catch(() => {})
+  return done
+}
+
 function fakeEngine(
   impl: (input: StartTurnInput) => ClaudeSdkTurnHandle = () => ({
     done: Promise.resolve({
@@ -59,6 +67,7 @@ function fakeEngine(
       observedModel: 'claude-opus-5',
       observedEffort: 'max',
     }),
+    accepted: Promise.resolve(),
     interrupt: vi.fn(),
     requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
     answerPermission: vi.fn(),
@@ -116,6 +125,7 @@ describe('Claude SDK daemon host adapter', () => {
           observedModel: 'claude-opus-5',
           observedEffort: 'max',
         }),
+        accepted: Promise.resolve(),
         interrupt: vi.fn(),
         requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
         answerPermission: vi.fn(),
@@ -182,6 +192,7 @@ describe('Claude SDK daemon host adapter', () => {
       () =>
         ({
           done: new Promise(() => {}),
+          accepted: Promise.resolve(),
           interrupt: vi.fn(),
           requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
@@ -220,7 +231,8 @@ describe('Claude SDK daemon host adapter', () => {
     const engine = fakeEngine(
       () =>
         ({
-          done: Promise.reject(new Error('not logged in — run /login')),
+          done: failedTurn(new Error('not logged in — run /login')),
+          accepted: Promise.resolve(),
           interrupt: vi.fn(),
           requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
@@ -281,9 +293,10 @@ describe('Claude SDK daemon host adapter', () => {
     const engine = fakeEngine(
       () =>
         ({
-          done: Promise.reject(
+          done: failedTurn(
             new Error('the Claude model host process exited with code 1 before the turn finished'),
           ),
+          accepted: Promise.resolve(),
           interrupt: vi.fn(),
           requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
@@ -333,6 +346,7 @@ describe('Claude SDK daemon host adapter', () => {
       turnInputs.push(input)
       return {
         done: Promise.resolve({ resumeValue: 'sdk-thread', output: 'answered' }),
+        accepted: Promise.resolve(),
         interrupt: vi.fn(),
         requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
         answerPermission: vi.fn(),
@@ -545,6 +559,9 @@ describe('Claude SDK daemon host adapter', () => {
               )
             } else if (msg.type === 'user') {
               queueMicrotask(() => {
+                // The CLI acks the line by its uuid before anything else
+                // (claude 2.1.284, POD-4836).
+                stdout({ type: 'command_lifecycle', command_uuid: msg.uuid, state: 'queued' })
                 stdout({ type: 'system', subtype: 'init', session_id: claudeSessionId })
                 stdout({ type: 'result', subtype: 'success', result: 'fifty-six MANGO' })
               })
@@ -606,10 +623,12 @@ describe('Claude SDK daemon host adapter', () => {
     // The turn it opened is reported LIVE. A turn start relabelled as
     // bootstrap lies behind the checkpoint `session_started` already set, so
     // the server's event gate refuses it and every later event of that turn.
-    const turnStarted = sent
-      .flatMap((message) => (message.type === 'runtimeEvent' ? [message.event] : []))
-      .find((event) => event.t === 'turn' && event.ev.ev === 'started')
-    expect(turnStarted).toMatchObject({ provenance: 'live', turnEpoch: 1 })
+    await vi.waitFor(() => {
+      const turnStarted = sent
+        .flatMap((message) => (message.type === 'runtimeEvent' ? [message.event] : []))
+        .find((event) => event.t === 'turn' && event.ev.ev === 'started')
+      expect(turnStarted).toMatchObject({ provenance: 'live', turnEpoch: 1 })
+    })
     // And the answer comes back.
     await vi.waitFor(
       () =>

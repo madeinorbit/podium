@@ -1,0 +1,116 @@
+{
+  "_recordedFrom": "claude 2.1.284 (POD-4836): a live `claude --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages` against a local fake model server, scratch CLAUDE_CONFIG_DIR. What the CLI says back about one user line.",
+  "userLine": {
+    "type": "user",
+    "session_id": "",
+    "uuid": "11111111-1111-4111-8111-111111111111",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "one"
+        }
+      ]
+    },
+    "parent_tool_use_id": null
+  },
+  "lifecycleQueued": {
+    "type": "command_lifecycle",
+    "command_uuid": "11111111-1111-4111-8111-111111111111",
+    "state": "queued",
+    "uuid": "b92ac6cb-0ea1-40d1-99ab-9c1ffc9bf45b",
+    "session_id": "cccccccc-0000-4000-8000-000000000001"
+  },
+  "lifecycleStarted": {
+    "type": "command_lifecycle",
+    "command_uuid": "11111111-1111-4111-8111-111111111111",
+    "state": "started",
+    "uuid": "9ee2eaf8-fd02-4f36-8659-87f619df30b8",
+    "session_id": "cccccccc-0000-4000-8000-000000000001"
+  },
+  "freshEcho": {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "one"
+        }
+      ]
+    },
+    "session_id": "cccccccc-0000-4000-8000-000000000001",
+    "parent_tool_use_id": null,
+    "uuid": "11111111-1111-4111-8111-111111111111",
+    "timestamp": "2026-09-29T14:04:03.685Z",
+    "isReplay": true
+  },
+  "_freshTimingMs": {
+    "queuedAfterWrite": 58,
+    "startedAfterWrite": 62,
+    "echoAfterWrite": 374
+  },
+  "duplicateLineSameProcess": {
+    "type": "user",
+    "session_id": "",
+    "uuid": "11111111-1111-4111-8111-111111111111",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "one dup"
+        }
+      ]
+    },
+    "parent_tool_use_id": null
+  },
+  "duplicateEchoSameProcess": {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "one dup"
+        }
+      ]
+    },
+    "session_id": "cccccccc-0000-4000-8000-000000000001",
+    "parent_tool_use_id": null,
+    "uuid": "11111111-1111-4111-8111-111111111111",
+    "isReplay": true
+  },
+  "_duplicateSameProcess": "No command_lifecycle frame for the repeated uuid at all; the echo carries no timestamp (the CLI copies the INPUT line's, and ours has none). Not recorded, no model call, no result.",
+  "duplicateEchoAfterResume": {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "one dup after restart"
+        }
+      ]
+    },
+    "session_id": "cccccccc-0000-4000-8000-000000000001",
+    "parent_tool_use_id": null,
+    "uuid": "11111111-1111-4111-8111-111111111111",
+    "isReplay": true
+  },
+  "duplicateCompletedAfterResume": {
+    "type": "command_lifecycle",
+    "command_uuid": "11111111-1111-4111-8111-111111111111",
+    "state": "completed",
+    "uuid": "abd9b072-57f1-4ae7-b25a-b534a1415f0a",
+    "session_id": "cccccccc-0000-4000-8000-000000000001"
+  },
+  "_duplicateAfterResume": "A fresh process on --resume: the timestamp-less echo and a lone `completed`, no queued/started, no model call, no result. Without --replay-user-messages only the lone `completed` comes.",
+  "_slowFirstToken": {
+    "_summary": "The fake model held its first byte 3 s. The echo waits for the model's first output (CLI source: flushed on the first assistant message or stream_event); the lifecycle ack does not.",
+    "queuedAfterWriteMs": 156,
+    "echoAfterWriteMs": 3744
+  },
+  "_apiFailure": "A 401 from the model: the user entry is on disk at once, the CLI retries (api_retry, up to 10, backing off past 30 s), and no echo came in 40 s. command_lifecycle queued/started still arrived within 20 ms of the write."
+}

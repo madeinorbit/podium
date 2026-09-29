@@ -8,7 +8,9 @@ export function claudeSdkCapabilities(): DriverCapabilities {
     send: {
       readiness: { kind: 'driver-managed' },
       native: ['at-boundary', 'when-ready', 'queue'],
-      proof: ['sdk-callback'],
+      // The CLI's own ack of the user line's uuid (`command_lifecycle`, or the
+      // `--replay-user-messages` echo), never the write (POD-4836).
+      proof: ['protocol-ack'],
       mayReturnUnverified: false,
     },
     interrupt: { fenceOnProviderConfirmation: true },

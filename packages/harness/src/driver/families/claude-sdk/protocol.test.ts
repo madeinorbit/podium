@@ -12,6 +12,7 @@ import {
   type ClaudeStreamTransport,
 } from './protocol.js'
 import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
+import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 
 function fakeTransport(): {
   transport: ClaudeStreamTransport
@@ -93,6 +94,13 @@ describe('the stream-json invocation', () => {
       'stream-json',
       '--include-partial-messages',
     ])
+  })
+
+  it('asks the CLI to echo each user line back (POD-4836)', () => {
+    // The echo is how a line the CLI already holds is told apart from a new
+    // one: without the flag a repeated uuid is skipped in silence.
+    const { args } = buildClaudeStreamInvocation(base, 'claude')
+    expect(args).toContain('--replay-user-messages')
   })
 
   it('defaults the permission mode to auto, default under structured permissions', () => {
@@ -476,5 +484,185 @@ describe('the stream client', () => {
     fake.emitLine('this is not json')
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'ok' }))
     await expect(turn.done).resolves.toMatchObject({ output: 'ok' })
+  })
+})
+
+/**
+ * WHAT THE CLI SAYS BACK ABOUT ONE USER LINE (POD-4836), in the frames claude
+ * 2.1.284 wrote (`__fixtures__/user-message-ack.json`). A turn is accepted on
+ * the CLI's own acknowledgement of the line's uuid, never on the write.
+ */
+describe('the user line acknowledgement', () => {
+  const uuid = ack.userLine.uuid
+  const noCallbacks = {
+    onPartialText: () => {},
+    onPermission: () => {},
+    onToolCall: () => {},
+    onToolResult: () => {},
+    emit: () => {},
+  }
+  const settledState = async (promise: Promise<unknown>): Promise<string> => {
+    const marker = Symbol('pending')
+    const winner = await Promise.race([
+      promise.then(
+        () => 'resolved',
+        () => 'rejected',
+      ),
+      new Promise((res) => setTimeout(() => res(marker), 0)),
+    ])
+    return winner === marker ? 'pending' : String(winner)
+  }
+  async function written(fake: ReturnType<typeof fakeTransport>): Promise<void> {
+    await vi.waitFor(() =>
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        true,
+      ),
+    )
+  }
+
+  it('is not accepted on the write; the lifecycle ack for its uuid accepts it', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-a' })
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid })
+    answerInitialize(fake)
+    await written(fake)
+    expect(JSON.parse(fake.writes.at(-1)!).uuid).toBe(uuid)
+    expect(await settledState(turn.accepted)).toBe('pending')
+    // Another command's ack is not this line's.
+    fake.emitLine(
+      frame({ ...ack.lifecycleQueued, command_uuid: '99999999-9999-4999-8999-999999999999' }),
+    )
+    expect(await settledState(turn.accepted)).toBe('pending')
+    fake.emitLine(frame(ack.lifecycleQueued))
+    await expect(turn.accepted).resolves.toEqual({ uuid, duplicate: false })
+    fake.emitLine(frame(ack.lifecycleStarted))
+    fake.emitLine(frame(ack.freshEcho))
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'w1' }))
+    await expect(turn.done).resolves.toMatchObject({ harnessSessionId: 'sess-a', output: 'w1' })
+  })
+
+  it('is accepted on the echo when the CLI sends no lifecycle ack', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-b' })
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid.toUpperCase() })
+    answerInitialize(fake)
+    await written(fake)
+    fake.emitLine(frame(ack.freshEcho))
+    await expect(turn.accepted).resolves.toEqual({ uuid, duplicate: false })
+    // Still a live turn: a recorded line runs.
+    expect(await settledState(turn.done)).toBe('pending')
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'w1' }))
+    await expect(turn.done).resolves.toMatchObject({ output: 'w1' })
+  })
+
+  it('a line the session already holds is accepted as a duplicate and runs nothing', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-c' })
+    const turn = client.turn('one dup', noCallbacks, { userMessageUuid: uuid })
+    answerInitialize(fake)
+    await written(fake)
+    // The same process skips it: the timestamp-less echo, nothing else.
+    fake.emitLine(frame(ack.duplicateEchoSameProcess))
+    await expect(turn.accepted).resolves.toEqual({ uuid, duplicate: true })
+    // No result will ever come for it; the turn ends here, empty.
+    await expect(turn.done).resolves.toEqual({ harnessSessionId: 'sess-c', output: '' })
+    // And the client takes the next line.
+    const next = client.turn('two', noCallbacks, {
+      userMessageUuid: '22222222-2222-4222-8222-222222222222',
+    })
+    fake.emitLine(
+      frame({ ...ack.lifecycleQueued, command_uuid: '22222222-2222-4222-8222-222222222222' }),
+    )
+    await expect(next.accepted).resolves.toMatchObject({ duplicate: false })
+  })
+
+  it('a resumed process that already holds the line: echo and a lone completed', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-d' })
+    const turn = client.turn('one dup after restart', noCallbacks, { userMessageUuid: uuid })
+    answerInitialize(fake)
+    await written(fake)
+    fake.emitLine(frame(ack.duplicateEchoAfterResume))
+    fake.emitLine(frame(ack.duplicateCompletedAfterResume))
+    await expect(turn.accepted).resolves.toEqual({ uuid, duplicate: true })
+    await expect(turn.done).resolves.toEqual({ harnessSessionId: 'sess-d', output: '' })
+  })
+
+  it('a command completed before any ack was skipped, even with no echo', async () => {
+    // Without --replay-user-messages the lone `completed` is the only sign.
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-e' })
+    const turn = client.turn('one dup', noCallbacks, { userMessageUuid: uuid })
+    answerInitialize(fake)
+    await written(fake)
+    fake.emitLine(frame(ack.duplicateCompletedAfterResume))
+    await expect(turn.accepted).resolves.toEqual({ uuid, duplicate: true })
+    await expect(turn.done).resolves.toEqual({ harnessSessionId: 'sess-e', output: '' })
+  })
+
+  it('a completed after the ack is the end of a turn that ran, not a duplicate', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-f' })
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid })
+    answerInitialize(fake)
+    await written(fake)
+    fake.emitLine(frame(ack.lifecycleQueued))
+    fake.emitLine(frame(ack.lifecycleStarted))
+    fake.emitLine(frame(ack.duplicateCompletedAfterResume))
+    await expect(turn.accepted).resolves.toEqual({ uuid, duplicate: false })
+    expect(await settledState(turn.done)).toBe('pending')
+  })
+
+  it('is refused when the CLI dies after the write and before any ack', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-g' })
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid })
+    answerInitialize(fake)
+    await written(fake)
+    fake.exit(1, null)
+    await expect(turn.accepted).rejects.toThrow('exited with code 1 before the turn finished')
+    await expect(turn.done).rejects.toThrow('exited with code 1')
+  })
+
+  it('is refused when the handshake fails, and the line is never written', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, {})
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid })
+    const init = fake.writes
+      .map((line) => JSON.parse(line))
+      .find((msg) => msg.type === 'control_request')
+    fake.emitLine(
+      frame({
+        type: 'control_response',
+        response: { subtype: 'error', request_id: init.request_id, error: 'bad init' },
+      }),
+    )
+    await expect(turn.accepted).rejects.toThrow('bad init')
+    expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+      false,
+    )
+  })
+
+  it('a turn that finishes without any ack is not accepted', async () => {
+    // A CLI that never acknowledged the line proved nothing about it.
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-h' })
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid })
+    answerInitialize(fake)
+    await written(fake)
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'w1' }))
+    await expect(turn.accepted).rejects.toThrow('never acknowledged')
+  })
+
+  it('a turn opened without a uuid still carries one, and is acknowledged by it', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-i' })
+    const turn = client.turn('one', noCallbacks)
+    answerInitialize(fake)
+    await written(fake)
+    const minted = JSON.parse(fake.writes.at(-1)!).uuid as string
+    expect(minted).toMatch(/^[0-9a-f-]{36}$/)
+    fake.emitLine(frame({ ...ack.lifecycleQueued, command_uuid: minted }))
+    await expect(turn.accepted).resolves.toEqual({ uuid: minted, duplicate: false })
   })
 })

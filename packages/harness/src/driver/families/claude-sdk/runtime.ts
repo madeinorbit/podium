@@ -52,6 +52,7 @@ import {
 import type { SessionDriverSlots } from '../session-slots.js'
 import { claudeSdkCapabilities } from './capabilities.js'
 import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
+import { claudeUserMessageUuid } from './message-uuid.js'
 
 /**
  * WHAT THE SDK CAN TAKE, structurally. Which model aliases and effort levels
@@ -109,6 +110,14 @@ export type ClaudeSdkInterruptAck =
 
 export interface ClaudeSdkTurnHandle {
   done: Promise<ClaudeSdkTurnResult>
+  /**
+   * THE RECEIPT'S PROOF (POD-4836): resolves on the CLI's own acknowledgement
+   * of the user line's uuid, or rejects with the failure that ended the turn
+   * before any. Never on the write — a line the child never read is not
+   * accepted. The turn opens only once this resolves. A line the session
+   * already held resolves it too, and its `done` settles empty at once.
+   */
+  accepted: Promise<void>
   /** Teardown's interrupt: fire and forget, deliberately unacknowledged. */
   interrupt(): void | Promise<void>
   /**
@@ -130,8 +139,6 @@ export interface ClaudeSdkTurnHandle {
 export interface ClaudeSdkRuntimeHost {
   mintSessionId(): SessionId
   mintResumeValue(): string
-  /** Test seam for the user-turn uuid; a random v4 UUID when absent. */
-  mintUserMessageUuid?(): string
   now(): string
   startTurn(input: {
     sessionId: SessionId
@@ -140,8 +147,8 @@ export interface ClaudeSdkRuntimeHost {
     resumeValue: string
     newConversation: boolean
     /** The uuid the CLI records this user turn under, and so the id of its
-     *  history entry (POD-4774). */
-    userMessageUuid?: string
+     *  history entry (POD-4774): derived from the message id (POD-4836). */
+    userMessageUuid: string
     onPartialText(text: string, itemHint?: string): void
     onPermission(request: ClaudeSdkPermissionRequest): void
     /** One tool call, as the provider issued it. Always delivered before the
@@ -205,6 +212,11 @@ interface SessionCore {
   seq: number
   turnEpoch: number
   turnOpen: boolean
+  /** A user line is out to the CLI and not yet acknowledged (POD-4836):
+   *  settles when the CLI acks it or the attempt fails. The turn is not open,
+   *  but the child is taken — busy for every send, and an interrupt waits for
+   *  the turn this may open. */
+  delivering?: Promise<unknown>
   fenced: Set<number>
   observerGeneration: number
   log: { seq: number; event: RuntimeEvent }[]
@@ -579,6 +591,31 @@ export function createClaudeSdkRuntime(
       ack.outcome === 'accepted' ? 'accepted' : (core.interruptConfirmation ?? 'unconfirmed')
   }
 
+  /**
+   * THE OPERATOR'S STOP, for whatever the session is doing. A line the CLI has
+   * not acked yet (POD-4836) is waited out first: the stop is for the turn it
+   * opens, and a line the CLI refused left nothing to stop.
+   */
+  async function interruptTurn(core: SessionCore): Promise<void> {
+    if (core.delivering) await core.delivering
+    if (!core.turnOpen) {
+      // AN INTERRUPT WITH NOTHING TO INTERRUPT IS STILL AN ANSWER. Silence
+      // here read to the operator as a stop that had worked, on a session
+      // that had never been running. One receipt per epoch, so holding the
+      // button down cannot bury the transcript under its own refusals.
+      if (core.alive && core.idleInterruptNotedEpoch !== core.turnEpoch) {
+        core.idleInterruptNotedEpoch = core.turnEpoch
+        publishSystemNote(
+          core,
+          `claude-sdk-interrupt-idle-${core.sessionId}-${core.turnEpoch}`,
+          'Interrupt refused: no turn was in flight.',
+        )
+      }
+      return
+    }
+    await requestInterrupt(core)
+  }
+
   function openPermission(core: SessionCore, request: ClaudeSdkPermissionRequest): void {
     if (!core.alive || core.interactions.has(request.id) || core.answered.has(request.id)) return
     const summary = summarizeInput(request.input)
@@ -647,15 +684,31 @@ export function createClaudeSdkRuntime(
     return id
   }
 
-  function deliver(core: SessionCore, input: TurnInput, options: SendOptions): TurnReceipt {
-    const epoch = core.turnEpoch + 1
-    core.partialText = ''
-    core.partialItemId = `claude-sdk-${core.sessionId}-${epoch}`
-    // ONE ID FOR THE USER TURN, minted here and handed to the CLI, which
-    // records the turn under it (POD-4774). The live item below, the history
-    // entry the CLI writes, and the receipt all carry it — so the delivery
-    // names the entry the chat shows, before and after a reload.
-    const userItemId = host.mintUserMessageUuid?.() ?? globalThis.crypto.randomUUID()
+  /**
+   * TYPE ONE USER LINE, AND SAY WHAT THE CLI DID WITH IT (POD-4836).
+   *
+   * The line carries a uuid derived from the message id, so the history entry
+   * it becomes is named by our id, and every attempt at the same message names
+   * the same entry. The receipt waits for the CLI's own ack of that uuid
+   * (`ClaudeSdkTurnHandle.accepted`); until then the session is `delivering` —
+   * not in a turn, but taken. The turn opens on the ack. A failure before it
+   * is a refusal, and no turn opened.
+   *
+   * A DUPLICATE is a message the session already holds under that uuid: an
+   * earlier attempt reached the CLI and its receipt was lost. The CLI skips
+   * the line, so it is accepted — it IS in the history, under the entry this
+   * receipt names — and the turn it opens ends at once, having run nothing.
+   */
+  async function deliver(
+    core: SessionCore,
+    input: TurnInput,
+    options: SendOptions,
+  ): Promise<TurnReceipt> {
+    const userItemId =
+      input.id !== undefined ? claudeUserMessageUuid(input.id) : globalThis.crypto.randomUUID()
+    // Set when the turn opens: every provider callback before that is dropped
+    // (none is expected — the CLI acks the line before it calls the model).
+    let epoch = -1
     let child: ClaudeSdkTurnHandle
     try {
       child = host.startTurn({
@@ -697,7 +750,32 @@ export function createClaudeSdkRuntime(
         refusal: refuse('not_running', error instanceof Error ? error.message : String(error)),
       }
     }
-    openTurn(core, options.origin)
+    const acked = child.accepted
+    core.delivering = acked.catch(() => undefined)
+    core.active = child
+    try {
+      // A skipped duplicate resolves here too: its `done` has already settled
+      // empty, and closes the turn this opens.
+      await acked
+    } catch (error) {
+      core.delivering = undefined
+      if (core.active === child) core.active = undefined
+      void child.dispose?.()
+      void drain(core)
+      return {
+        outcome: 'refused',
+        refusal: refuse('not_running', error instanceof Error ? error.message : String(error)),
+      }
+    }
+    core.delivering = undefined
+    if (!core.alive) {
+      // Stopped while the ack was on its way: the CLI took the line, so it is
+      // accepted, but no turn opens on a session that has ended.
+      return accepted(input, options, userItemId, core.turnEpoch)
+    }
+    epoch = openTurn(core, options.origin)
+    core.partialText = ''
+    core.partialItemId = `claude-sdk-${core.sessionId}-${epoch}`
     if (input.text) {
       publishItem(core, {
         id: userItemId,
@@ -709,7 +787,6 @@ export function createClaudeSdkRuntime(
     core.textDeliveries += 1
     core.lastRequestedModel = input.overrides?.supported ? input.overrides.value : core.spec.model
     core.conversationStarted = true
-    core.active = child
     void child.done.then(
       (result) => {
         if (!core.turnOpen || core.turnEpoch !== epoch) return
@@ -748,22 +825,36 @@ export function createClaudeSdkRuntime(
         closeTurn(core, error instanceof Error ? error : new Error(String(error)))
       },
     )
+    return accepted(input, options, userItemId, epoch)
+  }
+
+  function accepted(
+    input: TurnInput,
+    options: SendOptions,
+    userItemId: string,
+    turnEpoch: number,
+  ): TurnReceipt {
     return {
       outcome: 'accepted',
-      turnEpoch: epoch,
+      turnEpoch,
       deliveredAs: options.delivery === 'steer' ? 'queue' : options.delivery,
-      provenBy: 'sdk-callback',
+      // The CLI's own ack of the line's uuid (`command_lifecycle`, or its
+      // echo): a protocol acknowledgement, not a callback returning.
+      provenBy: 'protocol-ack',
       // No cursor: the live item has none until history re-reads the record.
       ...(input.text ? { transcriptItem: { id: userItemId } } : {}),
       at: host.now(),
     }
   }
 
+  /** Taken by a turn, or by a line the CLI has not acked yet. */
+  const busy = (core: SessionCore): boolean => core.turnOpen || core.delivering !== undefined
+
   async function drain(core: SessionCore): Promise<void> {
-    if (!core.alive || core.turnOpen || core.interactions.size > 0) return
+    if (!core.alive || busy(core) || core.interactions.size > 0) return
     const next = core.queue.shift()
     if (!next) return
-    const receipt = deliver(core, next.input, { ...next.options, delivery: 'when-ready' })
+    const receipt = await deliver(core, next.input, { ...next.options, delivery: 'when-ready' })
     if (receipt.outcome === 'refused') abandonTurn(core, next, 'delivery-failed')
   }
 
@@ -897,8 +988,8 @@ export function createClaudeSdkRuntime(
       },
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
-        if (options.deliveryAttempt && (core.turnOpen || core.lease?.kind === 'human-controller')) {
-          return { outcome: 'refused', refusal: { reason: core.turnOpen ? 'busy' : 'lease_held' } }
+        if (options.deliveryAttempt && (busy(core) || core.lease?.kind === 'human-controller')) {
+          return { outcome: 'refused', refusal: { reason: busy(core) ? 'busy' : 'lease_held' } }
         }
         assertCurrent()
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }
@@ -916,14 +1007,14 @@ export function createClaudeSdkRuntime(
           return { outcome: 'refused', refusal: refuse('lease_held', core.lease.holder) }
         }
         const deliveredAs: TurnDelivery =
-          options.delivery === 'steer' || (options.delivery === 'interrupt' && !core.turnOpen)
+          options.delivery === 'steer' || (options.delivery === 'interrupt' && !busy(core))
             ? options.delivery === 'interrupt'
               ? 'when-ready'
               : 'queue'
             : options.delivery
-        if (core.turnOpen) {
+        if (busy(core)) {
           core.queue.push({ input, options })
-          if (options.delivery === 'interrupt') await requestInterrupt(core)
+          if (options.delivery === 'interrupt') await interruptTurn(core)
           return {
             outcome: 'queued',
             position: core.queue.length,
@@ -944,22 +1035,7 @@ export function createClaudeSdkRuntime(
       },
       async interrupt() {
         assertCurrent()
-        if (!core.turnOpen) {
-          // AN INTERRUPT WITH NOTHING TO INTERRUPT IS STILL AN ANSWER. Silence
-          // here read to the operator as a stop that had worked, on a session
-          // that had never been running. One receipt per epoch, so holding the
-          // button down cannot bury the transcript under its own refusals.
-          if (core.alive && core.idleInterruptNotedEpoch !== core.turnEpoch) {
-            core.idleInterruptNotedEpoch = core.turnEpoch
-            publishSystemNote(
-              core,
-              `claude-sdk-interrupt-idle-${core.sessionId}-${core.turnEpoch}`,
-              'Interrupt refused: no turn was in flight.',
-            )
-          }
-          return
-        }
-        await requestInterrupt(core)
+        await interruptTurn(core)
       },
       async answer(interactionId, answer, options): Promise<InteractionAnswerOutcome> {
         assertCurrent()

@@ -73,6 +73,7 @@ function harness(options: {
       turns.push(turn)
       const handle: ClaudeSdkTurnHandle = {
         done,
+        accepted: Promise.resolve(),
         interrupt() {
           turn.poked += 1
         },

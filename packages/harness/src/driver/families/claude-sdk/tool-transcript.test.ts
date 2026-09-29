@@ -56,19 +56,23 @@ async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
       const done = new Promise<{ resumeValue: string; output: string }>((resolve) => {
         settle = () => resolve({ resumeValue: RESUME, output: script.output ?? 'answer' })
       })
-      // Reported after the turn is open, exactly as a real child does.
-      queueMicrotask(() => {
-        const sequence = script.sequence ?? [
-          ...script.calls.map((call) => ({ call })),
-          ...script.results.map((result) => ({ result })),
-        ]
-        for (const step of sequence) {
-          if ('call' in step) input.onToolCall(step.call)
-          else input.onToolResult(step.result)
-        }
-        settle?.()
-      })
-      return { done, interrupt() {}, answerPermission() {}, dispose() {} }
+      // The CLI acks the line first, and reports the model's work after —
+      // once the turn is open, exactly as a real child does.
+      const accepted = Promise.resolve()
+      void accepted.then(() =>
+        setTimeout(() => {
+          const sequence = script.sequence ?? [
+            ...script.calls.map((call) => ({ call })),
+            ...script.results.map((result) => ({ result })),
+          ]
+          for (const step of sequence) {
+            if ('call' in step) input.onToolCall(step.call)
+            else input.onToolResult(step.result)
+          }
+          settle?.()
+        }, 0),
+      )
+      return { done, accepted, interrupt() {}, answerPermission() {}, dispose() {} }
     },
     async readTranscript() {
       return { items: [], hasMore: false }

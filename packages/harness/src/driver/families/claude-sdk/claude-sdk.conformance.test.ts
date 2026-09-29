@@ -88,6 +88,8 @@ function makeWorld(): {
       pending.set(input.sessionId, turn)
       return {
         done,
+        // The fixture CLI acks every line it is handed.
+        accepted: Promise.resolve(),
         interrupt() {
           turn.interrupted = true
         },

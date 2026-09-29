@@ -642,6 +642,20 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     // `ensureEngine` before any owner attached must not become an unhandled
     // rejection when the owner only interrupts.
     done.catch(() => {})
+    // THE CLI'S ACK OF THE USER LINE (POD-4836): the stream turn's, once there
+    // is one. Every failure before that — the engine, the teardown — is a line
+    // that was never written, and refuses it with the same error.
+    let resolveAccepted!: () => void
+    let rejectAccepted!: (error: Error) => void
+    const accepted = new Promise<void>((res, rej) => {
+      resolveAccepted = res
+      rejectAccepted = rej
+    })
+    accepted.catch(() => {})
+    const failBeforeLine = (error: Error): void => {
+      rejectAccepted(error)
+      rejectDone(error)
+    }
 
     let streamTurn: ReturnType<ClaudeStreamClient['turn']> | undefined
     let tornDown = false
@@ -651,13 +665,13 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       try {
         held = await ensureEngine(sessionId, spec, input.spec.workdir, env)
       } catch (error) {
-        rejectDone(error instanceof Error ? error : new Error(String(error)))
+        failBeforeLine(error instanceof Error ? error : new Error(String(error)))
         return
       }
       if (tornDown) {
         // Torn down while the engine was binding: the turn never started.
         // Fail it; the engine stays owned by the session.
-        rejectDone(new HeadlessTurnFailure('turn torn down while the engine was binding'))
+        failBeforeLine(new HeadlessTurnFailure('turn torn down while the engine was binding'))
         return
       }
       try {
@@ -673,12 +687,27 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
             // travels up through `onPartialText`.
             emit: () => {},
           },
-          input.userMessageUuid ? { userMessageUuid: input.userMessageUuid } : undefined,
+          { userMessageUuid: input.userMessageUuid },
         )
       } catch (error) {
-        rejectDone(error instanceof Error ? error : new Error(String(error)))
+        failBeforeLine(error instanceof Error ? error : new Error(String(error)))
         return
       }
+      streamTurn.accepted.then(
+        (acceptance) => {
+          // The session already held this message: an earlier attempt reached
+          // the CLI and its receipt was lost. Worth seeing; nothing to undo.
+          if (acceptance.duplicate) {
+            log.info('Claude skipped a user line it already held', {
+              sessionId,
+              uuid: acceptance.uuid,
+            })
+          }
+          resolveAccepted()
+        },
+        (error: unknown) =>
+          rejectAccepted(error instanceof Error ? error : new Error(String(error))),
+      )
       // The harness session id lands in the journal once the CLI names it: a
       // daemon restart between turns adopts the survivor, and a dead engine
       // falls back to `--resume` off exactly this id.
@@ -726,6 +755,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
 
     return {
       done,
+      accepted,
       interrupt: () => {
         tornDown = true
         try {
