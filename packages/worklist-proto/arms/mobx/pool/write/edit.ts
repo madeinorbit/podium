@@ -10,9 +10,9 @@
  *
  * WHAT THIS MODULE DOES (L1c W1–W6, Mc1 slice; W7–W11, Mc2 slice):
  * - `edit(kind, id, patch)` validates via `commandFor` (throws before any
- *   state changes), materialises a cold row first (W1.2), captures `prior`
- *   per patched field from the CURRENT display (which may be an older pending
- *   value, W1.3), mints `txId` (W2), then in ONE `runInAction` writes the
+ *   state changes), refuses a row that is not in memory (W1.2, below),
+ *   captures `prior` per patched field from the CURRENT display (which may be
+ *   an older pending value, W1.3), mints `txId` (W2), then in ONE `runInAction` writes the
  *   patch onto the overlay and appends `{txId, prior}` to the pending log
  *   (W1.5), and fires `transport.send(txId, command)` without awaiting it
  *   (W1.6). A title rename commits one row.
@@ -55,11 +55,22 @@
  * `{...server, ...pending}` (never stored, so the sweep never sees it; a
  * reader subscribes to the overlay entry and the server slot, never the
  * transient). Models, row views, visibility nodes, roll-ups and this
- * module's own `currentDisplay` all read there, so they agree at every
+ * module's own prior capture all read there, so they agree at every
  * moment; nothing is patched at runtime. Title, stage and readAt are the only
  * fields ever overlaid, and the overlay value holds at most those three —
  * never a full row copy. The read cursor's pending value reaches the
  * visibility parts through `MobxPool.readCursor`.
+ *
+ * A ROW NOT IN MEMORY IS NOT EDITED (POD-4753). The pool's one reader
+ * answers `LOADING` for a cold row and queues its load for the next window;
+ * `edit` asks the same way and refuses with a `WriteContractError` while it
+ * loads, so nothing blocks and nothing is read by id. Every edit surface
+ * draws the row first, and a row not in memory draws as a loading
+ * placeholder with no model to edit (`pool.issue(id)` is undefined), so the
+ * UI never offers the edit; once the row lands the same edit applies as it
+ * would have. Queueing it instead would paint on nothing and leave the log
+ * without its prior (the server value, W4) while a receipt, rejection or echo
+ * could already arrive.
  *
  * SCOPE. Mc1 was edit + pending log + rewind. Mc2 adds echo/settle (W7),
  * overtake after receipt (W8), supersede (W9), TTL expiry (W10), bootstrap
@@ -87,6 +98,7 @@ import {
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { MobxPool } from '../pool'
 import type { Schedule } from '../residency'
+import { LOADING } from '../worklist/rollup'
 import type { IssueOverlay, PendingOverlay } from './overlay'
 import { createPendingLog } from './pending'
 
@@ -243,26 +255,18 @@ export function createMobxWriteApi(
   }
 
   /**
-   * The CURRENT display of issue `id` (older pending or server, W1.3): the
-   * pool's one reader, so a prior is exactly what every reader showed. A cold
-   * row is read by id, never queued.
+   * The CURRENT display of the issue an edit applies to (older pending or
+   * server, W1.3): the pool's one reader, so a prior is exactly what every
+   * reader showed. A row not in memory is refused, its load queued (W1.2).
    */
-  const currentDisplay = (id: string): SliceIssue | undefined =>
-    pool.row('issue', id, 'peek') as SliceIssue | undefined
-
-  /** Make a cold issue resident before editing it (W1.2), then its display; else throw. */
-  const ensureResident = (kind: WritableKind, id: string): SliceIssue => {
+  const shownInMemory = (kind: WritableKind, id: string): SliceIssue => {
     if (kind !== 'issue') throw new WriteContractError(`no editable fields on ${String(kind)}`)
-    const residency = pool.residency
-    if (residency !== null && !pool.tables.issue.has(id)) {
-      if (residency.isCold('issue', id)) {
-        residency.request('issue', id)
-        pool.hydrate()
-      }
+    const shown = pool.row('issue', id)
+    if (shown === LOADING) {
+      throw new WriteContractError(`issue ${id} is loading: edit it once it is in memory`)
     }
-    const shown = currentDisplay(id)
     if (shown === undefined) throw new WriteContractError(`unknown issue ${id}`)
-    return shown
+    return shown as SliceIssue
   }
 
   const api: MobxWriteApi = {
@@ -272,12 +276,12 @@ export function createMobxWriteApi(
       // Validates before any state changes (W1.1); reads no pool state.
       const command = commandFor(kind, id, patch)
       const txId = asMutationId(crypto.randomUUID())
-      // One action (W1.5): materialise, capture prior from the current
-      // display (older pending or server, W1.3), append, and paint. Reading
-      // the borrowed rows here matches the pool's own ingest, which reads its
-      // fenced tables inside its action.
+      // One action (W1.5): capture prior from the current display (older
+      // pending or server, W1.3), append, and paint. Reading the borrowed
+      // rows here matches the pool's own ingest, which reads its fenced
+      // tables inside its action.
       runInAction(() => {
-        const shown = ensureResident(kind, id)
+        const shown = shownInMemory(kind, id)
         const prior: Record<string, unknown> = {}
         for (const field of Object.keys(patch as Record<string, unknown>)) {
           prior[field] = (shown as unknown as Record<string, unknown>)[field] ?? null
@@ -382,7 +386,13 @@ export function createMobxWriteApi(
             skipped += 1
             continue
           }
-          const shown = feedRows.has(mapped.id) ? currentDisplay(mapped.id) : undefined
+          // The display every reader shows (W1.3): the feed's server row with
+          // the entries already re-applied laid over it, as the pool's reader
+          // lays the overlay. Read from the feed, never the pool: the row
+          // may not be in memory, and its load is only asked for below.
+          const server = feedRows.get(mapped.id)
+          const shown =
+            server === undefined ? undefined : { ...server, ...displayOf(log, 'issue', mapped.id) }
           if (shown === undefined) {
             skipped += 1
             continue

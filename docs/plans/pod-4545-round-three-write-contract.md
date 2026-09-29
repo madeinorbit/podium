@@ -33,12 +33,35 @@ kernel's fold** (rule W12).
 **W1 — An edit is synchronous and paints first.** `WriteApi.edit(kind, id, patch)`:
 
 1. `commandFor(kind, id, patch)` validates the patch and picks the kernel command (W3). A bad patch throws `WriteContractError` before any state changes.
-2. The object must be resident. The arm materialises it first if it is cold. Editing an unknown id throws.
+2. The object must be in memory. **An edit on a row that is not in memory (a cold row) is refused** with a `WriteContractError` naming it LOADING, and the row is requested through the arm's load window; nothing is painted, logged or sent, and nothing blocks. Once the row lands, the same edit applies as on any row in memory. Editing an unknown id throws. See W1a.
 3. Record `prior` for every patched field: the value the object shows now, which may be an older pending value. Also record `priorIdentity`, the arm's current row identity (W6).
 4. Mint `txId` (W2).
 5. In **one** action or commit, write the patch onto the object and `log.append(edit)`. A title rename commits one row.
 6. `transport.send(txId, command)`. It is not awaited. The paint does not wait for storage, the same order the kernel uses (POD-1053).
 7. Return `txId`.
+
+**W1a — A row that is not in memory is not edited (POD-4753).** This is a
+semantic change from today's app, which can edit any replica row: with rows
+kept out of memory (the cold rule now, the working-set cutoff later) the arm
+edits only what it holds. The reasons:
+
+- The log needs the edit's `prior`, and for a field with nothing pending the
+  prior IS the server value (W4: the rewind target and the echo base). A row
+  not in memory has no server value in hand, so the entry cannot be written.
+- Queueing the edit until the row lands would need the receipt, a rejection
+  or the echo, which can all arrive before the row, to be held beside the log
+  (a second log), and would paint on nothing.
+- No user loses an edit: every edit surface draws the row first, and a row
+  not in memory draws as a loading placeholder with no model to edit
+  (`pool.issue(id)` is undefined), so the UI never offers it. A surface that
+  edits by id (a command palette) opens the row, waits out its loading, then
+  edits.
+
+On bootstrap (W11) the re-applied entries take their prior from the feed's
+server row with the already re-applied entries laid over it, never from the
+pool, so a pending entry on a cold row needs no read of the pool. Arms: the
+MobX pool follows W1a (`arms/mobx/pool/write/edit.ts`); the hand arm, paused,
+still materialises synchronously and follows when it resumes.
 
 **W2 — The transaction id is the outbox mutation id.** The arm mints it
 (`asMutationId(randomUUID())`) and passes it into the runtime's
@@ -140,7 +163,7 @@ outbox's job.
 - **On bootstrap**, the arm builds its objects from server rows. It then walks `transport.pending()`: queued entries, then awaiting-truth entries, in kernel queue order. For each entry that `editForPendingWrite` maps to a slice edit, it paints the patch, appends the edit under the entry's mutation id (passing the kernel's enqueue-time `base` when present) and, for an awaiting-truth entry, settles it at once. It then passes each such row's current server values through `log.remote`, which confirms edits whose echo landed before the reload. **The arm never re-sends.** The kernel's outbox replays its own queue on reconnect, deduped by mutation id, and the receipts arrive under the same txIds.
 - **Dead-lettered entries** are not re-applied. They were rejected, and they live in the kernel's recovery surface.
 - **Mark-read after a reload** paints `queuedAt`, not the pre-reload press instant. The difference is milliseconds.
-- **When a cold object materialises** while it has pending edits (Ma3/Ha3 lazy loading), the arm builds it from the server row, then writes each pending edit's patch, oldest first.
+- **When a cold object materialises** while it has pending edits (Ma3/Ha3 lazy loading; a bootstrap entry on a cold row, W1a), the arm builds it from the server row, then writes each pending edit's patch, oldest first.
 
 **W12 — What the prototype path does not consult.** Not the kernel's fold:
 the painted `EngineState.issues`, `sessions` and `issueProjections`,

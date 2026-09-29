@@ -104,8 +104,12 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   (`SessionNode`): own-row standing, R2+R3 members, retention against the
   clock's deadlines, the flat pass, the rescue read down `children`
   (`keeps`/`keptBelow`), and nesting (nearest present ancestor, the started-by
-  fallback). A cold row is read by id through the feed (`MobxPool.coldRow`,
-  counted, tracked by residency's per-id atom); it is loaded only when drawn.
+  fallback). A cold issue is hidden by the complete rule (POD-4745), so its
+  presence is answered from a declared summary (`HIDDEN_ISSUE_FIELDS`: its raw
+  parent for the nesting walk, and whether it is excluded), never from its row
+  or its sessions' (POD-4753); startup reads no row by id. A row not in memory
+  answers `LOADING` through the one reader (`MobxPool.row`) and is loaded only
+  when drawn, in the 50 ms window's batch.
   The set of visible ids is MAINTAINED by one reaction per node (nodes follow
   each event's issue records, `MobxPool.syncWorklist`); the order is a
   computed `compareRank` sort of the visible nodes' cached ranks, reading no
@@ -228,8 +232,9 @@ idle).
   `bucketElements` (above).
 - `residency.counters` (Ma3): `coldWrites` (a cold row registered, relinked
   or forgotten: no slot), `requests` (distinct rows queued), `batches` (load
-  windows closed), `hydrated` (rows loaded on access), `warmed` (rows
-  installed because the row they inherit from stopped being cold).
+  windows closed), `hydrated` (rows the window installed), `warmed` (rows
+  that stopped being cold: installed from the publication that carries them,
+  else asked for and installed by the window, POD-4753).
   `notifications` also counts an action that only touched cold rows.
 - Reads are never counted by the arm: every table read goes through
   `reads.wrapTables`, every relation read through `reads.wrapRelations`, and

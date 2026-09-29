@@ -30,6 +30,7 @@ import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
 import { LOAD_WINDOW_MS } from './residency'
+import { LOADING } from './worklist/rollup'
 import { sliceOrderOf } from './worklist/groups'
 import { rowViewOf } from './models'
 
@@ -186,6 +187,28 @@ function closedWithSessions(n: number): { issue: SliceIssue; sessions: SliceSess
 const hotIds = (pool: MobxPool, entity: 'issue' | 'session'): number =>
   tracked(() => pool.tables[entity].size)
 
+/**
+ * POD-4753: the rows a publication warmed without carrying them are asked
+ * for, not read: each answers `loading`, nothing is read by id, one window is
+ * open. Closing it reads exactly `expected`, in one batch, and installs them.
+ */
+function expectAskedThenLanded(r: Rig, expected: readonly string[]): void {
+  const residence = (key: string) => {
+    const [kind, id] = key.split(':') as ['issue' | 'session', string]
+    return tracked(() => r.pool.resident(kind, id))
+  }
+  expect(r.loads, 'rows read by id before the window').toEqual([])
+  for (const key of expected) expect(residence(key), key).toBe('loading')
+  expect(r.pool.pendingLoads()).toBe(expected.length)
+  const batches = r.pool.residency?.counters.batches ?? 0
+  r.fire()
+  expect([...r.loads].sort()).toEqual([...expected].sort())
+  expect(r.pool.residency?.counters.batches).toBe(batches + 1)
+  for (const key of expected) expect(residence(key), key).toBe('resident')
+  expect(r.pool.pendingLoads()).toBe(0)
+  expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
+}
+
 describe('bootstrap', () => {
   it('constructs only the hot rows: the open issues, the closed ones the list can draw, and their sessions, by count', () => {
     // The open issues (~2,200 at 1x, the number Ma3's brief names) plus the
@@ -226,16 +249,11 @@ describe('bootstrap', () => {
       pool.modelCount('issue') + pool.modelCount('session'),
     )
     expect(pool.residency?.counters.requests).toBe(0)
-    // Mb1 (POD-4569): the visible collection answers every cold row's
-    // visibility by reading it once by id through the feed; none is loaded
-    // (no slot, no model, no request above), and no hot row is read that way.
-    // POD-4705: lazy nodes still read cold rows by id (the bootstrap pass
-    // evaluates every known issue, like the control's own derivation), but
-    // build nodes only for the closure — still none loaded, still none hot.
-    expect(r.loads.filter((key) => !isColdKey(pool, key))).toEqual([])
-    const coldIssueLoads = new Set(r.loads.filter((key) => key.startsWith('issue:')))
-    expect(coldIssueLoads.size).toBeGreaterThan(0)
-    for (const key of coldIssueLoads) expect(isColdKey(pool, key)).toBe(true)
+    // POD-4753: startup reads no row by id. A cold issue is hidden by the
+    // rule, so the walks that reach one (a hot child's nesting walk, a
+    // rescue) read its declared summary, never its row or its sessions'.
+    // (Before: 722 cold rows read by id at 1x, through the one reader's peek.)
+    expect(r.loads).toEqual([])
     expect(diffResidency(pool, r.replay.source)).toEqual([])
 
     // The same bootstrap with every row resident (the Ma2 pool), for the record.
@@ -630,7 +648,7 @@ describe('lazy relations', () => {
 })
 
 describe('transitions', () => {
-  it('a reopened issue is resident at once, with its sessions, in one action', () => {
+  it('a reopened issue is resident at once; its sessions show loading and land in one batch (POD-4753)', () => {
     const r = rig()
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
@@ -640,16 +658,40 @@ describe('transitions', () => {
       rows: [issueRecord(issue.id, { closedAt: null, closedReason: null })],
     })
     expect(pool.stats.notifications).toBe(1)
+    // The update carries the issue: installed from it.
     expect(tracked(() => pool.tables.issue.has(issue.id))).toBe(true)
+    // It does not carry the sessions: asked for, never read inside the event.
+    // In between, nothing draws a stale value: the one reader answers LOADING
+    // for each session (not its old row), and the row's own parts report
+    // loading (`lazyLoading`, what its `loading` field shows), observed by a
+    // reaction as a mounted row observes it. (The whole row also reads
+    // progress over closed children, POD-4754's path, not asserted here.)
+    const drawn: boolean[] = []
+    const stop = autorun(() => {
+      drawn.push(pool.issue(issue.id)?.lazyLoading === true)
+    })
     for (const session of sessions) {
-      expect(tracked(() => pool.tables.session.has(session.sessionId))).toBe(true)
+      expect(tracked(() => pool.row('session', session.sessionId))).toBe(LOADING)
     }
+    expect(drawn).toEqual([true])
+    expectAskedThenLanded(
+      r,
+      sessions.map((session) => `session:${session.sessionId}`),
+    )
+    // Exactly one window later every session is the row itself, and the
+    // drawn row stopped loading in that window's one action.
+    for (const session of sessions) {
+      expect(tracked(() => pool.row('session', session.sessionId))).toEqual(
+        r.replay.source.row?.('session', session.sessionId),
+      )
+    }
+    expect(drawn).toEqual([true, false])
+    stop()
     expect(pool.residency?.counters.warmed).toBeGreaterThanOrEqual(sessions.length)
-    expect(r.timers).toEqual([])
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
-  it('a session that can keep its cold issue shown makes the issue resident at once, with its sessions (POD-4665)', () => {
+  it('a session that can keep its cold issue shown is resident at once; the issue and its other sessions land in one batch (POD-4665, POD-4753)', () => {
     const r = rig()
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
@@ -668,13 +710,15 @@ describe('transitions', () => {
       ],
     })
     expect(pool.stats.notifications).toBe(1)
-    expect(tracked(() => pool.tables.issue.has(issue.id))).toBe(true)
-    for (const session of sessions) {
-      expect(tracked(() => pool.tables.session.has(session.sessionId))).toBe(true)
-    }
+    // The update carries the keeping session: installed from it. The issue
+    // and its other sessions are asked for together.
+    expect(tracked(() => pool.tables.session.has(sessions[0]!.sessionId))).toBe(true)
+    expectAskedThenLanded(r, [
+      `issue:${issue.id}`,
+      ...sessions.slice(1).map((session) => `session:${session.sessionId}`),
+    ])
     // The issue and every session that inherited its coldness, in the same pass.
     expect(pool.residency?.counters.warmed).toBe(1 + sessions.length)
-    expect(r.timers).toEqual([])
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
@@ -733,15 +777,16 @@ describe('transitions', () => {
     ).toEqual([])
   })
 
-  it('removing a cold issue forgets it, and its cold sessions become resident', () => {
+  it('removing a cold issue forgets it, and its cold sessions land in one batch', () => {
     const r = rig()
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
     r.push({ type: 'update', rows: [{ kind: 'issue', id: issue.id, value: undefined }] })
     expect(pool.residency?.isCold('issue', issue.id)).toBe(false)
-    for (const session of sessions) {
-      expect(tracked(() => pool.resident('session', session.sessionId))).toBe('resident')
-    }
+    expectAskedThenLanded(
+      r,
+      sessions.map((session) => `session:${session.sessionId}`),
+    )
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
@@ -855,12 +900,15 @@ describe('the lane source (R3, POD-4745)', () => {
     }
   }
   const resident = (pool: MobxPool, id = issueId) => tracked(() => pool.tables.issue.has(id))
-  /** Warmed in the publication's own action: resident, nothing queued, the partition clean. */
+  /**
+   * Warmed by a publication that does not carry it: asked for (loading,
+   * nothing read by id), then resident after one batch, the partition clean.
+   */
   function expectWarmed(r: Rig): void {
+    expect(r.pool.residency?.counters.warmed).toBeGreaterThanOrEqual(1)
+    expectAskedThenLanded(r, [`issue:${issueId}`])
     expect(resident(r.pool)).toBe(true)
     expect(r.pool.residency?.isCold('issue', issueId)).toBe(false)
-    expect(r.pool.residency?.counters.warmed).toBeGreaterThanOrEqual(1)
-    expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
     expect(diffResidency(r.pool, r.replay.source)).toEqual([])
   }
   function expectCold(r: Rig): void {
@@ -907,6 +955,47 @@ describe('the lane source (R3, POD-4745)', () => {
     const control = rig({ rows: rows(LANE, []) })
     expect(control.pool.residency?.isCold('issue', issueId)).toBe(true)
     expect(tracked(() => [...control.pool.worklist.order])).not.toContain(issueId)
+  })
+
+  it('startup reads no row by id: the replace carries what its lane keeps, and cold twins are decided from what it handed over (POD-4753)', () => {
+    // A closed issue's session and a resumed twin of it, both finished long
+    // ago: a twin group of cold rows only, which the collapse must decide.
+    const { issue: closed, sessions } = closedWithSessions(1)
+    const original = sessions[0]!
+    const resume = { kind: 'claude', value: 'r3-cold-twins' }
+    const finished = new Date(corpus.fixedNow - 40 * 24 * 60 * 60 * 1000).toISOString()
+    const twin: SliceSession = {
+      ...original,
+      sessionId: 'r3-cold-twin',
+      resume,
+      status: 'exited',
+      stoppedAt: finished,
+      lastActiveAt: finished,
+      readAt: finished,
+      unread: false,
+    }
+    const base = rows(LANE, [run(), twin])
+    base.sessions = base.sessions.map((record) =>
+      record.id === original.sessionId ? { ...record, value: { ...original, resume } } : record,
+    )
+    const r = rig({ rows: base })
+    // The setup holds: the twins and their issue are cold, the lane's issue kept.
+    expect(r.pool.residency?.isCold('issue', closed.id)).toBe(true)
+    expect(r.pool.residency?.isCold('session', original.sessionId)).toBe(true)
+    expect(r.pool.residency?.isCold('session', twin.sessionId)).toBe(true)
+    expect(resident(r.pool)).toBe(true)
+    // Nothing read by id, nothing asked for.
+    expect(r.loads).toEqual([])
+    expect(r.pool.pendingLoads()).toBe(0)
+    // And the pool is right: the partition, and every relation (the twins' collapse among them).
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+    expect(
+      runInAction(() => diffRelations(r.pool.graph, knownTables(r.pool, r.replay.source))),
+    ).toEqual([])
+    const collapsed = [original.sessionId, twin.sessionId].filter((id) =>
+      r.pool.graph.isCollapsed('session', id),
+    )
+    expect(collapsed).toHaveLength(1)
   })
 
   it('stays resident after the run leaves the checkout (nothing makes a hot row cold)', () => {
@@ -956,7 +1045,11 @@ describe('the lane source (R3, POD-4745)', () => {
     expectCold(r)
     r.pool.stats.reset()
     r.push({ type: 'update', rows: [issueRecord(issueId, { worktreePath: LANE })] })
-    expectWarmed(r)
+    // The update carries the issue itself: installed from it, nothing asked for.
+    expect(resident(r.pool)).toBe(true)
+    expect(r.loads).toEqual([])
+    expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
   })
 
   it('warms when the issue checks out a lane the run already sits in (its own rule reads the lane)', () => {

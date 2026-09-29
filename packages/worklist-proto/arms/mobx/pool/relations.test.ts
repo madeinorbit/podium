@@ -121,7 +121,15 @@ interface Rig {
   dispose(): void
 }
 
-function rig(rows: RowRecord[], options: { fence?: boolean; schema?: ModelSchema } = {}): Rig {
+function rig(
+  rows: RowRecord[],
+  options: {
+    fence?: boolean
+    schema?: ModelSchema
+    /** A lazy pool (POD-4567): cold rows stay out; each per-row read through the feed lands here. */
+    loads?: string[]
+  } = {},
+): Rig {
   const replay = createReplaySource({
     issues: rows.filter((row) => row.kind === 'issue'),
     sessions: rows.filter((row) => row.kind === 'session'),
@@ -129,7 +137,22 @@ function rig(rows: RowRecord[], options: { fence?: boolean; schema?: ModelSchema
   })
   const locals = settableLocals({ selectedIssueId: null, coarseNow: Date.parse(T0) })
   const reads = options.fence === false ? DISABLED_READ_FENCE : createReadFence({ enabled: true })
-  const pool = new MobxPool(reads, locals.source.get(), options.schema)
+  const loads = options.loads
+  const pool = new MobxPool(
+    reads,
+    locals.source.get(),
+    options.schema,
+    loads === undefined
+      ? undefined
+      : {
+          load: (kind, id) => {
+            loads.push(`${kind}:${id}`)
+            return replay.source.row?.(kind, id)
+          },
+          // The window never closes by itself: a load is asked for, never taken.
+          schedule: () => () => {},
+        },
+  )
   const source = reads.wrapSource(replay.source)
   pool.apply({
     type: 'replace',
@@ -517,6 +540,106 @@ describe('the resume-twin collapse (session.collapse, declared in the schema)', 
       r.check()
     } finally {
       r.dispose()
+    }
+  })
+})
+
+describe('the resume-twin collapse over cold twins reads no cold row (POD-4753)', () => {
+  const ref = { kind: 'codex-thread', value: 'across' }
+  const long = '2026-09-01T00:00:00.000Z'
+  /** A day in the closed issue's past: an exited run then keeps nothing shown. */
+  const past = (day: number) => `2026-09-0${day}T00:00:00.000Z`
+  const closed = { stage: 'done', closedAt: long, updatedAt: long }
+  const sessionIds = ['S1', 'S2', 'S3', 'S4']
+  const own = { cwd: '/repo', resume: ref }
+
+  /** Every relation a twin takes part in, as `lazy` and the all-in-memory pool answer it. */
+  function relationsOf(r: Rig): Record<string, unknown> {
+    const out: Record<string, unknown> = {
+      'I1.sessions': r.many('issue', 'I1', 'sessions'),
+      'I2.sessions': r.many('issue', 'I2', 'sessions'),
+      '/repo.sessions': r.many('worktree', '/repo', 'sessions'),
+    }
+    for (const id of sessionIds) {
+      out[`${id}.issue`] = r.one('session', id, 'issue')
+      out[`${id}.worktree`] = r.one('session', id, 'worktree')
+      out[`${id}.collapsed`] = r.pool.graph.isCollapsed('session', id)
+    }
+    return out
+  }
+
+  it('decides a group spanning a closed issue from what ingest handed it: no read by id, the all-in-memory relations at every step', () => {
+    const rows = [
+      lane('/repo'),
+      issue('I1', closed),
+      issue('I2'),
+      // A closed issue's two finished twins (cold), and the resumed run on an open issue (hot).
+      session('S1', { ...own, issueId: 'I1', status: 'exited', lastActiveAt: past(1), stoppedAt: past(1) }),
+      session('S2', { ...own, issueId: 'I1', status: 'exited', lastActiveAt: past(2), stoppedAt: past(2) }),
+      session('S3', { ...own, issueId: 'I2', status: 'exited', lastActiveAt: at(1) }),
+    ]
+    const loads: string[] = []
+    const lazy = rig(rows, { loads })
+    const full = rig(rows)
+    const step = (label: string, ...changes: RowRecord[]) => {
+      if (changes.length > 0) {
+        lazy.push(...changes)
+        full.push(...changes)
+      }
+      expect(relationsOf(lazy), label).toEqual(relationsOf(full))
+      expect(loads, `${label}: rows read back by id`).toEqual([])
+    }
+    try {
+      // The setup holds: the closed issue and its twins are cold, the open side hot.
+      const residency = lazy.pool.residency
+      expect(['I1'].map((id) => residency?.isCold('issue', id))).toEqual([true])
+      expect(['S1', 'S2', 'S3'].map((id) => residency?.isCold('session', id))).toEqual([
+        true,
+        true,
+        false,
+      ])
+      // Bootstrap: the hot twin, the most recent at an equal rank, is kept.
+      step('bootstrap')
+      expect(lazy.many('issue', 'I1', 'sessions')).toEqual([])
+      expect(lazy.many('issue', 'I2', 'sessions')).toEqual(['S3'])
+      // The hot twin moves back in time: a cold twin is kept again, in full
+      // (its issue, its lane), from its summary.
+      step(
+        'hot twin older',
+        session('S3', { ...own, issueId: 'I2', status: 'exited', lastActiveAt: long }),
+      )
+      expect(lazy.many('issue', 'I1', 'sessions')).toEqual(['S2'])
+      step(
+        'hot twin kept again',
+        session('S3', { ...own, issueId: 'I2', status: 'exited', lastActiveAt: at(2) }),
+      )
+      expect(lazy.many('issue', 'I2', 'sessions')).toEqual(['S3'])
+      // The hot twin leaves: a COLD twin flips back in and is relinked in full
+      // (its issue, its lane) from its summary.
+      step('hot twin gone', gone('session', 'S3'))
+      expect(lazy.many('issue', 'I1', 'sessions')).toEqual(['S2'])
+      // A cold twin's own update (it stays cold) re-decides the group over the other.
+      step(
+        'cold twin update',
+        session('S1', { ...own, issueId: 'I1', status: 'exited', lastActiveAt: past(3), stoppedAt: past(3) }),
+      )
+      expect(lazy.many('issue', 'I1', 'sessions')).toEqual(['S1'])
+      // A live run joins on the open issue: the whole group is kept.
+      step(
+        'live twin joins',
+        session('S4', { ...own, issueId: 'I2', status: 'live', lastActiveAt: at(4) }),
+      )
+      expect(lazy.many('issue', 'I1', 'sessions')).toEqual(['S1', 'S2'])
+      // A cold twin moves out of the lane and the live run leaves.
+      step(
+        'cold twin moves, live run leaves',
+        session('S2', { ...own, cwd: '/elsewhere', issueId: 'I1', status: 'exited', lastActiveAt: past(4), stoppedAt: past(4) }),
+        gone('session', 'S4'),
+      )
+      expect(lazy.many('issue', 'I1', 'sessions')).toEqual(['S2'])
+    } finally {
+      lazy.dispose()
+      full.dispose()
     }
   })
 })

@@ -215,6 +215,9 @@ frozen round-two layout; coordinator addendum 2026-09-24).
 - Mc2 (c2): echo/settle (W7), overtake after receipt (W8), supersede (W9),
   TTL expiry (W10), bootstrap re-apply (W11), and the optimism-aware rebuild
   for a gate with pending edits outstanding.
-- Cold-row edit materialisation is implemented (`ensureResident` requests and
-  hydrates) but exercised only for residency, not for commit counts: a cold
-  visible row would commit twice (load, then paint).
+- A row not in memory is not edited (POD-4753, replacing the synchronous
+  `ensureResident` materialisation): `edit` asks for the row through the
+  pool's one reader and refuses with a `WriteContractError` while it loads;
+  once it lands the same edit applies as on any row in memory. The UI draws
+  such a row as a loading placeholder with no model, so it never offers the
+  edit (`edit.test.tsx`, "an edit on a row not in memory").

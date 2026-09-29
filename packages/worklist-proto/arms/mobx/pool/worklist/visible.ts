@@ -212,12 +212,38 @@ function systemOwnedStage(stage: string): boolean {
   return stage === 'shipping'
 }
 
-export function standingOf(issue: SliceIssue): Standing {
-  const excluded =
+/** Out of the list whatever else holds (archived, deleted, proposed, a system-owned stage). */
+function excludedOf(issue: Partial<Pick<SliceIssue, 'archived' | 'deletedAt' | 'stage'>>): boolean {
+  return (
     issue.archived === true ||
     issue.deletedAt != null ||
     issue.stage === 'proposed' ||
-    systemOwnedStage(issue.stage)
+    (issue.stage !== undefined && systemOwnedStage(issue.stage))
+  )
+}
+
+/**
+ * POD-4753 — what visibility reads of a HIDDEN issue: one the complete cold
+ * rule (POD-4745) keeps out of memory, so nothing can show it, and it is
+ * neither flat nor present. Only two things about it reach other rows: its
+ * raw parent (the nesting walk passes through it) and whether it is excluded
+ * (else a kept row below it still counts for its ancestors' rescue). The pool
+ * keeps exactly these fields of each such row (`Residency` summaries), never
+ * the row, and reads none of its sessions.
+ */
+export const HIDDEN_ISSUE_FIELDS = ['parentId', 'archived', 'deletedAt', 'stage'] as const
+
+/** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
+export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>>
+
+/** The presence of a hidden issue, from its summary and the rows below it: never flat or present. */
+export function hiddenPresenceOf(input: VisibleInputs, id: string, hidden: HiddenIssue): Presence {
+  const keeps = !excludedOf(hidden) && keptBelowPartOf(input, childIdsPartOf(input, id))
+  return { flat: false, keeps, present: false }
+}
+
+export function standingOf(issue: SliceIssue): Standing {
+  const excluded = excludedOf(issue)
   const finished = issue.stage === 'done' || issue.closedReason != null
   const human = issue.audience === 'human'
   const activeHuman =
@@ -466,6 +492,8 @@ export interface Members {
 /** One issue's parts (see the header), and its roll-up parts (`rollup.ts`). */
 export interface IssueVisibility extends RollupParts, Members {
   readonly standing: Standing | undefined
+  /** The raw `parentId` the nesting walk follows (`standing.parentId`; a hidden issue's from its summary). */
+  readonly parentRef: string | null
   readonly childIds: readonly string[]
   /** `issue.spinOffs` (R4, the inverse edge), id order: the roll-ups' vacated and continuation tests. */
   readonly spinOffIds: readonly string[]
@@ -714,7 +742,7 @@ export function nestParentPartOf(
     const parent = input.issue(parentId)
     if (parent === undefined) break
     if (parent.present) return parentId
-    parentId = parent.standing?.parentId ?? null
+    parentId = parent.parentRef
   }
   if (standing.parentId !== null || standing.startedBy === null) return null
   const owner = ownerOf(input, standing.startedBy)
@@ -750,7 +778,8 @@ function ownerOf(input: VisibleInputs, sessionId: string): string | null {
   for (const issueId of input.links.worktree.issues.ids(worktree)) {
     if (owner !== null && issueId > owner) continue
     const issue = input.issue(issueId)
-    if (issue?.standing?.excluded === false && issue.present) owner = issueId
+    // Presence first: a hidden issue answers it without its row.
+    if (issue?.present === true && issue.standing?.excluded === false) owner = issueId
   }
   return owner
 }
@@ -864,6 +893,9 @@ export function directVisibility(
         const issue = input.issueRow(id)
         return issue === undefined ? undefined : standingOf(issue)
       })
+    },
+    get parentRef() {
+      return parts.standing?.parentId ?? null
     },
     get seatIds() {
       return once('seatIds', () => input.seatList(id).slice())

@@ -73,6 +73,17 @@
  * elements), in the row's lifetime. Nothing moves back: a removed resident
  * row keeps its buckets observable, as before.
  *
+ * THE ENGINE READS NO COLD ROW (POD-4753). Some maintenance reads a row other
+ * than the one being written: a collapse group's peers, a twin whose collapse
+ * flipped, a member a new root takes. A resident one is read from its table;
+ * for a cold one the engine holds a SUMMARY, taken from the row ingest hands
+ * it: exactly the fields the engine reads of such a row, as the schema
+ * declares them (the collapse's fields, each outgoing link's inputs, each
+ * subset's fields), for the entities whose rows it reads again at all. The
+ * summary is replaced on every write of the row and dropped when the row
+ * turns resident or leaves. So a feed event never reads a cold row back by
+ * id, and a cold row stays out of memory whatever its twins do.
+ *
  * THE READER. `one` = `forward.get` + the target's presence (one counted
  * read: the target); `many` = the bucket's members, unordered (one counted
  * read per member); `size` = the bucket's size (free). Derivations resolve
@@ -311,6 +322,14 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly extraSources = new Map<EntityName, Link[]>()
   private readonly collapses = new Map<EntityName, Collapse>()
   /**
+   * POD-4753 — per entity whose rows the engine reads again after their own
+   * write and which can be cold: the fields it reads of such a row (see the
+   * header). Empty without residency.
+   */
+  private readonly summaryFields = new Map<EntityName, readonly string[]>()
+  /** Per such entity: each row that is not resident → its summary (those fields only). */
+  private readonly summaries = new Map<EntityName, Map<string, Row>>()
+  /**
    * Bucket moves of this action, netted (member → added, or deleted), applied
    * once at its end (`flush`).
    */
@@ -406,6 +425,21 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         }
       }
     }
+    // The rows the engine reads again (a collapse's peers and flips, a
+    // subset's members under a moving root), when they can be cold.
+    for (const from of Object.keys(this.schema) as EntityName[]) {
+      const own = this.outgoing.get(from) ?? []
+      const collapse = this.schema[from].collapse
+      const rereads = collapse !== undefined || own.some((link) => link.subsets.length > 0)
+      if (this.cold === null || this.schema[from].cold.kind === 'never' || !rereads) continue
+      const fields = new Set(collapse?.fields ?? [])
+      for (const link of own) {
+        for (const field of link.inputs) fields.add(field)
+        for (const subset of link.subsets) for (const field of subset.spec.fields) fields.add(field)
+      }
+      this.summaryFields.set(from, [...fields])
+      this.summaries.set(from, new Map())
+    }
   }
 
   // ------------------------------------------------------------------ reader
@@ -491,6 +525,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return link.forward.get(id) ?? link.coldForward.get(id) ?? null
   }
 
+  /** Cold rows the engine holds a summary of (POD-4753; the measurement record). */
+  summaryCount(): number {
+    let rows = 0
+    for (const held of this.summaries.values()) rows += held.size
+    return rows
+  }
+
   /** Whether `id`'s row is collapsed away by its entity's rule (tests). */
   isCollapsed(entity: EntityName, id: string): boolean {
     return this.collapses.get(entity)?.collapsed.has(id) ?? false
@@ -526,7 +567,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   ): void {
     const before = prev as Row | undefined
     const after = next as Row | undefined
-    if (after !== undefined) this.promote(entity, id)
+    const resident = after !== undefined && this.promote(entity, id)
+    this.summarize(entity, id, resident ? undefined : after)
     const flipped = this.recollapse(entity, id, before, after)
     const selfFlipped = flipped.delete(id)
     for (const link of this.outgoing.get(entity) ?? []) {
@@ -538,7 +580,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       this.relink(link, id, after)
     }
     for (const other of flipped) {
-      const row = this.tables[entity].get(other) as Row | undefined
+      const row = this.rowOf(entity, other)
       for (const link of this.outgoing.get(entity) ?? []) this.relink(link, other, row)
     }
     // POD-4758: a field a subset reads moved without moving the member
@@ -758,6 +800,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       collapse.groupOf.clear()
       collapse.collapsed.clear()
     }
+    for (const held of this.summaries.values()) held.clear()
     this.pending.clear()
     this.lastWrites.length = 0
   }
@@ -804,10 +847,9 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       if (key === null) continue
       const group = groups.get(key)
       if (group === undefined) continue
-      const table = this.tables[entity]
       const members = [...group].map((member) => ({
         id: member,
-        row: (member === id ? after : table.get(member)) as Row,
+        row: (member === id ? after : this.rowOf(entity, member)) as Row,
       }))
       const losers = new Set(collapseLosers(rule, members))
       for (const { id: member } of members) {
@@ -959,8 +1001,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       // The subsets follow. Reads the moving row once (O(members under the
       // path), never the corpus; never on a rename, which moves no root).
       if (link.subsets.length > 0) {
-        const row = this.tables[link.from].get(id) as Row | undefined
-        this.refile(link, id, current ?? null, root, row)
+        this.refile(link, id, current ?? null, root, this.rowOf(link.from, id))
       }
     }
   }
@@ -979,18 +1020,46 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       // The subsets follow (a subset holds only bucket members, so the
       // removed root's subset sets empty with its bucket).
       if (link.subsets.length > 0) {
-        const row = next === null ? undefined : (this.tables[link.from].get(id) as Row | undefined)
+        const row = next === null ? undefined : this.rowOf(link.from, id)
         this.refile(link, id, root, next, row)
       }
     }
   }
 
   /**
+   * A row other than the one being written, as the engine reads it: from its
+   * table when resident, else its summary (POD-4753). Never a read by id
+   * through the feed.
+   */
+  private rowOf(entity: EntityName, id: string): Row | undefined {
+    return (this.tables[entity].get(id) as Row | undefined) ?? this.summaries.get(entity)?.get(id)
+  }
+
+  /** Hold `row`'s summary for `entity:id` (not resident), or drop it (resident, or gone). */
+  private summarize(entity: EntityName, id: string, row: Row | undefined): void {
+    const fields = this.summaryFields.get(entity)
+    const held = this.summaries.get(entity)
+    if (fields === undefined || held === undefined) return
+    if (row === undefined) {
+      held.delete(id)
+      return
+    }
+    const summary: Record<string, unknown> = {}
+    for (const field of fields) {
+      const value = row[field]
+      if (value !== undefined) summary[field] = value
+    }
+    held.set(id, summary)
+  }
+
+  /**
    * `id` is resident now: move its plain slots (its forward entries, the
    * buckets keyed by it) into the observable maps, one slot write each.
+   * Returns whether it is resident (always, without residency).
    */
-  private promote(entity: EntityName, id: string): void {
-    if (this.cold === null || !this.cold.resident(entity, id)) return
+  private promote(entity: EntityName, id: string): boolean {
+    if (this.cold === null) return true
+    if (!this.cold.resident(entity, id)) return false
     let moved = false
     for (const link of this.outgoing.get(entity) ?? []) {
       const target = link.coldForward.get(id)
@@ -1012,6 +1081,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       moved = true
     }
     if (moved) this.cold.changed(entity, id)
+    return true
   }
 
   /** Record a move of `member` into (`added`) or out of `target`'s bucket, netted. */

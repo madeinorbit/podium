@@ -23,7 +23,10 @@
  * their sessions) never enter the tables: ingest registers their ids and the
  * relation engine links them. A derivation that reaches one through a lazy
  * relation gets `loading` and queues it; the 50 ms window's batch installs
- * every queued row in ONE action (`hydrate`). `snapshot()` settles the loader
+ * every queued row in ONE action (`hydrate`). A row that stops being cold (a
+ * reopen's sessions, an issue a session keeps shown) is installed from the
+ * publication when it carries the row, else asked for the same way: the
+ * window is the only per-row read (POD-4753). `snapshot()` settles the loader
  * before it answers. Without `lazy` every row is resident (Ma1/Ma2 tests).
  *
  * READ PATH. Every row a model, view, visibility part, roll-up or group
@@ -60,6 +63,7 @@ import {
   observable,
   observe,
   runInAction,
+  untracked,
 } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import { relationLinks } from '../../../shared/src/links'
@@ -104,6 +108,7 @@ import { sliceOrderOf, WorklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import {
   type HeldIssue,
+  HIDDEN_ISSUE_FIELDS,
   readAtOf,
   rollupInputsOf,
   VisibleCollection,
@@ -367,6 +372,8 @@ export class MobxPool {
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             ...(lazy.outOfMemory === undefined ? {} : { outOfMemory: lazy.outOfMemory }),
+            // What visibility reads of a hidden issue (POD-4753), never the row.
+            summaries: { issue: HIDDEN_ISSUE_FIELDS },
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
             lanes: () => this.graph,
           })
@@ -399,8 +406,9 @@ export class MobxPool {
     this.clearSeats = () => {
       seats.clear()
     }
-    // The engine sees every KNOWN row: a resident one in its table, a cold one
-    // by id (read back through the feed only when the engine needs its fields).
+    // The engine knows every KNOWN row (a target is present hot or cold) and
+    // reads only resident ones: a cold row's fields it needs again it keeps
+    // itself, from the row ingest hands it (POD-4753), never read by id.
     const known =
       residency === null
         ? fenced
@@ -408,7 +416,7 @@ export class MobxPool {
             ENTITIES.map((entity) => [
               entity,
               {
-                get: (id: string) => fenced[entity].get(id) ?? residency.read(entity, id),
+                get: (id: string) => fenced[entity].get(id),
                 has: (id: string) => fenced[entity].has(id) || residency.known(entity, id),
               },
             ]),
@@ -648,6 +656,7 @@ export class MobxPool {
       residentIssueIds: false,
       resident: false,
       lazyMany: false,
+      hidden: false,
       hydrate: false,
       settleLoads: false,
       pendingLoads: false,
@@ -797,6 +806,22 @@ export class MobxPool {
   }
 
   /**
+   * TRACKED: the declared summary of a row the cold rule keeps hidden
+   * (POD-4753): a hidden issue's visibility reads it instead of its row.
+   * Undefined for a row in memory, one held out beside the rule, or unknown.
+   */
+  hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+    const residency = this.residency
+    if (residency === null) return undefined
+    // A row in memory is never hidden, and its reader already tracks its
+    // table slot (a `replace` that makes it cold rewrites that slot): asked
+    // untracked, so no residency atom is made per issue in memory.
+    if (untracked(() => this.tables[entity].has(id))) return undefined
+    if (!residency.hidden(entity, id)) return undefined
+    return residency.summary(entity, id) ?? {}
+  }
+
+  /**
    * TRACKED: a lazy collection (Rule L) as its resident members plus the
    * count still loading, every cold one queued. The shape a roll-up reads
    * (Mb3): it derives from `ready` and reports loading while `pending > 0`.
@@ -820,7 +845,8 @@ export class MobxPool {
    * `snapshot()` while settling.
    *
    * A row it installs enters the issue table, which gives it its filing
-   * reaction (`followTable`).
+   * reaction (`followTable`); the rows it no longer keeps cold are asked for
+   * in turn, and the lanes it moved are settled (`Residency.install`).
    */
   hydrate(): void {
     const residency = this.residency
@@ -830,7 +856,7 @@ export class MobxPool {
     const out = ingestOut()
     this.graph.begin()
     runInAction(() => {
-      for (const [entity, id] of batch) residency.hydrate(this.target, entity, id, out)
+      residency.install(this.target, batch, out)
       this.graph.flush()
     })
     this.stats.counters.tableWrites += out.writes
@@ -873,9 +899,13 @@ export class MobxPool {
     runInAction(() => {
       if (event.type === 'replace') reseed(this.target, event.rows, out)
       else {
+        // POD-4753: a row this update carries is installed from it; any
+        // other row it warms is asked for (the load window).
+        this.residency?.publication(event.rows)
         for (const record of event.rows) ingestRecord(this.target, record, out)
-        // POD-4745: a lane member that can now keep a cold owner shown warms it.
-        this.residency?.settleLanes(this.target, out)
+        // POD-4745: a member or a lane member that can now keep a cold row
+        // shown warms it, once every row of the update is in.
+        this.residency?.settle(this.target, out)
       }
       this.graph.flush()
       this.followHeldOut(event)

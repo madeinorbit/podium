@@ -62,6 +62,7 @@ import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { tracked } from '../pool'
+import { LOADING } from '../worklist/rollup'
 
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 
@@ -134,7 +135,7 @@ function armWithAdapter(
     return {
       create: (source, locals, reads) => {
         const handle = inner.create(source, locals, reads) as WritableMobxPoolHandle
-        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentEdit = (id, patch) => editOpened(handle, id, patch)
         const unwatch = oracle?.watch(ctx, source)
         plant?.(handle)
         if (unwatch === undefined) return handle
@@ -281,6 +282,21 @@ function dropPendingOnRemote(handle: WritableMobxPoolHandle): void {
  * loudly, not settle for a row hidden for another reason. The probe cursor
  * is the caller's run-clock stamp (never the wall clock), so reruns agree.
  */
+/**
+ * A generated edit as the app makes it (POD-4753): on a row it has open. A
+ * row not in memory is asked for and loaded first (the load window, closed
+ * now), as opening it would; the write layer refuses an edit on a row that
+ * is still loading.
+ */
+function editOpened(
+  handle: WritableMobxPoolHandle,
+  id: string,
+  patch: Parameters<WritableMobxPoolHandle['write']['edit']>[2],
+): ReturnType<WritableMobxPoolHandle['write']['edit']> {
+  if (runInAction(() => handle.pool.row('issue', id)) === LOADING) handle.pool.settleLoads()
+  return handle.write.edit('issue', id, patch)
+}
+
 function findWindowTarget(
   handle: WritableMobxPoolHandle,
   source: RowSource,
@@ -569,7 +585,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const locals = createEngineLocals(run.ctx.engine)
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
-        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentEdit = (id, patch) => editOpened(handle, id, patch)
         if (planted) staleRewind(handle)
         try {
           const id = run.ctx.targets.visibleRootId
@@ -618,7 +634,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const locals = createEngineLocals(run.ctx.engine)
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
-        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentEdit = (id, patch) => editOpened(handle, id, patch)
         if (planted) dropPendingOnRemote(handle)
         try {
           const id = run.ctx.targets.visibleRootId
@@ -693,7 +709,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const locals = createEngineLocals(run.ctx.engine)
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
-        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentEdit = (id, patch) => editOpened(handle, id, patch)
         // The plant: visibility reads the server-only lane, never the
         // pending cursor — the pre-fix shape (since 80e65b1ca the wrapper
         // overlays it).
@@ -744,7 +760,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const locals = createEngineLocals(run.ctx.engine)
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
-        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentEdit = (id, patch) => editOpened(handle, id, patch)
         try {
           const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId, runStamp(run))
           // The plant: a mark-read the arm logs but never sends — the
@@ -776,8 +792,9 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
           }
           await settleStep(run, handle)
           locals.flush()
-          // A real edit would materialise a cold row (ensureResident); the
-          // phantom performs none, so hydrate the same way — otherwise the
+          // A real edit is made only on a row in memory: a cold one loads
+          // first, over the load window (POD-4753). The phantom skips that,
+          // so load it the same way (ask, close the window) — otherwise the
           // live set lacks the row for loading reasons, not verdict reasons.
           {
             const residency = handle.pool.residency
@@ -846,7 +863,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const locals = createEngineLocals(run.ctx.engine)
         const inner = writableMobxPoolArm(adapter.transport(run.ctx))
         const handle = inner.create(feed.source, locals.source) as WritableMobxPoolHandle
-        adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
+        adapter.currentEdit = (id, patch) => editOpened(handle, id, patch)
         const unwatch = oracle.watch(run.ctx, feed.source)
         if (planted) lateRemoteUntilAccept(handle)
         try {

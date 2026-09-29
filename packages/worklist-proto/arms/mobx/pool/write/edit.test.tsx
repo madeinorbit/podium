@@ -37,6 +37,11 @@ import { tracked } from '../pool'
 import { reaction, runInAction } from 'mobx'
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 import { rowViewOf } from '../models'
+import type { RowSource } from '../../../../shared/src/arm'
+import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
+import { MobxPool } from '../pool'
+import { createMobxWriteApi } from './edit'
+import { PendingOverlay } from './overlay'
 
 installMobxWarnTrap()
 
@@ -311,6 +316,103 @@ describe('Mc1 MobX edits on the model', () => {
       expect(handle.pool.snapshot()).toBeDefined()
     } finally {
       mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+})
+
+/**
+ * POD-4753: an edit on a row that is not in memory. The pool's one reader
+ * answers LOADING and queues the row; the edit is refused while it loads (no
+ * read by id, nothing painted, logged or sent), exactly that row is asked for
+ * in one window, and once it lands the same edit leaves the pool as an
+ * all-in-memory pool's edit leaves it.
+ */
+describe('an edit on a row not in memory', () => {
+  it('is refused while the row loads, asks for exactly that row in one batch, then edits as if it had been in memory', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const loads: string[] = []
+    const counted: RowSource = {
+      snapshot: (kind) => feeds.rows.source.snapshot(kind),
+      subscribe: (listener) => feeds.rows.source.subscribe(listener),
+      row: (kind, id) => {
+        loads.push(`${kind}:${id}`)
+        return feeds.rows.source.row?.(kind, id)
+      },
+    }
+    const windows: { run: () => void; cancelled: boolean }[] = []
+    const lazyTransport = fakeTransport()
+    const lazy = writableMobxPoolArm(lazyTransport, {
+      schedule: (run) => {
+        const timer = { run, cancelled: false }
+        windows.push(timer)
+        return () => {
+          timer.cancelled = true
+        }
+      },
+    }).create(counted, feeds.locals.source) as WritableMobxPoolHandle
+    // The all-in-memory pool: no residency, every row in its tables.
+    const overlay = new PendingOverlay()
+    const full = new MobxPool(DISABLED_READ_FENCE, feeds.locals.source.get(), undefined, undefined, overlay)
+    full.apply({
+      type: 'replace',
+      rows: [
+        ...feeds.rows.source.snapshot('session'),
+        ...feeds.rows.source.snapshot('issue'),
+        ...feeds.rows.source.snapshot('worktree'),
+      ],
+    })
+    const fullTransport = fakeTransport()
+    const fullWrite = createMobxWriteApi(full, overlay, fullTransport)
+    try {
+      const pool = lazy.pool
+      // A closed issue the list does not show: cold by the rule.
+      const id = pool.residency?.ids('issue')[0] as string
+      expect(id).toBeDefined()
+      expect(pool.residency?.isCold('issue', id)).toBe(true)
+      loads.length = 0
+      const patch = { title: 'Renamed while closed' }
+
+      for (const attempt of [1, 2]) {
+        expect(() => lazy.write.edit('issue', id, patch), `attempt ${attempt}`).toThrow(
+          WriteContractError,
+        )
+        expect(() => lazy.write.edit('issue', id, patch)).toThrow(/is loading/)
+      }
+      // Nothing read by id, painted, logged or sent; exactly that row asked
+      // for, in one window.
+      expect(loads).toEqual([])
+      expect(lazy.write.log.size).toBe(0)
+      expect(lazyTransport.sent).toEqual([])
+      expect(tracked(() => pool.resident('issue', id))).toBe('loading')
+      expect(pool.pendingLoads()).toBe(1)
+      expect(windows.filter((timer) => !timer.cancelled)).toHaveLength(1)
+
+      // The window closes: the row lands in one batch, read once.
+      const open = windows.find((timer) => !timer.cancelled)
+      open!.cancelled = true
+      open!.run()
+      expect(loads).toEqual([`issue:${id}`])
+      expect(tracked(() => pool.resident('issue', id))).toBe('resident')
+
+      // The same edit now, and on the all-in-memory pool.
+      lazy.write.edit('issue', id, patch)
+      fullWrite.edit('issue', id, patch)
+      expect(tracked(() => pool.row('issue', id))).toEqual(tracked(() => full.row('issue', id)))
+      const entries = (log: typeof fullWrite.log) =>
+        log.pendingFor('issue', id).map((entry) => ({ patch: entry.patch, prior: entry.prior }))
+      expect(entries(lazy.write.log)).toEqual(entries(fullWrite.log))
+      expect(entries(lazy.write.log)).toHaveLength(1)
+      expect(lazyTransport.sent.map((sent) => sent.command)).toEqual(
+        fullTransport.sent.map((sent) => sent.command),
+      )
+      expect(loads).toEqual([`issue:${id}`])
+    } finally {
+      fullWrite.dispose()
+      full.dispose()
+      lazy.dispose()
       feeds.dispose()
       ctx.engine.destroy()
     }

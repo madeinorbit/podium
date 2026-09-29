@@ -148,6 +148,8 @@ import {
 import {
   childIdsPartOf,
   type HeldIssue,
+  type HiddenIssue,
+  hiddenPresenceOf,
   type IssueFacts,
   issueFactsPartOf,
   keptBelowPartOf,
@@ -190,6 +192,11 @@ export interface ModelHost {
   model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined
   /** Where a row stands; a cold one answers `loading` and is queued (first access). */
   resident(entity: EntityName, id: string): Residence
+  /**
+   * TRACKED: the declared summary of a row the cold rule keeps hidden
+   * (POD-4753, `HIDDEN_ISSUE_FIELDS`); undefined for any other row.
+   */
+  hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
 }
 
 export class EntityModel {
@@ -423,12 +430,18 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     members: cachedGroup('members', (issue: IssueModel) =>
       membersOf(issue.host.visibleInputs, issue.id, issue.standing),
     ),
-    presence: cachedGroup('presence', (issue: IssueModel) =>
-      presenceOf(issue.host.visibleInputs, issue.id, issue),
-    ),
-    nesting: cachedGroup('nesting', (issue: IssueModel) =>
-      nestingOf(issue.host.visibleInputs, issue.id, issue.standing, issue.present),
-    ),
+    /** A hidden issue's from its summary (POD-4753): its row and its sessions are not read. */
+    presence: cachedGroup('presence', (issue: IssueModel) => {
+      const hidden = issue.host.hidden('issue', issue.id)
+      return hidden === undefined
+        ? presenceOf(issue.host.visibleInputs, issue.id, issue)
+        : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden as HiddenIssue)
+    }),
+    /** Presence first: a row that is not present (a hidden one among them) reads no standing. */
+    nesting: cachedGroup('nesting', (issue: IssueModel) => {
+      const present = issue.present
+      return nestingOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present)
+    }),
     /** The nest candidates down the raw parent edge (read by the parent's `nestBelow` and `nested`). */
     nestBelow: cachedGroup('nestBelow', (issue: IssueModel) =>
       nestBelowPartOf(issue.host.visibleInputs, issue.id),
@@ -668,6 +681,13 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   get standing(): Standing | undefined {
     return this.facts?.standing
+  }
+
+  /** The raw parent the nesting walk follows; a hidden issue's from its summary (POD-4753). */
+  get parentRef(): string | null {
+    const hidden = this.host.hidden('issue', this.id)
+    if (hidden === undefined) return this.standing?.parentId ?? null
+    return (hidden['parentId'] as string | null | undefined) || null
   }
 
   get seatIds(): readonly string[] {

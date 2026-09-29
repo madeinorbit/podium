@@ -18,10 +18,16 @@
  * no table slot, no model, no observable. The registry below holds its id
  * (and, for a `via` row, the id it inherits from), in plain maps. The relation
  * engine still links it: ingest hands the engine the row while it has it, so
- * every bucket holds the ids of hot and cold members alike, and the engine
- * reads a cold row again (a collapse peer) through the feed's per-row read.
+ * every bucket holds the ids of hot and cold members alike, and the fields the
+ * engine needs of it again (a collapse peer) it keeps from that row
+ * (`relations.ts`, POD-4753): the engine never reads a cold row by id.
  *
- * HOW A ROW BECOMES HOT, and nothing else makes it so:
+ * HOW A ROW BECOMES HOT, and nothing else makes it so. A row whose value the
+ * publication at hand carries (the update or `replace` being applied) is
+ * installed at once from it; any other row is ASKED FOR: queued for the load
+ * window like a first access, and it answers `LOADING` until the window's one
+ * action installs it. No path reads a row by id inside a feed event
+ * (POD-4753): the window is the only loader.
  * 1. First access. A derivation that reaches a cold row through a lazy
  *    relation (`loading`) gets `true` and queues the row; the first request
  *    arms a 50 ms window, and every row requested inside it is read by id
@@ -30,15 +36,17 @@
  *    cannot write state (MobX), which is why the load is deferred at all.
  * 2. An update that makes the row itself not cold (an issue reopened): the
  *    update carries the value, so it is installed at once, and the rows that
- *    inherited coldness from it (its sessions) are read by id and installed
- *    in the same action (`warmDependents`). Removing a row warms its
- *    dependents too: with the target gone, nothing makes them cold.
+ *    inherited coldness from it (its sessions) are asked for, all in one
+ *    window (`warmDependents`). Removing a row warms its dependents too: with
+ *    the target gone, nothing makes them cold. A row the window installs
+ *    warms its own dependents the same way, if the rule no longer keeps it.
  * 3. A member that can keep it shown (POD-4665): the issue's rule is
  *    `unlessShown`, so a session whose deadline (`keptBy.keep`) has not passed
  *    keeps its closed issue resident. Every member row's deadline is indexed
  *    here by its raw foreign key (plain maps, ids and numbers, no row); a
- *    member ingest that can keep a COLD row shown reads that row by id and
- *    installs it with its dependents (`member`). A cold row's `finishOf`
+ *    member ingest that can keep a COLD row shown marks it, and once the
+ *    publication's rows are in (`settle`) that row is warmed with its
+ *    dependents (`warm`: from the publication, else asked for). A cold row's `finishOf`
  *    is kept beside its id, so deciding it reads nothing. Deadlines only
  *    pass, so the clock never makes a cold row hot.
  *    The rule's `lane` source (R3, POD-4745) keeps an issue shown by the
@@ -48,7 +56,7 @@
  *    `issueId`, a twin collapse flipping, a root appearing or disappearing)
  *    arrives as the engine's join delta (`laneJoined`), and a session's own
  *    update re-checks its lane; both are settled once the publication's rows
- *    are in (`settleLanes`), where a member that can keep a COLD owner of its
+ *    are in (`settle`), where a member that can keep a COLD owner of its
  *    lane shown warms it exactly as above. Only this deadline map and the
  *    owners of the one lane are read.
  * An update to a cold row that leaves it cold relinks it and is NOT stored:
@@ -126,6 +134,13 @@ export interface ResidencyOptions {
    * other; a row in memory stays there.
    */
   readonly outOfMemory?: (entity: EntityName, id: string) => boolean
+  /**
+   * POD-4753 — per entity, the fields its readers need of a row that is cold
+   * BY THE RULE (so hidden: nothing can show it): a small declared summary,
+   * kept beside the cold id from the row ingest hands over (`summary`), never
+   * the row itself.
+   */
+  readonly summaries?: Partial<Readonly<Record<EntityName, readonly string[]>>>
 }
 
 /** What a `lane` source reads of the relation engine (uncounted maintenance reads). */
@@ -143,9 +158,13 @@ export interface ResidencyCounters {
   requests: number
   /** Load windows closed (one action each). */
   batches: number
-  /** Rows installed by a load on access. */
+  /** Rows the load window installed (a first access, or a warm asked for). */
   hydrated: number
-  /** Rows installed because the row they inherit from stopped being cold, or a member can keep them shown. */
+  /**
+   * Rows warmed because the row they inherit from stopped being cold, or a
+   * member can keep them shown: installed from the publication at hand, or
+   * asked for (then the window installs them, counted in `hydrated` too).
+   */
   warmed: number
 }
 
@@ -169,6 +188,11 @@ export class Residency {
   private readonly clock: () => number
   private readonly schedule: Schedule
   private readonly outOfMemory: (entity: EntityName, id: string) => boolean
+  private readonly summaryFields: Partial<Readonly<Record<EntityName, readonly string[]>>>
+  /** `entity:id` → the declared summary of a cold row (entities that declare one). */
+  private readonly summaries = new Map<string, Readonly<Record<string, unknown>>>()
+  /** `entity:id` of cold rows kept out only beside the rule (`outOfMemory`): they may show. */
+  private readonly heldOut = new Set<string>()
   /** Entities whose rows can keep an `unlessShown` row resident (the schema's `keptBy`). */
   private readonly keeperKinds: ReadonlySet<EntityName>
   /** Per `members` source: owner id → member id → how long it keeps the owner shown, for EVERY known member row. */
@@ -204,6 +228,14 @@ export class Residency {
   private cancel: (() => void) | null = null
   /** Runs a closed window's batch (the pool's action). */
   private due: () => void = () => {}
+  /**
+   * The rows the publication being applied carries (an update's records, a
+   * `replace`'s staged rows): a warm installs from here before it asks.
+   * Null between publications and inside the load window.
+   */
+  private inHand: ((entity: EntityName, id: string) => StoredRow | undefined) | null = null
+  /** Cold rows a member ingest can keep shown, warmed once the publication's rows are in (`settle`). */
+  private readonly kept = new Map<string, [EntityName, string]>()
 
   constructor(options: ResidencyOptions) {
     this.schema = options.schema
@@ -221,6 +253,7 @@ export class Residency {
     this.windowMs = options.windowMs ?? LOAD_WINDOW_MS
     this.schedule = options.schedule ?? realSchedule
     this.outOfMemory = options.outOfMemory ?? (() => false)
+    this.summaryFields = options.summaries ?? {}
     const prefixTargets = new Set<EntityName>()
     for (const spec of Object.values(this.schema)) {
       for (const relation of Object.values(spec.relations)) {
@@ -266,6 +299,11 @@ export class Residency {
   /** Cold rows of `entity` (tests, the gate's partition check). */
   size(entity: EntityName): number {
     return this.cold.get(entity)?.size ?? 0
+  }
+
+  /** Cold rows held with a declared summary (POD-4753; the measurement record). */
+  summaryCount(): number {
+    return this.summaries.size
   }
 
   /** Cold ids of `entity` (the gate's partition check). */
@@ -341,6 +379,24 @@ export class Residency {
     return true
   }
 
+  /**
+   * TRACKED: whether `id` is cold BY THE RULE, so hidden: nothing can show it
+   * (POD-4745's complete rule). A row kept out only beside the rule
+   * (`outOfMemory`) may show, and is not hidden.
+   */
+  hidden(entity: EntityName, id: string): boolean {
+    if (!this.capable(entity)) return false
+    this.observe(entity, id)
+    return this.isCold(entity, id) && !this.heldOut.has(`${entity}:${id}`)
+  }
+
+  /** TRACKED: the declared summary of a cold row (`ResidencyOptions.summaries`), else undefined. */
+  summary(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+    if (!this.capable(entity)) return undefined
+    this.observe(entity, id)
+    return this.summaries.get(`${entity}:${id}`)
+  }
+
   /** TRACKED: whether `id` is known and cold, without asking for it. */
   known(entity: EntityName, id: string): boolean {
     if (!this.capable(entity)) return false
@@ -353,14 +409,14 @@ export class Residency {
     this.atoms.get(`${entity}:${id}`)?.reportChanged()
   }
 
-  /** Queue `id` for the next load window (arms it if none is open). */
-  request(entity: LoadableEntity, id: string): void {
+  /** Queue `id` for the next load window (arms it if none is open); false when already queued. */
+  request(entity: LoadableEntity, id: string): boolean {
     let ids = this.queue.get(entity)
     if (ids === undefined) {
       ids = new Set()
       this.queue.set(entity, ids)
     }
-    if (ids.has(id)) return
+    if (ids.has(id)) return false
     ids.add(id)
     this.counters.requests += 1
     if (this.cancel === null) {
@@ -369,6 +425,7 @@ export class Residency {
         this.due()
       }, this.windowMs)
     }
+    return true
   }
 
   hasQueued(): boolean {
@@ -419,8 +476,9 @@ export class Residency {
       this.warmDependents(target, entity, id, out)
       return
     }
-    if (this.coldRule(entity, value) || this.outOfMemory(entity, id)) {
-      this.keepCold(target, entity, id, value, out)
+    const byRule = this.coldRule(entity, value)
+    if (byRule || this.outOfMemory(entity, id)) {
+      this.keepCold(target, entity, id, value, byRule, out)
       return
     }
     if (this.isCold(entity, id)) this.unregister(entity, id)
@@ -445,8 +503,9 @@ export class Residency {
     const hot = target.read[entity].get(id) !== undefined
     const ctx = this.placing
     if (ctx === null) throw new Error('[pool] place() outside a replace (reindex first)')
-    if (!hot && (coldByRule(this.schema, entity, value, ctx) || this.outOfMemory(entity, id))) {
-      this.keepCold(target, entity, id, value, out)
+    const byRule = !hot && coldByRule(this.schema, entity, value, ctx)
+    if (!hot && (byRule || this.outOfMemory(entity, id))) {
+      this.keepCold(target, entity, id, value, byRule, out)
       return
     }
     if (this.isCold(entity, id)) this.unregister(entity, id)
@@ -462,21 +521,49 @@ export class Residency {
     this.counters.coldWrites += 1
   }
 
-  /** Install a queued row on access (inside the pool's batch action). */
-  hydrate(target: IngestTarget, entity: LoadableEntity, id: string, out: IngestOut): void {
-    if (!this.isCold(entity, id)) return
-    const value = this.load(entity, id) as StoredRow | undefined
-    // Gone from the kernel, its removal not yet published: stays cold until
-    // the removal arrives and forgets it.
-    if (value === undefined) return
-    this.unregister(entity, id)
-    put(target, entity, id, value, out)
-    this.counters.hydrated += 1
+  /**
+   * A closed window's rows (inside the pool's batch action): each one still
+   * cold is read by id and installed. Then every row installed whose rule no
+   * longer holds warms the rows that inherit from it (asked for: the next
+   * window), and the lanes the new rows moved are settled.
+   */
+  install(target: IngestTarget, batch: readonly [LoadableEntity, string][], out: IngestOut): void {
+    const installed: [LoadableEntity, string][] = []
+    for (const [entity, id] of batch) {
+      if (!this.isCold(entity, id)) continue
+      const value = this.load(entity, id) as StoredRow | undefined
+      // Gone from the kernel, its removal not yet published: stays cold until
+      // the removal arrives and forgets it.
+      if (value === undefined) continue
+      this.unregister(entity, id)
+      put(target, entity, id, value, out)
+      this.counters.hydrated += 1
+      installed.push([entity, id])
+    }
+    // After the whole batch: a dependent that landed with its target is no
+    // longer registered, so only the ones still cold are asked for.
+    for (const [entity, id] of installed) this.warmDependents(target, entity, id, out)
+    this.settle(target, out)
   }
 
-  /** Read a cold row by id (the relation engine's collapse peers). */
+  /** Read a cold row by id: the one reader's `peek` (`MobxPool.row`), and nothing else. */
   read(entity: EntityName, id: string): object | undefined {
     return this.isCold(entity, id) ? this.load(entity as LoadableEntity, id) : undefined
+  }
+
+  /**
+   * An update is about to be applied: its records are the rows at hand until
+   * it is settled (`settle`). Read lazily, the last record of a row winning.
+   */
+  publication(rows: readonly { kind: string; id: string; value?: unknown }[]): void {
+    let byKey: Map<string, StoredRow | undefined> | null = null
+    this.inHand = (entity, id) => {
+      if (byKey === null) {
+        byKey = new Map()
+        for (const record of rows) byKey.set(`${record.kind}:${record.id}`, record.value as StoredRow | undefined)
+      }
+      return byKey.get(`${entity}:${id}`)
+    }
   }
 
   /** Forget everything (the pool's dispose). */
@@ -491,7 +578,11 @@ export class Residency {
     for (const deadlines of this.laneKeeps.values()) deadlines.clear()
     for (const dirty of this.laneDirty.values()) dirty.clear()
     this.placing = null
+    this.inHand = null
+    this.kept.clear()
     this.finish.clear()
+    this.summaries.clear()
+    this.heldOut.clear()
   }
 
   /**
@@ -522,6 +613,7 @@ export class Residency {
         source.kind === 'members' ? (this.keeps.get(source)?.get(key)?.values() ?? []) : [],
     }
     this.placing = ctx
+    this.inHand = (entity, id) => staged(entity).get(id) as StoredRow | undefined
   }
 
   /**
@@ -541,7 +633,7 @@ export class Residency {
         if (typeof keep === 'function' || now <= keep) dirty.add(member)
       }
     }
-    this.settleLanes(target, out)
+    this.settle(target, out)
   }
 
   /**
@@ -558,14 +650,25 @@ export class Residency {
   }
 
   /**
-   * Warm every COLD owner a lane's member can now keep shown (inside the
-   * publication's action, after its rows are in): for each member that
-   * joined a lane or changed, its current lane (the engine's forward), when
-   * the engine counts it there (issueless, not collapsed), and each cold
-   * owner checked out at that lane whose finish its deadline has not passed.
-   * Warming can move lanes again, so it runs until nothing is left.
+   * The publication's rows are in (inside its action, or the load window's):
+   * warm every COLD row a member ingest marked as kept, then every COLD owner
+   * a lane's member can now keep shown: for each member that joined a lane or
+   * changed, its current lane (the engine's forward), when the engine counts
+   * it there (issueless, not collapsed), and each cold owner checked out at
+   * that lane whose finish its deadline has not passed. A warm installed from
+   * the publication can move lanes again, so it runs until nothing is left.
+   * Then the publication is over: nothing is at hand.
    */
-  settleLanes(target: IngestTarget, out: IngestOut): void {
+  settle(target: IngestTarget, out: IngestOut): void {
+    for (const [entity, id] of this.kept.values()) {
+      if (this.isCold(entity, id)) this.warm(target, entity, id, out)
+    }
+    this.kept.clear()
+    this.settleLanes(target, out)
+    this.inHand = null
+  }
+
+  private settleLanes(target: IngestTarget, out: IngestOut): void {
     const reader = this.lanes()
     if (reader === null) return
     for (;;) {
@@ -602,10 +705,10 @@ export class Residency {
 
   /**
    * A member row's ingest (POD-4665): re-index what it keeps, and when it can
-   * keep a COLD row shown at the clock, install that row now, with the rows
-   * that inherit from it (this one among them), before the member itself is
-   * routed. Nothing is read unless it warms: the member's deadline and the
-   * cold row's `finishOf` are both held.
+   * keep a COLD row shown at the clock, mark that row: once the publication's
+   * rows are in (`settle`) it is warmed with the rows that inherit from it
+   * (this one among them). Nothing is read to decide: the member's deadline
+   * and the cold row's `finishOf` are both held.
    */
   private member(
     target: IngestTarget,
@@ -627,17 +730,28 @@ export class Residency {
     if (keeper === null || !this.isCold(keeper.to, keeper.id)) return
     const finish = this.finish.get(`${keeper.to}:${keeper.id}`) ?? null
     if (this.now() > keepDeadline(keeper.keep, finish)) return
-    this.warm(target, keeper.to, keeper.id, out)
+    this.kept.set(`${keeper.to}:${keeper.id}`, [keeper.to, keeper.id])
   }
 
-  /** Install the cold row `entity:id` because a member can keep it shown, with its dependents. */
+  /**
+   * The cold row `entity:id` is no longer cold by rule (a member keeps it
+   * shown, its target reopened or left): installed from the publication at
+   * hand, else asked for. The rows that inherit coldness from it follow it
+   * the same way, so what the publication does not carry lands in ONE window.
+   */
   private warm(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
-    const row = this.load(entity as LoadableEntity, id) as StoredRow | undefined
-    if (row === undefined) return // its removal is on the way
-    this.unregister(entity, id)
-    put(target, entity, id, row, out)
-    this.counters.warmed += 1
-    this.warmDependents(target, entity, id, out)
+    const row = this.inHand?.(entity, id)
+    if (row !== undefined) {
+      this.unregister(entity, id)
+      put(target, entity, id, row, out)
+      this.counters.warmed += 1
+    } else if (this.request(entity as LoadableEntity, id)) {
+      this.counters.warmed += 1
+    }
+    for (const inheritor of this.inheritors.get(entity) ?? []) {
+      const ids = this.dependents.get(inheritor)?.get(id)
+      if (ids !== undefined) for (const dependent of [...ids]) this.warm(target, inheritor, dependent, out)
+    }
   }
 
   private indexMember(entity: EntityName, id: string, row: object): ReturnType<typeof keeperOf> {
@@ -689,15 +803,16 @@ export class Residency {
     return live
   }
 
-  /** Relink a cold row with its new value, keeping only its id. */
+  /** Relink a cold row with its new value, keeping only its id (and its declared summary). */
   private keepCold(
     target: IngestTarget,
     entity: EntityName,
     id: string,
     value: StoredRow,
+    byRule: boolean,
     out: IngestOut,
   ): void {
-    this.register(entity, id, value)
+    this.register(entity, id, value, byRule)
     if (entity === 'issue') target.volatile?.setIssueRead(id, value)
     target.relations?.changed(entity, id, undefined, value)
     out.cold += 1
@@ -706,7 +821,7 @@ export class Residency {
 
   /**
    * The rows that inherit coldness from `to:id` and are no longer cold by
-   * rule (it reopened, or left): read each by id and install it now.
+   * rule (it reopened, left, or landed while kept): each is warmed.
    */
   private warmDependents(target: IngestTarget, to: EntityName, id: string, out: IngestOut): void {
     const entities = this.inheritors.get(to)
@@ -714,24 +829,30 @@ export class Residency {
     for (const entity of entities) {
       const ids = this.dependents.get(entity)?.get(id)
       if (ids === undefined) continue
-      for (const dependent of [...ids]) {
-        const value = this.load(entity as LoadableEntity, dependent) as StoredRow | undefined
-        if (value === undefined) continue // its removal is on the way
-        this.unregister(entity, dependent)
-        put(target, entity, dependent, value, out)
-        this.counters.warmed += 1
-        this.warmDependents(target, entity, dependent, out)
-      }
+      for (const dependent of [...ids]) this.warm(target, entity, dependent, out)
     }
   }
 
-  private register(entity: EntityName, id: string, row: object): void {
+  private register(entity: EntityName, id: string, row: object, byRule: boolean): void {
     const ids = this.cold.get(entity) as Map<string, string | null>
     const before = ids.get(id) ?? null
     const after = viaTargetOf(this.schema, entity, row)?.id ?? null
     ids.set(id, after)
+    const key = `${entity}:${id}`
     if (this.schema[entity].cold.kind === 'unlessShown') {
-      this.finish.set(`${entity}:${id}`, coldFinishOf(this.schema, entity, row))
+      this.finish.set(key, coldFinishOf(this.schema, entity, row))
+    }
+    if (byRule) this.heldOut.delete(key)
+    else this.heldOut.add(key)
+    const fields = this.summaryFields[entity]
+    if (fields !== undefined) {
+      const values = row as Readonly<Record<string, unknown>>
+      const summary: Record<string, unknown> = {}
+      for (const field of fields) {
+        const value = values[field]
+        if (value !== undefined) summary[field] = value
+      }
+      this.summaries.set(key, summary)
     }
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== after) {
@@ -749,6 +870,8 @@ export class Residency {
     const before = ids.get(id) ?? null
     ids.delete(id)
     this.finish.delete(`${entity}:${id}`)
+    this.summaries.delete(`${entity}:${id}`)
+    this.heldOut.delete(`${entity}:${id}`)
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== null) unindex(byTarget, before, id)
     this.queue.get(entity as LoadableEntity)?.delete(id)
