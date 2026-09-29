@@ -85,8 +85,14 @@ async function eventsThroughFailed(
   const events: RuntimeEvent[] = []
   for await (const event of handle.events('bootstrap')) {
     events.push(event)
-    if (events.some((seen) => seen.t === 'turn' && seen.ev.ev === 'failed') &&
-      events.some((seen) => seen.t === 'item' && seen.item.kind === 'complete' && seen.item.item.role === 'user')) break
+    if (
+      events.some((seen) => seen.t === 'turn' && seen.ev.ev === 'failed') &&
+      events.some(
+        (seen) =>
+          seen.t === 'item' && seen.item.kind === 'complete' && seen.item.item.role === 'user',
+      )
+    )
+      break
   }
   return events
 }
@@ -164,13 +170,15 @@ describe('Claude SDK durable failure state', () => {
         items.push(event.item.item)
       }
     }
-    expect(items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: 'user', text: 'ping' }),
-      expect.objectContaining({
-        role: 'system',
-        text: expect.stringMatching(/Provider authentication failed/i),
-      }),
-    ]))
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'user', text: 'ping' }),
+        expect.objectContaining({
+          role: 'system',
+          text: expect.stringMatching(/Provider authentication failed/i),
+        }),
+      ]),
+    )
     expect(items).toHaveLength(2)
     expect(kinds.indexOf('state:turn_failed')).toBeLessThan(kinds.indexOf('turn:failed'))
     expect(kinds.indexOf('item:system')).toBeLessThan(kinds.indexOf('turn:failed'))
