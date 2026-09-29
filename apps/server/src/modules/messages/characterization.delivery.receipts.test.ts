@@ -12,24 +12,19 @@
  * path would have chosen, so a migration that quietly re-routed a send would
  * turn one of these red rather than merely changing which array it wrote to.
  *
- * The three properties this file exists to hold down:
+ * The properties this file exists to hold down:
  *   - the urgency x lifecycle table still picks the transport. Receipts report
  *     what happened; they do not choose what to do.
- *   - `unverified` is DELIVERED-UNCONFIRMED: ledger-visible, and never a resend.
- *     This is the acceptance criterion the item names explicitly, and the retry
- *     storm it forbids is what a naive reading of "unverified" would produce.
- *   - a receipt never moves a row that the echo, a read or a cancellation
- *     already settled.
+ *   - every agent send is one durable row (POD-4795): the receipt is the
+ *     queue's own `queued`, and the row's fate arrives later by id.
+ *   - an unconfirmed row is `unknown`: ledger-visible, and never a resend. The
+ *     retry storm it forbids is what a naive reading of "unconfirmed" would
+ *     produce.
  *
- * No test here sleeps before an assertion (POD-757). The verification window is
- * modelled by `receipts.defer` + `settleReceipts()`, which is the window closing
- * on demand rather than after a wall-clock wait.
+ * No test here sleeps before an assertion (POD-757).
  */
 
 import { asSessionId } from '@podium/model'
-import type {
-  TurnReceipt,
-} from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from './characterization-support'
@@ -60,11 +55,11 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
     // THE EVIDENCE IS NEW. Flag off, nothing on this row said whether the turn
     // opened; the ledger inferred delivery from the push returning ok.
     expect(await receipts(h)).toMatchObject([
-      { messageId: r.id, outcome: 'accepted', provenBy: 'hook', deliveredAs: 'queue' },
+      { messageId: r.id, outcome: 'queued', deliveredAs: 'queue', position: 1 },
     ])
   })
 
-  it('routes an interrupt through interruptText and reports the interrupt delivery', async () => {
+  it('routes an interrupt through interruptText, as the interrupt mode of a durable row', async () => {
     const h = await mailHarness({ receipts: {} })
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
@@ -76,9 +71,10 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
     })
 
     // A running target + interrupt urgency is the one mid-turn path, and the
-    // flag does not move it.
+    // flag does not move it. It is still one durable row (POD-4795): the
+    // daemon cuts the turn and types it, and the receipt is the queue's.
     expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText'])
-    expect(await receipts(h)).toMatchObject([{ outcome: 'accepted', deliveredAs: 'interrupt' }])
+    expect(await receipts(h)).toMatchObject([{ outcome: 'queued', deliveredAs: 'queue' }])
   })
 
   it('hands a busy live target the same push at once; its daemon holds it for the boundary', async () => {
@@ -99,53 +95,24 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
   })
 })
 
-describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (R2)', () => {
-  const unverified: TurnReceipt = {
-    outcome: 'unverified',
-    deliveredAs: 'when-ready',
-    verificationWindowMs: 4000,
-    at: '2026-07-20T12:00:00.000Z',
-  }
+describe('flag-on delivery: an unconfirmed row is unknown, never a retry (R2)', () => {
+  const unconfirmed = 'delivery could not be confirmed; check the transcript before retrying'
 
-  it('records the unconfirmed delivery on the ledger and pushes exactly once', async () => {
-    const h = await mailHarness({ receipts: { answer: () => unverified } })
+  it('does not resend when the sweep runs after the daemon could not confirm', async () => {
+    const h = await mailHarness({ receipts: {} })
     const iss = await h.createIssue({ title: 'target' })
-    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
+    const target = asSessionId('sTarget')
+    h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
 
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
       to: `#${iss.seq}`,
-      body: 'did this land?',
+      body: 'once only',
     })) as { id: string }
-
-    // THE ACCEPTANCE CRITERION. The window closed without proof, and the answer
-    // is one honest ledger entry — not a second push.
-    expect(h.pushes).toHaveLength(1)
-    expect(await receipts(h)).toMatchObject([
-      {
-        messageId: r.id,
-        outcome: 'unverified',
-        deliveryConfirmed: false,
-        verificationWindowMs: 4000,
-      },
-    ])
-
-    // The row itself is exactly where an un-echoed push always sits: still
-    // queued, stamped injected, awaiting the echo. `unverified` describes the
-    // EVIDENCE, and does not invent a new resting state for the message.
-    const row = (await h.svc.message(r.id))!
-    expect(row.deliveryStatus).toBe('dispatched')
-    expect(row.injectedAt).toBeTruthy()
-  })
-
-  it('does not resend when the sweep runs after an unverified receipt', async () => {
-    const h = await mailHarness({ receipts: { answer: () => unverified } })
-    const iss = await h.createIssue({ title: 'target' })
-    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
-
-    await h.gate.dispatch(OPERATOR, undefined, 'send', { to: `#${iss.seq}`, body: 'once only' })
+    await h.svc.onQueuedInputUnknown(r.id, target, unconfirmed)
     const afterSend = h.pushes.length
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('unknown')
 
-    // THE RETRY STORM THIS FORBIDS. If `unverified` were treated as a failure,
+    // THE RETRY STORM THIS FORBIDS. If `unknown` were treated as a failure,
     // every sweep tick would re-push a message the agent may well have received
     // — worst on a slow agent, which is the likeliest producer of the outcome.
     await h.svc.sweep()
@@ -153,8 +120,8 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
     expect(h.pushes).toHaveLength(afterSend)
   })
 
-  it('still confirms on the transcript echo — the receipt did not close the question', async () => {
-    const h = await mailHarness({ receipts: { answer: () => unverified } })
+  it('still confirms on the transcript echo — unconfirmed did not close the question', async () => {
+    const h = await mailHarness({ receipts: {} })
     const iss = await h.createIssue({ title: 'target' })
     const target = asSessionId('sTarget')
     h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
@@ -163,10 +130,10 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
       to: `#${iss.seq}`,
       body: 'echo me',
     })) as { id: string }
-    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('dispatched')
+    await h.svc.onQueuedInputUnknown(r.id, target, unconfirmed)
 
-    // `unverified` is unproven, not failed — so the ordinary confirmation path
-    // is still open and still the thing that settles the row.
+    // Unproven, not failed — so the ordinary confirmation path is still open
+    // and still the thing that settles the row.
     await h.svc.onTranscriptDelta(target, [{ role: 'user', text: `[podium message ${r.id} · from x]` }])
     const delivered = (await h.svc.message(r.id))!
     expect(delivered.deliveryStatus).toBe('confirmed')
@@ -177,60 +144,6 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
     ).toEqual(['echo'])
   })
 })
-
-describe('flag-on delivery: the window is open until the driver answers (R3)', () => {
-  it('reports nothing while the receipt is outstanding, then records it on settle', async () => {
-    const h = await mailHarness({ receipts: { defer: true } })
-    const iss = await h.createIssue({ title: 'target' })
-    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
-
-    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
-      to: `#${iss.seq}`,
-      body: 'in flight',
-    })) as { id: string; ok: boolean }
-
-    // THE CALLER ALREADY HAS ITS ANSWER. This is the shape of the migration: a
-    // synchronous, optimistic reply now, and the honest evidence afterwards —
-    // which is what lets the ledger stay truthful without every sender learning
-    // to await proof.
-    expect(r.ok).toBe(true)
-    expect(h.pushes).toHaveLength(1)
-    expect(await receipts(h)).toEqual([])
-
-    expect(await h.settleReceipts()).toBe(1)
-    expect(await receipts(h)).toMatchObject([{ messageId: r.id, outcome: 'accepted' }])
-  })
-
-  it('does not move a row the echo already settled while the window was open', async () => {
-    const h = await mailHarness({ receipts: { defer: true, answer: () => unverifiedLate } })
-    const iss = await h.createIssue({ title: 'target' })
-    const target = asSessionId('sTarget')
-    h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
-
-    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
-      to: `#${iss.seq}`,
-      body: 'raced',
-    })) as { id: string }
-
-    // The echo beats the driver's window closing — an ordinary race once sends
-    // stop being instantaneous.
-    await h.svc.onTranscriptDelta(target, [{ role: 'user', text: `[podium message ${r.id} · from x]` }])
-    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('confirmed')
-
-    await h.settleReceipts()
-    // LATE EVIDENCE ABOUT A CLOSED QUESTION. The receipt is recorded for the
-    // ledger's benefit, but a delivered row must never walk backwards because
-    // the driver could not prove what the transcript already showed.
-    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('confirmed')
-  })
-})
-
-const unverifiedLate: TurnReceipt = {
-  outcome: 'unverified',
-  deliveredAs: 'when-ready',
-  verificationWindowMs: 4000,
-  at: '2026-07-20T12:00:00.000Z',
-}
 
 describe('flag-on delivery: a legacy-driven session is untouched (R4)', () => {
   it('produces no receipts for a session the daemon reports no driver for', async () => {
@@ -289,44 +202,5 @@ describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
     expect(h.pushes.filter((push) => push.sessionId === sender).map((push) => push.text)).toEqual([
       expect.stringContaining('this agent cannot accept file attachments'),
     ])
-  })
-})
-
-describe('the entry a push became in the agent history (POD-4774)', () => {
-  it('stores the entry an accepted receipt named on the message record', async () => {
-    const h = await mailHarness({
-      receipts: {
-        answer: (via) => ({
-          outcome: 'accepted',
-          turnEpoch: 1,
-          deliveredAs: via === 'interrupt' ? 'interrupt' : 'when-ready',
-          provenBy: 'transcript-echo',
-          transcriptItem: { id: 'entry-direct', cursor: 'cur-direct' },
-          at: new Date().toISOString(),
-        }),
-      },
-    })
-    const iss = await h.createIssue({ title: 'target' })
-    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
-    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
-      to: `#${iss.seq}`,
-      body: 'stop and read this',
-      urgency: 'interrupt',
-    })) as { id: string; ok: boolean }
-    expect(r.ok).toBe(true)
-    const record = await h.store.messages.getMessage(r.id)
-    expect(record?.transcriptItem).toEqual({ id: 'entry-direct', cursor: 'cur-direct' })
-  })
-
-  it('stores nothing when the receipt named no entry', async () => {
-    const h = await mailHarness({ receipts: {} })
-    const iss = await h.createIssue({ title: 'target' })
-    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
-    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
-      to: `#${iss.seq}`,
-      body: 'stop and read this',
-      urgency: 'interrupt',
-    })) as { id: string; ok: boolean }
-    expect(await h.store.messages.getMessage(r.id)).not.toHaveProperty('transcriptItem')
   })
 })

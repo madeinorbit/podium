@@ -1366,7 +1366,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     }
   }
 
-  it('a send with files to a busy agent goes to its driver at once, not down the text-only queue [POD-4661]', async () => {
+  it('a send with files to a busy agent rides the durable queue with its files [POD-4795]', async () => {
     const { svc, sent, queued } = await harness([
       session({ sessionId: asSessionId('s1'), agentState: WORKING }),
     ])
@@ -1386,8 +1386,13 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
         ],
       },
     )
-    expect(sent.map((s) => s.sessionId)).toEqual(['s1'])
-    expect(queued).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+    expect(queued).toEqual([
+      expect.objectContaining({
+        sessionId: 's1',
+        attachments: [expect.objectContaining({ id: 'att_1', path: '/staged/shot.png' })],
+      }),
+    ])
   })
 
   it('a send behind a durable backlog joins it rather than waiting for an idle edge [POD-4661]', async () => {

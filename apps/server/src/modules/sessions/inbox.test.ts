@@ -1578,48 +1578,54 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.rows).toEqual([])
   })
 
-  // POD-4666: the interrupt half of an interrupt-urgency send goes to the driver
-  // whatever the server's phase says; the driver skips it when there is no
-  // turn, and the message queues either way.
-  it('interrupt-urgency text at idle-looking Codex asks the driver to interrupt, then queues', async () => {
-    vi.useFakeTimers()
-    try {
-      const h = harness({ agentKind: 'codex', phase: 'idle', contractInterrupt: { ok: true } })
+  // POD-4795: an agent's interrupt is the interrupt MODE of one durable row.
+  // The server sends no stop of its own and reads no phase (POD-4666): the
+  // daemon's queue puts the row first, cuts a running turn, and types it.
+  it.each(['idle', 'working'] as const)(
+    'interrupt-urgency text to a %s agent is one durable row in the interrupt mode',
+    async (phase) => {
+      vi.useFakeTimers()
+      try {
+        const h = harness({
+          agentKind: 'codex',
+          phase,
+          hasBoundDriver: true,
+          contractInterrupt: { ok: true },
+          contractReceipts: [],
+        })
 
-      expect(
-        await h.inbox.interruptText({
-          sessionId: SID,
-          text: 'stop and read this',
-          principal: agentPrincipal(),
-        }),
-      ).toEqual({ ok: true, queued: true })
-      await vi.advanceTimersByTimeAsync(500)
+        expect(
+          await h.inbox.interruptText({
+            sessionId: SID,
+            text: 'stop and read this',
+            principal: agentPrincipal(),
+            sourceMessageId: 'msg-urgent',
+          }),
+        ).toEqual({ ok: true, queued: true })
+        await vi.advanceTimersByTimeAsync(500)
 
-      expect(h.contractInterrupts).toEqual([SID])
-      expect(h.sent).toEqual([])
-      expect(h.rows).toHaveLength(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+        expect(h.contractInterrupts).toEqual([])
+        expect(h.sent).toEqual([])
+        expect(h.rows).toEqual([
+          expect.objectContaining({ id: 'msg-urgent', delivery: 'interrupt' }),
+        ])
+        // Forwarded under the message id, in the interrupt mode.
+        expect(h.contractCalls).toEqual([
+          expect.objectContaining({ turnId: 'msg-urgent', delivery: 'interrupt' }),
+        ])
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
 
-  it('interrupt-urgency text still queues when the driver has no running session', async () => {
-    const h = harness({ agentKind: 'codex', phase: 'working', contractInterrupt: { reason: 'not_running' } })
-
-    expect(
-      await h.inbox.interruptText({ sessionId: SID, text: 'read this', principal: agentPrincipal() }),
-    ).toEqual({ ok: true, queued: true })
-    expect(h.contractInterrupts).toEqual([SID])
+  it('a repeated interrupt of the same message is one row', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const send = { sessionId: SID, text: 'read this', principal: agentPrincipal(), sourceMessageId: 'msg-once' }
+    expect(await h.inbox.interruptText(send)).toEqual({ ok: true, queued: true })
+    expect(await h.inbox.interruptText(send)).toEqual({ ok: true, queued: true })
     expect(h.rows).toHaveLength(1)
-  })
-
-  it('interrupt-urgency text refuses when the driver refuses the interrupt of a running session', async () => {
-    const h = harness({ agentKind: 'codex', phase: 'idle', contractInterrupt: { reason: 'busy', detail: 'x' } })
-
-    expect(
-      await h.inbox.interruptText({ sessionId: SID, text: 'read this', principal: agentPrincipal() }),
-    ).toEqual({ ok: false, reason: 'busy: x' })
-    expect(h.rows).toEqual([])
+    expect(h.contractInterrupts).toEqual([])
   })
 
   it('writes no raw abort bytes for a contract-routed session', async () => {

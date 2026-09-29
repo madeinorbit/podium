@@ -173,7 +173,7 @@ describe('send', () => {
     expect(forwarded.map((f) => f.delivery)).toEqual(['when-ready', 'interrupt'])
   })
 
-  it('forwards attachment refs on direct sends and refuses lossy queueing', async () => {
+  it('forwards attachment refs on direct sends and stores them on queued rows (POD-4795)', async () => {
     const { gateway, forwarded, enqueued } = makeGateway()
     const attachment = {
       id: 'attachment-1',
@@ -190,29 +190,23 @@ describe('send', () => {
       attachments: [attachment],
     })
     expect(forwarded[0]?.attachments).toEqual([attachment])
-    await expect(
-      gateway.send({
-        sessionId: SESSION,
-        text: 'later',
-        origin: 'human',
-        delivery: 'queue',
-        attachments: [attachment],
-      }),
-    ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
-    expect(enqueued).toEqual([])
-    // `steer` degrades to the same durable queue a `queue` would ride, so it
-    // must refuse attachments for the same reason — otherwise a steered file
-    // would be the one lossy path through an otherwise honest gate.
-    await expect(
-      gateway.send({
-        sessionId: SESSION,
-        text: 'steer this file',
-        origin: 'human',
-        delivery: 'steer',
-        attachments: [attachment],
-      }),
-    ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
-    expect(enqueued).toEqual([])
+    // The durable row carries the files; `steer` degrades to the same queue
+    // and so carries them too — no path drops a file.
+    for (const delivery of ['queue', 'steer'] as const) {
+      await expect(
+        gateway.send({
+          sessionId: SESSION,
+          text: `later ${delivery}`,
+          origin: 'human',
+          delivery,
+          attachments: [attachment],
+        }),
+      ).resolves.toMatchObject({ outcome: 'queued' })
+    }
+    expect(enqueued).toEqual([
+      expect.objectContaining({ text: 'later queue', attachments: [attachment] }),
+      expect.objectContaining({ text: 'later steer', attachments: [attachment] }),
+    ])
   })
 
   it('refuses rather than forwarding into a socket that is not there', async () => {

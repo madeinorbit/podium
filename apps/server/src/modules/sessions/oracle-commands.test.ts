@@ -1311,8 +1311,9 @@ describe('oracle: continue (the errored-agent retry)', () => {
   /**
    * RE-PINNED ON THE CONTRACT (358ad0ffb POD-4427, POD-4279). This used to pin
    * 'continue\r' typed at the PTY stamped 'auto_continue'. An agent's continue
-   * now rides the receipt seam (`sendContinueViaContract`, session-wiring.ts):
-   * one when-ready `runtimeSendRequest` carrying 'continue' with origin
+   * now rides the receipt seam (`sendContinueViaContract`, session-wiring.ts)
+   * and, like every agent send since POD-4795, is one durable row: one
+   * when-ready `runtimeDurableSendRequest` carrying 'continue' with origin
    * 'auto_continue' (no send gate reads the errored phase since POD-4775).
    * A plain shell keeps the raw keystroke, pinned byte-for-byte below. The
    * command's own gate — ONLY when the phase is errored — is unchanged on both.
@@ -1335,14 +1336,14 @@ describe('oracle: continue (the errored-agent retry)', () => {
     })
 
     expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: true })
-    expect(runtimeSends(o.daemon, sessionId)).toEqual([
+    expect(durableSends(o.daemon, sessionId)).toEqual([
       expect.objectContaining({
         text: 'continue',
         origin: 'auto_continue',
         delivery: 'when-ready',
       }),
     ])
-    expect(durableSends(o.daemon, sessionId)).toEqual([])
+    expect(runtimeSends(o.daemon, sessionId)).toEqual([])
     expect(ptyFrames(o.daemon)).toEqual([])
   })
 

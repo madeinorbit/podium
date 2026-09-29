@@ -84,9 +84,9 @@ export interface ReceiptBehaviour {
   /** Sessions the daemon reports a driver for. Absent = every session in the
    *  fixture, which is the common flag-on variant. */
   onContract?: SessionId[]
-  /** What the driver answers for a given send. Absent = `accepted`, hook-proven,
-   *  because that is the uninteresting case and a variant should have to ASK for
-   *  the interesting ones. */
+  /** What the seam answers for a given send. Absent = the durable queue's
+   *  `queued`, because every agent send is one durable row (POD-4795) and a
+   *  variant should have to ASK for a refusal. */
   answer?: (
     via: 'now' | 'queue' | 'interrupt',
     input: { sessionId: SessionId; text: string },
