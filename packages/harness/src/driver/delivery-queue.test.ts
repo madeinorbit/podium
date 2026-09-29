@@ -1007,7 +1007,7 @@ describe('a refusal is a proven "no" (POD-4839)', () => {
     const f = fixture({ reason: 'not_running' })
     await f.handle.send({ rowId: 'row', text: 'a' }, options)
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(await f.handle.cancelDelivery!('row')).toEqual({ ok: true })
+    expect(await f.handle.cancelDelivery?.('row')).toEqual({ ok: true })
     expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'row', outcome: 'dropped' })
   })
 })

@@ -399,7 +399,7 @@ describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () 
       { origin: 'human', delivery: 'when-ready' },
     )
     await vi.waitFor(() => expect(turns).toHaveLength(1))
-    turns[0]!.refuse(
+    turns[0]?.refuse(
       new Error('the Claude model host process exited with code 1 before the turn finished'),
     )
     await expect(receipt).rejects.toThrow(/exited with code 1/)
@@ -409,7 +409,7 @@ describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () 
       { origin: 'human', delivery: 'when-ready' },
     )
     await vi.waitFor(() => expect(turns).toHaveLength(2))
-    turns[1]!.ack()
+    turns[1]?.ack()
     await expect(next).resolves.toMatchObject({ outcome: 'accepted' })
     runtime.dispose()
   })
