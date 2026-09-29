@@ -88,11 +88,14 @@ function shape(db: SqlDatabase): TableShape {
       sql: string
     }
   ).sql
+  // Named CHECKs, table-level or on a column (an ADD COLUMN carries its own),
+  // each body read to its balancing parenthesis.
   const checks: TableShape['checks'] = {}
-  for (const m of table.matchAll(
-    /CONSTRAINT\s+[`"]?(\w+)[`"]?\s+CHECK\s*\((.*?)\)(?=,?\s*(?:\n|CONSTRAINT|$))/g,
-  )) {
-    checks[m[1]!] = m[2]!.trim()
+  for (const m of table.matchAll(/CONSTRAINT\s+[`"]?(\w+)[`"]?\s+CHECK\s*\(/g)) {
+    let depth = 1
+    let end = m.index + m[0].length
+    for (; depth > 0; end++) depth += table[end] === '(' ? 1 : table[end] === ')' ? -1 : 0
+    checks[m[1]!] = table.slice(m.index + m[0].length, end - 1).trim()
   }
   const indexes: TableShape['indexes'] = {}
   for (const i of db
@@ -341,6 +344,7 @@ describe('the drop-legacy-message-status migration', () => {
         LEGACY_INDEXES.some((name) => new RegExp(`INDEX ${name}\\b`).test(d)),
       ),
     )
+    console.log('DEBUG reads', reads.length, 'onLegacy', onLegacy.length, JSON.stringify(reads.map((q) => [plan(legacy, q), plan(upgraded, q)])))
     for (const sql of onLegacy) {
       expect(plan(upgraded, sql).join('\n'), sql).toMatch(/INDEX idx_messages_/)
     }
