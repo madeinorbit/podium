@@ -30,7 +30,13 @@ import {
   type LaunchSpec,
 } from '@podium/harness'
 import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
-import { type AgentKind, asMachineId, firstAdminMemberId, type MachineId, type SessionId } from '@podium/model'
+import {
+  type AgentKind,
+  asMachineId,
+  firstAdminMemberId,
+  type MachineId,
+  type SessionId,
+} from '@podium/model'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import {
@@ -53,6 +59,7 @@ import {
   harnessScratchRepo,
   reapStaleHarnessDirs,
 } from './harness-env'
+import { type LinkProxy, startLinkProxy } from './link-b-proxy'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -206,7 +213,6 @@ function withHarnessChildEnv(spec: LaunchSpec): LaunchSpec {
   return { ...spec, env: { ...harnessLaunchEnv, ...(spec.env ?? {}) } }
 }
 
-
 /**
  * PODIUM_E2E_SILENT_START=<ms> — every spawn is a child that prints NOTHING for
  * that long, then starts behaving (POD-385).
@@ -218,16 +224,27 @@ function withHarnessChildEnv(spec: LaunchSpec): LaunchSpec {
  */
 const SILENT_START_MS = Number(process.env.PODIUM_E2E_SILENT_START ?? 0)
 
+/**
+ * PODIUM_E2E_CLAUDE_MODEL=<model> — every REAL Claude spawn runs on this model
+ * (POD-4773 runs Claude on haiku). Applied after the launch log, which keeps
+ * recording what the product asked for.
+ */
+const CLAUDE_MODEL = process.env.PODIUM_E2E_CLAUDE_MODEL?.trim() || undefined
+
 const launchLogFile = join(stateDir, 'launch-log.jsonl')
-const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
+const launch = (kind: AgentKind, requested: LaunchOptions): LaunchSpec => {
   appendFileSync(
     launchLogFile,
     JSON.stringify({
       agentKind: kind,
-      ...(opts.model ? { model: opts.model } : {}),
-      ...(opts.effort ? { effort: opts.effort } : {}),
+      ...(requested.model ? { model: requested.model } : {}),
+      ...(requested.effort ? { effort: requested.effort } : {}),
     }) + '\n',
   )
+  const opts =
+    REAL_AGENTS && kind === 'claude-code' && CLAUDE_MODEL
+      ? { ...requested, model: CLAUDE_MODEL }
+      : requested
   if (SILENT_START_MS > 0) {
     return withHarnessChildEnv({
       cmd: process.execPath,
@@ -245,7 +262,10 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
     // The isolated CODEX_HOME contains only the reviewed Podium hook. This
     // documented automation bypass is test-only and never changes production trust.
     if (REAL_AGENTS && kind === 'codex') {
-      return withHarnessChildEnv({ ...spec, args: ['--dangerously-bypass-hook-trust', ...spec.args] })
+      return withHarnessChildEnv({
+        ...spec,
+        args: ['--dangerously-bypass-hook-trust', ...spec.args],
+      })
     }
     return withHarnessChildEnv(spec)
   }
@@ -364,7 +384,9 @@ if (!REAL_AGENTS) {
 const E2E_ACCOUNT_ROLE = process.env.PODIUM_E2E_ACCOUNT_ROLE
 if (E2E_ACCOUNT_ROLE === 'member' || E2E_ACCOUNT_ROLE === 'none') {
   const roleStore = server.registry.sessionStore
-  const users = roleStore.users as unknown as { roleOf: (id: string) => Promise<string | undefined> }
+  const users = roleStore.users as unknown as {
+    roleOf: (id: string) => Promise<string | undefined>
+  }
   users.roleOf = async () => (E2E_ACCOUNT_ROLE === 'member' ? 'member' : undefined)
   console.log(`[e2e] account role forced to ${E2E_ACCOUNT_ROLE}`)
 }
@@ -416,8 +438,16 @@ if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHI
   })
 }
 
+/**
+ * PODIUM_E2E_LINK_B_PROXY=1 — the daemon dials the server through a TCP pipe
+ * that SIGHUP cuts and, on the next SIGHUP, restores (see link-b-proxy.ts). The
+ * browsers' links and both processes are untouched. `<state>/link-b` is the ack:
+ * `<serial> <up|down>`, written after each toggle.
+ */
+const linkB: LinkProxy | undefined =
+  process.env.PODIUM_E2E_LINK_B_PROXY === '1' ? await startLinkProxy(server.port) : undefined
 const daemonOptions: Parameters<typeof startDaemon>[0] = {
-  serverUrl: `ws://localhost:${server.port}`,
+  serverUrl: `ws://localhost:${linkB?.port ?? server.port}`,
   machineToken: server.machineToken,
   machineId: hostMachineId(),
   installCodexHooks: REAL_AGENTS,
@@ -455,14 +485,14 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
     for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
       try {
         sessionId = (
-        await server.registry.modules.sessions.createSession({
-          agentKind: subject.agentKind,
-          cwd: REPO_ROOT,
-          issueId: issue.id,
-          title: subject.label,
-          machineId: hostMachineId(),
-        })
-      ).sessionId
+          await server.registry.modules.sessions.createSession({
+            agentKind: subject.agentKind,
+            cwd: REPO_ROOT,
+            issueId: issue.id,
+            title: subject.label,
+            machineId: hostMachineId(),
+          })
+        ).sessionId
       } catch (err) {
         lastError = err
         await new Promise((resolve) => setTimeout(resolve, 250))
@@ -476,8 +506,7 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
     await server.registry.modules.sessions.renameSession({ sessionId, name: subject.label })
     let live = false
     for (let attempt = 0; attempt < 80 && !live; attempt++) {
-      live =
-        server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
+      live = server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
       if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
     }
     if (!live) {
@@ -509,7 +538,11 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
   }
   writeFileSync(
     join(stateDir, 'pod-2920-queue-position.json'),
-    JSON.stringify({ issueId: issue.id, issueTitle: QUEUE_POSITION_ISSUE_TITLE, sessions: fixtureSessions }),
+    JSON.stringify({
+      issueId: issue.id,
+      issueTitle: QUEUE_POSITION_ISSUE_TITLE,
+      sessions: fixtureSessions,
+    }),
   )
 }
 // POD-408: one LIVE, RESUMABLE agent session, so a spec can drive the panel's
@@ -536,11 +569,11 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
     try {
       sessionId = (
         await server.registry.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: REPO_ROOT,
-        issueId: issue.id,
-        machineId: hostMachineId(),
-      })
+          agentKind: 'claude-code',
+          cwd: REPO_ROOT,
+          issueId: issue.id,
+          machineId: hostMachineId(),
+        })
       ).sessionId
     } catch (err) {
       lastError = err
@@ -552,7 +585,10 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
       `PODIUM_E2E_PANEL_LIFECYCLE: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  await server.registry.modules.sessions.renameSession({ sessionId, name: 'Lifecycle panel subject' })
+  await server.registry.modules.sessions.renameSession({
+    sessionId,
+    name: 'Lifecycle panel subject',
+  })
   // NO hand-sent `bind` frame. `createSession` already makes the server MINT a
   // SessionBinding and the daemon launch the keyecho jig for a claude-code kind;
   // a synthetic bind on top of that overwrites the minted binding, and the
@@ -608,11 +644,11 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
     try {
       sessionId = (
         await server.registry.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: REPO_ROOT,
-        issueId: issue.id,
-        machineId: hostMachineId(),
-      })
+          agentKind: 'claude-code',
+          cwd: REPO_ROOT,
+          issueId: issue.id,
+          machineId: hostMachineId(),
+        })
       ).sessionId
     } catch (err) {
       lastError = err
@@ -642,8 +678,7 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
   // correctly overwritten. Wait for the session to go live, then report.
   let live = false
   for (let attempt = 0; attempt < 80 && !live; attempt++) {
-    live =
-      server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
+    live = server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
     if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
   }
   if (!live) throw new Error('PODIUM_E2E_TERMINAL_SIZING: the session never became live')
@@ -679,11 +714,11 @@ if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
     try {
       sessionId = (
         await server.registry.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: REPO_ROOT,
-        issueId: issue.id,
-        machineId: hostMachineId(),
-      })
+          agentKind: 'claude-code',
+          cwd: REPO_ROOT,
+          issueId: issue.id,
+          machineId: hostMachineId(),
+        })
       ).sessionId
     } catch (err) {
       lastError = err
@@ -727,11 +762,11 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
     try {
       sessionId = (
         await server.registry.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: REPO_ROOT,
-        issueId: issue.id,
-        machineId: hostMachineId(),
-      })
+          agentKind: 'claude-code',
+          cwd: REPO_ROOT,
+          issueId: issue.id,
+          machineId: hostMachineId(),
+        })
       ).sessionId
     } catch (err) {
       lastError = err
@@ -749,8 +784,7 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   })
   let live = false
   for (let attempt = 0; attempt < 80 && !live; attempt++) {
-    live =
-      server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
+    live = server.registry.modules.sessions.sessionFactsById(sessionId)?.status === 'live'
     if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
   }
   if (!live) {
@@ -859,11 +893,11 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
     try {
       parentId = (
         await server.registry.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: REPO_ROOT,
-        issueId: issue.id,
-        machineId: hostMachineId(),
-      })
+          agentKind: 'claude-code',
+          cwd: REPO_ROOT,
+          issueId: issue.id,
+          machineId: hostMachineId(),
+        })
       ).sessionId
     } catch (err) {
       lastError = err
@@ -875,7 +909,10 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       `PODIUM_E2E_SESSION_ATTRIBUTION: the agent inventory never arrived — ${String(lastError)}`,
     )
   }
-  await server.registry.modules.sessions.renameSession({ sessionId: parentId, name: 'Attribution host' })
+  await server.registry.modules.sessions.renameSession({
+    sessionId: parentId,
+    name: 'Attribution host',
+  })
   // WAIT FOR THE PARENT'S BINDING, WHICH IS NOT A RETRY (POD-1526).
   //
   // `createSession` for an AGENT principal SUCCEEDS synchronously and then fails
@@ -904,14 +941,14 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
   let childId: SessionId | undefined
   for (let attempt = 0; attempt < 30 && childId === undefined; attempt++) {
     const candidate = (
-        await server.registry.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: REPO_ROOT,
-      issueId: issue.id,
-      machineId: hostMachineId(),
-      binding: { principal: { kind: 'agent', parentBindingId: parentId } },
-    })
-      ).sessionId
+      await server.registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: REPO_ROOT,
+        issueId: issue.id,
+        machineId: hostMachineId(),
+        binding: { principal: { kind: 'agent', parentBindingId: parentId } },
+      })
+    ).sessionId
     // Give the daemon a moment to accept or reject the transition.
     for (let settle = 0; settle < 12 && statusOf(candidate) !== 'exited'; settle++) {
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -927,7 +964,10 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
       'PODIUM_E2E_SESSION_ATTRIBUTION: no delegated child survived its spawn, so there is no delegated pair to render',
     )
   }
-  await server.registry.modules.sessions.renameSession({ sessionId: childId, name: 'Delegated worker' })
+  await server.registry.modules.sessions.renameSession({
+    sessionId: childId,
+    name: 'Delegated worker',
+  })
 }
 console.log(
   `harness relay on ws://localhost:${server.port} (shell=real, else=keyecho); state=${stateDir}`,
@@ -963,6 +1003,9 @@ const restartServer = async (): Promise<void> => {
 }
 process.on('SIGUSR1', () => void restartServer())
 
+// PODIUM_E2E_DAEMON_RESTART_GAP_MS — how long no daemon runs during a SIGUSR2
+// restart. Long enough, a spec can change a viewer's box while it is gone.
+const DAEMON_RESTART_GAP_MS = Number(process.env.PODIUM_E2E_DAEMON_RESTART_GAP_MS ?? 250)
 const restartDaemon = async (): Promise<void> => {
   if (daemonRestartInFlight || shuttingDown) return
   daemonRestartInFlight = true
@@ -970,7 +1013,7 @@ const restartDaemon = async (): Promise<void> => {
     // Detach only. Durable abduco masters (and their inherited stable hook
     // socket path) survive; the replacement daemon reuses that path and reattaches.
     await daemon.close()
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await new Promise((resolve) => setTimeout(resolve, DAEMON_RESTART_GAP_MS))
     if (shuttingDown) return
     daemon = await startDaemon(daemonOptions)
     daemonRestartSerial += 1
@@ -981,6 +1024,18 @@ const restartDaemon = async (): Promise<void> => {
 }
 process.on('SIGUSR2', () => void restartDaemon())
 
+if (linkB) {
+  const linkBFile = join(stateDir, 'link-b')
+  let linkBSerial = 0
+  writeFileSync(linkBFile, `${linkBSerial} up`)
+  process.on('SIGHUP', () => {
+    if (linkB.down) linkB.restore()
+    else linkB.cut()
+    linkBSerial += 1
+    writeFileSync(linkBFile, `${linkBSerial} ${linkB.down ? 'down' : 'up'}`)
+  })
+}
+
 let shutdownPromise: Promise<void> | undefined
 const shutdown = (): Promise<void> => {
   if (shutdownPromise) return shutdownPromise
@@ -989,6 +1044,7 @@ const shutdown = (): Promise<void> => {
     // Full reap: harness sessions are throwaway — without this every e2e run leaks
     // durable abduco masters (durability is the feature; the harness opts out).
     await daemon.close({ reapSessions: true })
+    await linkB?.close()
     await server.close()
     // globalTeardown treats removal as the acknowledgement that every writer above
     // is closed. On failure the marker stays until shutdownAndExit kills this process.
