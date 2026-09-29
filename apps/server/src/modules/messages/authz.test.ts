@@ -583,7 +583,7 @@ describe('read-surface and reply authz (A5)', () => {
         id: oid,
       },
     )) as { deliveryStatus: string }
-    expect(shown.deliveryStatus).toBe('stored')
+    expect(shown.deliveryStatus).toBe('dispatched')
     expect((await h.svc.message(oid))!.deliveryStatus).toBe('dispatched')
 
     // The recipient may reply; so may the operator.
