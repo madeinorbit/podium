@@ -54,7 +54,7 @@ export type IssueHierarchyCapability = Pick<
 /** Public comments and tracker-mail contract. */
 export type IssueCommentsMailCapability = Pick<
   IssueCommentsMailModule,
-  'comments' | 'addComment' | 'addCallerComment' | 'sendMail' | 'mailInbox' | 'mailClaim' | 'mailPending' | 'mailMessage'
+  'comments' | 'addComment' | 'addCallerComment' | 'mailInbox' | 'mailClaim' | 'mailPending' | 'mailMessage'
 >
 
 /** Public attention, per-user markers and subscription contract. */

@@ -40,10 +40,10 @@ export interface ApprovalServiceDeps {
    * delivery) — the agent must not have to poll to learn the decision.
    *
    * `Promise<void>`, NOT `void | Promise<void>` [POD-3806]. This is wired to
-   * `IssueService.sendMail`, which opens its own store transaction, and the
-   * union let the composition root write `void issues.sendMail(...)` — dropping
-   * that promise, so under the async store executor the mail transaction JOINED
-   * whatever span the decision was running inside and then died orphaned when
+   * a message send (systemIssueNotice, POD-4846; `IssueService.sendMail` then),
+   * which opens its own store transaction, and the union let the composition
+   * root write `void issues.sendMail(...)` — dropping that promise, so under the
+   * async store executor the mail transaction JOINED whatever span the decision was running inside and then died orphaned when
    * the span closed. `notify` below has always awaited this; the type is what
    * makes the discarded promise unrepresentable at the wiring.
    */

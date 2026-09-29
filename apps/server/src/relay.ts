@@ -193,6 +193,7 @@ import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
+import { systemIssueNotice } from './system-notices'
 import { SessionStore } from './store'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
@@ -1956,13 +1957,6 @@ export class SessionRegistry {
       funnel,
       ledger: issueArbitration.ledger,
       publishSpecs: publisher,
-      // Agent mail send-time nudge (issue #103): the sessions module subscribes
-      // and picks the live member session to poke — see modules/sessions.
-      onMailSent: (row) =>
-        this.bus.emit('issue.mailSent', {
-          issueId: row.id,
-          seq: row.seq,
-        }),
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
     })
@@ -2128,11 +2122,11 @@ export class SessionRegistry {
         return !!s && s.status !== 'exited' && s.status !== 'hibernated'
       },
       sessionWorkspace,
-      // Grant/steal notifications ride agent mail; best-effort by contract
-      // (the waiter also discovers the grant via polling).
+      // Grant/steal notices are messages to the holder's issue (POD-4846);
+      // best-effort by contract (the waiter also discovers the grant by polling).
       sendMail: async (issueId, from, body) => {
         try {
-          await issues.sendMail(issueId, from, body)
+          await systemIssueNotice(messagesSvc, from)(issueId, body)
         } catch {}
       },
       appendEvent: async (e) => {
@@ -2591,7 +2585,7 @@ export class SessionRegistry {
       // whatever span the decision was running inside and died orphaned when the
       // span closed. Same shape as the lock bug (POD-3802).
       notifyIssue: async (issueId, body) => {
-        await issues.sendMail(issueId, 'approval-broker', body)
+        await systemIssueNotice(messagesSvc, 'approval-broker')(issueId, body)
       },
       executeServerOp: async (op, sessionId) => {
         const caller = await workflowCallerForCapability(await sessionsSvc.capabilityForSession(sessionId))
@@ -2755,7 +2749,8 @@ export class SessionRegistry {
           (await this.store.repos.listRepoPaths(machineId))[0] ?? (await this.store.repos.listRepoPaths())[0],
         issueExists: async (id) => await readIssue(this.store.issues, id) !== null,
         createIssue: async (input) => await issues.create(input),
-        sendMail: async (issueId, body) => await issues.sendMail(issueId, 'machine-diagnostic', body),
+        sendMail: async (issueId, body) =>
+          await systemIssueNotice(messagesSvc, 'machine-diagnostic')(issueId, body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
         warn: (message) => log.warn(message),
       })

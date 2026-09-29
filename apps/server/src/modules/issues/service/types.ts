@@ -23,7 +23,7 @@ import type {
 import type { LinearIssue } from '../../../linear'
 import type { SessionFacts } from '../../sessions/facts'
 import type { llmClient } from '../../../llm'
-import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
+import type { IssueRow, SessionStore } from '../../../store'
 import type { PublishSpec } from '../publish'
 
 /**
@@ -319,9 +319,6 @@ export interface IssueDeps {
   defaultRepoBranch?(repoPath: string): Promise<string>
   llm?: typeof llmClient
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>
-  /** Send-time mail delivery hook (issue #103): the registry nudges the target
-   *  issue's live agent session. Best-effort — sendMail swallows its failures. */
-  onMailSent?(row: IssueRow, message: IssueMessageRow): void
   /**
    * Fired after a durable closed-predicate flip so session teardown can begin.
    *

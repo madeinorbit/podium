@@ -28,6 +28,7 @@ import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { seedIssueMail } from './test-support/seed-issue-mail'
 import { seedMessage } from './test-support/seed-message'
 import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 
@@ -5437,31 +5438,10 @@ describe('IssueService setState (agent-posted current state → activityNotes)',
 })
 
 describe('IssueService agent mail (#103)', () => {
-  it('sendMail stores an unread message and fires the delivery hook', async () => {
-    const { svc, deps } = await harness()
-    ;(deps as { onMailSent?: unknown }).onMailSent = vi.fn()
-    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const m = await svc.sendMail(asIssueId(`#${a.seq}`), 'issue:#9', 'please rebase')
-    expect(m).toMatchObject({ issueId: a.id, fromAuthor: 'issue:#9', status: 'unread' })
-    expect(m.id).toMatch(/^msg_/)
-    expect(deps.onMailSent).toHaveBeenCalledWith(expect.objectContaining({ id: a.id }), m)
-  })
-
-  it('a delivery-hook failure never fails the send', async () => {
-    const { svc, deps } = await harness()
-    ;(deps as { onMailSent?: unknown }).onMailSent = vi.fn(() => {
-      throw new Error('nudge exploded')
-    })
-    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const m = await svc.sendMail(a.id, 'operator', 'hi')
-    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 1 })
-    expect(m.status).toBe('unread')
-  })
-
   it('mailInbox is read-on-list: returns wasUnread, subsequent lists are read', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.sendMail(a.id, 'operator', 'one')
+    await seedIssueMail(store, a.id, 'operator', 'one')
     const first = await svc.mailInbox(a.id)
     expect(first).toHaveLength(1)
     expect(first[0]).toMatchObject({ wasUnread: true, status: 'read', body: 'one' })
@@ -5471,9 +5451,9 @@ describe('IssueService agent mail (#103)', () => {
   })
 
   it('mailClaim: first wins, second reports claimed=false with the winning message', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const m = await svc.sendMail(a.id, 'operator', 'act on this')
+    const m = await seedIssueMail(store, a.id, 'operator', 'act on this')
     const r1 = await svc.mailClaim(m.id, 'issue:#5')
     expect(r1.claimed).toBe(true)
     expect(r1.message).toMatchObject({ status: 'claimed', claimedBy: 'issue:#5' })
@@ -5484,11 +5464,11 @@ describe('IssueService agent mail (#103)', () => {
   })
 
   it('prime (bound) surfaces the unread mail count', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(await svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
-    await svc.sendMail(a.id, 'operator', 'x')
-    await svc.sendMail(a.id, 'operator', 'y')
+    await seedIssueMail(store, a.id, 'operator', 'x')
+    await seedIssueMail(store, a.id, 'operator', 'y')
     // Behavioral: the unread count surfaces and points at the mail inbox command
     // (exact sentence pin relaxed, POD-619 [spec:SP-0be7]).
     const primed = await svc.prime({ boundIssueId: a.id })
@@ -5609,9 +5589,9 @@ describe('IssueService agent mail (#103)', () => {
   })
 
   it('mailPending pure-legacy unread (no substrate twin) still nags', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.sendMail(a.id, 'operator', 'pre-substrate path')
+    await seedIssueMail(store, a.id, 'operator', 'pre-substrate path')
     expect(await svc.mailPending(a.id)).toMatchObject({ unread: 1 })
   })
 

@@ -1146,10 +1146,9 @@ const defs = {
     // row + delivery ledger and mirrors the legacy issue_messages row (same
     // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
     handler: async (ctx, input) => {
+      // The one send path (POD-4846): there is no second, direct mailbox write.
       const send = ctx.deps.sendMessage
-      if (!send) {
-        return await ctx.commentsMail.sendMail(input.id, await ctx.mailIdentity(), input.body)
-      }
+      if (!send) throw new Error('mail sending is not wired on this server')
       const r = await send(ctx.messageSender(), {
         to: { kind: 'issue', id: input.id },
         body: input.body,

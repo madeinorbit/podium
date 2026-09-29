@@ -145,28 +145,6 @@ export const REACTIONS = [
     scopeInvariant: 'The session delegation is resolved live and remains bounded by its owner.',
   },
   {
-    id: 'attention.issue-mail-nudge',
-    description: 'Nudge a live issue session after mail arrives.',
-    trigger: 'issue.mailSent',
-    durability: 'durable',
-    replay: {
-      mode: 'startup-reconcile',
-      sourceOfTruth: 'unread issue mail and durable session inbox rows',
-      reauthorizeAtApply: true,
-    },
-    idempotency: { key: 'mail message id + recipient session id', duplicatePolicy: 'deduplicate' },
-    ordering: 'Per target session FIFO through the durable inbox.',
-    retry: 'Session inbox sweep owns retry and dead-lettering.',
-    failureOwner: 'message delivery service',
-    observability: {
-      registry: true,
-      events: ['issue.mailSent'],
-      metrics: ['message delivery attempts'],
-    },
-    principal: delegated(),
-    scopeInvariant: 'Routes to the owner of the issue/mail target, never an ambient operator.',
-  },
-  {
     id: 'issues.session-derived-maintenance',
     description: 'Maintain issue fields from committed or live session facts.',
     trigger: 'issue.sessionDerived',

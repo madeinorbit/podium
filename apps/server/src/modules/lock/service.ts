@@ -85,7 +85,8 @@ export interface LockServiceDeps {
    */
   sessionWorkspace(sessionId: LockHolderId): string | null
   /**
-   * Best-effort agent mail to an issue (IssueService.sendMail); never throws.
+   * Best-effort notice to an issue, as a message from `system:<from>`
+   * (systemIssueNotice, POD-4846); never throws.
    *
    * PROMISE-TYPED BECAUSE IT WRITES THE STORE [POD-3820]. The production wiring
    * is `async` and opens its own transaction. Typed `=> void` it was assignable
