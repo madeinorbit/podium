@@ -943,6 +943,61 @@ describe('the pipe is the liveness signal', () => {
   })
 })
 
+describe('a refusal means Codex recorded nothing (POD-4839)', () => {
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+
+  it('answers a JSON-RPC error to turn/start with a refusal naming the error', async () => {
+    // MEASURED (POD-4834, codex 0.155.0 S10): four kinds of JSON-RPC error
+    // reply, none of them recorded. The program's own "no" is a proven one.
+    const w = await world()
+    w.server.failNextTurn()
+    const receipt = await w.handle.send({ id: 'msg-no', text: 'refused' }, options)
+    expect(receipt).toMatchObject({
+      outcome: 'refused',
+      refusal: { reason: 'invalid_value', detail: expect.stringContaining('-32000') },
+    })
+    w.dispose()
+  })
+
+  it('ends a durable row Codex refused as never typed, safe to resend', async () => {
+    const w = await world()
+    w.server.failNextTurn()
+    await w.handle.send({ id: 'msg-row', rowId: 'msg-row', text: 'refused' }, options)
+    for (let i = 0; i < 20 && !w.events().some((e) => e.t === 'delivery'); i++) await settle()
+    const outcome = w.events().find((e) => e.t === 'delivery')
+    expect(outcome).toMatchObject({ t: 'delivery', rowId: 'msg-row', outcome: 'failed' })
+    expect(outcome).not.toHaveProperty('cause')
+    w.dispose()
+  })
+
+  it('never calls a turn/start lost with the pipe a refusal: Codex may have recorded it', async () => {
+    const w = await world()
+    // GENUINELY IN FLIGHT: the request reached the server, then the pipe died.
+    w.server.stallNextRequest()
+    const pending = w.handle.send({ id: 'msg-lost', text: 'maybe' }, options)
+    await settle()
+    w.server.crash()
+    await expect(pending).rejects.toThrow(/closed its transport/)
+    w.dispose()
+  })
+
+  it('refuses a request its client never wrote, and says it never left', async () => {
+    const server = startFakeAppServer()
+    const client = createCodexClient({
+      transport: server.transport,
+      onNotification: () => {},
+      onServerRequest: () => {},
+    })
+    await expect(client.call('thread/start', {})).rejects.toMatchObject({ requestNotSent: true })
+    await client.handshake({
+      clientInfo: { name: 'podium', version: '1' },
+      capabilities: { experimentalApi: true, requestAttestation: false },
+    })
+    server.crash()
+    await expect(client.call('thread/read', {})).rejects.toMatchObject({ requestNotSent: true })
+  })
+})
+
 describe('the handshake, whose violation is silence', () => {
   it('refuses to send anything before `initialize` rather than hanging', async () => {
     /**
