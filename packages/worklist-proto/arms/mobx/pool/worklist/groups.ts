@@ -1,5 +1,5 @@
 /**
- * POD-4570 (Mb2) — the worklist's groups and closed folds, over the ordered
+ * The worklist's groups and closed folds, over the ordered
  * visible ids (`visible.ts`).
  *
  * THE RULE IS THE SPEC'S. R-GROUP (`docs/plans/pod-4441-round-two-slice.md`

@@ -1,5 +1,5 @@
 /**
- * POD-4571 (Mb3) — the row roll-ups: `phase`, `working`, `asking`,
+ * The row roll-ups: `phase`, `working`, `asking`,
  * `progressDone` / `progressTotal` and `workingSince` (L1b, spec §3 R-SUM and
  * R-ROLL, corrected by L1d), as a COMPOSITION over declared relations.
  *
@@ -30,7 +30,7 @@
  *   node's own `parent` forward slot (`VisibleCollection.childrenBy`), not by
  *   re-listing the `children` bucket: a re-listing reads every sibling id
  *   (the fence counts each), so a re-parent would cost both families, where
- *   the filing costs the moved row's own slot (#7's budget, POD-4609).
+ *   the filing costs the moved row's own slot.
  *
  * THE ROOT, WITHOUT A WALK (audit §3.3). A session's motion phase depends on
  * the ROW being derived, not on the session's own issue: on a finished row an
