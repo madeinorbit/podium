@@ -517,7 +517,7 @@ export function wireBridge(
   owned.label = durableLabel
   // The screen is held (not fed) here — see the Terminal contract. Feeding
   // stays in the fan-out below, unchanged.
-  const terminal = Terminal.attach(session, owned.screen(), {
+  const terminal = Terminal.attach(session, owned, {
       onSize: (size, birth) => onSessionSize(ctx, sessionId, size, birth),
       onFrame: (data) => {
         driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {

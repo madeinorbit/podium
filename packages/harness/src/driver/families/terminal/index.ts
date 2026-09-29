@@ -57,6 +57,7 @@ export {
   SUBMIT_VERIFY_DELAY_MS,
   type TerminalInjectionMachine,
   type TerminalInjectionPorts,
+  type TerminalWriteRole,
   type TerminalInterruptConfig,
   type TimerHandle,
   VERIFICATION_WINDOW_MS,

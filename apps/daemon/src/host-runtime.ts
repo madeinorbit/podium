@@ -51,6 +51,7 @@ import {
 } from '@podium/process/durable'
 import { driverSlotsOver } from './session/driver-slots.js'
 import { SessionRegistry } from './session/registry.js'
+import { writeHeadedInput } from './terminal/headed-input.js'
 import { createSessionEngineScope } from './session/engines.js'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -470,10 +471,8 @@ export async function createDaemonHostRuntime(args: {
   // authoritative frame. Nothing here mints a default (POD-4434).
   const sessions = new SessionRegistry()
   /** Keystrokes into a headed session's terminal, as a person at it would type. */
-  const writeHeadedPty = (sessionId: SessionId, bytes: string): void => {
-    const terminal = sessions.get(sessionId)?.terminal
-    if (terminal?.kind === 'headed') terminal.writeBase64(Buffer.from(bytes, 'utf8').toString('base64'))
-  }
+  const writeHeadedPty = (sessionId: SessionId, bytes: string): void =>
+    writeHeadedInput(sessions, sessionId, bytes)
   const composerEngine = new ComposerSyncEngine(
     (sessionId, text) => {
       if (terminalRuntime?.has(sessionId)) terminalRuntime.observeDraft(sessionId, text)

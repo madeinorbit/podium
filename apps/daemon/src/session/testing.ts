@@ -26,7 +26,7 @@ export function attachTestTerminal(
   kind: TerminalKind = 'headed',
 ): Terminal {
   const owned = ctx.sessions.ensure(sessionId)
-  const terminal = Terminal.attach(attachment, owned.screen(), { onFrame: () => {} }, { kind })
+  const terminal = Terminal.attach(attachment, owned, { onFrame: () => {} }, { kind })
   owned.replaceTerminal(terminal)
   return terminal
 }

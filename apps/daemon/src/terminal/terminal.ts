@@ -15,15 +15,26 @@
  * through {@link Terminal.park}. There is exactly one Terminal per Session at
  * a time, because the terminal stream is keyed by session id.
  *
- * IMPORT DIRECTION (layers table): may import DurableAttachment, TerminalScreen
- * and protocol terminal frames. Must never import the durable door, any
- * driver, agent-runtime or harness manifests — a surface cannot open or reap
+ * IMPORT DIRECTION (layers table): may import DurableAttachment, TerminalScreen,
+ * the session's foreign-write counter and protocol terminal frames. Must never
+ * import the durable door, any driver, agent-runtime or harness manifests — a surface cannot open or reap
  * a process, and knows nothing about what the bytes mean.
  */
 
 import type { Geometry } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/screen'
 import type { TerminalScreen } from '@podium/process/screen'
+import type { ExclusiveWriterCheck, ForeignWriteCounter, MessageWrite } from './foreign-writes.js'
+
+/**
+ * What a Terminal is attached FOR: the session entry that owns the screen it
+ * holds and the foreign-write counter its write call feeds (POD-4888). Both
+ * are required, so no Terminal can exist whose writes go uncounted.
+ */
+export interface TerminalOwner {
+  screen(): TerminalScreen
+  readonly foreignWrites: ForeignWriteCounter
+}
 
 /**
  * The fan-out one Terminal drives. The Terminal feeds its screen and calls
@@ -82,16 +93,27 @@ export class Terminal {
   private settled = false
   /** Has this Terminal stated a size yet? The first one is its birth. */
   private born = false
+  private readonly writes: ForeignWriteCounter
+  /** Whether this attachment is, right now, the only writer: the host's lease. */
+  private readonly exclusive: ExclusiveWriterCheck
 
   private constructor(
     attachment: DurableAttachment,
-    screen: TerminalScreen,
+    owner: TerminalOwner,
     events: TerminalEvents,
     kind: TerminalKind,
   ) {
     this.kind = kind
     this.attachment = attachment
-    this.screen = screen
+    this.screen = owner.screen()
+    this.writes = owner.foreignWrites
+    this.exclusive = () => !this.settled && attachment.holdsWriterLease?.() === true
+    this.writes.attached(this.exclusive)
+    if (attachment.onLeaseLost) {
+      this.unwire.push(attachment.onLeaseLost(() => {
+        if (!this.settled) this.writes.leaseLost()
+      }))
+    }
     this.unwire.push(
       attachment.onFrame((frame) => {
         if (!this.settled) events.onFrame(frame.data)
@@ -123,15 +145,16 @@ export class Terminal {
   /**
    * THE ONE function that constructs a Terminal (POD-4434): headed open and
    * reattach and native client open/re-adopt all come through here. Takes the
-   * live attachment and the session's screen; opens nothing, reaps nothing.
+   * live attachment and the session entry that owns it (its screen and its
+   * foreign-write counter); opens nothing, reaps nothing.
    */
   static attach(
     attachment: DurableAttachment,
-    screen: TerminalScreen,
+    owner: TerminalOwner,
     events: TerminalEvents,
     opts: TerminalOptions = {},
   ): Terminal {
-    const terminal = new Terminal(attachment, screen, events, opts.kind ?? 'headed')
+    const terminal = new Terminal(attachment, owner, events, opts.kind ?? 'headed')
     // The WELCOME a spawn or reattach awaited has already stated the size: say
     // it once now, through the same event every later RESIZED takes.
     const size = attachment.size?.()
@@ -163,13 +186,23 @@ export class Terminal {
     return !this.settled
   }
 
-  write(data: Uint8Array): void {
+  /**
+   * THE WRITE CALL — every byte the daemon puts into a session's terminal
+   * comes through here or {@link writeBase64} (`terminal-write-guard.test.ts`).
+   * Each call is counted as a foreign write (POD-4888) unless it is tagged as
+   * the typing message's own. Counted before the settled check on purpose: a
+   * write that may have gone somewhere is never assumed to have gone nowhere,
+   * and an extra count only ever withholds order credit.
+   */
+  write(data: Uint8Array, own?: MessageWrite): void {
+    if (own === undefined) this.writes.foreignWrite()
     if (this.settled) return
     this.attachment.writeBytes(data)
   }
 
-  /** Legacy base64 input boundary (the driver bridge port). */
-  writeBase64(dataBase64: string): void {
+  /** Legacy base64 input boundary (the driver bridge port). Counted as {@link write}. */
+  writeBase64(dataBase64: string, own?: MessageWrite): void {
+    if (own === undefined) this.writes.foreignWrite()
     if (this.settled) return
     this.attachment.write(dataBase64)
   }
@@ -218,6 +251,7 @@ export class Terminal {
   park(): void {
     if (this.settled) return
     this.settled = true
+    this.writes.detached(this.exclusive)
     for (const off of this.unwire.splice(0)) {
       try {
         off()

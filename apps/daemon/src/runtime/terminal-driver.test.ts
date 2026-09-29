@@ -45,12 +45,12 @@ import {
 import { transcriptRecordMapperFor } from '@podium/harness'
 import { encodeCursor } from '@podium/harness/store'
 import { addSink, type LogRecord } from '@podium/logger'
-import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import { type AgentKind, type AgentRuntimeState, asSessionId, type ResumeRef, type SessionId, type TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DurableAttachment } from '@podium/process/screen'
-import { TerminalScreen } from '@podium/process/screen'
+import { DaemonSession } from '../session/daemon-session.js'
 import { Terminal } from '../terminal/terminal.js'
 import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
 import {
@@ -97,7 +97,7 @@ function fakeTerminal(onWrite?: (dataBase64: string) => void): Terminal {
     resize: () => {},
     dispose: () => {},
   } as unknown as DurableAttachment
-  return Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {
+  return Terminal.attach(attachment, new DaemonSession({ sessionId: asSessionId('fake-terminal') }), {
     onFrame: () => {},
   })
 }
@@ -332,7 +332,7 @@ function makeWorld(
           resize: () => {},
           dispose: () => {},
         } as unknown as DurableAttachment
-        bridge = Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {
+        bridge = Terminal.attach(attachment, sessions.ensure(sessionId), {
           onFrame: () => {},
         })
         bridges.set(sessionId, bridge)
@@ -2556,6 +2556,88 @@ describe('interrupt', () => {
     // not ours to mint.
     expect(after.turnEpoch).toBe(before.turnEpoch)
     expect(world.frames.filter((frame) => frame.type === 'runtimeEvent')).toHaveLength(0)
+  })
+})
+
+describe('the foreign-write counter at the driver seam (POD-4888)', () => {
+  /** A created, settled Claude session whose Terminal is already attached. */
+  async function claudeSession(world: World) {
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    world.ready(sessionId)
+    // The first bridge() attaches the Terminal (an attach is itself counted).
+    expect(world.host.bridge(sessionId)).toBeDefined()
+    return { handle, sessionId, count: () => world.sessions.foreignWrites(sessionId) }
+  }
+
+  it('the interrupt key is one foreign write', async () => {
+    const world = makeWorld()
+    const { handle, count } = await claudeSession(world)
+    const start = count()
+    await handle.interrupt()
+    expect(world.written).toEqual(['\x1b'])
+    expect(count()).toBe(start + 1)
+  })
+
+  it('a menu answer counts once per keystroke it writes', async () => {
+    const world = makeWorld()
+    const { handle, sessionId, count } = await claudeSession(world)
+    world.observe(sessionId, { nextPhase: 'needs_user' })
+    const [ask] = await handle.interactions()
+    expect(ask).toBeDefined()
+    const start = count()
+    expect(await handle.answer(ask?.id ?? '', { index: 0 })).toEqual({ ok: true })
+    expect(world.written.length).toBeGreaterThan(0)
+    expect(count()).toBe(start + world.written.length)
+    world.runtime.dispose()
+  })
+
+  it('a message’s own paste, Enter and submit retries are not counted, and its typing is marked', async () => {
+    const world = makeWorld()
+    const { handle, sessionId, count } = await claudeSession(world)
+    const start = count()
+    // No hook and no echo: the send stays unproven, so the retry ladder nudges.
+    const receipt = await handle.send(
+      { id: 'msg-own', text: 'ship it' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('unverified')
+    expect(pastedText(world.written[0] ?? '')).toBe('ship it')
+    // The paste, its Enter, and at least one retry went out…
+    expect(world.written.slice(1).filter((bytes) => bytes === '\r').length).toBeGreaterThanOrEqual(2)
+    // …and none of them moved the counter.
+    expect(count()).toBe(start)
+    expect(world.sessions.get(sessionId)?.foreignWrites.typingMark('msg-own')).toBe(start)
+    world.runtime.dispose()
+  })
+
+  it('an interrupt delivery counts its key but not the message it types, marked after the key', async () => {
+    const world = makeWorld()
+    const { handle, sessionId, count } = await claudeSession(world)
+    world.hookOnSubmit(sessionId)
+    const start = count()
+    const receipt = await handle.send(
+      { id: 'msg-after-esc', text: 'instead do this' },
+      { origin: 'human', delivery: 'interrupt' },
+    )
+    expect(receipt.outcome).toBe('accepted')
+    expect(world.written[0]).toBe('\x1b')
+    expect(pastedText(world.written[1] ?? '')).toBe('instead do this')
+    expect(count()).toBe(start + 1)
+    expect(world.sessions.get(sessionId)?.foreignWrites.typingMark('msg-after-esc')).toBe(start + 1)
+    world.runtime.dispose()
+  })
+
+  it('a person typing while a message is open moves the counter past its mark', async () => {
+    const world = makeWorld()
+    const { handle, sessionId, count } = await claudeSession(world)
+    world.hookOnSubmit(sessionId)
+    await handle.send({ id: 'msg-typed', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+    const mark = world.sessions.get(sessionId)?.foreignWrites.typingMark('msg-typed')
+    expect(count()).toBe(mark)
+    world.host.bridge(sessionId)?.write(new TextEncoder().encode('x'))
+    expect(count()).toBe((mark ?? 0) + 1)
+    world.runtime.dispose()
   })
 })
 

@@ -199,6 +199,11 @@ export class HostConnection {
   private readonly sizeCbs = new Set<(size: Geometry) => void>()
   private closed = false
   /**
+   * Whether this connection holds the writer lease (POD-4888): WELCOME's grant
+   * or an answered steal set it; LEASE_LOST and the connection closing clear it.
+   */
+  private leaseHeld = false
+  /**
    * THE KERNEL'S SIZE, AS THE HOST LAST STATED IT (POD-4723, design rev 3).
    *
    * Written by WELCOME (when the host has a pty) and by RESIZED, and by
@@ -257,6 +262,7 @@ export class HostConnection {
           lease: p[31] === 1,
         }
         this.welcomed = w
+        this.leaseHeld = w.lease
         this.resolveWelcome(w)
         if (w.hasPty) this.setSize(w.cols, w.rows)
         return
@@ -322,9 +328,11 @@ export class HostConnection {
         return
       }
       case HostFrame.STOLEN:
+        this.leaseHeld = true
         this.answer('steal', undefined)
         return
       case HostFrame.LEASE_LOST:
+        this.leaseHeld = false
         for (const cb of [...this.leaseLostCbs]) cb()
         return
       case HostFrame.ERR: {
@@ -428,6 +436,11 @@ export class HostConnection {
   onSize(cb: (size: Geometry) => void): () => void {
     this.sizeCbs.add(cb)
     return () => this.sizeCbs.delete(cb)
+  }
+
+  /** Whether this connection holds the writer lease right now. */
+  get holdsLease(): boolean {
+    return this.leaseHeld && !this.closed
   }
 
   /** Fired when this connection held the lease and someone stole it. */
@@ -839,6 +852,20 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     },
     size: () => conn.kernelSize,
     onSize: (cb) => conn.onSize(cb),
+    holdsWriterLease: () => !disposed && conn.holdsLease,
+    // A steal revokes the lease; a connection that drops (not one this side
+    // detached) releases it to whoever attaches next. Both end this
+    // attachment's claim to be the only writer (POD-4888).
+    onLeaseLost(cb) {
+      const offLost = conn.onLeaseLost(cb)
+      const offClose = conn.onClose(() => {
+        if (!disposed) cb()
+      })
+      return () => {
+        offLost()
+        offClose()
+      }
+    },
     async replay(tailBytes) {
       if (disposed) return
       await ready

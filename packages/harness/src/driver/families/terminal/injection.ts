@@ -224,12 +224,28 @@ export type HookAcceptPort = AcceptPort
 export type EchoAcceptPort = AcceptPort
 export type HookAcceptWatch = AcceptWatch
 
+/**
+ * WHOSE WRITE THIS IS (POD-4888). `message` is a turn's own typing — its paste,
+ * its Enter and its submit retries; `control` is everything else this machine
+ * writes (the interrupt key). The daemon counts every `control` write as a
+ * foreign write into the terminal, which is what lets a person's own words be
+ * matched to the history by order (spec §5.3). Required, so no write is
+ * classified by default.
+ */
+export type TerminalWriteRole = 'message' | 'control'
+
 /** Everything the machine needs from the world, and nothing more. Each one is a
  *  READ or a WRITE on the session's terminal; none of them is a mechanism the
  *  contract exposes. */
 export interface TerminalInjectionPorts {
-  /** Write UTF-8 text to the session's PTY. The daemon base64-encodes. */
-  write(text: string): void
+  /** Write UTF-8 text to the session's PTY, saying whose write it is. The daemon base64-encodes. */
+  write(text: string, role: TerminalWriteRole): void
+  /**
+   * A turn's typing starts NOW: called immediately before its first byte, so
+   * the daemon can snapshot the session's foreign-write count for it (spec
+   * §5.3, POD-4888). Only for turns that carry an id.
+   */
+  typingStarts?(turnId: string): void
   /** Is there a live process to type into? `starting` counts — a session whose
    *  CLI is still painting is exactly the one the queue is waiting for. */
   running(): boolean
@@ -357,6 +373,8 @@ export interface DeliverOptions {
   /** The echo of a send that answered `unverified`, when it lands after the
    *  window (POD-4840). Called at most once. */
   onLateProof?: (seen: AcceptSeen) => void
+  /** The turn's id, when it has one: names its typing to `typingStarts`. */
+  turnId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +513,7 @@ export function createTerminalInjection(
       if (durable && (phase === 'working' || phase === 'compacting')) deadline = ports.now() + windowMs
       if (nudging && retriesLeft > 0) {
         retriesLeft -= 1
-        ports.write('\r')
+        ports.write('\r', 'message')
       }
     }
     return proven()
@@ -549,14 +567,15 @@ export function createTerminalInjection(
     /** The echo watch that outlives this call to name the entry late. */
     let lateEcho: AcceptWatch | undefined
     try {
-      ports.write(payload.bytes)
+      if (options.turnId !== undefined) ports.typingStarts?.(options.turnId)
+      ports.write(payload.bytes, 'message')
       // A PASTE IS ALWAYS SUBMITTED (POD-4776). Once its bytes are in the
       // composer, stopping short of the Enter would leave the text sitting in
       // the agent's prompt, to be sent along with whatever the operator types
       // next. An abort after this point ends the wait for proof below, never
       // the submit itself.
       setTimer(() => {
-        if (ports.running()) ports.write('\r')
+        if (ports.running()) ports.write('\r', 'message')
       }, SUBMIT_CR_DELAY_MS)
 
       const verificationStartedAt = ports.now()
@@ -681,7 +700,7 @@ export function createTerminalInjection(
         else stop()
         return
       }
-      void deliver(head.text, { origin: head.origin, delivery: 'when-ready' }).then((receipt) => {
+      void deliver(head.text, { origin: head.origin, delivery: 'when-ready', turnId: head.id }).then((receipt) => {
         // A refusal leaves the head in place: the session is not running, or a
         // native prompt is open, and re-typing into either would be the silent
         // loss the durable row exists to prevent.
@@ -773,7 +792,7 @@ export function createTerminalInjection(
       // is no turn to stop, and never while one is running.
       const phase = ports.phase()
       if (interrupt.quitsWhenIdle && phase !== 'working' && phase !== 'compacting') return
-      ports.write(interrupt.bytes)
+      ports.write(interrupt.bytes, 'control')
     },
     queueDepth: () => queue.length,
     dispose() {

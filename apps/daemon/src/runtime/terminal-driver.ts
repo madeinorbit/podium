@@ -3,6 +3,7 @@ import { createBoundaryContext, type BoundaryContextOperation, type BoundaryCont
 import type { ReattachControl } from '../session-observers'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import type { SessionRegistry } from '../session/registry.js'
+import { MESSAGE_WRITE } from '../terminal/foreign-writes.js'
 import { withDeliveryQueue } from '@podium/harness/driver/host'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import {
@@ -1664,9 +1665,16 @@ export function createTerminalRuntime(
     const profile = profiles.get(session.sessionId)
     return createTerminalInjection(
       {
-        write: (text) => {
-          host.bridge(session.sessionId)?.writeBase64(Buffer.from(text, 'utf8').toString('base64'))
+        // A turn's own typing is tagged so the foreign-write counter lets it
+        // through; every other write here (the interrupt key) is counted
+        // (POD-4888, spec §5.3).
+        write: (text, role) => {
+          host.bridge(session.sessionId)?.writeBase64(
+            Buffer.from(text, 'utf8').toString('base64'),
+            role === 'message' ? MESSAGE_WRITE : undefined,
+          )
         },
+        typingStarts: (turnId) => registry.get(session.sessionId)?.foreignWrites.markTyping(turnId),
         running: () => session.alive && host.bridge(session.sessionId) !== undefined,
         live: () => session.live && session.alive && host.bridge(session.sessionId) !== undefined,
         phase: () => host.trackedState(session.sessionId)?.phase,
@@ -2177,6 +2185,7 @@ export function createTerminalRuntime(
               origin: options.origin,
               delivery: 'interrupt',
               afterEsc: true,
+              ...(input.id !== undefined ? { turnId: input.id } : {}),
               ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
               ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
             }),
@@ -2188,6 +2197,7 @@ export function createTerminalRuntime(
             origin: options.origin,
             delivery: 'when-ready',
             signal: options.signal,
+            ...(input.id !== undefined ? { turnId: input.id } : {}),
             durable: options.deliveryAttempt,
             initialPrompt: input.initialPrompt,
             ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),

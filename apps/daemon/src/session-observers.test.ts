@@ -27,6 +27,9 @@ import type { AgentObservation, SessionObservationCheckpointV1 } from '@podium/p
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { StatTick } from '@podium/harness/store'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DurableAttachment } from '@podium/process/durable'
+import { attachTestTerminal, testSessions } from './session/testing.js'
+import { writeHeadedInput } from './terminal/headed-input.js'
 import {
   CAUSAL_DELIVERY_RETRY_BASE_MS,
   createSessionObservers,
@@ -3330,6 +3333,40 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
       })
       turn.accept(ended)
       expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('idle')
+    } finally {
+      await turn.cleanup()
+    }
+  })
+
+  it('the Ctrl-U clear goes through the Terminal and is one counted foreign write per clear (POD-4888)', async () => {
+    const sessions = testSessions()
+    let turn!: Awaited<ReturnType<typeof openClaudeTurn>>
+    const cleared: string[] = []
+    const writeInput = (sessionId: SessionId, bytes: string) => writeHeadedInput(sessions, sessionId, bytes)
+    turn = await openClaudeTurn(20, writeInput)
+    attachTestTerminal({ sessions }, turn.sessionId, {
+      pid: 1,
+      onFrame: () => () => {},
+      onTitle: () => () => {},
+      onExit: () => () => {},
+      write: (dataBase64: string) => {
+        cleared.push(Buffer.from(dataBase64, 'base64').toString('utf8'))
+        turn.observers.onFrame(turn.sessionId, screen(EMPTY_BOX_SCREEN))
+      },
+      writeBytes: () => {},
+      resize: () => {},
+      dispose: () => {},
+    } as unknown as DurableAttachment)
+    const start = sessions.foreignWrites(turn.sessionId)
+    try {
+      turn.observers.onFrame(turn.sessionId, screen(THINKING_SCREEN))
+      turn.observers.onInterruptRequested(turn.sessionId)
+      turn.observers.onFrame(turn.sessionId, screen(REWOUND_SCREEN))
+      await vi.waitFor(() => expect(turn.observations()).toHaveLength(3))
+      expect(cleared.length).toBeGreaterThan(0)
+      expect(cleared[0]?.length).toBeGreaterThanOrEqual(2)
+      expect(cleared[0]).toBe(CTRL_U.repeat(cleared[0]?.length ?? 0))
+      expect(sessions.foreignWrites(turn.sessionId)).toBe(start + cleared.length)
     } finally {
       await turn.cleanup()
     }

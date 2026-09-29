@@ -53,7 +53,6 @@ import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { DurableAttachment } from '@podium/process/screen'
-import { TerminalScreen } from '@podium/process/screen'
 import { Terminal } from '../terminal/terminal.js'
 import {
   createTerminalRuntime,
@@ -129,6 +128,7 @@ function makeWorld(options: WorldOptions): {
   const turnEpochs = new Map<SessionId, number>()
   const completedEpochs = new Map<SessionId, number>()
   const bridgeOf = new Map<SessionId, Terminal>()
+  const sessionEntries = testSessions()
   const pendingPaste = new Map<SessionId, string>()
   /** Deliveries of the caller's TEXT, counted at the PTY. A bracketed paste is
    *  one delivery; the CR and the bounded verification nudges that follow it are
@@ -444,7 +444,7 @@ function makeWorld(options: WorldOptions): {
             resize: () => {},
             dispose: () => {},
           } as unknown as DurableAttachment,
-          new TerminalScreen({ cols: 80, rows: 24 }),
+          sessionEntries.ensure(msg.sessionId),
           { onFrame: () => {} },
         ),
       )
@@ -607,7 +607,7 @@ function makeWorld(options: WorldOptions): {
       createDriver: () => {
         // A fresh registry per driver: the corpus rebuilds the runtime across
         // cases the way a restarted daemon rebuilds its entries (POD-4512).
-        runtime = createTerminalRuntime(host, undefined, testSessions())
+        runtime = createTerminalRuntime(host, undefined, sessionEntries)
         return { driver: runtime.driverFor(harness, profile), control, evidence }
       },
       reset: () => {

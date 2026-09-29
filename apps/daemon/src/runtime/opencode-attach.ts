@@ -591,7 +591,7 @@ export function createOpencodeClientTerminals(
     // hard repaint — TUIs repaint on resize and would mishandle a stray ^L.
     const owned = sessions.ensure(sessionId)
     owned.clientLabel = policy.label
-    const terminal = Terminal.attach(session, owned.screen(), {
+    const terminal = Terminal.attach(session, owned, {
       // The host states the size — WELCOME now, RESIZED later — and the daemon
       // reports it (POD-4723). A created client is born at `birth`; an adopted
       // one is at a size of its own, which WELCOME reads back.
