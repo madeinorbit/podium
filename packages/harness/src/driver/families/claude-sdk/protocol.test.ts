@@ -621,7 +621,21 @@ describe('the user line acknowledgement', () => {
     await written(fake)
     fake.exit(1, null)
     await expect(turn.accepted).rejects.toThrow('exited with code 1 before the turn finished')
+    // Written: the CLI may have recorded it, so it is not marked as never sent
+    // (POD-4839) and the driver cannot call it a refusal.
+    await expect(turn.accepted).rejects.not.toMatchObject({ requestNotSent: true })
     await expect(turn.done).rejects.toThrow('exited with code 1')
+  })
+
+  it('says the line never left when the CLI dies before it was written (POD-4839)', async () => {
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-g2' })
+    const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid })
+    fake.exit(1, null)
+    await expect(turn.accepted).rejects.toMatchObject({ requestNotSent: true })
+    expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+      false,
+    )
   })
 
   it('is refused when the handshake fails, and the line is never written', async () => {
@@ -638,6 +652,7 @@ describe('the user line acknowledgement', () => {
       }),
     )
     await expect(turn.accepted).rejects.toThrow('bad init')
+    await expect(turn.accepted).rejects.toMatchObject({ requestNotSent: true })
     expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
       false,
     )
@@ -652,6 +667,7 @@ describe('the user line acknowledgement', () => {
     await written(fake)
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'w1' }))
     await expect(turn.accepted).rejects.toThrow('never acknowledged')
+    await expect(turn.accepted).rejects.not.toMatchObject({ requestNotSent: true })
   })
 
   it('a turn opened without a uuid still carries one, and is acknowledged by it', async () => {

@@ -9,6 +9,7 @@ import {
 } from './runtime.js'
 import { claudeUserMessageUuid } from './message-uuid.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import { RequestNotSentError } from '../../errors.js'
 
 const SESSION = 'claude-sdk-durable' as SessionId
 
@@ -356,7 +357,7 @@ describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () 
     runtime.dispose()
   })
 
-  it('refuses a line the CLI never took, with no turn and no prompt on the transcript', async () => {
+  it('refuses a line that was never written, with no turn and no prompt on the transcript', async () => {
     const { host, turns } = manualHost()
     const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
@@ -365,15 +366,10 @@ describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () 
       { origin: 'human', delivery: 'when-ready' },
     )
     await vi.waitFor(() => expect(turns).toHaveLength(1))
-    turns[0]!.refuse(
-      new Error('the Claude model host process exited with code 1 before the turn finished'),
-    )
+    turns[0]!.refuse(new RequestNotSentError('the Claude stream client is closed'))
     await expect(receipt).resolves.toEqual({
       outcome: 'refused',
-      refusal: {
-        reason: 'not_running',
-        detail: 'the Claude model host process exited with code 1 before the turn finished',
-      },
+      refusal: { reason: 'not_running', detail: 'the Claude stream client is closed' },
     })
     // The session is free again, and nothing claims a turn ran.
     const next = handle.send(
@@ -386,6 +382,33 @@ describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () 
     const events = await eventsUntil(handle, (seen) => userItemIds(seen).length > 0)
     expect(turnEvents(events)).toEqual(['started'])
     expect(userItemIds(events)).toEqual([claudeUserMessageUuid('m2')])
+    runtime.dispose()
+  })
+
+  it('never refuses a written line the CLI did not ack: the CLI may have recorded it (POD-4839)', async () => {
+    // A line on the CLI's stdin may be in the transcript whatever ends the turn
+    // before the ack: the process exiting, an error result (an HTTP 400 left
+    // the prompt recorded, POD-4834). Unproven, never a "no".
+    const { host, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const receipt = handle.send(
+      { id: 'm1', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    turns[0]!.refuse(
+      new Error('the Claude model host process exited with code 1 before the turn finished'),
+    )
+    await expect(receipt).rejects.toThrow(/exited with code 1/)
+    // The session is free again for the next line.
+    const next = handle.send(
+      { id: 'm2', text: 'pong' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(2))
+    turns[1]!.ack()
+    await expect(next).resolves.toMatchObject({ outcome: 'accepted' })
     runtime.dispose()
   })
 
