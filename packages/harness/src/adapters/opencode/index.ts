@@ -271,6 +271,9 @@ export const opencodeManifest: AgentManifest = {
         transport: 'loopback-tcp',
         requiresPerSessionSecret: true,
         openapiPath: '/openapi.json',
+        // These previews take { id, text, delivery }. Stable 1.18.x's /api
+        // takes { id, prompt: { text }, delivery } and has different events;
+        // it remains on opencode-server's v1 contract (POD-4864).
         versionRange: supported('=0.0.0-beta-18743 || =0.0.0-beta-18866'),
         clientTerminal: supported({
           labelToken: 'oc2',

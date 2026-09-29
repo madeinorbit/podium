@@ -18,7 +18,9 @@ import type {
  * runtime port. The admitted preview builds scope session routes by path and
  * `/api/event` across all server locations; unlike v1, their OpenAPI contract
  * exposes no directory query parameter. Payload casts are deliberately bounded
- * by the exact-build admission gate. Keeping this translation here lets both
+ * by the exact-build admission gate (beta-18743 and beta-18866). Stable
+ * 1.18.x uses the v1 client: its /api takes a nested `prompt`, with a different
+ * admission/event schema (POD-4864). Keeping this translation here lets both
  * protocol generations share the RuntimeDriver implementation and conformance. */
 export function createOpencode2Client(config: OpencodeClientConfig): OpencodeClient {
   const fetcher = config.fetch ?? globalThis.fetch
@@ -147,27 +149,49 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
        * single-step model both waited for the running step; how `steer` enters
        * a multi-step turn was not measured, and no mode here relies on it.
        */
-      const response = await request(
-        'POST',
-        `/api/session/${encodeURIComponent(sessionId)}/prompt`,
-        {
-          id: body.messageID,
-          text,
-          ...(files.length > 0 ? { files } : {}),
-          delivery: 'queue',
-        },
-      )
+      let response: Response
+      try {
+        response = await request(
+          'POST',
+          `/api/session/${encodeURIComponent(sessionId)}/prompt`,
+          {
+            id: body.messageID,
+            text,
+            ...(files.length > 0 ? { files } : {}),
+            delivery: 'queue',
+          },
+        )
+      } catch (error) {
+        if (!(error instanceof OpencodeHttpError) || error.status !== 409) throw error
+        // Ids are unique per database. Both measured builds answer 409 for
+        // another session's id; stable also does so for different text under
+        // our id. This means already recorded, never a refusal. Credit only
+        // the user text record found under our id in THIS session's history.
+        // An absent (possibly pending) record or a failed lookup leaves the
+        // original 409 unproven, including when the lookup answers 400/404.
+        const recorded = await this.messages(sessionId).catch(() => [])
+        if (
+          recorded.some(
+            (message) =>
+              message.info.id === body.messageID &&
+              message.info.role === 'user' &&
+              message.parts.some((part) => part.type === 'text'),
+          )
+        ) {
+          return { textPartId: userTextPartId(body.messageID) }
+        }
+        throw error
+      }
       const admitted = ((await response.json()) as { data?: { id?: unknown; sessionID?: unknown } })
         .data
-      // Message ids are unique per DATABASE, not per session. An id already
-      // admitted to another session answers with THAT session's input; nothing
-      // was admitted here, and saying so is the only honest answer.
-      if (admitted?.sessionID !== sessionId || typeof admitted.id !== 'string') {
+      // A successful admission must echo both our session and our message id.
+      // Cross-session collisions answer 409, handled by the lookup above.
+      if (admitted?.sessionID !== sessionId || admitted.id !== body.messageID) {
         throw new Error(
           `opencode2 did not admit ${body.messageID} to ${sessionId}: ${JSON.stringify(admitted)}`,
         )
       }
-      return { textPartId: userTextPartId(admitted.id) }
+      return { textPartId: userTextPartId(body.messageID) }
     },
     async abort(sessionId) {
       await request('POST', `/api/session/${encodeURIComponent(sessionId)}/interrupt`)
@@ -196,6 +220,12 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
         const content = Array.isArray(row.content)
           ? (row.content as Array<Record<string, unknown>>)
           : []
+        const parts =
+          type === 'user'
+            ? typeof row.text === 'string'
+              ? [{ type: 'text', text: row.text }]
+              : []
+            : content
         return {
           info: {
             ...row,
@@ -206,7 +236,7 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
             ...(model?.id ? { modelID: model.id } : {}),
             ...(model?.providerID ? { providerID: model.providerID } : {}),
           },
-          parts: (type === 'user' ? [{ type: 'text', text: String(row.text ?? '') }] : content).map(
+          parts: parts.map(
             (part, index) => ({
               ...part,
               id: partId(id, index),

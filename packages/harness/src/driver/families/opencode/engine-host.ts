@@ -238,13 +238,15 @@ export function evaluateOpencodeVersionProbe(output: string, ok: boolean): Openc
  *  verdict directly. */
 
 /**
- * THE PURE ADMISSION EVALUATION for the preview speaker: only the exercised
- * preview builds drive. The supervisor owns the probe budget, the memo and
- * the fork.
+ * THE PURE ADMISSION EVALUATION for the preview speaker: only the exact
+ * exercised preview builds drive. Stable 1.18.x uses the v1 speaker even
+ * though it also serves /api: its nested `prompt` body and admission/event
+ * schema differ from these previews (POD-4864). The supervisor owns the
+ * probe budget, the memo and the fork.
  */
 export function evaluateOpencode2VersionProbe(output: string, ok: boolean): OpencodeProbeVerdict {
-  const match = /0\.0\.0-beta-(\d+)/u.exec(output)
-  if (ok && match && [18743, 18866].includes(Number(match[1]))) return { drivable: true }
+  const match = /^0\.0\.0-beta-(18743|18866)$/u.exec(output.trim())
+  if (ok && match) return { drivable: true }
   const diagnostic: OpencodeVersionDiagnostic = {
     code: 'opencode-version-unsupported',
     title: 'opencode server driver needs review',

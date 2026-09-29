@@ -102,8 +102,9 @@ describe('OpenCode 2 client adapter', () => {
     expect(message?.parts.map((part) => part.id)).toEqual([first.textPartId])
   })
 
-  it('refuses an id opencode holds for another session', async () => {
-    // Ids are unique per database: the answer is the OTHER session's input.
+  it('does not credit a malformed admission naming another session', async () => {
+    // The admission must echo our session. Real cross-session id collisions
+    // answer 409 instead (POD-4864; replayed in prompt-contract.test.ts).
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       json({ data: { id: 'msg_ours', sessionID: 'ses_other', type: 'user' } }),
     )
