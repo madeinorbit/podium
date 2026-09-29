@@ -247,7 +247,7 @@ normal history re-read matches them by id (§5.1); order credit is not given acr
 
 | Issue | What | State |
 |---|---|---|
-| POD-4834 | The measurement grid (§7, §8) | backlog, P1 |
+| POD-4834 | The measurement grid (§7, §8): lanes POD-4862 Claude, POD-4863 Codex, POD-4864 OpenCode, POD-4865 Grok terminal and Cursor; Grok ACP in POD-4837 | running |
 | POD-4835 | Codex carries our id | done |
 | POD-4836 | Claude SDK carries our id; accept on the lifecycle ack | done |
 | POD-4837 | Grok ACP carries our id | in progress |
