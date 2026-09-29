@@ -1658,9 +1658,13 @@ export function createTerminalRuntime(
     const profile = profiles.get(session.sessionId)
     return createTerminalInjection(
       {
-        write: (text) => {
-          terminalFor(session)?.writeBase64(Buffer.from(text, 'utf8').toString('base64'))
+        // A turn's own typing is tagged so the host's foreign-write counter
+        // lets it through; every other write here (the interrupt key) is
+        // counted (POD-4888, spec §5.3).
+        write: (text, role) => {
+          terminalFor(session)?.writeBase64(Buffer.from(text, 'utf8').toString('base64'), role)
         },
+        typingStarts: (turnId) => host.foreignWrites?.markTyping(session.sessionId, turnId),
         running: () => session.alive && terminalFor(session) !== undefined,
         live: () => session.live && session.alive && terminalFor(session) !== undefined,
         phase: () => host.trackedState(session.sessionId)?.phase,
@@ -2177,6 +2181,7 @@ export function createTerminalRuntime(
               origin: options.origin,
               delivery: 'interrupt',
               afterEsc: true,
+              ...(input.id !== undefined ? { turnId: input.id } : {}),
               ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
               ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
             }),
@@ -2188,6 +2193,7 @@ export function createTerminalRuntime(
             origin: options.origin,
             delivery: 'when-ready',
             signal: options.signal,
+            ...(input.id !== undefined ? { turnId: input.id } : {}),
             durable: options.deliveryAttempt,
             initialPrompt: input.initialPrompt,
             ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),

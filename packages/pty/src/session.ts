@@ -64,6 +64,20 @@ export interface DurableAttachment {
    * on. Absent where {@link size} is.
    */
   onSize?(cb: (size: Geometry) => void): () => void
+  /**
+   * THE WRITER LEASE (POD-4888): whether this attachment is, right now, the
+   * ONLY thing that can write into the terminal. A host answers from its lease
+   * (granted in WELCOME or taken by a steal, gone on LEASE_LOST or a dropped
+   * connection). Absent where there is no lease to hold: on abduco every
+   * attach client writes, so nothing can be the only writer.
+   */
+  holdsWriterLease?(): boolean
+  /**
+   * Fired when this attachment stops being the only writer: the host revoked
+   * its lease (a steal) or the connection that held it dropped. Absent where
+   * {@link holdsWriterLease} is.
+   */
+  onLeaseLost?(cb: () => void): () => void
 
   dispose(): void
   /**

@@ -49,6 +49,7 @@ import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import { terminalInstrumentationSectionsFor } from './registry'
 import { driverTiming } from './driver-timing'
 import type { Terminal } from '../terminal/terminal.js'
+import { MESSAGE_WRITE } from '../terminal/foreign-writes.js'
 
 /**
  * Adapt one daemon Terminal to the driver's narrow transport port.
@@ -64,7 +65,10 @@ export function adaptTerminal(terminal: Terminal | undefined): TerminalTransport
     get live() {
       return terminal.live
     },
-    writeBase64: (dataBase64) => terminal.writeBase64(dataBase64),
+    // Only a turn's own typing carries MESSAGE_WRITE past the foreign-write
+    // counter; every other driver write is counted (POD-4888, spec §5.3).
+    writeBase64: (dataBase64, role) =>
+      terminal.writeBase64(dataBase64, role === 'message' ? MESSAGE_WRITE : undefined),
   }
 }
 
@@ -85,6 +89,9 @@ export function daemonRuntimeHost(
     send,
     stageAttachment,
     trackedState: (sessionId) => ctx.observers.trackedState(sessionId),
+    foreignWrites: {
+      markTyping: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.markTyping(turnId),
+    },
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
     setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),
     processAlive: async (sessionId) => {

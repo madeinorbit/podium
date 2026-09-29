@@ -630,8 +630,18 @@ describe.skipIf(!hasCompiler)('podium-host writer lease: refusal and deliberate 
     first.connection.onLeaseLost(() => {
       leaseLost = true
     })
+    // The attachment-level lease view the daemon's foreign-write counter reads (POD-4888).
+    let attachmentLeaseLost = 0
+    first.onLeaseLost?.(() => {
+      attachmentLeaseLost += 1
+    })
+    expect(first.holdsWriterLease?.()).toBe(true)
+    expect(taker.holdsWriterLease?.()).toBe(false)
     await taker.connection.steal()
     await waitFor(() => leaseLost, 'LEASE_LOST on the revoked holder')
+    expect(attachmentLeaseLost).toBe(1)
+    expect(first.holdsWriterLease?.()).toBe(false)
+    expect(taker.holdsWriterLease?.()).toBe(true)
 
     // The loser can no longer write; the taker can. Order is deterministic:
     // STOLEN is queued after the revocation, and these writes postdate it.

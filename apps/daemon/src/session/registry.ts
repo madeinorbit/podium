@@ -41,6 +41,26 @@ export class SessionRegistry {
     return this.sessions.get(sessionId)
   }
 
+  /**
+   * Foreign writes into the session's terminal so far (POD-4888, spec §5.3):
+   * compare two readings — unchanged means nothing but the typing message was
+   * written, and only means that where {@link orderTrustworthy} holds. 0 for a
+   * session this daemon holds no entry for.
+   */
+  foreignWrites(sessionId: SessionId): number {
+    return this.sessions.get(sessionId)?.foreignWrites.count ?? 0
+  }
+
+  /**
+   * Whether an unchanged {@link foreignWrites} can be believed: true only while
+   * the session's Terminal holds podium-host's writer lease. False on the
+   * abduco fallback (any `abduco -a` client writes unseen), with no Terminal,
+   * and after a lease loss.
+   */
+  orderTrustworthy(sessionId: SessionId): boolean {
+    return this.sessions.get(sessionId)?.foreignWrites.orderTrustworthy ?? false
+  }
+
   has(sessionId: SessionId): boolean {
     return this.sessions.has(sessionId)
   }

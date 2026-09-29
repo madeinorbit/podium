@@ -255,6 +255,83 @@ const ORIGINS: readonly InputOrigin[] = [
   'system',
 ]
 
+describe('whose write it is (POD-4888)', () => {
+  /** Timers fire in order at once, moving a virtual clock to their due time. */
+  const virtualClock = (ports: TerminalInjectionPorts): void => {
+    let clock = 0
+    ports.now = () => clock
+    ports.setTimer = (fn, delayMs) => {
+      const at = clock + delayMs
+      return setTimeout(() => {
+        clock = Math.max(clock, at)
+        fn()
+      }, 0)
+    }
+  }
+
+  it('tags a turn’s paste, Enter and submit retries as the message’s own', async () => {
+    const roles: Array<[string, string]> = []
+    const typing: Array<[string, number]> = []
+    const { ports } = terminal({
+      write: (text, role) => {
+        roles.push([role, text])
+      },
+      typingStarts: (turnId) => {
+        typing.push([turnId, roles.length])
+      },
+      needsSubmitVerification: () => true,
+      // Never proven, so the retry ladder runs its nudges.
+      echoAccept: {
+        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
+      },
+      hookAccept: {
+        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
+      },
+    })
+    virtualClock(ports)
+    const receipt = await createTerminalInjection(ports).deliver('ship it', {
+      origin: 'human',
+      delivery: 'when-ready',
+      turnId: 'msg-1',
+    })
+    expect(receipt.outcome).toBe('unverified')
+    // Marked before the first byte, exactly once.
+    expect(typing).toEqual([['msg-1', 0]])
+    expect(roles.length).toBeGreaterThanOrEqual(3)
+    expect(roles.every(([role]) => role === 'message')).toBe(true)
+    expect(pasted(roles[0]?.[1] ?? '')).toBe('ship it')
+    expect(roles.slice(1).every(([, text]) => text === '\r')).toBe(true)
+  })
+
+  it('tags the interrupt key as control', () => {
+    const roles: string[] = []
+    const { ports } = terminal({ write: (_text, role) => void roles.push(role) })
+    createTerminalInjection(ports).interrupt()
+    expect(roles).toEqual(['control'])
+  })
+
+  it('marks a queued turn’s typing under its own id when the drain types it', async () => {
+    const typing: string[] = []
+    const { ports, written } = terminal({
+      typingStarts: (turnId) => void typing.push(turnId),
+      lastOutputAtMs: () => 0,
+    })
+    virtualClock(ports)
+    const machine = createTerminalInjection(ports)
+    machine.enqueue('queued words', { origin: 'human', id: 'queued-1' })
+    await vi.waitFor(() => expect(typing).toEqual(['queued-1']))
+    expect(written.some((bytes) => pasted(bytes) === 'queued words')).toBe(true)
+    machine.dispose()
+  })
+
+  it('marks nothing for a turn with no id', async () => {
+    const typing: string[] = []
+    const { ports } = terminal({ typingStarts: (turnId) => void typing.push(turnId) })
+    await createTerminalInjection(ports).deliver('no id', { origin: 'human', delivery: 'when-ready' })
+    expect(typing).toEqual([])
+  })
+})
+
 describe('the paste boundary', () => {
   it('cannot be closed by the spec’s own ESC[201~ payload', async () => {
     // VERBATIM FROM SECTION 1 of the architecture proposal, which is the list of

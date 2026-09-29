@@ -47,6 +47,7 @@ import type { AttachmentStager } from '../../turns.js'
 import type {
   QueuedTurn,
   QueueDrainAbandonedReason,
+  TerminalWriteRole,
   TimerHandle,
 } from './injection.js'
 import type { SessionSpec } from '../../session-spec.js'
@@ -84,7 +85,21 @@ export type TerminalDriverReport = Extract<
  */
 export interface TerminalTransport {
   readonly live: boolean
-  writeBase64(dataBase64: string): void
+  /** `role` says whose write it is (POD-4888): `message` for a turn's own
+   *  typing, which the host's foreign-write counter lets through; anything
+   *  else, including no role, is counted as a foreign write. */
+  writeBase64(dataBase64: string, role?: TerminalWriteRole): void
+}
+
+/**
+ * THE SESSION'S FOREIGN-WRITE COUNTER, as the driver uses it (POD-4888,
+ * receipt-proof spec §5.3). The host owns one per session entry and bumps it
+ * from its terminal write call; the driver only marks where a turn's typing
+ * starts, keyed by session like every other process fact here.
+ */
+export interface TerminalForeignWrites {
+  /** Remember the session's current count as `turnId`'s typing start. */
+  markTyping(sessionId: SessionId, turnId: string): void
 }
 
 /** Out-of-band context the mail boundary reads, when one exists. */
@@ -102,6 +117,9 @@ export type TerminalMailBoundaryContext = (
  */
 export interface TerminalHostPorts {
   boundaryContext?: TerminalMailBoundaryContext
+  /** The per-session foreign-write counter (POD-4888). Absent = no counter:
+   *  typing starts are not marked, so no entry is credited by order. */
+  foreignWrites?: TerminalForeignWrites
   /** The driver's outbound reports: runtime events plus the instrumentation
    *  degradation diagnostic. Narrowed from the whole daemon wire — see
    *  `TerminalDriverReport` for the grep. */

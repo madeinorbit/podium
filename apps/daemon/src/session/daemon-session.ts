@@ -36,6 +36,7 @@ import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
+import { ForeignWriteCounter } from '../terminal/foreign-writes.js'
 import type { Terminal } from '../terminal/terminal.js'
 
 const log = createLogger('daemon:session')
@@ -231,6 +232,16 @@ export class DaemonSession {
    * composition root. The entry holds no scope and exposes no engine verb:
    * a forwarding delegate would add a hop and no decision.
    */
+
+  /**
+   * THE FOREIGN-WRITE COUNTER (POD-4888, spec §5.3): every write into this
+   * session's terminal that is not a typing message's own, and every moment
+   * this daemon was not its only writer. Lives here, not on the Terminal, so it
+   * survives park and reattach; each Terminal attached for this entry feeds it
+   * from its write call. Dies with the entry (and the daemon): a message whose
+   * typing mark is gone gets no order credit.
+   */
+  readonly foreignWrites = new ForeignWriteCounter()
 
   private screenState: TerminalScreen | undefined = undefined
 

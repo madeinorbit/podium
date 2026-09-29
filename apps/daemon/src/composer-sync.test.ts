@@ -7,7 +7,10 @@ import {
   type ScreenReader,
   SessionComposerSync,
 } from './composer-sync'
+import type { DurableAttachment } from '@podium/process/durable'
 import { terminalComposerSectionsFor } from './runtime/registry'
+import { attachTestTerminal, testSessions } from './session/testing.js'
+import { writeHeadedInput } from './terminal/headed-input.js'
 
 // The rules under test, resolved the way production resolves them: the
 // composition root hands the manifest's composer section in (POD-4477), so
@@ -482,6 +485,45 @@ it('starts an idle draft target without waiting for another terminal frame', () 
     expect(term.composer).toBe('contract draft')
   } finally {
     sync.dispose()
+    vi.useRealTimers()
+  }
+})
+
+it('a Draft Sync write goes through the Terminal and is one counted foreign write (POD-4888)', () => {
+  vi.useFakeTimers()
+  const sessionId = asSessionId('draft-sync-counted')
+  const term = scriptedTerminal(claudeComposer)
+  // The session's Terminal hands every write to the scripted PTY.
+  const sessions = testSessions()
+  let writes = 0
+  attachTestTerminal({ sessions }, sessionId, {
+    pid: 1,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: (dataBase64: string) => {
+      writes += 1
+      term.applyBytes(Buffer.from(dataBase64, 'base64').toString('utf8'))
+    },
+    writeBytes: () => {},
+    resize: () => {},
+    dispose: () => {},
+  } as unknown as DurableAttachment)
+  // The engine as the composition root builds it: its PTY writer is the daemon's headed-input path.
+  const engine = new ComposerSyncEngine(() => {}, {
+    writePty: (id, bytes) => writeHeadedInput(sessions, id, bytes),
+  })
+  try {
+    expect(engine.attach(sessionId, 'claude-code', 40, 6, term.reader)).toBe(true)
+    engine.setIdle(sessionId, true)
+    const start = sessions.foreignWrites(sessionId)
+    expect(engine.setTarget(sessionId, 'contract draft')).toBe(true)
+    vi.advanceTimersByTime(300)
+    expect(term.composer).toBe('contract draft')
+    expect(writes).toBeGreaterThan(0)
+    expect(sessions.foreignWrites(sessionId)).toBe(start + writes)
+  } finally {
+    engine.detach(sessionId)
     vi.useRealTimers()
   }
 })
