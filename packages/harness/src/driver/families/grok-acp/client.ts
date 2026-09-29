@@ -9,6 +9,7 @@ import {
   GrokAcpRpcError,
   type GrokAcpRpcId,
 } from './protocol.js'
+import { RequestNotSentError } from '../../errors.js'
 
 export interface GrokAcpTransport {
   write(line: string): void
@@ -111,7 +112,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
   }
 
   const send = (frame: Record<string, unknown>): void => {
-    if (closed) throw new GrokAcpProtocolError('grok ACP client is closed')
+    if (closed) throw new RequestNotSentError('grok ACP client is closed')
     config.transport.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
   }
 
@@ -185,7 +186,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
   const call = <T>(method: string, params?: unknown): Promise<T> => {
     if (!ready && method !== GROK_ACP_METHODS.initialize) {
       return Promise.reject(
-        new GrokAcpProtocolError(`grok ACP method '${method}' called before initialize`),
+        new RequestNotSentError(`grok ACP method '${method}' called before initialize`),
       )
     }
     const id = nextId++
