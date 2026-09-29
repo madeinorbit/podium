@@ -114,10 +114,22 @@ class TranscriptView {
   }
 }
 
+/** One change row as either wire spells it: v1 keys the target `id`, v2
+ *  `entityId`, and v2 may `evict` a row this principal can no longer see. */
+interface FeedRow {
+  readonly seq: number
+  readonly entity: string
+  readonly id?: string
+  readonly entityId?: string
+  readonly op: string
+  readonly value?: unknown
+}
+
 /**
  * The `message` records this device's feed carries (POD-4764), folded from
- * the pushed `metadataDelta` frames after one catch-up read — the store half
- * the apps read through `storeConversationRecords`.
+ * the pushed feed frames (`feedDelta`, or v1's `metadataDelta`) after one
+ * catch-up read — the store half the apps read through
+ * `storeConversationRecords`.
  */
 class RecordsView {
   private byRowId = new Map<string, MessageRecordWire>()
@@ -132,16 +144,17 @@ class RecordsView {
     },
   }
 
-  apply(changes: readonly MetadataChangeLenient[], through: number): void {
+  apply(changes: readonly (FeedRow | MetadataChangeLenient)[], through: number): void {
     let touched = false
-    for (const change of changes) {
+    for (const change of changes as readonly FeedRow[]) {
       if (change.seq <= this.cursor) continue
-      if (change.entity !== 'message') continue
+      const rowId = change.entityId ?? change.id
+      if (change.entity !== 'message' || rowId === undefined) continue
       touched = true
       if (change.op === 'upsert' && change.value) {
-        this.byRowId.set(change.id, change.value as MessageRecordWire)
+        this.byRowId.set(rowId, change.value as MessageRecordWire)
       } else {
-        this.byRowId.delete(change.id)
+        this.byRowId.delete(rowId)
       }
     }
     this.cursor = Math.max(this.cursor, through)
@@ -345,7 +358,7 @@ export class Device {
         items?: TranscriptItem[]
         reset?: boolean
         seq?: number
-        changes?: MetadataChangeLenient[]
+        changes?: FeedRow[]
       }
       try {
         frame = JSON.parse(String(data)) as typeof frame
@@ -353,7 +366,10 @@ export class Device {
         return
       }
       this.socketFrames.set(frame.type ?? '?', (this.socketFrames.get(frame.type ?? '?') ?? 0) + 1)
-      if (frame.type === 'metadataDelta' && Array.isArray(frame.changes)) {
+      if (
+        (frame.type === 'feedDelta' || frame.type === 'metadataDelta') &&
+        Array.isArray(frame.changes)
+      ) {
         this.records.apply(frame.changes, frame.seq ?? this.records.cursor)
         return
       }
