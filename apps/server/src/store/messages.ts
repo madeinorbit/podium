@@ -224,7 +224,7 @@ function mapMessage(r: MessageSelect): MessageRow {
           },
         }
       : {}),
-    noticeDismissedAt: r.noticeDismissedAt ?? null,
+    ...(r.noticeDismissedAt ? { noticeDismissedAt: r.noticeDismissedAt } : {}),
   }
 }
 
