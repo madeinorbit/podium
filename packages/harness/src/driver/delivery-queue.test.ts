@@ -8,6 +8,7 @@ describe('durable row delivery', () => {
   const fixture = () => {
     vi.useFakeTimers()
     let phase = 'working'
+    let composerReady = true
     const send = vi.fn(async (_input: { text: string }, _options?: unknown) => ({
       outcome: 'accepted',
       turnEpoch: 1,
@@ -25,6 +26,7 @@ describe('durable row delivery', () => {
         lease: { state: async () => null },
       } as unknown as AgentSessionHandle,
       emit,
+      () => composerReady,
     )
     return {
       handle,
@@ -33,9 +35,13 @@ describe('durable row delivery', () => {
       interrupt,
       ready: () => {
         phase = 'idle'
+        composerReady = true
       },
       setPhase: (next: string) => {
         phase = next
+      },
+      setComposerReady: (next: boolean) => {
+        composerReady = next
       },
     }
   }
@@ -325,6 +331,69 @@ describe('durable row delivery', () => {
       )
     })
   }
+
+  // The ceiling counts a CONTINUOUS not-accepting stretch, never the time
+  // since arrival (POD-4826): after twenty minutes behind a busy turn, one
+  // wrong state reading (a reattach's first seconds, a flicker) must not fail
+  // a row that has been "stuck" for one poll.
+  const notAccepting = {
+    unknown: (f: ReturnType<typeof fixture>) => f.setPhase('unknown'),
+    'idle but not ready': (f: ReturnType<typeof fixture>) => {
+      f.setPhase('idle')
+      f.setComposerReady(false)
+    },
+  }
+  for (const [label, enter] of Object.entries(notAccepting)) {
+    it(`delivers after a long busy wait and one ${label} reading`, async () => {
+      const f = fixture()
+      await f.handle.send({ rowId: 'waited', text: 'after the turn' }, { origin: 'mail', delivery: 'when-ready' })
+      await vi.advanceTimersByTimeAsync(20 * 60_000)
+      enter(f)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(f.emit).not.toHaveBeenCalled()
+      f.ready()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(f.send).toHaveBeenCalledTimes(1)
+      expect(f.emit).toHaveBeenCalledTimes(1)
+      expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'waited', outcome: 'delivered' }))
+    })
+  }
+
+  it('fails a row only after the agent stays not accepting for the whole ceiling', async () => {
+    const f = fixture()
+    await f.handle.send({ rowId: 'stuck', text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(20 * 60_000)
+    f.setPhase('unknown')
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(f.emit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_400)
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowId: 'stuck',
+        outcome: 'failed',
+        reason: 'agent not accepting input',
+        cause: 'not-accepting-input',
+      }),
+    )
+  })
+
+  it('a reading of a live turn restarts the not-accepting stretch', async () => {
+    const f = fixture()
+    f.setPhase('unknown')
+    await f.handle.send({ rowId: 'flicker', text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(40_000)
+    f.setPhase('working')
+    await vi.advanceTimersByTimeAsync(400)
+    f.setPhase('unknown')
+    await vi.advanceTimersByTimeAsync(40_000)
+    expect(f.emit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(21_000)
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ rowId: 'flicker', outcome: 'failed', cause: 'not-accepting-input' }),
+    )
+  })
 
   it('bounds a never-ready composer with the precise reason', async () => {
     vi.useFakeTimers()

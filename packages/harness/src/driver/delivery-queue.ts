@@ -15,6 +15,12 @@ import type { SendOptions, TurnInput, TurnReceipt } from './turns.js'
  * {@link STUCK_CEILING_MS}, so a row that cannot land is reported as
  * `agent not accepting input` rather than held forever. (A never-ready
  * composer reads `idle`, so it takes the short ceiling too.)
+ *
+ * The ceiling counts only a CONTINUOUS not-accepting stretch, never the time
+ * since the row arrived (POD-4826): state readings are imperfect, so one
+ * wrong reading after a long wait behind a busy turn must not fail the row.
+ * Any reading of a live turn, or of an idle agent whose composer is ready,
+ * ends the stretch.
  */
 const ENDS_ON_ITS_OWN: ReadonlySet<string> = new Set(['working', 'compacting', 'needs_user'])
 const STUCK_CEILING_MS = 60_000
@@ -40,7 +46,9 @@ export function withDeliveryQueue(
     input: TurnInput
     options: SendOptions
     abort: AbortController
-    admittedAt: number
+    /** When the current continuous not-accepting stretch began; unset while
+     *  the agent reads as busy or as ready to type. */
+    stuckSince?: number
     /** Sent as `interrupt`: waits ahead of plain rows and cuts a running turn. */
     interrupt: boolean
     /** The cut was asked for once; the row now waits for the boundary. */
@@ -152,6 +160,8 @@ export function withDeliveryQueue(
           // busy/lease boundary for deliveryAttempt instead of creating a second queue.
           const state = await handle.state()
           if (row.abort.signal.aborted) continue
+          const accepting = state.phase === 'idle' && ready()
+          if (accepting || ENDS_ON_ITS_OWN.has(state.phase)) delete row.stuckSince
           if (row.interrupt && !row.interruptRequested && ENDS_ON_ITS_OWN.has(state.phase)) {
             // CUT THE RUNNING TURN, ONCE, then wait for its boundary below
             // like any row. The driver owns the stop (its manifest key, its
@@ -162,7 +172,7 @@ export function withDeliveryQueue(
             await handle.interrupt().catch(() => undefined)
             continue
           }
-          if (state.phase !== 'idle' || !ready()) {
+          if (!accepting) {
             if (ENDS_ON_ITS_OWN.has(state.phase)) {
               // A live turn ends on its own: wait for the boundary with no
               // deadline, however long the agent stays busy. The row is
@@ -170,10 +180,12 @@ export function withDeliveryQueue(
               await pause(200)
               continue
             }
-            if (Date.now() - row.admittedAt >= STUCK_CEILING_MS) {
-              // The composer is genuinely stuck, not mid-turn: nothing will
-              // end this state on its own. The row's failure stays
-              // recoverable for an operator retry.
+            const now = Date.now()
+            row.stuckSince ??= now
+            if (now - row.stuckSince >= STUCK_CEILING_MS) {
+              // The composer has been stuck for the whole ceiling, not
+              // mid-turn: nothing will end this state on its own. The row's
+              // failure stays recoverable for an operator retry.
               settle(id, 'failed', 'agent not accepting input', 'not-accepting-input')
             } else {
               await pause(200)
@@ -271,7 +283,6 @@ export function withDeliveryQueue(
         input,
         options,
         abort: new AbortController(),
-        admittedAt: Date.now(),
         interrupt: options.delivery === 'interrupt',
       })
       void drain()
