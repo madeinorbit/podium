@@ -125,7 +125,7 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
       .toBe(true)
   })
 
-  it('issue deletion fails its sessions’ messages as the issue’s end, and leaves a stored issue message alone', async () => {
+  it('issue deletion fails its sessions’ messages as the issue’s end', async () => {
     const { registry, store } = await registryWithDaemon()
     const issue = await registry.issues.create({ repoPath: '/repo', title: 'Going away', startNow: false })
     const sender = (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo' })).sessionId
@@ -156,7 +156,11 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
     const member = (await registry.modules.sessions.createSession({
       agentKind: 'shell', cwd: '/repo', issueId: issue.id,
     })).sessionId
-    const held = await seed(store, { from: sender, to: { kind: 'issue', id: issue.id }, status: 'stored' })
+    // `stored` is what says it was never handed on, whatever `delivered_to`
+    // holds: a row can be stored with one already named.
+    const held = await seed(store, {
+      from: sender, to: { kind: 'issue', id: issue.id }, status: 'stored', handedTo: member,
+    })
     const handed = await seed(store, {
       from: sender, to: { kind: 'issue', id: issue.id }, status: 'dispatched', handedTo: member,
     })
