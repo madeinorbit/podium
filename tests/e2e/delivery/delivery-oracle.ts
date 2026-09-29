@@ -138,6 +138,10 @@ export function verdictOf(shown: MessageOnScreen | undefined): UserVerdict {
       return 'unconfirmed'
     case 'pending:interrupted':
       return 'interrupted'
+    // Taken back (POD-4776): not in the conversation, which is what every other
+    // device shows once the record leaves its feed.
+    case 'pending:retracted':
+      return 'absent'
     default:
       return 'absent'
   }

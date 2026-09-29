@@ -128,21 +128,6 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4775 (server stores and forwards, never decides on machine state) / POD-4777',
   },
-  // The server marks the row `cancelled` at once. Since POD-4764 every device
-  // learns it from the synced record, so no screen lies about it any more.
-  // What is left is the race: when the cancel loses to the daemon's queue, the
-  // message is typed anyway and the row still says `cancelled`.
-  'device-retract-queued': {
-    must: [],
-    may: ['status-lies'],
-    until: 'POD-4776 (retract answered by the daemon)',
-  },
-  // The server says `cancelled` before the daemon agreed; the agent has it.
-  'device-retract-typing': {
-    must: ['status-lies'],
-    may: SCREEN_ECHO,
-    until: 'POD-4776 (retract answered by the daemon)',
-  },
   // Since POD-4796 the reports replayed after the reconnect are applied (the
   // gate rejected them as `stale-observer-generation`). What is left is the
   // daemon's own verdict, traced in the gate's log: each message typed DURING
@@ -568,6 +553,35 @@ describe('message delivery under real failures', { retry: 0 }, () => {
         delivered(busy.id, session),
         { id: retracted.id, sessionId: session, expect: 'retracted', sender: 'phone' },
         delivered(after.id, session),
+      ])
+    } finally {
+      await world.close()
+    }
+  }, 300_000)
+
+  // POD-4776: the retract waits with the message while the agent's machine is
+  // away; the server never flips the status on its own, and the daemon answers
+  // it on reconnect.
+  it('second device retracts a queued message while the machine is away; the daemon answers on reconnect', async () => {
+    const world = await open({ sessions: 1, devices: ['phone', 'laptop'] })
+    try {
+      const session = only(world.sessionIds, 'session')
+      const phone = world.device('phone')
+      world.setTurnMs(session, 20_000)
+      const busy = phone.send(session, 'keeps the agent busy')
+      await waitTyped(world, busy.id)
+      const retracted = phone.send(session, 'retracted while the machine is away')
+      // The daemon holds it, waiting behind the running turn.
+      await waitCarried(world, retracted.id)
+      world.link.cut()
+      await world.device('laptop').retract(session, retracted.id)
+      const whileAway = (await world.rows()).find((row) => row.id === retracted.id)
+      expect(whileAway?.deliveryStatus).toBe('dispatched')
+      world.setTurnMs(session, 300)
+      world.link.restore()
+      await judge(world, 'device-retract-offline', [
+        delivered(busy.id, session),
+        { id: retracted.id, sessionId: session, expect: 'retracted', sender: 'phone' },
       ])
     } finally {
       await world.close()
