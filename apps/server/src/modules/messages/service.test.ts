@@ -4916,7 +4916,9 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
       opts: { deletedIds },
       fail: async (h, sessions) => {
         const id = await sendTo(h, asSessionId('s1'))
-        sessions[1] = { ...sessions[1]!, archived: true }
+        sessions[1] = session({
+          sessionId: asSessionId('s1'), status: 'hibernated', issueId: ISSUE.id, archived: true,
+        })
         deletedIds.add(ISSUE.id)
         await h.svc.sweep()
         deletedIds.delete(ISSUE.id)
