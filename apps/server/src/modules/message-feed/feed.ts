@@ -11,17 +11,23 @@
  *
  *  - OPEN: on its way (`stored` … `typed`), or needing its sender's attention
  *    (`failed`, `expired`, `unknown`) and not yet dismissed;
- *  - RECENTLY CONFIRMED: one of the last {@link CONFIRMED_WINDOW} to be
- *    confirmed. The chat drops a bubble when the history entry the machine
- *    named (`transcriptItem`) is on screen, so a device has to receive the
- *    confirmed record carrying that name. Removing it in the commit that
- *    confirms it would coalesce away in the funnel (per `(kind, id)`, the
+ *  - RECENTLY CONFIRMED: one of the last {@link CONFIRMED_PER_SESSION}
+ *    confirmed in ITS SESSION. The chat drops a bubble when the history entry
+ *    the machine named (`transcriptItem`) is on screen, so a device has to
+ *    receive the confirmed record carrying that name. Removing it in the commit
+ *    that confirms it would coalesce away in the funnel (per `(kind, id)`, the
  *    replica would see only the removal) and no device would ever learn the
- *    name. The window is bounded by count, not by time: a newer confirmation
- *    pushes the oldest out.
+ *    name. Each session has its own window, bounded by count, not by time: a
+ *    newer confirmation in the same session pushes that session's oldest out,
+ *    and a busy session never pushes out another's (POD-4811). The feed
+ *    therefore carries at most sessions × {@link CONFIRMED_PER_SESSION}
+ *    confirmed records, plus the open set.
  *
- * Everything else leaves the feed — cancelled, dismissed, or pushed out of the
- * window — and the table keeps every row. The transcript is the history.
+ * Everything else leaves the feed — cancelled, dismissed, or pushed out of its
+ * window — and the table keeps every row. The transcript is the history. A
+ * device that was away while its message was confirmed and pushed out never
+ * sees it on the feed; it asks for its own messages by id instead
+ * (`mail.records`), which reads the table.
  *
  * ---------------------------------------------------------------------------
  * IT RUNS INSIDE THE WRITE
@@ -37,7 +43,7 @@
  * BOOT
  * ---------------------------------------------------------------------------
  * `resolve` reconciles the full truth once, before the server listens: the
- * open set read from the table, plus the window as the feed already holds it,
+ * open set read from the table, plus the windows as the feed already holds them,
  * in one transaction that then turns the capture on. A write before that is
  * already in the table the reconcile reads, so the capture ignores it — and
  * rows that predate the feed altogether (an upgrade) are carried the same way.
@@ -53,10 +59,11 @@ import { applyAfterCommit } from '../../store/executor/executor'
 import type { MessageFeedCapture } from '../../store/messages'
 import type { MessageRow } from '../../store/types'
 
-/** How many confirmed messages the feed keeps, installation-wide. Enough that
- *  every device connected when one is confirmed receives it, whatever else is
- *  confirmed in the same moment; small enough that a bootstrap stays cheap. */
-export const CONFIRMED_WINDOW = 100
+/** How many confirmed messages the feed keeps per session. Enough that every
+ *  device connected when one is confirmed receives it, whatever else that
+ *  session confirms in the same moment; small enough that a bootstrap stays
+ *  cheap. A device away for longer catches up by id. */
+export const CONFIRMED_PER_SESSION = 20
 
 export interface MessageFeedDeps {
   readonly ledger: Pick<Ledger, 'capture' | 'reconcile'>
@@ -66,8 +73,8 @@ export interface MessageFeedDeps {
   readonly listOpen: () => Promise<readonly MessageRow[]>
   /** One transaction on the store the messages table lives in. */
   readonly transact: <T>(fn: () => Promise<T>) => Promise<T>
-  /** Defaults to {@link CONFIRMED_WINDOW}. */
-  readonly confirmedWindow?: number
+  /** Defaults to {@link CONFIRMED_PER_SESSION}. */
+  readonly confirmedPerSession?: number
 }
 
 /** The feed record for a row, or null when the row is not a person's chat message. */
@@ -124,17 +131,20 @@ const isRecord = (value: unknown): value is MessageRecordWire =>
   typeof (value as { sessionId?: unknown }).sessionId === 'string' &&
   typeof (value as { senderUserId?: unknown }).senderUserId === 'string'
 
+const byCreatedAt = (a: MessageRecordWire, b: MessageRecordWire): number =>
+  a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0
+
 export class MessageFeedPublisher {
   /** Row ids carried as open. */
   private open = new Set<string>()
-  /** Row ids carried as confirmed, oldest first. */
-  private window: string[] = []
+  /** Row ids carried as confirmed, per session, oldest first. */
+  private windows = new Map<string, string[]>()
   private live = false
   private resolving: Promise<void> | undefined
-  private readonly windowSize: number
+  private readonly perSession: number
 
   constructor(private readonly deps: MessageFeedDeps) {
-    this.windowSize = deps.confirmedWindow ?? CONFIRMED_WINDOW
+    this.perSession = deps.confirmedPerSession ?? CONFIRMED_PER_SESSION
   }
 
   /** The repository's capture port. Runs inside the write's transaction. */
@@ -161,17 +171,25 @@ export class MessageFeedPublisher {
         truth.set(id, record)
         open.add(id)
       }
-      const window = carried
-        .filter((record) => record.status === 'confirmed' && !open.has(rowIdOf(record)))
-        .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
-        .slice(-this.windowSize)
-      for (const record of window) truth.set(rowIdOf(record), record)
+      const confirmed = new Map<string, MessageRecordWire[]>()
+      for (const record of carried) {
+        if (record.status !== 'confirmed' || open.has(rowIdOf(record))) continue
+        const session = confirmed.get(record.sessionId) ?? []
+        session.push(record)
+        confirmed.set(record.sessionId, session)
+      }
+      const windows = new Map<string, string[]>()
+      for (const [sessionId, records] of confirmed) {
+        const window = records.sort(byCreatedAt).slice(-this.perSession)
+        for (const record of window) truth.set(rowIdOf(record), record)
+        windows.set(sessionId, window.map(rowIdOf))
+      }
       await this.deps.ledger.reconcile(
         'message',
         [...truth].map(([id, value]) => ({ id, value })),
       )
       this.open = open
-      this.window = window.map(rowIdOf)
+      this.windows = windows
       this.live = true
     })
   }
@@ -181,10 +199,19 @@ export class MessageFeedPublisher {
     const specs: EntityChangeSpec[] = []
     const opened: string[] = []
     const closed: string[] = []
-    const confirmed: string[] = []
+    /** Per session touched: the ids confirming into its window, in order. */
+    const confirmed = new Map<string, string[]>()
     // Within one write, what this write has already decided counts as carried.
     const openNow = new Set(this.open)
-    const windowNow = [...this.window]
+    const windowsNow = new Map<string, string[]>()
+    const windowOf = (sessionId: string): string[] => {
+      let window = windowsNow.get(sessionId)
+      if (window === undefined) {
+        window = [...(this.windows.get(sessionId) ?? [])]
+        windowsNow.set(sessionId, window)
+      }
+      return window
+    }
     for (const row of rows) {
       const record = messageRecordOf(row)
       if (record === null) continue
@@ -197,16 +224,17 @@ export class MessageFeedPublisher {
       }
       const wasOpen = openNow.delete(id)
       if (wasOpen) closed.push(id)
-      const inWindow = windowNow.includes(id)
-      // Confirmed now, having been carried open: it enters the window. A row
-      // confirmed long ago that a later stamp touches (a read, an ack) is
-      // history and stays out; one still in the window keeps its place and
-      // gains what the stamp added (the history entry's name).
+      const window = windowOf(record.sessionId)
+      const inWindow = window.includes(id)
+      // Confirmed now, having been carried open: it enters its session's
+      // window. A row confirmed long ago that a later stamp touches (a read, an
+      // ack) is history and stays out; one still in the window keeps its place
+      // and gains what the stamp added (the history entry's name).
       if (record.status === 'confirmed' && (inWindow || wasOpen)) {
         specs.push({ entity: 'message', id, op: 'upsert', value: record })
         if (!inWindow) {
-          windowNow.push(id)
-          confirmed.push(id)
+          window.push(id)
+          confirmed.set(record.sessionId, [...(confirmed.get(record.sessionId) ?? []), id])
         }
         continue
       }
@@ -214,19 +242,30 @@ export class MessageFeedPublisher {
       // removal of a row the feed never carried is dropped by the log.
       if (wasOpen) specs.push({ entity: 'message', id, op: 'remove' })
     }
-    const evicted = windowNow.length > this.windowSize
-      ? windowNow.slice(0, windowNow.length - this.windowSize)
-      : []
-    for (const id of evicted) specs.push({ entity: 'message', id, op: 'remove' })
+    /** Per session: the oldest pushed out by this write's confirmations. */
+    const evicted = new Map<string, string[]>()
+    for (const [sessionId, window] of windowsNow) {
+      if (window.length <= this.perSession) continue
+      const gone = window.slice(0, window.length - this.perSession)
+      evicted.set(sessionId, gone)
+      for (const id of gone) specs.push({ entity: 'message', id, op: 'remove' })
+    }
     if (specs.length === 0) return
     await this.deps.ledger.capture(specs)
     applyAfterCommit(() => {
       for (const id of opened) this.open.add(id)
       for (const id of closed) this.open.delete(id)
-      for (const id of confirmed) if (!this.window.includes(id)) this.window.push(id)
-      if (evicted.length > 0) {
-        const gone = new Set(evicted)
-        this.window = this.window.filter((id) => !gone.has(id))
+      for (const [sessionId, ids] of confirmed) {
+        const window = this.windows.get(sessionId) ?? []
+        for (const id of ids) if (!window.includes(id)) window.push(id)
+        this.windows.set(sessionId, window)
+      }
+      for (const [sessionId, ids] of evicted) {
+        const gone = new Set(ids)
+        this.windows.set(
+          sessionId,
+          (this.windows.get(sessionId) ?? []).filter((id) => !gone.has(id)),
+        )
       }
     }, 'message-feed')
   }

@@ -4,8 +4,9 @@
  * A person's chat message reaches every device's feed from the write that
  * moved it, inside that write's transaction:
  *   1. an open message is carried with its current status,
- *   2. a confirmed one stays for a bounded window of confirmations (so devices
- *      learn the history entry it became) and then leaves,
+ *   2. a confirmed one stays for a bounded window of its session's
+ *      confirmations (so devices learn the history entry it became) and then
+ *      leaves; a busy session never pushes out another session's,
  *   3. a failed one stays until its sender dismisses it; a cancelled one leaves,
  *   4. a rolled-back write never reaches the feed,
  *   5. boot reconciles the open set from the table and catches writes made
@@ -32,6 +33,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { MessageFeedPublisher } from './feed'
 
 const S1 = asSessionId('ses_one')
+const S2 = asSessionId('ses_two')
 const ALICE = asUserId('usr_alice')
 
 const stores: SessionStore[] = []
@@ -53,7 +55,7 @@ async function harness(opts: { window?: number; live?: boolean } = {}) {
     snapshot: async () => await ledger.authority.snapshot('message'),
     listOpen: async () => await store.messages.listOpenChat(),
     transact: async (fn) => await store.transact(fn),
-    ...(opts.window === undefined ? {} : { confirmedWindow: opts.window }),
+    ...(opts.window === undefined ? {} : { confirmedPerSession: opts.window }),
   })
   store.messages.setFeedCapture(feed.capture)
   if (opts.live !== false) await feed.resolve()
@@ -62,7 +64,30 @@ async function harness(opts: { window?: number; live?: boolean } = {}) {
     new Map(
       ((await ledger.authority.snapshot('message')) as MessageRecordWire[]).map((r) => [r.id, r]),
     )
-  return { store, ledger, feed, carried }
+  /** A second publisher over the same table and log — the next boot. */
+  const reboot = async (window?: number): Promise<MessageFeedPublisher> => {
+    const next = new MessageFeedPublisher({
+      ledger,
+      snapshot: async () => await ledger.authority.snapshot('message'),
+      listOpen: async () => await store.messages.listOpenChat(),
+      transact: async (fn) => await store.transact(fn),
+      ...(window === undefined ? {} : { confirmedPerSession: window }),
+    })
+    store.messages.setFeedCapture(next.capture)
+    await next.resolve()
+    return next
+  }
+  return { store, ledger, feed, carried, reboot }
+}
+
+/** Store a message and confirm it. */
+async function confirm(
+  store: SessionStore,
+  id: string,
+  sessionId = S1,
+): Promise<void> {
+  await store.messages.addMessage(chat(id, { toId: sessionId }))
+  await store.messages.markDelivered(id, sessionId, 't')
 }
 
 let clock = 0
@@ -142,6 +167,29 @@ describe('the chat message feed', () => {
     await store.messages.markDelivered('msg_3', S1, 't4')
     expect([...(await carried()).keys()].sort()).toEqual(['msg_2', 'msg_3'])
     expect((await store.messages.getMessage('msg_1'))?.deliveryStatus).toBe('confirmed')
+  })
+
+  it('keeps each session’s confirmations in its own window: a busy session pushes out only its own', async () => {
+    const { store, carried } = await harness({ window: 2 })
+    await confirm(store, 'msg_quiet', S2)
+    for (const id of ['msg_b1', 'msg_b2', 'msg_b3', 'msg_b4']) await confirm(store, id)
+    expect([...(await carried()).keys()].sort()).toEqual(['msg_b3', 'msg_b4', 'msg_quiet'])
+    // The quiet session's own confirmations are what move its window.
+    await confirm(store, 'msg_q2', S2)
+    await confirm(store, 'msg_q3', S2)
+    expect([...(await carried()).keys()].sort()).toEqual(['msg_b3', 'msg_b4', 'msg_q2', 'msg_q3'])
+  })
+
+  it('rebuilds each session’s window at boot from what the feed carries', async () => {
+    const { store, carried, reboot } = await harness({ window: 2 })
+    await confirm(store, 'msg_a1')
+    await confirm(store, 'msg_a2')
+    await confirm(store, 'msg_z1', S2)
+    await reboot(1)
+    expect([...(await carried()).keys()].sort()).toEqual(['msg_a2', 'msg_z1'])
+    // The rebuilt windows are per session too.
+    await confirm(store, 'msg_z2', S2)
+    expect([...(await carried()).keys()].sort()).toEqual(['msg_a2', 'msg_z2'])
   })
 
   it('does not bring back a confirmed message a later stamp touches once it left', async () => {
