@@ -577,6 +577,41 @@ describe('buildInventory', () => {
     expect(byKind['grok']!.login).toEqual({ state: 'out' })
   })
 
+  it('reports an expired Grok key without refresh as logged out (POD-4803)', async () => {
+    mkdirSync(join(home, '.grok'), { recursive: true })
+    writeFileSync(
+      join(home, '.grok', 'auth.json'),
+      JSON.stringify({
+        'https://auth.x.ai::account': {
+          key: 'expired-access-token',
+          expires_at: '2026-09-26T00:00:00.000Z',
+          email: 'grace@example.com',
+        },
+      }),
+    )
+    const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
+    expect(inv.agents.find((agent) => agent.kind === 'grok')!.login.state).toBe('out')
+  })
+
+  it('keeps an expired Grok key with a refresh token logged in (POD-4803)', async () => {
+    mkdirSync(join(home, '.grok'), { recursive: true })
+    writeFileSync(
+      join(home, '.grok', 'auth.json'),
+      JSON.stringify({
+        'https://auth.x.ai::account': {
+          key: 'expired-access-token',
+          refresh_token: 'refresh-token',
+          expires_at: '2026-09-26T00:00:00.000Z',
+          email: 'grace@example.com',
+        },
+      }),
+    )
+    const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
+    expect(inv.agents.find((agent) => agent.kind === 'grok')!.login).toMatchObject({
+      state: 'in',
+    })
+  })
+
   it('does not mistake metadata-only directories for native logins', async () => {
     mkdirSync(join(home, '.grok'), { recursive: true })
     writeFileSync(join(home, '.grok', 'config.toml'), '[cli]\n')
