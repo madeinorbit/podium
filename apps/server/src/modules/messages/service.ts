@@ -84,7 +84,7 @@ import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import type { SessionFacts } from '../sessions/facts'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
-import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
+import { deliveredByAJob, INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
 import type {
   MessageSender,
@@ -161,7 +161,7 @@ interface InboxDeliveryInput {
    *  person typing into the session, and the inbox acts on that difference —
    *  `prepareInboxSend` clears a standing offer for a person-send only
    *  [spec:SP-c7f1, POD-118, POD-552]; a person's words a job delivers (an
-   *  automation's prompt, POD-4846) stamp `system`; auto-continue's key press
+   *  automation's prompt, POD-4846) stamp `system`; auto-continue's 'continue'
    *  keeps `auto_continue`. Was `'mail'` alone until
    *  offer-action delivery started riding this substrate (POD-729); the port is
    *  deliberately narrower than `SessionInbox`'s own `InboxSendInput` so it
@@ -521,15 +521,6 @@ const SESSION_GONE: SendFailure = { kind: 'session-gone' }
 const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set(['typing', 'typed', 'unknown'])
 const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a reply.'
 
-/**
- * A PERSON'S WORDS THAT A SERVER JOB DELIVERED (POD-4846): an automation's
- * prompt, stored as its owner's message and attributed to the automation. Typed
- * as the person's own words, but nobody is at the keyboard: it does not act on
- * a standing offer, and the job records its own failure.
- */
-const deliveredByAJob = (m: MessageRow): boolean =>
-  m.fromKind === 'operator' && m.attribution?.actor.kind === 'system'
-
 /** The task a person (or a job) started a session with (POD-4846): its
  *  failure is the inbox's prompt-failed attention, not a notice. */
 const isOwnersSpawnPrompt = (m: MessageRow): boolean =>
@@ -543,7 +534,7 @@ const isOwnersSpawnPrompt = (m: MessageRow): boolean =>
  * clears a standing offer [spec:SP-c7f1] and opens a user turn (POD-552);
  * agent/system/superagent mail (`mail`) never consumes an offer the human has
  * not acted on [POD-118]; a person's words a job delivers are `system`
- * (POD-4846); auto-continue's key press keeps its own `auto_continue`.
+ * (POD-4846); auto-continue's 'continue' keeps its own `auto_continue`.
  */
 function inputOriginOf(m: MessageRow): 'controller' | 'mail' | 'system' | 'auto_continue' {
   if (m.fromKind === 'operator') return deliveredByAJob(m) ? 'system' : 'controller'

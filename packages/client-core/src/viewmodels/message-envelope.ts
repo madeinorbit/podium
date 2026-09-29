@@ -2,8 +2,10 @@
  * Delivered-message envelope detection (#237) [spec:SP-34d7 web]: a message
  * from another agent / the superagent / the system reaches the harness as a
  * server-rendered frame — `[podium message …] … [end podium message …]` — so
- * it lands in the transcript as a "user" turn. The web transcript must render
- * it DISTINCT from something the human typed; conversely an operator message
+ * it lands in the transcript as a "user" turn (a server job's short frame —
+ * auto-continue, an automation's prompt — has the same head line without its
+ * reply part). The web transcript must render it DISTINCT from something the
+ * human typed; conversely an operator message
  * is delivered unwrapped and renders exactly as a user turn (unwrapped = the
  * human — this parser simply never matches it).
  *
@@ -35,7 +37,10 @@ export interface ParsedEnvelope {
   machineNote?: string
 }
 
-const HEAD_RE = /^\[podium message (\S+) · from (.+?) · to (.+?) · reply: podium mail reply \1\]\n/
+/** The head line. The reply part is absent from the short frame a server job
+ *  types (auto-continue, an automation's prompt — POD-4868): mail no agent
+ *  answers, but still Podium's, never the person's. */
+const HEAD_RE = /^\[podium message (\S+) · from (.+?) · to (.+?)(?: · reply: podium mail reply \1)?\]\n/
 
 export interface ParsedEnvelopeBatch {
   envelopes: ParsedEnvelope[]

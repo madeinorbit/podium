@@ -16,7 +16,7 @@
  * is now the single statement of it and all three call it.
  */
 
-import { deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
+import { AUTO_CONTINUE_SENDER, deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
 import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
@@ -27,7 +27,8 @@ import { sanitizeForInjection } from '../sessions/paste'
 export { INLINE_BODY_MAX }
 
 /** How a rendered message is confirmed as reaching the agent [POD-834]:
- *   - `echo`      enveloped body carrying the msg id → confirmed by transcript echo;
+ *   - `echo`      enveloped body carrying the msg id (the full envelope or the
+ *                 short frame) → confirmed by transcript echo;
  *   - `pointer`   a coalesced "you have mail" nudge (fyi / oversized issue mail) →
  *                 the body isn't shown inline, so it is confirmed by an inbox READ,
  *                 never echo — and is never auto-requeued (no re-nudge storm);
@@ -104,6 +105,41 @@ export const TURN_CLOSE_RULE =
   `[your standing offer survived this mail: leave it, or re-post it unchanged — never replace it ` +
   `with one about the mail. Check the issue stage still matches reality before you stop.]\n`
 
+/**
+ * A PERSON'S WORDS THAT A SERVER JOB DELIVERED (POD-4846): an automation's
+ * prompt, stored as its owner's message and attributed to the automation. The
+ * owner wrote the words, but nobody is at the keyboard: it does not act on a
+ * standing offer, the job records its own failure, and it is typed in the short
+ * frame rather than bare (POD-4868).
+ */
+export const deliveredByAJob = (m: MessageRow): boolean =>
+  m.fromKind === 'operator' && m.attribution?.actor.kind === 'system'
+
+/**
+ * THE MESSAGES A SERVER JOB TYPES THAT NO AGENT ANSWERS (POD-4868): an
+ * automation's prompt and auto-continue's 'continue'. Neither is a person
+ * typing, so both carry their id in the text like all other mail — the agent's
+ * history then names them exactly, and only a person's own words have to be
+ * found by their text. Neither is mail an agent replies to, so they get the
+ * {@link renderShortFrame short frame}, not the envelope.
+ */
+export const typedByAJob = (m: MessageRow): boolean =>
+  deliveredByAJob(m) || (m.fromKind === 'system' && m.fromName === AUTO_CONTINUE_SENDER)
+
+/**
+ * The short frame (POD-4868): the envelope's id line and end line around the
+ * body, without the reply, question, response and turn-close rules. The head
+ * line keeps the envelope's shape minus its reply part, so the transcript echo
+ * confirms it by id and the chat reads it as Podium's, never the person's.
+ */
+export function renderShortFrame(m: MessageRow, fromLabel: string, toLabel: string): string {
+  return (
+    `[podium message ${m.id} · from ${fromLabel} · to ${toLabel}]\n` +
+    `${m.body}\n` +
+    `[end podium message ${m.id}]`
+  )
+}
+
 /** Render the delivery envelope. Server-only: bodies never carry frames of
  *  their own — a spoofed "[podium message …]" inside `body` lands INSIDE the
  *  real frame and reads as quoted text. */
@@ -178,11 +214,22 @@ export class MessageRenderer {
   }
 
   /** The exact text the receiver sees: enveloped for every principal EXCEPT the
-   *  operator — only the human's own words land unwrapped. Oversized
-   *  issue-addressed bodies render as an inbox pointer instead of inline. */
+   *  operator — only the human's own words land unwrapped. A server job's
+   *  message no agent answers gets the short frame. Oversized issue-addressed
+   *  bodies render as an inbox pointer instead of inline. */
   async renderFor(message: MessageRow, receiverSessionId?: SessionId): Promise<string> {
     if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
       return await this.pointerText([message])
+    }
+    // An automation's prompt and auto-continue (POD-4868): the words are kept,
+    // control-stripped like every non-person body, inside the short frame. Ahead
+    // of the operator branch because an automation's row is the owner's.
+    if (typedByAJob(message)) {
+      return renderShortFrame(
+        { ...message, body: sanitizeBody(message.body) },
+        await this.fromLabel(message),
+        await this.toLabel(message),
+      )
     }
     // Operator bodies are UNWRAPPED and rendered verbatim: the human's own words
     // land as their own words, with no envelope and no id around them.
@@ -212,10 +259,6 @@ export class MessageRenderer {
     // Substrate boundary: every NON-operator delivered body is control-stripped
     // so it can never break out of the bracketed paste (ESC[201~) in typeText.
     const body = sanitizeBody(message.body)
-    // The one server sender typed bare: auto-continue's key press stands in for
-    // the person, so it gets no frame (POD-4846; `deliversUnwrapped` declares
-    // the exception). Its row still has an id and a delivery status.
-    if (deliversUnwrapped(principalOfRow(message), message.kind)) return body
     // `turnClose` is for mail an AGENT will act on [POD-604]. Two exclusions,
     // both about who actually reads the frame: the operator path above is the
     // human typing into a session they are still watching, and a `toKind:
@@ -263,6 +306,10 @@ export class MessageRenderer {
   }
 
   async fromLabel(message: MessageRow): Promise<string> {
+    // The job that delivered a person's words names itself (`automation:<id>`),
+    // not the person: the frame says who typed it.
+    const actor = message.attribution?.actor
+    if (deliveredByAJob(message) && actor?.kind === 'system') return actor.job
     if (message.fromKind === 'agent') {
       if (message.fromIssue) {
         // Nice-id form (#474): `issue:POD-13` — clickable in the web transcript
@@ -295,6 +342,7 @@ export class MessageRenderer {
    *  cannot drift from what `renderFor` actually produced. */
   deliveryMode(message: MessageRow): DeliveryMode {
     if (this.isPointer(message)) return 'pointer'
+    if (typedByAJob(message)) return 'echo'
     if (deliversUnwrapped(principalOfRow(message), message.kind)) return 'unwrapped'
     return 'echo'
   }

@@ -63,28 +63,20 @@ export const isHumanPrincipal = (sender: MailSenderPrincipal): boolean => sender
 /**
  * Byte-faithful, envelope-free delivery (readiness §3.2): a person's own words.
  * Questions are excepted because the envelope is what constrains the receiver to
- * answer-then-resume. Auto-continue's key press, which stands in for the person,
- * is the one server sender delivered this way (POD-4846, below).
+ * answer-then-resume. No server sender is delivered this way: auto-continue was
+ * the one exception (POD-4846) and is wrapped since POD-4868, so every message
+ * that is not a person's own words carries its id in the text.
  */
 export const deliversUnwrapped = (sender: MailSenderPrincipal, kind: string): boolean =>
-  (isHumanPrincipal(sender) && kind !== 'question') || isKeyPressStandIn(sender)
+  isHumanPrincipal(sender) && kind !== 'question'
 
 /**
- * The system sender whose one word stands in for the person's key press
- * (POD-4846): auto-continue's 'continue' to an errored agent.
+ * The system sender that types 'continue' into an errored agent (POD-4846).
+ * Its message is wrapped in the short frame, like an automation's prompt
+ * (POD-4868): the id line and the end line, none of the rules for mail an
+ * agent answers.
  */
 export const AUTO_CONTINUE_SENDER = 'auto-continue'
-
-/**
- * THE ONE DECLARED EXCEPTION TO "EVERY NON-HUMAN MESSAGE IS ENVELOPED"
- * (POD-4846). Auto-continue types 'continue' where the person would have: it is
- * a key press standing in for them, so the agent must see exactly the bare word
- * a person types, not a framed notice with mail-handling rules around it. It is
- * still a message row with an id and a delivery status; only the frame is
- * withheld. Every other server sender stays wrapped.
- */
-const isKeyPressStandIn = (sender: MailSenderPrincipal): boolean =>
-  sender.kind === 'system' && sender.name === AUTO_CONTINUE_SENDER
 
 /**
  * Wake-cooldown exemption. The spawn budget has none: it applies to every sender.
