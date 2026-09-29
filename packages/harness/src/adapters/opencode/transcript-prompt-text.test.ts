@@ -16,7 +16,9 @@ const recordedText = (prefix: string): string => {
     .flatMap((message) => JSON.parse(message.parts) as { type: string; text?: string }[])
     .filter((part) => part.type === 'text' && part.text?.startsWith(prefix))
   expect(texts).toHaveLength(1)
-  return texts[0]!.text!
+  const text = texts[0]?.text
+  if (text === undefined) throw new Error(`Missing measured text for ${prefix}`)
+  return text
 }
 
 describe('OpenCode measured text tolerance', () => {
