@@ -83,7 +83,11 @@ export type RuntimeEventBody =
   | {
       t: 'delivery'
       rowId: string
-      outcome: 'delivered' | 'failed' | 'dropped'
+      /** `accepted` (POD-4886) is not a settlement: the program took the row
+       *  and has not recorded it yet; `delivered` or `failed` follows. */
+      outcome: 'accepted' | 'delivered' | 'failed' | 'dropped'
+      /** On `accepted` only: how the program holds it (POD-4819 §4). */
+      held?: 'memory' | 'durable'
       reason?: string
       /** Why a `failed` failed, when the daemon knows (POD-4775). */
       cause?: DeliveryFailureCause

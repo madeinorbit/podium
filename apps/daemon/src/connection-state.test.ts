@@ -14,7 +14,7 @@ import {
   type PeerHelloReply,
   DAEMON_WIRE_VERSION,
 } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import { CAP_DELIVERY_ACCEPTED, type DaemonMessage } from '@podium/protocol/daemon'
 import { readConnectivityForTest, writeConnectivity } from '@podium/runtime/connectivity'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { readDaemonHealth, writeDaemonHealth } from '@podium/runtime/daemon-health'
@@ -1754,5 +1754,105 @@ describe('podium connect locator rescue (POD-4533)', () => {
     expect(loadConfig().serverUrl).toBe('wss://old.example')
     expect(h.fetchCalls.filter((url) => url.endsWith('/version'))).toEqual([])
     await h.state.close()
+  })
+})
+
+/**
+ * ROLLING UPGRADE (POD-4886): `accepted` is a delivery outcome an older server
+ * cannot parse — it refuses the whole frame. The daemon offers
+ * CAP_DELIVERY_ACCEPTED and sends `accepted` only when the server accepted it;
+ * otherwise it sends nothing for the hold, as before. Never retained: the
+ * outbox journal is read at boot by whichever daemon build runs next.
+ */
+describe('the accepted outcome on the daemon link (POD-4886)', () => {
+  /** The delivery outcomes a server before POD-4886 parses. */
+  const OLD_SERVER_OUTCOMES = new Set(['delivered', 'failed', 'dropped'])
+  const envelope = {
+    at: '2026-09-30T12:00:00.000Z',
+    provenance: 'live' as const,
+    observerGeneration: 1,
+    turnEpoch: 1,
+    cursor: { segmentId: 'segment', components: { seq: 1 } },
+  }
+  const accepted: Extract<DaemonMessage, { type: 'runtimeEvent' }> = {
+    type: 'runtimeEvent',
+    sessionId: asSessionId('s'),
+    event: { ...envelope, t: 'delivery', rowId: 'row', outcome: 'accepted', held: 'durable' },
+  }
+  const settled: Extract<DaemonMessage, { type: 'runtimeEvent' }> = {
+    type: 'runtimeEvent',
+    deliveryId: 'settled',
+    sessionId: asSessionId('s'),
+    event: { ...envelope, t: 'delivery', rowId: 'row', outcome: 'delivered' },
+  }
+  const link = (serverCaps: string[]) => {
+    const delivered: DaemonMessage[] = []
+    let hello: PeerHello | undefined
+    const outbox = createRuntimeEventOutbox(temp())
+    const options = localOptions(() => {}, {
+      machineToken: 'local-secret',
+      localLink: {
+        attach: async ({ hello: offered }) => {
+          hello = offered
+          return {
+            established: true,
+            reply: { ...ok, caps: serverCaps },
+            machineId: MACHINE_ID,
+            deliver: (frame) => { delivered.push(frame) },
+            deliverOutput: vi.fn(),
+            close: vi.fn(),
+          }
+        },
+      },
+    })
+    const conn = createDaemonConnection({
+      options,
+      build: buildReport(process.env, undefined),
+      machineId: MACHINE_ID,
+      identity: {},
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(() => true),
+      queueDrainOutbox: createQueueDrainOutbox(temp()),
+      runtimeEventOutbox: outbox,
+      onConnected: vi.fn(),
+      onTerminal: vi.fn(),
+    })
+    return { conn, delivered, outbox, hello: () => hello }
+  }
+
+  it('offers the capability in its hello', async () => {
+    const l = link([])
+    await l.conn.start()
+    expect(l.hello()?.caps).toContain(CAP_DELIVERY_ACCEPTED)
+    await l.conn.close()
+  })
+
+  it('sends no accepted frame to a server that does not read it, and every frame it sends is one that server parses', async () => {
+    const l = link([])
+    await l.conn.start()
+    l.conn.send(accepted)
+    l.conn.send(settled)
+    expect(l.delivered).toEqual([settled])
+    for (const frame of l.delivered) {
+      if (frame.type === 'runtimeEvent' && frame.event.t === 'delivery') {
+        expect(OLD_SERVER_OUTCOMES.has(frame.event.outcome)).toBe(true)
+      }
+    }
+    expect(l.outbox.pending()).toEqual([settled])
+    await l.conn.close()
+  })
+
+  it('sends it live to a server that accepted the capability, and never retains it', async () => {
+    const l = link([CAP_DELIVERY_ACCEPTED])
+    // Offline: lost, like every live observation — never written to the outbox.
+    l.conn.send(accepted)
+    expect(l.outbox.pending()).toEqual([])
+    await l.conn.start()
+    expect(l.delivered).toEqual([])
+    l.conn.send(accepted)
+    l.conn.send(settled)
+    expect(l.delivered).toEqual([accepted, settled])
+    expect(l.outbox.pending()).toEqual([settled])
+    await l.conn.close()
   })
 })

@@ -727,9 +727,12 @@ describe('a receipt held in memory (POD-4849)', () => {
     const f = fixture()
     await f.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
     await vi.advanceTimersByTimeAsync(1000)
-    expect(f.events()).toEqual([])
+    // The program has it: the server hears `accepted`, and how it is held
+    // (POD-4886), so the person no longer sees `typed` for the whole hold.
+    expect(f.events()).toEqual([{ t: 'delivery', rowId: 'row', outcome: 'accepted', held: 'memory' }])
     f.name({ id: 'entry-1' })
     expect(f.events()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'accepted', held: 'memory' },
       { t: 'delivery', rowId: 'row', outcome: 'delivered', transcriptItem: { id: 'entry-1' } },
     ])
   })
@@ -743,6 +746,7 @@ describe('a receipt held in memory (POD-4849)', () => {
     // late proof by id is the only way back (POD-4840).
     f.name({ id: 'entry-late' })
     expect(f.events()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'accepted', held: 'memory' },
       {
         t: 'delivery',
         rowId: 'row',
@@ -781,7 +785,10 @@ describe('a receipt held in memory (POD-4849)', () => {
       reason: 'busy',
       tooLate: 'typing',
     })
-    expect(f.events()).toEqual([])
+    expect(f.events()).toEqual([
+      { t: 'delivery', rowId: 'held', outcome: 'accepted', held: 'memory' },
+      { t: 'delivery', rowId: 'next', outcome: 'accepted', held: 'memory' },
+    ])
   })
 
   it('a repeated admission of a row waiting for its record types nothing again', async () => {
@@ -792,7 +799,7 @@ describe('a receipt held in memory (POD-4849)', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(again.outcome).toBe('queued')
     expect(f.send).toHaveBeenCalledTimes(1)
-    expect(f.events()).toEqual([])
+    expect(f.events()).toEqual([{ t: 'delivery', rowId: 'row', outcome: 'accepted', held: 'memory' }])
   })
 
   it('teardown discards a row waiting for its record, like every other row', async () => {
@@ -803,7 +810,170 @@ describe('a receipt held in memory (POD-4849)', () => {
     f.unrecorded('the session ended')
     f.name({ id: 'entry-late' })
     // A new owner receives the durable row again and settles it by recovery.
-    expect(f.events()).toEqual([])
+    expect(f.events()).toEqual([{ t: 'delivery', rowId: 'row', outcome: 'accepted', held: 'memory' }])
+  })
+})
+
+/**
+ * A MESSAGE THE PROGRAM KEEPS ACROSS ITS OWN RESTART (POD-4886; POD-4819 §4,
+ * §9). An OpenCode v2 admission, a Codex `thread/queue` item: it may run later
+ * on its own, so nothing but the program's record settles it. No timer and no
+ * end of a turn or session moves it to unconfirmed, and a daemon restart does
+ * not end the watch: the server forwards the row again saying it is held
+ * durably, and the new owner watches it again without typing a byte.
+ */
+describe('a receipt held durably (POD-4886)', () => {
+  type Named = (item: { id: string }) => void
+  type Unrecorded = (reason: string) => void
+  type Watch = { onTranscriptItem?: Named; signal?: AbortSignal }
+  const daemon = (opts: { rewatch?: boolean } = {}) => {
+    let named: Named | undefined
+    let unrecorded: Unrecorded | undefined
+    const watched: Array<{ input: { text: string }; watch: Watch }> = []
+    const send = vi.fn(
+      async (
+        _input: { text: string },
+        options?: { onTranscriptItem?: Named; onUnrecorded?: Unrecorded },
+      ) => {
+        named = options?.onTranscriptItem
+        unrecorded = options?.onUnrecorded
+        return {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'queue',
+          provenBy: 'protocol-ack',
+          held: 'durable',
+          harnessRef: [{ kind: 'message', id: 'msg_prog' }],
+          at: new Date().toISOString(),
+        }
+      },
+    )
+    const emit = vi.fn()
+    const stop = vi.fn(async () => {})
+    const handle = withDeliveryQueue(
+      {
+        send,
+        stop,
+        state: async () => ({ phase: 'idle' }),
+        lease: { state: async () => null },
+        binding: {},
+        ...(opts.rewatch === false
+          ? {}
+          : {
+              watchHeld: (input: { text: string }, watch: Watch) => {
+                watched.push({ input, watch })
+              },
+            }),
+      } as unknown as AgentSessionHandle,
+      emit,
+    )
+    return {
+      handle,
+      send,
+      watched,
+      events: () => emit.mock.calls.map(([event]) => event),
+      name: (item: { id: string }) => named?.(item),
+      unrecorded: (reason: string) => unrecorded?.(reason),
+    }
+  }
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+  const accepted = {
+    t: 'delivery',
+    rowId: 'row',
+    outcome: 'accepted',
+    held: 'durable',
+    harnessRef: [{ kind: 'message', id: 'msg_prog' }],
+  }
+
+  it('says accepted and durable, and no timer or ended turn settles it', async () => {
+    vi.useFakeTimers()
+    const d = daemon()
+    await d.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(d.events()).toEqual([accepted])
+    // What ends a memory hold does not end this one: the program still has it.
+    d.unrecorded('the turn ended before the program recorded the message')
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000)
+    expect(d.events()).toEqual([accepted])
+    d.name({ id: 'entry-1' })
+    expect(d.events()).toEqual([
+      accepted,
+      {
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-1' },
+        harnessRef: [{ kind: 'message', id: 'msg_prog' }],
+      },
+    ])
+  })
+
+  it('survives a daemon restart: the new owner watches it again, types nothing, never gives up', async () => {
+    vi.useFakeTimers()
+    const before = daemon()
+    await before.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(before.events()).toEqual([accepted])
+
+    // The daemon restarts: its memory is gone. The server still holds the row
+    // and forwards it again as a recovery, saying the program holds it durably.
+    const after = daemon()
+    const receipt = await after.handle.send(
+      { id: 'row', rowId: 'row', text: 'a', deliveryRecovery: true, held: 'durable' },
+      options,
+    )
+    expect(receipt.outcome).toBe('queued')
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000)
+    expect(after.send).not.toHaveBeenCalled()
+    expect(after.watched.map(({ input }) => input.text)).toEqual(['a'])
+    expect(after.events()).toEqual([])
+    // Too late to retract: the program has it.
+    expect(await after.handle.cancelDelivery!('row')).toMatchObject({ reason: 'busy' })
+    // A repeated forward watches nothing twice.
+    await after.handle.send(
+      { id: 'row', rowId: 'row', text: 'a', deliveryRecovery: true, held: 'durable' },
+      options,
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    expect(after.watched).toHaveLength(1)
+
+    after.watched[0]!.watch.onTranscriptItem!({ id: 'entry-1' })
+    expect(after.events()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'delivered', transcriptItem: { id: 'entry-1' } },
+    ])
+  })
+
+  it('a driver that cannot watch again leaves it open, never unconfirmed', async () => {
+    vi.useFakeTimers()
+    const after = daemon({ rewatch: false })
+    await after.handle.send(
+      { id: 'row', rowId: 'row', text: 'a', deliveryRecovery: true, held: 'durable' },
+      options,
+    )
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000)
+    expect(after.send).not.toHaveBeenCalled()
+    expect(after.events()).toEqual([])
+  })
+
+  it('a recovery the server does not call durable still ends unconfirmed, as before', async () => {
+    vi.useFakeTimers()
+    const after = daemon()
+    await after.handle.send({ id: 'row', rowId: 'row', text: 'a', deliveryRecovery: true }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(after.send).not.toHaveBeenCalled()
+    expect(after.watched).toEqual([])
+    expect(after.events()).toMatchObject([{ rowId: 'row', outcome: 'failed', cause: 'unconfirmed' }])
+  })
+
+  it('teardown ends the watch; the next owner is given the row again', async () => {
+    vi.useFakeTimers()
+    const d = daemon()
+    await d.handle.send({ id: 'row', rowId: 'row', text: 'a', deliveryRecovery: true, held: 'durable' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    await d.handle.stop!()
+    expect(d.watched[0]!.watch.signal?.aborted).toBe(true)
+    d.watched[0]!.watch.onTranscriptItem!({ id: 'entry-late' })
+    expect(d.events()).toEqual([])
   })
 })
 
@@ -1106,9 +1276,12 @@ describe("the program's own ids for a row (POD-4841)", () => {
     const recorded = fixture({ outcome: 'accepted', held: 'memory', harnessRef: [turn] })
     await recorded.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
     await vi.advanceTimersByTimeAsync(0)
-    expect(recorded.events()).toEqual([])
+    // The hold is reported with the ids known so far (POD-4886).
+    const accepted = { t: 'delivery', rowId: 'row', outcome: 'accepted', held: 'memory', harnessRef: [turn] }
+    expect(recorded.events()).toEqual([accepted])
     recorded.name({ id: 'entry-1' }, [echo])
     expect(recorded.events()).toEqual([
+      accepted,
       {
         t: 'delivery',
         rowId: 'row',
@@ -1124,6 +1297,7 @@ describe("the program's own ids for a row (POD-4841)", () => {
     lost.unrecorded('the turn was interrupted')
     // The turn id is what a later look-up of an unconfirmed steer needs most.
     expect(lost.events()).toEqual([
+      accepted,
       {
         t: 'delivery',
         rowId: 'row',

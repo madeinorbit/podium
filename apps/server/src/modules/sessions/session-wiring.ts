@@ -497,6 +497,15 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         )
         await completion
       },
+      accepted: async ({ sourceMessageId, sessionId, held }) => {
+        const completion: Promise<void> | undefined = deps.noteQueuedMessageAccepted?.(
+          sourceMessageId,
+          sessionId,
+          held,
+        )
+        await completion
+      },
+      held: async ({ sourceMessageId }) => await deps.queuedMessageHeld?.(sourceMessageId),
       provenLate: async ({ messageId, sessionId }) => {
         const completion: Promise<void> | undefined = deps.confirmQueuedMessageLate?.(
           messageId,
@@ -617,6 +626,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         turnId: input.turnId,
         rowId: input.turnId,
         deliveryRecovery: input.deliveryRecovery,
+        ...(input.held ? { held: input.held } : {}),
         initialPrompt: input.initialPrompt,
         text: input.text,
         origin: input.origin,

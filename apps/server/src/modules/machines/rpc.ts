@@ -897,6 +897,8 @@ export class DaemonRpcService {
       sessionId: SessionId
       rowId?: string
       deliveryRecovery?: boolean
+      /** On a recovery: the program holds the row durably (POD-4886). */
+      held?: 'durable'
       initialPrompt?: boolean
       turnId?: string
       text: string
@@ -957,6 +959,9 @@ export class DaemonRpcService {
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
+        ...(input.rowId && input.deliveryRecovery && input.held === 'durable'
+          ? { held: 'durable' as const }
+          : {}),
       }),
       machineId,
     )

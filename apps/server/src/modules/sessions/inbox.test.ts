@@ -87,6 +87,9 @@ function harness(
     /** What `Session.setRequestedModel` reports back — false = the session was
      *  already on the requested value. */
     requestedModelChanged?: boolean
+    /** The ledger's answer to "how does the program hold this message"
+     *  (POD-4886); omitted = the port is absent. */
+    held?: (input: { sourceMessageId: string }) => Promise<'memory' | 'durable' | undefined>
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
@@ -131,6 +134,13 @@ function harness(
     async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {},
   )
   const provenLate = vi.fn(async (_input: { messageId: string; sessionId: SessionId }) => {})
+  const accepted = vi.fn(
+    async (_input: {
+      sourceMessageId: string
+      sessionId: SessionId
+      held: 'memory' | 'durable'
+    }) => {},
+  )
   const named = vi.fn(
     async (_input: {
       messageId: string
@@ -254,6 +264,8 @@ function harness(
       interruptedPending,
       unconfirmed,
       provenLate,
+      accepted,
+      ...(options.held ? { held: options.held } : {}),
       named,
       harnessIds,
       rejected: async (input) => { rejected.push(input) },
@@ -372,6 +384,7 @@ function harness(
     interruptedPending,
     unconfirmed,
     provenLate,
+    accepted,
     named,
     harnessIds,
     handleInput,
@@ -2201,6 +2214,70 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       transcriptItem: { id: 'entry-late' },
     })
   })
+  it('hands an accepted outcome to the ledger with how it is held; the row stays until it settles (POD-4886)', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'msg_held', 'msg_held')
+    await vi.advanceTimersByTimeAsync(1_000)
+    const turn = { kind: 'codex-turn', id: 'turn-1' }
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_held',
+      outcome: 'accepted',
+      held: 'durable',
+      harnessRef: [turn],
+    })
+    expect(h.accepted).toHaveBeenCalledExactlyOnceWith({
+      sourceMessageId: 'msg_held',
+      sessionId: SID,
+      held: 'durable',
+    })
+    // Not a settlement: the row stays queued, nothing is applied or failed.
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.unconfirmed).not.toHaveBeenCalled()
+    expect(h.harnessIds).toHaveBeenCalledWith({ messageId: 'msg_held', sessionId: SID, harnessRef: [turn] })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_held', outcome: 'delivered' })
+    expect(h.applied).toHaveBeenCalledOnce()
+    expect(h.rows).toEqual([])
+    // A late `accepted` for a row that settled finds nothing to move.
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_held', outcome: 'accepted', held: 'memory' })
+    expect(h.accepted).toHaveBeenCalledOnce()
+    expect(h.provenLate).not.toHaveBeenCalled()
+  })
+
+  it('reads a hold it does not know as held in memory, never durably (POD-4886)', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'msg_new_kind', 'msg_new_kind')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_new_kind', outcome: 'accepted', held: 'somewhere-new' })
+    expect(h.accepted).toHaveBeenCalledExactlyOnceWith({
+      sourceMessageId: 'msg_new_kind',
+      sessionId: SID,
+      held: 'memory',
+    })
+  })
+
+  it.each([
+    ['durable', { held: 'durable' }],
+    ['memory', {}],
+    [undefined, {}],
+  ] as const)('forwards a row the program holds %s again as a recovery saying so (POD-4886)', async (held, expected) => {
+    vi.useFakeTimers()
+    const h = harness({
+      agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
+      contractReceipts: [], held: async () => held,
+    })
+    h.rows.push({ delivery: 'when-ready', id: 'persisted', sessionId: SID, queuedAt: 1, text: 'held by the program', attempts: 1,
+      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'persisted' })
+    h.session.queuedMessageCount = 1
+    await h.inbox.drain(SID, { justBound: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.contractCalls[0]).toMatchObject({ turnId: 'persisted', deliveryRecovery: true, ...expected })
+    if (held !== 'durable') expect(h.contractCalls[0]).not.toHaveProperty('held')
+  })
+
   it('keeps the row visibly queued when the contract refuses (not_running)', async () => {
     vi.useFakeTimers()
     const h = harness({

@@ -211,6 +211,8 @@ export const runtimeHandlers: Pick<
           id: msg.turnId,
           rowId: msg.rowId,
           deliveryRecovery: msg.deliveryRecovery,
+          // The program holds it durably (POD-4886): watch again, type nothing.
+          ...(msg.deliveryRecovery && msg.held === 'durable' ? { held: 'durable' as const } : {}),
           initialPrompt: msg.initialPrompt,
           text: msg.text,
           attachments: msg.attachments,

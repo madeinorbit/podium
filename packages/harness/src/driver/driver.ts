@@ -76,6 +76,18 @@ export interface AgentSessionHandle {
   /** Retract a daemon-held row before it is typed, without interrupting any
    *  turn; see {@link DeliveryCancelResult}. */
   cancelDelivery?(rowId: string): Promise<DeliveryCancelResult>
+  /**
+   * WATCH AGAIN FOR A MESSAGE THE PROGRAM HOLDS DURABLY (POD-4886; POD-4819 §9).
+   *
+   * After a daemon restart the server forwards such a row again with
+   * `held: 'durable'`. Nothing is typed: the driver re-checks the program's
+   * durable pending queue and its history for the message, matching by id,
+   * and calls `onTranscriptItem` once, when the record lands. It never gives
+   * up on a timer; `signal` aborts at teardown. Absent means the driver cannot
+   * watch again, and the message stays `accepted`, open. Called by the
+   * delivery queue only.
+   */
+  watchHeld?(input: TurnInput, watch: Pick<SendOptions, 'onTranscriptItem' | 'signal'>): void
   stageAttachment(source: AttachmentSource): Promise<AttachmentStageResult>
   /** REQUESTS a fence. The fence is emitted only on provider confirmation and is
    *  never manufactured — so this returns nothing to await. Watch the stream. */

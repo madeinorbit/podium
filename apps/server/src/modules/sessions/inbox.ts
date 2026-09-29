@@ -18,6 +18,7 @@ import type {
   Attribution,
   Geometry,
   HarnessRef,
+  MessageHeld,
   MutationId,
   SessionId,
   TranscriptItemRef,
@@ -106,10 +107,15 @@ const INITIAL_PROMPT_QUEUE_ID_PREFIX = 'session-initial-prompt:'
  * retryable failure, while a wrong release can type the same turn twice.
  */
 /** One daemon settlement of a durable row, as the runtime-event gate admits it.
- *  `cause` is read only for the values this server knows (POD-4775). */
+ *  `cause` is read only for the values this server knows (POD-4775).
+ *  `accepted` is not a settlement (POD-4886): the program took the row and has
+ *  not recorded it yet; `held` says how it holds it. */
 export interface DeliveryOutcomeEvent {
   rowId: string
-  outcome: 'delivered' | 'failed' | 'dropped'
+  outcome: 'accepted' | 'delivered' | 'failed' | 'dropped'
+  /** On `accepted`: `memory` or `durable`; any other value reads as `memory`,
+   *  the kind a timer may still end. */
+  held?: string
   reason?: string
   cause?: string
   /** On `delivered`: the entry in the agent's history the row became, when
@@ -306,6 +312,18 @@ export interface InboxAuthorizationPort {
    *  no longer holds landed (POD-4840): the ledger moves the message to
    *  `confirmed` only from `unknown`, for this session. */
   provenLate?(input: { messageId: string; sessionId: SessionId }): Promise<void>
+  /** The agent program took the row and has not recorded it yet (POD-4886):
+   *  the ledger moves the message to `accepted`, forward only, and keeps how
+   *  the program holds it. */
+  accepted?(input: {
+    sourceMessageId: string
+    sessionId: SessionId
+    held: MessageHeld
+  }): Promise<void>
+  /** How the program holds a message, as the ledger last heard (POD-4886).
+   *  Read when a row is forwarded again as a recovery: a durable hold asks the
+   *  new owner to watch for it again rather than give it up. */
+  held?(input: { sourceMessageId: string }): Promise<MessageHeld | undefined>
   /** The agent's machine named the entry in its history that message became
    *  (POD-4774). A stamp on the message, independent of its status. */
   named?(input: {
@@ -432,6 +450,8 @@ export interface SessionInboxDeps {
     sessionId: SessionId
     turnId: string
     deliveryRecovery?: boolean
+    /** On a recovery: the program holds the row durably (POD-4886). */
+    held?: 'durable'
     initialPrompt?: boolean
     delivery: QueuedDelivery
     attachments?: readonly RuntimeAttachmentRef[]
@@ -1292,6 +1312,14 @@ export class SessionInbox {
         // typing the prompt twice. The server never settles a row on what the
         // transcript seems to say — only the daemon knows what it delivered.
         const recovery = row.attempts > 0 || row.deliveryOwner === 'daemon'
+        // A ROW THE PROGRAM HOLDS DURABLY (POD-4886; POD-4819 §9) goes to the
+        // new owner saying so: it watches for the record again instead of
+        // giving the row up as unconfirmed.
+        const heldDurably =
+          recovery &&
+          row.sourceMessageId !== null &&
+          (await this.deps.authorization.held?.({ sourceMessageId: row.sourceMessageId })) === 'durable'
+        if (!current()) return
         // The durable reservation precedes every possible external write. On a
         // replacement owner it means confirm-or-fail, never replay the prompt.
         const reservedHere = row.deliveryOwner !== 'daemon'
@@ -1307,6 +1335,7 @@ export class SessionInbox {
           const receipt = await this.deps.contractDeliver({
             sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin,
             principal: row.principal, deliveryRecovery: recovery,
+            ...(heldDurably ? { held: 'durable' as const } : {}),
             initialPrompt: isInitialPromptRow(sessionId, row),
             delivery: row.delivery,
             ...(row.attachments?.length ? { attachments: row.attachments } : {}),
@@ -1494,6 +1523,19 @@ export class SessionInbox {
       // Dropping the report here stranded the ledger row queued forever while
       // the session read idle — so settle the ledger row it names instead.
       await this.settleDirectDeliveryOutcome(sessionId, event)
+      return
+    }
+    if (event.outcome === 'accepted') {
+      // THE PROGRAM HAS IT, NOT ITS HISTORY YET (POD-4886). Not a settlement:
+      // the row stays queued until `delivered` or `failed` follows, and a
+      // forward after a daemon restart is a recovery answered by id.
+      if (row.sourceMessageId) {
+        await this.deps.authorization.accepted?.({
+          sourceMessageId: row.sourceMessageId,
+          sessionId,
+          held: event.held === 'durable' ? 'durable' : 'memory',
+        })
+      }
       return
     }
     if (event.outcome === 'delivered') {
