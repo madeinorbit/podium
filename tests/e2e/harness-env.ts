@@ -8,7 +8,7 @@
  * alone cannot be trusted to clean up; startup and globalTeardown reap only
  * roots carrying this harness's ownership marker.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   chmodSync,
