@@ -26,20 +26,24 @@ pub enum Command {
 pub enum ArgError {
     /// Print usage, exit 2.
     Usage,
-    /// Print `podium-host: <msg>`, exit 1.
-    Die(String),
+    /// Print `podium-host: <msg>`, exit 1. Bytes, not a String: argv bytes are
+    /// echoed exactly, as host.c does, even when they are not UTF-8.
+    Die(Vec<u8>),
 }
 
 /// strtol(3) base 10 as host.c uses it: leading whitespace and one sign are
-/// accepted, the rest must be digits, and the value must be in [lo, hi].
+/// accepted, the rest must be digits, and the value must be in [lo, hi]. An
+/// EMPTY value is 0: strtol leaves its end pointer on the terminating NUL,
+/// which host.c's check accepts (whitespace alone is refused).
 fn arg_long(name: &[u8], v: &[u8], lo: i64, hi: i64) -> Result<i64, ArgError> {
-    let bad = || {
-        ArgError::Die(format!(
-            "bad value for {}: {}",
-            String::from_utf8_lossy(name),
-            String::from_utf8_lossy(v)
-        ))
-    };
+    let bad = || ArgError::Die([b"bad value for ", name, b": ", v].concat());
+    if v.is_empty() {
+        return if (lo..=hi).contains(&0) {
+            Ok(0)
+        } else {
+            Err(bad())
+        };
+    }
     let t = &v[v
         .iter()
         .position(|b| !matches!(b, b' ' | b'\t'..=b'\r'))
@@ -91,7 +95,7 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
     }
     if no_pty && (cols != 0 || rows != 0) {
         return Err(ArgError::Die(
-            "--no-pty and --cols/--rows are exclusive".into(),
+            b"--no-pty and --cols/--rows are exclusive".to_vec(),
         ));
     }
     let command = argv[i..]
@@ -185,7 +189,7 @@ mod tests {
     #[test]
     fn bad_values_die_like_strtol() {
         let die = |s: &str| match parse(&argv(s)) {
-            Err(ArgError::Die(m)) => m,
+            Err(ArgError::Die(m)) => String::from_utf8(m).unwrap(),
             other => panic!("{s}: {other:?}"),
         };
         assert_eq!(
@@ -216,6 +220,38 @@ mod tests {
             Ok(Command::Create(o)) => assert_eq!(o.cols, 77),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn an_empty_value_is_zero_as_strtol_reads_it() {
+        let mut a = argv("create --socket /s --linger-secs X -- x");
+        a[5] = Vec::new();
+        match parse(&a) {
+            Ok(Command::Create(o)) => assert_eq!(o.linger_secs, 0),
+            other => panic!("{other:?}"),
+        }
+        // 0 is out of range for --cols; whitespace alone is not a number
+        let mut a = argv("create --socket /s --cols X -- x");
+        a[5] = Vec::new();
+        assert_eq!(
+            parse(&a).err(),
+            Some(ArgError::Die(b"bad value for --cols: ".to_vec()))
+        );
+        a[5] = b" ".to_vec();
+        assert_eq!(
+            parse(&a).err(),
+            Some(ArgError::Die(b"bad value for --cols:  ".to_vec()))
+        );
+    }
+
+    #[test]
+    fn a_bad_value_is_echoed_byte_for_byte() {
+        let mut a = argv("create --socket /s --cols X -- x");
+        a[5] = vec![b'9', 0xFF];
+        assert_eq!(
+            parse(&a).err(),
+            Some(ArgError::Die(b"bad value for --cols: 9\xFF".to_vec()))
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -51,23 +52,51 @@ impl Drop for Scratch {
     }
 }
 
-/// Kills the hosts a test started, pass or fail: a daemonized host outlives
-/// its test otherwise.
+/// Ends the hosts a test started, and their children, pass or fail: a
+/// daemonized host (and a `sleep 60` child) outlives its test otherwise.
+/// Both are held as pidfds, so a recycled pid is never signalled.
 #[derive(Default)]
-struct Hosts(Vec<u32>);
+struct Hosts(Vec<(OwnedFd, Option<OwnedFd>)>);
 
 impl Hosts {
-    fn track(&mut self, pid: u32) -> u32 {
-        self.0.push(pid);
-        pid
+    /// Track the host and child named by a connection's WELCOME.
+    fn track(&mut self, c: &Conn) {
+        let open = |pid: u32| {
+            rustix::process::Pid::from_raw(pid as i32).and_then(|p| {
+                rustix::process::pidfd_open(p, rustix::process::PidfdFlags::empty()).ok()
+            })
+        };
+        if let Some(host) = open(c.host_pid) {
+            self.0.push((host, open(c.child_pid)));
+        }
     }
 }
 
 impl Drop for Hosts {
     fn drop(&mut self) {
-        for &pid in &self.0 {
-            if let Some(pid) = rustix::process::Pid::from_raw(pid as i32) {
-                let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        use rustix::process::{Signal, pidfd_send_signal};
+        // Gracefully first: on SIGTERM the host signals its child's group,
+        // lingers at most a second, and exits.
+        for (host, _) in &self.0 {
+            let _ = pidfd_send_signal(host, Signal::TERM);
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        for (host, child) in &self.0 {
+            let exited = |fd: &OwnedFd| {
+                let mut p = [rustix::event::PollFd::new(fd, rustix::event::PollFlags::IN)];
+                let zero = rustix::event::Timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                };
+                rustix::event::poll(&mut p, Some(&zero)).unwrap_or(0) > 0
+            };
+            while !exited(host) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            for fd in [Some(host), child.as_ref()].into_iter().flatten() {
+                if !exited(fd) {
+                    let _ = pidfd_send_signal(fd, Signal::KILL);
+                }
             }
         }
     }
@@ -107,6 +136,8 @@ fn hello(mode: u8, from: u64) -> Vec<u8> {
 struct Conn {
     s: UnixStream,
     buf: Vec<u8>,
+    host_pid: u32,
+    child_pid: u32,
 }
 
 impl Conn {
@@ -114,11 +145,18 @@ impl Conn {
         let s = UnixStream::connect(sock).unwrap();
         s.set_read_timeout(Some(Duration::from_millis(200)))
             .unwrap();
-        let mut c = Conn { s, buf: Vec::new() };
+        let mut c = Conn {
+            s,
+            buf: Vec::new(),
+            host_pid: 0,
+            child_pid: 0,
+        };
         c.send(&hello(mode, from));
         let (ty, p) = c.next(Duration::from_secs(5)).expect("WELCOME");
         assert_eq!(ty, H_WELCOME);
-        let host_pid = u32::from_be_bytes(p[2..6].try_into().unwrap());
+        c.host_pid = u32::from_be_bytes(p[2..6].try_into().unwrap());
+        c.child_pid = u32::from_be_bytes(p[6..10].try_into().unwrap());
+        let host_pid = c.host_pid;
         (c, host_pid)
     }
 
@@ -197,7 +235,7 @@ fn a_replay_flood_is_bounded_and_drops_only_that_client() {
         &["sh", "-c", "head -c 1048576 /dev/zero; exec sleep 60"],
     );
     let (mut reader, pid) = Conn::open(&sock, READER, u64::MAX);
-    hosts.track(pid);
+    hosts.track(&reader);
     wait_until("the ring to fill", Duration::from_secs(10), || {
         reader.seq_high() >= 1048576
     });
@@ -230,7 +268,7 @@ fn writes_to_a_child_that_does_not_read_are_bounded_and_refused() {
     let mut hosts = Hosts::default();
     create(&sock, &["--no-pty", "--linger-secs", "0"], &["sleep", "60"]);
     let (mut w, pid) = Conn::open(&sock, WRITER, u64::MAX);
-    hosts.track(pid);
+    hosts.track(&w);
     let before = status_kb(pid, "VmHWM");
 
     let chunk = vec![b'x'; 256 * 1024];
@@ -280,7 +318,7 @@ fn exit_leaves_a_socket_that_replaced_ours_alone() {
     let mut hosts = Hosts::default();
     create(&sock, &["--no-pty", "--linger-secs", "0"], &["sleep", "60"]);
     let (conn, pid) = Conn::open(&sock, READER, u64::MAX);
-    hosts.track(pid);
+    hosts.track(&conn);
     drop(conn);
 
     fs::remove_file(&sock).unwrap();
@@ -350,8 +388,8 @@ fn inherited_descriptors_do_not_reach_the_child() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let (mut c, pid) = Conn::open(&sock, READER, 0);
-    hosts.track(pid);
+    let (mut c, _) = Conn::open(&sock, READER, 0);
+    hosts.track(&c);
     let mut text = Vec::new();
     while let Some((ty, p)) = c.next(Duration::from_secs(10)) {
         if ty == H_DATA {
@@ -444,8 +482,8 @@ fn the_child_starts_in_the_cwd_directory() {
         ],
         &["sh", "-c", "sleep 1; pwd"],
     );
-    let (mut c, pid) = Conn::open(&sock, READER, 0);
-    hosts.track(pid);
+    let (mut c, _) = Conn::open(&sock, READER, 0);
+    hosts.track(&c);
     let mut text = Vec::new();
     while let Some((ty, p)) = c.next(Duration::from_secs(10)) {
         if ty == H_DATA {

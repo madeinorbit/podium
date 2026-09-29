@@ -41,6 +41,13 @@ pub fn die(msg: fmt::Arguments) -> ! {
     std::process::exit(1)
 }
 
+/// `die` for a message that carries argv or path bytes: they are written
+/// exactly as given, as host.c prints them, even when they are not UTF-8.
+pub fn die_raw(parts: &[&[u8]]) -> ! {
+    let _ = io::stderr().write_all(&[b"podium-host: ", &parts.concat()[..], b"\n"].concat());
+    std::process::exit(1)
+}
+
 macro_rules! die {
     ($($t:tt)*) => { crate::die(format_args!($($t)*)) };
 }
@@ -60,7 +67,8 @@ const SUN_PATH_LEN: usize = 108;
 const SUN_PATH_LEN: usize = 104;
 
 fn bind_socket(path: &Path) -> UnixListener {
-    let shown = path.display();
+    let shown = path.as_os_str().as_bytes();
+    let err = |e: &io::Error| sys::strerror(e).into_bytes();
     let len = path.as_os_str().len();
     if len >= SUN_PATH_LEN {
         die!(
@@ -71,37 +79,37 @@ fn bind_socket(path: &Path) -> UnixListener {
     match fs::symlink_metadata(path) {
         Ok(st) => {
             if !st.file_type().is_socket() {
-                die!("{shown} exists and is not a socket");
+                die_raw(&[shown, b" exists and is not a socket"]);
             }
             match sys::probe_socket(path) {
                 sys::Probe::Listening => {
-                    let _ = writeln!(io::stderr(), "podium-host: already running at {shown}");
+                    let msg = [b"podium-host: already running at ", shown, b"\n"].concat();
+                    let _ = io::stderr().write_all(&msg);
                     std::process::exit(3);
                 }
                 sys::Probe::Stale => {}
-                sys::Probe::Failed(e) => die!(
-                    "{shown}: cannot probe the existing socket: {}",
-                    sys::strerror(&e)
-                ),
+                sys::Probe::Failed(e) => {
+                    die_raw(&[shown, b": cannot probe the existing socket: ", &err(&e)])
+                }
             }
             if let Err(e) = fs::remove_file(path)
                 && e.kind() != io::ErrorKind::NotFound
             {
-                die!("unlink {shown}: {}", sys::strerror(&e));
+                die_raw(&[b"unlink ", shown, b": ", &err(&e)]);
             }
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => die!("{shown}: {}", sys::strerror(&e)),
+        Err(e) => die_raw(&[shown, b": ", &err(&e)]),
     }
     let old = rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o077));
     let bound = UnixListener::bind(path);
     rustix::process::umask(old);
-    let listener = bound.unwrap_or_else(|e| die!("bind {shown}: {}", sys::strerror(&e)));
+    let listener = bound.unwrap_or_else(|e| die_raw(&[b"bind ", shown, b": ", &err(&e)]));
     if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
-        die!("chmod {shown}: {}", sys::strerror(&e));
+        die_raw(&[b"chmod ", shown, b": ", &err(&e)]);
     }
     if let Err(e) = listener.set_nonblocking(true) {
-        die!("{shown}: {}", sys::strerror(&e));
+        die_raw(&[shown, b": ", &err(&e)]);
     }
     listener
 }
@@ -154,11 +162,12 @@ fn spawn_child(opts: &CreateOpts, cwd: OwnedFd) -> (Child, File) {
         reason = "the host loop reaps it with waitpid(-1), as host.c does"
     )]
     let child = cmd.spawn().unwrap_or_else(|e| {
-        die!(
-            "cannot run {}: {}",
-            program.to_string_lossy(),
-            sys::strerror(&e)
-        )
+        die_raw(&[
+            b"cannot run ",
+            program.as_bytes(),
+            b": ",
+            sys::strerror(&e).as_bytes(),
+        ])
     });
     drop(cmd); // closes the parent's copies of the child's ends
     let pid = sys::child_pid(&child);
@@ -271,7 +280,12 @@ fn main() {
                 .custom_flags(libc::O_DIRECTORY)
                 .open(cwd_path)
                 .unwrap_or_else(|e| {
-                    die!("cwd {}: {}", cwd_path.to_string_lossy(), sys::strerror(&e))
+                    die_raw(&[
+                        b"cwd ",
+                        cwd_path.as_bytes(),
+                        b": ",
+                        sys::strerror(&e).as_bytes(),
+                    ])
                 });
             // Allocated before `create` reports success, as host.c does.
             let ring = Ring::new(opts.ring_bytes);
@@ -279,6 +293,6 @@ fn main() {
             daemonize_then_run(opts, listener, cwd.into(), ring)
         }
         Err(args::ArgError::Usage) => usage(),
-        Err(args::ArgError::Die(msg)) => die!("{msg}"),
+        Err(args::ArgError::Die(msg)) => die_raw(&[&msg]),
     }
 }
