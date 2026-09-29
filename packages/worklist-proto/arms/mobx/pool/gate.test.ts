@@ -79,8 +79,9 @@
  * - `activityCached`: each member's activity cached in a plain `Map` on
  *   both paths `activityAt` reads it (the MobX gates' deaf plain-Map read).
  *   Only the view check can catch it; it must be the one that does.
- * - `presenceUntracked`: presence asked of the table untracked, so a view
- *   does not re-run when its origin arrives or leaves.
+ * - `presenceUntracked`: the origin's residency asked untracked (its presence
+ *   and its loading marker, both read by the view), so a view does not re-run
+ *   when its origin arrives or leaves.
  * - `chainUntracked`: another issue's derived results read untracked (the
  *   origin's parts, read by `originTick`, and the children's results the
  *   roll-up compositions read), so a change two derivations down does not
@@ -255,14 +256,25 @@ const activityCached: CheckableArm = {
   },
 }
 
-/** H3's presence plant: a part asks presence of the table untracked. */
+/**
+ * H3's presence plant: a view asks its origin's residency untracked. The row
+ * view reads the origin's residency twice in one derivation (its presence for
+ * the tick, its loading marker for `loading`), so both reads are cut: with
+ * only one cut the other re-runs the view when the origin arrives or leaves.
+ */
 const presenceUntracked: CheckableArm = {
   create(source, locals, reads) {
     const handle = mobxPoolArm.create(source, locals, reads)
     const { pool } = handle
-    const inputs = pool.inputs as { present: (entity: 'issue' | 'session', id: string) => boolean }
+    const inputs = pool.inputs as {
+      present: (entity: 'issue' | 'session', id: string) => boolean
+      loading: (entity: 'issue' | 'session', id: string) => boolean
+    }
     const present = inputs.present
+    const loading = inputs.loading
     inputs.present = (entity, id) => untracked(() => present(entity, id))
+    inputs.loading = (entity, id) =>
+      entity === 'issue' ? untracked(() => loading(entity, id)) : loading(entity, id)
     return handle
   },
 }
