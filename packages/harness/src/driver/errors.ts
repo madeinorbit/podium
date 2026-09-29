@@ -152,3 +152,54 @@ export function isDriverRefusal(error: unknown): error is DriverRefusalError {
   const reason = candidate.refusal?.reason
   return (REFUSAL_REASONS as readonly string[]).includes(reason as string)
 }
+
+/**
+ * A REQUEST THAT NEVER LEFT THIS PROCESS (POD-4839).
+ *
+ * A send may answer `refused` only when nothing of the message reached the
+ * agent program (POD-4819 §6.1): the delivery queue reads a refusal as a
+ * proven "no" and tells the sender it is safe to resend. A protocol client's
+ * failures come in two kinds that look alike from the call site — a request
+ * refused before its frame was written (the client is closed, the handshake
+ * has not run) and one written and then lost (the pipe died, the answer never
+ * came). Only the first may become a refusal; the second may have been
+ * recorded. The client throws this class for the first kind only.
+ *
+ * Structural for the reason {@link DriverRefusalError} gives.
+ */
+export class RequestNotSentError extends Error {
+  readonly requestNotSent = true as const
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'RequestNotSentError'
+  }
+}
+
+/** Did this request fail before a byte of it was written? */
+export function wasNeverSent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { requestNotSent?: unknown }).requestNotSent === true
+  )
+}
+
+/**
+ * A SEND THAT MAY HAVE REACHED THE AGENT PROGRAM, AND WHOSE FATE IS UNKNOWN
+ * (POD-4839).
+ *
+ * Thrown, not returned: a protocol driver declares `mayReturnUnverified:
+ * false`, and a lost connection mid-request is not a weakness of the family
+ * but a fact about one request. Every caller already reads a thrown send as
+ * "could not prove" — the delivery queue as `unverified` (the server's
+ * `unknown`, still open to late proof), the daemon's send handler likewise
+ * for a durable row (POD-4622) — and never as a refusal, which would tell the
+ * sender a message that may be in the conversation was not delivered.
+ */
+export class DeliveryUnprovenError extends Error {
+  constructor(context: string, cause: unknown) {
+    super(`${context}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+    this.name = 'DeliveryUnprovenError'
+  }
+}
