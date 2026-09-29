@@ -10,7 +10,7 @@ interface FakeSnapshot {
   issues: unknown[]
   messageRecords: MessageRecordWire[]
   outboxDeadLetters: unknown[]
-  chatSendsFor: (sessionId: string) => unknown[]
+  chatSendsFor: (sessionId: never) => unknown[]
 }
 
 const listeners = new Set<() => void>()
