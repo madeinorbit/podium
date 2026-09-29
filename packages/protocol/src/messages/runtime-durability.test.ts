@@ -109,6 +109,21 @@ describe('delivery failure receipt (POD-4802)', () => {
 })
 
 
+describe('coalescable routine mail (POD-4716)', () => {
+  const send = { type: 'runtimeSendRequest', requestId: 'rpc', sessionId: 'session',
+    turnId: 'row', rowId: 'row', text: 'routine ack', origin: 'human', delivery: 'when-ready' }
+
+  it('still parses a send from an older server without the coalescable flag', () => {
+    const parsed = RuntimeSendRequestMessage.parse(send)
+    expect((parsed as { coalescable?: boolean }).coalescable).toBeUndefined()
+  })
+
+  it('keeps the coalescable flag when the server sets it', () => {
+    expect(RuntimeSendRequestMessage.parse({ ...send, coalescable: true })).toMatchObject({ coalescable: true })
+  })
+})
+
+
 describe('durable admission command', () => {  it('requires migration discriminators and cannot parse as a legacy send', () => {
     const frame = { type: 'runtimeDurableSendRequest', requestId: 'rpc', sessionId: 'session',
       turnId: 'row', rowId: 'row', deliveryRecovery: true, initialPrompt: true,
