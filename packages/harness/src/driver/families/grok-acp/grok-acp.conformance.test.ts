@@ -23,7 +23,11 @@ import {
   type GrokAcpRuntime,
   type GrokAcpRuntimeHost,
 } from './runtime.js'
-import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
+import {
+  type FakeGrokAcpServer,
+  type FakeGrokStoredUpdate,
+  startFakeGrokAcpServer,
+} from './test-support/fake-acp-server.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
 
@@ -294,7 +298,7 @@ function makeWorld(options: WorldOptions = {}): {
   let replayPromptSettlement: (() => void) | undefined
   let seq = 0
   /** Grok's own session store, per WORLD rather than per agent process. */
-  const conversations = new Map<string, Record<string, unknown>[]>()
+  const conversations = new Map<string, FakeGrokStoredUpdate[]>()
   const archiveFrames = new Map<string, Record<string, unknown>[]>()
   let nativeEventSeq = 0
   const servers = new Map<SessionId, FakeGrokAcpServer>()
@@ -575,7 +579,8 @@ function makeWorld(options: WorldOptions = {}): {
       append({ sessionUpdate: 'turn_completed', stop_reason: 'end_turn' })
       archiveFrames.set(grokSessionId, frames)
     },
-    failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
+    failNextPrompt: (sessionId, detail) =>
+      serverFor(sessionId).failNextPrompt(detail, { afterAck: true }),
     rawFrames,
     target: {
       name: 'grok-acp',
@@ -1296,7 +1301,9 @@ describe('grok-acp provider failure detail', () => {
     }
   })
 
-  it('classifies an immediate 402 prompt rejection before chat materialization', async () => {
+  // Grok 1.0.44 names the prompt before the provider call that fails it, so
+  // the 402 reply closes a turn that opened; no session update came between.
+  it('classifies a 402 prompt reply that no session update preceded', async () => {
     const world = makeWorld()
     const { driver } = world.target.createDriver()
     const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'

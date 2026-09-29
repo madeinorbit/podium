@@ -1,0 +1,26 @@
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[390ms] created {
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[397ms]   msg_live-hello: receipt accepted provenBy=protocol-ack epoch=1 item=- (+7 ms)
+[863ms]   msg_live-hello: entry named grok-user-msg_live-hello (+473 ms after the send)
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[1884ms]   idle: idle
+[1884ms]   msg_live-hello: receipt accepted provenBy=transcript-echo epoch=2 item=grok-user-msg_live-hello (+0 ms)
+[1885ms]   idle: idle
+[1890ms]   msg_live-long: receipt accepted provenBy=protocol-ack epoch=3 item=- (+5 ms)
+[6922ms]   msg_live-long: entry named grok-user-msg_live-long (+5037 ms after the send)
+[137308ms]   long turn ended: idle null
+[137309ms] live users: [ "grok-user-msg_live-hello=\"say hello\"", "grok-user-msg_live-long=\"verylong please\"" ]
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[137766ms] resumed users: [ "grok-user-msg_live-hello=\"say hello\"", "grok-user-msg_live-long=\"verylong please\"" ]
+[137768ms]   msg_live-hello: receipt accepted provenBy=transcript-echo epoch=1 item=grok-user-msg_live-hello (+1 ms)
+[137768ms]   idle: idle
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[137788ms]   msg_live-new: receipt accepted provenBy=protocol-ack epoch=2 item=- (+20 ms)
+[138143ms]   msg_live-new: entry named grok-user-msg_live-new (+375 ms after the send)
+[grok-acp] Unrecognised inbound JSON-RPC method {
+[139111ms]   idle: idle
+[139111ms] resumed users after: [ "grok-user-msg_live-hello=\"say hello\"", "grok-user-msg_live-long=\"verylong please\"",

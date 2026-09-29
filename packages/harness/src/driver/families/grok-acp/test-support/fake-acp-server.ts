@@ -5,6 +5,14 @@ interface Handler {
   closed(): void
 }
 
+/** One update as Grok stores it: the update, and the `promptId` of the turn it
+ *  belongs to (none for a user record, which Grok writes before the turn's
+ *  first stamped update). */
+export interface FakeGrokStoredUpdate {
+  update: Record<string, unknown>
+  promptId?: string
+}
+
 export interface FakeGrokAcpServerOptions {
   /** Test-only bridge from a replayed wire result to the runtime settlement
    *  callback whose absorbing epoch guard the conformance corpus exercises. */
@@ -28,16 +36,24 @@ export interface FakeGrokAcpServerOptions {
    * Omitted, the server keeps its own — right for the many tests that start
    * exactly one and never load.
    */
-  store?: Map<string, Record<string, unknown>[]>
+  store?: Map<string, FakeGrokStoredUpdate[]>
   /** Exact notification frames appended to the provider update log. */
   frameStore?: Map<string, Record<string, unknown>[]>
   /** Hold `session/cancel` open until the test supplies the prompt result. The
    *  production protocol separates the cancellation request from its fence;
    *  this option lets a test prove the driver does too. */
   deferCancellation?: boolean
-  /** Echo each prompt as a `user_message_chunk`, as Grok does (default). Off
-   *  models a harness that answers without recording the prompt first. */
+  /** Also send the prompt's `user_message_chunk` live, as Grok 0.2.x did. Grok
+   *  1.0.44 records it but never sends it to the client (measured, POD-4837),
+   *  so this is off by default. */
   echoPrompt?: boolean
+  /** Name each prompt in `_x.ai/queue/changed` as Grok 1.0.44 does: queued,
+   *  then running (default). Off models a build that sends no queue frames;
+   *  `hold` waits for {@link FakeGrokAcpServer.ackPrompt}. */
+  ackPrompt?: boolean | 'hold'
+  /** A `UserPromptSubmit` hook is configured: the prompt is recorded only once
+   *  {@link FakeGrokAcpServer.runPromptHook} lets it through. */
+  promptHook?: boolean
 }
 
 export interface FakeGrokAcpServer {
@@ -45,7 +61,25 @@ export interface FakeGrokAcpServer {
   alive: boolean
   sessionId: string
   promptCount: number
+  /** Every `session/prompt` request's params, in order. */
+  prompts: Record<string, unknown>[]
+  /** The prompt Grok is running, by its `promptId`. */
+  runningPromptId: string | undefined
+  /** `session/cancel` notifications received. */
+  cancels: number
   answers: Map<string | number, unknown>
+  /** Send the held queue ack for the running prompt (`ackPrompt: 'hold'`):
+   *  both frames, as Grok does, or only the queued entry (Grok holding the
+   *  prompt behind a turn of its own) or only the running frame. */
+  ackPrompt(stage?: 'both' | 'queued' | 'running'): void
+  /** One update stamped with the running prompt's id, as Grok sends it. */
+  pushStampedUpdate(
+    update: Record<string, unknown>,
+    method?: 'session/update' | '_x.ai/session_notification',
+  ): void
+  /** The `UserPromptSubmit` hook's verdict (`promptHook`): `allow` records the
+   *  prompt, `block` ends the turn `cancelled` as `HookDenied`, unrecorded. */
+  runPromptHook(verdict: 'allow' | 'block'): void
   askPermission(): string
   /** One assistant reply, chunk by chunk, exactly as grok streams it: a run of
    *  `agent_message_chunk` updates under monotonic `_meta.eventId`s. The item
@@ -69,7 +103,10 @@ export interface FakeGrokAcpServer {
   completeTurn(stopReason?: 'end_turn' | 'cancelled' | 'refusal'): void
   failProviderTurn(detail: string): void
   failProviderAttempt(detail: string): void
-  failNextPrompt(detail?: string): void
+  /** Answer the next `session/prompt` with a JSON-RPC error. By default Grok
+   *  never names it (a rejected request); `afterAck` names and records it first,
+   *  as grok 1.0.44 does when the provider call fails (measured: a 402). */
+  failNextPrompt(detail?: string, options?: { afterAck?: boolean }): void
   crash(): void
 }
 
@@ -88,11 +125,14 @@ export function startFakeGrokAcpServer(
     | { id: string | number; result: { stopReason: 'end_turn' | 'cancelled' | 'refusal' } }
     | undefined
   let failNext = false
+  let failNextAfterAck = false
   let failNextDetail = 'fixture prompt failure'
   let eventSeq = 0
+  let mintedPromptIds = 0
+  let heldAck: { promptId: string; text: string } | undefined
   let lastNotificationFrame: Record<string, unknown> | undefined
-  const store = options.store ?? new Map<string, Record<string, unknown>[]>()
-  const recorded = (id: string): Record<string, unknown>[] => store.get(id) ?? []
+  const store = options.store ?? new Map<string, FakeGrokStoredUpdate[]>()
+  const recorded = (id: string): FakeGrokStoredUpdate[] => store.get(id) ?? []
 
   const push = (frame: unknown): void => {
     const line = JSON.stringify(frame)
@@ -107,9 +147,14 @@ export function startFakeGrokAcpServer(
   const notifyUpdate = (
     update: Record<string, unknown>,
     method: 'session/update' | '_x.ai/session_notification' = 'session/update',
+    delivery: { live?: boolean; meta?: Record<string, unknown> } = {},
   ): void => {
+    // Grok 1.0.44 stamps every update of a turn with the turn's promptId,
+    // except the user record it writes at the turn's start (measured).
+    const promptId =
+      update.sessionUpdate === 'user_message_chunk' ? undefined : server.runningPromptId
     const log = store.get(sessionId) ?? []
-    log.push(update)
+    log.push({ update, ...(promptId !== undefined ? { promptId } : {}) })
     store.set(sessionId, log)
     eventSeq += 1
     const frame: Record<string, unknown> = {
@@ -121,15 +166,52 @@ export function startFakeGrokAcpServer(
         _meta: {
           eventId: `${sessionId}-${eventSeq}`,
           agentTimestampMs: 1_786_700_000_000 + eventSeq,
+          ...(promptId !== undefined && method === 'session/update' ? { promptId } : {}),
+          ...delivery.meta,
         },
       },
     }
-    lastNotificationFrame = frame
     const frames = options.frameStore?.get(sessionId) ?? []
     frames.push(frame)
     options.frameStore?.set(sessionId, frames)
+    if (delivery.live === false) return
+    lastNotificationFrame = frame
     push(frame)
   }
+  const queueChanged = (params: Record<string, unknown>): void =>
+    push({ jsonrpc: '2.0', method: '_x.ai/queue/changed', params: { sessionId, ...params } })
+  const sendAck = (
+    promptId: string,
+    text: string,
+    stage: 'both' | 'queued' | 'running' = 'both',
+  ): void => {
+    if (stage !== 'running') {
+      queueChanged({
+        entries: [{ id: promptId, version: 0, kind: 'prompt', text, position: 0 }],
+      })
+    }
+    if (stage === 'queued') return
+    queueChanged({
+      entries: [],
+      runningPromptId: promptId,
+      runningText: text,
+      runningKind: 'prompt',
+    })
+  }
+  /** The user record Grok writes once the prompt passed its hooks. */
+  const recordPrompt = (text: string): void =>
+    notifyUpdate(
+      { sessionUpdate: 'user_message_chunk', content: { type: 'text', text } },
+      'session/update',
+      { live: options.echoPrompt === true },
+    )
+  let pendingText = ''
+  const promptResult = (stopReason: string): Record<string, unknown> => ({
+    stopReason,
+    ...(server.runningPromptId !== undefined
+      ? { _meta: { promptId: server.runningPromptId, requestId: server.runningPromptId } }
+      : {}),
+  })
 
   const server: FakeGrokAcpServer = {
     transport: {
@@ -192,7 +274,7 @@ export function startFakeGrokAcpServer(
                * `session.loading` across the call, so an update arriving after
                * the response would be mis-stamped `live`.
                */
-              for (const update of recorded(sessionId)) {
+              for (const { update, promptId } of recorded(sessionId)) {
                 eventSeq += 1
                 push({
                   jsonrpc: '2.0',
@@ -203,6 +285,8 @@ export function startFakeGrokAcpServer(
                     _meta: {
                       eventId: `${sessionId}-replay-${eventSeq}`,
                       agentTimestampMs: 1_786_700_000_000 + eventSeq,
+                      ...(promptId !== undefined ? { promptId } : {}),
+                      isReplay: true,
                     },
                   },
                 })
@@ -215,8 +299,22 @@ export function startFakeGrokAcpServer(
               return
             case 'session/prompt': {
               server.promptCount += 1
+              server.prompts.push(frame.params ?? {})
               if (failNext) {
                 failNext = false
+                if (failNextAfterAck) {
+                  const meta = frame.params?._meta as { promptId?: unknown } | undefined
+                  const promptId =
+                    typeof meta?.promptId === 'string'
+                      ? meta.promptId
+                      : `fake-prompt-${++mintedPromptIds}`
+                  const prompt = frame.params?.prompt as { text?: unknown }[] | undefined
+                  const text = String(prompt?.[0]?.text ?? '')
+                  sendAck(promptId, text)
+                  server.runningPromptId = promptId
+                  recordPrompt(text)
+                  server.runningPromptId = undefined
+                }
                 push({
                   jsonrpc: '2.0',
                   id: frame.id,
@@ -233,12 +331,22 @@ export function startFakeGrokAcpServer(
                 'text' in prompt[0]
                   ? String(prompt[0].text)
                   : ''
-              if (options.echoPrompt !== false) {
-                notifyUpdate({
-                  sessionUpdate: 'user_message_chunk',
-                  content: { type: 'text', text },
-                })
+              const meta = frame.params?._meta
+              const ours =
+                typeof meta === 'object' && meta !== null && 'promptId' in meta
+                  ? meta.promptId
+                  : undefined
+              // A client that supplies its own promptId owns it; otherwise
+              // Grok mints one per turn.
+              server.runningPromptId =
+                typeof ours === 'string' && ours ? ours : `fake-prompt-${++mintedPromptIds}`
+              pendingText = text
+              if (options.ackPrompt === 'hold') {
+                heldAck = { promptId: server.runningPromptId, text }
+              } else if (options.ackPrompt !== false) {
+                sendAck(server.runningPromptId, text)
               }
+              if (!options.promptHook) recordPrompt(text)
               return
             }
             default:
@@ -251,6 +359,7 @@ export function startFakeGrokAcpServer(
           }
         }
         if (frame.method === 'session/cancel') {
+          server.cancels += 1
           if (!options.deferCancellation) server.completeTurn('cancelled')
           return
         }
@@ -269,7 +378,66 @@ export function startFakeGrokAcpServer(
     alive: true,
     sessionId,
     promptCount: 0,
+    prompts: [],
+    runningPromptId: undefined,
+    cancels: 0,
     answers: new Map(),
+    ackPrompt(stage = 'both') {
+      const held = heldAck
+      heldAck = undefined
+      if (held) sendAck(held.promptId, held.text, stage)
+    },
+    pushStampedUpdate(update, method = 'session/update') {
+      notifyUpdate(
+        update,
+        method,
+        server.runningPromptId !== undefined && method !== 'session/update'
+          ? { meta: { promptId: server.runningPromptId } }
+          : {},
+      )
+    },
+    runPromptHook(verdict) {
+      const promptId = server.runningPromptId
+      const id = pendingPrompt
+      if (promptId === undefined || id === undefined) return
+      const blocked = verdict === 'block'
+      notifyUpdate(
+        {
+          sessionUpdate: 'hook_execution',
+          event_name: 'user_prompt_submit',
+          prompt_id: promptId,
+          runs: [
+            {
+              name: 'global/probe:user_prompt_submit[0].hooks[0]',
+              status: blocked
+                ? { status: 'failed', error: 'blocked: fixture', elapsed_ms: 18, blocked: true }
+                : { status: 'success', elapsed_ms: 16 },
+            },
+          ],
+        },
+        '_x.ai/session_notification',
+      )
+      if (!blocked) {
+        recordPrompt(pendingText)
+        return
+      }
+      // A blocked prompt is never recorded: the turn ends `cancelled`.
+      notifyUpdate(
+        { sessionUpdate: 'turn_completed', prompt_id: promptId, stop_reason: 'cancelled' },
+        '_x.ai/session_notification',
+        {
+          meta: {
+            cancellationCategory: 'HookDenied',
+            cancellationContext: { reason: 'blocked: fixture' },
+          },
+        },
+      )
+      pendingPrompt = undefined
+      const result = promptResult('cancelled') as { stopReason: 'cancelled' }
+      lastPromptResult = { id, result }
+      response(id, result)
+      server.runningPromptId = undefined
+    },
     askPermission() {
       const id = nextServerId++
       push({
@@ -338,9 +506,12 @@ export function startFakeGrokAcpServer(
           content: { type: 'text', text: 'done' },
         })
       }
-      const result = replayed ? (lastPromptResult?.result ?? { stopReason }) : { stopReason }
+      const result = replayed
+        ? (lastPromptResult?.result ?? { stopReason })
+        : (promptResult(stopReason) as { stopReason: typeof stopReason })
       lastPromptResult = { id, result }
       response(id, result)
+      if (!replayed) server.runningPromptId = undefined
       if (replayed) options.onReplayedPromptResult?.()
     },
     failProviderTurn(detail) {
@@ -366,14 +537,16 @@ export function startFakeGrokAcpServer(
       notifyUpdate(
         {
           sessionUpdate: 'turn_completed',
+          ...(server.runningPromptId !== undefined ? { prompt_id: server.runningPromptId } : {}),
           stop_reason: 'error',
           agent_result: detail,
         },
         '_x.ai/session_notification',
       )
-      const result = { stopReason: 'refusal' as const }
+      const result = promptResult('refusal') as { stopReason: 'refusal' }
       lastPromptResult = { id, result }
       response(id, result)
+      server.runningPromptId = undefined
     },
     failProviderAttempt(detail) {
       if (pendingPrompt === undefined) return
@@ -387,8 +560,9 @@ export function startFakeGrokAcpServer(
         '_x.ai/session_notification',
       )
     },
-    failNextPrompt(detail = 'fixture prompt failure') {
+    failNextPrompt(detail = 'fixture prompt failure', failure = {}) {
       failNext = true
+      failNextAfterAck = failure.afterAck === true
       failNextDetail = detail
     },
     crash() {

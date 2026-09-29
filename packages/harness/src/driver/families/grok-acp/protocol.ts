@@ -118,6 +118,9 @@ export const GrokAcpSessionUpdate = z.object({
         .object({
           eventId: z.string().min(1).optional(),
           agentTimestampMs: z.number().optional(),
+          /** The turn this update belongs to (grok 1.0.x): ours when the
+           *  prompt carried one, else the id Grok minted. */
+          promptId: z.string().min(1).optional(),
         })
         .passthrough()
         .optional(),
@@ -125,6 +128,26 @@ export const GrokAcpSessionUpdate = z.object({
     .passthrough(),
 })
 export type GrokAcpSessionUpdate = z.infer<typeof GrokAcpSessionUpdate>
+
+/**
+ * GROK'S PROMPT QUEUE, AND ITS ACK OF A PROMPT (POD-4837).
+ *
+ * `_x.ai/queue/changed` is the frame Grok's own headless client acknowledges a
+ * prompt by. Measured on grok 1.0.44: 4–90 ms after `session/prompt`, one frame
+ * lists the prompt among `entries` under its promptId, and the next names it
+ * `runningPromptId`. It carries no event id: an acknowledgement, not history.
+ */
+export const GrokAcpQueueChanged = z
+  .object({
+    sessionId: z.string().min(1),
+    entries: z
+      .array(z.object({ id: z.string().min(1), text: z.string().optional() }).passthrough())
+      .default([]),
+    runningPromptId: z.string().min(1).optional(),
+    runningText: z.string().optional(),
+  })
+  .passthrough()
+export type GrokAcpQueueChanged = z.infer<typeof GrokAcpQueueChanged>
 
 export const GROK_ACP_METHODS = {
   initialize: 'initialize',
@@ -134,6 +157,7 @@ export const GROK_ACP_METHODS = {
   sessionCancel: 'session/cancel',
   sessionSetMode: 'session/set_mode',
   requestPermission: 'session/request_permission',
+  queueChanged: '_x.ai/queue/changed',
 } as const
 
 export class GrokAcpRpcError extends Error {
@@ -167,6 +191,15 @@ export function parseGrokAcpSessionUpdate(frame: GrokAcpFrame): GrokAcpSessionUp
     return null
   const parsed = GrokAcpSessionUpdate.safeParse({ method: frame.method, params: frame.params })
   return parsed.success ? parsed.data : null
+}
+
+/** The turn an update belongs to: `_meta.promptId` on a chunk, or the
+ *  `prompt_id` a turn or hook notification carries in its body. */
+export function grokAcpPromptId(update: GrokAcpSessionUpdate): string | undefined {
+  const stamped = update.params._meta?.promptId
+  if (stamped) return stamped
+  const body = update.params.update.prompt_id
+  return typeof body === 'string' && body ? body : undefined
 }
 
 export function grokAcpEventOrdinal(eventId: string | undefined): number | undefined {

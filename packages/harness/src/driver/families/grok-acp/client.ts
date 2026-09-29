@@ -42,6 +42,14 @@ export interface GrokAcpClientConfig {
 
 const DEFAULT_TIMEOUT_MS = 120_000
 
+/**
+ * METHODS WHOSE REPLY IS THE END OF THE WORK, NOT AN ACK OF THE REQUEST
+ * (POD-4837). `session/prompt` answers when the turn ends, however long the
+ * turn runs; a call timeout there failed every turn longer than two minutes.
+ * The pipe closing still fails it.
+ */
+const UNTIMED_METHODS: ReadonlySet<string> = new Set([GROK_ACP_METHODS.sessionPrompt])
+
 export interface GrokAcpClient {
   readonly ready: boolean
   initialize(): Promise<GrokAcpInitializeResult>
@@ -66,11 +74,15 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
     number,
     { resolve(value: unknown): void; reject(error: Error): void; method: string; timer: unknown }
   >()
+  const stopTimer = (timer: unknown): void => {
+    if (timer !== undefined) clearTimer(timer)
+  }
   const knownInboundMethods = new Set<string>([
     GROK_ACP_METHODS.requestPermission,
     'session/update',
     '_x.ai/session/update',
     '_x.ai/session_notification',
+    GROK_ACP_METHODS.queueChanged,
   ])
   const reportedMethods = new Set<string>()
   let harnessVersion = 'unknown (initialize has not reported a version)'
@@ -92,7 +104,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
 
   const fail = (error: Error): void => {
     for (const entry of pending.values()) {
-      clearTimer(entry.timer)
+      stopTimer(entry.timer)
       entry.reject(error)
     }
     pending.clear()
@@ -139,7 +151,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
         }
       }
       pending.delete(key)
-      clearTimer(entry.timer)
+      stopTimer(entry.timer)
       config.onResponse?.(entry.method, frame)
       if (frame.error) {
         entry.reject(
@@ -178,10 +190,14 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
     }
     const id = nextId++
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimer(() => {
-        pending.delete(id)
-        reject(new GrokAcpProtocolError(`grok ACP ${method} did not answer within ${timeoutMs}ms`))
-      }, timeoutMs)
+      const timer = UNTIMED_METHODS.has(method)
+        ? undefined
+        : setTimer(() => {
+            pending.delete(id)
+            reject(
+              new GrokAcpProtocolError(`grok ACP ${method} did not answer within ${timeoutMs}ms`),
+            )
+          }, timeoutMs)
       pending.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
@@ -192,7 +208,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
         send({ id, method, ...(params !== undefined ? { params } : {}) })
       } catch (error) {
         pending.delete(id)
-        clearTimer(timer)
+        stopTimer(timer)
         reject(error instanceof Error ? error : new Error(String(error)))
       }
     })

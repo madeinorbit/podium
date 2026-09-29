@@ -28,8 +28,8 @@ export const OPENCODE_VERSION_POLICY = {
 
 export const GROK_ACP_VERSION_POLICY = {
   minimum: { major: 0, minor: 2, patch: 23 },
-  verifiedThrough: '0.2.118',
-  recordedAt: '0.2.118',
+  verifiedThrough: '1.0.44',
+  recordedAt: '1.0.44',
 } as const satisfies HarnessVersionPolicy
 
 export const HARNESS_VERSION_POLICIES = {

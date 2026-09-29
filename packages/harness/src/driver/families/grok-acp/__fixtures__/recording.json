@@ -1,12 +1,12 @@
 {
-  "recordedFrom": "grok 0.2.118 (1e1687c1cf) [stable]",
-  "recordedAt": "2026-08-13",
+  "recordedFrom": "grok 1.0.44 (5b807183dd79) [stable]",
+  "recordedAt": "2026-09-29",
   "transport": "live `grok agent stdio` ACP JSON-RPC",
-  "source": "POD-2025 W7 live probe logs",
+  "source": "POD-4837 probe: scratch GROK_HOME, a local fake OpenAI-compatible model server with a dummy key",
   "fixture": "live-frames.jsonl",
-  "selection": "Exact complete wire frames for initialize, session/new, session/set_mode, session/prompt, session/update, session/load, session/request_permission, permission reply, session/cancel, and end_turn/cancelled prompt results.",
-  "redactions": "None. Frames with credentials and the user-specific available-command inventory were not selected.",
-  "version": "0.2.118",
-  "build": "1e1687c1cf",
+  "selection": "Complete wire frames of one session: initialize, session/new, session/set_mode, four session/prompt requests carrying _meta.promptId (a plain turn; a tool call with session/request_permission and its answer; a turn cancelled mid-stream by session/cancel; the first promptId again), every update, queue ack and prompt reply; then a second process loading the session (session/load and its replay).",
+  "redactions": "The probe scratch directory is rewritten to /tmp/grokprobe. Grok's session/setup, MCP and session-list side channels and the available-command inventory are not selected.",
+  "version": "1.0.44",
+  "build": "5b807183dd79",
   "channel": "stable"
 }

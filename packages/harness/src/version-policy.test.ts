@@ -10,7 +10,7 @@ describe('shared harness version policy', () => {
   it.each([
     ['codex', '0.146.99', '0.147.0', '0.151.0', '0.151.1'],
     ['opencode', '1.17.99', '1.18.0', '1.18.16', '1.18.17'],
-    ['grok', '0.2.22', '0.2.23', '0.2.118', '0.2.119'],
+    ['grok', '0.2.22', '0.2.23', '1.0.44', '1.0.45'],
   ] as const)('%s separates admission from fixture verification', (harness, old, floor, verified, newer) => {
     const policy = HARNESS_VERSION_POLICIES[harness]
     expect(gateHarnessVersion(policy, old)).toBe('too-old')

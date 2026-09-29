@@ -5,12 +5,10 @@
  * WHY THIS FAMILY'S FILE IS SHORTER THAN CODEX'S AND OPENCODE'S
  * ---------------------------------------------------------------------------
  *
- * Grok's drain is the one that was ALREADY honest about a failed send, and the
- * difference is worth stating rather than leaving as a missing test. `startPrompt`
- * opens the turn SYNCHRONOUSLY — epoch, `turn/started`, transcript item — and
- * hands the pending `session/prompt` to `finishPrompt`, so a rejected prompt
- * reaches the caller as a turn FAILURE. That is not the POD-2297 shape: a turn
- * really did open, and saying so is the truth.
+ * A drained turn's prompt opens its turn only when Grok names it (POD-4837). A
+ * `session/prompt` Grok answers with an error before that opened nothing, so
+ * the drained turn is abandoned `delivery-failed` like the other two families';
+ * one that fails after the ack is a turn FAILURE, because a turn really did open.
  *
  * What this family shared with the other two is the DISPOSAL half: `stop`,
  * `kill`, `hibernate`, `forget`, `dispose` and a child that closes the link all
@@ -190,6 +188,32 @@ describe('a queue this driver loses says so — POD-2297', () => {
       runtime.forget(handle.binding.sessionId)
 
       expect(w.reports).toEqual([{ turnIds: ['forgotten'], reason: 'teardown' }])
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('reports a drained turn Grok refused before naming it: no turn opened', async () => {
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      await handle.send(
+        { id: 'running', text: 'running' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      const parked = await handle.send(
+        { id: 'drained', text: 'drained' },
+        { origin: 'steward', delivery: 'queue' },
+      )
+      expect(parked.outcome).toBe('queued')
+      const server = w.serverFor(handle.binding.sessionId)!
+      server.failNextPrompt('rejected before it was taken')
+      server.completeTurn()
+      await expect
+        .poll(() => w.reports, { timeout: 2000 })
+        .toEqual([{ turnIds: ['drained'], reason: 'delivery-failed' }])
+      expect(server.promptCount).toBe(2)
     } finally {
       runtime.dispose()
     }

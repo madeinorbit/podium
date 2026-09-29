@@ -8,7 +8,9 @@ export function grokAcpCapabilities(): DriverCapabilities {
       // ACP has no steer method. A send made while a prompt is open is held in
       // the driver's durable in-memory queue and reports that downgrade.
       native: ['at-boundary', 'when-ready', 'queue', 'interrupt'],
-      proof: ['protocol-ack'],
+      // Grok naming the prompt's promptId (POD-4837); and, for a message this
+      // session's history already holds under that id, the entry itself.
+      proof: ['protocol-ack', 'transcript-echo'],
       mayReturnUnverified: false,
     },
     interrupt: { fenceOnProviderConfirmation: true },

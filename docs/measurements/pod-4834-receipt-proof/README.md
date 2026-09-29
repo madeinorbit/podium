@@ -42,3 +42,34 @@ What this settles for Claude's terminal UI:
 - Only six hook events were switched on in this run (SessionStart, UserPromptSubmit, PreToolUse,
   PostToolUse, PostToolBatch, Stop); none of them fired with the prompt when it was sent to the
   model. The other 27 events Claude knows were not observed.
+
+## Grok 1.0.44, ACP over `grok agent stdio` (run 2026-09-29, `grok-acp-1.0.44/`, POD-4837)
+
+Setup: `HOME` and `GROK_HOME` point to a scratch directory whose `.grok/config.toml` defines one
+`[model.fake]` (`base_url` = the fake on localhost, `env_key` = a dummy key) and makes it the
+default; `grok-acp-1.0.44/fake-model-server.ts` answers OpenAI chat completions (markers for a
+tool call, a slow reply, a 135 s reply and an HTTP 402). `acp-probe.ts` is a raw ACP client that
+logs every frame with its time; the exact frames are in the driver's fixtures
+(`packages/harness/src/driver/families/grok-acp/__fixtures__/live-frames.jsonl`, `prompt-ack.json`).
+
+Times are milliseconds after the `session/prompt` write.
+
+| Question | Run result |
+|---|---|
+| Can the prompt carry our id? | Yes: `session/prompt` `_meta.promptId`. Grok keeps it as the turn's id: on every `agent_message_chunk`/`tool_call(_update)` (`params._meta.promptId`), on `turn_completed` (`prompt_id`), on `_x.ai/session/prompt_complete`, and in the reply (`result._meta.promptId` and `requestId`). A top-level `messageId` (ACP crate field) is ignored; Grok mints its own id. |
+| Earliest signal naming it | `_x.ai/queue/changed`: first `entries: [{id: <promptId>, text}]`, then `runningPromptId: <promptId>` with `runningText`. +3 to +22 ms on a warm session, +84 to +89 ms on a session's first prompt (it waits for MCP start-up). No event id: an ack, not history. |
+| `hook_execution` `user_prompt_submit` | Only when a `UserPromptSubmit` hook is configured, as `_x.ai/session_notification` with `prompt_id` = ours, ~30 ms after the queue ack (`hook_run_started` first, without an event id). Not a general signal. |
+| Live `user_message_chunk` echo | **Never sent** to the ACP client (0 in every run). Grok writes it to `updates.jsonl` at the start of the turn, with `promptIndex` and an event id but **no promptId**; `session/load` replays it followed by the turn's stamped updates. |
+| When is the prompt recorded? | After the `UserPromptSubmit` hooks, before the model call. A blocking hook: queue ack, then `hook_execution` with `blocked: true`, `turn_completed` `stop_reason: cancelled` with `_meta.cancellationCategory: HookDenied`, reply `cancelled`; nothing is written to history. A provider 402: queue ack, `retry_state` failed, `turn_completed` `stop_reason: error` with our id, then a JSON-RPC error reply (-32603, `data.http_status` 402); the prompt **is** recorded. |
+| Same promptId again | Not deduplicated: idle, a second turn under the same id; sent while the first runs, the queue shows no second entry, yet it runs a second turn afterwards. Grok's docs: a client that supplies its own id owns its uniqueness. |
+| A prompt sent while Grok is busy | Listed in `entries` (queued) behind the running prompt; runs after it; the reply to the first request arrives after the second starts. |
+| `session/prompt` reply | Only at the end of the turn. |
+
+The driver after POD-4837 (`driver-live-check.ts`, output in `driver-live-check.txt`): accepted
++4 to +20 ms after the send on the queue ack; the entry `grok-user-<message id>` named at the
+turn's first output (+375 to +473 ms here, +5 s for a reply whose first word took 5 s); the same
+message id again, in the same process and after a `session/load` in a new one, accepted from the
+history without a second `session/prompt`; a 135 s turn ended normally. Control arm
+(`driver-live-check-control.txt`): with the old 120 s call timeout on `session/prompt`, the same
+turn was reported failed at 120 s ("session/prompt did not answer within 120000ms") while Grok
+was still answering.
