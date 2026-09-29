@@ -171,34 +171,32 @@ test('phone follows an active desktop grid, then auto-fits when it is the sole r
       .toMatchObject({ role: 'controller', cols: desktopState.cols, rows: desktopState.rows })
 
     // The other native renderer leaves. The phone has continuously held a
-    // renderer lease and reported its viewport, so the server can atomically
-    // transfer control + geometry without a tap or keystroke.
+    // renderer lease and stated its viewport, so the server hands it control
+    // and forwards its box without a tap or keystroke. The two arrive in that
+    // order and not as one frame (POD-3190 rev 3): `controllerChanged` carries
+    // the size the pty has NOW, and the phone's grid follows when the daemon
+    // reports the resize. So wait for the fitted grid, not just the role.
     await desktopContext.close()
     desktopClosed = true
+    const phoneState = () =>
+      phone.evaluate(() =>
+        (
+          window as unknown as {
+            __podium?: { state(): { cols: number; rows: number; role: string } }
+          }
+        ).__podium?.state(),
+      )
     await expect
       .poll(
-        () =>
-          phone.evaluate(() =>
-            (
-              window as unknown as {
-                __podium?: {
-                  state(): { cols: number; rows: number; role: string }
-                }
-              }
-            ).__podium?.state(),
-          ),
-        { timeout: 30_000 },
+        async () => {
+          const state = await phoneState()
+          return state?.role === 'controller' && state.cols < desktopState.cols
+        },
+        { timeout: 30_000, message: 'the phone becomes controller at its own, narrower grid' },
       )
-      .toMatchObject({ role: 'controller' })
-    const fitted = await phone.evaluate(() =>
-      (
-        window as unknown as {
-          __podium?: { state(): { cols: number; rows: number; role: string } }
-        }
-      ).__podium?.state(),
-    )
+      .toBe(true)
+    const fitted = await phoneState()
     if (!fitted) throw new Error('phone terminal state disappeared after control transfer')
-    expect(fitted.cols).toBeLessThan(desktopState.cols)
     await expect(
       phone.getByText(new RegExp(`In control — phone grid ${fitted.cols}×${fitted.rows}`)),
     ).toBeVisible()
