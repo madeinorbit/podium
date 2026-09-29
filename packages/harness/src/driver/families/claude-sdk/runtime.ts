@@ -13,7 +13,7 @@ import type { ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { claudeToolCallItem, claudeToolResultItem } from '../../../adapters/claude-code/transcript.js'
-import { DriverRefusalError } from '../../errors.js'
+import { DeliveryUnprovenError, DriverRefusalError, wasNeverSent } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
 import { headlessInterruptMark } from '../../headless-interrupt.js'
 import type {
@@ -762,6 +762,12 @@ export function createClaudeSdkRuntime(
       if (core.active === child) core.active = undefined
       void child.dispose?.()
       void drain(core)
+      // ONLY A LINE NEVER WRITTEN IS A "NO" (POD-4839). A line on the CLI's
+      // stdin may be in the transcript whatever ended the turn before its
+      // ack — the process exiting, an error result (an HTTP 400 left the
+      // prompt recorded, POD-4834) — so that failure is unproven, never a
+      // refusal the sender would read as safe to resend.
+      if (!wasNeverSent(error)) throw new DeliveryUnprovenError('claude-sdk send', error)
       return {
         outcome: 'refused',
         refusal: refuse('not_running', error instanceof Error ? error.message : String(error)),
@@ -854,8 +860,11 @@ export function createClaudeSdkRuntime(
     if (!core.alive || busy(core) || core.interactions.size > 0) return
     const next = core.queue.shift()
     if (!next) return
-    const receipt = await deliver(core, next.input, { ...next.options, delivery: 'when-ready' })
-    if (receipt.outcome === 'refused') abandonTurn(core, next, 'delivery-failed')
+    const receipt = await deliver(core, next.input, {
+      ...next.options,
+      delivery: 'when-ready',
+    }).catch(() => undefined)
+    if (!receipt || receipt.outcome === 'refused') abandonTurn(core, next, 'delivery-failed')
   }
 
   function reportAbandoned(
