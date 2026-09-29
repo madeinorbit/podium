@@ -2310,28 +2310,23 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
   })
 
-  it('keeps a transcript-ambiguous failure queued for echo/boundary instead of dead-lettering it', async () => {
-    // POD-4802: the daemon typed the bytes but could not prove it
-    // (`unverified`) or a previous owner may have typed them (recovery), so
-    // the write may have landed — the agent answered, yet the ledger row was
+  it('keeps an unproven write queued for echo/boundary instead of dead-lettering it', async () => {
+    // POD-4802: the daemon typed the bytes but could not prove it (the inner
+    // send answered `unverified`; the daemon says `cause: 'unconfirmed'`), so the
+    // write may have landed — the agent answered, yet the ledger row was
     // dead-lettered "delivery failed" and the chat showed the echo in place
-    // plus the failed bubble at the bottom, forever. An ambiguous failure
+    // plus the failed bubble at the bottom, forever. An unproven write
     // unblocks the turn-boundary backstop (the inbox row leaves) but never
     // dead-letters the ledger row: echo or the boundary settles it.
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
     await queueOne(h, 'ambiguous', 'source-ambiguous')
-    await queueOne(h, 'recovered', 'source-recovered')
     await vi.advanceTimersByTimeAsync(0)
     await h.inbox.deliveryOutcome(SID, {
       rowId: 'ambiguous',
       outcome: 'failed',
       reason: 'delivery could not be confirmed; check the transcript before retrying',
-    })
-    await h.inbox.deliveryOutcome(SID, {
-      rowId: 'recovered',
-      outcome: 'failed',
-      reason: 'previous delivery could not be confirmed; check the transcript before retrying',
+      cause: 'unconfirmed',
     })
     expect(h.rows).toEqual([])
     expect(h.rejected).toEqual([])
@@ -2342,6 +2337,27 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       expect(notice).toMatchObject({ unconfirmed: true })
     }
     expect(h.setSessionDraft).not.toHaveBeenCalled()
+  })
+
+  it('still dead-letters a failed delivery that carries no cause (older daemon)', async () => {
+    // Keyed on the structured cause, not reason prose: frames from daemons
+    // that predate `cause` keep the previous visible-failure behaviour.
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'legacy', 'source-legacy')
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'legacy',
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+    })
+    expect(h.rows).toEqual([])
+    expect(h.rejected).toEqual([
+      expect.objectContaining({
+        queueId: 'legacy',
+        reason: 'delivery could not be confirmed; check the transcript before retrying',
+      }),
+    ])
   })
 
   it('keeps the row visibly queued on an unverified receipt (the RPC timeout answer)', async () => {

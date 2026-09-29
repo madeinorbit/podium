@@ -61,6 +61,48 @@ describe('runtime event retention contract', () => {
   })
 })
 
+describe('delivery failure cause (POD-4802)', () => {
+  const frame = (ev: RuntimeEventBody) => ({
+    type: 'runtimeEvent',
+    deliveryId: 'delivery-row',
+    sessionId: asSessionId('session'),
+    event: event(ev),
+  })
+
+  it('parses a failed delivery carrying the unconfirmed cause', () => {
+    const parsed = RuntimeEventMessage.parse(
+      frame({
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'delivery could not be confirmed; check the transcript before retrying',
+        cause: 'unconfirmed',
+      }),
+    )
+    expect(parsed.event).toMatchObject({
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'failed',
+      cause: 'unconfirmed',
+    })
+  })
+
+  it('still parses a failed delivery without a cause (older daemon)', () => {
+    // The cause is optional, so frames from daemons that predate it keep the
+    // previous visible-failure behaviour.
+    const parsed = RuntimeEventMessage.parse(
+      frame({
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'delivery could not be confirmed; check the transcript before retrying',
+      }),
+    )
+    expect(parsed.event).toMatchObject({ t: 'delivery', outcome: 'failed' })
+    expect((parsed.event as { cause?: unknown }).cause).toBeUndefined()
+  })
+})
+
 
 describe('durable admission command', () => {
   it('requires migration discriminators and cannot parse as a legacy send', () => {
