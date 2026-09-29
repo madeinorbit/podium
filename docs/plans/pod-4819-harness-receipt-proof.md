@@ -239,7 +239,7 @@ lists signals that look like proof and are not.
 
 | Program | Prompt entry | Text tolerance | Order = submit order |
 |---|---|---|---|
-| Claude | `user` with `promptSource` `typed`/`queued`; `queued_command` with `commandMode: prompt`, `origin.kind: human` | tab → 4 spaces; CR/CRLF → LF; U+200B removed | yes (file order differs from event order around an Escape) |
+| Claude | `user` with `promptSource` `typed`/`queued` (older CLIs write none), and the plain `/compact`-style record a built-in command writes with the words as typed; `queued_command` with `commandMode: prompt`, `origin.kind: human`. Never a prompt entry: the compaction summary (`isCompactSummary`), `<command-name>` and `<local-command-stdout>` records (the reader makes all three system notes, POD-4877), `isMeta` records (Stop-hook feedback, the command caveat, expansions), `promptSource: system` (task notifications), interrupt markers, tool results | tab → 4 spaces; CR/CRLF → LF; U+200B removed | yes (file order differs from event order around an Escape) |
 | Codex | rollout `item_completed` `UserMessage` (never `response_item` role user; never expand `compacted.replacement_history`) | outer whitespace trimmed | yes for Enter submits |
 | Grok | `updates.jsonl` `user_message_chunk`, not `hideFromScrollback`; `/loop` is recorded as its expansion | exact | yes |
 | OpenCode | user message with a text part, not a command expansion, not a message sent over HTTP into the session | a paste gains a trailing space | yes |
