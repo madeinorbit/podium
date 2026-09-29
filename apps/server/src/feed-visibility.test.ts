@@ -1,4 +1,10 @@
-import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  interactionRowId,
+  messageRecordRowId,
+} from '@podium/model'
 import type { EntityRef } from '@podium/sync'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
@@ -108,5 +114,48 @@ describe('feed visibility grant semantics', () => {
     await grant('conversation', reader, 'read')
     const state = await policy.state.forBatch!(refs)
     expect(refs.map((ref) => state.mayRead(reader, ref))).toEqual([true, false, false])
+  })
+})
+
+describe('rows scoped by the session named in their id', () => {
+  const ask: EntityRef = { entity: 'pendingInteraction', entityId: interactionRowId('shared', 'ixn_1') }
+  const sent = (senderUserId: string): EntityRef => ({
+    entity: 'message',
+    entityId: messageRecordRowId({ sessionId: 'shared', senderUserId, messageId: 'msg_1' }),
+  })
+
+  it('shows a blocking ask to whoever may see its session (POD-4764 found the prefetch missing)', async () => {
+    const { policy, grant } = await fixture()
+    await grant('session', reader, 'read')
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare([ask])
+      expect([owner, reader, stranger].map((user) => state.mayRead(user, ask))).toEqual([
+        true,
+        true,
+        false,
+      ])
+    }
+  })
+
+  it('shows a chat message to its sender and the session owner, and to no other reader', async () => {
+    const { policy, grant } = await fixture()
+    await grant('session', reader, 'read')
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const fromStranger = sent(stranger)
+      const state = await prepare([fromStranger])
+      expect(policy.state.classOf('message')).toBe('personal')
+      expect([owner, reader, stranger].map((user) => state.mayRead(user, fromStranger))).toEqual([
+        true,
+        false,
+        true,
+      ])
+    }
+  })
+
+  it('refuses a message row whose id does not parse', async () => {
+    const { policy } = await fixture()
+    const broken: EntityRef = { entity: 'message', entityId: 'not-a-row-id' }
+    const state = await policy.state.forBatch!([broken])
+    expect(state.mayRead(owner, broken)).toBe(false)
   })
 })
