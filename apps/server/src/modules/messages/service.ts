@@ -449,7 +449,34 @@ export function senderFromPrincipal(principal: CommandPrincipal): MessageSender 
   }
 }
 
-/** How the target session presents at delivery time. */
+/**
+ * The sender a delivery-side principal names (POD-4846): who answered a Tray
+ * question or an interaction. A person is the operator with their own
+ * attribution (their words, unwrapped); an agent is that agent session; a job
+ * is that job.
+ */
+export function senderFromInboxPrincipal(principal: InboxPrincipalReference): MessageSender {
+  switch (principal.kind) {
+    case 'user':
+      return { kind: 'operator', attribution: principal.attribution, delegationRef: null }
+    case 'agent':
+      return {
+        kind: 'agent',
+        sessionId: asSessionId(principal.principalRef),
+        attribution: principal.attribution,
+        delegationRef: principal.delegation,
+      }
+    case 'system':
+      return {
+        kind: 'system',
+        name: principal.principalRef,
+        attribution: principal.attribution,
+        delegationRef: null,
+      }
+  }
+}
+
+/** How the target session presents at delivery time.
 
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 

@@ -3,11 +3,11 @@ import {
   actorSystem,
   actorUser,
   asAgentIdentityId,
-  asDelegationRef,
   asSessionId,
   firstAdminMemberId,
 } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
+import { asDelegationRef } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { senderFromInboxPrincipal } from './modules/messages/service'
 import type { InboxPrincipalReference } from './modules/sessions/inbox'

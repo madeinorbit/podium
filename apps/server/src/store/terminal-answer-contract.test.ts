@@ -102,6 +102,7 @@ describe('production terminal answer identity', () => {
       const result = await deliverAnswerToSession({
         getSession: (id) => registry.modules.sessions.sessionById(id),
         sessions: registry.modules.sessions,
+        messages: registry.modules.messages,
         rpc: { readTranscript: async () => { throw new Error('must read the authoritative row') } },
       }, { sessionId, answer: 'Two', principal: inboxPrincipalFromCommand(principal) })
       expect(result).toMatchObject({ ok: true, via: 'menu' })
