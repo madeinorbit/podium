@@ -255,6 +255,7 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     w.frame({ type: 'result', subtype: 'success', is_error: false, result: '', session_id: NATIVE })
     await tick()
     const again = send(w.handle, confirmed)
+    await tick()
     w.frame(ack.duplicateEchoSameProcess)
     await again
     await tick()

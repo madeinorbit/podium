@@ -213,7 +213,8 @@ describe('Claude user records that are not a prompt entry', () => {
             (record.type === 'attachment' &&
               attachment?.type === 'queued_command' &&
               attachment.commandMode === 'prompt' &&
-              (attachment.origin as Record<string, unknown> | undefined)?.kind === 'human')
+              ((attachment.origin as Record<string, unknown> | undefined)?.kind === 'human' ||
+                (lane === 'sdk' && attachment.origin === undefined)))
           if (submit) expected.push(record.uuid as string)
           for (const item of promptEntries(record)) actual.push(item.id)
         }
