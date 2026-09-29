@@ -194,6 +194,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
         agentState: {
           phase: 'working',
           since: new Date(Date.now() - 149_380).toISOString(),
+          nativeSubagentCount: 0,
         },
       }),
     ]

@@ -1,6 +1,6 @@
 import { asMachineId, asSessionId, firstAdminMemberId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { DaemonRpcService, type RpcSessionView } from './rpc'
+import { DaemonRpcService, type RpcSessionView, type TranscriptSlice } from './rpc'
 
 const sessionId = asSessionId('history-session')
 const machineId = asMachineId('machine')
@@ -19,7 +19,7 @@ function setup(opts?: { predecessors?: boolean; online?: boolean }) {
     canReadSession: vi.fn(async () => true),
     transcriptPathHint: vi.fn(async () => undefined),
     transcriptHasPredecessors: vi.fn(async () => opts?.predecessors ?? false),
-    readTranscriptFromLake: vi.fn(async () => ({ items: [lakeRow], head: 'archive-head', tail: 'archive-tail', hasMore: false })),
+    readTranscriptFromLake: vi.fn(async (): Promise<TranscriptSlice | undefined> => ({ items: [lakeRow], head: 'archive-head', tail: 'archive-tail', hasMore: false })),
   }
   const toMachine = vi.fn()
   const online = vi.fn(() => opts?.online ?? true)
