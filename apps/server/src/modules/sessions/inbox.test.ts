@@ -27,6 +27,7 @@ import {
   MESSAGE_ENDED_REASON,
   type QueuedInboxMessage,
   SessionInbox,
+  isCoalescableMailRow,
 } from './inbox'
 import type { Session, SessionDurableState } from './session'
 
@@ -87,6 +88,11 @@ function harness(
     /** What `Session.setRequestedModel` reports back — false = the session was
      *  already on the requested value. */
     requestedModelChanged?: boolean
+    /** Routine-mail classifier for the forward path [POD-4716]. */
+    coalescableForSource?: (
+      sourceMessageId: string | null,
+      row: QueuedInboxMessage,
+    ) => boolean | Promise<boolean>
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
@@ -311,6 +317,7 @@ function harness(
         }
       : {}),
     contractCancel,
+    ...(options.coalescableForSource ? { coalescableForSource: options.coalescableForSource } : {}),
     ...(options.contractReceipts || options.contractPending
       ? {
           contractDeliver: (input: unknown) => {
@@ -3177,5 +3184,54 @@ describe('agent drain via the runtime contract', () => {
     expect(await h.inbox.interruptTurn({ sessionId: SID })).toEqual({ ok: true, requested: 'protocol' })
     expect(h.contractInterrupts).toEqual([SID])
     expect(h.sent).toEqual([])
+  })
+})
+
+describe('isCoalescableMailRow [POD-4716]', () => {
+  const base = { kind: 'message', urgency: 'fyi', lifecycle: 'wait' }
+  it('marks routine wait mail coalescable: fyi message, ack, notification', () => {
+    expect(isCoalescableMailRow({ ...base }, 'mail')).toBe(true)
+    expect(isCoalescableMailRow({ ...base, kind: 'ack' }, 'mail')).toBe(true)
+    expect(isCoalescableMailRow({ ...base, kind: 'notification' }, 'mail')).toBe(true)
+    // A notification stays routine even when it rode next-turn urgency.
+    expect(isCoalescableMailRow({ kind: 'notification', urgency: 'next-turn', lifecycle: 'wait' }, 'mail')).toBe(true)
+  })
+  it('leaves urgent and expect-response rows alone', () => {
+    expect(isCoalescableMailRow({ ...base, urgency: 'next-turn' }, 'mail')).toBe(false)
+    expect(isCoalescableMailRow({ ...base, urgency: 'interrupt' }, 'mail')).toBe(false)
+    expect(isCoalescableMailRow({ ...base, expectsResponse: true }, 'mail')).toBe(false)
+    expect(isCoalescableMailRow({ ...base, kind: 'question' }, 'mail')).toBe(false)
+    expect(isCoalescableMailRow({ ...base, lifecycle: 'wake' }, 'mail')).toBe(false)
+    expect(isCoalescableMailRow({ ...base, attachments: [{ id: 'a' }] }, 'mail')).toBe(false)
+    expect(isCoalescableMailRow({ ...base }, 'controller')).toBe(false)
+    expect(isCoalescableMailRow({ ...base }, 'human')).toBe(false)
+    expect(isCoalescableMailRow(null, 'mail')).toBe(false)
+  })
+  it('forwards the mark to the daemon (contractDeliver carries coalescable)', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({
+        agentKind: 'codex',
+        contractReceipts: [],
+        coalescableForSource: (source) => source === 'msg-fyi',
+      })
+      h.rows.push({
+        id: 'q-fyi', sessionId: SID, text: 'fyi', principal: agentPrincipal(),
+        queuedAt: 0, attempts: 0, inputOrigin: 'mail', sourceMessageId: 'msg-fyi',
+      })
+      h.rows.push({
+        id: 'q-urgent', sessionId: SID, text: 'urgent', principal: agentPrincipal(),
+        queuedAt: 1, attempts: 0, inputOrigin: 'mail', sourceMessageId: 'msg-urgent',
+      })
+      await h.inbox.drain(SID)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(h.contractCalls).toEqual([
+        expect.objectContaining({ turnId: 'q-fyi', coalescable: true }),
+        expect.objectContaining({ turnId: 'q-urgent' }),
+      ])
+      expect((h.contractCalls[1] as Record<string, unknown>)).not.toHaveProperty('coalescable')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -141,6 +141,8 @@ export interface RuntimeDaemonRpcPort {
       timeoutMs?: number
       model?: string
       effort?: string
+      /** Routine mail the daemon may coalesce (POD-4716). Absent = deliver alone. */
+      coalescable?: boolean
     },
     machineId: MachineId,
   ): Promise<TurnReceipt>
@@ -246,6 +248,8 @@ export class SessionRuntimeGateway {
     timeoutMs?: number
     model?: string
     effort?: string
+    /** Routine mail the daemon may coalesce (POD-4716). Absent = deliver alone. */
+    coalescable?: boolean
     /**
      * The party this send acts for.
      *
