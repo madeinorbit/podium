@@ -37,10 +37,10 @@
  * BOOT
  * ---------------------------------------------------------------------------
  * `resolve` reconciles the full truth once, before the server listens: the
- * open set read from the table, plus the window as the feed already holds it.
- * Writes before then only note which rows they touched; `resolve` reads those
- * again in the same transaction and publishes them, so nothing written during
- * boot is missed or published stale.
+ * open set read from the table, plus the window as the feed already holds it,
+ * in one transaction that then turns the capture on. A write before that is
+ * already in the table the reconcile reads, so the capture ignores it — and
+ * rows that predate the feed altogether (an upgrade) are carried the same way.
  */
 
 import {
@@ -64,8 +64,6 @@ export interface MessageFeedDeps {
   readonly snapshot: () => Promise<readonly unknown[]>
   /** The open set, from the table ({@link MessagesRepository.listOpenChat}). */
   readonly listOpen: () => Promise<readonly MessageRow[]>
-  /** Read rows by id (boot only: the rows touched before the feed went live). */
-  readonly getMessages: (ids: readonly string[]) => Promise<readonly MessageRow[]>
   /** One transaction on the store the messages table lives in. */
   readonly transact: <T>(fn: () => Promise<T>) => Promise<T>
   /** Defaults to {@link CONFIRMED_WINDOW}. */
@@ -131,8 +129,6 @@ export class MessageFeedPublisher {
   /** Row ids carried as confirmed, oldest first. */
   private window: string[] = []
   private live = false
-  /** Message ids written before the feed went live. */
-  private readonly touchedBeforeLive = new Set<string>()
   private resolving: Promise<void> | undefined
   private readonly windowSize: number
 
@@ -142,11 +138,8 @@ export class MessageFeedPublisher {
 
   /** The repository's capture port. Runs inside the write's transaction. */
   readonly capture: MessageFeedCapture = async (rows) => {
-    if (!this.live) {
-      for (const row of rows) this.touchedBeforeLive.add(row.id)
-      return
-    }
-    await this.publish(rows)
+    // Before `resolve`, the reconcile's read of the table will carry it.
+    if (this.live) await this.publish(rows)
   }
 
   /** Reconcile the full truth once, then go live. */
@@ -179,9 +172,6 @@ export class MessageFeedPublisher {
       this.open = open
       this.window = window.map(rowIdOf)
       this.live = true
-      const touched = [...this.touchedBeforeLive]
-      this.touchedBeforeLive.clear()
-      if (touched.length > 0) await this.publish(await this.deps.getMessages(touched))
     })
   }
 

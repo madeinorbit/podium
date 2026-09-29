@@ -52,14 +52,6 @@ async function harness(opts: { window?: number; live?: boolean } = {}) {
     ledger,
     snapshot: async () => await ledger.authority.snapshot('message'),
     listOpen: async () => await store.messages.listOpenChat(),
-    getMessages: async (ids) => {
-      const rows: MessageRow[] = []
-      for (const id of ids) {
-        const row = await store.messages.getMessage(id)
-        if (row) rows.push(row)
-      }
-      return rows
-    },
     transact: async (fn) => await store.transact(fn),
     ...(opts.window === undefined ? {} : { confirmedWindow: opts.window }),
   })
@@ -218,6 +210,22 @@ describe('the chat message feed', () => {
     )
     await store.messages.addMessage(chat('msg_issue', { toKind: 'issue', toId: 'iss_1' }))
     expect((await carried()).size).toBe(0)
+  })
+
+  it('carries at boot the messages that predate the feed (an upgrade), and none that ended', async () => {
+    const { store, feed, carried } = await harness({ live: false })
+    // Written with no capture installed at all, as on the release before this.
+    const uninstall = store.messages.setFeedCapture(async () => {})
+    await store.messages.addMessage(chat('msg_waiting'))
+    await store.messages.addMessage(chat('msg_lost'))
+    await store.messages.markDispatched('msg_lost', S1, 't1')
+    await store.messages.markUnknown('msg_lost', S1)
+    await store.messages.addMessage(chat('msg_done'))
+    await store.messages.markDelivered('msg_done', S1, 't2')
+    uninstall()
+    store.messages.setFeedCapture(feed.capture)
+    await feed.resolve()
+    expect([...(await carried()).keys()].sort()).toEqual(['msg_lost', 'msg_waiting'])
   })
 
   it('reconciles the open set at boot and publishes what was written before it went live', async () => {

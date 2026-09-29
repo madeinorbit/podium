@@ -98,7 +98,6 @@ import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
-import type { MessageRow } from './store/types'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
@@ -1012,14 +1011,6 @@ export class SessionRegistry {
       ledger,
       snapshot: async () => await ledger.authority.snapshot('message'),
       listOpen: async () => await this.store.messages.listOpenChat(),
-      getMessages: async (ids) => {
-        const rows: MessageRow[] = []
-        for (const id of ids) {
-          const row = await this.store.messages.getMessage(id)
-          if (row) rows.push(row)
-        }
-        return rows
-      },
       transact: async (fn) => await this.store.transact(fn),
     })
     this.messageFeed = messageFeed
