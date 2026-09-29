@@ -39,6 +39,13 @@ export interface GrokRecordEvidence {
   sourceEventKind: string
   providerAt: string | null
   eventBase?: number
+  /**
+   * A pending-hook replay forcing the live open of an epoch history already
+   * opened silently (POD-4828). Without it the replay dedupes against the
+   * silent open and no live `turn_started` is ever emitted — only the live
+   * close arrives, and the server rejects it as a turn-epoch jump.
+   */
+  forceOpen?: true
 }
 
 const MAX_BUFFERED_GROK_RECORDS = 64
@@ -81,6 +88,14 @@ export class GrokCausalObserver {
    */
   private pendingInterruptEpoch: number | null = null
   private pendingInterruptAt = 0
+  /**
+   * The epoch history opened silently (folded from bootstrap records with no
+   * live callbacks), not yet converted to a live open (POD-4828). A buffered
+   * UserPromptSubmit replayed after such a fold must still emit its live
+   * `turn_started` — deduping it leaves only the live close, a lone close the
+   * server rejects. Null once the epoch is live-opened or closed.
+   */
+  private silentOpenEpoch: number | null = null
 
   constructor(private readonly lease: GrokObservationLease) {
     const checkpoint = lease.acceptedCheckpoint
@@ -227,6 +242,47 @@ export class GrokCausalObserver {
   }
 
   /**
+   * Replay one hook buffered before bootstrap, once the first segment exists
+   * (POD-4828). Three cases, decided on real epoch state rather than timing:
+   *
+   * - The epoch history opened silently and is still open: the hook's turn is
+   *   running but has no live open, so a later live close would arrive alone.
+   *   Force the live open at the current epoch (absorbed, returns true).
+   * - History opened AND closed silently (a turn that finished before the
+   *   observer attached): the hook names a finished turn. Discard it
+   *   (absorbed, returns true) — opening would strand an epoch whose close
+   *   was already consumed.
+   * - Otherwise (fresh, no history prompt): a normal live open via the hook
+   *   path. A live-already-open hook still dedupes there, exactly as before.
+   */
+  replayPendingHook(payload: unknown, segment?: GrokSegmentIdentity): boolean {
+    const name = grokHookName(payload)
+    if (name !== 'session_start' && name !== 'user_prompt_submit') return false
+    if (name === 'session_start') return true
+    if (this.epochOpen && this.silentOpenEpoch === this.turnEpoch) {
+      const base =
+        this.acceptedCursor ??
+        (segment ? this.cursorFor(segment, segment.integrityBytes ?? 0) : null)
+      if (!base) return false
+      this.hookSequence = Math.max(this.hookSequence, base.components.hook ?? 0) + 1
+      const record = isHookRecord(payload) ? payload : {}
+      return this.enqueue({
+        record,
+        cursor: {
+          ...base,
+          components: { ...base.components, hook: this.hookSequence },
+        },
+        events: [{ kind: 'prompt_submitted' }],
+        sourceEventKind: 'hook:user_prompt_submit',
+        providerAt: this.now(),
+        forceOpen: true,
+      })
+    }
+    if (!this.epochOpen && this.turnEpoch > 0) return true
+    return this.observeHook(payload, segment)
+  }
+
+  /**
    * A Stop hook for the epoch Podium interrupted. The hook carries no
    * stop_reason — but Podium sent the Stop, the epoch is still open, and a
    * cancel writes no assistant record for the chat tail to classify, so the
@@ -360,6 +416,14 @@ export class GrokCausalObserver {
       (this.state.phase === 'working' ||
         this.state.phase === 'compacting' ||
         this.state.phase === 'needs_user')
+    // A restored open keeps its silence when it is still the silently-opened
+    // epoch (POD-4828): the bootstrap snapshot ack lands between the flush
+    // enqueueing the forced replay and the drain reaching it — clearing here
+    // would make the force dedupe and lose the live open. Any other case
+    // (closed, or a different epoch) clears, as before.
+    if (!(this.epochOpen && this.silentOpenEpoch === this.turnEpoch)) {
+      this.silentOpenEpoch = null
+    }
     const durableOffset = cursor.components.updates
     if (Number.isSafeInteger(durableOffset) && durableOffset !== undefined) {
       const retained = this.queued.filter(
@@ -370,7 +434,13 @@ export class GrokCausalObserver {
           record.cursor.inode !== cursor.inode ||
           (record.cursor.components.updates ?? 0) > durableOffset ||
           ((record.cursor.components.updates ?? 0) === durableOffset &&
-            (record.cursor.components.transition ?? 0) > (cursor.components.transition ?? 0)),
+            (record.cursor.components.transition ?? 0) > (cursor.components.transition ?? 0)) ||
+          // A forced hook replay lives at the same file offset as the
+          // bootstrap it follows (hook, not file, advanced) — the offset
+          // filter above would drop it as already-accepted. Retain it so the
+          // live open still drains after the snapshot ack (POD-4828).
+          ((record.cursor.components.updates ?? 0) === durableOffset &&
+            (record.cursor.components.hook ?? 0) > (cursor.components.hook ?? 0)),
       )
       this.queued.splice(0, this.queued.length, ...retained)
     }
@@ -391,6 +461,9 @@ export class GrokCausalObserver {
       (this.state.phase === 'working' ||
         this.state.phase === 'compacting' ||
         this.state.phase === 'needs_user')
+    if (!(this.epochOpen && this.silentOpenEpoch === this.turnEpoch)) {
+      this.silentOpenEpoch = null
+    }
   }
 
   private async drain(): Promise<void> {
@@ -413,14 +486,32 @@ export class GrokCausalObserver {
       const event = record.events[index]!
       const prompt = event.kind === 'prompt_submitted'
       if (prompt) {
-        if (this.epochOpen) continue
-        this.turnEpoch += 1
+        // A replayed pending hook forcing the live open of an epoch history
+        // already opened silently (POD-4828): emit at the current epoch
+        // without advancing — the epoch is already the hook's turn. Every
+        // other already-open prompt dedupes, as before.
+        const forced = live === true && record.forceOpen === true && this.epochOpen === true &&
+          this.silentOpenEpoch === this.turnEpoch
+        if (this.epochOpen && !forced) continue
+        if (!forced) {
+          this.turnEpoch += 1
+        }
         this.epochOpen = true
-        this.providerPromptId = nativeId(record.record, ['prompt_id', 'promptId'])
-        this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId'])
+        // A forced replay names only the session, not the prompt history
+        // already folded — keep the folded native ids instead of clearing
+        // them with the hook's nulls. A genuine live open keeps today's
+        // behavior verbatim.
+        if (forced) {
+          this.providerPromptId = nativeId(record.record, ['prompt_id', 'promptId']) ?? this.providerPromptId
+          this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId']) ?? this.providerTurnId
+        } else {
+          this.providerPromptId = nativeId(record.record, ['prompt_id', 'promptId'])
+          this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId'])
+        }
         const prior = this.state
         this.state = reduceAgentState(prior, withStateChannelEvent(event, 'poll'), this.now())
         if (live) {
+          this.silentOpenEpoch = null
           result = this.observation({
             cursor: this.transitionCursor(record.cursor),
             sourceEventKind: record.sourceEventKind,
@@ -433,6 +524,7 @@ export class GrokCausalObserver {
           this.requeueRemaining(record, index)
           return result
         }
+        this.silentOpenEpoch = this.turnEpoch
         continue
       }
 
@@ -449,6 +541,7 @@ export class GrokCausalObserver {
       this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId']) ?? this.providerTurnId
       if (terminal) {
         this.epochOpen = false
+        this.silentOpenEpoch = null
         // The epoch the interrupt named is over; a later turn must not
         // inherit its flag (the epoch guard already scopes it, this just
         // keeps the field honest).
