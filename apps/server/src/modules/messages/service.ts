@@ -2417,14 +2417,21 @@ export class MessageDeliveryService {
   }
 
   /** A notice just stored with a failure: ledgered like any send, mirrored into
-   *  the issue mailbox when addressed to one, and offered to delivery now.
-   *  A restart before this runs loses nothing: delivery finds the stored row. */
+   *  the issue mailbox when addressed to one, and delivered now, as a send
+   *  would be. The failure is already committed, so a delivery attempt that
+   *  throws only leaves the notice to the delivery path — a restart, too, loses
+   *  nothing: the startup walk finds the stored row. */
   private async noticeStored(notice: MessageRow | null): Promise<void> {
     if (!notice) return
     await this.emitTransition(notice, 'message.queued')
     await this.mirrorToIssueMailbox(notice, { kind: 'system', name: 'steward' })
-    const target = this.deliveryTargetOf(notice)
-    if (target) await this.queueDeliveryTarget(target)
+    try {
+      await this.attemptDelivery(notice)
+    } catch (error) {
+      log.warn('failure notice left for the delivery path', { err: error, messageId: notice.id })
+      const target = this.deliveryTargetOf(notice)
+      if (target) await this.queueDeliveryTarget(target)
+    }
   }
 
   /**

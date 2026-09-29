@@ -4841,7 +4841,9 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
         return id
       },
       repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'revoked'),
-      body: ['you are no longer allowed to reach it (revoked). Do not resend; do not wait for a reply.'],
+      body: [
+        'you are no longer allowed to reach it (revoked). Do not resend; do not wait for a reply.',
+      ],
     },
     'the target waits on a person': {
       sessions: () => [sender(), session({ sessionId: asSessionId('s1') })],
@@ -4896,10 +4898,18 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
   )('%s: one notice, stored with the failure, delivered once', async (name) => {
     const outcome = outcomes[name]!
     const sessions = outcome.sessions()
-    const h1 = await harness(sessions, outcome.opts)
+    // The first server never gets the notice to the sender's machine, and then
+    // stops: only what it committed survives.
+    const h1 = await harness(sessions, {
+      ...outcome.opts,
+      queueText: async (i) =>
+        i.text.includes('was not delivered')
+          ? { ok: false, reason: 'machine unreachable' }
+          : { ok: true, queued: true },
+    })
     const id = await outcome.fail(h1, sessions)
-    // The server stops here: whatever had not run yet never runs.
     h1.svc.dispose()
+    expect((await h1.store.messages.getMessage(failureNoticeId(id)))?.deliveryStatus).toBe('stored')
 
     expect((await h1.store.messages.getMessage(id))?.deliveryStatus).toBe('failed')
     const stored = await noticesTo(h1.store, SENDER)
@@ -4920,10 +4930,10 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     await h3.svc.flushDeliveryTriggers()
     h3.svc.dispose()
 
-    const pushes = [...h1.queued, ...h2.queued, ...h3.queued].filter(
+    const delivered = [...h2.queued, ...h3.queued].filter(
       (q) => q.sourceMessageId === failureNoticeId(id),
     )
-    expect(pushes.map((q) => q.sessionId)).toEqual([SENDER])
+    expect(delivered.map((q) => q.sessionId)).toEqual([SENDER])
     expect((await noticesTo(h1.store, SENDER)).map((m) => m.id)).toEqual([failureNoticeId(id)])
     expect((await h1.store.messages.getMessage(failureNoticeId(id)))?.deliveryStatus).toBe(
       'dispatched',
