@@ -279,7 +279,7 @@ POD-4839, POD-4840, POD-4844, POD-4845, POD-4846, POD-4849 (held receipts), POD-
 POD-4868, POD-4877. Running: POD-4841 (program ids on the message), POD-4875 (Grok history from
 `updates.jsonl`).
 
-To do (filed 2026-09-29; hard on Claude Code Opus 5.5 high, easy on Codex gpt-6-sol max):
+To do (filed 2026-09-29; hard on Claude Code Opus 5.5 high, easy on Codex gpt-6.1-sol max):
 
 | Issue | What | Size | Waits on |
 |---|---|---|---|
