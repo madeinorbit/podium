@@ -431,13 +431,15 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     ).toEqual({ ok: true, queued: true })
     await flush()
 
-    // One attempt at the gateway, refused: the row stays, visibly queued, with
-    // a single failure notice — and nothing typed.
+    // One attempt at the gateway, refused: the row stays, visibly queued, and
+    // nothing typed. Nothing is reported either: a refusal leaves nothing
+    // uncertain — the next bind or sweep forwards the row again (POD-4775,
+    // which replaced the failure notice this case used to expect).
     expect(h.sent).toEqual([])
     expect(h.contractSends).toHaveLength(1)
     expect(h.rows).toHaveLength(1)
     expect(h.applied).toEqual([])
-    expect(h.promptFailed).toHaveLength(1)
+    expect(h.promptFailed).toEqual([])
     // `not_running` proves nothing was typed, so the refusal leaves no
     // custody behind: the row is exactly as fresh as before the forward.
     expect(h.rows[0]).toMatchObject({ attempts: 0 })
