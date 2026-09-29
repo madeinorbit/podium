@@ -17,6 +17,7 @@ import type {
   AgentRuntimeState,
   Attribution,
   Geometry,
+  HarnessRef,
   MutationId,
   SessionId,
   TranscriptItemRef,
@@ -115,6 +116,9 @@ export interface DeliveryOutcomeEvent {
    *  the daemon identified it — with the confirmation, or in a later
    *  `delivered` for the same id (POD-4774). */
   transcriptItem?: TranscriptItemRef
+  /** On any outcome: the agent program's own ids for the row, every one known
+   *  by then (POD-4841). A later outcome for the same id may carry more. */
+  harnessRef?: HarnessRef
 }
 
 const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
@@ -308,6 +312,13 @@ export interface InboxAuthorizationPort {
     messageId: string
     sessionId: SessionId
     transcriptItem: TranscriptItemRef
+  }): Promise<void>
+  /** The agent's machine reported the program's own ids for that message
+   *  (POD-4841). Kept on the message, independent of its status. */
+  harnessIds?(input: {
+    messageId: string
+    sessionId: SessionId
+    harnessRef: HarnessRef
   }): Promise<void>
   /** The bytes went into the CLI; the agent has not been seen to take them yet
    *  (POD-1242). Between this and {@link applied} the message is normally the
@@ -1442,6 +1453,15 @@ export class SessionInbox {
         messageId: event.rowId,
         sessionId,
         transcriptItem: event.transcriptItem,
+      })
+    }
+    // THE PROGRAM'S OWN IDS, BY ID, FROM ANY OUTCOME (POD-4841). The turn id
+    // of a steer that ended unconfirmed is what finding it later needs most.
+    if (event.harnessRef?.length) {
+      await this.deps.authorization.harnessIds?.({
+        messageId: event.rowId,
+        sessionId,
+        harnessRef: event.harnessRef,
       })
     }
   }

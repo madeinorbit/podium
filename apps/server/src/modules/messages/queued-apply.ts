@@ -1,4 +1,4 @@
-import { MessageDelivery, type SessionId, type TranscriptItemRef } from '@podium/model'
+import { type HarnessRef, MessageDelivery, type SessionId, type TranscriptItemRef } from '@podium/model'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import type { MessageDeliveryDeps } from './service'
@@ -47,6 +47,12 @@ export class QueuedMessageApply {
    *  (POD-4774): a first-writer-wins stamp, independent of the status. */
   async named(messageId: string, sessionId: SessionId, item: TranscriptItemRef): Promise<void> {
     await this.deps.messages.nameTranscriptItem(messageId, sessionId, item)
+  }
+
+  /** The agent's machine reported the program's own ids for this message
+   *  (POD-4841): added to those already kept, independent of the status. */
+  async harnessIds(messageId: string, sessionId: SessionId, harnessRef: HarnessRef): Promise<void> {
+    await this.deps.messages.recordHarnessRef(messageId, sessionId, harnessRef)
   }
 
   /** The push crossed into the CLI but the agent has not been seen to take it —

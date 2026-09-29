@@ -398,6 +398,8 @@ export class MailAccess {
       deliveryDeferredAt: m.deliveryDeferredAt ?? null,
       deliveryDeferredReason: m.deliveryDeferredReason ?? null,
       ...(notice ? { noticeId: notice.id } : {}),
+      ...(m.transcriptItem ? { transcriptItem: m.transcriptItem } : {}),
+      ...(m.harnessRef?.length ? { harnessRef: m.harnessRef } : {}),
       expectsResponse: m.expectsResponse ?? false,
     }
   }

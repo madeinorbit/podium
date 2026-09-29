@@ -138,6 +138,13 @@ function harness(
       transcriptItem: { id: string }
     }) => {},
   )
+  const harnessIds = vi.fn(
+    async (_input: {
+      messageId: string
+      sessionId: SessionId
+      harnessRef: readonly { kind: string; id: string }[]
+    }) => {},
+  )
   const handleInput = vi.fn()
   // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
   // base64 spelling of the same call (terminal.ts). This fixture records the
@@ -248,6 +255,7 @@ function harness(
       unconfirmed,
       provenLate,
       named,
+      harnessIds,
       rejected: async (input) => { rejected.push(input) },
     },
     attention: {
@@ -365,6 +373,7 @@ function harness(
     unconfirmed,
     provenLate,
     named,
+    harnessIds,
     handleInput,
     handleInputBytes,
     transcript,
@@ -2133,6 +2142,35 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       transcriptItem: { id: 'entry-direct' },
     })
     expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it("keeps the program's own ids from any outcome, after the row settles (POD-4841)", async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'msg_ids_delivered', 'msg_ids_delivered')
+    await queueOne(h, 'msg_ids_unconfirmed', 'msg_ids_unconfirmed')
+    await vi.advanceTimersByTimeAsync(1_000)
+    const turn = { kind: 'codex-turn', id: 'turn-1' }
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_ids_delivered',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-1' },
+      harnessRef: [turn],
+    })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_ids_unconfirmed',
+      outcome: 'failed',
+      reason: 'the turn was interrupted',
+      cause: 'unconfirmed',
+      harnessRef: [turn],
+    })
+    // An outcome that names no ids keeps nothing.
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_ids_delivered', outcome: 'delivered' })
+    expect(h.harnessIds.mock.calls.map(([input]) => input)).toEqual([
+      { messageId: 'msg_ids_delivered', sessionId: SID, harnessRef: [turn] },
+      { messageId: 'msg_ids_unconfirmed', sessionId: SID, harnessRef: [turn] },
+    ])
+    expect(h.rows).toEqual([])
   })
 
   it('hands a delivered outcome for a row no longer queued to the ledger as late proof (POD-4840)', async () => {
