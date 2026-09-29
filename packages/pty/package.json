@@ -41,6 +41,7 @@
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/runtime": "workspace:*",
+    "@xterm/addon-serialize": "^0.13.0",
     "@xterm/headless": "^5.5.0"
   },
   "scripts": {
