@@ -14,7 +14,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   applyHarnessEnv,
+  applyRealAgentClaudeEnv,
   applyRealAgentCodexEnv,
+  CLAUDE_LOGIN_MIN_REMAINING_MS,
   ensureHarnessRunId,
   HOST_INSTANCE_ENV,
   harnessEnv,
@@ -82,6 +84,44 @@ describe('applyRealAgentCodexEnv', () => {
   })
 })
 
+describe('applyRealAgentClaudeEnv', () => {
+  const PORT = 9913
+  const sourceHome = join(tmpdir(), `podium-real-claude-home-${process.pid}`)
+  const NOW = Date.parse('2026-09-29T08:00:00Z')
+
+  const writeLogin = (expiresAt: number): void => {
+    mkdirSync(join(sourceHome, '.claude'), { recursive: true })
+    writeFileSync(
+      join(sourceHome, '.claude', '.credentials.json'),
+      JSON.stringify({ claudeAiOauth: { accessToken: 'a', refreshToken: 'r', expiresAt } }),
+    )
+    writeFileSync(join(sourceHome, '.claude.json'), '{"hasCompletedOnboarding":true}')
+  }
+
+  afterEach(() => {
+    rmSync(sourceHome, { recursive: true, force: true })
+    rmSync(harnessEnv(PORT).base, { recursive: true, force: true })
+  })
+
+  it('borrows a login that outlives the run', () => {
+    writeLogin(NOW + 2 * CLAUDE_LOGIN_MIN_REMAINING_MS)
+    const dirs = harnessEnv(PORT)
+    applyRealAgentClaudeEnv(dirs, [], { sourceHomeDir: sourceHome, now: NOW })
+    expect(existsSync(join(dirs.discoveryHomeDir, '.claude', '.credentials.json'))).toBe(true)
+  })
+
+  // A copy the harness Claude refreshes rotates the refresh token into a home
+  // the harness then deletes: the source is logged out (POD-4773).
+  it('refuses a login that would need a refresh during the run, and copies nothing', () => {
+    writeLogin(NOW + CLAUDE_LOGIN_MIN_REMAINING_MS - 60_000)
+    const dirs = harnessEnv(PORT)
+    expect(() =>
+      applyRealAgentClaudeEnv(dirs, [], { sourceHomeDir: sourceHome, now: NOW }),
+    ).toThrow(/would log the source out/)
+    expect(existsSync(join(dirs.discoveryHomeDir, '.claude', '.credentials.json'))).toBe(false)
+  })
+})
+
 /**
  * Regression guard for POD-688: the harness's abduco socket dir must stay inside
  * abduco's sun_path budget, and must be the same path in every process.
@@ -119,10 +159,8 @@ describe('harness abduco socket budget', () => {
     const first = harnessEnv(9922, 'first')
     const second = harnessEnv(9922, 'second')
     expect(first.base).not.toBe(second.base)
-    const firstSocket =
-      `${first.abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
-    const secondSocket =
-      `${second.abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
+    const firstSocket = `${first.abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
+    const secondSocket = `${second.abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
     expect(firstSocket.length).toBeLessThan(SUN_PATH_MAX)
     expect(secondSocket.length).toBeLessThan(SUN_PATH_MAX)
   })

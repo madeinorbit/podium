@@ -223,7 +223,10 @@ export async function stopHarnessProcess(
   while (processIsAlive(pid) && Date.now() < killedDeadline) await sleep(pollMs)
 }
 
-export function harnessEnv(port: number, requestedRunId?: string): {
+export function harnessEnv(
+  port: number,
+  requestedRunId?: string,
+): {
   port: number
   runId: string
   base: string
@@ -310,7 +313,20 @@ export function applyRealAgentCodexEnv(
 export interface RealAgentClaudeEnvOptions {
   /** Test hook: the native home containing .claude/.credentials.json and .claude.json. */
   sourceHomeDir?: string
+  /** Test hook: the clock the login's expiry is judged against. */
+  now?: number
 }
+
+/**
+ * How long the copied login must stay valid (POD-4773). A Claude that finds its
+ * access token expired REFRESHES it, and the refresh rotates the refresh token:
+ * the new one lands in the harness's private copy, which the harness deletes
+ * when it stops, and the source's copy is left holding a spent one. That is
+ * how a real-agent run on flatblock (2026-09-29) logged the machine's own
+ * Claude out. So the harness only borrows a login that will not need a refresh
+ * during a run, and says how to get one otherwise.
+ */
+export const CLAUDE_LOGIN_MIN_REMAINING_MS = 60 * 60_000
 
 /**
  * Give opt-in real-agent browser runs a logged-in Claude inside the same private
@@ -332,6 +348,19 @@ export function applyRealAgentClaudeEnv(
   if (!existsSync(sourceCredentials) || !existsSync(sourceState)) {
     throw new Error(
       `PODIUM_E2E_REAL_AGENTS=1 requires a native Claude login at ${sourceCredentials}; run claude and /login first`,
+    )
+  }
+  const expiresAt = (
+    JSON.parse(readFileSync(sourceCredentials, 'utf8')) as {
+      claudeAiOauth?: { expiresAt?: unknown }
+    }
+  ).claudeAiOauth?.expiresAt
+  const now = options.now ?? Date.now()
+  if (typeof expiresAt === 'number' && expiresAt - now < CLAUDE_LOGIN_MIN_REMAINING_MS) {
+    throw new Error(
+      `PODIUM_E2E_REAL_AGENTS=1 will not borrow the Claude login at ${sourceCredentials}: ` +
+        `it expires ${new Date(expiresAt).toISOString()}, within ${CLAUDE_LOGIN_MIN_REMAINING_MS / 60_000} min, ` +
+        'and a harness copy that refreshes it would log the source out. Run claude once in that home to refresh it, then retry',
     )
   }
   const claudeDir = join(dirs.discoveryHomeDir, '.claude')
