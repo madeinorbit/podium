@@ -43,27 +43,25 @@
  * is a function of (own, children) alone and every ancestor reuses it; the
  * row picks its verdict at the end (`rollupOf`), from its own `finished`.
  *
- * COLD ROWS, TWO WAYS (coordinator ruling 2026-09-24, option A).
- * - PROGRESS never loads. A formal child that is cold (under the declared
- *   rule `unlessShown`, exactly a closed child nothing can show) gives its
- *   unit facts through the cold-read path (`RollupInputs.progressFacts`:
- *   the pool's `row` in `peek`, a counted, fenced read by id through the feed,
- *   tracked by residency's per-id atom), limited by type to the fields
- *   R-ROLL's progress reads (`ProgressFacts`: `stage`, `closedReason`), plus
- *   the `spinOffs` bucket's size and Mb1's cached session presence for
- *   `vacated`. Loading them instead queued 282 closed issues at 1x first
- *   paint and, by relinking every row it loaded, hid the pool gate's
- *   `coldRelinkSkipped` plant on two of three seeds.
- * - ATTENTION keeps the pending marker (Ma3 addendum). A part that needs a
- *   cold row's fields for a seat's verdict or a spin-off's standing does not
- *   read it: it counts a PENDING marker and the read queues the row's load
- *   (`loadedIssue` / `seat` answer `LOADING`), which lands in the next window
- *   with every other queued row (`residency.ts`). A cold row is ONLY its
- *   marker: its own compositions do not run until it lands, so a read asks for
- *   one level of cold rows per window. The row view shows `loading` while any
- *   marker is pending. Under `unlessShown` a visible row and its seats are
- *   hot, so markers arise only from cold spin-offs (the review withdrawal's
- *   continuation) and transient cold rows.
+ * COLD ROWS: A PENDING MARKER, ONE LEVEL PER WINDOW. A part that needs a
+ * cold row's fields reads it through the one row reader (`loadedIssue` /
+ * `seat`), which answers `LOADING` and queues the row's load; the queued rows
+ * land together in the next window (`residency.ts`). The part counts a
+ * PENDING marker meanwhile, and the row view shows `loading` while any marker
+ * below it is pending. A cold row is ONLY its marker: nothing below it is
+ * composed until it lands, so a read asks for one level of cold rows per
+ * window, and a deep chain converges one level at a time.
+ * - PROGRESS (operator decision 2026-09-28: load the family on demand, no
+ *   server-maintained counters). A formal child that is cold (under the
+ *   declared rule `unlessShown`, a closed child nothing can show) gives its
+ *   unit a pending marker (`PENDING_UNIT`) and queues its load. The loads
+ *   follow the reads: a drawn row's progress reads its formal children's
+ *   units, so drawing it queues exactly its cold children, in one batch; a
+ *   row nobody draws is read by nobody and loads nothing.
+ * - ATTENTION (Ma3 addendum). A seat's verdict or a spin-off's standing on a
+ *   cold row is the same marker. Under `unlessShown` a visible row and its
+ *   seats are hot, so markers arise only from cold spin-offs (the review
+ *   withdrawal's continuation) and transient cold rows.
  *
  * NO LEGACY IMPORT. The per-session rules are re-expressed from the spec with
  * the legacy line each follows cited, as `views.ts` does.
@@ -389,14 +387,25 @@ export interface UnitOwn {
   readonly done: boolean
   /** As a LONE root (no accepted members): not abandoned, not vacated. */
   readonly solo: boolean
+  /** Its row is cold: the unit is only a pending marker (its load is queued), and nothing below it is composed yet. */
+  readonly cold: boolean
 }
 
-export const NO_UNIT: UnitOwn = { member: false, unit: false, done: false, solo: false }
+export const NO_UNIT: UnitOwn = {
+  member: false,
+  unit: false,
+  done: false,
+  solo: false,
+  cold: false,
+}
+
+/** A unit whose row is cold: nothing known yet, one marker pending. */
+export const PENDING_UNIT: UnitOwn = { ...NO_UNIT, cold: true }
 
 /**
  * Exactly the own-row fields R-ROLL's progress reads (`computeMissionRollup`:
  * `stage` for proposed and closed, `closedReason` for abandoned and closed),
- * and no more: the only fields a cold child's read may give it.
+ * and no more.
  */
 export type ProgressFacts = Pick<SliceIssue, 'stage' | 'closedReason'>
 
@@ -405,24 +414,33 @@ export interface Units {
   readonly members: number
   readonly units: number
   readonly done: number
+  /** Cold units in it whose load is queued: the counts are partial and the row shows `loading`. */
+  readonly pending: number
 }
 
-export const NO_UNITS: Units = { members: 0, units: 0, done: 0 }
+export const NO_UNITS: Units = { members: 0, units: 0, done: 0, pending: 0 }
 
 /**
  * THE PROGRESS COMBINE: a row's formal closure from each formal child's own
- * contribution and that child's own closure. No store.
+ * contribution and that child's own closure. A cold child is only its
+ * pending marker: its closure is not asked for (the caller passes
+ * `NO_UNITS`) until it lands. No store.
  */
 export function unitsOf(input: {
   readonly children: readonly { readonly own: UnitOwn; readonly below: Units }[]
 }): Units {
-  let { members, units, done } = NO_UNITS
+  let { members, units, done, pending } = NO_UNITS
   for (const { own, below } of input.children) {
+    if (own.cold) {
+      pending += 1
+      continue
+    }
     members += (own.member ? 1 : 0) + below.members
     units += (own.unit ? 1 : 0) + below.units
     done += (own.done ? 1 : 0) + below.done
+    pending += below.pending
   }
-  return { members, units, done }
+  return { members, units, done, pending }
 }
 
 export function unitOwnOf(facts: ProgressFacts, vacated: boolean): UnitOwn {
@@ -430,7 +448,7 @@ export function unitOwnOf(facts: ProgressFacts, vacated: boolean): UnitOwn {
   const member = facts.stage !== 'proposed' && !gone
   const unit = member && !vacated
   const closed = facts.stage === 'done' || Boolean(facts.closedReason)
-  return { member, unit, done: unit && closed, solo: !gone && !vacated }
+  return { member, unit, done: unit && closed, solo: !gone && !vacated, cold: false }
 }
 
 // ------------------------------------------------------------ the row
@@ -472,7 +490,7 @@ export function rollupOf(input: {
     progressDone: fromChildren ? below.done : self.done ? 1 : 0,
     progressTotal: fromChildren ? below.units : self.solo ? 1 : 0,
     workingSince: own.workingSince,
-    loading: agg.pending > 0,
+    loading: agg.pending > 0 || below.pending > 0,
     seatActivity,
   }
 }
@@ -499,12 +517,6 @@ export type Loaded<T> = T | typeof LOADING | undefined
 export interface RollupInputs {
   /** The row when resident; `LOADING` when cold (the read queues its load); undefined when unknown. */
   loadedIssue(id: string): Loaded<SliceIssue>
-  /**
-   * R-ROLL's progress facts of a known issue, hot or cold, WITHOUT loading
-   * it: a cold one through the cold-read path (counted, fenced, tracked);
-   * undefined when unknown.
-   */
-  progressFacts(id: string): ProgressFacts | undefined
   /** The `spinOffs` bucket's size (free, like `Map.size`; tracked). */
   spinOffCount(id: string): number
   /** The nest children: present rows whose `nestParent` is `id` (the live pool's derived `nested` group). */
@@ -675,29 +687,36 @@ export function aggregatePartOf(
 }
 
 /**
- * This issue's own contribution to its formal ancestors' progress, hot or
- * cold, never loading it (option A): its progress facts, and `vacated`
- * (`isVacatedOrigin`, `mission.ts:794-808`: no own session on the task, and
- * a spin-off), asked in that order so a row with no spin-off never reads
- * its sessions.
+ * This issue's own contribution to its formal ancestors' progress: its row
+ * through the one reader (a cold row is a pending marker and its load is
+ * queued), and `vacated` (`isVacatedOrigin`, `mission.ts:794-808`: no own
+ * session on the task, and a spin-off), asked in that order so a row with
+ * no spin-off never reads its sessions.
  */
 export function unitOwnPartOf(
   input: RollupInputs,
   id: string,
   self: Pick<RollupSelf, 'openOwn'>,
 ): UnitOwn {
-  const facts = input.progressFacts(id)
-  if (facts === undefined) return NO_UNIT
+  const issue = input.loadedIssue(id)
+  if (issue === LOADING) return PENDING_UNIT
+  if (issue === undefined) return NO_UNIT
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
-  return unitOwnOf(facts, vacated)
+  return unitOwnOf(issue, vacated)
 }
 
-/** The formal closure's counts: each formal child's own contribution and its own closure. */
+/**
+ * The formal closure's counts: each formal child's own contribution and its
+ * own closure. A cold child's closure is not read (so not composed) until the
+ * child lands: one level of cold rows per window.
+ */
 export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
   const children: { own: UnitOwn; below: Units }[] = []
   for (const childId of input.formalChildren(id)) {
     const child = input.rollupNode(childId)
-    if (child !== undefined) children.push({ own: child.unitOwn, below: child.unitsBelow })
+    if (child === undefined) continue
+    const own = child.unitOwn
+    children.push({ own, below: own.cold ? NO_UNITS : child.unitsBelow })
   }
   return unitsOf({ children })
 }

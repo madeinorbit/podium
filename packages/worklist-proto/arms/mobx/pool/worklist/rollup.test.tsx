@@ -35,17 +35,20 @@
  * on every feed event (`everyAggregate`) must turn it red, and does, while
  * its parity stays green (the mistake is invisible to correctness checks).
  *
- * COLD ROWS (coordinator ruling 2026-09-24, option A). Progress reads a
- * cold child's R-ROLL facts by id through the cold-read path, never loading
- * it: at first paint (1x and 4x) no cold formal child of a visible row is
- * asked to load; a cold child's change moves its parent's progress to the
- * oracle's, and the same pool with that read untracked stays stale.
+ * COLD ROWS (POD-4754, operator decision 2026-09-28: load the family on
+ * demand). With a reader treating every closed issue as not in memory
+ * (`outOfMemory`): a drawn row whose progress needs closed children shows
+ * `loading`, asks for exactly that family in one load window, and once it
+ * lands equals the oracle's progress; a row nobody draws asks for nothing; a
+ * deep closed chain asks for one level per window and converges. At first
+ * paint (1x and 4x, the default cold rule) the mounted list's rows ask for
+ * their closed children in the first window and settle with nothing loading.
  * Attention keeps Ma3's pending marker: a row reopened to review whose ask
  * depends on a cold spin-off shows `loading` until the spin-off lands, then
  * the oracle's withdrawn ask.
  */
 
-import { observable, reaction, runInAction, untracked } from 'mobx'
+import { observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
@@ -70,7 +73,6 @@ import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../sh
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
-import { issueAbandoned } from '../views'
 import { rowViewOf } from '../models'
 
 installMobxWarnTrap()
@@ -291,135 +293,148 @@ async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCe
 
 const PROGRESS = ['progressDone', 'progressTotal'] as const
 
-interface ColdProgressRun {
-  readonly parent: string
-  readonly child: string
-  readonly first: RowView
-  readonly after: RowView
-  readonly oracleBefore: RowView
-  readonly oracleAfter: RowView
-  readonly childAsked: boolean
-  readonly childStillCold: boolean
-  readonly feedRowReadsInStep: number
-}
-
-function summary(run: ColdProgressRun) {
-  const pick = (view: RowView) => ({ done: view.progressDone, total: view.progressTotal })
-  return {
-    parent: run.parent,
-    child: run.child,
-    first: pick(run.first),
-    after: pick(run.after),
-    oracleBefore: pick(run.oracleBefore),
-    oracleAfter: pick(run.oracleAfter),
-    feedRowReadsInStep: run.feedRowReadsInStep,
-  }
+/** A closed issue: what the family rig keeps out of memory. */
+function closedRow(value: unknown): boolean {
+  const issue = value as { closedAt?: unknown; stage?: unknown; closedReason?: unknown }
+  return issue.closedAt != null || issue.stage === 'done' || issue.closedReason != null
 }
 
 /**
- * A hot visible parent with two or more accepted members, one of them a cold
- * closed child that counts as a done unit. Its view is observed (as a drawn
- * row), then the cold child is closed as cancelled (abandoned: it leaves the
- * members) and stays cold. `plant` takes the tracking away from exactly the
- * progress facts read: kept in a plain map, never refreshed.
+ * The pool at 1x over the scenario engine, with a reader treating every
+ * closed issue as not in memory (`outOfMemory`, POD-4743's test seam), a
+ * load window that never closes on its own, and nothing drawn.
+ * `eagerRollups` is the plant: every visible row's roll-up derived and kept
+ * alive whether or not it is drawn.
  */
-async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
+async function familyRig(eagerRollups = false) {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
-  const handle = arm.create(feeds.rows.source, feeds.locals.source) as MobxPoolHandle
+  const closed = new Set(
+    feeds.rows.source
+      .snapshot('issue')
+      .filter((record) => closedRow(record.value))
+      .map((record) => record.id),
+  )
+  const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
+    schedule: () => () => {},
+    outOfMemory: (entity, id) => entity === 'issue' && closed.has(id),
+  }) as MobxPoolHandle
   const { pool } = handle
   const residency = pool.residency!
-  if (plant) {
-    // Tracking removed: the facts kept in a plain map, read once, never
-    // refreshed (pitfall j). `untracked` alone is not enough to plant it: a
-    // cold row's update also notifies its residency atom, which the part's
-    // `spinOffs` size read tracks, so the part re-runs and re-reads.
-    const inputs = pool.visibleInputs as { progressFacts: (id: string) => unknown }
-    const progressFacts = inputs.progressFacts
-    const kept = new Map<string, unknown>()
-    inputs.progressFacts = (id) => {
-      if (!kept.has(id))
-        kept.set(
-          id,
-          untracked(() => progressFacts(id)),
-        )
-      return kept.get(id)
-    }
-  }
-  let observe = () => {}
-  try {
-    const coldDone = (childId: string): boolean => {
-      if (!residency.isCold('issue', childId)) return false
-      const row = pool.visibleInputs.issueRow(childId)
-      // A UNIT: accepted, and not a vacated origin (no spin-off), so
-      // abandoning it moves the total.
-      return (
-        row !== undefined &&
-        row.stage !== 'proposed' &&
-        !issueAbandoned(row) &&
-        row.closedReason != null &&
-        pool.relations.size('issue', childId, 'spinOffs') === 0
-      )
-    }
-    const found = tracked(() => {
-      for (const id of pool.worklist.order) {
-        const node = pool.knownIssue(id)!
-        if (!pool.fenced.issue.has(id) || node.unitsBelow.members < 2) continue
-        const child = [...pool.relations.many('issue', id, 'children')].sort().find(coldDone)
-        if (child !== undefined) return { parent: id, child }
-      }
-      return null
-    })
-    expect(found, 'a hot visible parent with a cold done child').not.toBeNull()
-    const { parent, child } = found!
-    observe = reaction(
-      () => rowViewOf(pool.issue(parent)),
-      () => {},
+  const stops: (() => void)[] = []
+  if (eagerRollups) {
+    stops.push(
+      reaction(
+        () => pool.worklist.order.map((id) => pool.knownIssue(id)?.rollup),
+        () => {},
+      ),
     )
-    const oracleOf = () =>
-      rowViewsFromStore(ctx.engine.getSnapshot(), { ...parityLocals(ctx), selectedIssueId: null })[
-        parent
-      ] as RowView
-    // The first read, and every load it and its landings ask for (the row's
-    // own seats and origin, Ma1's), settled: the cold child is never among them.
-    tracked(() => rowViewOf(pool.issue(parent))!)
-    let childAsked = false
-    for (let round = 0; residency.hasQueued() && round < 16; round += 1) {
-      const batch = residency.take()
-      if (batch.some(([entity, rowId]) => entity === 'issue' && rowId === child)) childAsked = true
-      for (const [entity, rowId] of batch) residency.request(entity, rowId)
-      pool.hydrate()
-      tracked(() => rowViewOf(pool.issue(parent))!)
-    }
-    const first = tracked(() => rowViewOf(pool.issue(parent))!)
-    const oracleBefore = oracleOf()
-    const readsBefore = feeds.rowReads()
-    const wire = ctx.cache.read('issue', child)?.value as object
-    const projection = ctx.cache.read('issueProjection', child)?.value as object | undefined
-    ctx.replica.batch(() => {
-      upsert(ctx, 'issue', child, { ...wire, closedReason: 'cancelled' })
-      upsert(ctx, 'issueProjection', child, { ...(projection ?? {}), closedReason: 'cancelled' })
-    })
-    await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
-    feeds.flush()
-    const after = tracked(() => rowViewOf(pool.issue(parent))!)
-    return {
-      parent,
-      child,
-      first,
-      after,
-      oracleBefore,
-      oracleAfter: oracleOf(),
-      childAsked,
-      childStillCold: residency.isCold('issue', child),
-      feedRowReadsInStep: feeds.rowReads() - readsBefore,
-    }
-  } finally {
-    observe()
-    handle.dispose()
-    feeds.dispose()
-    ctx.engine.destroy()
   }
+  /** A queued row as the tests compare it: an issue by its id, any other row `kind:id`. */
+  const key = ([entity, id]: readonly [string, string]): string =>
+    entity === 'issue' ? id : `${entity}:${id}`
+  /** Every row the load windows asked for, in order: one entry per window. */
+  const windows: string[][] = []
+  /** What the load queue holds now, without landing it. */
+  const queued = (): string[] => {
+    const batch = residency.take()
+    for (const [entity, id] of batch) residency.request(entity, id)
+    return batch.map(key)
+  }
+  /** Close one window: record the rows it asks for, then land them. */
+  const land = (): string[] => {
+    const rows = queued()
+    windows.push(rows)
+    pool.hydrate()
+    return rows
+  }
+  /** The formal children (inside a tracked read). */
+  const children = (id: string): string[] => [...pool.relations.many('issue', id, 'children')]
+  const oracle = (id: string): RowView =>
+    rowViewsFromStore(ctx.engine.getSnapshot(), { ...parityLocals(ctx), selectedIssueId: null })[
+      id
+    ] as RowView
+  /** Draw a row: keep its view observed, as a mounted row does. */
+  const draw = (id: string): void => {
+    stops.push(
+      reaction(
+        () => rowViewOf(pool.issue(id)),
+        () => {},
+      ),
+    )
+  }
+  const view = (id: string): RowView => tracked(() => rowViewOf(pool.issue(id))!)
+  /** The progress markers below a row (its closure's cold units) and its attention's. */
+  const pending = (id: string) =>
+    tracked(() => {
+      const node = pool.knownIssue(id)!
+      return { progress: node.unitsBelow.pending, attention: node.aggregate.pending }
+    })
+  /** Land what the pool asks for with nothing drawn; returns those issues and the visible set. */
+  const settleOwn = (): string[] & { visible: ReadonlySet<string> } => {
+    const asked: string[] = []
+    while (residency.hasQueued()) asked.push(...land())
+    windows.length = 0
+    return Object.assign(asked, { visible: tracked(() => new Set(pool.worklist.order)) })
+  }
+  return {
+    ctx,
+    pool,
+    residency,
+    closed,
+    windows,
+    land,
+    queued,
+    children,
+    oracle,
+    draw,
+    view,
+    pending,
+    settleOwn,
+    dispose() {
+      for (const stop of stops) stop()
+      handle.dispose()
+      feeds.dispose()
+      ctx.engine.destroy()
+    },
+  }
+}
+
+type FamilyRig = Awaited<ReturnType<typeof familyRig>>
+
+/**
+ * The formal closure of `root` (root excluded) by COLD DEPTH: level k holds
+ * the cold descendants with k cold rows on their path from `root` (itself
+ * included). A drawn root's progress loads level k in window k: a hot row's
+ * children are read at once, a cold one's only once it has landed.
+ */
+function coldLevels(rig: FamilyRig, root: string): string[][] {
+  const levels: string[][] = []
+  const walk = (id: string, depth: number): void => {
+    for (const child of rig.children(id)) {
+      const cold = rig.residency.isCold('issue', child)
+      const at = cold ? depth + 1 : depth
+      if (cold) (levels[at - 1] ??= []).push(child)
+      walk(child, at)
+    }
+  }
+  walk(root, 0)
+  return levels.map((level) => [...level].sort())
+}
+
+/** A hot visible row whose progress needs closed children, and no cold row besides its closure's. */
+function familyParents(rig: FamilyRig): { id: string; levels: string[][] }[] {
+  return tracked(() =>
+    rig.pool.worklist.order
+      .filter((id) => !rig.residency.isCold('issue', id))
+      .filter((id) => {
+        const node = rig.pool.knownIssue(id)!
+        // No cold row the ATTENTION roll-up would ask for: no spin-off, no origin.
+        return node.spinOffIds.length === 0 && rig.pool.relations.one('issue', id, 'discoveredFrom') === null
+      })
+      .map((id) => ({ id, levels: coldLevels(rig, id) }))
+      .filter((parent) => parent.levels.length > 0),
+  )
 }
 
 // ------------------------------------------------------------ tests
@@ -594,31 +609,13 @@ describe('row roll-ups (Mb3)', () => {
     writeResult('mobx-rollups-chain-1x', { scale: 1, correct, planted })
   }, 600_000)
 
-  it('first paint at 1x and 4x: no progress load, pending markers and cold reads counted from outside', async () => {
+  it('first paint at 1x and 4x: the drawn rows ask for their closed children in the first window, then settle', async () => {
     const cells = []
     for (const scale of [1, 4] as const) {
       const ctx = await startScenarioEngine(scale)
       const feeds = openFenceFeeds(ctx, 'overlaid')
       const readsAtOpen = feeds.rowReads()
-      // Progress's cold reads, counted at the pool's input (each call on a
-      // cold row is one read by id through the feed).
-      const progressCold = { calls: 0, rows: new Set<string>() }
-      const counting: CheckableArm = {
-        create(source, locals, reads) {
-          const handle = arm.create(source, locals, reads) as MobxPoolHandle
-          const inputs = handle.pool.visibleInputs as { progressFacts: (id: string) => unknown }
-          const progressFacts = inputs.progressFacts
-          inputs.progressFacts = (id) => {
-            if (handle.pool.residency?.isCold('issue', id) === true) {
-              progressCold.calls += 1
-              progressCold.rows.add(id)
-            }
-            return progressFacts(id)
-          }
-          return handle
-        },
-      }
-      const mounted = mountArmForCounts(counting, feeds.rows.source, feeds.locals)
+      const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
       const handle = mounted.handle as MobxPoolHandle
       const { pool } = handle
       try {
@@ -671,19 +668,18 @@ describe('row roll-ups (Mb3)', () => {
           queuedAtFirstPaint: batch.length,
           coldFormalChildrenOfVisibleRows: coldChildren.size,
           progressLoads: [...coldChildren].filter((id) => asked.has(id)).length,
-          // Per-row reads through the feed (outside the pool): cold reads by id
-          // plus nothing loaded yet at first paint.
+          // Per-row reads through the feed (outside the pool) before any load lands.
           feedRowReadsAtFirstPaint: rowReadsAtFirstPaint,
-          progressColdReads: progressCold.calls,
-          progressColdRows: progressCold.rows.size,
           windows,
           loaded: residency.counters.hydrated - hydratedBefore,
         }
         // The declared rule: no visible row is cold (POD-4665).
         expect(cell.coldVisible).toBe(0)
-        // Option A: progress reads cold children by id, never loads one.
+        // Every drawn row's progress asks for its closed children, all in the
+        // first window (a visible row is hot, so they are its first cold level).
         expect(cell.coldFormalChildrenOfVisibleRows).toBeGreaterThan(0)
-        expect(cell.progressLoads).toBe(0)
+        expect(cell.progressLoads).toBe(cell.coldFormalChildrenOfVisibleRows)
+        expect(cell.loadingRows, 'drawn rows wait for their families').toBeGreaterThan(0)
         const settled = tracked(() =>
           visible.filter((id) => rowViewOf(pool.issue(id))?.loading === true),
         )
@@ -698,28 +694,100 @@ describe('row roll-ups (Mb3)', () => {
     writeResult('mobx-rollups-first-paint', { cells })
   }, 600_000)
 
-  it("a cold child counts in its parent's progress by a tracked cold read: its change moves the parent, and the untracked plant stays stale", async () => {
-    const correct = await coldProgressRun(false)
-    expect(correct.first.loading, 'no loading: nothing is waited for').toBeUndefined()
-    expect(correct.childAsked, 'the cold child is never asked to load').toBe(false)
-    expect(correct.childStillCold).toBe(true)
-    for (const field of PROGRESS) {
-      expect(correct.first[field], `before: ${field}`).toBe(correct.oracleBefore[field])
-      expect(correct.after[field], `after: ${field}`).toBe(correct.oracleAfter[field])
-    }
-    expect(correct.oracleAfter.progressTotal, 'the change moves the oracle').not.toBe(
-      correct.oracleBefore.progressTotal,
-    )
-    expect(correct.feedRowReadsInStep, 'the cold read is a counted feed read').toBeGreaterThan(0)
+  it('a drawn row loads its closed family in one batch, shows loading until it lands, then equals the oracle; an undrawn row loads nothing', async () => {
+    const rig = await familyRig()
+    try {
+      // Nothing drawn. What the pool asks for on its own is the reader's
+      // held-out VISIBLE rows (closed rows still shown: the list's own rows,
+      // POD-4743's path), never a row's closed child. They land first.
+      const own = rig.settleOwn()
+      expect(own.length, 'closed rows still shown, held out').toBeGreaterThan(0)
+      expect(own.filter((id) => !own.visible.has(id)), 'undrawn: no family asked for').toEqual([])
+      const parents = familyParents(rig)
+      // One cold level only (the chain test below covers deeper ones), two
+      // or more closed children, and a second such row to leave undrawn.
+      const flat = parents.filter((p) => p.levels.length === 1 && p.levels[0]!.length >= 2)
+      expect(flat.length, 'two rows with a one-level closed family').toBeGreaterThanOrEqual(2)
+      const drawn = flat[0]!
+      const undrawn = flat[flat.length - 1]!
+      const family = drawn.levels[0]!
+      expect(family.some((id) => undrawn.levels[0]!.includes(id))).toBe(false)
 
-    const planted = await coldProgressRun(true)
-    expect(planted.parent).toBe(correct.parent)
-    expect(planted.after.progressTotal, 'untracked: stale').toBe(planted.first.progressTotal)
-    expect(planted.after.progressTotal).not.toBe(planted.oracleAfter.progressTotal)
-    writeResult('mobx-rollups-cold-progress-1x', {
-      correct: summary(correct),
-      planted: summary(planted),
-    })
+      rig.draw(drawn.id)
+      const first = rig.view(drawn.id)
+      expect(first.loading, 'drawn: loading while its family is out of memory').toBe(true)
+      const firstPending = rig.pending(drawn.id)
+      expect(firstPending.progress, 'one progress marker per closed child').toBe(family.length)
+      // One window asks for exactly its closed children: no other row.
+      const batch = rig.land()
+      expect([...batch].sort(), 'one batch: exactly the family').toEqual(family)
+      expect(rig.queued(), 'the family landed: nothing more to load').toEqual([])
+      for (const id of family) expect(rig.residency.isCold('issue', id)).toBe(false)
+
+      const landed = rig.view(drawn.id)
+      const oracle = rig.oracle(drawn.id)
+      expect(landed.loading, 'landed: no longer loading').toBeUndefined()
+      expect(rig.pending(drawn.id).progress).toBe(0)
+      for (const field of PROGRESS) expect(landed[field], field).toBe(oracle[field])
+      expect(oracle.progressTotal, 'the family counts').toBeGreaterThan(0)
+      // The undrawn row's family was never asked for, and stays out of memory.
+      for (const id of undrawn.levels[0]!) {
+        expect(rig.residency.isCold('issue', id), `${id} (undrawn family)`).toBe(true)
+      }
+      expect(rig.windows.flat().filter((id) => undrawn.levels[0]!.includes(id))).toEqual([])
+      writeResult('mobx-rollups-family-load-1x', {
+        drawn: drawn.id,
+        family: family.length,
+        first: {
+          loading: first.loading,
+          done: first.progressDone,
+          total: first.progressTotal,
+          ...firstPending,
+        },
+        landed: { done: landed.progressDone, total: landed.progressTotal },
+        oracle: { done: oracle.progressDone, total: oracle.progressTotal },
+        undrawn: undrawn.id,
+        undrawnFamily: undrawn.levels[0]!.length,
+        flatCandidates: flat.length,
+      })
+    } finally {
+      rig.dispose()
+    }
+  }, 300_000)
+
+  it('a deep closed chain loads one level per window and converges to the oracle', async () => {
+    const rig = await familyRig()
+    try {
+      rig.settleOwn()
+      const deepest = familyParents(rig).sort((a, b) => b.levels.length - a.levels.length)[0]
+      expect(deepest, 'a drawn row over a closed chain').toBeDefined()
+      const { id, levels } = deepest!
+      expect(levels.length, 'two or more closed levels').toBeGreaterThanOrEqual(2)
+      rig.draw(id)
+      const seen: { loading: boolean; done: number; total: number }[] = []
+      for (const level of levels) {
+        const view = rig.view(id)
+        seen.push({ loading: view.loading === true, done: view.progressDone, total: view.progressTotal })
+        expect(view.loading, 'loading while a level is out of memory').toBe(true)
+        expect(rig.pending(id).progress, 'one marker per row of this level').toBe(level.length)
+        // Window k asks for level k and nothing deeper.
+        expect([...rig.land()].sort()).toEqual(level)
+      }
+      expect(rig.queued(), 'converged: nothing more to load').toEqual([])
+      const landed = rig.view(id)
+      const oracle = rig.oracle(id)
+      expect(landed.loading).toBeUndefined()
+      for (const field of PROGRESS) expect(landed[field], field).toBe(oracle[field])
+      writeResult('mobx-rollups-family-chain-1x', {
+        row: id,
+        levels: levels.map((level) => level.length),
+        seen,
+        landed: { done: landed.progressDone, total: landed.progressTotal },
+        oracle: { done: oracle.progressDone, total: oracle.progressTotal },
+      })
+    } finally {
+      rig.dispose()
+    }
   }, 300_000)
 
   it('attention keeps the pending marker: a review ask waits on a cold spin-off, then withdraws (Ma3 addendum)', async () => {

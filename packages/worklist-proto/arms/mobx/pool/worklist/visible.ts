@@ -103,7 +103,6 @@ import {
   type Loaded,
   ownFactsPartOf,
   type Progress,
-  type ProgressFacts,
   progressOf,
   type RollupInputs,
   type RollupParts,
@@ -146,12 +145,6 @@ export interface VisibleInputs {
   loadedIssue(id: string): Loaded<SliceIssue>
   /** A RESIDENT session row; `LOADING` when cold (queued). */
   loadedSession(id: string): Loaded<SliceSession>
-  /**
-   * R-ROLL's progress facts of a known issue, hot or cold, never loading it
-   * (the live pool: `issueRow`, whose cold read is counted, fenced and
-   * tracked). Its own member so a plant can take away exactly its tracking.
-   */
-  progressFacts(id: string): ProgressFacts | undefined
   /** The present rows whose `nestParent` is `id` (the live pool's derived `nested` group). */
   nested(id: string): Iterable<string>
   /** The known issues whose declared `issue.parent` is `id` (the relation engine's `children` bucket). */
@@ -518,7 +511,6 @@ export interface IssueVisibility extends RollupParts, Members {
 export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
     loadedIssue: (id) => input.loadedIssue(id),
-    progressFacts: (id) => input.progressFacts(id),
     spinOffCount: (id) => input.links.issue.spinOffs.size(id),
     nested: (id) => input.nested(id),
     formalChildren: (id) => input.formalChildren(id),

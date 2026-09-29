@@ -434,6 +434,11 @@ describe('model edit setters', () => {
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
       const handle = mounted.handle as WritableMobxPoolHandle
+      // What the first paint asked for lands first (the drawn rows' closed
+      // families, POD-4754), so no load lands inside the measured step.
+      act(() => {
+        handle.pool.settleLoads()
+      })
       const id = ctx.targets.visibleRootId
       const issue = tracked(() => handle.pool.issue(id))
       if (issue === undefined) throw new Error('the visible root has a model')

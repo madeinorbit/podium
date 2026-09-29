@@ -416,12 +416,12 @@ describe('the loader', () => {
     expect(pool.residency?.counters.requests).toBe(2)
     pool.stats.reset()
     r.fire()
-    // One read per row, one action, both resident. Since POD-4571 (option A)
-    // the watched row's view, redrawn once `a` lands, also reads each of its
-    // cold formal children by id for its progress (`coldRow`), and since
-    // POD-4679 its retained seats, deciding which reads each cold member's
-    // retention by id: per-row feed reads, never loads (`hydrated` below
-    // stays 2, and they stay cold).
+    // One read per row, one action, both resident. The watched row's view,
+    // redrawn once `a` lands, asks for its cold formal children for its
+    // progress (POD-4754: queued for the NEXT window, never read here), and
+    // since POD-4679 its retained seats, deciding which reads each cold
+    // member's retention by id: per-row feed reads, never loads (`hydrated`
+    // below stays 2, and they stay cold).
     const loaded = [`issue:${a!.id}`, `issue:${b!.id}`]
     const coldChildren = tracked(() => [...pool.relations.many('issue', a!.id, 'children')]).filter((id) =>
       pool.residency?.isCold('issue', id),

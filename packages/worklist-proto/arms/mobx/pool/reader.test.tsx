@@ -111,8 +111,12 @@ describe('POD-4743 the one row reader, not in memory', () => {
     // The all-in-memory result, and one visible issue with a view to hide.
     const eager = rig()
     const want = eager.handle.snapshot()
+    // No sub-issues: a row's closed family is asked for only once the row
+    // itself is drawn (POD-4754), so a held-out row with one would defer it.
     const target = Object.keys(want.rowsById).find(
-      (id) => corpus.sliceIssues.find((issue) => issue.id === id)?.draft !== true,
+      (id) =>
+        corpus.sliceIssues.find((issue) => issue.id === id)?.draft !== true &&
+        !corpus.sliceIssues.some((issue) => issue.parentId === id),
     )
     expect(target).toBeDefined()
     const id = target!
@@ -124,9 +128,19 @@ describe('POD-4743 the one row reader, not in memory', () => {
     })
     const wantDrawn = drawnRows(eagerEl)
     expect(wantDrawn).toContain(id)
-    // What drawing the list queues anyway (other rows' cold origins and seats).
-    const eagerRequests = eager.handle.pool.residency!.counters.requests
     unmountEager()
+    // What drawing the list queues anyway before any window closes (other
+    // rows' cold origins, seats and closed children), on a fresh pool.
+    const fresh = rig()
+    const freshEl = document.createElement('div')
+    document.body.append(freshEl)
+    let unmountFresh = (): void => {}
+    await act(async () => {
+      unmountFresh = fresh.handle.mountWeb(freshEl)
+    })
+    const eagerRequests = fresh.handle.pool.residency!.counters.requests
+    unmountFresh()
+    fresh.dispose()
 
     const r = rig((entity, rowId) => entity === 'issue' && rowId === id)
     const { pool } = r.handle

@@ -565,8 +565,6 @@ export class MobxPool {
       reached: (t) => this.clock.reached(t),
       loadedIssue: (id) => this.row('issue', id) as Loaded<SliceIssue>,
       loadedSession: (id) => this.row('session', id) as Loaded<SliceSession>,
-      // Option A (POD-4571): progress reads a cold child by id, never loading it.
-      progressFacts: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       issueRead: (id) => this.readCursor(id),
       nested: (id) => this.issueObject(id).nested,
       formalChildren: (id) => links.issue.children.ids(id),

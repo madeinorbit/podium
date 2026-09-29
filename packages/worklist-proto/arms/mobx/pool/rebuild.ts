@@ -170,7 +170,6 @@ function rebuild(
     passed: inputs.passed,
     reached: inputs.reached,
     loadedIssue: inputs.issue,
-    progressFacts: inputs.issue,
     issueRead: (id) => {
       const row = tables.issue.get(id) as SliceIssue | undefined
       return row === undefined ? undefined : readAtOf(row.readAt)

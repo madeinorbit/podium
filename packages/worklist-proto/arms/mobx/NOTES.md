@@ -366,21 +366,21 @@ round-two layout; the round-three pool lives under `pool/`.
   (`SessionNode.verdict`) and its own pending decision, withdrawn by a working
   seat or a continuation (superseded / duplicate, or a started or staffed live
   spin-off: `tip`, a composition over the declared `spinOffs`).
-- **Cold rows, two ways** (coordinator ruling 2026-09-24, option A, on the
-  evidence below). PROGRESS never loads: a cold formal child gives its
-  R-ROLL facts (`ProgressFacts` = `stage`, `closedReason`, by type) through
-  the cold-read path (`coldRow`: counted, fenced, tracked by residency's
-  per-id atom), `vacated` from the `spinOffs` size and Mb1's cached session
-  presence. ATTENTION keeps Ma3's pending marker: a cold seat or a cold
-  spin-off is read only as resident (`MobxPool.loaded`: the row, or
-  `LOADING` with its load queued), a cold row is only its marker until it
-  lands, and the view shows `loading` meanwhile. Under `unlessShown` that
-  path has cases only on continuation spin-offs (and transient cold rows).
-  WHY NOT LOAD FOR PROGRESS (the first version did): 73 of 732 rows showed a
-  progress marker at first paint and the first read queued 282 closed
-  issues; and every load relinks its row, which hid the pool gate's
-  `coldRelinkSkipped` plant on two of three seeds (A/B on the same seeds:
-  base 98430f2df caught it 3/3 at steps 24, 20, 3; loading 1/3 at step 88).
+- **Cold rows: a pending marker, one level per window** (POD-4754,
+  operator decision 2026-09-28: load the family on demand, no
+  server-maintained counters; it replaces the 2026-09-24 ruling "option A",
+  under which progress read a cold child's `stage` / `closedReason` by id
+  without loading it). Every part that needs a cold row's fields reads it
+  through the one row reader (`loadedIssue` / `seat`), which answers
+  `LOADING` and queues its load; the part counts a pending marker, a cold
+  row is only its marker until it lands, and the view shows `loading`
+  meanwhile. For PROGRESS a cold formal child is `PENDING_UNIT` and its own
+  closure is not read until it lands, so a drawn row asks for its closed
+  children in one window, a deep closed chain one level per window, and a
+  row nobody draws asks for nothing. The first attempt at loading (before
+  option A) showed 73 of 732 rows with a marker at first paint, queued 282
+  closed issues, and caught the pool gate's `coldRelinkSkipped` plant on
+  1/3 seeds; POD-4754's measurements record where that stands now.
 - **`closed` / `dismissed`**: the own part and the placement compute the fold
   verdict with nothing waiting assumed; the view and `IssueNode.placement`
   apply the roll-up's `asking` (`waiting`), and the placement reads it only

@@ -192,7 +192,7 @@ frozen round-two layout; coordinator addendum 2026-09-24).
   borrowed proxies refuse `set`). So `edit.ts` never writes row objects into
   the tables. It mirrors the log's display (newest pending value per editable
   field) in an observable map and overlays it in `pool.inputs.issue`,
-  `pool.visibleInputs.issueRow` / `progressFacts` / `loadedIssue`. With no
+  `pool.visibleInputs.issueRow` / `loadedIssue`. With no
   pending edit the server object is returned unchanged (identity-preserving,
   idle layer invisible); with one a transient `{...server, ...pending}` is
   returned (never stored, so the sweep never sees it). The overlay holds at

@@ -156,7 +156,7 @@ tables go on holding BORROWED server rows, never a copy.
   pending log (`shared/src/write-contract.ts` `createPendingLog`, re-exported
   by `pool/write/pending.ts`; the arm owns no log of its own). It is overlaid
   at the row-reader boundary (`pool.inputs.issue`,
-  `pool.visibleInputs.issueRow` / `progressFacts` / `loadedIssue`) plus the
+  `pool.visibleInputs.issueRow` / `loadedIssue`) plus the
   read cursor (`pool.visibleInputs.issueRead`, so a pending mark-read flips
   the unread/decay verdicts at once, exactly as the overlaid row flips the
   rebuild's): no pending edit returns the server object unchanged

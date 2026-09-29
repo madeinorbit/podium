@@ -28,6 +28,7 @@ import {
   EMPTY_OWN,
   NO_UNIT,
   NO_UNITS,
+  PENDING_UNIT,
   type PhaseFlags,
   type ProgressFacts,
   phaseOf,
@@ -188,7 +189,7 @@ describe('the roll-up combine', () => {
     expect(
       aggregate({ own: cold, children: [aggregate({ own: cold, children: [] })] }).pending,
     ).toBe(2)
-    const unit: UnitOwn = { member: true, unit: true, done: true, solo: true }
+    const unit: UnitOwn = { member: true, unit: true, done: true, solo: true, cold: false }
     const below = unitsOf({ children: [{ own: unit, below: NO_UNITS }] })
     expect(
       unitsOf({
@@ -201,6 +202,16 @@ describe('the roll-up combine', () => {
       members: 2,
       units: 2,
       done: 2,
+      pending: 0,
     })
+    // A cold child is only its marker: its counts and anything handed as its
+    // closure stay out until it lands, and the markers below sum up.
+    const partial = unitsOf({
+      children: [
+        { own: PENDING_UNIT, below },
+        { own: unit, below: { ...NO_UNITS, pending: 2 } },
+      ],
+    })
+    expect(partial).toEqual({ members: 1, units: 1, done: 1, pending: 3 })
   })
 })
