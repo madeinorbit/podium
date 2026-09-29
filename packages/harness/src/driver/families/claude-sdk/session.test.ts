@@ -301,7 +301,11 @@ describe('Claude SDK daemon host adapter', () => {
     }
     // The native prompt is read asynchronously; error state and its system
     // note still have to precede the turn fence.
-    expect(order.filter((item) => item !== 'item:user')).toEqual(['state:turn_failed', 'item:system', 'turn:failed'])
+    expect(order.filter((item) => item !== 'item:user')).toEqual([
+      'state:turn_failed',
+      'item:system',
+      'turn:failed',
+    ])
     expect(order.filter((item) => item === 'item:user')).toHaveLength(1)
 
     await handle.stop()
