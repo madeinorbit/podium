@@ -20,9 +20,11 @@ import type { LiveServerMessage } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
 import type { McpToolProvider } from '../../mcp-route'
+import { spawnPromptMessageId } from '../../message-ids'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore } from '../../store'
 import { deliverAnswerToSession } from './answer-delivery'
+import { superagentSender } from './send'
 
 /** MCP server name the harness agent sees Podium's tools under (→ tool ids
  *  `mcp__podium__<tool>`). Header carries the access token to the in-process route. */
@@ -257,13 +259,15 @@ export async function buildSuperagentTools(
         if (str(args.name)) await sessions.renameSession({ sessionId, name: str(args.name) ?? '' })
         const first = str(args.firstMessage)
         if (first) {
-          // Durable queued send: delivers once the CLI settles, survives a failed
-          // spawn attempt AND a server restart (unlike the old in-memory timer).
-          // `queue` under the contract too (POD-1761 W4, C3): the durability IS
-          // the point here, and it is the one delivery that completes on the
-          // server rather than in a daemon that may not have bound this session
-          // yet — which is precisely the window a first message has to survive.
-          await sessions.receiptSend('queue', { sessionId, text: first })
+          // The superagent's message (POD-4846): stored, enveloped, durable across
+          // a failed spawn attempt and a server restart, and delivered once the
+          // CLI settles. It is the new session's spawn prompt, so its id is the
+          // session's and a retried start stores it once.
+          await superagentSender(modules.messages, ownerUserId)({
+            sessionId,
+            text: first,
+            messageId: spawnPromptMessageId(sessionId),
+          })
         }
         return JSON.stringify({ sessionId, cwd, agentKind })
       },
@@ -271,7 +275,9 @@ export async function buildSuperagentTools(
     {
       spec: {
         name: 'send_to_agent',
-        description: 'Type a message into a running session, as if the user typed it.',
+        description:
+          'Send a message to a session. It arrives as your message (from the superagent), ' +
+          'and wakes the session if it is parked.',
         parameters: {
           type: 'object',
           properties: { sessionId: { type: 'string' }, text: { type: 'string' } },
@@ -358,13 +364,10 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        // `wake` (POD-1761 W4, C3) — the resume-then-send shape, migrated whole.
-        // The seam keeps the one question `resumeAndSend` was really asking (is
-        // there a live process with nothing queued ahead of this) and drops the
-        // one it should not ask any more (is that process READY for bytes): the
-        // first is a lifecycle fact no receipt can supply, the second is exactly
-        // the prediction a receipt replaces.
-        const r = await sessions.receiptSend('wake', {
+        // The superagent's message (POD-4846): a wake message, so a parked
+        // session is resumed; enveloped, with a delivery status and an id.
+        if (!ownerUserId) return 'failed: unknown superagent thread'
+        const r = await superagentSender(modules.messages, ownerUserId)({
           sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',
         })

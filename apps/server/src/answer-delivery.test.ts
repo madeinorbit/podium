@@ -1,6 +1,15 @@
-import { actorUser, asSessionId, firstAdminMemberId } from '@podium/model'
+import {
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
+  asDelegationRef,
+  asSessionId,
+  firstAdminMemberId,
+} from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { senderFromInboxPrincipal } from './modules/messages/service'
 import type { InboxPrincipalReference } from './modules/sessions/inbox'
 import {
   type AnswerDeliveryDeps,
@@ -47,7 +56,13 @@ const menuItem = (multiSelect = false): TranscriptItem =>
 
 function harness(opts: { phase?: string; needKind?: string; items?: TranscriptItem[] } = {}) {
   const answerAskUserQuestion = vi.fn(async () => ({ ok: true }))
-  const resumeAndSend = vi.fn(async () => ({ ok: true }))
+  // The text fallback is the answerer's own message (POD-4846).
+  const send = vi.fn(
+    async (): Promise<{ disposition: string; ok: boolean; reason?: string }> => ({
+      ok: true,
+      disposition: 'queued',
+    }),
+  )
   const deps: AnswerDeliveryDeps = {
     getSession: (id) =>
       id === 'sess_1'
@@ -57,10 +72,11 @@ function harness(opts: { phase?: string; needKind?: string; items?: TranscriptIt
               : undefined,
           }
         : undefined,
-    sessions: { answerAskUserQuestion, resumeAndSend },
+    sessions: { answerAskUserQuestion },
+    messages: { send: send as never },
     rpc: { readTranscript: async () => ({ items: opts.items ?? [] }) },
   }
-  return { deps, answerAskUserQuestion, resumeAndSend }
+  return { deps, answerAskUserQuestion, send }
 }
 
 describe('deliverAnswerToSession (issue #53)', () => {
@@ -77,10 +93,10 @@ describe('deliverAnswerToSession (issue #53)', () => {
       choices: [{ optionIndices: [2] }],
       principal,
     })
-    expect(h.resumeAndSend).not.toHaveBeenCalled()
+    expect(h.send).not.toHaveBeenCalled()
   })
 
-  it('textFallback delivers as a chat message when no menu is live', async () => {
+  it("textFallback delivers as the answerer's own message when no menu is live", async () => {
     const h = harness({ phase: 'idle' })
     const r = await deliver(h.deps, {
       sessionId: asSessionId('sess_1'),
@@ -88,16 +104,23 @@ describe('deliverAnswerToSession (issue #53)', () => {
       textFallback: true,
     })
     expect(r).toEqual({ ok: true, via: 'text' })
-    expect(h.resumeAndSend).toHaveBeenCalledWith({
-      sessionId: asSessionId('sess_1'),
-      text: 'ship it',
-      principal,
-    })
+    // A person answered: their words, as their message — unwrapped, and waking
+    // a parked session (POD-4846).
+    expect(h.send).toHaveBeenCalledWith(
+      { kind: 'operator', attribution: principal.attribution, delegationRef: null },
+      {
+        to: { kind: 'session', id: 'sess_1' },
+        kind: 'message',
+        urgency: 'next-turn',
+        lifecycle: 'wake',
+        body: 'ship it',
+      },
+    )
     expect(h.answerAskUserQuestion).not.toHaveBeenCalled()
   })
 
   it('fails closed on a live menu the answer cannot match — even with textFallback', async () => {
-    // Free text must never land on top of an open native menu: no resumeAndSend,
+    // Free text must never land on top of an open native menu: no text send,
     // no digits, an explicit refusal instead.
     const h = harness({ phase: 'needs_user', needKind: 'question', items: [menuItem()] })
     const r = await deliver(h.deps, {
@@ -107,7 +130,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.message).toMatch(/could not match "maybe tomorrow"/)
-    expect(h.resumeAndSend).not.toHaveBeenCalled()
+    expect(h.send).not.toHaveBeenCalled()
     expect(h.answerAskUserQuestion).not.toHaveBeenCalled()
   })
 
@@ -115,7 +138,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     const h = harness({ phase: 'idle' })
     const r = await deliver(h.deps, { sessionId: asSessionId('sess_1'), answer: 'Yes' })
     expect(r).toEqual({ ok: false, message: 'no pending question (phase=idle)' })
-    expect(h.resumeAndSend).not.toHaveBeenCalled()
+    expect(h.send).not.toHaveBeenCalled()
   })
 
   it('unknown session is a refusal in both modes', async () => {
@@ -131,12 +154,66 @@ describe('deliverAnswerToSession (issue #53)', () => {
 
   it('propagates a failed text send instead of claiming delivery', async () => {
     const h = harness({ phase: 'idle' })
-    h.resumeAndSend.mockResolvedValueOnce({ ok: false, reason: 'unknown session' } as never)
+    h.send.mockResolvedValueOnce({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: session is archived',
+    })
     const r = await deliver(h.deps, {
       sessionId: asSessionId('sess_1'),
       answer: 'x',
       textFallback: true,
     })
-    expect(r).toEqual({ ok: false, message: 'unknown session' })
+    expect(r).toEqual({ ok: false, message: 'dead-lettered: session is archived' })
+  })
+
+  it('a stored answer whose push the transport refused is still delivered, by the sweep', async () => {
+    const h = harness({ phase: 'idle' })
+    h.send.mockResolvedValueOnce({ ok: false, disposition: 'queued', reason: 'machine offline' })
+    const r = await deliver(h.deps, {
+      sessionId: asSessionId('sess_1'),
+      answer: 'x',
+      textFallback: true,
+    })
+    expect(r).toEqual({ ok: true, via: 'text' })
+  })
+})
+
+// Whoever answered sends the text fallback (POD-4846): a person's answer is
+// their own words, an agent's is that agent's mail, a job's is the job's.
+describe('senderFromInboxPrincipal', () => {
+  it('a person is the operator, carrying their own attribution', () => {
+    expect(senderFromInboxPrincipal(principal)).toEqual({
+      kind: 'operator',
+      attribution: principal.attribution,
+      delegationRef: null,
+    })
+  })
+
+  it('an agent is that agent session', () => {
+    const attribution = {
+      actor: actorAgent(asAgentIdentityId('sess_a')),
+      onBehalfOf: firstAdminMemberId(),
+    }
+    expect(
+      senderFromInboxPrincipal({
+        kind: 'agent',
+        attribution,
+        principalRef: 'sess_a',
+        delegation: asDelegationRef('sess_a'),
+      }),
+    ).toEqual({ kind: 'agent', sessionId: 'sess_a', attribution, delegationRef: 'sess_a' })
+  })
+
+  it('a system job is that job', () => {
+    const attribution = { actor: actorSystem('interaction-answer'), onBehalfOf: null }
+    expect(
+      senderFromInboxPrincipal({
+        kind: 'system',
+        attribution,
+        principalRef: 'interaction-answer',
+        delegation: null,
+      }),
+    ).toEqual({ kind: 'system', name: 'interaction-answer', attribution, delegationRef: null })
   })
 })
