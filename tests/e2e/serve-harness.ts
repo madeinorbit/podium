@@ -13,7 +13,7 @@
  * the specs connect via `?server=ws://localhost:8799`.
  */
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @podium/harness is EMPTY — POD-396 took the PTY half to @podium/process and
@@ -1062,6 +1062,14 @@ const restartDaemon = async (): Promise<void> => {
     // Detach only. Durable abduco masters (and their inherited stable hook
     // socket path) survive; the replacement daemon reuses that path and reattaches.
     await daemon.close()
+    // Test-only hold (POD-4732): a spec that needs a deterministic offline
+    // window creates <stateDir>/daemon-offline-hold before SIGUSR2, and the
+    // replacement waits here until the file is removed. Additive: callers that
+    // never create the file see one extra existsSync and the same timing.
+    const offlineHoldPath = join(stateDir, 'daemon-offline-hold')
+    while (!shuttingDown && existsSync(offlineHoldPath)) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
     await new Promise((resolve) => setTimeout(resolve, DAEMON_RESTART_GAP_MS))
     if (shuttingDown) return
     daemon = await startDaemon(daemonOptions)
