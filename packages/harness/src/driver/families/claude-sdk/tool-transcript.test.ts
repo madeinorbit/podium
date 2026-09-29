@@ -8,6 +8,7 @@
 
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 import {
   type ClaudeSdkRuntimeHost,
   type ClaudeSdkToolCall,
@@ -15,7 +16,6 @@ import {
   type ClaudeSdkTurnHandle,
   createClaudeSdkRuntime,
 } from './runtime.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const SESSION = 'claude-sdk-tools' as SessionId
 const RESUME = '00000000-0000-4000-8000-0000000000aa'

@@ -7,15 +7,16 @@
  * through it, publishes the bind once, reads the same conversation witness,
  * and adopts from the journal after a restart.
  */
-import { pageHistory } from '../../history.js'
+
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClaudeSdkTurnHandle } from './runtime.js'
-import { createClaudeEngineHost, type ClaudeEngineHost } from './engine-host.js'
-import type { EngineAttachment } from '../engine-supervision.js'
-import { createClaudeSdkSessionRuntime, type ClaudeSdkSessionDeps } from './session.js'
+import { pageHistory } from '../../history.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import type { EngineAttachment } from '../engine-supervision.js'
+import { type ClaudeEngineHost, createClaudeEngineHost } from './engine-host.js'
+import type { ClaudeSdkTurnHandle } from './runtime.js'
+import { type ClaudeSdkSessionDeps, createClaudeSdkSessionRuntime } from './session.js'
 
 const SESSION_ID = 'claude-adapter-session' as SessionId
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-native-thread' }
@@ -106,12 +107,13 @@ function sessionWorld(
     transcript: {
       ...transcript(reads),
       readFileBytes: async () => {
-        const calls =
-          vi.isMockFunction(engine.startTurn) ? vi.mocked(engine.startTurn).mock.calls : []
+        const calls = vi.isMockFunction(engine.startTurn)
+          ? vi.mocked(engine.startTurn).mock.calls
+          : []
         return new TextEncoder().encode(
           calls
             .map((call) => {
-            const input = call[0]
+              const input = call[0]
               return JSON.stringify({
                 type: 'user',
                 uuid: input.userMessageUuid,

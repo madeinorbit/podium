@@ -1,7 +1,3 @@
-import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
-import { withDeliveryQueue } from '../../delivery-queue.js'
-import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../../../observer.js'
 import {
   type AgentRuntimeState,
   formatAgentError,
@@ -11,11 +7,20 @@ import {
 } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type {
+  QueueDrainAbandonedReason,
+  RuntimeHistoryPage,
+  RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
 import {
   claudeToolCallItem,
   claudeToolResultItem,
 } from '../../../adapters/claude-code/transcript.js'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
+import { reduceAgentState } from '../../../observer.js'
+import type { ProcessIdentity } from '../../binding.js'
+import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
+import { withDeliveryQueue } from '../../delivery-queue.js'
 import { DeliveryUnprovenError, DriverRefusalError, wasNeverSent } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
 import { headlessInterruptMark } from '../../headless-interrupt.js'
@@ -45,9 +50,7 @@ import type {
   TurnReceipt,
   WatchLevel,
 } from '../../host.js'
-import type { ProcessIdentity } from '../../binding.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import { claudeSdkCapabilities } from './capabilities.js'
 import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'

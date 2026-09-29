@@ -1,15 +1,15 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { RequestNotSentError } from '../../errors.js'
 import type { RuntimeEvent } from '../../host.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
+import { claudeUserMessageUuid } from './message-uuid.js'
 import {
   type ClaudeSdkRuntimeHost,
   type ClaudeSdkTurnHandle,
   type ClaudeSdkTurnResult,
   createClaudeSdkRuntime,
 } from './runtime.js'
-import { claudeUserMessageUuid } from './message-uuid.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
-import { RequestNotSentError } from '../../errors.js'
 
 const SESSION = 'claude-sdk-durable' as SessionId
 
