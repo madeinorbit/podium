@@ -44,6 +44,7 @@ import {
 } from '@podium/harness/driver/host'
 import { transcriptRecordMapperFor } from '@podium/harness'
 import { hookEventName, hookString } from '../../../adapters/shared/hook-fields.js'
+import { encodeCursor } from '@podium/harness/store'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
@@ -359,6 +360,15 @@ interface World {
        *  harness records a turn cancelled at the CLI — a user-role item that
        *  positively means the prompt did not land. */
       event?: TranscriptItem['event']
+      /** WHERE the record sits in the harness's store: its segment (file) and
+       *  offset, stamped as the tailer stamps them. Absent ⇒ no cursor. */
+      at?: { fileId: string; offset: number }
+      /** How long BEFORE now the harness says it wrote the record; `null` ⇒ the
+       *  record carries no timestamp at all. Default: written now. */
+      writtenAgoMs?: number | null
+      /** More records delivered in the SAME delta, after this one — a reset is
+       *  a batch, and a re-read carries the old turns and the new one together. */
+      then?: readonly EchoRecord[]
     },
   ): void
   observe(sessionId: SessionId, observation: Partial<AgentObservation>): void
@@ -389,6 +399,14 @@ interface World {
   /** The cached fake transport for a session, creating it on first touch. */
   transportFor(sessionId: SessionId): TerminalTransport
   setTerminal(sessionId: SessionId, transport: TerminalTransport | undefined): void
+}
+
+/** One record of an `echo` batch; see {@link World.echo}. */
+interface EchoRecord {
+  text: string
+  role?: TranscriptItem['role']
+  at?: { fileId: string; offset: number }
+  writtenAgoMs?: number | null
 }
 
 function makeWorld(
@@ -579,17 +597,28 @@ function makeWorld(
       autoHook.set(sessionId, options ?? {})
     },
     echo: (sessionId, text, options) => {
+      const record = (entry: EchoRecord): TranscriptItem => {
+        const ago = entry.writtenAgoMs === undefined ? 0 : entry.writtenAgoMs
+        return {
+          id: `item-${++nextId}`,
+          role: entry.role ?? 'user',
+          ...(ago === null ? {} : { ts: new Date(clock - ago).toISOString() }),
+          ...(entry.at
+            ? { cursor: encodeCursor({ fileId: entry.at.fileId, offset: entry.at.offset, uuid: null, sub: 0 }) }
+            : {}),
+          text,
+        }
+      }
       const item: TranscriptItem = {
-        id: `item-${++nextId}`,
-        role: options?.role ?? 'user',
-        ts: new Date(clock).toISOString(),
+        ...record({ text, ...options }),
         text,
         ...(options?.event ? { event: options.event } : {}),
       }
+      const items = [item, ...(options?.then ?? []).map((entry) => ({ ...record(entry), text: entry.text }))]
       runtime.observe({
         type: 'transcriptDelta',
         sessionId,
-        items: [item],
+        items,
         ...(options?.reset ? { reset: true } : {}),
       })
     },
@@ -1550,6 +1579,139 @@ describe('the human-controller lease', () => {
     )
 
     expect(resolved.outcome).toBe('queued')
+  })
+})
+
+/**
+ * THE ECHO COUNTS ONLY WHAT THE HARNESS WROTE AFTER THE SEND STARTED (POD-4838).
+ *
+ * The echo proof matches by content, and short prompts repeat: "yes",
+ * "continue". A re-read of the harness's history carries every older copy of
+ * the same words, so content alone would let a turn from an hour ago confirm a
+ * send made now. The send records where the transcript stood when it began —
+ * the segment and offset of the last record the driver had seen — and when it
+ * began; a record counts only if it lies after that position in the same
+ * segment, or, in another segment, was written at or after the start.
+ */
+describe('the echo floor', () => {
+  const FILE = 'segment-one'
+  const history = async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // An hour ago somebody answered "yes", and the agent went on from there.
+    world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 0 }, writtenAgoMs: 3_600_000 })
+    world.echo(sessionId, 'done', {
+      role: 'assistant',
+      at: { fileId: FILE, offset: 40 },
+      writtenAgoMs: 3_590_000,
+    })
+    const send = () => session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
+    return { world, session, sessionId, send }
+  }
+
+  it('does not credit a send with an older identical prompt a reset re-read', async () => {
+    const { world, sessionId, send } = await history()
+    const receipt = send()
+    await Promise.resolve()
+    world.echo(sessionId, 'yes', {
+      reset: true,
+      at: { fileId: FILE, offset: 0 },
+      writtenAgoMs: 3_600_000,
+      then: [{ text: 'done', role: 'assistant', at: { fileId: FILE, offset: 40 }, writtenAgoMs: 3_590_000 }],
+    })
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
+  it('credits the new copy that lies after the start, and names it', async () => {
+    const { world, sessionId, send } = await history()
+    const receipt = send()
+    await Promise.resolve()
+    // The re-read reaches past the start: the old "yes" and the new one arrive
+    // together, the old one first.
+    world.echo(sessionId, 'yes', {
+      reset: true,
+      at: { fileId: FILE, offset: 0 },
+      writtenAgoMs: 3_600_000,
+      then: [
+        { text: 'done', role: 'assistant', at: { fileId: FILE, offset: 40 }, writtenAgoMs: 3_590_000 },
+        { text: 'yes', at: { fileId: FILE, offset: 80 } },
+      ],
+    })
+    const resolved = await receipt
+    expect(resolved).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
+    // item-5 is the new record: item-1/2 were the history, item-3/4 the re-read.
+    expect(resolved).toMatchObject({ transcriptItem: { id: 'item-5' } })
+  })
+
+  it('decides by position alone when the harness writes no timestamps', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
+    const receipt = session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    world.echo(sessionId, 'yes', {
+      reset: true,
+      at: { fileId: FILE, offset: 0 },
+      writtenAgoMs: null,
+      then: [{ text: 'yes', at: { fileId: FILE, offset: 40 }, writtenAgoMs: null }],
+    })
+    // item-2 is the re-read of the old turn; item-3 is the new one.
+    expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-3' } })
+  })
+
+  it('does not credit a record that lies after the start but was written before it', async () => {
+    // The tailer polls. A record written just before the send can reach the
+    // driver just after it, past the last position the driver had seen.
+    const { world, sessionId, send } = await history()
+    const receipt = send()
+    await Promise.resolve()
+    world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 80 }, writtenAgoMs: 500 })
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
+  it('in a new segment, credits only what was written at or after the start', async () => {
+    // A resume rolls onto a new file whose offsets say nothing about the old one.
+    const { world, sessionId, send } = await history()
+    const receipt = send()
+    await Promise.resolve()
+    world.echo(sessionId, 'yes', {
+      reset: true,
+      at: { fileId: 'segment-two', offset: 0 },
+      writtenAgoMs: 3_600_000,
+      then: [{ text: 'yes', at: { fileId: 'segment-two', offset: 10 } }],
+    })
+    expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-4' } })
+  })
+
+  it('in a new segment without timestamps, credits nothing', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
+    const receipt = session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    // Nothing places this record relative to the send: it may be the old turn,
+    // copied into the new file. `unverified` is the honest answer.
+    world.echo(sessionId, 'yes', { reset: true, at: { fileId: 'segment-two', offset: 0 }, writtenAgoMs: null })
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
+  it('credits any record when the transcript was empty at the start', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // The tailer's first read found nothing yet.
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [], reset: true })
+    const receipt = session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
+    expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-1' } })
   })
 })
 
