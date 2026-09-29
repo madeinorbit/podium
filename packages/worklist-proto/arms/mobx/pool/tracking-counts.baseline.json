@@ -1,6 +1,6 @@
 {
   "updatedBy": "POD-4755",
-  "reason": "one object per issue and per session; derived values in cached groups (10 per issue, 4 per session) built on first reactive read, replacing IssueModel+IssueNode and SessionModel+SessionNode",
+  "reason": "one object per issue and per session with cached groups built on first reactive read (IssueModel+IssueNode and SessionModel+SessionNode merged). Node construction builds no computed; the maintenance reactions build the groups they read (firstReactiveRun). First paint builds the rank group of every visible row (the lanes sort all visible ranks at view time, as they did before; the base built those computeds at node construction) plus window-sized groups; flat once the lanes keep order by moving one item",
   "counts": {
     "1x.firstPaint.byOwner.GroupNode.computeds": 56,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
