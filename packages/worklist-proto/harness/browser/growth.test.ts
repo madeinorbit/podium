@@ -363,8 +363,8 @@ describe('runGrowth over a matrix directory', () => {
     expect(Number(unmeasured)).toBeGreaterThan(0)
     expect(Number(fail)).toBe(0)
     // Every judged arm check is in exactly one count.
-    const judged = lines.filter(
-      (l) => l.startsWith('| mobx |') && !l.includes('switch vs cold'),
+    const judged = lines.filter((l) =>
+      /^\| mobx \| (history flat|active linear|active flat) \|/.test(l),
     ).length
     expect(Number(pass) + Number(fail) + Number(unmeasured)).toBe(judged)
     expect(lines).toContain(
