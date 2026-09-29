@@ -1,0 +1,68 @@
+{
+  "_recordedFrom": "Claude 2.1.284, POD-4862: sdk/transcript-watch.jsonl, S10-explicit-400 and S2-queued-in-tool; scratch HOME and fake model server on 2026-09-29.",
+  "userRecord": {
+    "parentUuid": "246516fd-5e09-440f-8484-b153d43d542a",
+    "isSidechain": false,
+    "promptId": "81fd89fa-02de-4b93-87e2-8bc41821a8bd",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "ERR400 S10A idle"
+        }
+      ]
+    },
+    "uuid": "b0000001-0000-4000-8000-000000000030",
+    "timestamp": "2026-09-29T16:27:07.881Z",
+    "permissionMode": "bypassPermissions",
+    "promptSource": "sdk",
+    "turnOrigin": "sdk",
+    "turnPosition": {
+      "promptIndex": 0,
+      "turnIndex": 9
+    },
+    "userType": "external",
+    "entrypoint": "sdk-cli",
+    "cwd": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/runs/k1/work",
+    "sessionId": "e673ebd7-00a6-40fd-8b83-49bbd2f259f3",
+    "version": "2.1.284",
+    "gitBranch": "HEAD"
+  },
+  "queuedRecord": {
+    "parentUuid": "715103ee-023b-42e5-b5b4-0a2be3d58311",
+    "isSidechain": false,
+    "attachment": {
+      "type": "queued_command",
+      "prompt": [
+        {
+          "type": "text",
+          "text": "QUEUED-K2 in tool"
+        }
+      ],
+      "source_uuid": "a0000001-0000-4000-8000-000000000003",
+      "commandMode": "prompt",
+      "timestamp": "2026-09-29T16:24:26.624Z"
+    },
+    "type": "attachment",
+    "uuid": "89700ac9-d211-45bb-98c7-741396991bce",
+    "timestamp": "2026-09-29T16:24:26.624Z",
+    "rendered": [
+      {
+        "content": [
+          {
+            "type": "text",
+            "text": "<system-reminder>\nThe user sent a new message while you were working:\nQUEUED-K2 in tool\n\nThis is how Claude Code surfaces messages the user sends mid-turn \u2014 within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.\n</system-reminder>"
+          }
+        ]
+      }
+    ],
+    "userType": "external",
+    "entrypoint": "sdk-cli",
+    "cwd": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/runs/k1/work",
+    "sessionId": "6a1e710e-c9a1-4394-8b58-cff20ef6e1fb",
+    "version": "2.1.284",
+    "gitBranch": "HEAD"
+  }
+}
