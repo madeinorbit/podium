@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/model'
+import type { HarnessRef, TranscriptItem } from '@podium/model'
 import { claudePromptHookFingerprint } from './adapters/claude-code/state.js'
 import type { TerminalAcceptCorrelation } from './manifest.js'
 
@@ -13,6 +13,13 @@ export const claudeHookAcceptCorrelation: TerminalAcceptCorrelation<unknown> = {
   },
   fingerprint: claudePromptHookFingerprint,
   fingerprintText: (text) => claudePromptHookFingerprint({ prompt: text }),
+  harnessRef(payload): HarnessRef | undefined {
+    if (typeof payload !== 'object' || payload === null) return undefined
+    const promptId = (payload as Record<string, unknown>).prompt_id
+    return typeof promptId === 'string' && promptId.length > 0
+      ? [{ kind: 'claude-prompt', id: promptId }]
+      : undefined
+  },
 }
 
 /**

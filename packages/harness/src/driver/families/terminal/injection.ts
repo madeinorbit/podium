@@ -66,7 +66,7 @@
  * outcome.
  */
 
-import type { TranscriptItemRef } from '@podium/model'
+import type { HarnessRef, TranscriptItemRef } from '@podium/model'
 import type { QueueDrainAbandonedReason as WireQueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
 import { injectionPayload } from './paste.js'
@@ -187,6 +187,8 @@ export interface AcceptPort {
 type Proven = {
   provenBy: 'hook' | 'transcript-echo'
   transcriptItem?: TranscriptItemRef
+  /** The program's own ids the proving hook carried (POD-4841). */
+  harnessRef?: HarnessRef
 }
 
 /** What an accept observation said about the prompt it credited. */
@@ -194,6 +196,10 @@ export interface AcceptSeen {
   /** The harness's own record of the prompt — set by a transcript echo, which
    *  IS that record. A hook names no entry and leaves it unset (POD-4774). */
   readonly transcriptItem?: TranscriptItemRef
+  /** The program's own ids the observation carried for the prompt — Claude's
+   *  hook `prompt_id` (POD-4841). Only as good as the observation's timing:
+   *  the send decides whether it may be this prompt's. */
+  readonly harnessRef?: HarnessRef
 }
 
 export interface AcceptWatch {
@@ -455,7 +461,10 @@ export function createTerminalInjection(
     const proven = (): Proven | null => {
       const transcriptItem = echoSeen?.transcriptItem
       const named = transcriptItem ? { transcriptItem } : {}
-      if (hookSeen) return { provenBy: 'hook', ...named }
+      if (hookSeen) {
+        const ids = hookSeen.harnessRef
+        return { provenBy: 'hook', ...named, ...(ids?.length ? { harnessRef: ids } : {}) }
+      }
       if (echoSeen) return { provenBy: 'transcript-echo', ...named }
       return null
     }
@@ -529,6 +538,14 @@ export function createTerminalInjection(
     // to recognise its own accept.
     const hookWatch = ports.hookAccept?.watch(payload.body)
     const echoWatch = ports.echoAccept?.watch(payload.body)
+    /**
+     * WHETHER THE PROVING HOOK'S IDS CAN BE THIS PROMPT'S (POD-4841). Measured
+     * on Claude 2.1.284 (POD-4834): typed into an idle agent, the hook fires
+     * for this prompt with its own `prompt_id`; typed while a turn runs, the
+     * hook at Enter may carry the RUNNING turn's id. So only a send that began
+     * on an idle agent keeps them.
+     */
+    const idleAtSend = ports.phase() === 'idle'
     /** The echo watch that outlives this call to name the entry late. */
     let lateEcho: AcceptWatch | undefined
     try {
@@ -571,6 +588,7 @@ export function createTerminalInjection(
         deliveredAs: options.delivery,
         provenBy: proof.provenBy,
         ...(proof.transcriptItem ? { transcriptItem: proof.transcriptItem } : {}),
+        ...(proof.harnessRef && idleAtSend ? { harnessRef: proof.harnessRef } : {}),
         at: new Date(ports.now()).toISOString(),
       }
     } finally {
