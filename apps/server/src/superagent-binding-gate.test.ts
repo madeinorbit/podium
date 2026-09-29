@@ -80,6 +80,20 @@ async function gateContext() {
   return { ctx, sent, store, missing }
 }
 
+/**
+ * The daemon handlers are fire-and-forget (`void handleSpawn(...).catch(...)`
+ * at the dispatch site, same shape here), so the test polls for the durable
+ * effect rather than awaiting a promise that resolves before the work lands.
+ */
+async function waitForGate(cond: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
+  const start = Date.now()
+  for (;;) {
+    if (await cond()) return
+    if (Date.now() - start > timeoutMs) throw new Error('timed out waiting for the binding gate')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
 describe('headless frames through the daemon binding gate (POD-4806 review)', () => {
   it('the actual headless spawn passes the real gate and records a binding', async () => {
     const h = await gateHarness()
@@ -91,13 +105,22 @@ describe('headless frames through the daemon binding gate (POD-4806 review)', ()
     const spawn = h.frames.find((m) => m.type === 'spawn' && m.sessionId === sessionId)
     expect(spawn?.type).toBe('spawn')
     const g = await gateContext()
-    await sessionHandlers.spawn(g.ctx, spawn as never)
-    // The gate passed: no missing-instruction refusal, and the REAL store
-    // transition recorded the binding the frame minted.
+    sessionHandlers.spawn(g.ctx, spawn as never)
+    // The gate passed: the REAL store transition recorded the binding the
+    // frame minted (a refused frame records nothing). Past the gate the
+    // launch arm fails deterministically here (no agent runtime composed),
+    // which is what distinguishes "gate passed" from "gate refused".
+    await waitForGate(
+      async () =>
+        (await g.store.read(sessionId)) !== null && g.sent.some((m) => m.type === 'spawnError'),
+    )
     expect(g.missing()).toHaveLength(0)
     const record = await g.store.read(sessionId)
     expect(record?.delegation?.onBehalfOf).toBe(firstAdminMemberId())
     expect(record?.transitionHistory.some((entry) => entry.event === 'spawn')).toBe(true)
+    expect(
+      g.sent.filter((m) => m.type === 'spawnError').map((m) => (m as { message: string }).message),
+    ).toEqual(['machine runtime is not composed'])
   })
 
   it('two actual headless reattaches each mint their own transition (no constant-id dedup)', async () => {
@@ -108,7 +131,8 @@ describe('headless frames through the daemon binding gate (POD-4806 review)', ()
       ownerUserId: firstAdminMemberId(),
     })
     const g = await gateContext()
-    await sessionHandlers.spawn(g.ctx, h.frames.find((m) => m.type === 'spawn') as never)
+    sessionHandlers.spawn(g.ctx, h.frames.find((m) => m.type === 'spawn') as never)
+    await waitForGate(async () => (await g.store.read(sessionId)) !== null)
     expect(g.missing()).toHaveLength(0)
 
     await h.registry.modules.sessions.headless.headlessBind({
@@ -130,8 +154,16 @@ describe('headless frames through the daemon binding gate (POD-4806 review)', ()
     const ids = reattaches.map((m) => (m.type === 'reattach' ? m.binding?.transitionId : undefined))
     expect(new Set(ids).size).toBe(2)
     for (const frame of reattaches) {
-      await sessionHandlers.reattach(g.ctx, frame as never)
+      sessionHandlers.reattach(g.ctx, frame as never)
     }
+    // Both reattaches applied (a constant generation would leave the second
+    // redundant), and neither hit the missing-instruction refusal. Past the
+    // gate the daemon reports no recoverable headless binding here (no agent
+    // runtime composed) — a launch-path answer, not a gate refusal.
+    await waitForGate(async () => {
+      const record = await g.store.read(sessionId)
+      return (record?.transitionHistory.filter((entry) => entry.event === 'reattach').length ?? 0) >= 2
+    })
     expect(g.missing()).toHaveLength(0)
     const record = await g.store.read(sessionId)
     expect(record?.transitionHistory.filter((entry) => entry.event === 'reattach')).toHaveLength(2)
@@ -147,7 +179,8 @@ describe('headless frames through the daemon binding gate (POD-4806 review)', ()
     const spawn = h.frames.find((m) => m.type === 'spawn' && m.sessionId === ack.podiumSessionId)
     expect(spawn?.type).toBe('spawn')
     const g = await gateContext()
-    await sessionHandlers.spawn(g.ctx, spawn as never)
+    sessionHandlers.spawn(g.ctx, spawn as never)
+    await waitForGate(async () => (await g.store.read(ack.podiumSessionId)) !== null)
     expect(g.missing()).toHaveLength(0)
     expect(await g.store.read(ack.podiumSessionId)).not.toBeNull()
   })
