@@ -9,7 +9,7 @@ import type { IssueMessageRow, SessionStore } from '../store'
  * so the send's delivery rules — authorization, a target with no session — are
  * not what the test depends on.
  */
-export async function seedIssueMail(
+export async function seedMailboxRow(
   store: Pick<SessionStore, 'issues'>,
   issueId: IssueId,
   fromAuthor: string,

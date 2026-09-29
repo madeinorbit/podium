@@ -7,7 +7,7 @@ import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
-import { seedIssueMail } from './test-support/seed-issue-mail'
+import { seedMailboxRow } from './test-support/seed-issue-mail'
 
 /** Issues are placed under a machine that REPORTED their repo (2b803efb5): the host reports `/r`. */
 async function reportRepo(registry: SessionRegistry): Promise<void> {
@@ -445,7 +445,7 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 
   it('mailInbox / mailPending with no id resolve to the caller bound issue', async () => {
-    await seedIssueMail(registry.sessionStore, asIssueId(A.id), 'operator', 'for A')
+    await seedMailboxRow(registry.sessionStore, asIssueId(A.id), 'operator', 'for A')
     const c = scopedToA()
     expect(await c.issues.mailPending()).toMatchObject({ unread: 1 })
     const inbox = await c.issues.mailInbox()
@@ -455,7 +455,7 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 
   it('a PEEK at another mailbox (operator or other agent) does not consume unread', async () => {
-    await seedIssueMail(registry.sessionStore, asIssueId(A.id), 'operator', 'for A')
+    await seedMailboxRow(registry.sessionStore, asIssueId(A.id), 'operator', 'for A')
     // operator peek
     const opInbox = await callerWith(OPERATOR).issues.mailInbox({ id: A.id })
     expect(opInbox[0]).toMatchObject({ status: 'unread', wasUnread: true })
@@ -479,8 +479,8 @@ describe('issues.mail* (agent mail #103)', () => {
 
   it('mailClaim is scope-gated to the OWN issue via the message target', async () => {
     const op = callerWith(OPERATOR)
-    const mine = await seedIssueMail(registry.sessionStore, asIssueId(A.id), 'operator', 'mine')
-    const theirs = await seedIssueMail(registry.sessionStore, asIssueId(B.id), 'operator', 'theirs')
+    const mine = await seedMailboxRow(registry.sessionStore, asIssueId(A.id), 'operator', 'mine')
+    const theirs = await seedMailboxRow(registry.sessionStore, asIssueId(B.id), 'operator', 'theirs')
     const c = scopedToA()
     const r = await c.issues.mailClaim({ messageId: mine.id })
     expect(r.claimed).toBe(true)
@@ -502,7 +502,7 @@ describe('issues.mail* (agent mail #103)', () => {
 
   it('second claim on the same message loses', async () => {
     const op = callerWith(OPERATOR)
-    const m = await seedIssueMail(registry.sessionStore, asIssueId(A.id), 'operator', 'race')
+    const m = await seedMailboxRow(registry.sessionStore, asIssueId(A.id), 'operator', 'race')
     expect((await op.issues.mailClaim({ messageId: m.id })).claimed).toBe(true)
     const again = await scopedToA().issues.mailClaim({ messageId: m.id })
     expect(again.claimed).toBe(false)

@@ -28,7 +28,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
-import { seedIssueMail } from './test-support/seed-issue-mail'
+import { seedMailboxRow } from './test-support/seed-issue-mail'
 
 /**
  * Characterization net for the architecture redesign (store.ts / relay.ts dissolution).
@@ -631,9 +631,9 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       // Seed durable mailbox rows directly: the production send path can
       // legitimately dead-letter when these fixture issues have no recipient
       // sessions, while this contract is specifically about claim authz.
-      const mailA = await seedIssueMail(reg.sessionStore, A.id, 'operator', 'for A')
-      const mailB = await seedIssueMail(reg.sessionStore, B.id, 'operator', 'for B')
-      const mailC = await seedIssueMail(reg.sessionStore, C.id, 'operator', 'for C')
+      const mailA = await seedMailboxRow(reg.sessionStore, A.id, 'operator', 'for A')
+      const mailB = await seedMailboxRow(reg.sessionStore, B.id, 'operator', 'for B')
+      const mailC = await seedMailboxRow(reg.sessionStore, C.id, 'operator', 'for C')
 
       const worker = caller({
         role: 'worker',
