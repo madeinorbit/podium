@@ -72,6 +72,35 @@ describe('SessionStore queued_messages', () => {
     }
   })
 
+  // POD-4776: a retract and a reservation race through one write; exactly one
+  // wins, and a daemon's custody is never deleted from under it.
+  it('deletes a row for a retract only while no daemon has custody of it', async () => {
+    const store = await openTestStore(':memory:')
+    const sessionId = asSessionId('retract')
+    await store.sync.enqueueMessage({ id: 'held', sessionId, text: 'server only', queuedAt: 1 })
+    await store.sync.enqueueMessage({ id: 'owned', sessionId, text: 'daemon has it', queuedAt: 2 })
+    await store.sync.reserveQueuedDelivery('owned')
+    expect(await store.sync.deleteUnreservedQueuedMessage('owned')).toBe(false)
+    expect(await store.sync.deleteUnreservedQueuedMessage('held')).toBe(true)
+    expect(await store.sync.deleteUnreservedQueuedMessage('held')).toBe(false)
+    expect((await store.sync.listQueuedMessages(sessionId)).map((row) => row.id)).toEqual(['owned'])
+    await store.close()
+  })
+
+  it('keeps a retract waiting on the row until the daemon answers it', async () => {
+    const store = await openTestStore(':memory:')
+    const sessionId = asSessionId('retract')
+    await store.sync.enqueueMessage({ id: 'row', sessionId, text: 'waiting', queuedAt: 1 })
+    expect((await store.sync.listQueuedMessages(sessionId))[0]?.retractRequestedAt).toBeNull()
+    await store.sync.requestQueuedRetract('row', 100)
+    // The first request's time is kept.
+    await store.sync.requestQueuedRetract('row', 200)
+    expect((await store.sync.listQueuedMessages(sessionId))[0]?.retractRequestedAt).toBe(100)
+    await store.sync.clearQueuedRetract('row')
+    expect((await store.sync.listQueuedMessages(sessionId))[0]?.retractRequestedAt).toBeNull()
+    await store.close()
+  })
+
   it('lists FIFO by queued_at, then insertion order for ties', async () => {
     const store = await openTestStore(':memory:')
     // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys
