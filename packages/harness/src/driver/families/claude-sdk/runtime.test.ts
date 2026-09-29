@@ -352,7 +352,7 @@ describe("Claude's own id for our message (POD-4841)", () => {
       { origin: 'human', delivery: 'when-ready' },
     )
     await vi.waitFor(() => expect(turns).toHaveLength(1))
-    turns[0]!.ack()
+    turns[0]?.ack()
     await expect(receipt).resolves.toMatchObject({
       outcome: 'accepted',
       harnessRef: [{ kind: 'claude-uuid', id: uuid }],
@@ -367,7 +367,7 @@ describe("Claude's own id for our message (POD-4841)", () => {
       { origin: 'human', delivery: 'when-ready' },
     )
     await vi.waitFor(() => expect(durable.turns).toHaveLength(1))
-    durable.turns[0]!.ack()
+    durable.turns[0]?.ack()
     const events = await eventsUntil(rowHandle, (seen) =>
       seen.some((event) => event.t === 'delivery'),
     )

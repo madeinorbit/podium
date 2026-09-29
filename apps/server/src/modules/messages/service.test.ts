@@ -5278,13 +5278,18 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     const harnessRef = [{ kind: 'codex-turn', id: 'turn-1' }]
     await h.store.messages.recordHarnessRef(id, asSessionId('s1'), harnessRef)
     const access = new MailAccess({ issues: fakeIssues(), messages: h.svc } as never)
-    expect(await access.wire((await h.store.messages.getMessage(id))!)).toMatchObject({
+    const stored = async (messageId: string) => {
+      const row = await h.store.messages.getMessage(messageId)
+      if (!row) throw new Error(`no message ${messageId}`)
+      return row
+    }
+    expect(await access.wire(await stored(id))).toMatchObject({
       deliveryStatus: 'confirmed',
       transcriptItem: { id: 'entry-1' },
       harnessRef,
     })
     const bare = await sendTo(h, asSessionId('s1'))
-    const wire = await access.wire((await h.store.messages.getMessage(bare))!)
+    const wire = await access.wire(await stored(bare))
     expect(wire).not.toHaveProperty('transcriptItem')
     expect(wire).not.toHaveProperty('harnessRef')
   })
