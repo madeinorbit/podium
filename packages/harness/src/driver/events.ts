@@ -2,7 +2,7 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { AgentStateEvent } from '../agent-state/types.js'
-import type { ResumeRef, TranscriptItem, TranscriptItemRef } from '@podium/model'
+import type { HarnessRef, ResumeRef, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { DeliveryFailureCause } from '@podium/protocol/daemon'
 import type { ProcessEvent, TurnEvent } from './errors.js'
@@ -90,6 +90,9 @@ export type RuntimeEventBody =
       /** On `delivered` only: the transcript entry the row became, when the
        *  driver identified it (POD-4774). */
       transcriptItem?: TranscriptItemRef
+      /** The program's own ids for the row, every one known by this outcome
+       *  (POD-4841). On any outcome; never a proof of anything by itself. */
+      harnessRef?: HarnessRef
     }
   | {
       /** The existing normalized state vocabulary, INCLUDING compaction — which
