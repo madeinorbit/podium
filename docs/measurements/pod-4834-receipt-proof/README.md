@@ -28,11 +28,17 @@ What this settles for Claude's terminal UI:
 
 - An idle submit has one id end to end: the `user` record and the hook carry the same new
   `prompt_id`; the record is written about 100 ms before the hook, the model request follows.
-- A prompt entered while Claude is busy gets **no id of its own** until it runs: the hook fires at
-  Enter with the running turn's `prompt_id`. Taken into the running turn at a tool boundary, it
-  never gets one (it is part of that turn); run after the turn ends, it gets a new `promptId` on
-  its `user` record and no hook fires with that id.
+- `prompt_id` / `promptId` is a **turn** id. A prompt entered while Claude is busy gets no turn id
+  of its own at Enter: the hook fires then with the running turn's `prompt_id`, and its payload
+  has no id for the prompt itself (fields: `session_id`, `transcript_path`, `cwd`,
+  `permission_mode`, `hook_event_name`, `prompt`, `prompt_id`). Taken into the running turn at a
+  tool boundary, it never gets a turn id: its `queued_command` record has its own `uuid` and a
+  `source_uuid`, and no `promptId`. Run after the turn ends, it gets a new `promptId` and
+  `promptSource: 'queued'` on its `user` record, and no hook fires with that id.
 - The earliest history signal of a queued prompt is `queue-operation enqueue` (at Enter, with
-  the text). The signal that it reached the model is the `queued_command` attachment (tool
-  boundary) or the `user` record after `dequeue` (after the turn).
-- No hook fires when a prompt is sent to the model.
+  the text; upstream #96891 says it is written even when a hook then blocks the prompt, so it is
+  not proof the prompt was taken). The signal that it reached the model is the `queued_command`
+  attachment (tool boundary) or the `user` record after `dequeue` (after the turn).
+- Only six hook events were switched on in this run (SessionStart, UserPromptSubmit, PreToolUse,
+  PostToolUse, PostToolBatch, Stop); none of them fired with the prompt when it was sent to the
+  model. The other 27 events Claude knows were not observed.
