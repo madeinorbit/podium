@@ -115,3 +115,68 @@ describe('naming the entry a message became', () => {
     expect(await messages.getMessage('msg_e')).not.toHaveProperty('transcriptItem')
   })
 })
+
+/**
+ * THE AGENT PROGRAM'S OWN IDS FOR A MESSAGE (POD-4841). Kept beside the entry
+ * so the message can be looked up in the program's history later. A list that
+ * only grows: ids arrive at different moments (the answer to the send, the
+ * record after it), each is kept once, and nothing known is ever replaced.
+ */
+describe("keeping the agent program's own ids for a message", () => {
+  const turn = { kind: 'codex-turn', id: 'turn-1' }
+  const echo = { kind: 'codex-client-message', id: 'msg_h' }
+
+  it('reads back the ids, beside a status they leave alone', async () => {
+    await messages.addMessage(row('msg_h'))
+    await messages.markDispatched('msg_h', S1, 't1')
+    expect(await messages.recordHarnessRef('msg_h', S1, [turn])).toBe(true)
+    const record = await messages.getMessage('msg_h')
+    expect(record?.harnessRef).toEqual([turn])
+    expect(record?.deliveryStatus).toBe('dispatched')
+  })
+
+  it('adds ids learned later, each once, in the order learned', async () => {
+    await messages.addMessage(row('msg_h'))
+    await messages.markDelivered('msg_h', S1, 't1')
+    await messages.recordHarnessRef('msg_h', S1, [turn])
+    expect(await messages.recordHarnessRef('msg_h', S1, [turn, echo])).toBe(true)
+    expect(await messages.recordHarnessRef('msg_h', S1, [echo])).toBe(false)
+    expect((await messages.getMessage('msg_h'))?.harnessRef).toEqual([turn, echo])
+  })
+
+  it('keeps the ids of an unconfirmed or failed message: a later look-up needs them most', async () => {
+    await messages.addMessage(row('msg_u'))
+    await messages.markDispatched('msg_u', S1, 't1')
+    await messages.markDeadLetter('msg_u', 't2', 'delivery-failed')
+    expect(await messages.recordHarnessRef('msg_u', S1, [turn])).toBe(true)
+    expect((await messages.getMessage('msg_u'))?.harnessRef).toEqual([turn])
+  })
+
+  it('is refused for another session, and for a message that was never typed', async () => {
+    await messages.addMessage(row('msg_other'))
+    await messages.markDelivered('msg_other', S1, 't1')
+    expect(await messages.recordHarnessRef('msg_other', S2, [turn])).toBe(false)
+    await messages.addMessage(row('msg_cancelled'))
+    await messages.markCancelled('msg_cancelled')
+    expect(await messages.recordHarnessRef('msg_cancelled', S1, [turn])).toBe(false)
+    for (const id of ['msg_other', 'msg_cancelled']) {
+      expect(await messages.getMessage(id)).not.toHaveProperty('harnessRef')
+    }
+  })
+
+  it('writes nothing for no ids or an unknown message, and reads as none until given', async () => {
+    await messages.addMessage(row('msg_e'))
+    expect(await messages.recordHarnessRef('msg_e', S1, [])).toBe(false)
+    expect(await messages.recordHarnessRef('turn_random', S1, [turn])).toBe(false)
+    expect(await messages.getMessage('msg_e')).not.toHaveProperty('harnessRef')
+  })
+
+  it('reads a stored list it cannot parse as none, never as a failed read', async () => {
+    await messages.addMessage(row('msg_bad'))
+    db.exec(`UPDATE messages SET harness_ref_json = 'not json' WHERE id = 'msg_bad'`)
+    expect(await messages.getMessage('msg_bad')).not.toHaveProperty('harnessRef')
+    // And a later id still lands, replacing what could not be read.
+    expect(await messages.recordHarnessRef('msg_bad', S1, [turn])).toBe(true)
+    expect((await messages.getMessage('msg_bad'))?.harnessRef).toEqual([turn])
+  })
+})

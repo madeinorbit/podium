@@ -2162,6 +2162,13 @@ export const messages = sqliteTable(
     // gave no way to identify the item. Written once; the first naming wins.
     transcriptItemId: text('transcript_item_id'),
     transcriptItemCursor: text('transcript_item_cursor'),
+    // THE AGENT PROGRAM'S OWN IDS FOR THIS MESSAGE [POD-4841]: a JSON list of
+    // `{ kind, id }` (its turn id, prompt id, the id it echoed back) as the
+    // agent's machine reported them, so the message can be looked up in that
+    // program's history later. Null until the first id; a list that only
+    // grows. Plain text, read with a quarantine: an unreadable list reads as
+    // none and never fails a message read.
+    harnessRefJson: text('harness_ref_json'),
     // THE SENDER DISMISSED THE NOTICE [POD-4764]: a chat message that failed,
     // expired or was lost track of stays on every device's feed as something to
     // look at until its sender dismisses it (or sends it again, which dismisses
