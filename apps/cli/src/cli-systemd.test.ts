@@ -12,6 +12,7 @@ import {
   renderParentUnit,
   renderServerUnit,
   renderSystemdFiles,
+  renderTunnelUnit,
   userUnitDir,
 } from './cli-systemd'
 
@@ -366,5 +367,41 @@ describe('installSystemd update-timer retirement', () => {
     })
     expect(readdirSync(dir)).not.toContain(fixture.timer)
     expect(readdirSync(dir)).not.toContain(fixture.service)
+  })
+})
+
+describe('renderTunnelUnit (POD-4640)', () => {
+  const opts = {
+    instanceId: 'default',
+    binary: '/home/u/.local/share/podium/podium-tunnel',
+    origin: 'http://127.0.0.1:18787',
+    socket: '/home/u/.podium/run/control.sock',
+  }
+
+  it('runs podium-tunnel, restarts it, and never restarts a refusal', () => {
+    const u = renderTunnelUnit(opts)
+    expect(u).toContain(
+      'ExecStart="/home/u/.local/share/podium/podium-tunnel" "--origin" "http://127.0.0.1:18787" "--socket" "/home/u/.podium/run/control.sock"',
+    )
+    expect(u).toContain('Restart=always')
+    expect(u).toContain('RestartPreventExitStatus=78')
+    // Stopping the unit takes cloudflared with it (default KillMode=control-group).
+    expect(u).not.toMatch(/KillMode=(process|none)/)
+  })
+
+  it('is bound to nothing, so a Podium restart or update keeps the tunnel URL', () => {
+    expect(renderTunnelUnit(opts)).not.toMatch(/^(PartOf|BindsTo|Requires)=/m)
+  })
+
+  it('quotes paths for systemd, including % and quotes', () => {
+    const u = renderTunnelUnit({ ...opts, binary: '/opt/100%/"p"/podium-tunnel' })
+    expect(u).toContain('ExecStart="/opt/100%%/\\"p\\"/podium-tunnel"')
+  })
+
+  it('is OFF by default: no install profile renders it; only `podium tunnel enable` writes it', () => {
+    for (const profile of ['packaged', 'dev'] as const) {
+      const units = Object.keys(renderSystemdFiles({ profile, instanceId: 'default' }).units)
+      expect(units.some((name) => name.includes('tunnel'))).toBe(false)
+    }
   })
 })

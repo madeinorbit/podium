@@ -3,14 +3,15 @@
  * the real config write, and the real Connect publisher. What is asserted is
  * what Connect is TOLD — config holding the URL is necessary but not the point.
  */
-import type { InstallationIdentity } from '@podium/runtime/installation-identity'
-import { loadConfig, resolvePublicUrl, saveConfig } from '@podium/runtime/config'
-import { applyPublicUrl } from '@podium/runtime/setup'
-import { listenUserSocket, type UserSocketServer } from '@podium/runtime/user-socket'
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { loadConfig, resolvePublicUrl, saveConfig } from '@podium/runtime/config'
+import type { InstallationIdentity } from '@podium/runtime/installation-identity'
+import { applyPublicUrl } from '@podium/runtime/setup'
+import { listenUserSocket, type UserSocketServer } from '@podium/runtime/user-socket'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTROL_BODY_MAX_BYTES, controlSocketHandler } from './control-socket'
 import type { CheckResult, ConnectClient, LocatorRecord } from './modules/connect/client'
@@ -41,7 +42,10 @@ function send(
           text += chunk.toString('utf8')
         })
         res.on('end', () =>
-          resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) as Record<string, unknown> }),
+          resolve({
+            status: res.statusCode ?? 0,
+            json: JSON.parse(text) as Record<string, unknown>,
+          }),
         )
       },
     )
@@ -130,7 +134,9 @@ describe('server control socket', () => {
     expect(published).toEqual([A])
 
     // The tunnel restarts with a new URL.
-    const rotated = await send(socketPath, { body: JSON.stringify({ url: B, confirmUrlChange: true }) })
+    const rotated = await send(socketPath, {
+      body: JSON.stringify({ url: B, confirmUrlChange: true }),
+    })
     expect(rotated).toEqual({ status: 200, json: { ok: true, publicUrl: B, changed: true } })
     await publisher.settled
     expect(loadConfig().publicUrl).toBe(B)
@@ -143,7 +149,9 @@ describe('server control socket', () => {
     publisher.start()
     await publisher.settled
     expect(published).toEqual([A])
-    const again = await send(socketPath, { body: JSON.stringify({ url: A, confirmUrlChange: true }) })
+    const again = await send(socketPath, {
+      body: JSON.stringify({ url: A, confirmUrlChange: true }),
+    })
     expect(again).toEqual({ status: 200, json: { ok: true, publicUrl: A, changed: false } })
     await publisher.settled
     expect(published).toEqual([A])
@@ -160,7 +168,9 @@ describe('server control socket', () => {
   it('409 when PODIUM_PUBLIC_URL owns the URL', async () => {
     saveConfig({ mode: 'all-in-one', publicUrl: A })
     vi.stubEnv('PODIUM_PUBLIC_URL', 'https://podium.example.com')
-    const refused = await send(socketPath, { body: JSON.stringify({ url: B, confirmUrlChange: true }) })
+    const refused = await send(socketPath, {
+      body: JSON.stringify({ url: B, confirmUrlChange: true }),
+    })
     expect(refused.status).toBe(409)
     expect(refused.json.error).toContain('PODIUM_PUBLIC_URL')
     expect(loadConfig().publicUrl).toBe(A)
@@ -170,7 +180,9 @@ describe('server control socket', () => {
     saveConfig({ mode: 'server' })
     expect((await send(socketPath, { body: 'nope' })).status).toBe(400)
     expect((await send(socketPath, { body: JSON.stringify({ href: A }) })).status).toBe(400)
-    expect((await send(socketPath, { body: JSON.stringify({ url: 'not a url' }) })).status).toBe(400)
+    expect((await send(socketPath, { body: JSON.stringify({ url: 'not a url' }) })).status).toBe(
+      400,
+    )
     expect((await send(socketPath, { method: 'GET' })).status).toBe(404)
     expect((await send(socketPath, { path: '/v1/other', body: '{}' })).status).toBe(404)
     const huge = JSON.stringify({ url: A, pad: 'x'.repeat(CONTROL_BODY_MAX_BYTES) })

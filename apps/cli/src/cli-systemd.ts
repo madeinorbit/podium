@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { userUnitDir } from '@podium/runtime/topology-migration'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
+import { CHILD_REFUSAL_EXIT_CODE } from '@podium/runtime/parent-supervisor'
 import {
   defaultInstancePorts,
   instanceCommandName,
@@ -348,6 +349,61 @@ WantedBy=default.target
 export function renderDaemonUnit(opts: DaemonRenderOptions = {}): string {
   const c = context(opts)
   return generatedUnit(c.profile === 'dev' ? renderDevDaemon(c) : renderPackagedDaemon(c, opts))
+}
+
+export interface TunnelUnitOptions {
+  instanceId?: string
+  /** Absolute path of the podium-tunnel binary (native/podium-tunnel). */
+  binary: string
+  /** The local origin cloudflared forwards to, e.g. http://127.0.0.1:18787. */
+  origin: string
+  /** The server's control socket (serverControlSocketPath). */
+  socket: string
+}
+
+/** systemd ExecStart= quoting: double quotes, with `"` and `\` escaped and `%` doubled. */
+function execArg(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%')}"`
+}
+
+/**
+ * The OPT-IN quick-tunnel unit (POD-4640): podium-tunnel owns a cloudflared child,
+ * restarts it with backoff, and posts each new trycloudflare URL to the server's
+ * control socket.
+ *
+ * Its own unit, bound to nothing: a quick tunnel's URL only changes when cloudflared
+ * restarts, and the parent (with the server under it) restarts on every update and
+ * self-handover — so no PartOf/Requires on the parent, and a Podium restart leaves the
+ * tunnel and its URL alone. The default KillMode=control-group takes cloudflared down
+ * with the unit. Never part of {@link renderSystemdFiles}: only `podium tunnel enable`
+ * writes it.
+ */
+export function renderTunnelUnit(opts: TunnelUnitOptions): string {
+  const c = context(opts.instanceId === undefined ? {} : { instanceId: opts.instanceId })
+  const exec = [opts.binary, '--origin', opts.origin, '--socket', opts.socket]
+    .map(execArg)
+    .join(' ')
+  return generatedUnit(`[Unit]
+Description=Podium quick tunnel (supervised cloudflared; tells the server each new URL)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PODIUM_INSTANCE=${c.instanceId}
+# cloudflared is found on this PATH.
+Environment=PATH=${USER_RUNTIME_PATH}
+ExecStart=${exec}
+# podium-tunnel restarts cloudflared itself; this only covers podium-tunnel dying.
+Restart=always
+RestartSec=5
+# 78: it can never succeed by restarting — the server refused the URL (PODIUM_PUBLIC_URL
+# owns it, or this box is not a server) or another podium-tunnel is already running.
+RestartPreventExitStatus=${CHILD_REFUSAL_EXIT_CODE}
+
+[Install]
+WantedBy=default.target
+`)
 }
 
 // There is no web-build unit any more (POD-1985). The server runs those builds

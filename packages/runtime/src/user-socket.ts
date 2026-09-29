@@ -11,9 +11,10 @@
  *
  * Used by the daemon's Codex hook socket and the server's control socket.
  */
+
+import { chmod, mkdir, rm } from 'node:fs/promises'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { createConnection } from 'node:net'
-import { chmod, mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { stateDir } from './config'
 import { instanceSocketRuntimeDir, linuxUnixSocketPathFits, resolveInstanceId } from './instance'
@@ -61,7 +62,10 @@ export function serverControlSocketPath(
   if ((opts.platform ?? process.platform) !== 'linux' || linuxUnixSocketPathFits(preferred)) {
     return preferred
   }
-  return join(instanceSocketRuntimeDir(opts.instanceId ?? resolveInstanceId(), root), 'control.sock')
+  return join(
+    instanceSocketRuntimeDir(opts.instanceId ?? resolveInstanceId(), root),
+    'control.sock',
+  )
 }
 
 /** An HTTP server listening on a user-only unix socket. */

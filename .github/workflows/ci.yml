@@ -356,6 +356,21 @@ jobs:
       - name: desktop shell rust tests
         run: bun run test:rust
 
+  # podium-tunnel (native/podium-tunnel, POD-4640): the opt-in quick-tunnel
+  # supervisor. Its integration tests run the real binary against a fake
+  # cloudflared and a fake control socket — std + libc only, so no system
+  # libraries and a short compile.
+  tunnel-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: bun rust
+      - name: podium-tunnel tests
+        run: bun run test:tunnel
+
   unit-tests:
     runs-on: ubuntu-latest
     env:

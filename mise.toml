@@ -27,3 +27,8 @@ bun = "1.4.2"
 zig = "0.16.0"
 "github:indygreg/apple-platform-rs" = { version = "apple-codesign/0.29.0", exe = "rcodesign" }
 "conda:pigz" = "2.8"
+# podium-tunnel (native/podium-tunnel, POD-4640): Rust, cross-linked with the pinned zig
+# through cargo-zigbuild (scripts/tunnel-cross.ts). Keep `rust` in step with the crate's
+# rust-toolchain.toml.
+rust = "1.96.1"
+"github:rust-cross/cargo-zigbuild" = "0.23.4"

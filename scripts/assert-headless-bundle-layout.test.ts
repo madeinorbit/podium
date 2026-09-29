@@ -141,6 +141,8 @@ function writeProductionTree(headless: string): string {
   mkdirSync(join(headless, 'systemd'), { recursive: true })
   writeFileSync(join(headless, 'podium-cli'), '#!/bin/sh\necho stub-cli\n')
   chmodSync(join(headless, 'podium-cli'), 0o755)
+  writeFileSync(join(headless, 'podium-tunnel'), '#!/bin/sh\necho stub-tunnel\n')
+  chmodSync(join(headless, 'podium-tunnel'), 0o755)
   writeFileSync(
     join(headless, 'podium'),
     '#!/bin/sh\nexport PODIUM_HOME="$DIR"\nexec "$DIR/podium-cli" "$@"\n',

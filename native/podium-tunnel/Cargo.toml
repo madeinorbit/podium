@@ -1,0 +1,22 @@
+[package]
+name = "podium-tunnel"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Keeps a Cloudflare quick tunnel running and tells the Podium server each new URL."
+publish = false
+
+[[bin]]
+name = "podium-tunnel"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+
+# Small, static and quiet: this runs for months as a supervisor of one child.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

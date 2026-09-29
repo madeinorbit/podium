@@ -108,7 +108,7 @@ echo "tarball sha256=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
 #
 # packages/runtime/src/update-install.ts joins the staged dir with 'headless', so
 # any other archive root silently installs nothing. The file set itself is what
-# scripts/build-bun.ts writes: podium-cli, the launcher shim, both client sites,
+# scripts/build-bun.ts writes: podium-cli, podium-tunnel, the launcher shim, both client sites,
 # the packaged systemd units, VERSION, LICENSE, NOTICE, THIRD-PARTY-NOTICES.md.
 # POD-2501's spike packed none of systemd/LICENSE/NOTICE and wrote stub
 # index.html files; a gate that only checks that subset accepts a malformed
@@ -117,6 +117,7 @@ listing="$(tar -tzf "$TARBALL")" || fail "cannot list $TARBALL"
 for want in \
   headless/podium-cli \
   headless/podium \
+  headless/podium-tunnel \
   headless/VERSION \
   headless/LICENSE \
   headless/NOTICE \
@@ -137,6 +138,8 @@ tar -xzf "$TARBALL" -C "$WORK" || fail "cannot extract $TARBALL"
 CLI="$WORK/headless/podium-cli"
 [ -x "$CLI" ] || fail "extracted headless/podium-cli is missing or not executable"
 [ -x "$WORK/headless/podium" ] || fail "extracted headless/podium launcher is not executable"
+[ -x "$WORK/headless/podium-tunnel" ] \
+  || fail "extracted headless/podium-tunnel (the opt-in quick-tunnel supervisor) is missing or not executable"
 grep -q 'PODIUM_HOME' "$WORK/headless/podium" \
   || fail "extracted headless/podium is not the launcher shim (no PODIUM_HOME)"
 [ -s "$WORK/headless/VERSION" ] || fail "extracted headless/VERSION is empty"

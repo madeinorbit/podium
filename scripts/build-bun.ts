@@ -60,21 +60,22 @@ import {
   isDevChannelVersion,
 } from '../packages/protocol/src/update/dev-version.js'
 import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
-import { buildVendoredHost, hostSupported } from '../packages/pty/src/host-bin.js'
 import {
   bunVersion,
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
+import { buildVendoredHost, hostSupported } from '../packages/pty/src/host-bin.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
 import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
-import { crossBuildHost } from './host-cross'
 import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigestFromSites,
 } from './client-build-root-digest'
+import { crossBuildHost } from './host-cross'
 import { resolvePigz, tarCompressArgs } from './parallel-gzip'
+import { buildLocalTunnel, crossBuildTunnel, TUNNEL_BINARY } from './tunnel-cross'
 import {
   type ClientBuildEvidence,
   isClientBuildEvidence,
@@ -804,6 +805,32 @@ export function packageHeadlessForFreshClients(
             }
           }
           chmodSync(bundledCli, 0o755)
+
+          // podium-tunnel (POD-4640): the opt-in quick-tunnel supervisor `podium tunnel
+          // enable` installs. A separate Rust binary beside podium-cli, NOT embedded: it
+          // runs as its own long-lived service, so it is exec'd from the bundle directly.
+          // A release (spec) cross-builds it and must have it; a local build uses the
+          // host's cargo and ships without it when there is none. Windows has no quick
+          // tunnel service.
+          if (!win) {
+            const tunnel = spec ? crossBuildTunnel(spec.platform, { root }) : buildLocalTunnel()
+            if (tunnel) {
+              const bundledTunnel = `${headless}/${TUNNEL_BINARY}`
+              const stagedTunnel = `${bundledTunnel}.new-${process.pid}`
+              try {
+                cpSync(tunnel, stagedTunnel)
+                chmodSync(stagedTunnel, 0o755)
+                renameSync(stagedTunnel, bundledTunnel)
+              } finally {
+                rmSync(stagedTunnel, { force: true })
+              }
+              console.log(`[build-bun] ${TUNNEL_BINARY} <- ${tunnel}`)
+            } else {
+              console.log(
+                `[build-bun] ${TUNNEL_BINARY}: no cargo here; this local bundle ships without it`,
+              )
+            }
+          }
         },
       ),
   )

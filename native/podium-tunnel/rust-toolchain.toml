@@ -1,0 +1,5 @@
+# Keep the channel in step with `rust` in the repository's mise.toml. Cross targets are
+# NOT listed here, so a plain `cargo test` does not download four standard libraries;
+# scripts/tunnel-cross.ts adds the one it builds.
+[toolchain]
+channel = "1.96.1"

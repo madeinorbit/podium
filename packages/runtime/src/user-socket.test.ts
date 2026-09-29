@@ -49,7 +49,9 @@ describe('listenUserSocket', () => {
   it('never steals a socket another process is still listening on', async () => {
     const path = join(dir, 'live.sock')
     const first = await listenUserSocket(path, (_req, res) => res.end('first'), 'test socket')
-    await expect(listenUserSocket(path, (_req, res) => res.end('second'), 'test socket')).rejects.toMatchObject({
+    await expect(
+      listenUserSocket(path, (_req, res) => res.end('second'), 'test socket'),
+    ).rejects.toMatchObject({
       code: 'EADDRINUSE',
       message: expect.stringContaining('test socket already in use'),
     })
@@ -70,6 +72,8 @@ describe('serverControlSocketPath', () => {
     expect(path.startsWith('/tmp/pd-')).toBe(true)
     expect(path.endsWith('/control.sock')).toBe(true)
     // Same inputs, same answer: the server and its callers derive it independently.
-    expect(serverControlSocketPath({ root: deep, instanceId: 'default', platform: 'linux' })).toBe(path)
+    expect(serverControlSocketPath({ root: deep, instanceId: 'default', platform: 'linux' })).toBe(
+      path,
+    )
   })
 })
