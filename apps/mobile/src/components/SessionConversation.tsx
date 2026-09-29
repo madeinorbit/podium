@@ -47,6 +47,7 @@ import { PullToRefreshBoundary } from './PullToRefreshBoundary'
 import { SessionActionCard } from './SessionActionCard'
 import { MobileSessionLifecycle } from './SessionLifecycle'
 import { TaskSheet } from './TaskSheet'
+import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { type PendingTurn, TranscriptList } from './TranscriptList'
 import { type SentAttachment, useComposerAttachments } from './useComposerAttachments'
 import { WorkingMark } from './WorkingMark'
@@ -60,7 +61,6 @@ import { WORKING_MARK_DOTS, workingMarkRadius } from './WorkingMark.shared'
  * detail of sending. Keeping it here means a retry re-sends what was refused
  * instead of reconstructing it.
  */
-type LocalPendingTurn = PendingTurn & { wire: string }
 
 /** The session as the operator has just left it — the answered offer removed,
  *  so every derivation over it agrees with what is on screen. */
@@ -344,27 +344,7 @@ export function SessionConversation({
     conversationController.getSnapshot,
   )
   const pendingTurns = useMemo<LocalPendingTurn[]>(
-    () =>
-      conversation.bubbles.map((bubble) => ({
-        id: bubble.id,
-        text: bubble.text,
-        wire: bubble.wire,
-        ...(bubble.files ? { files: bubble.files as readonly SentAttachment[] } : {}),
-        ...(bubble.state === 'failed'
-          ? { failed: bubble.error ?? (bubble.notice ? 'not delivered' : 'not sent') }
-          : {}),
-        ...(bubble.retryable === false ? { retryable: false } : {}),
-        ...(bubble.state === 'interrupted' ? { interrupted: true } : {}),
-        ...(bubble.state === 'queued' ? { queued: true } : {}),
-        ...(bubble.state === 'sent' || bubble.state === 'unknown'
-          ? { delivery: bubble.state }
-          : {}),
-        ...(bubble.notice ? { notice: bubble.notice } : {}),
-        ...(bubble.retractable ? { retractable: true } : {}),
-        ...(bubble.state === 'retracted' ? { retracted: true } : {}),
-        ...(bubble.retract ? { retract: bubble.retract } : {}),
-        ...(bubble.retractError ? { retractError: bubble.retractError } : {}),
-      })),
+    () => conversation.bubbles.map(pendingTurnOf),
     [conversation.bubbles],
   )
   const justSent = conversation.justSent

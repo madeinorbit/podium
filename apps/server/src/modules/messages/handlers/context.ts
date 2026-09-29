@@ -385,6 +385,7 @@ export class MailAccess {
       body: m.body,
       createdAt: m.createdAt,
       deliveryStatus: m.deliveryStatus,
+      ...(m.held ? { held: m.held } : {}),
       ...(m.queuePosition !== undefined ? { queuePosition: m.queuePosition } : {}),
       ackedBy: m.ackedBy,
       deliveredAt: m.deliveredAt,

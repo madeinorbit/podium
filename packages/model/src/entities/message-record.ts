@@ -16,7 +16,7 @@
 
 import { z } from 'zod'
 import { SessionIdField } from '../ids/brands'
-import { MessageDeliveryStatus } from './message-delivery'
+import { type MessageDeliveryStatus, MessageDeliveryStatusOnWire } from './message-delivery'
 import { TranscriptItemRef } from './transcript'
 
 /** What a bubble shows of one attachment. The stored reference (with its path
@@ -38,14 +38,17 @@ export const MessageRecordWire = z.object({
   body: z.string(),
   attachments: z.array(MessageRecordAttachment).optional(),
   createdAt: z.string(),
-  status: MessageDeliveryStatus,
+  /** Where its delivery stands. Read tolerantly (POD-4885): a status a newer
+   *  server added reads as still on its way, so this build keeps the row
+   *  instead of refusing it and fetching it again forever. */
+  status: MessageDeliveryStatusOnWire,
   /** Why a failed message will not be delivered, when the server knows. */
   reason: z.string().optional(),
   /** The entry it became in the agent's history, once the machine named it. */
   transcriptItem: TranscriptItemRef.optional(),
   /** When its sender asked to retract it (POD-4776). Beside `cancelled` the
    *  retract won; beside a pending status it is still on its way to the agent's
-   *  machine; beside `typing`/`typed`/`confirmed` it came too late. */
+   *  machine; beside `typing`/`typed`/`accepted`/`confirmed` it came too late. */
   retractRequestedAt: z.string().optional(),
   /** When its sender dismissed its notice. The feed lets a dismissed message
    *  go, so only a read by id (`mail.records`, POD-4811) ever carries it. */

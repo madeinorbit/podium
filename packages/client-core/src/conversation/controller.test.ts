@@ -140,6 +140,61 @@ describe('conversation controller over synced records', () => {
     controller.dispose()
   })
 
+  it('says the agent has a message its program accepted, still on its way, too late to retract (POD-4885)', () => {
+    const synced = records([record('msg-a', { status: 'accepted' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-a', state: 'accepted', retractable: false },
+    ])
+    expect(controller.getSnapshot().bubbles[0]).not.toHaveProperty('notice')
+    synced.set([
+      record('msg-a', { status: 'accepted', retractRequestedAt: '2026-09-29T10:00:01.000Z' }),
+    ])
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-a', state: 'accepted', retract: 'too-late' },
+    ])
+    // It can still be the latest delivery a Stop is aimed at: the agent has it.
+    expect(controller.getSnapshot().interruptMessageId).toBe('msg-a')
+    controller.dispose()
+  })
+
+  // THE OLD-CLIENT CASE, ONE RELEASE ON (POD-4885). A record read by id comes
+  // without a schema, so a status a newer server added reaches the projection
+  // as it is — this build meeting `accepted` before it knew it was the same
+  // case. It must read as still on its way, and nothing may throw.
+  it('reads a record whose status this build does not know as on its way, and does not throw', () => {
+    const unknownToThisBuild = 'a-status-from-a-newer-server' as MessageRecordWire['status']
+    const synced = records([record('msg-new-status', { status: unknownToThisBuild })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    expect(() => controller.start()).not.toThrow()
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-new-status', state: 'sent', retractable: false },
+    ])
+    synced.set([
+      record('msg-new-status', {
+        status: unknownToThisBuild,
+        retractRequestedAt: '2026-09-29T10:00:01.000Z',
+      }),
+    ])
+    expect(controller.getSnapshot().bubbles).toMatchObject([
+      { deliveryId: 'msg-new-status', state: 'sent', retract: 'too-late' },
+    ])
+    controller.dispose()
+  })
+
   it('shows no bubble for a record first seen confirmed — that is history', () => {
     const controller = createConversationController({
       sessionId: asSessionId('s1'),

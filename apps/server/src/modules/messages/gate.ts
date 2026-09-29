@@ -23,6 +23,7 @@
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type {
   IssueId,
+  MessageHeld,
   MessageRecordWire,
   SessionId,
   SessionMeta,
@@ -153,6 +154,9 @@ export interface MessageWire {
   createdAt: string
   /** Where delivery stands, forward-only (`MessageDelivery` in @podium/model). */
   deliveryStatus: MessageDeliveryStatus
+  /** How the agent program holds it, once it took it (`accepted`, POD-4885):
+   *  `memory` or `durable`. Absent until then. */
+  held?: MessageHeld
   /** Current 1-based position in the recipient session FIFO, read at projection time. */
   queuePosition?: number
   ackedBy: string | null

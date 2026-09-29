@@ -96,6 +96,7 @@ import type {
   IssueId,
   MachineId,
   MessageDeliveryStatus,
+  MessageHeld,
   MutationId,
   RepoId,
   SessionId,
@@ -2134,6 +2135,11 @@ export const messages = sqliteTable(
     // the table of allowed moves, and every write goes through the store's
     // guarded move. Only moves forward.
     deliveryStatus: text('delivery_status').$type<MessageDeliveryStatus>().default('stored').notNull(),
+    // HOW THE AGENT PROGRAM HOLDS AN `accepted` MESSAGE [POD-4885]: `memory`
+    // (lost if the program exits) or `durable` (survives a restart; no timer
+    // may move it to `unknown`). Set with the move to `accepted` and kept
+    // after it; null for a message the program never reported taking.
+    deliveryHeld: text('delivery_held').$type<MessageHeld>(),
     deliveredAt: text('delivered_at'),
     deliveredTo: text('delivered_to').$type<SessionId>(),
     ackedBy: text('acked_by'),
@@ -2211,8 +2217,10 @@ export const messages = sqliteTable(
     // admits.
     check(
       'messages_delivery_status',
-      sql`delivery_status IN ('stored','dispatched','reached-machine','typing','typed','confirmed','cancelled','failed','expired','unknown')`,
+      sql`delivery_status IN ('stored','dispatched','reached-machine','typing','typed','accepted','confirmed','cancelled','failed','expired','unknown')`,
     ),
+    // `MESSAGE_HELD` in @podium/model, held equal by the same test.
+    check('messages_delivery_held', sql`delivery_held IN ('memory','durable')`),
     // A recipient's rows by where delivery stands, oldest first: the mailbox and
     // pending-count reads.
     index('idx_messages_recipient_delivery').on(

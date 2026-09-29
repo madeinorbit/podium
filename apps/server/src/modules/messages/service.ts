@@ -532,9 +532,14 @@ export type SendFailure =
   | { kind: 'never-typed'; cause: QueueDrainAbandonedReason; detail?: string }
 
 const SESSION_GONE: SendFailure = { kind: 'session-gone' }
-/** Typed, about to be, or lost track of: past the point where "not delivered"
- *  can be claimed. */
-const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set(['typing', 'typed', 'unknown'])
+/** Typed, about to be, taken by the program, or lost track of: past the point
+ *  where "not delivered" can be claimed. */
+const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set([
+  'typing',
+  'typed',
+  'accepted',
+  'unknown',
+])
 const NOBODY_HOLDS_IT = 'Nobody else holds that conversation; do not wait for a reply.'
 
 /** The task a person (or a job) started a session with (POD-4846): its

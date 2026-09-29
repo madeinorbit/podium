@@ -79,6 +79,7 @@ import { Icon } from './Icon'
 import { ChevronDown, ChevronRight, ChevronUp, X } from './icons'
 import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
+import { pendingFailure, pendingMetaLine } from './pending-delivery'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
 import { ToolDescription } from './ToolDescription'
@@ -129,9 +130,10 @@ export interface PendingTurn {
   /** The server holds it, waiting its turn or for the session to wake. */
   queued?: boolean
   /** Where delivery stands once the send left the phone (POD-4764): handed on
-   *  toward the agent (`sent`), or nobody can say whether it arrived
+   *  toward the agent (`sent`), taken by the agent program but not yet in its
+   *  history (`accepted`, POD-4885), or nobody can say whether it arrived
    *  (`unknown`). Absent while it is still leaving. */
-  delivery?: 'sent' | 'unknown'
+  delivery?: 'sent' | 'accepted' | 'unknown'
   /** The server holds this message and says it did not (or may not have)
    *  arrived: the way on is "Send again" — its words back in the composer, as a
    *  NEW message — or Dismiss, never a resend of this one. */
@@ -145,14 +147,6 @@ export interface PendingTurn {
   retract?: 'requested' | 'too-late'
   /** Why this phone's retract of it did not go through. */
   retractError?: string
-}
-
-/** What the line under a bubble says about a retract of it (POD-4776). */
-export function retractLine(turn: Pick<PendingTurn, 'retracted' | 'retract'>): string | undefined {
-  if (turn.retracted) return 'retracted'
-  if (turn.retract === 'requested') return 'retracting…'
-  if (turn.retract === 'too-late') return 'too late to retract — already typed'
-  return undefined
 }
 
 function shortTime(ts: string | undefined): string | undefined {
@@ -617,7 +611,7 @@ const TranscriptFeedRow = memo(
       }
       case 'pending': {
         const turn = row.pendingTurn
-        const failed = turn.failed ?? (turn.delivery === 'unknown' ? 'not confirmed — it may or may not have arrived' : undefined)
+        const failed = pendingFailure(turn)
         content = (
           <View style={styles.userWrap}>
             <View
@@ -698,27 +692,22 @@ const TranscriptFeedRow = memo(
               )}
             </View>
             <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
-              {failed
-                ? turn.delivery === 'unknown'
-                  ? 'not confirmed'
-                  : turn.notice !== undefined
-                    ? 'not delivered'
-                    : 'not sent'
-                : (retractLine(turn) ??
-                  (turn.interrupted
-                    ? 'interrupted'
-                    : turn.queued
-                      ? 'waiting its turn'
-                      : turn.delivery === 'sent'
-                        ? 'sent'
-                        : 'sending…'))}
+              {pendingMetaLine(turn)}
             </Text>
           </View>
         )
         break
       }
       case 'question':
-        content = <AskQuestionCard key={liveQuestion ? answerInteractionId : row.item.id} interactionId={liveQuestion ? answerInteractionId : undefined} item={row.item} live={liveQuestion} onAnswer={onAnswer} />
+        content = (
+          <AskQuestionCard
+            key={liveQuestion ? answerInteractionId : row.item.id}
+            interactionId={liveQuestion ? answerInteractionId : undefined}
+            item={row.item}
+            live={liveQuestion}
+            onAnswer={onAnswer}
+          />
+        )
         break
       case 'receipt':
         content = <AskReceipt item={row.item} />
@@ -1390,11 +1379,11 @@ export function TranscriptList({
             streaming={streaming && liveRow === undefined && row.key === latestAssistantKey}
             assetContext={assetContext}
             onAnswer={answerRow}
-                answerInteractionId={answerInteractionId}
+            answerInteractionId={answerInteractionId}
             onRefPress={onRefPress ? pressRowRef : undefined}
             onRetryPending={onRetryPending ? retryPendingRow : undefined}
-                onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
-                onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
+            onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
+            onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
             onRetractPending={onRetractPending ? retractPendingRow : undefined}
             onHold={setActionText}
           />

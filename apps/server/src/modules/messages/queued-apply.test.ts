@@ -53,6 +53,10 @@ describe('authorize lets an unknown row be forwarded again as a recovery [POD-47
     expect(await authorizing('unknown').authorize('m1')).toEqual({ ok: true })
   })
 
+  it('admits an accepted row: the program holds it, so its next forward is a recovery too (POD-4885)', async () => {
+    expect(await authorizing('accepted').authorize('m1')).toEqual({ ok: true })
+  })
+
   it('still refuses a row that is already typed or ended', async () => {
     expect(await authorizing('typed').authorize('m1')).toEqual({
       ok: false,

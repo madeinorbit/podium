@@ -27,6 +27,9 @@ import { messages as messagesTable } from './schema'
 
 const DROP = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_drop-legacy-message-status'))
 const DELIVERY = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_message-delivery-status'))
+/** Up to and including the drop: what this migration left, before any later
+ *  one (POD-4885's `accepted`) changed the table again. */
+const THROUGH_DROP = DRIZZLE_MIGRATIONS.slice(0, DROP + 1)
 
 const LEGACY_INDEXES = [
   'idx_messages_expiry_explicit',
@@ -155,7 +158,7 @@ function legacyDatabase(): SqlDatabase {
 const withoutStatus = ({ status: _status, ...rest }: Record<string, unknown>) => rest
 
 describe('the drop-legacy-message-status migration', () => {
-  it('sits after the delivery-status migration, and is the newest one touching messages', () => {
+  it('sits after the delivery-status migration', () => {
     expect(DELIVERY).toBeGreaterThan(0)
     expect(DROP).toBeGreaterThan(DELIVERY)
   })
@@ -166,8 +169,8 @@ describe('the drop-legacy-message-status migration', () => {
     expect(before).toHaveLength(PRE_DELIVERY.length + DUAL_WRITE.length)
     expect(before[0]).toHaveProperty('status')
 
-    const applied = runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    expect(applied).toEqual(DRIZZLE_MIGRATIONS.slice(DROP).map((m) => m.name))
+    const applied = runDrizzleMigrations(db, THROUGH_DROP)
+    expect(applied).toEqual([DRIZZLE_MIGRATIONS[DROP]?.name])
 
     const after = allRows(db)
     // Exactly the old rows minus the one column: nothing lost, nothing rewritten.
@@ -203,7 +206,7 @@ describe('the drop-legacy-message-status migration', () => {
     expect(before.checks).toHaveProperty('messages_check_10')
     expect(Object.keys(before.indexes)).toEqual(expect.arrayContaining(LEGACY_INDEXES))
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, THROUGH_DROP)
     const after = shape(db)
 
     const { status: _column, ...columns } = before.columns

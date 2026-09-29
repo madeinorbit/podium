@@ -1,12 +1,20 @@
 import {
   type HarnessRef,
   MessageDelivery,
+  type MessageDeliveryStatus,
   type SessionId,
   type TranscriptItemRef,
 } from '@podium/model'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import type { MessageDeliveryDeps } from './service'
+
+/** Statuses whose row the daemon already had: forwarding one again is a
+ *  recovery it answers by id, never a second typing. */
+const FORWARDED_AGAIN_AS_RECOVERY: ReadonlySet<MessageDeliveryStatus> = new Set([
+  'unknown',
+  'accepted',
+])
 
 /** Durable apply-time guard shared by the session inbox and message delivery. */
 export class QueuedMessageApply {
@@ -30,12 +38,13 @@ export class QueuedMessageApply {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
     // Typing it must still be a move the lifecycle allows: not ended, not
-    // already typed. An `unknown` row is the one exception: it was forwarded
-    // and its answer lost, so the next forward is a RECOVERY the daemon answers
-    // by id without retyping (POD-4775) — refusing it here would dead-letter a
-    // message that may well have arrived.
+    // already typed. Two exceptions, both rows the daemon was already given:
+    // `unknown` (forwarded, its answer lost) and `accepted` (the agent program
+    // holds it, not yet in its history — POD-4885). Their next forward is a
+    // RECOVERY the daemon answers by id without retyping (POD-4775); refusing
+    // it here would dead-letter a message that arrived, or may well have.
     if (
-      message.deliveryStatus !== 'unknown' &&
+      !FORWARDED_AGAIN_AS_RECOVERY.has(message.deliveryStatus) &&
       !MessageDelivery.canMove(message.deliveryStatus, 'typed')
     ) {
       return { ok: false, reason: `message is ${message.deliveryStatus}` }

@@ -14,6 +14,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
+import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
@@ -182,6 +183,10 @@ export function queuedDeliveryLabel(
 export function retractCaption(retract: 'requested' | 'too-late'): string {
   return retract === 'requested' ? 'retracting…' : 'too late to retract — already typed'
 }
+
+/** What a bubble says when the agent program has the message but its history
+ *  does not yet (POD-4885). */
+export const ACCEPTED_CAPTION = MESSAGE_ACCEPTED_LINE
 
 /** Take a message back. Shown only while its status still lets a retract win. */
 function RetractButton({ onRetract }: { onRetract: () => void }) {
@@ -606,11 +611,21 @@ export function TranscriptFeed({
                   </div>
                 ) : p.state !== 'failed' &&
                   p.state !== 'unknown' &&
-                  (waiting || p.retractable || p.retract || p.retractError) ? (
+                  (waiting ||
+                    p.state === 'accepted' ||
+                    p.retractable ||
+                    p.retract ||
+                    p.retractError) ? (
                   <div className="msg-foot" data-side="right">
                     {p.retract ? (
                       <span className="transcript-delivery" data-testid="retract-state">
                         {retractCaption(p.retract)}
+                      </span>
+                    ) : p.state === 'accepted' ? (
+                      // The agent program has it, its history not yet (POD-4885):
+                      // a fact the breath at the tail cannot say, so it gets words.
+                      <span className="transcript-delivery" data-testid="delivery-accepted">
+                        {ACCEPTED_CAPTION}
                       </span>
                     ) : waiting ? (
                       <span className="transcript-delivery">
