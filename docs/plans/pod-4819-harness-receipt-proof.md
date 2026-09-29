@@ -56,8 +56,9 @@ POD-4766 / POD-4777, designed by the operator; §9 lists only what this phase ne
 1. **One id per message**, minted by the sender, carried to every hop (Phase A).
 2. **Statuses move forward only**, one list for server, daemon and drivers (§4).
 3. **A yes comes only from the agent program's own record** of the message. **A no comes only
-   from direct evidence** (§6). Hooks, protocol replies and agent states are at most `accepted`;
-   screen readings and agent states decide only *when to look*.
+   from direct evidence** (§6). Protocol replies are at most `accepted`. Hooks are not receipt
+   proof for terminal agents at all: terminal receipts come from the program's history only, and
+   hooks serve turn tracking. Screen readings and agent states decide only *when to look*.
 4. **Never guess.** When more than one message could match a signal, none is credited.
 5. **A timer moves a message only to `unknown`**, never to `failed` or `confirmed`, and never a
    message the program holds durably (§4). Proof that arrives later still moves it forward.
@@ -95,9 +96,8 @@ POD-4766 / POD-4777, designed by the operator; §9 lists only what this phase ne
 - A status may be skipped when a program has no signal for it (several have no `accepted`, §7).
 - New moves: `typed → accepted`; `accepted → confirmed | failed | unknown`; every move into
   `confirmed` from before `typed` may also go into `accepted`.
-- **`failed → confirmed`, only on an exact id match** (our id, or the program's own id for our
-  call), recorded as a contradiction that raises the self-check alarm (§6.3). This changes Phase
-  A's final statuses: `failed` stays final for every other move.
+- **`failed` stays final.** A `failed` message later found by an exact id match keeps its status;
+  the contradiction is recorded by the self-check alarm (§6.3, POD-4894). (Decided 2026-09-29.)
 - **Details, not statuses:** what proved it; how it was matched (our id, the program's id, order
   plus text); the transcript entry and the program's ids (POD-4774, POD-4841); the failure cause;
   the mode actually used; "accepted by the program" when an `accepted` message went `unknown`.
@@ -155,13 +155,17 @@ session, under the terminal write call, incremented by every foreign write and b
 writer lease (`host.c:602-616`). No Enter parsing. It only observes; it never blocks anything. It is
 saved with each message (§9).
 
-**Rule**, for message M, with L the last prompt entry before M's position:
+**Rule** (decided 2026-09-29), for message M:
 
-- **Order credit** needs the counter unchanged from the moment L was written to the moment the
-  daemon reads the first prompt entry E after M's position (reader lag covered by taking the
-  counter a bounded interval before L was read). Then E is ours if its text equals M within the
-  program's tolerance → `confirmed`, matched by order. If the text does not agree, nothing is
-  credited: M goes `unknown` and the self-check alarm records a gap.
+- **Order credit** needs all of: the counter unchanged from the moment M's typing started to the
+  moment the daemon reads the first prompt entry E after M's position; E's text equal to M within
+  the program's tolerance; and no other open message with the same text. Then E is ours →
+  `confirmed`, matched by order. If the text does not agree, nothing is credited: M goes `unknown`
+  and the self-check alarm records a gap.
+- **Accepted residual:** a person's own prompt with *identical* text, submitted before M and still
+  held by the program when M was typed, would be credited to M. It needs the program to hold a
+  queued prompt while the daemon believed it idle, and the same text; the simpler anchor is worth
+  that case.
 - **Anything else gets no order credit**: the counter changed, the window spans a daemon restart,
   or the session runs on the abduco fallback, which anyone can type into unseen
   (`packages/pty/src/durable-process.ts:198-215`). Text alone never credits. M waits for §5.4.
@@ -195,7 +199,7 @@ non-empty input box are Phase D's (`docs/plans/pod-4821-phase-d-handoff.md`). Ph
 | N1 | A **final** refusal: the message is dropped from every queue and will not be typed (`unsupported`, `session_ended`, `staging_failed`, `invalid_value`, an explicit drop). A temporary refusal (`busy`, `needs_user`, `lease_held`) changes nothing: the daemon retries it (`delivery-queue.ts:221-233`). POD-4839 checks every refusal path writes nothing first. | every driver | `refused` |
 | N2 | The program refused **our request** in an explicit reply that records nothing. **Not** a "no": a model error (the message stays recorded), OpenCode v2's 409 (means *already recorded*), a timeout or a dropped connection. | Codex app-server JSON-RPC errors; OpenCode v1/v2 400/404 | `rejected-by-agent` |
 | N2b | The program recorded that it **dropped** the message. | Claude terminal: `queue-operation remove` with `reason: dropped_by_hook`, or a `blocked by hook` system record with no `user` record. Grok ACP: `turn_completed` cancelled, `HookDenied` | `dropped-by-agent` |
-| N3 | The program keeps our id or gave us its own, says through its own protocol that no turn is open, and our id is neither in its history nor in any of its pending queues. Needed only where it does not ignore a repeat (§3.8). | Codex app-server: no turn open **and** our id not in `thread/queue/list` | `not-recorded` |
+| N3 | The program keeps our id or gave us its own, says through its own protocol that no turn is open, and our id is not in its history. Needed only where it does not ignore a repeat (§3.8). | Codex app-server: no turn open and no item with our `clientId` in `thread/read` (Podium does not use Codex `thread/queue`; if Phase C adopts it, "not in `thread/queue/list`" is added) | `not-recorded` |
 | N4 | The program's process exited, and its history, including durable pending queues, read to the end after the exit, has nothing for the message after the position. Records that only name a dead prompt (Grok's resume writes `turn_completed interrupted` for it) and text-less rows (OpenCode) count as nothing. N4 is about the conversation: the model may have seen the prompt once before the crash (Claude, *run*). | Claude, Codex terminal, Grok terminal (on `updates.jsonl`), OpenCode v1 and terminal. **Not** Codex app-server queue items or OpenCode v2 admissions: they survive | `agent-exited` |
 
 A further "no", `not-submitted`, comes from Phase D when our text was left in a terminal's input box
@@ -223,12 +227,12 @@ lists signals that look like proof and are not.
 
 | Program · transport | Our id | `accepted` (proposed) | `confirmed` (proposed) | Proven "no" | Resend same id | Not proof |
 |---|---|---|---|---|---|---|
-| **Claude · terminal** 2.1.284 | No (text only) | `UserPromptSubmit` matching our message (idle: before the record; busy: at Enter with the *running* turn's `prompt_id`, sometimes deferred to take-in with its own); busy also `queue-operation enqueue` with our text | `user` record with `promptSource` `typed`/`queued`, or `queued_command` with `commandMode: prompt`, `origin.kind: human` (idle +157–824 ms) | N2b (`dropped_by_hook`, `blocked by hook`); N4 | — | the hook, `history.jsonl`, `enqueue`, the model answering |
+| **Claude · terminal** 2.1.284 | No (text only) | idle: none; busy: `queue-operation enqueue` with our text (a hook may still drop it: N2b) | `user` record with `promptSource` `typed`/`queued`, or `queued_command` with `commandMode: prompt`, `origin.kind: human` (idle +157–824 ms) | N2b (`dropped_by_hook`, `blocked by hook`); N4 | — | the hook, `history.jsonl`, `enqueue`, the model answering |
 | **Claude · SDK** 2.1.284 | Yes: line `uuid` | `command_lifecycle queued` with our uuid (+2–32 ms) | transcript record with `uuid` = ours, or `queued_command.source_uuid` = ours (+103–322 ms) | N4 | **Safe**: a repeat is skipped, a lost line resent runs once | `queued`/`started`, the replay echo, `cancelled`/`is_error` (an HTTP 400 left it recorded) |
 | **Codex · app-server** 0.155.0 | Yes: `clientUserMessageId` on `turn/start`, `turn/steer`, `thread/queue/add` | `turn/start` reply when idle (a `turn/start` while busy is silently a steer returning the running turn's id); `turn/steer` reply (in memory, lost on interrupt, stop or kill: POD-4849); `thread/queue/add` reply (durable) | `item/completed userMessage` with `clientId` = ours (+213–239 ms) | N2 (JSON-RPC errors record nothing); N3 with the queue check | **Never**: every repeat runs again | the steer reply, `UserPromptSubmit` |
 | **Codex · terminal** 0.155.0 | No (Codex mints a `client_id` only in the rollout) | none | rollout `item_completed` `UserMessage` (+189–384 ms) | N4 | — | `task_started`, `history.jsonl`, `UserPromptSubmit` (fires at the record, with the turn id) |
 | **Grok · ACP** 1.0.44 | Yes: `session/prompt` `_meta.promptId`, kept as the turn id on every update | `_x.ai/queue/changed` naming ours (+3–22 ms warm) | `updates.jsonl` `user_message_chunk` (written before the model call; no `promptId`), bound by the driver at the turn's first output (POD-4837) | N2b (`HookDenied`) | **Never**: a repeat runs again; the driver checks the history first (POD-4837) | `hook_execution` (only with a hook configured), the reply (end of turn), a 402 error (recorded) |
-| **Grok · terminal** 1.0.44 | No (session id only) | idle: `UserPromptSubmit` (+42–270 ms, Grok's `promptId`); busy: none — Grok's queue is invisible and lost on exit | `updates.jsonl` `user_message_chunk` (+115–464 ms), bound to `promptId` by the `hook_execution` record before it; not `hideFromScrollback` auto-wakes | N4 on `updates.jsonl` | — | the hook, `prompt_history.jsonl`, resume's `turn_completed interrupted`, anything in `chat_history.jsonl` |
+| **Grok · terminal** 1.0.44 | No (session id only) | none (busy: Grok's queue is invisible and lost on exit) | `updates.jsonl` `user_message_chunk` (+115–464 ms), bound to `promptId` by the `hook_execution` record before it; not `hideFromScrollback` auto-wakes | N4 on `updates.jsonl` | — | the hook, `prompt_history.jsonl`, resume's `turn_completed interrupted`, anything in `chat_history.jsonl` |
 | **OpenCode · HTTP v1** 1.18.33 | Yes: `messageID` and text part `id` | none (the 204 comes before storage: a kill after it lost the message) | the text part row with our part id (+39–395 ms warm), never the message row alone | N2 (400/404); N4 | **Only with both ids fixed and the same text** (another text overwrites the stored one) | the 204, a text-less message row |
 | **OpenCode · HTTP v2** 1.18.33 | Yes: `id` | 200 admission (+24–105 ms; durable) | `session.next.prompted` and the user row (idle +66–105 ms; `queue`: at turn end; `steer`: at step end) | N2 (400/404) | **Safe with the same text** (another text → 409); a resend starts a stranded admission | the 409, the message list before `prompted` |
 | **OpenCode · terminal** 1.18.33 | No (OpenCode mints every id) | none (stored at once, even when the screen says queued) | user message row with a text part (+27–227 ms) | N4 (a text-less row counts as nothing) | — | `prompt-history.jsonl`, a text-less row |
@@ -268,7 +272,7 @@ Per message, on disk before the first byte and kept until it is settled: our id,
 text, the position and time (§5.2), the foreign-write counter (§5.3), the program's ids once known,
 and the last status reached. After a restart the daemon watches again for every stored message that
 is `typing`, `typed` or `accepted`, or `unknown` within the maximum wait, and re-checks the program's
-durable pending queues (Codex `thread/queue`, OpenCode v2 admissions). The normal history re-read
+durable pending queues (OpenCode v2 admissions). The normal history re-read
 matches them by id (§5.1); order credit is not given across a restart. Where the program ignores a
 repeat (§7), recovery is a resend under the same id.
 
@@ -298,11 +302,11 @@ To do (filed 2026-09-29; hard on Claude Code Opus 5.5 high, easy on Codex gpt-6.
 | POD-4884 | Bug: a direct send's throw read as refused | easy | — |
 | POD-4879 | Grok's missing `StopCancelled` hook | easy | — |
 
-Held until the operator decides the proposed simplifications: the order-plus-text matching rule
-(its anchor), and the terminal receipts per program (Claude, Codex, Grok, OpenCode terminals —
-whether hooks stay in receipt proof). Also pending that decision, and not built by the issues
-above: `failed → confirmed` on an exact id (POD-4885 keeps `failed` final; adding the move later
-is small), and Codex `thread/queue` handling (Podium does not use that transport today).
+Decided 2026-09-29 (the operator asked the design session to settle the open questions):
+hooks are out of terminal receipt proof (turn tracking only); the order rule uses the simple
+anchor (§5.3); `failed` stays final (contradictions go to POD-4894); Codex `thread/queue` belongs
+to Phase C; N3 needs no queue check. Filed with that: POD-4905 (terminal receipts from the
+history, with order-plus-text matching).
 
 Upstream: Claude's queued-prompt `prompt_id` behaviour may be worth reporting to Claude Code.
 
@@ -330,3 +334,7 @@ The measurements (POD-4834, 2026-09-29) then changed: a model error is not a "no
 `unknown` by a timer; within one history the position wins over timestamps; a program-recorded drop
 is a "no" (N2b); hooks are at most `accepted` everywhere; and the README's Claude idle order (the
 record written before the hook) was wrong — the hook comes first.
+
+The design session then settled the open questions (2026-09-29, delegated by the operator): hooks
+out of terminal receipt proof; the simple order anchor with its one accepted residual; `failed`
+stays final; Codex `thread/queue` to Phase C; N3 without a queue check.
