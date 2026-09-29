@@ -36,5 +36,36 @@ describe('pod-4800: send queued across daemon restart', () => {
     // with no durable row and nothing forwarded on reattach.
     expect(sent.disposition).not.toBe('dead_letter')
     expect(sent.ok).toBe(true)
+
+    // Durable custody: the inbox FIFO holds the row while the daemon is away.
+    const queued = await o.store.sync.listQueuedMessages(sessionId)
+    expect(queued).toHaveLength(1)
+    expect(queued[0]?.text).toBe('are you there')
+
+    // The ledger row stays queued (not dead-lettered) for the same send.
+    const messageId = (sent as { message?: { id?: string } }).message?.id ?? (sent as { id?: string }).id
+    if (typeof messageId === 'string') {
+      expect((await o.store.messages.getMessage(messageId))?.status).toBe('queued')
+    }
+  })
+
+  it('resumeAndSend to a reconnecting session also queues instead of dead-lettering', async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    expect((await o.meta(sessionId)).status).toBe('reconnecting')
+
+    const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'wake up' })
+    expect(woken.disposition).not.toBe('dead_letter')
+    expect(woken.ok).toBe(true)
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
   })
 })

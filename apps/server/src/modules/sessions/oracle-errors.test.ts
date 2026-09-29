@@ -230,7 +230,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     expect(o.daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
-  it(`${MUST_NOT_CHANGE}: both send paths distinguish an unreachable machine from authorization refusal`, async () => {
+  it(`${MUST_NOT_CHANGE}: both send paths queue across a daemon restart instead of dead-lettering (POD-4800)`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     // AWAITED, because the bind's live flip is a queued session write. Since
@@ -240,7 +240,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // the row 'live' again with no daemon behind it. The detach itself still
     // drops the row to 'reconnecting' synchronously (machine-reconciler
     // `onDetached`); the fixture has to let the bind finish first for that to
-    // be the state under test. Nothing about the refusal below changed.
+    // be the state under test.
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
@@ -250,6 +250,9 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       geometry: { cols: 80, rows: 24 },
     })
     // The machine drops off: no daemon socket, so nothing can reach the PTY.
+    // A machine being briefly UNREACHABLE is transport state (POD-4800): the
+    // durable row stays queued and is forwarded on reconnect. Dead-lettering
+    // here lost a message sent during a 3-second daemon restart without a word.
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     expect((await o.meta(sessionId)).status).toBe('reconnecting')
     o.daemon.length = 0
@@ -257,17 +260,13 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })
     const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'anyone there' })
 
-    expect(sent).toEqual({
-      ok: false,
-      reason: 'machine unreachable',
-      disposition: 'dead_letter',
-    })
-    expect(woken).toEqual({
-      ok: false,
-      reason: 'machine unreachable',
-      disposition: 'dead_letter',
-    })
+    expect(sent.ok).toBe(true)
+    expect(sent.disposition).toBe('queued')
+    expect(woken.ok).toBe(true)
+    expect(woken.disposition).toBe('queued')
+    // Nothing typed while the daemon is away; the rows wait in the durable FIFO.
     expect(o.daemon.filter((m) => m.type === 'input')).toEqual([])
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
   })
 
   it(`${MUST_NOT_CHANGE}: an UNKNOWN machine id is a different message from an offline one`, async () => {

@@ -551,13 +551,12 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       if (ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
       return { ...UNADDRESSABLE_SEND }
     }
-    if (target.status === 'reconnecting') {
-      return {
-        ok: false,
-        reason: 'machine unreachable',
-        disposition: 'dead_letter',
-      }
-    }
+    // A machine being briefly UNREACHABLE is transport state, not a terminal
+    // target (POD-4800). The durable row stays queued and is forwarded on
+    // reconnect — that is custody, not a hold. Dead-lettering here is what
+    // lost a message sent during a 3-second daemon restart without a word.
+    // `reconnecting` therefore falls through to substrateSend, whose delivery
+    // treats it as live-like (queued via the durable inbox FIFO).
     if (target.archived) {
       return {
         ok: false,
