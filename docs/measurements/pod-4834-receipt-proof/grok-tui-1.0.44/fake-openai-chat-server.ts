@@ -4,6 +4,7 @@
 //   TOOLSLEEP -> one run_terminal_command `sleep 8` tool call
 //   SLOWTEXT  -> 20 words streamed 500 ms apart (10 s), no tool call
 //   ERRORNOW  -> HTTP 400 with an OpenAI error body
+// A compaction request ("produce a faithful, concise summary") -> a <summary> block with all 9 sections.
 // Anything else (and every request whose last message is a tool result) -> 3 quick words.
 import { appendFileSync } from 'node:fs'
 const LOG = process.env.FAKE_LOG!
@@ -39,8 +40,9 @@ Bun.serve({
     const lastUser = [...messages].reverse().find((m: any) => m.role === 'user')
     const lastUserText = textOf(lastUser?.content)
     const lastIsUser = last?.role === 'user'
-    let mode: 'quick' | 'tool' | 'slow' | 'error' = 'quick'
-    if (lastIsUser && lastUserText.includes('ERRORNOW')) mode = 'error'
+    let mode: 'quick' | 'tool' | 'slow' | 'error' | 'summary' = 'quick'
+    if (lastIsUser && textOf(last?.content).includes('produce a faithful, concise summary')) mode = 'summary'
+    else if (lastIsUser && lastUserText.includes('ERRORNOW')) mode = 'error'
     else if (lastIsUser && lastUserText.includes('TOOLSLEEP')) mode = 'tool'
     else if (lastIsUser && lastUserText.includes('SLOWTEXT')) mode = 'slow'
     if (mode === 'error') {
@@ -58,6 +60,10 @@ Bun.serve({
           chunk({ tool_calls: [{ index: 0, id: `call_fake${idx}`, type: 'function', function: { name: 'run_terminal_command', arguments: '' } }] })
           chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ command: 'sleep 8', description: 'wait eight seconds' }) } }] })
           chunk({}, 'tool_calls')
+        } else if (mode === 'summary') {
+          const sections = ['Primary Request and Intent', 'Key Technical Concepts', 'Files and Code Sections', 'Errors and Fixes', 'Problem Solving', 'All User Messages', 'Pending Tasks', 'Current Work', 'Optional Next Step']
+          chunk({ content: `<summary>\n${sections.map((t, i) => `${i + 1}. ${t}: fake summary section ${i + 1} for measurement.`).join('\n')}\n</summary>` })
+          chunk({}, 'stop')
         } else {
           const words = mode === 'slow' ? 20 : 3
           for (let i = 1; i <= words; i++) {
