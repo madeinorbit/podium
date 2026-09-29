@@ -155,7 +155,7 @@ describe('Rust release host selection (H5)', () => {
   it.skipIf(!hasCompiler)(
     'keeps an existing C socket on its running host after Rust becomes preferred',
     async () => {
-      const c = ensureManagedHost()?.bin
+      const c = resolveHostBin({ fresh: true })
       expect(c).toBeDefined()
       expect(hostBinFeatures(c as string)).toBe(1)
       const session = await spawnHostAgent({
