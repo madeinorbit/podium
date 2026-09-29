@@ -19,7 +19,8 @@ Deliberate, each for a reason; everything else matches host.c byte for byte.
 **Protocol**
 
 - **ERR 5 "input queue full".** The input queue toward a child that is not reading is
-  capped at 1 MiB (plus 64 bytes per queued write, so empty WRITEs are bounded too). A
+  capped at 16 MiB (plus 64 bytes per queued write, so empty WRITEs are bounded too): room
+  for any real burst to a child that reads slowly, a bound for one that has stopped. A
   WRITE past the cap is refused with ERR 5 and the connection keeps working. host.c
   queues without limit.
 - **An ERR that refuses a WRITE names it.** After the message it carries the write's

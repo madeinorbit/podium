@@ -272,10 +272,10 @@ fn writes_to_a_child_that_does_not_read_are_bounded_and_refused() {
     let before = status_kb(pid, "VmHWM");
 
     let chunk = vec![b'x'; 256 * 1024];
-    for id in 0..32u32 {
+    for id in 0..160u32 {
         let mut p = id.to_be_bytes().to_vec();
         p.extend_from_slice(&chunk);
-        w.send(&frame(C_WRITE, &p)); // 8 MiB in all
+        w.send(&frame(C_WRITE, &p)); // 40 MiB in all, past the 16 MiB cap
     }
     // Each refusal names its write: u16 code, u32 len, message, u32 write id.
     let mut refused = Vec::new();
@@ -287,8 +287,8 @@ fn writes_to_a_child_that_does_not_read_are_bounded_and_refused() {
         }
     }
     assert!(
-        refused.len() >= 20,
-        "only {} of 32 writes were refused",
+        refused.len() >= 90,
+        "only {} of 160 writes were refused",
         refused.len()
     );
     assert!(
@@ -296,13 +296,13 @@ fn writes_to_a_child_that_does_not_read_are_bounded_and_refused() {
         "each refusal names a different write, in order: {refused:?}"
     );
     assert!(
-        refused[0] >= 3,
+        refused[0] >= 60,
         "a write the queue had room for was refused: {refused:?}"
     );
-    assert!(refused.iter().all(|&id| id < 32));
+    assert!(refused.iter().all(|&id| id < 160));
     let grew = status_kb(pid, "VmHWM").saturating_sub(before);
     assert!(
-        grew < 8 * 1024,
+        grew < 24 * 1024,
         "the host grew by {grew} KiB queueing input"
     );
     assert!(alive(pid));

@@ -51,8 +51,11 @@ pub const DATA_CHUNK: usize = 32 * 1024;
 /// A client whose control queue holds more than a whole ring replay plus this is not reading.
 pub const MAX_OUTBUF_SLACK: usize = 1 << 20;
 /// Bytes (plus [`WRITE_OVERHEAD`] per write) the input queue toward the child
-/// may hold; a WRITE beyond it is refused with ERR_INPUT_FULL.
-pub const MAX_INPUT_QUEUE: usize = 1 << 20;
+/// may hold; a WRITE beyond it is refused with ERR_INPUT_FULL. Large enough for
+/// any real burst toward a child that is reading slowly (two 800 KB pastes
+/// must both land, as with host.c; POD-4847), small enough to bound a child
+/// that is not reading at all.
+pub const MAX_INPUT_QUEUE: usize = 16 << 20;
 /// What one queued write costs besides its bytes, so a flood of empty WRITEs
 /// is bounded too.
 pub const WRITE_OVERHEAD: usize = 64;
