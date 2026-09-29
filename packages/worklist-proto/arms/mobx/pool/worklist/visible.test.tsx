@@ -209,7 +209,7 @@ describe('visible collection and order (Mb1)', () => {
     }
   }, 300_000)
 
-  it('a rank change moves the one row, sorts nothing and commits only the moved row', async () => {
+  it('a rank change moves the one row, sorts nothing and redraws only the moved row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
@@ -239,8 +239,16 @@ describe('visible collection and order (Mb1)', () => {
       expect(counters.membershipFlips).toBe(0)
       expect(after.indexOf(target!)).toBeLessThan(before.indexOf(target!))
       expect(new Set(after)).toEqual(new Set(before))
-      // The pinned row redraws (its view's `band`/`pinned` moved); no other row commits.
-      expect([...mounted.log.counts.keys()]).toEqual([target])
+      // The pinned row redraws: its view's `band` and `pinned` moved, and a row
+      // DRAWS both (the pinned and snoozed looks; POD-4825's rule: a row redraws
+      // exactly when a field it draws changes). Since POD-4792 each lane is its
+      // own observer, so the row leaves its group's open lane and is mounted in
+      // the pinned section: a REMOUNT, which draws it with the new values, not
+      // a commit in place. The exact-commit fence counts a remount of a row
+      // visible before and after as a redraw (`changedViews`); so does this.
+      // No other row commits or remounts.
+      const redrawn = new Set([...mounted.log.counts.keys(), ...mounted.log.mounts.keys()])
+      expect([...redrawn]).toEqual([target])
       expect(after).toEqual(oracleOrder(ctx))
     } finally {
       mounted.unmount()
