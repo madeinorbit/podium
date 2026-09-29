@@ -7,6 +7,7 @@ import type {
   AccountId,
   Attribution,
   Geometry,
+  HarnessRefEntry,
   IssueColorSlot,
   IssueId,
   MachineComponent,
@@ -635,6 +636,11 @@ export interface MessageRow {
    *  message to its transcript item by — never the text. Absent until named;
    *  stays absent when the harness gave no way to identify the item. */
   transcriptItem?: TranscriptItemRef
+  /** The recipient agent program's own ids for this message (its turn id,
+   *  prompt id, the id it echoed back), as its machine reported them
+   *  [POD-4841]: how the message is found in that program's history later.
+   *  Absent until the first id; a list that only grows. */
+  harnessRef?: HarnessRefEntry[]
   /** When the sender dismissed the notice of a chat message that failed,
    *  expired or was lost track of [POD-4764]. A stamp beside the status, never a
    *  status: it only takes the message off every device's feed. */

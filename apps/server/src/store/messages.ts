@@ -21,6 +21,9 @@ import {
   type MessageDeliveryStatus,
   type MoveOutcome,
   type SessionId,
+  HarnessRef,
+  type HarnessRefEntry,
+  mergeHarnessRefs,
   type TranscriptItemRef,
 } from '@podium/model'
 import { type QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
@@ -173,9 +176,22 @@ function storedAttachments(value: unknown): MessageRow['attachments'] {
   }
 }
 
+/** The stored ids, or undefined when there are none or they cannot be read:
+ *  a lookup key the record can live without, so never a failed read. */
+function storedHarnessRef(value: unknown): HarnessRefEntry[] | undefined {
+  if (typeof value !== 'string') return undefined
+  try {
+    const parsed = HarnessRef.safeParse(JSON.parse(value))
+    return parsed.success && parsed.data.length > 0 ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function mapMessage(r: MessageSelect): MessageRow {
   const actor = storedActor(r)
   const attachments = storedAttachments(r.attachmentsJson)
+  const harnessRef = storedHarnessRef(r.harnessRefJson)
   return {
     id: r.id,
     threadId: r.threadId,
@@ -226,6 +242,7 @@ function mapMessage(r: MessageSelect): MessageRow {
           },
         }
       : {}),
+    ...(harnessRef ? { harnessRef } : {}),
     ...(r.noticeDismissedAt ? { noticeDismissedAt: r.noticeDismissedAt } : {}),
     ...(r.retractRequestedAt ? { retractRequestedAt: r.retractRequestedAt } : {}),
   }
@@ -971,6 +988,66 @@ export class MessagesRepository {
       'upsert',
     )
     return written.changes === 1
+  }
+
+  /**
+   * KEEP THE AGENT PROGRAM'S OWN IDS FOR THIS MESSAGE [POD-4841].
+   *
+   * A stamp beside the status, like the entry above, and a list that only
+   * grows: the ids already kept stay as they are and new ones are added once
+   * each, in the order learned ({@link mergeHarnessRefs}). Only for the push
+   * this report answers — never a row handed to another session — and never
+   * for a message withdrawn or expired before anything typed it. A failed or
+   * unknown message keeps them: finding it later is what they are for.
+   * Compare-and-set on the stored text, so two reports never lose each
+   * other's ids. Answers whether THIS call changed the list.
+   */
+  async recordHarnessRef(
+    id: string,
+    deliveredTo: SessionId,
+    harnessRef: HarnessRef,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const current = await this.db
+        .select({ harnessRefJson: messagesTable.harnessRefJson })
+        .from(messagesTable)
+        .where(eq(messagesTable.id, id))
+        .get()
+      if (!current) return false
+      const known = storedHarnessRef(current.harnessRefJson)
+      const merged = mergeHarnessRefs(known, harnessRef)
+      if (!merged || merged.length === (known?.length ?? 0)) return false
+      const stored = current.harnessRefJson ?? null
+      const written = await this.write(
+        async () =>
+          this.db
+            .update(messagesTable)
+            .set({ harnessRefJson: JSON.stringify(merged) })
+            .where(
+              and(
+                eq(messagesTable.id, id),
+                stored === null
+                  ? isNull(messagesTable.harnessRefJson)
+                  : eq(messagesTable.harnessRefJson, stored),
+                or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)),
+                notInArray(messagesTable.deliveryStatus, ['cancelled', 'expired']),
+              ),
+            )
+            .returning()
+            .all(),
+        'upsert',
+      )
+      if (written.changes === 1) return true
+      // Lost the race, or refused: a refusal reads the same row again and
+      // refuses again; a lost race merges with what the winner wrote.
+      const after = await this.db
+        .select({ harnessRefJson: messagesTable.harnessRefJson })
+        .from(messagesTable)
+        .where(eq(messagesTable.id, id))
+        .get()
+      if ((after?.harnessRefJson ?? null) === stored) return false
+    }
+    return false
   }
 
   /** → cancelled: withdrawn before it was typed — the daemon holding it said
