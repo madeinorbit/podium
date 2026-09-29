@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises'
 import { expect, type Page, test } from '@playwright/test'
-import { newSession, openApp, podium } from './_harness'
+import { newSession, openApp, openHome, podium } from './_harness'
 
 /**
  * Runtime click-through of the UX-batch-2026-06-30 changes against the REAL Live UI
@@ -123,16 +123,35 @@ test('#3/#4 code-block copy button + external links open in a new tab', async ({
 test('#16/#17 memory view: "Project processes" legend; hibernation note ahead of the process list', async ({
   page,
 }) => {
-  // STALE ENTRY (POD-4729): the breakdown button this clicks no longer renders
-  // on the POD-563 header chips. The panel assertions below are live; only the
-  // trigger needs rediscovery against a running app.
   await page.setViewportSize({ width: 1280, height: 900 })
-  await openApp(page)
+  // The topbar instrument is shell chrome: visible on home and workspace
+  // alike, so openHome is enough (openApp's workspace entry is a separate
+  // surface owned by POD-4733's openWorkspace work).
+  await openHome(page)
 
-  // Open the host memory breakdown from the health strip.
-  await page.locator('button[aria-label*="click for the breakdown"]').first().click()
+  // POD-563 entry: the desktop topbar renders one header-machine-chip per
+  // machine (HeaderHostIndicators, HostIndicators.tsx:188, aria
+  // '{host}; {mem}; {load}; …'). Hover (openOnHover) reveals the LoadPanel
+  // hover surface (.health-popover-machine); its footer jumps to the
+  // HostInfoView dialog. The dialog assertions below are unchanged.
+  const chip = page.locator('button.header-machine-chip').first()
+  await expect(chip).toBeVisible({ timeout: 15_000 })
+  await chip.hover()
+  const loadPanel = page.locator('.health-popover-machine')
+  try {
+    await expect(loadPanel).toBeVisible({ timeout: 5_000 })
+  } catch {
+    // Headless hover can miss the 80ms openOnHover window; a real click
+    // toggles the same popover (health-popover-mount control case).
+    await chip.click()
+    await expect(loadPanel).toBeVisible({ timeout: 10_000 })
+  }
+
+  // The hover panel is the readout; the dialog holds the guarded Memory tab.
+  await loadPanel.getByRole('button', { name: /connection/i }).click()
   const panel = page.locator('[aria-label="Host info"]')
   await expect(panel).toBeVisible({ timeout: 10_000 })
+  await panel.getByRole('tab', { name: 'Memory' }).click()
 
   // #17 — the legend says "Project processes", not the old "Projects".
   await expect(panel.getByText('Project processes', { exact: true })).toBeVisible({
