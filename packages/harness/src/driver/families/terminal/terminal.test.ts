@@ -690,7 +690,8 @@ describe("the program's own id from the proving hook (POD-4841)", () => {
   it('leaves it out for a send typed while a turn runs', async () => {
     const receipt = await createTerminalInjection(hooked('working').ports).deliver('ship it', {
       origin: 'human',
-      delivery: 'steer',
+      delivery: 'interrupt',
+      afterEsc: true,
     })
     expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
     expect(receipt).not.toHaveProperty('harnessRef')
