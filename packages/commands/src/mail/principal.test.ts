@@ -14,6 +14,7 @@
 import { asSessionId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  AUTO_CONTINUE_SENDER,
   deliversUnwrapped,
   exemptFromWakeCooldown,
   isHumanPrincipal,
@@ -57,6 +58,17 @@ describe('the unwrapped byte-faithful body belongs to a PERSON, not to a grade',
   it('a superagent does NOT get it: "you, automated" is not you typing', () => {
     expect(deliversUnwrapped(superagent(ada), 'message')).toBe(false)
     expect(deliversUnwrapped(agent('s1'), 'message')).toBe(false)
+  })
+})
+
+describe('the one server sender typed bare (POD-4846)', () => {
+  it("auto-continue's key press is delivered unwrapped, like the person it stands in for", () => {
+    expect(deliversUnwrapped(system(AUTO_CONTINUE_SENDER), 'message')).toBe(true)
+  })
+
+  it('every other system sender is wrapped', () => {
+    expect(deliversUnwrapped(system('steward'), 'notification')).toBe(false)
+    expect(deliversUnwrapped(system('lock-manager'), 'notification')).toBe(false)
   })
 })
 
