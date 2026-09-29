@@ -543,7 +543,33 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     onInitialPendingSettled,
   })
 
-  const restoredFailed = send.failedMessages
+  const restoredFailed = useMemo(() => {
+    if (!headless) return send.failedMessages
+    const restored = headlessTurn.restoredFailure
+    if (!restored || !restored.userText) return send.failedMessages
+    // The transcript echoed the prompt (a later retry ran): drop the
+    // restoration so one old failure cannot pin the thread forever — same
+    // rule as the phone's dropEchoedTurns.
+    const echoed = blocks.some((block) => {
+      const text = (block as { item?: { text?: unknown } }).item?.text
+      return typeof text === 'string' && text.trim() === restored.userText.trim()
+    })
+    if (echoed) return send.failedMessages
+    // A live failed bubble for the same words already covers it.
+    const liveCovered = send.pending.some(
+      (turn) => turn.text.trim() === restored.userText.trim() && turn.state === 'failed',
+    )
+    if (liveCovered) return send.failedMessages
+    return [
+      ...send.failedMessages,
+      {
+        id: `superagent-restored:${restored.at}`,
+        text: restored.userText,
+        at: restored.at,
+        failure: restored.error,
+      },
+    ]
+  }, [headless, headlessTurn.restoredFailure, send.failedMessages, send.pending, blocks])
 
   /**
    * DEAD-LETTER RETRY MATRIX — an action exists only when this snapshot has a
