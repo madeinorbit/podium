@@ -175,7 +175,7 @@ interface World {
       writtenAgoMs?: number | null
       /** More records delivered in the SAME delta, after this one — a reset is
        *  a batch, and a re-read carries the old turns and the new one together. */
-      then?: readonly EchoRecord[]
+      followedBy?: readonly EchoRecord[]
     },
   ): void
   observe(sessionId: SessionId, observation: Partial<AgentObservation>): void
@@ -415,7 +415,7 @@ function makeWorld(
         text,
         ...(options?.event ? { event: options.event } : {}),
       }
-      const items = [item, ...(options?.then ?? []).map(record)]
+      const items = [item, ...(options?.followedBy ?? []).map(record)]
       runtime.observe({
         type: 'transcriptDelta',
         sessionId,
@@ -1416,7 +1416,7 @@ describe('the echo floor', () => {
       reset: true,
       at: { fileId: FILE, offset: 0 },
       writtenAgoMs: 3_600_000,
-      then: [{ text: 'done', role: 'assistant', at: { fileId: FILE, offset: 40 }, writtenAgoMs: 3_590_000 }],
+      followedBy: [{ text: 'done', role: 'assistant', at: { fileId: FILE, offset: 40 }, writtenAgoMs: 3_590_000 }],
     })
     expect((await receipt).outcome).toBe('unverified')
   })
@@ -1431,7 +1431,7 @@ describe('the echo floor', () => {
       reset: true,
       at: { fileId: FILE, offset: 0 },
       writtenAgoMs: 3_600_000,
-      then: [
+      followedBy: [
         { text: 'done', role: 'assistant', at: { fileId: FILE, offset: 40 }, writtenAgoMs: 3_590_000 },
         { text: 'yes', at: { fileId: FILE, offset: 80 } },
       ],
@@ -1454,7 +1454,7 @@ describe('the echo floor', () => {
       reset: true,
       at: { fileId: FILE, offset: 0 },
       writtenAgoMs: null,
-      then: [{ text: 'yes', at: { fileId: FILE, offset: 40 }, writtenAgoMs: null }],
+      followedBy: [{ text: 'yes', at: { fileId: FILE, offset: 40 }, writtenAgoMs: null }],
     })
     // item-2 is the re-read of the old turn; item-3 is the new one.
     expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-3' } })
@@ -1479,7 +1479,7 @@ describe('the echo floor', () => {
       reset: true,
       at: { fileId: 'segment-two', offset: 0 },
       writtenAgoMs: 3_600_000,
-      then: [{ text: 'yes', at: { fileId: 'segment-two', offset: 10 } }],
+      followedBy: [{ text: 'yes', at: { fileId: 'segment-two', offset: 10 } }],
     })
     expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-4' } })
   })
