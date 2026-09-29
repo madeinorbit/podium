@@ -39,10 +39,10 @@ export function systemIssueNotice(
 /**
  * AUTO-CONTINUE IS A MESSAGE (POD-4846): the 'continue' the server types into
  * an errored agent, as one row from `system:auto-continue` per errored turn.
- * Typed bare — it is a key press standing in for the person, the one server
- * sender without an envelope (`deliversUnwrapped`) — with the `auto_continue`
- * input origin, so it neither clears a standing offer nor reads as the person
- * in the chat feed. `wait`: it only ever goes to a running session.
+ * Typed inside the short frame (POD-4868) — its id in the text, none of the
+ * rules for mail an agent answers — with the `auto_continue` input origin, so
+ * it neither clears a standing offer nor reads as the person in the chat.
+ * `wait`: it only ever goes to a running session.
  */
 export function autoContinueSender(
   messages: Pick<MessageDeliveryService, 'send'>,

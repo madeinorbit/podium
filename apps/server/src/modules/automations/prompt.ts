@@ -20,12 +20,14 @@ export type DeliverAutomationPrompt = (
 /**
  * AN AUTOMATION'S PROMPT IS A MESSAGE FROM ITS OWNER (POD-4846).
  *
- * The owner wrote the words, so the row is the operator's — typed without an
- * envelope, shown as the owner's own bubble — and it is attributed to the
+ * The owner wrote the words, so the row is the operator's, attributed to the
  * automation that delivered them (`actor: system automation:<id>`, on behalf of
  * the owner). The message service treats a person's words delivered by a job
- * as such: they do not count as the person acting on a standing offer, and a
- * failure is the run's to record, so no failure notice is mailed.
+ * as such: they are typed inside the short frame that names the automation
+ * (POD-4868), shown in the chat as Podium's rather than the owner's own bubble,
+ * they do not count as the person acting on a standing offer, and a failure is
+ * the run's to record, so no failure notice is mailed. This holds for a fresh
+ * run's first prompt too: the owner is not typing it.
  *
  * One id per run and target, so a repeated run stores and types it once.
  *

@@ -481,10 +481,14 @@ const isInitialPromptRow = (sessionId: SessionId, row: QueuedInboxMessage): bool
   row.id === initialPromptQueueId(sessionId) ||
   row.sourceMessageId === spawnPromptMessageId(sessionId)
 
-/** Mail from an agent (or the system), not a person typing: its sender is told
- *  by the ledger, its owner has nothing to act on, and its text never belongs
- *  in a person's composer (POD-4778). */
-const sentByAgent = (row: QueuedInboxMessage): boolean => row.inputOrigin === 'mail'
+/** A person typing: `human` (at the keyboard) or `controller` (a person's
+ *  chat, the owner's own messages). Nothing else is — an agent's mail, a
+ *  steward nudge, a system job's message, an automation's prompt, auto-continue
+ *  (POD-4844). A message not sent by a person is its sender's to hear about
+ *  through the ledger, its owner has nothing to act on, and its text never
+ *  belongs in a person's composer (POD-4778). */
+const sentByAPerson = (row: QueuedInboxMessage): boolean =>
+  row.inputOrigin === 'human' || row.inputOrigin === 'controller'
 
 /** The one send refusal the server owns: an archived session is retired by a
  * person. Everything about what the agent is doing — a stored `errored` phase,
@@ -1374,7 +1378,7 @@ export class SessionInbox {
         reason,
       })
     }
-    if (sentByAgent(row)) return
+    if (!sentByAPerson(row)) return
     const ownerUserId = await this.deps.ownerOf(sessionId)
     await this.deps.attention.promptFailed({
       ...(ownerUserId ? { ownerUserId } : {}),
@@ -1444,7 +1448,7 @@ export class SessionInbox {
       // agent's never lands in a person's box.
       const reason = event.reason ?? "the agent's machine could not deliver it"
       const cause = event.cause === 'not-accepting-input' ? 'never-live' : 'delivery-failed'
-      if (!sentByAgent(row)) {
+      if (sentByAPerson(row)) {
         const draft = this.deps.draftText?.(sessionId)
         if (draft === undefined || draft === '' || draft === row.text) {
           await this.deps.setSessionDraft?.({ sessionId, text: row.text })
@@ -1457,7 +1461,7 @@ export class SessionInbox {
         reason,
         cause,
       })
-      if (!sentByAgent(row) || cause === 'never-live') {
+      if (sentByAPerson(row) || cause === 'never-live') {
         const ownerUserId = await this.deps.ownerOf(sessionId)
         await this.deps.attention.promptFailed({
           ...(ownerUserId ? { ownerUserId } : {}),
@@ -1591,7 +1595,7 @@ export class SessionInbox {
     if (!(await this.deps.queue.list(session.sessionId)).some((row) => row.id === head.id)) return
     this.reportedPromptFailures.add(head.id)
     const draft = this.deps.draftText?.(session.sessionId)
-    if (!sentByAgent(head) && (draft === undefined || draft === '' || draft === head.text)) {
+    if (sentByAPerson(head) && (draft === undefined || draft === '' || draft === head.text)) {
       await this.deps.setSessionDraft?.({ sessionId: session.sessionId, text: head.text })
     }
     const ownerUserId = await this.deps.ownerOf(session.sessionId)
