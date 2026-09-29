@@ -266,6 +266,9 @@ pub struct Screen {
     /// A held sequence outgrew HOLD_MAX and was fed: `fed` is not a ground point
     /// until the parser returns to ground.
     overflowed: bool,
+    /// A 1x1 grid parked in the alternate screen's place while a picture
+    /// reads the primary one (see `picture`).
+    spare: Grid<Cell>,
 }
 
 impl Screen {
@@ -289,6 +292,7 @@ impl Screen {
             fed: 0,
             held: Vec::new(),
             overflowed: false,
+            spare: Grid::new(1, 1, 0),
         }
     }
 
@@ -376,10 +380,12 @@ impl Screen {
         let mut cuts = Vec::new(); // where history lines may be dropped from
         let alt = self.term.mode().contains(TermMode::ALT_SCREEN);
         if alt {
-            // The primary grid is private while the alternate screen is up.
-            // swap_alt() out of it keeps both grids; swapping back resets the
-            // alternate grid, so it is restored from a copy.
-            let alt_grid = self.term.grid().clone();
+            // The primary grid is private while the alternate screen is up;
+            // swap_alt() reaches it. Swapping back in resets whatever grid is
+            // parked as the alternate one, so the spare is parked there in
+            // the alternate grid's place, and the alternate grid is put back
+            // after. Nothing is copied.
+            std::mem::swap(self.term.grid_mut(), &mut self.spare);
             self.term.swap_alt();
             write_grid(self.term.grid(), Some(&mut cuts), &mut link, out);
             // The primary cursor and its pen: entering the alternate screen
@@ -388,7 +394,7 @@ impl Screen {
             cup(out, c.point.line.0 + 1, c.point.column.0 + 1);
             sgr(out, &c.template, &mut link);
             self.term.swap_alt();
-            *self.term.grid_mut() = alt_grid;
+            std::mem::swap(self.term.grid_mut(), &mut self.spare);
             out.extend_from_slice(b"\x1b[?1049h\x1b[H");
             write_grid(self.term.grid(), None, &mut link, out);
         } else {
