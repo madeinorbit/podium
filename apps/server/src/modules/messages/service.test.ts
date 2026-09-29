@@ -23,6 +23,7 @@ import { captureLogs } from '../../test-support/capture-logs'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metasAsFacts } from '../../test-support/session-facts'
 import type { IssueService } from '../issues/service'
+import type { QueuedRetract } from '../sessions/inbox'
 import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
 import { INLINE_BODY_MAX, sanitizeBody, TURN_CLOSE_RULE } from './render'
@@ -190,6 +191,14 @@ interface HarnessOpts {
   prefix?: string
   /** Source ids still physically waiting in SessionInbox's durable PTY queue. */
   queuedSourceIds?: Set<string>
+  /** The session inbox's answer to a retract (POD-4776); absent = no queue
+   *  holds the message. Given the service, so it can report a withdrawal the
+   *  way the inbox does. */
+  retractQueued?: (
+    svc: MessageDeliveryService,
+    sessionId: SessionId,
+    sourceMessageId: string,
+  ) => Promise<QueuedRetract>
   /** Current physical FIFO ordinal for an injected message-ledger row. */
   queuedMessagePosition?: (
     sessionId: SessionId,
@@ -274,6 +283,8 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       ...(opts?.queuedMessagePosition ? { queuedMessagePosition: opts.queuedMessagePosition } : {}),
       hasQueuedMessage: async (_sessionId, sourceMessageId) =>
         opts?.queuedSourceIds?.has(sourceMessageId) ?? false,
+      retractQueuedMessage: async (sessionId, sourceMessageId) =>
+        (await opts?.retractQueued?.(svc, sessionId, sourceMessageId)) ?? 'not-queued',
       interruptText: async (i) => {
         interrupted.push(i)
         return { ok: true, queued: true }
@@ -1546,11 +1557,21 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
-  it('a queued operator message stays retractable until the PTY drain applies it', async () => {
+  /** The session inbox's answer when the daemon holding the row agreed: the
+   *  row is withdrawn and the service is told, as `SessionInbox.withdrawn` does. */
+  const withdrawnByDaemon =
+    (queuedSourceIds?: Set<string>) =>
+    async (svc: MessageDeliveryService, _sessionId: SessionId, id: string): Promise<QueuedRetract> => {
+      queuedSourceIds?.delete(id)
+      await svc.onQueuedInputWithdrawn(id)
+      return 'cancelled'
+    }
+
+  it('a retract the daemon agrees to cancels the message; the drain cannot apply it later', async () => {
     const queuedSourceIds = new Set<string>()
     const { svc, store } = await harness(
       [session({ sessionId: asSessionId('s1'), status: 'hibernated' })],
-      { queuedSourceIds },
+      { queuedSourceIds, retractQueued: withdrawnByDaemon(queuedSourceIds) },
     )
     const sent = await svc.send(
       { kind: 'operator' },
@@ -1565,14 +1586,52 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     queuedSourceIds.add(sent.message.id)
     svc.onSessionIdle(asSessionId('s1'))
     expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('dispatched')
-    expect((await svc.cancel(sent.message.id)).deliveryStatus).toBe('cancelled')
+    const retracted = await svc.cancel(sent.message.id)
+    expect(retracted.deliveryStatus).toBe('cancelled')
+    expect(retracted.retractRequestedAt).toEqual(expect.any(String))
     await svc.onQueuedInputApplied(sent.message.id, asSessionId('s1'))
     expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('cancelled')
   })
 
+  // POD-4776: the server never says `cancelled` for a message it handed on
+  // unless the daemon holding it agreed.
+  it.each([
+    ['too late: the daemon had started typing', 'too-late', 'typing'],
+    ['no answer: the machine is away', 'waiting', 'dispatched'],
+    ['no queue holds it any more', 'not-queued', 'dispatched'],
+  ] as const)('a retract with %s leaves the status to the daemon and stamps the request', async (_label, answer, status) => {
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1'), agentState: WORKING })], {
+      retractQueued: async (service, sessionId, id) => {
+        if (answer === 'too-late') await service.onQueuedInputTyping(id, sessionId)
+        return answer
+      },
+    })
+    const sent = await svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'on its way' },
+    )
+    expect(sent.message.deliveryStatus).toBe('dispatched')
+    const retracted = await svc.cancel(sent.message.id)
+    expect(retracted.deliveryStatus).toBe(status)
+    expect(retracted.retractRequestedAt).toEqual(expect.any(String))
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe(status)
+  })
+
+  it('a message no queue holds and nothing handed on is cancelled at once: only the server had it', async () => {
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1'), agentState: WORKING })], {
+      queueText: async () => ({ ok: false, reason: 'machine unreachable' }),
+    })
+    const sent = await svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'never left' },
+    )
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('stored')
+    expect((await svc.cancel(sent.message.id)).deliveryStatus).toBe('cancelled')
+  })
+
   it('cancels the named held operator chat message for an interrupted session', async () => {
     const target = session({ sessionId: asSessionId('s1'), agentState: WORKING })
-    const { svc, store } = await harness([target])
+    const { svc, store } = await harness([target], { retractQueued: withdrawnByDaemon() })
     const first = await svc.send(
       { kind: 'operator' },
       {
@@ -1599,7 +1658,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
 
   it('native interrupt fallback cancels the newest held operator chat message', async () => {
     const target = session({ sessionId: asSessionId('s1'), agentState: WORKING })
-    const { svc, store } = await harness([target])
+    const { svc, store } = await harness([target], { retractQueued: withdrawnByDaemon() })
     const first = await svc.send(
       { kind: 'operator' },
       { to: { kind: 'session', id: target.sessionId }, body: 'older' },
