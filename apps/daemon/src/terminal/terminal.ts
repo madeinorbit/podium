@@ -44,9 +44,11 @@ export interface TerminalEvents {
    * stated it (WELCOME, RESIZED). Fired once at attach with the size the
    * connection already holds — WELCOME usually arrives before the Terminal
    * exists — and then on every RESIZED. Never fired by an ask, and never on a
-   * backend that cannot read its size back.
+   * backend that cannot read its size back. `birth` is true on the FIRST size
+   * this Terminal states (whichever of the two paths delivers it) and false on
+   * every later one (POD-4771).
    */
-  onSize?(size: Geometry): void
+  onSize?(size: Geometry, birth: boolean): void
 }
 
 /**
@@ -78,6 +80,8 @@ export class Terminal {
 
   private readonly unwire: Array<() => void> = []
   private settled = false
+  /** Has this Terminal stated a size yet? The first one is its birth. */
+  private born = false
 
   private constructor(
     attachment: DurableAttachment,
@@ -108,7 +112,10 @@ export class Terminal {
     if (events.onSize && attachment.onSize) {
       const onSize = events.onSize
       this.unwire.push(attachment.onSize((size) => {
-        if (!this.settled) onSize(size)
+        if (this.settled) return
+        const birth = !this.born
+        this.born = true
+        onSize(size, birth)
       }))
     }
   }
@@ -128,7 +135,10 @@ export class Terminal {
     // The WELCOME a spawn or reattach awaited has already stated the size: say
     // it once now, through the same event every later RESIZED takes.
     const size = attachment.size?.()
-    if (size && events.onSize) events.onSize(size)
+    if (size && events.onSize) {
+      terminal.born = true
+      events.onSize(size, true)
+    }
     return terminal
   }
 

@@ -402,18 +402,26 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'geometryApplied': {
-        // THE DAEMON REPORTED THE KERNEL'S SIZE (rule 3, POD-4771). Only a
-        // change is news. The terminal writes it and broadcasts the `geometry`
-        // frame, and the ROW follows through the volatile seam, because
-        // `SessionMeta.geometry` is what the next mount constructs at. That
-        // seam is coalesced and captured in the flush, never written inline:
-        // the DB copy stays lazy.
-        const current = this.sessions.get(msg.sessionId)?.terminal.geometry
-        if (current && (current.cols !== msg.geometry.cols || current.rows !== msg.geometry.rows)) {
-          this.ports.mutateSessionView(msg.sessionId, (session) => {
-            session.terminal.applyDaemonGeometry(msg.geometry)
-          })
+        // THE DAEMON REPORTED THE KERNEL'S SIZE (rule 3, POD-4771). A change
+        // is written and broadcast by the terminal, and the ROW follows through
+        // the volatile seam, because `SessionMeta.geometry` is what the next
+        // mount constructs at. That seam is coalesced and captured in the
+        // flush, never written inline: the DB copy stays lazy.
+        //
+        // A BIRTH (a Terminal's first size: a client TUI opening, a pty spawned
+        // or re-adopted) acts as a bind — it resets what the server last asked
+        // for and reconciles, re-driving an ask the daemon dropped while there
+        // was no terminal. An ordinary report never reconciles.
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        const current = session.terminal.geometry
+        const changed = current.cols !== msg.geometry.cols || current.rows !== msg.geometry.rows
+        const apply = (s: Session): void => {
+          if (msg.birth === true) s.terminal.bind(msg.geometry)
+          else s.terminal.applyDaemonGeometry(msg.geometry)
         }
+        if (changed) this.ports.mutateSessionView(msg.sessionId, apply)
+        else if (msg.birth === true) apply(session)
         break
       }
       case 'bind': {

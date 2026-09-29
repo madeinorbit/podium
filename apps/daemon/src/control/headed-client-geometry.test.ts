@@ -132,7 +132,7 @@ function harness(over: { reportGeometry?: boolean; refuse?: boolean } = {}): Har
       hasClientMaster: () => false,
     },
     // Wired exactly as `host-runtime.ts` wires them (POD-4723).
-    sizeEvent: (sessionId, size) => onSessionSize(ctx, sessionId, size),
+    sizeEvent: (sessionId, size, birth) => onSessionSize(ctx, sessionId, size, birth),
     birthGeometry: (sessionId) => sessionModelSize(ctx, sessionId),
     frames: () => {},
     releaseStream: () => {},
@@ -245,5 +245,28 @@ describe('a later ask, once the client exists', () => {
     await h.drain()
     expect(reports(h.sent)).toEqual([LAST_KNOWN])
     expect(sessionSize(h.ctx, SESSION)).toEqual(LAST_KNOWN)
+  })
+})
+
+describe('the birth report is marked, so the server can treat it as a bind (POD-4771)', () => {
+  it('the client TUI opening reports with birth: true; a resize answer does not', async () => {
+    // A server-family session whose client TUI was closed: the server forwarded
+    // a box, this daemon dropped it (no terminal), and the TUI now opens at the
+    // last-known size. Only the birth mark lets the server re-drive that box —
+    // an ordinary report must never reconcile, or the rule could loop.
+    const h = harness()
+    trackSessionSize(h.ctx, SESSION, LAST_KNOWN.cols, LAST_KNOWN.rows)
+    await h.openNative()
+    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, cols: 96, rows: 27 })
+    await h.drain()
+    h.clients[0]?.state({ cols: 96, rows: 27 })
+
+    const marks = h.sent.flatMap((m) =>
+      m.type === 'geometryApplied' ? [{ ...m.geometry, birth: m.birth === true }] : [],
+    )
+    expect(marks).toEqual([
+      { ...LAST_KNOWN, birth: true },
+      { cols: 96, rows: 27, birth: false },
+    ])
   })
 })

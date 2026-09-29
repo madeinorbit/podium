@@ -355,6 +355,26 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
     }
   })
 
+  it('a BIRTH report acts as a bind: it re-drives a box the daemon dropped; a plain report does not', async () => {
+    // A client TUI that was not open: the box was forwarded (lastForwarded =
+    // BOX) and dropped by a daemon with no terminal. The TUI then opens at the
+    // last-known size, and its WELCOME arrives as a report marked `birth`.
+    const { reg, daemon, sessionId, session, client } = await watched()
+    session.terminal.handleViewportRequest(client.id, statement(BOX))
+    expect(resizes(daemon)).toEqual([BOX])
+    daemon.length = 0
+
+    // ARMED: the same size as a plain (RESIZED) report forwards nothing.
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, report(sessionId, GEO))
+    expect(resizes(daemon)).toEqual([])
+
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...report(sessionId, GEO),
+      birth: true,
+    } as DaemonMessage)
+    expect(resizes(daemon)).toEqual([BOX])
+  })
+
   it('a bind at the same size broadcasts nothing', async () => {
     const { reg, sessionId, client } = await watched()
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId, GEO))

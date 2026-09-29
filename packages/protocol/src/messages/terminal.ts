@@ -745,9 +745,23 @@ export const GeometryAppliedMessage = z.object({
    * unrecognised (or absent) cause read as `request` rather than failing the
    * whole frame, so once every server carries this line a daemon may send
    * `birth` and be understood. The geometry — the only part anything acts on —
-   * is never guessed.
+   * is never guessed. A birth is marked by {@link birth} instead: a server
+   * from before this `.catch` (2026-09-02..10) would drop a new cause value,
+   * but every server strips an unknown key.
    */
   cause: z.enum(['request']).catch('request'),
+  /**
+   * THIS SIZE IS A TERMINAL'S BIRTH (POD-4771): the first size the host stated
+   * for a Terminal the daemon just attached — a pty spawned or re-adopted, or a
+   * client TUI opening. A later RESIZED answer never carries it.
+   *
+   * The server treats a birth like a bind: it resets what it last asked for to
+   * this size and reconciles, which re-drives an ask the daemon dropped while
+   * the session had no terminal. An ordinary report never reconciles, so the
+   * rule cannot loop. Optional and additive: an older server strips it and
+   * reads a plain report, exactly as before.
+   */
+  birth: z.boolean().optional(),
 })
 export type GeometryAppliedMessage = z.infer<typeof GeometryAppliedMessage>
 

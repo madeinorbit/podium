@@ -788,11 +788,13 @@ export class SessionTerminal {
    * If the controller is visible and native, and its viewport differs from
    * {@link lastForwarded}: forward it, and remember it. Run on a viewport
    * statement, a controller change (including a `viewState` that reveals or
-   * hides a pane) and a bind — never on a report, so it cannot loop.
+   * hides a pane), a bind and a terminal's birth report — never on an ordinary
+   * report, so it cannot loop.
    *
    * Level-triggered, which is what repairs a lost ask without a timer or a
-   * retry: an ask lost on link A is restated by the browser's reconnect, and
-   * one lost on link B is re-driven by the daemon's next bind, which resets
+   * retry: an ask lost on link A is restated by the browser's reconnect; one
+   * lost on link B is re-driven by the daemon's next bind, and one the daemon
+   * dropped for want of a terminal by that terminal's birth report — both reset
    * {@link lastForwarded} to the size the pty really has. A refused ask is not
    * re-sent: nothing here reads the copy.
    */
@@ -952,7 +954,9 @@ export class SessionTerminal {
   }
 
   /**
-   * THE DAEMON BOUND THIS SESSION: a full statement after link B (re)connects.
+   * THE DAEMON BOUND THIS SESSION: a full statement after link B (re)connects,
+   * or a terminal's birth report (POD-4771: a client TUI opening, a pty spawned
+   * or re-adopted), which states the same fact.
    *
    * A bind with a size is a report (rule 3), and it resets {@link lastForwarded}
    * to that size, because that is what the pty really is now: any ask this

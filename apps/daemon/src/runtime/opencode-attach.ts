@@ -357,9 +357,10 @@ export interface OpencodeClientTerminalPorts {
   /**
    * THE SIZE EVENT (POD-4723): the client TUI's host stated its size (WELCOME,
    * RESIZED). The daemon's `onSessionSize` — flush, report, move the model,
-   * observers and composer. Absent in a harness built without a daemon.
+   * observers and composer. `birth` marks the Terminal's first size, which is
+   * the client TUI opening (POD-4771). Absent in a harness built without a daemon.
    */
-  sizeEvent?(sessionId: SessionId, size: Geometry): void
+  sizeEvent?(sessionId: SessionId, size: Geometry, birth: boolean): void
   /**
    * THE SIZE TO OPEN THIS SESSION'S CLIENT TERMINAL AT (POD-3809).
    *
@@ -594,7 +595,7 @@ export function createOpencodeClientTerminals(
       // The host states the size — WELCOME now, RESIZED later — and the daemon
       // reports it (POD-4723). A created client is born at `birth`; an adopted
       // one is at a size of its own, which WELCOME reads back.
-      onSize: (size) => ports.sizeEvent?.(sessionId, size),
+      onSize: (size, birth) => ports.sizeEvent?.(sessionId, size, birth),
       onFrame: (data) => {
         driverTiming.nativeCliStage(sessionId, kind, 'native_cli_first_output', {
           bytes: data.byteLength,

@@ -485,8 +485,13 @@ export function sessionSize(ctx: DaemonContext, sessionId: SessionId): Geometry 
  * EXPORTED for the client-terminal host (`runtime/opencode-attach.ts`), whose
  * Terminal states its size the same way, through a port.
  */
-export function onSessionSize(ctx: DaemonContext, sessionId: SessionId, size: Geometry): void {
-  reportSize(ctx, sessionId, size)
+export function onSessionSize(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  size: Geometry,
+  birth = false,
+): void {
+  reportSize(ctx, sessionId, size, birth)
   trackSessionSize(ctx, sessionId, size.cols, size.rows)
   ctx.observers.onResize?.(sessionId, size.cols, size.rows)
   ctx.composerEngine.onResize(sessionId, size.cols, size.rows)
@@ -513,7 +518,7 @@ export function wireBridge(
   // The screen is held (not fed) here — see the Terminal contract. Feeding
   // stays in the fan-out below, unchanged.
   const terminal = Terminal.attach(session, owned.screen(), {
-      onSize: (size) => onSessionSize(ctx, sessionId, size),
+      onSize: (size, birth) => onSessionSize(ctx, sessionId, size, birth),
       onFrame: (data) => {
         driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
           bytes: data.byteLength,

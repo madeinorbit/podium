@@ -51,12 +51,17 @@ export interface SizeReportPorts {
 
 /**
  * FLUSH, THEN REPORT the size the host just stated for this session. Called
- * from the size event only.
+ * from the size event only. `birth` marks a Terminal's first size.
  */
-export function reportSize(ports: SizeReportPorts, sessionId: SessionId, size: Geometry): void {
+export function reportSize(
+  ports: SizeReportPorts,
+  sessionId: SessionId,
+  size: Geometry,
+  birth = false,
+): void {
   ports.outputScheduler?.flushNow?.(sessionId)
-  ports.send(geometryAppliedFrame(sessionId, size))
-  log.debug('reported', { sessionId, cols: size.cols, rows: size.rows })
+  ports.send(geometryAppliedFrame(sessionId, size, birth))
+  log.debug('reported', { sessionId, cols: size.cols, rows: size.rows, birth })
 }
 
 /**
@@ -98,6 +103,17 @@ export function bindFrame(size: Geometry | undefined, facts: BindFacts): BindFra
  * value may be sent once servers carrying that tolerance are everywhere. See
  * `GeometryAppliedMessage.cause` for the whole of it.
  */
-export function geometryAppliedFrame(sessionId: SessionId, size: Geometry): GeometryAppliedFrame {
-  return { type: 'geometryApplied', sessionId, geometry: { cols: size.cols, rows: size.rows }, cause: 'request' }
+export function geometryAppliedFrame(
+  sessionId: SessionId,
+  size: Geometry,
+  birth = false,
+): GeometryAppliedFrame {
+  return {
+    type: 'geometryApplied',
+    sessionId,
+    geometry: { cols: size.cols, rows: size.rows },
+    cause: 'request',
+    // A Terminal's first size (POD-4771): the server treats it like a bind.
+    ...(birth ? { birth: true } : {}),
+  }
 }

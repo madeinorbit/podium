@@ -95,7 +95,9 @@ describe('only the size event reports', () => {
     expect(callers.sort()).toEqual(['control/applied-geometry.ts', 'control/session.ts'])
     const session = readFileSync(join(root, 'control/session.ts'), 'utf8')
     const body = session.slice(session.indexOf('export function onSessionSize('))
-    expect(body.slice(0, body.indexOf('\n}\n'))).toContain('reportSize(ctx, sessionId, size)')
+    expect(body.slice(0, body.indexOf('\n}\n'))).toContain(
+      'reportSize(ctx, sessionId, size, birth)',
+    )
   })
 })
 

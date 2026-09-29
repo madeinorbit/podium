@@ -1085,7 +1085,7 @@ export async function createDaemonHostRuntime(args: {
       sessions,
     // The one size event (POD-4723): a client TUI's host stating its size is
     // reported and moves the model exactly as a headed pty's does.
-    sizeEvent: (sessionId, size) => onSessionSize(ctx, sessionId, size),
+    sizeEvent: (sessionId, size, birth) => onSessionSize(ctx, sessionId, size, birth),
     // A client terminal never becomes a bridge, so the bridge path's resume
     // point never sees it (POD-3919 audit item 7). The same function, on the
     // same map, for the same kind of session — a host connection with a ring.
