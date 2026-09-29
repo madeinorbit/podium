@@ -106,11 +106,12 @@ function sessionWorld(
     transcript: {
       ...transcript(reads),
       readFileBytes: async () => {
-        const calls = vi.isMockFunction(engine.startTurn) ? engine.startTurn.mock.calls : []
+        const calls =
+          vi.isMockFunction(engine.startTurn) ? vi.mocked(engine.startTurn).mock.calls : []
         return new TextEncoder().encode(
           calls
             .map((call) => {
-              const input = call[0] as StartTurnInput
+            const input = call[0]
               return JSON.stringify({
                 type: 'user',
                 uuid: input.userMessageUuid,
