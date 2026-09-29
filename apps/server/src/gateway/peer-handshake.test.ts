@@ -38,6 +38,7 @@ import {
   type ResolvedMachineAuthenticator,
 } from './machine-directory'
 import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
+import { CAP_DELIVERY_ACCEPTED } from '@podium/protocol/daemon'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -251,6 +252,24 @@ describe('the daemon socket speaks the permanent envelope', () => {
       offeredCaps: [],
       acceptedCaps: [],
       reply: { caps: [] },
+    })
+  })
+
+  it('accepts the delivery-accepted capability, so a daemon may report `accepted` (POD-4886)', async () => {
+    const reg = await registryWithMachine()
+    const negotiated = await receiveDaemonFrame(
+      createDaemonAcceptor({ machines: reg.modules.machines, connectionId: 'caps-accepted' }),
+      frame({
+        type: 'peerHello',
+        v: DAEMON_WIRE_VERSION,
+        caps: [CAP_DELIVERY_ACCEPTED],
+        credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+      }),
+    )
+    expect(negotiated).toMatchObject({
+      kind: 'established',
+      acceptedCaps: [CAP_DELIVERY_ACCEPTED],
+      reply: { caps: [CAP_DELIVERY_ACCEPTED] },
     })
   })
 

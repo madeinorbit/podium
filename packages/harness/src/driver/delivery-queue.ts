@@ -77,11 +77,30 @@ export function withDeliveryQueue(
   }
   /**
    * TYPED, AND HELD BY THE PROGRAM WITHOUT A RECORD YET (POD-4849): rows whose
-   * receipt said `held`. Not delivered and not waiting: the next row may be
-   * typed, a retract is too late, and the row settles on what the driver says
-   * next — its entry, or that it will not be recorded.
+   * receipt said `held`, and how. Not delivered and not waiting: the next row
+   * may be typed, a retract is too late, and the row settles on what the
+   * driver says next — its entry, or, held in memory only, that it will not
+   * be recorded. A durable hold (POD-4886) settles only on its entry; `watch`
+   * ends the driver's renewed watch of one at teardown.
    */
-  const held = new Set<string>()
+  const held = new Map<string, { kind: 'memory' | 'durable'; watch?: AbortController }>()
+  /**
+   * THE SERVER HEARS THE HOLD (POD-4886): `accepted`, and how the program
+   * holds it, with the program's ids known so far. Not a settlement — nothing
+   * is recorded in `finished`, and the row's `delivered` or `failed` follows.
+   * Whether the server can read it is the daemon link's to decide.
+   */
+  function hold(id: string, kind: 'memory' | 'durable'): void {
+    held.set(id, { kind })
+    const ids = idsOf.get(id)
+    emit({
+      t: 'delivery',
+      rowId: id,
+      outcome: 'accepted',
+      held: kind,
+      ...(ids ? { harnessRef: ids } : {}),
+    })
+  }
   /** Rows the driver said it will not record before their receipt came back. */
   const unrecordedEarly = new Map<string, string>()
   const send = handle.send.bind(handle)
@@ -151,6 +170,10 @@ export function withDeliveryQueue(
    * here proves the model did not see it, and a retry could run it twice.
    */
   function unrecorded(id: string, reason: string): void {
+    // A DURABLE HOLD HAS NO SUCH END (POD-4886): the program keeps the message
+    // across the end of a turn, of the session, of its own process, and may
+    // still run it. Only its record settles it.
+    if (held.get(id)?.kind === 'durable') return
     if (held.has(id)) {
       settle(id, 'failed', reason, 'unconfirmed')
       return
@@ -217,6 +240,22 @@ export function withDeliveryQueue(
         const [id, row] = rows.entries().next().value!
         if (row.abort.signal.aborted) {
           rows.delete(id)
+          continue
+        }
+        if (row.input.deliveryRecovery && row.input.held === 'durable') {
+          // THE PROGRAM KEEPS IT ACROSS ITS OWN RESTART (POD-4886; POD-4819
+          // §9), and an earlier owner saw it take it: nothing to type, nothing
+          // to give up on. Watch for its record again; a driver that cannot
+          // leaves it held, open, never unconfirmed.
+          rows.delete(id)
+          held.set(id, { kind: 'durable', watch: row.abort })
+          handle.watchHeld?.(
+            { ...row.input, rowId: undefined },
+            {
+              onTranscriptItem: (item, harnessRef) => name(id, item, harnessRef),
+              signal: row.abort.signal,
+            },
+          )
           continue
         }
         // A durable reservation from a previous owner is evidence of a
@@ -300,13 +339,14 @@ export function withDeliveryQueue(
           if (receipt.held && !receipt.transcriptItem && !namedEarly.has(id)) {
             // TAKEN, NOT RECORDED (POD-4849): typed, so never typed again and
             // never retractable, but not delivered until the driver says so.
-            const lost = unrecordedEarly.get(id)
+            const lost = receipt.held === 'memory' ? unrecordedEarly.get(id) : undefined
             if (lost !== undefined) {
               settle(id, 'failed', lost, 'unconfirmed')
               continue
             }
+            unrecordedEarly.delete(id)
             rows.delete(id)
-            held.add(id)
+            hold(id, receipt.held)
             continue
           }
           // The driver's pairing travels with the outcome, and a replay of it
@@ -478,6 +518,7 @@ export function withDeliveryQueue(
       if (method === 'hibernate' && !handle.binding.resume) return original()
       for (const row of rows.values()) row.abort.abort()
       rows.clear()
+      for (const entry of held.values()) entry.watch?.abort()
       held.clear()
       unrecordedEarly.clear()
       idsOf.clear()

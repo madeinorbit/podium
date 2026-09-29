@@ -248,3 +248,64 @@ describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
     ])
   })
 })
+
+/**
+ * THE MACHINE SAYS THE PROGRAM HAS IT (POD-4886; POD-4819 §4). `accepted`
+ * arrives from the daemon when the agent program took the message and has not
+ * recorded it yet; the record's `delivered` follows. The two reports travel
+ * separately, so they can arrive in either order, and the ledger's forward-only
+ * move is what makes the order not matter.
+ */
+describe('flag-on delivery: accepted, then confirmed, in any order (POD-4886)', () => {
+  const send = async () => {
+    const h = await mailHarness({ receipts: {} })
+    const iss = await h.createIssue({ title: 'target' })
+    const target = asSessionId('sTarget')
+    h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
+    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+      to: `#${iss.seq}`,
+      body: 'held by the program',
+    })) as { id: string }
+    return { h, target, id: r.id }
+  }
+
+  it('moves accepted, keeps how it is held, then confirmed', async () => {
+    const { h, target, id } = await send()
+    await h.svc.onQueuedInputAccepted(id, target, 'durable')
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'accepted', held: 'durable' })
+    expect(await h.events(['message.accepted'])).toMatchObject([
+      { payload: { messageId: id, held: 'durable' } },
+    ])
+    // A repeat moves nothing and records nothing.
+    await h.svc.onQueuedInputAccepted(id, target, 'memory')
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'accepted', held: 'durable' })
+    expect(await h.events(['message.accepted'])).toHaveLength(1)
+
+    await h.svc.onQueuedInputApplied(id, target)
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'confirmed' })
+  })
+
+  it('a late accepted after confirmed changes nothing', async () => {
+    const { h, target, id } = await send()
+    await h.svc.onQueuedInputApplied(id, target)
+    await h.svc.onQueuedInputAccepted(id, target, 'memory')
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'confirmed' })
+    expect(await h.events(['message.accepted'])).toEqual([])
+  })
+
+  it('an accepted after failed is ignored: failed stays final', async () => {
+    const { h, target, id } = await send()
+    await h.svc.rejectQueuedInput(id, 'the agent was not accepting input', 'never-live')
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'failed' })
+    await h.svc.onQueuedInputAccepted(id, target, 'durable')
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'failed' })
+    expect(await h.events(['message.accepted'])).toEqual([])
+  })
+
+  it('an accepted aimed at another session moves nothing', async () => {
+    const { h, target, id } = await send()
+    await h.svc.onQueuedInputInjected(id, target)
+    await h.svc.onQueuedInputAccepted(id, asSessionId('sOther'), 'memory')
+    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'typed' })
+  })
+})

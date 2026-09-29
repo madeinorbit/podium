@@ -381,6 +381,28 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
 export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed'] as const
 export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
 
+/*
+ * THE PROGRAM TOOK THE ROW, NOT RECORDED YET (POD-4886; POD-4819 §4): outcome
+ * `accepted` on the delivery arm, with `held` saying how the program holds it
+ * (`memory` | `durable`). Not a settlement: `delivered` or `failed` follows.
+ *
+ * A NEW OUTCOME VALUE, SO IT IS NEGOTIATED. A server that does not know it
+ * refuses the whole frame. So the daemon sends it only on a link whose server
+ * accepted {@link CAP_DELIVERY_ACCEPTED} in the handshake, and on any other
+ * link sends nothing for the hold — today's behaviour. `held` is a plain
+ * optional string, like `cause`: a value a newer daemon adds reaches this
+ * server as a string it ignores.
+ *
+ * AND IT IS LIVE-ONLY, never retained (`isDurableRuntimeEvent`). The daemon's
+ * outbox journal is parsed at boot by whichever build runs next; an older
+ * daemon, rolled back to, would refuse to start on a value it cannot read.
+ * Losing one to a link drop costs a status, never a verdict: the row's
+ * settlement is retained as ever, and the server moves forward only.
+ */
+/** Link capability (POD-4886): this server reads the delivery outcome
+ *  `accepted`. The daemon offers it; the server's acceptance licenses it. */
+export const CAP_DELIVERY_ACCEPTED = 'delivery.accepted'
+
 export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({
     t: z.literal('binding'),
@@ -393,7 +415,8 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({
     t: z.literal('delivery'),
     rowId: z.string().min(1),
-    outcome: z.enum(['delivered', 'failed', 'dropped']),
+    outcome: z.enum(['accepted', 'delivered', 'failed', 'dropped']),
+    held: z.string().optional(),
     reason: z.string().optional(),
     cause: z.string().optional(),
     transcriptItem: TranscriptItemRef.optional(),
@@ -473,9 +496,12 @@ export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
       // Git-activity is additive (one lost event is one lost commit ledger);
       // cwd-changed is superseded (the next move replaces it).
       return event.ev.ev === 'git-activity'
+    case 'delivery':
+      // `accepted` is live-only: see CAP_DELIVERY_ACCEPTED. Every settlement
+      // is retained until acknowledged.
+      return event.outcome !== 'accepted'
     case 'metadata':
     case 'binding':
-    case 'delivery':
     case 'process':
     case 'interaction':
     case 'open-url':
@@ -605,6 +631,13 @@ export const RuntimeSendRequestMessage = z.object({
   // way out). Optional; absent means "session sticky".
   model: z.string().optional(),
   effort: z.string().optional(),
+  /**
+   * On a recovery (POD-4886; POD-4819 §9): the program holds this row durably,
+   * as an earlier owner reported. The daemon types nothing and watches for its
+   * record again. Appended at the END; an older daemon strips it and settles
+   * the recovery as unconfirmed, as it always did.
+   */
+  held: z.literal('durable').optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
 

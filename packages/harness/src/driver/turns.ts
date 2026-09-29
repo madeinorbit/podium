@@ -31,6 +31,15 @@ export interface TurnInput {
   rowId?: string
   /** An earlier owner may already have written this row; never write it again. */
   deliveryRecovery?: boolean
+  /**
+   * THE PROGRAM HOLDS THIS ROW DURABLY (POD-4886; POD-4819 §9): the server's
+   * record of an earlier owner's `accepted` receipt with `held: 'durable'`,
+   * carried on a recovery. The program keeps it across its own restart and may
+   * still run it, so the new owner types nothing and watches for its record
+   * again ({@link AgentSessionHandle.watchHeld}) instead of giving it up as
+   * unconfirmed.
+   */
+  held?: 'durable'
   /** Creation prompts retain at-most-once submission across ambiguous receipts. */
   initialPrompt?: boolean
   /**
@@ -215,8 +224,9 @@ export interface SendOptions {
   /**
    * A HELD MESSAGE THE PROGRAM WILL NOT RECORD ANY MORE (POD-4849).
    *
-   * Called at most once, only after an `accepted` receipt with `held`, when
-   * what held it ended first: the turn closed, or the session did. It proves
+   * Called at most once, only after an `accepted` receipt with `held:
+   * 'memory'`, when what held it ended first: the turn closed, or the session
+   * did. The delivery queue ignores it for a durable hold (POD-4886). It proves
    * no "no" — the program may have shown it to the model before a crash — so
    * the delivery queue settles the row as unconfirmed, never as failed.
    * Daemon-local; never crosses the wire.
@@ -369,12 +379,15 @@ export type TurnReceipt =
        * THE PROGRAM TOOK IT BUT HAS NOT RECORDED IT (POD-4819 §4, POD-4849).
        * `memory`: it holds the message in memory and can still drop it — a
        * Codex steer, recorded only at Codex's next model call and lost when
-       * the turn is stopped before it. Not delivered: for a send with an id
-       * the driver follows with `onTranscriptItem` once recorded, or
-       * `onUnrecorded` once it will not be. Absent on a receipt that carries
-       * `transcriptItem`.
+       * the turn is stopped before it. `durable` (POD-4886): it keeps the
+       * message across its own restart and may run it later on its own — an
+       * OpenCode v2 admission. Not delivered: for a send with an id the driver
+       * follows with `onTranscriptItem` once recorded; for `memory` also
+       * `onUnrecorded` once it will not be. A durable hold has no such end: no
+       * timer, closed turn or ended session settles it, only the record.
+       * Absent on a receipt that carries `transcriptItem`.
        */
-      held?: 'memory'
+      held?: 'memory' | 'durable'
       at: string
     }
   | {

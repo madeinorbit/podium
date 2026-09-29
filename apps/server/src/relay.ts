@@ -16,6 +16,7 @@ import type {
   IssueEventWire,
   IssueId,
   MachineId,
+  MessageHeld,
   SessionId,
   SessionMeta,
   UpdateChannel,
@@ -1471,6 +1472,7 @@ export class SessionRegistry {
       }) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       provenLate?: (messageId: string, sessionId: SessionId) => Promise<void>
+      accepted?: (messageId: string, sessionId: SessionId, held: MessageHeld) => Promise<void>
       injected?: (messageId: string, sessionId: SessionId) => Promise<void>
       unconfirmed?: (messageId: string, sessionId: SessionId, reason: string) => Promise<void>
       rejected?: (
@@ -1557,6 +1559,15 @@ export class SessionRegistry {
         )
         await completion
       },
+      noteQueuedMessageAccepted: async (messageId, sessionId, held) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.accepted?.(
+          messageId,
+          sessionId,
+          held,
+        )
+        await completion
+      },
+      queuedMessageHeld: (messageId) => queuedMessageApply.held(messageId),
       nameQueuedMessageEntry: (messageId, sessionId, transcriptItem) =>
         queuedMessageApply.named(messageId, sessionId, transcriptItem),
       keepQueuedMessageHarnessIds: (messageId, sessionId, harnessRef) =>
@@ -2230,6 +2241,8 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.provenLate = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputProvenLate(messageId, sessionId)
+    queuedApplyHooks.accepted = async (messageId, sessionId, held) =>
+      await messagesSvc.onQueuedInputAccepted(messageId, sessionId, held)
     queuedApplyHooks.injected = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputInjected(messageId, sessionId)
     queuedApplyHooks.unconfirmed = async (messageId, sessionId, reason) =>

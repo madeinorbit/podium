@@ -15,7 +15,7 @@ import type {
   WorkState,
   MachineId,
 } from '@podium/model'
-import type { AgentKind, HarnessRef, TranscriptItemRef, UserId } from '@podium/model'
+import type { AgentKind, HarnessRef, MessageHeld, TranscriptItemRef, UserId } from '@podium/model'
 import type {
   MetadataChange,
   SubscriptionRegistry,
@@ -134,6 +134,15 @@ export interface SessionLifecycleDeps {
   /** The daemon proved late that a message it had reported unconfirmed
    *  landed (POD-4840): `unknown` → `confirmed`, nothing else moves. */
   confirmQueuedMessageLate?(messageId: string, sessionId: SessionId): Promise<void>
+  /** The agent program took the message and has not recorded it yet
+   *  (POD-4886): → `accepted`, forward only, with how it holds it. */
+  noteQueuedMessageAccepted?(
+    messageId: string,
+    sessionId: SessionId,
+    held: MessageHeld,
+  ): Promise<void>
+  /** How the program holds the message, as last reported (POD-4886). */
+  queuedMessageHeld?(messageId: string): Promise<MessageHeld | undefined>
   /** Record which entry in the agent's history the message became (POD-4774). */
   nameQueuedMessageEntry?(
     messageId: string,

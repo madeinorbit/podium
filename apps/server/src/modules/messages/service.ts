@@ -37,6 +37,7 @@ import {
   type MachineId,
   MessageDelivery,
   type MessageDeliveryStatus,
+  type MessageHeld,
 } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
@@ -1639,6 +1640,33 @@ export class MessageDeliveryService {
     if (message?.deliveryStatus !== 'unknown' || message.deliveredTo !== sessionId) return
     if (this.render.isPointer(message)) return
     await this.markDelivered(message, sessionId, 'injection')
+  }
+
+  /** SessionInbox calls this when the agent's machine reports the program took
+   *  the message and has not recorded it yet (POD-4886; POD-4819 §4): →
+   *  `accepted`, with how the program holds it. Forward only: the move is the
+   *  lifecycle's to allow, so a late report after `confirmed`, `failed` or
+   *  any other end changes nothing and records nothing. */
+  async onQueuedInputAccepted(
+    messageId: string,
+    sessionId: SessionId,
+    held: MessageHeld,
+  ): Promise<void> {
+    const message = await this.deps.messages.getMessage(messageId)
+    if (!message) return
+    const at = this.deps.now()
+    if (!moved(await this.deps.messages.markAccepted(message.id, sessionId, held, at))) return
+    await this.emitTransition(
+      {
+        ...message,
+        deliveryStatus: 'accepted',
+        held,
+        deliveredTo: sessionId,
+        injectedAt: message.injectedAt ?? at,
+      },
+      'message.accepted',
+      { held },
+    )
   }
 
   /** SessionInbox calls this the moment a durable row's bytes cross into the CLI,

@@ -121,6 +121,8 @@ export interface RuntimeDaemonRpcPort {
       sessionId: SessionId
       rowId?: string
       deliveryRecovery?: boolean
+      /** On a recovery: the program holds the row durably (POD-4886). */
+      held?: 'durable'
       initialPrompt?: boolean
       turnId?: string
       text: string
@@ -226,6 +228,8 @@ export class SessionRuntimeGateway {
     sessionId: SessionId
     rowId?: string
     deliveryRecovery?: boolean
+    /** On a recovery: the program holds the row durably (POD-4886). */
+    held?: 'durable'
     initialPrompt?: boolean
     turnId?: string
     text: string

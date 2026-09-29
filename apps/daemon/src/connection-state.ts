@@ -24,7 +24,11 @@ import {
   type PeerCredential,
   type PeerHelloRejected,
 } from '@podium/protocol'
-import { isDurableRuntimeEvent, type DaemonMessage } from '@podium/protocol/daemon'
+import {
+  CAP_DELIVERY_ACCEPTED,
+  isDurableRuntimeEvent,
+  type DaemonMessage,
+} from '@podium/protocol/daemon'
 import { stateDir, loadConfig, resolveConnectBaseUrl } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
@@ -912,6 +916,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // session's geometry from the request side. Offered from the commit that
         // makes it true, so the advertisement is never ahead of the behaviour.
         CAP_DAEMON_GEOMETRY_APPLIED,
+        // POD-4886: this daemon reports `accepted` for a held row. Offered so
+        // a server that reads it can say so; sent only once it has.
+        CAP_DELIVERY_ACCEPTED,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
@@ -1221,6 +1228,18 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
     },
     send(msg) {
+      // AN `accepted` A SERVER CANNOT READ IS NOT SENT (POD-4886): it would
+      // refuse the whole frame. Such a server hears nothing for the hold, as
+      // before; the settlement that follows reaches it as ever. Live-only, so
+      // nothing is retained to replay into a link that cannot read it.
+      if (
+        msg.type === 'runtimeEvent' &&
+        msg.event.t === 'delivery' &&
+        msg.event.outcome === 'accepted' &&
+        (state !== 'connected' || !acceptedCaps.has(CAP_DELIVERY_ACCEPTED))
+      ) {
+        return
+      }
       const isQueueDrainReport = msg.type === 'runtimeQueueDrainAbandoned'
       // Preserve explicitly retained frames from older outboxes even when their
       // kind is now live-only. New live observations have no delivery id.

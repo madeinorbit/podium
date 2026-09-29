@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto'
  */
 
 import type { MachineId, UserId } from '@podium/model'
+import { CAP_DELIVERY_ACCEPTED } from '@podium/protocol/daemon'
 import {
   type AcceptorStep,
   CAP_DAEMON_GEOMETRY_APPLIED,
@@ -117,6 +118,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // the moment the frame exists so the negotiation is in place; the session
       // module reads the accepted set to choose its geometry writer path.
       CAP_DAEMON_GEOMETRY_APPLIED,
+      // POD-4886: this server reads the delivery outcome `accepted`; a daemon
+      // sends it only once this is accepted.
+      CAP_DELIVERY_ACCEPTED,
     ],
     transport: {
       endpoint: '/daemon',

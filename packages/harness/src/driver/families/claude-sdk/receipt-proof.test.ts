@@ -133,7 +133,12 @@ const userItems = (events: RuntimeEvent[]) =>
       ? [event.item.item]
       : [],
   )
-const deliveries = (events: RuntimeEvent[]) => events.filter((event) => event.t === 'delivery')
+/** The row's settlements. `accepted` (POD-4886) is not one; it is asserted
+ *  where it is the subject. */
+const deliveries = (events: RuntimeEvent[]) =>
+  events.filter((event) => event.t === 'delivery' && event.outcome !== 'accepted')
+const accepted = (events: RuntimeEvent[]) =>
+  events.filter((event) => event.t === 'delivery' && event.outcome === 'accepted')
 const send = (handle: AgentSessionHandle, onTranscriptItem = vi.fn(), onUnrecorded = vi.fn()) =>
   handle.send(
     { id: MESSAGE, text: 'one' },
@@ -289,6 +294,10 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     resumed.frame(ack.lifecycleQueued)
     await tick()
     expect(deliveries(resumed.events)).toEqual([])
+    // Claude has the line, not its transcript yet: `accepted` (POD-4886).
+    expect(accepted(resumed.events)).toEqual([
+      expect.objectContaining({ rowId: MESSAGE, held: 'memory' }),
+    ])
     resumed.append(userRecord())
     await tick()
     expect(deliveries(resumed.events)).toEqual([

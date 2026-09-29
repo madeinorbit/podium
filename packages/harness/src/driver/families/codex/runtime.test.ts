@@ -1500,7 +1500,10 @@ describe('durable inbox rows on the owning driver', () => {
       // Delivered once Codex records it, not on its answer (POD-4849).
       w.server.emitUserMessage('hello', 'usr-live', { clientId: 'row-live' })
       await settle()
-      expect(w.events().filter((event) => event.t === 'delivery')).toEqual([expect.objectContaining({ rowId: 'row-live', outcome: 'delivered' })])
+      expect(w.events().filter((event) => event.t === 'delivery')).toEqual([
+        expect.objectContaining({ rowId: 'row-live', outcome: 'accepted', held: 'memory' }),
+        expect.objectContaining({ rowId: 'row-live', outcome: 'delivered' }),
+      ])
     } finally { w.dispose() }
   })
 })
@@ -1634,8 +1637,12 @@ describe('rebind to the surviving engine (POD-4433)', () => {
  * and is never taken for the turn's input.
  */
 describe('the history entry a delivered send became', () => {
+  /** The row's settlements. `accepted` (POD-4886) is not one; it is asserted
+   *  where it is the subject. */
   const deliveries = (events: RuntimeEvent[]) =>
-    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+    events.flatMap((event) =>
+      event.t === 'delivery' && event.outcome !== 'accepted' ? [event] : [],
+    )
   const shownUserIds = (events: RuntimeEvent[]): string[] =>
     events.flatMap((event) =>
       event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user'
@@ -1714,8 +1721,12 @@ describe('the history entry a delivered send became', () => {
  * and every pairing says which of the two matched.
  */
 describe('Codex carries our message id', () => {
+  /** The row's settlements. `accepted` (POD-4886) is not one; it is asserted
+   *  where it is the subject. */
   const deliveries = (events: RuntimeEvent[]) =>
-    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+    events.flatMap((event) =>
+      event.t === 'delivery' && event.outcome !== 'accepted' ? [event] : [],
+    )
 
   it('sends the message id on `turn/start` and on `turn/steer`', async () => {
     const w = await world()
@@ -1915,8 +1926,12 @@ describe('Codex carries our message id', () => {
  * with our id; a turn or a session that ends first ends it as unconfirmed.
  */
 describe('a message Codex holds in memory', () => {
+  /** The row's settlements. `accepted` (POD-4886) is not one; it is asserted
+   *  where it is the subject. */
   const deliveries = (events: RuntimeEvent[]) =>
-    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+    events.flatMap((event) =>
+      event.t === 'delivery' && event.outcome !== 'accepted' ? [event] : [],
+    )
   const turnStarts = (events: RuntimeEvent[]) =>
     events.filter((event) => event.t === 'turn' && event.ev.ev === 'started')
   const row = (id: string, text: string) => ({ id, rowId: id, text })
@@ -1928,6 +1943,10 @@ describe('a message Codex holds in memory', () => {
     await expect.poll(() => w.liveServer().turnStarts).toBe(1)
     await settle()
     expect(deliveries(w.events())).toEqual([])
+    // Codex has it, not its history yet: the server hears `accepted` (POD-4886).
+    expect(w.events().filter((event) => event.t === 'delivery')).toEqual([
+      expect.objectContaining({ rowId: 'msg_row', outcome: 'accepted', held: 'memory' }),
+    ])
     w.liveServer().emitUserMessage('hello', 'usr-row', { clientId: 'msg_row' })
     await expect
       .poll(() => deliveries(w.events()))
@@ -2059,8 +2078,12 @@ describe('a message Codex holds in memory', () => {
  * with the receipt and with the entry, so the message can be found again.
  */
 describe("Codex's own ids for our message", () => {
+  /** The row's settlements. `accepted` (POD-4886) is not one; it is asserted
+   *  where it is the subject. */
   const deliveries = (events: RuntimeEvent[]) =>
-    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+    events.flatMap((event) =>
+      event.t === 'delivery' && event.outcome !== 'accepted' ? [event] : [],
+    )
   const turn = { kind: 'codex-turn', id: 'turn-1' }
 
   it('names the turn on the receipt, and the turn and the echo with the entry', async () => {

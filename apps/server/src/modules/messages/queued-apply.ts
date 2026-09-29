@@ -2,6 +2,7 @@ import {
   type HarnessRef,
   MessageDelivery,
   type MessageDeliveryStatus,
+  type MessageHeld,
   type SessionId,
   type TranscriptItemRef,
 } from '@podium/model'
@@ -55,6 +56,12 @@ export class QueuedMessageApply {
   async applied(messageId: string, sessionId: SessionId): Promise<void> {
     const completion: Promise<void> = this.deps.applied(messageId, sessionId)
     await completion
+  }
+
+  /** How the agent program holds this message, as its machine last reported
+   *  (POD-4886): kept after the status moves on. */
+  async held(messageId: string): Promise<MessageHeld | undefined> {
+    return (await this.deps.messages.getMessage(messageId))?.held
   }
 
   /** The agent's machine named the entry in its history this message became
