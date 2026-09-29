@@ -270,6 +270,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('ask:skipped', { reason, claimControl, cause: 'unmeasurable' })
       return
     }
+    if (measured) everMeasured = true
     const geometry = measured ?? { cols: view.cols(), rows: view.rows() }
     trace('ask:sent', { reason, geometry, claimControl, measured: measured !== undefined })
     connection.sendViewportRequest({
@@ -300,7 +301,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const claimsOnReveal = (): boolean => crop !== 'scroll'
 
   /**
-   * Has xterm rendered yet?
+   * Has this mount ever successfully measured its box?
    *
    * The one case the box observer cannot cover: the VIEWPORT has a size, but
    * xterm has not rendered yet, so there is no `.xterm-screen` to derive a cell
@@ -309,7 +310,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
    * whatever the server last said until the operator moved something. xterm's
    * first render is the event that makes it measurable, and it is what asks.
    */
-  let rendered = false
+  let everMeasured = false
 
   // FONT READINESS. A web font that has not loaded yet measures at the fallback
   // metrics, so the box reads a grid the terminal will not actually have once
@@ -357,21 +358,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   /**
    * TRIGGER 1: THE MEASURED GRID MAY HAVE CHANGED. A box resize, a web font
-   * arriving, xterm's first render and an appearance change are one event: each
-   * can change what this box measures to, and none of them knows whether it
-   * did. Debounced, because a layout transition emits a burst of intermediate
-   * sizes and each forwarded one is a SIGWINCH; the burst states its last box.
-   * Never a claim: a wider window is a reason to ask for a size, never a reason
-   * to take a session away from whoever is driving it.
+   * arriving, xterm's first measurable render and an appearance change are one
+   * event: each can change what this box measures to, and none of them knows
+   * whether it did, so each states the box. Never a claim: a wider window is a
+   * reason to ask for a size, never a reason to take a session away from
+   * whoever is driving it.
    */
-  const MEASURE_DEBOUNCE_MS = 60
-  let measureTimer: ReturnType<typeof setTimeout> | undefined
   function measuredGridChanged(reason: string): void {
-    if (measureTimer !== undefined) clearTimeout(measureTimer)
-    measureTimer = setTimeout(() => {
-      measureTimer = undefined
-      ask(reason, false)
-    }, MEASURE_DEBOUNCE_MS)
+    ask(reason, false)
   }
 
   /**
@@ -537,11 +531,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const offEchoRender =
     typeof view.onRender === 'function'
       ? view.onRender(() => {
-          // FIRST RENDER = FIRST MEASURABLE (B4). See `rendered`.
-          if (!rendered) {
-            rendered = true
-            measuredGridChanged('first-render')
-          }
+          // FIRST RENDER = FIRST MEASURABLE (B4). See `everMeasured`.
+          if (!everMeasured) measuredGridChanged('first-render')
           if (!connection.echoPaintPending?.() || echoPaintRaf !== undefined) return
           echoPaintRaf = requestAnimationFrame(() => {
             echoPaintRaf = undefined
@@ -599,11 +590,18 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // Container-size changes (ResizeObserver + visualViewport). This is the
   // backstop that catches EVERY layout path — pane drags, dock toggles, and the
   // display:none → visible transition (ResizeObserver fires on it) — not just
-  // window resizes.
+  // window resizes. Debounced: a layout transition emits a burst of intermediate
+  // sizes, and each one the server forwarded would be a SIGWINCH to the TUI.
+  const BOX_DEBOUNCE_MS = 60
+  let boxTimer: ReturnType<typeof setTimeout> | undefined
   const viewport = new DomViewportSource(viewportEl)
   const offViewport = viewport.onChange((size) => {
     trace('viewport:changed', { viewport: size })
-    measuredGridChanged('box-change')
+    if (boxTimer !== undefined) clearTimeout(boxTimer)
+    boxTimer = setTimeout(() => {
+      boxTimer = undefined
+      measuredGridChanged('box-change')
+    }, BOX_DEBOUNCE_MS)
   })
 
   const onPageResume = (source: 'visibility-change' | 'focus' | 'pageshow'): void => {
@@ -742,7 +740,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     dispose() {
       trace('dispose')
       if (readyTimer !== undefined) clearTimeout(readyTimer)
-      if (measureTimer !== undefined) clearTimeout(measureTimer)
+      if (boxTimer !== undefined) clearTimeout(boxTimer)
       releaseRendererLease?.()
       releaseRendererLease = null
       fontGeneration += 1

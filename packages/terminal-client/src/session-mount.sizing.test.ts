@@ -689,15 +689,20 @@ describe('mountSession eligibility-gated sizing', () => {
     expect(calls.claims).toEqual([{ cols: 120, rows: 40 }])
 
     // The pane finishes animating. The observer fires repeatedly; the debounce
-    // collapses the burst, and the dedup drops a restatement of the same box.
+    // collapses the burst into one statement.
     proposal.set(150, 50)
     observer.fire()
     observer.fire()
     vi.advanceTimersByTime(60)
     expect(calls.resize, 'one corrected ask, not one per observer event').toEqual([[150, 50]])
+    // A later burst states the box again, even unchanged: the browser keeps no
+    // record of its asks (POD-3190 rev 3); the server drops the repeat.
     observer.fire()
     vi.advanceTimersByTime(60)
-    expect(calls.resize, 'and the unchanged box is not re-stated').toEqual([[150, 50]])
+    expect(calls.resize, 'a later box event restates the box').toEqual([
+      [150, 50],
+      [150, 50],
+    ])
 
     // The BUFFER never moved: it is at the server's grid throughout.
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
@@ -733,7 +738,7 @@ describe('mountSession eligibility-gated sizing', () => {
     mounted.dispose()
   })
 
-  it('forces a full repaint on reveal and on resize (black-screen fix)', () => {
+  it('forces a full repaint on resize (black-screen fix)', () => {
     withResizeObserver()
     withFittableAddon()
     const repaint = vi.spyOn(TerminalView.prototype, 'forceRepaint')
@@ -749,8 +754,8 @@ describe('mountSession eligibility-gated sizing', () => {
     // attached has been told nothing, so nothing may move it — which is why
     // every state-driven case below has to attach first.
     attached()
-    // Mounting active reveals the panel → becomeEligible → forceRepaint.
-    expect(repaint, 'repaint on reveal').toHaveBeenCalled()
+    // (The REVEAL's repaint is `repaintRecover`, pinned by the two reveal cases
+    // below. A fresh mount has no freed canvas to recover.)
     repaint.mockClear()
     // A server-driven geometry change resizes the view → forceRepaint.
     state(100, 30)
