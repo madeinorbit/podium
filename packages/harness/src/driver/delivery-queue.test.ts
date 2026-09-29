@@ -874,7 +874,7 @@ describe('late proof of an unconfirmed row (POD-4840)', () => {
     await f.handle.send({ rowId: 'row', text: 'a' }, options)
     expect(f.events().at(-1)).toEqual(delivered)
     // And a retract now loses to a delivery.
-    expect(await f.handle.cancelDelivery!('row')).toMatchObject({ tooLate: 'delivered' })
+    expect(await f.handle.cancelDelivery?.('row')).toMatchObject({ tooLate: 'delivered' })
   })
 
   it('ignores late proof for a row that failed without being typed', async () => {

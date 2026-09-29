@@ -3569,7 +3569,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
           { to: { kind: 'session', id: asSessionId('s1') }, body },
         )
       ).message.id
-    const status = async (id: string) => (await store.messages.getMessage(id))!.deliveryStatus
+    const status = async (id: string) => (await store.messages.getMessage(id))?.deliveryStatus
     const lost = await to('did it land?')
     await svc.onQueuedInputUnknown(lost, asSessionId('s1'), 'delivery could not be confirmed')
     const pending = await to('still on its way')

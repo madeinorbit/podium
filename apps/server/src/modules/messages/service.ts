@@ -1614,8 +1614,7 @@ export class MessageDeliveryService {
    *  mail its body still waits for a read, so it is not confirmed here. */
   async onQueuedInputProvenLate(messageId: string, sessionId: SessionId): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
-    if (!message || message.deliveryStatus !== 'unknown' || message.deliveredTo !== sessionId)
-      return
+    if (message?.deliveryStatus !== 'unknown' || message.deliveredTo !== sessionId) return
     if (this.render.isPointer(message)) return
     await this.markDelivered(message, sessionId, 'injection')
   }
