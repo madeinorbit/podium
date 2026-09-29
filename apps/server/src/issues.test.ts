@@ -5832,9 +5832,11 @@ describe('IssueService agent mail (#103)', () => {
   })
 
   // The observed POD-1365 probe row: PUSHED to a session at 14:44:17 (injected,
-  // still `queued`), then the agent opened its inbox 23s later and the pull wiped
-  // `delivered_to` while flipping the row to `delivered`. Routed correctly,
-  // landed in a transcript, and the ledger recorded it as reaching nobody.
+  // still `queued`), then a PEER opened its inbox 23s later. POD-1420 first
+  // made the pull COALESCE-preserve the push target; POD-4680 (146f660b6)
+  // narrowed it further: a peer's pull never advances the shared ledger, it
+  // records only the reader's receipt — otherwise the ledger would claim
+  // delivery to the push target that never read it and clear its pending.
   it('a pull does not erase the session a push already reached', async () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -5847,7 +5849,7 @@ describe('IssueService agent mail (#103)', () => {
     // A peer opens the shared mailbox 23 seconds later.
     await svc.mailInbox(a.id, { sessionId: asSessionId('sPeer') })
     expect(await store.messages.getMessage('msg_pushed')).toMatchObject({
-      status: 'delivered',
+      status: 'queued',
       deliveredTo: 'sPushed',
     })
     // …and the peer's OWN receipt is still recorded, so preserving the push

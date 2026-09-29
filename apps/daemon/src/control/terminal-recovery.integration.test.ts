@@ -100,7 +100,10 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
       observationBindingVersion: 2,
     }
     const recovered = await runtime.recoverWithId(msg, terminalProfileFor('claude-code')!)
-    expect(recovered.binding.process.key).toBe(label)
+    // POD-4785 (c9283ef14): bindings are keyed by sessionId now — the driver
+    // never resolves durable labels itself, the daemon does per session. The
+    // durable label still travels on the reattach message (msg.durableLabel).
+    expect(recovered.binding.process.key).toBe(sessionId)
     await expect
       .poll(() => snapshotLines(ctx!, sessionId)?.lines.join('\n') ?? '', { timeout: 5000 })
       .toContain(painted)
