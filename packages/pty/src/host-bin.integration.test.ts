@@ -15,8 +15,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { connectHost, hostSocketPath, spawnHostAgent } from './host.js'
 import {
   buildVendoredHost,
+  C_HOST_FEATURES,
   defaultHostCachePath,
   ensureManagedHost,
   HOST_FEATURES,
@@ -64,12 +66,20 @@ function fakeHost(path: string, features: number): string {
 describe('Rust release host selection (H5)', () => {
   let root: string
   const saved = Object.fromEntries(
-    ['PODIUM_STATE_DIR', 'PODIUM_HOST_BIN', 'PODIUM_HOME'].map((key) => [key, process.env[key]]),
+    [
+      'PODIUM_STATE_DIR',
+      'PODIUM_HOST_BIN',
+      'PODIUM_HOME',
+      'PODIUM_HOST_SOCKET_DIR',
+      'PODIUM_NO_SCOPE',
+    ].map((key) => [key, process.env[key]]),
   )
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'ph-resolve-'))
     process.env.PODIUM_STATE_DIR = join(root, 'state')
     process.env.PODIUM_HOME = join(root, 'payload')
+    process.env.PODIUM_HOST_SOCKET_DIR = join(root, 's')
+    process.env.PODIUM_NO_SCOPE = '1'
     delete process.env.PODIUM_HOST_BIN
   })
   afterEach(() => {
@@ -111,7 +121,7 @@ describe('Rust release host selection (H5)', () => {
   })
 
   it('falls back to C when the Rust binary cannot run as a host', () => {
-    fakeForeign(dirname(rustPath()))
+    mkdirSync(dirname(rustPath()), { recursive: true })
     writeFileSync(rustPath(), '#!/bin/sh\nexit 1\n')
     chmodSync(rustPath(), 0o755)
     const c = fakeHost(defaultHostCachePath(), 1)
@@ -141,6 +151,41 @@ describe('Rust release host selection (H5)', () => {
     process.env.PODIUM_HOST_BIN = join(root, 'missing')
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
   })
+
+  it.skipIf(!hasCompiler)(
+    'keeps an existing C socket on its running host after Rust becomes preferred',
+    async () => {
+      const c = ensureManagedHost()?.bin
+      expect(c).toBeDefined()
+      expect(hostBinFeatures(c as string)).toBe(1)
+      const session = await spawnHostAgent({
+        label: 'old',
+        cmd: '/bin/cat',
+        args: [],
+        cols: 90,
+        rows: 30,
+      })
+      const welcome = await session.ready
+      let old: ReturnType<typeof connectHost> | undefined
+      try {
+        const rust = fakeHost(rustPath(), 2)
+        expect(resolveHostBin({ fresh: true })).toBe(rust)
+        old = connectHost(hostSocketPath('old'), { mode: 'reader' })
+        const attached = await old.welcome
+        expect(attached.hostPid).toBe(welcome.hostPid)
+        expect(attached.childPid).toBe(welcome.childPid)
+        expect({ cols: attached.cols, rows: attached.rows }).toEqual({ cols: 90, rows: 30 })
+        expect((await old.status()).alive).toBe(true)
+        expect(await session.connection.write(Buffer.from('still C\n'))).toBe(8)
+      } finally {
+        old?.destroy()
+        session.dispose()
+        // Only the PID this test recorded from its private socket is signalled.
+        process.kill(welcome.hostPid, 'SIGTERM')
+      }
+    },
+    30_000,
+  )
 })
 
 describe('podium-host binary resolution', () => {
@@ -157,7 +202,7 @@ describe('podium-host binary resolution', () => {
   it('cache and managed paths follow PODIUM_STATE_DIR', () => {
     process.env.PODIUM_STATE_DIR = '/x/state'
     expect(defaultHostCachePath()).toBe('/x/state/bin/podium-host')
-    expect(managedHostDir()).toBe(`/x/state/bin/podium-host-v${HOST_FEATURES}`)
+    expect(managedHostDir()).toBe(`/x/state/bin/podium-host-v${C_HOST_FEATURES}`)
   })
 
   it('an explicit PODIUM_HOST_BIN that does not run FAILS resolution (no silent fallback)', () => {
@@ -210,9 +255,11 @@ describe.skipIf(!hasCompiler)('vendored podium-host build', () => {
     try {
       const out = buildVendoredHost(join(dir, 'bin', 'podium-host'))
       expect(out).toBeDefined()
-      expect(hostBinFeatures(out as string)).toBe(HOST_FEATURES)
+      expect(hostBinFeatures(out as string)).toBe(C_HOST_FEATURES)
       const r = spawnSync(out as string, ['version'], { encoding: 'utf8' })
-      expect(r.stdout.trim()).toBe(`podium-host ${HOST_FEATURES}-podium features=${HOST_FEATURES}`)
+      expect(r.stdout.trim()).toBe(
+        `podium-host ${C_HOST_FEATURES}-podium features=${C_HOST_FEATURES}`,
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -243,7 +290,7 @@ describe.skipIf(!hasCompiler)('managed podium-host build', () => {
       features: number
       sourceHash: string
     }
-    expect(manifest.features).toBe(HOST_FEATURES)
+    expect(manifest.features).toBe(C_HOST_FEATURES)
     expect(manifest.sourceHash).toBe(vendoredHostSourceHash())
 
     writeFileSync(manifestPath, JSON.stringify({ ...manifest, sourceHash: 'stale' }))
@@ -257,7 +304,7 @@ describe.skipIf(!hasCompiler)('managed podium-host build', () => {
     expect(ensureManagedHost()?.built).toBe(true)
     fakeForeign(managedHostDir())
     expect(ensureManagedHost()?.built).toBe(true)
-    expect(hostBinFeatures(join(managedHostDir(), 'podium-host'))).toBe(HOST_FEATURES)
+    expect(hostBinFeatures(join(managedHostDir(), 'podium-host'))).toBe(C_HOST_FEATURES)
   }, 90000)
 
   it('publishes binary + manifest together and leaves no partial state behind', () => {

@@ -108,7 +108,7 @@ echo "tarball sha256=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
 #
 # packages/runtime/src/update-install.ts joins the staged dir with 'headless', so
 # any other archive root silently installs nothing. The file set itself is what
-# scripts/build-bun.ts writes: podium-cli, podium-tunnel, the launcher shim, both client sites,
+# scripts/build-bun.ts writes: podium-cli, podium-tunnel, podium-host-rs, the launcher shim, both client sites,
 # the packaged systemd units, VERSION, LICENSE, NOTICE, THIRD-PARTY-NOTICES.md.
 # POD-2501's spike packed none of systemd/LICENSE/NOTICE and wrote stub
 # index.html files; a gate that only checks that subset accepts a malformed
@@ -118,6 +118,7 @@ for want in \
   headless/podium-cli \
   headless/podium \
   headless/podium-tunnel \
+  headless/podium-host-rs \
   headless/VERSION \
   headless/LICENSE \
   headless/NOTICE \
@@ -140,6 +141,8 @@ CLI="$WORK/headless/podium-cli"
 [ -x "$WORK/headless/podium" ] || fail "extracted headless/podium launcher is not executable"
 [ -x "$WORK/headless/podium-tunnel" ] \
   || fail "extracted headless/podium-tunnel (the opt-in quick-tunnel supervisor) is missing or not executable"
+[ -x "$WORK/headless/podium-host-rs" ] \
+  || fail "extracted headless/podium-host-rs is missing or not executable"
 grep -q 'PODIUM_HOME' "$WORK/headless/podium" \
   || fail "extracted headless/podium is not the launcher shim (no PODIUM_HOME)"
 [ -s "$WORK/headless/VERSION" ] || fail "extracted headless/VERSION is empty"
@@ -285,6 +288,34 @@ size="$(stat -c%s "$CLI")"
 [ "$size" -ge 20000000 ] \
   || fail "shipped podium-cli is only $size bytes — far too small to embed the Bun runtime"
 pass "shipped podium-cli is $EXPECT_FORMAT $EXPECT_ARCH, $size bytes"
+
+# The Rust host is a standalone payload, so interrogate the extracted executable.
+# Linux must be static musl; Darwin must have a signature sealing its bytes.
+RUST_HOST="$WORK/headless/podium-host-rs"
+rust_host_file="$(file -b "$RUST_HOST")"
+case "$rust_host_file" in
+  *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
+  *) fail "shipped podium-host-rs is not $EXPECT_FORMAT $EXPECT_ARCH (got: $rust_host_file)" ;;
+esac
+if [ "$IS_DARWIN" = 0 ]; then
+  case "$rust_host_file" in
+    *"static"*) : ;;
+    *) fail "shipped podium-host-rs is not statically linked (got: $rust_host_file)" ;;
+  esac
+else
+  rust_host_sig="$(rcodesign print-signature-info "$RUST_HOST" 2>&1)" \
+    || fail "cannot read shipped podium-host-rs signature"
+  grep -q 'CodeSignatureFlags(ADHOC' <<<"$rust_host_sig" \
+    || fail "shipped podium-host-rs has no ad-hoc signature"
+  grep -q 'identifier: podium-host-rs' <<<"$rust_host_sig" \
+    || fail "shipped podium-host-rs signature identifier is not podium-host-rs"
+  rust_host_verify="$(rcodesign verify "$RUST_HOST" 2>&1 || true)"
+  grep -q 'CMS error' <<<"$rust_host_verify" \
+    || fail "podium-host-rs signature verification did not run as expected"
+  grep -qi 'digest mismatch' <<<"$rust_host_verify" \
+    && fail "podium-host-rs signature does not seal the shipped bytes"
+fi
+pass "shipped podium-host-rs is $EXPECT_FORMAT $EXPECT_ARCH with the platform link/signature policy"
 
 # --- The embedded abduco helper is the one built FOR THIS PLATFORM ---
 if [ "$ABDUCO_IDENTITY" = required ]; then

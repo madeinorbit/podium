@@ -37,7 +37,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { HOST_FEATURES } from '../packages/pty/src/host-bin.js'
+import { C_HOST_FEATURES } from '../packages/pty/src/host-bin.js'
 import { sharedCacheDir } from './shared-cache-dir'
 import { resolveRcodesign, resolveZig } from './tool-pins'
 
@@ -130,7 +130,7 @@ export function hostCompileFlags(spec: HostTargetSpec, includeDir: string): stri
     // musl, so it needs no platform guard. Same flag the native build passes.
     '-D_DARWIN_C_SOURCE',
     '-DNDEBUG',
-    `-DVERSION="${HOST_FEATURES}-podium"`,
+    `-DVERSION="${C_HOST_FEATURES}-podium"`,
     '-Os',
     '-s',
     ...(spec.darwin
@@ -154,7 +154,7 @@ export function hostCompileFlags(spec: HostTargetSpec, includeDir: string): stri
  */
 export function hostSourceHash(source: string = HOST_SOURCE): string {
   const h = createHash('sha256')
-  h.update(`features=${HOST_FEATURES}\n`)
+  h.update(`features=${C_HOST_FEATURES}\n`)
   h.update('host.c\n')
   h.update(readFileSync(source))
   return h.digest('hex')
@@ -195,7 +195,6 @@ export function hostCachePath(
   return join(hostCacheDir(root), `${platform}-${sourceHash.slice(0, 16)}`)
 }
 
-
 /**
  * Build (or reuse) the podium-host helper for one platform and return its path.
  *
@@ -228,13 +227,9 @@ export function crossBuildHost(
   // same cache entry then never see a half-written helper get embedded.
   const staged = `${out}.new-${process.pid}`
   console.log(`[host-cross] ${platform}: zig cc -target ${spec.zigTarget}`)
-  execFileSync(
-    resolveZig(),
-    ['cc', ...hostCompileFlags(spec, includeDir), source, '-o', staged],
-    {
-      stdio: 'inherit',
-    },
-  )
+  execFileSync(resolveZig(), ['cc', ...hostCompileFlags(spec, includeDir), source, '-o', staged], {
+    stdio: 'inherit',
+  })
   chmodSync(staged, 0o755)
   if (spec.darwin) {
     // Ad-hoc, from Linux. Apple Silicon refuses to execute an unsigned Mach-O, so

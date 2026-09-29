@@ -65,7 +65,7 @@ import {
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
-import { buildVendoredHost, hostSupported } from '../packages/pty/src/host-bin.js'
+import { buildVendoredHost, hostSupported, RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
 import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
 import { buildClients } from './build-clients'
@@ -75,6 +75,7 @@ import {
 } from './client-build-root-digest'
 import { crossBuildHost } from './host-cross'
 import { resolvePigz, tarCompressArgs } from './parallel-gzip'
+import { buildLocalRustHost, crossBuildRustHost } from './rust-host-cross'
 import { buildLocalTunnel, crossBuildTunnel, TUNNEL_BINARY } from './tunnel-cross'
 import {
   type ClientBuildEvidence,
@@ -805,6 +806,30 @@ export function packageHeadlessForFreshClients(
             }
           }
           chmodSync(bundledCli, 0o755)
+
+          // New sessions prefer this prebuilt Rust host. The embedded C helper
+          // remains available for payloads without Rust and explicit overrides.
+          const bundledRustHost = `${headless}/${RUST_HOST_BINARY}`
+          const rustHost = win
+            ? undefined
+            : spec
+              ? crossBuildRustHost(spec.platform, { root })
+              : buildLocalRustHost()
+          if (rustHost) {
+            const stagedHost = `${bundledRustHost}.new-${process.pid}`
+            try {
+              cpSync(rustHost, stagedHost)
+              chmodSync(stagedHost, 0o755)
+              renameSync(stagedHost, bundledRustHost)
+            } finally {
+              rmSync(stagedHost, { force: true })
+            }
+            console.log(`[build-bun] ${RUST_HOST_BINARY} <- ${rustHost}`)
+          } else {
+            // A reused local output must not retain another build's Rust helper.
+            rmSync(bundledRustHost, { force: true })
+            console.log(`[build-bun] ${RUST_HOST_BINARY}: no prebuild; C host fallback`)
+          }
 
           // podium-tunnel (POD-4640): the opt-in quick-tunnel supervisor `podium tunnel
           // enable` installs. A separate Rust binary beside podium-cli, NOT embedded: it

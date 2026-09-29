@@ -70,7 +70,16 @@ describe('Rust host release cross-builds', () => {
       )
       expect(execFileSync).toHaveBeenCalledWith(
         'rustup',
-        ['run', '1.98.1', 'cargo', 'zigbuild', '--release', '--locked', '--target', spec.rustTarget],
+        [
+          'run',
+          '1.98.1',
+          'cargo',
+          'zigbuild',
+          '--release',
+          '--locked',
+          '--target',
+          spec.rustTarget,
+        ],
         expect.objectContaining({
           cwd: crate,
           env: expect.objectContaining({
@@ -80,7 +89,9 @@ describe('Rust host release cross-builds', () => {
         }),
       )
     }
-    const signatures = vi.mocked(execFileSync).mock.calls.filter(([file]) => file === '/tools/rcodesign')
+    const signatures = vi
+      .mocked(execFileSync)
+      .mock.calls.filter(([file]) => file === '/tools/rcodesign')
     expect(signatures).toHaveLength(2)
     for (const [, args] of signatures) {
       expect(args?.slice(0, 3)).toEqual(['sign', '--binary-identifier', 'podium-host-rs'])
@@ -114,8 +125,12 @@ describe('Rust host release cross-builds', () => {
   })
 
   it('leaves no published binary when a build fails', () => {
-    vi.mocked(execFileSync).mockImplementation(() => { throw new Error('link failed') })
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw new Error('link failed')
+    })
     expect(() => crossBuildRustHost('linux-x86_64', { root, crate })).toThrow('link failed')
-    expect(existsSync(rustHostCachePath('linux-x86_64', rustHostSourceHash(crate, root), root))).toBe(false)
+    expect(
+      existsSync(rustHostCachePath('linux-x86_64', rustHostSourceHash(crate, root), root)),
+    ).toBe(false)
   })
 })

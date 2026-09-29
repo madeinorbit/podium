@@ -29,6 +29,7 @@ env:
   # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
   PODIUM_ABDUCO_CACHE_DIR: dist-bun/abduco-cache
   PODIUM_HOST_CACHE_DIR: dist-bun/host-cache
+  PODIUM_RUST_HOST_CACHE_DIR: dist-bun/rust-host-cache
   # `inputs.channel` is a required choice with a default, so it is never the empty string and
   # cannot trip the Actions ternary bug the desktop workflow documents. A rolling channel's TAG
   # is its own name; only stable is told a tag, and its tag is the ref that triggered it.
@@ -61,6 +62,12 @@ jobs:
       # That includes pigz, the parallel compressor for the release tarballs (optional at
       # build time; scripts/parallel-gzip.ts falls back to gzip if it is missing).
       - uses: jdx/mise-action@v2
+      # The Rust host owns a newer Rust pin than podium-tunnel. Install from its
+      # crate configuration; rust-host-cross selects that channel explicitly.
+      - name: Install Rust host toolchain
+        run: |
+          mise trust packages/pty/vendor/podium-host-rs/mise.toml
+          mise -C packages/pty/vendor/podium-host-rs install rust
       # The helper caches are content-addressed on the vendored sources, so these keys are the
       # honest ones: touch abduco.c or host.c and every platform's helper for that source
       # is rebuilt. PODIUM_*_CACHE_DIR pins them back inside the checkout: locally the
@@ -74,6 +81,10 @@ jobs:
         with:
           path: dist-bun/host-cache
           key: host-cross-${{ hashFiles('packages/pty/vendor/podium-host/host.c') }}
+      - uses: actions/cache@v4
+        with:
+          path: dist-bun/rust-host-cache
+          key: rust-host-cross-${{ hashFiles('mise.toml', 'scripts/rust-host-cross.ts', 'packages/pty/vendor/podium-host-rs/**') }}
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache

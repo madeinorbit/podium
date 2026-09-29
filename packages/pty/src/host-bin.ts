@@ -15,20 +15,20 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { stateDir } from '@podium/runtime/config'
+import { resolveInstallDir, stateDir } from '@podium/runtime/config'
 
 /**
- * podium-host binary resolution — the managed build of our own durable process
- * host (vendor/podium-host/host.c, SPEC-6). Mirrors abduco-bin.ts one for one so
- * the two adapters are operated the same way. Order:
+ * podium-host resolution for new spawns. Existing sockets attach directly to
+ * their running host, without selecting a binary. Order:
  *   1. $PODIUM_HOST_BIN — explicit binary path; if it doesn't run or is not a
  *      podium-host at the required feature level, resolution FAILS (no silent
  *      fallback past operator intent).
- *   2. The managed build at $PODIUM_STATE_DIR/bin/podium-host-v<features>/,
+ *   2. The release payload's podium-host-rs, at feature level 2 or later.
+ *   3. The C managed build at $PODIUM_STATE_DIR/bin/podium-host-v1/,
  *      verified against the vendored source hash on every selection.
- *   3. A materialized binary at $PODIUM_STATE_DIR/bin/podium-host (what a
+ *   4. A materialized binary at $PODIUM_STATE_DIR/bin/podium-host (what a
  *      `bun build --compile` distribution unpacks, where there is no source).
- *   4. Build the vendored source now (single translation unit, well under a
+ *   5. Build the vendored C source now (single translation unit, well under a
  *      second) into the managed directory.
  *
  * There is no PATH lookup: nobody installs a podium-host from a distro.
@@ -45,7 +45,15 @@ const VENDOR_HOST_C = join(VENDOR_DIR, 'host.c')
  *
  * 1 — SPEC-6 protocol version 1.
  */
-export const HOST_FEATURES = 1
+export const C_HOST_FEATURES = 1
+/** Rust host with the screen/picture protocol. The C fallback remains at level 1. */
+export const HOST_FEATURES = 2
+export const RUST_HOST_BINARY = 'podium-host-rs'
+
+/** Prebuilt Rust host shipped beside podium-cli; no customer Rust toolchain. */
+export function bundledRustHostPath(): string {
+  return join(resolveInstallDir(), RUST_HOST_BINARY)
+}
 
 export type HostManifest = { features: number; sourceHash: string; builtAt?: string }
 
@@ -62,7 +70,7 @@ export function defaultHostCachePath(): string {
   return join(binDir(), 'podium-host')
 }
 
-export function managedHostDir(features: number = HOST_FEATURES): string {
+export function managedHostDir(features: number = C_HOST_FEATURES): string {
   return join(binDir(), `podium-host-v${features}`)
 }
 
@@ -88,7 +96,7 @@ function runs(bin: string): boolean {
 export function vendoredHostSourceHash(): string | undefined {
   try {
     const h = createHash('sha256')
-    h.update(`features=${HOST_FEATURES}\n`)
+    h.update(`features=${C_HOST_FEATURES}\n`)
     h.update('host.c\n')
     h.update(readFileSync(VENDOR_HOST_C))
     return h.digest('hex')
@@ -122,7 +130,7 @@ export function buildVendoredHost(out: string): string | undefined {
     '-D_XOPEN_SOURCE=700',
     '-D_DARWIN_C_SOURCE',
     '-DNDEBUG',
-    `-DVERSION="${HOST_FEATURES}-podium"`,
+    `-DVERSION="${C_HOST_FEATURES}-podium"`,
     VENDOR_HOST_C,
     '-o',
     out,
@@ -217,7 +225,7 @@ function publishPointer(tag: string): void {
   const tmp = `${ptr}.ptr-${tag}`
   try {
     rmSync(tmp, { force: true })
-    symlinkSync(join(`podium-host-v${HOST_FEATURES}`, 'podium-host'), tmp)
+    symlinkSync(join(`podium-host-v${C_HOST_FEATURES}`, 'podium-host'), tmp)
     renameSync(tmp, ptr)
   } catch {
     rmSync(tmp, { force: true })
@@ -238,20 +246,22 @@ function buildManagedHost(): string | undefined {
   const hash = vendoredHostSourceHash()
   if (!hash) return undefined
   const tag = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`
-  const staging = join(binDir(), `.podium-host-v${HOST_FEATURES}.staging-${tag}`)
-  const trash = join(binDir(), `.podium-host-v${HOST_FEATURES}.old-${tag}`)
+  const staging = join(binDir(), `.podium-host-v${C_HOST_FEATURES}.staging-${tag}`)
+  const trash = join(binDir(), `.podium-host-v${C_HOST_FEATURES}.old-${tag}`)
   try {
     mkdirSync(staging, { recursive: true })
     const bin = buildVendoredHost(join(staging, 'podium-host'))
     if (!bin) return undefined
     const got = hostBinFeatures(bin)
-    if (got !== HOST_FEATURES) {
-      console.warn(`[podium] built podium-host reports feature level ${got}, expected ${HOST_FEATURES}`)
+    if (got !== C_HOST_FEATURES) {
+      console.warn(
+        `[podium] built podium-host reports feature level ${got}, expected ${C_HOST_FEATURES}`,
+      )
       return undefined
     }
     writeFileSync(
       join(staging, 'manifest.json'),
-      `${JSON.stringify({ features: HOST_FEATURES, sourceHash: hash, builtAt: new Date().toISOString() } satisfies HostManifest, null, 2)}\n`,
+      `${JSON.stringify({ features: C_HOST_FEATURES, sourceHash: hash, builtAt: new Date().toISOString() } satisfies HostManifest, null, 2)}\n`,
     )
     let displaced = false
     if (existsSync(dir)) {
@@ -279,13 +289,13 @@ export function ensureManagedHost(opts?: {
   requireFeatures?: number
 }): { bin: string; built: boolean } | undefined {
   if (!hostSupported()) return undefined
-  const required = opts?.requireFeatures ?? HOST_FEATURES
-  if (HOST_FEATURES < required) return undefined
+  const required = opts?.requireFeatures ?? C_HOST_FEATURES
+  if (C_HOST_FEATURES < required) return undefined
   const ready = verifyManaged(required)
   if (ready) return { bin: ready, built: false }
   if (!existsSync(VENDOR_HOST_C)) return undefined
   mkdirSync(binDir(), { recursive: true })
-  const lock = join(binDir(), `.podium-host-v${HOST_FEATURES}.lock`)
+  const lock = join(binDir(), `.podium-host-v${C_HOST_FEATURES}.lock`)
   if (!acquireBuildLock(lock)) return undefined
   try {
     const won = verifyManaged(required)
@@ -315,18 +325,20 @@ function locate(): string | undefined {
   if (!hostSupported()) return undefined
   const explicit = process.env.PODIUM_HOST_BIN
   if (explicit) {
-    if (hostBinFeatures(explicit) >= HOST_FEATURES) return explicit
+    if (hostBinFeatures(explicit) >= C_HOST_FEATURES) return explicit
     console.error(
-      `[podium] PODIUM_HOST_BIN=${explicit} does not run as a podium-host at feature level ${HOST_FEATURES}. Refusing to fall back — unset it or point it at a podium-host build.`,
+      `[podium] PODIUM_HOST_BIN=${explicit} does not run as a podium-host at feature level ${C_HOST_FEATURES}. Refusing to fall back — unset it or point it at a podium-host build.`,
     )
     return undefined
   }
-  const managed = verifyManaged(HOST_FEATURES)
+  const rust = bundledRustHostPath()
+  if (existsSync(rust) && hostBinFeatures(rust) >= HOST_FEATURES) return rust
+  const managed = verifyManaged(C_HOST_FEATURES)
   if (managed) return managed
   const cache = defaultHostCachePath()
   // A materialized binary (compiled distribution: no source to hash) counts when
   // it carries the feature; our own pointer is covered by the managed path.
-  if (!isManagedPointer(cache) && existsSync(cache) && hostBinFeatures(cache) >= HOST_FEATURES) {
+  if (!isManagedPointer(cache) && existsSync(cache) && hostBinFeatures(cache) >= C_HOST_FEATURES) {
     return cache
   }
   return ensureManagedHost()?.bin

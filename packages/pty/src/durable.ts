@@ -125,6 +125,7 @@ export {
   spawnHostAgent,
 } from './host.js'
 export {
+  C_HOST_FEATURES,
   HOST_FEATURES,
   type HostManifest,
   hostSupported,

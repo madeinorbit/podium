@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 // so the arithmetic exists twice, and a test is the only thing that can stop the two
 // drifting silently.
 import { bunTargetForPlatform as serverBunTargetForPlatform } from '../apps/server/src/modules/updates/dev-bundle'
+import { C_HOST_FEATURES } from '../packages/pty/src/host-bin.js'
 import {
   ABDUCO_TARGETS,
   abducoCachePath,
@@ -15,11 +16,10 @@ import {
   HEADLESS_PLATFORMS,
   isHeadlessPlatform,
 } from './abduco-cross'
-import { HOST_TARGETS, hostCachePath, hostCompileFlags } from './host-cross'
-import { HOST_FEATURES } from '../packages/pty/src/host-bin.js'
 import { BUN_TARGETS, bunTargetForPlatform, parseBuildTarget, targetOutputRoot } from './build-bun'
-import { headlessAsset, loadPreparedHeadless, RELEASE_PLATFORMS } from './release'
 import { CLIENT_ROOT_DIGEST_FILE } from './client-build-root-digest'
+import { HOST_TARGETS, hostCachePath, hostCompileFlags } from './host-cross'
+import { headlessAsset, loadPreparedHeadless, RELEASE_PLATFORMS } from './release'
 
 /**
  * The four platform names are spoken by six things — the abduco cache, the
@@ -130,7 +130,7 @@ describe('podium-host cross-build inputs', () => {
     // host-bin.ts builds with -DVERSION="<features>-podium" and resolves by that
     // feature level; a cross helper stamped otherwise would never be selected.
     expect(hostCompileFlags(HOST_TARGETS['linux-x86_64'], '/inc')).toContain(
-      `-DVERSION="${HOST_FEATURES}-podium"`,
+      `-DVERSION="${C_HOST_FEATURES}-podium"`,
     )
   })
 })
