@@ -6,7 +6,7 @@ import { statementBudget } from '../../test-support/statement-budget'
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import type { IssueId, SessionMeta, SessionMetaInput } from '@podium/model'
 import {
   asIssueId,
   asSessionId,
@@ -4771,8 +4771,90 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     (await h.svc.send(from, { to: { kind: 'session', id: to }, body: 'do the thing', lifecycle }))
       .message.id
   const archivedIds = new Set<string>()
+  const S1 = asSessionId('s1')
+  /** Send to s1, bring the row to `status` the way production does, and check
+   *  it got there: a fixture that silently stopped short would test nothing. */
+  const handedTo = async (
+    h: Harness,
+    status: 'dispatched' | 'typed' | 'unknown',
+    to: { kind: 'session' | 'issue'; id: string } = { kind: 'session', id: S1 },
+  ) => {
+    const id = (await h.svc.send(from, { to, body: 'do the thing' })).message.id
+    if (status === 'typed') await h.store.messages.markTyped(id, S1, '2026-09-29T00:00:00.000Z')
+    if (status === 'unknown') await h.store.messages.markUnknown(id, S1)
+    expect(await h.store.messages.getMessage(id)).toMatchObject({ deliveryStatus: status, deliveredTo: S1 })
+    return id
+  }
+  /** The removal as kill and issue deletion make it (POD-4816), repeated as a
+   *  second delete of the same session would. */
+  const removed = (
+    status: 'dispatched' | 'typed' | 'unknown',
+    opts: { to?: 'issue'; endedIssueId?: IssueId } = {},
+  ): Pick<Outcome, 'fail' | 'repeat'> => ({
+    fail: async (h) => {
+      const id = await handedTo(h, status, opts.to ? { kind: 'issue', id: ISSUE.id } : undefined)
+      await h.svc.failMessagesToRemovedSessions([S1], opts)
+      return id
+    },
+    repeat: async (h) => await h.svc.failMessagesToRemovedSessions([S1], opts),
+  })
 
   const outcomes: Record<string, Outcome> = {
+    'target session deleted after it was handed on': {
+      sessions: () => [sender(), session({ sessionId: S1, cwd: '/elsewhere' })],
+      ...removed('dispatched'),
+      body: [
+        'to session s1 was not delivered: that session has ended.',
+        'Nobody else holds that conversation; do not wait for a reply.',
+      ],
+    },
+    'target session deleted after it was typed, its issue still open': {
+      sessions: () => [sender(), session({ sessionId: S1, issueId: ISSUE.id })],
+      ...removed('typed'),
+      body: [
+        'to session s1 may not have been delivered: that session ended before anything confirmed it arrived; whether it did cannot be known now.',
+        `Send to #${ISSUE.seq} (\`podium issue mail send #${ISSUE.seq} …\`) to reach whoever works it now.`,
+      ],
+    },
+    'target session deleted after it was lost track of': {
+      sessions: () => [sender(), session({ sessionId: S1 })],
+      ...removed('unknown'),
+      body: ['to session s1 may not have been delivered: that session ended before anything confirmed'],
+    },
+    'target session deleted with its issue': {
+      sessions: () => [sender(), session({ sessionId: S1, issueId: ISSUE.id })],
+      ...removed('dispatched', { endedIssueId: ISSUE.id }),
+      body: ['that session has ended. Nobody else holds that conversation; do not wait for a reply.'],
+    },
+    'an issue message handed to a session that is deleted': {
+      sessions: () => [sender(), session({ sessionId: S1, issueId: ISSUE.id, cwd: ISSUE.worktreePath })],
+      ...removed('dispatched', { to: 'issue' }),
+      body: [
+        `to #${ISSUE.seq} was not delivered: the session it was handed to has ended.`,
+        `Send to #${ISSUE.seq} (\`podium issue mail send #${ISSUE.seq} …\`) to reach whoever works it now.`,
+      ],
+    },
+    'an issue message handed to a session deleted with that issue': {
+      sessions: () => [sender(), session({ sessionId: S1, issueId: ISSUE.id, cwd: ISSUE.worktreePath })],
+      ...removed('dispatched', { to: 'issue', endedIssueId: ISSUE.id }),
+      body: [`to #${ISSUE.seq} was not delivered: #${ISSUE.seq} is finished. Do not wait for a reply.`],
+    },
+    'a spawn prompt to a child that is deleted': {
+      sessions: () => [sender(), session({ sessionId: asSessionId('child'), cwd: '/elsewhere' })],
+      fail: async (h) => {
+        const id = await h.svc.recordSpawnPrompt({
+          parentSessionId: SENDER,
+          sessionId: asSessionId('child'),
+          text: 'your task',
+        })
+        await h.svc.failMessagesToRemovedSessions([asSessionId('child')])
+        return id
+      },
+      repeat: async (h) => await h.svc.failMessagesToRemovedSessions([asSessionId('child')]),
+      body: [
+        'to session child was not delivered: that session has ended. Nobody else holds that conversation',
+      ],
+    },
     'target session removed': {
       sessions: () => [sender(), session({ sessionId: asSessionId('s1'), status: 'hibernated' })],
       fail: async (h, sessions) => {
@@ -4903,7 +4985,7 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     const h1 = await harness(sessions, {
       ...outcome.opts,
       queueText: async (i) =>
-        i.text.includes('was not delivered')
+        i.text.includes('was not delivered') || i.text.includes('may not have been delivered')
           ? { ok: false, reason: 'machine unreachable' }
           : { ok: true, queued: true },
     })

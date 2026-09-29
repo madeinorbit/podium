@@ -63,6 +63,7 @@ async function fixture(file = ':memory:') {
     funnel: { run: async op => op.write() },
     now: () => Date.parse(stamp),
     prepareSessionRuntimeRemoval: vi.fn(async () => vi.fn()),
+    failMessagesToRemovedSessions: vi.fn(async () => {}),
     sessionRemovalSpecs: vi.fn(),
     sessionTeardown: { tryAutoArchiveStoppedObserved: vi.fn() },
     state: {
