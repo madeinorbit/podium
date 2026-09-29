@@ -56,6 +56,9 @@ export function withDeliveryQueue(
     /** Set the moment the driver is asked to type the row, cleared only by a
      *  refusal that proves nothing was typed. While set, a retract loses. */
     inFlight?: Promise<TurnReceipt>
+    /** When the driver first refused the row as `not_running` while the
+     *  session was still alive; unset by any other answer (POD-4839). */
+    notRunningSince?: number
   }
   const rows = new Map<string, Row>()
   type Outcome = Extract<RuntimeEventBody, { t: 'delivery' }>
@@ -264,6 +267,9 @@ export function withDeliveryQueue(
           }
         }
         if (row.abort.signal.aborted) continue
+        if (receipt.outcome !== 'refused' || receipt.refusal.reason !== 'not_running') {
+          delete row.notRunningSince
+        }
         if (receipt.outcome === 'accepted') {
           if (receipt.held && !receipt.transcriptItem && !namedEarly.has(id)) {
             // TAKEN, NOT RECORDED (POD-4849): typed, so never typed again and
@@ -295,12 +301,39 @@ export function withDeliveryQueue(
           await pause(200)
           continue
         }
-        if (
-          receipt.outcome === 'refused' &&
-          ['unsupported', 'session_ended', 'staging_failed', 'invalid_value'].includes(
-            receipt.refusal.reason,
-          )
-        ) {
+        if (receipt.outcome === 'refused' && receipt.refusal.reason === 'not_running') {
+          delete row.inFlight
+          if (!alive()) {
+            // THE SESSION ENDED UNDER THE ROW (POD-4839): hibernated, stopped,
+            // or its process gone and torn down. Nothing was typed, and the
+            // server still holds the row and forwards it again on the next
+            // bind, so it waits there for the resume. The next pass clears it
+            // with the teardown rule above.
+            continue
+          }
+          // NO PROCESS, AND THE SESSION NOT TORN DOWN YET: the exit that
+          // clears it usually follows at once. Until then the row waits like
+          // a composer that is not accepting input, for the same ceiling, and
+          // a reading of an idle agent does not restart that wait. The
+          // ceiling is Phase C's to tune (POD-4820).
+          const now = Date.now()
+          row.notRunningSince ??= now
+          if (now - row.notRunningSince >= STUCK_CEILING_MS) {
+            settle(id, 'failed', 'agent not accepting input', 'not-accepting-input')
+          } else {
+            await pause(200)
+          }
+          continue
+        }
+        if (receipt.outcome === 'refused') {
+          // A REFUSAL IS A PROVEN "NO" (POD-4839; POD-4819 §6.1 N1, N2). By
+          // contract a driver refuses only before it writes a byte of the
+          // message, or on the program's own explicit refusal of the request,
+          // which records nothing (a Codex JSON-RPC error, an OpenCode 400 or
+          // 404). A driver that may have written answers `unverified` or
+          // throws instead, below. So the row was never typed: `failed`
+          // without the `unconfirmed` cause, which the server reports as not
+          // delivered and safe to resend (POD-4778).
           settle(id, 'failed', receipt.refusal.detail ?? receipt.refusal.reason)
           continue
         }
