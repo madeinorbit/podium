@@ -345,7 +345,6 @@ describe('podium mail CLI (argv shape)', () => {
         status: {
           ...WIRE,
           deliveryStatus: 'confirmed',
-          deliveryStatus: 'confirmed',
           readAt: 't2',
           deliveredTo: 's-abc',
         },
