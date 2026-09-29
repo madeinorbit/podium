@@ -19,7 +19,8 @@ import { claudeToolEffects } from '../shared/tool-effects.js'
  * Skipped on purpose: sidechain records (subagent internals), summary/progress
  * bookkeeping, isMeta records (injected, non-user-authored content), and
  * tool-result-only user records become 'tool' result items rather than user
- * messages.
+ * messages. The user records Claude writes for itself — the compaction
+ * summary, slash-command records — become 'system' notes (`claudeUserNote`).
  */
 /**
  * The agent's `/color` accent if this record is an `agent-color` line, else
@@ -156,6 +157,8 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
   const promptSource = typeof r.promptSource === 'string' ? r.promptSource : undefined
 
   if (r.type === 'user') {
+    const note = claudeUserNote(r, message)
+    if (note !== undefined) return note ? [{ id: uuid ?? '', role: 'system', ts, text: note }] : []
     const items = userItems(uuid, ts, message, promptSource)
     const results = items.filter((item) => item.toolResult !== undefined)
     // One sibling envelope cannot be attributed to several parallel results.
@@ -246,6 +249,47 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
   }
   return []
 }
+
+/**
+ * `user` RECORDS CLAUDE WRITES FOR ITSELF (POD-4877). Measured on 2.1.284
+ * (POD-4862): a compaction writes its summary as a `user` record marked
+ * `isCompactSummary`, and a slash command writes `<command-name>` and
+ * `<local-command-stdout>` records — none carries a `promptSource`. Read as
+ * user items they showed in the chat as the person's words and counted as
+ * prompt entries for the send proof. They are notes: the summary as written,
+ * a command as the person typed it (`/cmdx arg`), a command's output without
+ * its terminal colour codes.
+ *
+ * Returns the note's text ('' when there is nothing to show), or undefined
+ * when the record is none of these.
+ */
+function claudeUserNote(
+  r: Record<string, unknown>,
+  message: Record<string, unknown>,
+): string | undefined {
+  const content = message.content
+  const blocks = Array.isArray(content) ? (content as { type?: unknown; text?: unknown }[]) : []
+  const text =
+    typeof content === 'string'
+      ? content
+      : blocks.flatMap((b) => (b?.type === 'text' && typeof b.text === 'string' ? [b.text] : [])).join('\n')
+  if (r.isCompactSummary === true) return text.trim()
+  if (COMMAND_RECORD_RE.test(text)) {
+    const tag = (name: string) =>
+      new RegExp(`<command-${name}>([\\s\\S]*?)</command-${name}>`).exec(text)?.[1]?.trim() ?? ''
+    return [tag('name'), tag('args')].filter(Boolean).join(' ')
+  }
+  const output = COMMAND_OUTPUT_RE.exec(text)
+  if (output) return (output[2] ?? '').replace(ANSI_ESCAPE_RE, '').trim()
+  return undefined
+}
+
+const COMMAND_RECORD_RE =
+  /^\s*(?:<command-(name|message|args)>[\s\S]*?<\/command-\1>\s*)+$/
+const COMMAND_OUTPUT_RE =
+  /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>\s*$/
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the escape codes are the point
+const ANSI_ESCAPE_RE = /\u001b\[[0-9;]*[A-Za-z]/g
 
 // The user stopping the agent mid-run is written as a normal user turn whose only
 // text is this marker. It IS a user action (role stays 'user'), but it isn't a
