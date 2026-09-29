@@ -465,7 +465,8 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
  *  - `session-gone`  the target session was deleted or archived.
  *  - `issue-ended`   the target issue was closed, archived or deleted.
  *  - `not-allowed`   the sender lost the authority to reach it (apply-time
- *                    re-authorization, a refused wake placement).
+ *                    re-authorization, a refused wake placement); `detail`
+ *                    is the refusing gate's own reason.
  *  - `never-typed`   the target's side gave up before typing it: `never-live`
  *                    (not accepting input), `teardown` (stopped first),
  *                    `delivery-failed` (the hand-off failed); `detail` names a
@@ -474,12 +475,12 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
 export type SendFailure =
   | { kind: 'session-gone' }
   | { kind: 'issue-ended' }
-  | { kind: 'not-allowed' }
+  | { kind: 'not-allowed'; detail?: string }
   | { kind: 'never-typed'; cause: QueueDrainAbandonedReason; detail?: string }
 
 const SESSION_GONE: SendFailure = { kind: 'session-gone' }
 const ISSUE_ENDED: SendFailure = { kind: 'issue-ended' }
-const NOT_ALLOWED: SendFailure = { kind: 'not-allowed' }
+const notAllowed = (detail: string): SendFailure => ({ kind: 'not-allowed', detail })
 
 export class MessageDeliveryService {
   /** hop of the message that triggered the CURRENT turn per session — set at
@@ -1109,7 +1110,10 @@ export class MessageDeliveryService {
     // not silently dropped, not applied.
     const auth = await this.applyAuth(message)
     if (!auth.ok) {
-      return await this.deadLetter(message, auth.reason, { notifySender, failure: NOT_ALLOWED })
+      return await this.deadLetter(message, auth.reason, {
+        notifySender,
+        failure: notAllowed(auth.reason),
+      })
     }
     if (message.toKind === 'operator') {
       // Escalation to the human: stays queued, kind-tagged for UI pickup (ledger
@@ -2339,7 +2343,7 @@ export class MessageDeliveryService {
         }
         case 'not-allowed':
           return {
-            reason: 'you are no longer allowed to reach it',
+            reason: `you are no longer allowed to reach it${failure.detail ? ` (${failure.detail})` : ''}`,
             action: 'Do not resend; do not wait for a reply.',
           }
         case 'never-typed':
@@ -2497,7 +2501,7 @@ export class MessageDeliveryService {
     if (decision === 'allowed') return null
     return await this.deadLetter(message, WAKE_PLACEMENT_DENIED_REASON, {
       notifySender,
-      failure: NOT_ALLOWED,
+      failure: notAllowed(WAKE_PLACEMENT_DENIED_REASON),
     })
   }
 
@@ -2527,7 +2531,7 @@ export class MessageDeliveryService {
     await this.deadLetter(message, reason, {
       notifySender: true,
       ...(cause ? { cause } : {}),
-      failure: cause ? { kind: 'never-typed', cause } : NOT_ALLOWED,
+      failure: cause ? { kind: 'never-typed', cause } : notAllowed(reason),
     })
   }
 

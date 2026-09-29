@@ -4841,7 +4841,7 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
         return id
       },
       repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'revoked'),
-      body: ['you are no longer allowed to reach it. Do not resend; do not wait for a reply.'],
+      body: ['you are no longer allowed to reach it (revoked). Do not resend; do not wait for a reply.'],
     },
     'the target waits on a person': {
       sessions: () => [sender(), session({ sessionId: asSessionId('s1') })],
