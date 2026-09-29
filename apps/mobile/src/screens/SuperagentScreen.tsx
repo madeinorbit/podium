@@ -278,6 +278,48 @@ export function SuperagentScreen() {
     }
   }, [trpc, hub, podiumSid, replica])
 
+  // DURABLE FAILURE RESTORATION (POD-4806). A turn that never reached a
+  // harness leaves no transcript and the live turn-end error is gone after a
+  // reload — the Super thread then reads empty, as if nothing was sent. The
+  // server persists the user message plus the failure to history, so a
+  // remount restores the pair as a failed pending row (words kept, "not
+  // sent", one-tap retry — the POD-346 grammar). The existing
+  // dropEchoedTurns effect drops it once the transcript echoes the same
+  // words (a later retry ran), so one old failure cannot pin the thread.
+  useEffect(() => {
+    if (!podiumSid || !transcriptLoaded) return
+    let cancelled = false
+    const history = (trpc as unknown as {
+      superagent?: { history?: { query: (input: unknown) => Promise<unknown> } }
+    }).superagent?.history
+    if (!history) return
+    void history
+      .query({ threadId: THREAD_ID })
+      .then((rows: unknown) => {
+        if (cancelled || !Array.isArray(rows) || rows.length === 0) return
+        const items = rows as Array<{ role?: unknown; content?: unknown }>
+        const last = items[items.length - 1]
+        if (!last || last.role !== 'assistant' || typeof last.content !== 'string') return
+        if (!last.content.includes('the headless harness turn failed')) return
+        const prev = items[items.length - 2]
+        const userText =
+          prev && prev.role === 'user' && typeof prev.content === 'string' ? prev.content : ''
+        if (!userText) return
+        setError(last.content)
+        setPendingTurns((prevPending) => {
+          if (prevPending.some((t) => t.text.trim() === userText.trim())) return prevPending
+          return [
+            ...prevPending,
+            { id: `restored:${Date.now()}`, text: userText, wire: userText, failed: last.content },
+          ]
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [podiumSid, transcriptLoaded, trpc])
+
   useEffect(() => {
     if (!podiumSid || items.length === 0) return
     replica.putTranscriptWindow(podiumSid, items)

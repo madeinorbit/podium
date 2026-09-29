@@ -11,7 +11,7 @@ import type { ComposerAttachmentsApi } from '../components/useComposerAttachment
 import type { PickedFile } from '../lib/composer-media'
 
 const transcriptProps = vi.hoisted(
-  () => [] as { items: { text: string }[]; liveItem?: { text: string } }[],
+  () => [] as { items: { text: string }[]; liveItem?: { text: string }; pendingTurns?: { text: string; failed?: string }[] }[],
 )
 const composerProps = vi.hoisted(
   () =>
@@ -68,12 +68,14 @@ vi.mock('../components/TranscriptList', () => ({
     items = [],
     liveItem,
     tail,
+    pendingTurns = [],
   }: {
     items?: { text: string }[]
     liveItem?: { text: string }
     tail?: { label: string; tone: string }
+    pendingTurns?: { text: string; failed?: string }[]
   }) => {
-    transcriptProps.push({ items, ...(liveItem ? { liveItem } : {}) })
+    transcriptProps.push({ items, ...(liveItem ? { liveItem } : {}), pendingTurns })
     return (
       <div>
         transcript
@@ -405,5 +407,42 @@ describe('SuperagentScreen chrome', () => {
     expect(requestFrame).toHaveBeenCalledTimes(4)
     view.unmount()
     expect(cancelFrame).toHaveBeenCalledWith(4)
+  })
+
+  it('restores the offline failure and the user message after reload (POD-4806)', async () => {
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: {
+            query: async () => [
+              { id: 'global', kind: 'global', podiumSessionId: 'session:superagent', turnRunning: false },
+            ],
+          },
+          history: {
+            query: async () => [
+              { role: 'user', content: 'Reply with exactly the word PONG-SUPER.', createdAt: '2026-09-29T01:31:26.000Z' },
+              {
+                role: 'assistant',
+                content:
+                  "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+                createdAt: '2026-09-29T01:31:27.000Z',
+              },
+            ],
+          },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: async () => {} },
+          interruptTurn: { mutate: async () => {} },
+        },
+        sessions: {
+          transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+        },
+      },
+    })
+    await waitFor(() => {
+      const pending = transcriptProps.at(-1)?.pendingTurns ?? []
+      expect(pending.some((t) => t.text.includes('PONG-SUPER') && t.failed?.includes('is offline'))).toBe(true)
+    })
+    expect(screen.getByText(/ludovico.*is offline/)).toBeTruthy()
+    expect(screen.queryByText(/SessionBinding/)).toBeNull()
   })
 })

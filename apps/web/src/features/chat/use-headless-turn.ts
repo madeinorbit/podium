@@ -69,6 +69,11 @@ export interface UseHeadlessTurnResult {
   /** A rejection or turn error, shown inline above the composer. */
   turnError: string | null
   setTurnError: (message: string | null) => void
+  /** The most recent durable user + failure pair from superagent history
+   *  (POD-4806): the turn that never reached a harness leaves no transcript,
+   *  and the live turn-end error is gone after a reload — so the thread would
+   *  read empty without this. Null when history ends without a failure. */
+  restoredFailure: { userText: string; error: string; at: number } | null
   /** Send one turn along an already-decided route. Throws on rejection so the
    *  caller can mark its optimistic bubble failed. Resolves `true` when the
    *  server QUEUED the turn behind a running one rather than starting it. */
@@ -104,6 +109,9 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
   const [turnRunning, setTurnRunning] = useState(initialTurnRunning)
   const [overlay, setOverlay] = useState<HeadlessOverlay | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
+  const [restoredFailure, setRestoredFailure] = useState<
+    { userText: string; error: string; at: number } | null
+  >(null)
 
   useEffect(() => {
     setTurnRunning(initialTurnRunning)
@@ -152,6 +160,44 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
     if (!headless) return
     setOverlay((o) => (o?.text !== undefined ? (o.status ? { status: o.status } : null) : o))
   }, [blockCount, headless])
+
+  // DURABLE FAILURE RESTORATION (POD-4806). Live turn-end errors are
+  // ephemeral: after a reload the transcript is empty (the turn never reached
+  // a harness) and the thread reads as if nothing was sent. The server
+  // persists the user message plus the failure to superagent history, so a
+  // late-joining client restores the most recent pair here. A successful retry
+  // writes the prompt into the transcript, which then echoes it — the surface
+  // drops the restoration once the transcript carries the same words (same
+  // rule as the phone's dropEchoedTurns), so one old failure cannot pin the
+  // thread forever.
+  useEffect(() => {
+    if (!headless || !superThread) return
+    let cancelled = false
+    const history = (trpc as unknown as {
+      superagent?: { history?: { query: (input: unknown) => Promise<unknown> } }
+    }).superagent?.history
+    if (!history) return
+    void history
+      .query({ threadId: superThread.threadId })
+      .then((rows: unknown) => {
+        if (cancelled || !Array.isArray(rows) || rows.length === 0) return
+        const items = rows as Array<{ role?: unknown; content?: unknown; createdAt?: unknown }>
+        // The server appends user then assistant-failure together; only the
+        // tail pair restores — older history stays where it was.
+        const last = items[items.length - 1]
+        if (!last || last.role !== 'assistant' || typeof last.content !== 'string') return
+        if (!last.content.includes('the headless harness turn failed')) return
+        const prev = items[items.length - 2]
+        const userText = prev && prev.role === 'user' && typeof prev.content === 'string' ? prev.content : ''
+        const at = typeof last.createdAt === 'string' ? Date.parse(last.createdAt) || Date.now() : Date.now()
+        setRestoredFailure({ userText, error: last.content, at })
+        setTurnError((current) => current ?? last.content as string)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [headless, superThread, trpc])
 
   const sendTurn = useCallback(
     async (route: ChatSendRoute, text: string, focus: UserFocus, attachSessionId?: SessionId) => {
@@ -217,5 +263,5 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
     await trpc.superagent.interruptTurn.mutate({ threadId: superThread.threadId })
   }, [trpc, superThread])
 
-  return { turnRunning, overlay, turnError, setTurnError, sendTurn, interrupt }
+  return { turnRunning, overlay, turnError, setTurnError, restoredFailure, sendTurn, interrupt }
 }

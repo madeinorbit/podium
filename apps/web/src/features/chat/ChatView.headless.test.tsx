@@ -50,6 +50,7 @@ const sendTurn = vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'h1' 
 const concierge = vi.fn(async () => ({ threadId: 'c1', podiumSessionId: 'h1', isNew: false }))
 const interruptTurn = vi.fn(async () => {})
 const sendText = vi.fn(async () => {})
+const superagentHistory = vi.fn(async () => [] as Array<{ role: string; content: string; createdAt: string }>)
 
 const fakeTrpc = {
   sessions: {
@@ -64,6 +65,7 @@ const fakeTrpc = {
     sendTurn: { mutate: sendTurn },
     concierge: { mutate: concierge },
     interruptTurn: { mutate: interruptTurn },
+    history: { query: superagentHistory },
   },
 }
 
@@ -479,5 +481,32 @@ describe('ChatView headless mode', () => {
     mount()
     await flush()
     expect(fakeHub.headlessSubs).toHaveLength(0)
+  })
+
+  /**
+   * OFFLINE DEFAULT KEEPS ITS WORDS (POD-4806). The turn never reached a
+   * harness, so the transcript is empty and the live turn-end error is gone —
+   * a reload that rendered only the transcript read as an empty thread, as if
+   * the message was never sent. The server persists the user message plus the
+   * failure to history; the pane restores the reason inline, and never the
+   * internal spawn text. (The words as a failed bubble with retry rode the
+   * dead-letter row the records-driven feed replaced (POD-4764); re-expressing
+   * that bubble on the new feed is open.)
+   */
+  it('restores the offline failure and the user message after reload', async () => {
+    superagentHistory.mockResolvedValueOnce([
+      { role: 'user', content: 'Reply with exactly the word PONG-SUPER.', createdAt: '2026-09-29T01:31:26.000Z' },
+      {
+        role: 'assistant',
+        content: "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+        createdAt: '2026-09-29T01:31:27.000Z',
+      },
+    ])
+    mount()
+    await flush()
+    await flush()
+    expect(container.textContent).toContain('ludovico')
+    expect(container.textContent).toContain('is offline')
+    expect(container.textContent).not.toContain('SessionBinding')
   })
 })
