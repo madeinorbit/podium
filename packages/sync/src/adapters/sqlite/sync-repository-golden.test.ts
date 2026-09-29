@@ -424,6 +424,8 @@ describe('the session inbox', () => {
       actorId: 'user-3',
       onBehalfOf: 'user-9',
       sourceMessageId: 'msg-2',
+      delivery: 'interrupt',
+      attachmentsJson: '[{"id":"a1"}]',
     })
     expect(await repo.listQueuedMessages(session('s1'))).toEqual([
       {
@@ -440,7 +442,16 @@ describe('the session inbox', () => {
         actorId: 'user-3',
         onBehalfOf: 'user-9',
         sourceMessageId: 'msg-2',
+        delivery: 'interrupt',
+        attachmentsJson: '[{"id":"a1"}]',
       },
+    ])
+  })
+
+  it('defaults a row to when-ready with no files (POD-4795)', async () => {
+    await enqueue('m1', 's1', 10)
+    expect(await repo.listQueuedMessages(session('s1'))).toEqual([
+      expect.objectContaining({ id: 'm1', delivery: 'when-ready', attachmentsJson: null }),
     ])
   })
 

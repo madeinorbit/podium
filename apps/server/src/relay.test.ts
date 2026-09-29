@@ -2602,13 +2602,16 @@ describe('agent state', () => {
         state: STATE,
       })
       expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
-      expect(runtimeSends(sessionId)).toEqual([
+      // One durable row, like every agent send (POD-4795).
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
+      expect(durableSends(daemon, sessionId)).toEqual([
         expect.objectContaining({
           text: 'continue',
           origin: 'auto_continue',
           delivery: 'when-ready',
         }),
       ])
+      expect(runtimeSends(sessionId)).toEqual([])
       expect(ptyInputs(sessionId)).toEqual([])
 
       const shell = (await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' }))
@@ -3608,7 +3611,7 @@ describe('sendText (chat send path)', () => {
     }
   })
 
-  it('#473: interrupt reaches an agent waiting on a menu — the stop goes to its driver, then the text as a durable send, nothing typed', async () => {
+  it('#473: interrupt reaches an agent waiting on a menu as one durable row in the interrupt mode, nothing typed', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -3620,34 +3623,18 @@ describe('sendText (chat send path)', () => {
       )
       daemon.length = 0
 
-      const answer = reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' })
-      await vi.waitFor(() =>
-        expect(
-          daemon.some((m) => m.type === 'runtimeInterruptRequest' && m.sessionId === sessionId),
-        ).toBe(true),
-      )
-      const request = daemon.find(
-        (m): m is Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> =>
-          m.type === 'runtimeInterruptRequest' && m.sessionId === sessionId,
-      )!
-      // A bare stop: no queued row to cancel rides along. Whether the menu
-      // needs an ESC first is the driver's to decide.
-      expect(request.cancelRowId).toBeUndefined()
-      expect(durableSends(daemon, sessionId)).toEqual([])
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'runtimeLifecycleResult',
-        requestId: request.requestId,
-        sessionId,
-        result: { ok: true },
-      })
-
-      expect(await answer).toEqual({ ok: true, queued: true })
+      expect(
+        await reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' }),
+      ).toEqual({ ok: true, queued: true })
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
-      expect(durableSends(daemon, sessionId)[0]?.text).toBe('stop and read this')
-      // The stop went out before the text.
-      expect(daemon.indexOf(request)).toBeLessThan(
-        daemon.indexOf(durableSends(daemon, sessionId)[0]!),
-      )
+      // The row carries the mode; the daemon's queue decides whether there is
+      // a turn or a menu to cut, and cuts it before typing (POD-4795). The
+      // server sends no stop of its own and types nothing.
+      expect(durableSends(daemon, sessionId)[0]).toMatchObject({
+        text: 'stop and read this',
+        delivery: 'interrupt',
+      })
+      expect(daemon.filter((m) => m.type === 'runtimeInterruptRequest')).toEqual([])
       expect(readInputs(daemon)).toEqual([])
     } finally {
       await reg.dispose()
@@ -6226,9 +6213,11 @@ describe('SessionRegistry — auto-continue', () => {
     error: { class: 'server_error', retryable: true },
   }
   // An agent's continue is a when-ready contract send, not 'continue\r' typed
-  // at the PTY (358ad0ffb POD-4427, POD-4279; `sendContinueViaContract`).
+  // at the PTY (358ad0ffb POD-4427, POD-4279; `sendContinueViaContract`), and
+  // like every agent send a durable row (POD-4795).
   const continueInput = expect.objectContaining({
-    type: 'runtimeSendRequest',
+    type: 'runtimeDurableSendRequest',
+    delivery: 'when-ready',
     text: 'continue',
     origin: 'auto_continue',
   })
