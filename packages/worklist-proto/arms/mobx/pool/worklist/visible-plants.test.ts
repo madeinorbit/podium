@@ -22,7 +22,7 @@ import { type Change, gen } from '../../../../shared/src/gen/changes'
 import { checkArm } from '../../../../shared/src/gen/check'
 import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
-import { mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { IssueModel, type ModelHost } from '../models'
 import { type IssueVisibility, membersOf, type VisibleInputs } from './visible'
@@ -90,7 +90,7 @@ function plantNestParentNoDraft(
 function orderChecked(): ((ctx: ScenarioEngine) => CheckableArm) & { compared: number } {
   const factory = ((ctx: ScenarioEngine): CheckableArm => ({
     create(source, locals, reads) {
-      const handle = mobxPoolArm.create(source, locals, reads)
+      const handle = harnessMobxPoolArm.create(source, locals, reads)
       return {
         ...handle,
         snapshot() {
@@ -188,7 +188,7 @@ async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> 
         )
       }
     }
-    let handle = mobxPoolArm.create(feed.source, locals.source)
+    let handle = harnessMobxPoolArm.create(feed.source, locals.source)
     try {
       observed(handle)
       for (const change of sequence) {
@@ -198,7 +198,7 @@ async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> 
           locals.dispose()
           feed = run.feed()
           locals = createEngineLocals(run.ctx.engine)
-          handle = mobxPoolArm.create(feed.source, locals.source)
+          handle = harnessMobxPoolArm.create(feed.source, locals.source)
         }
         observed(handle)
       }

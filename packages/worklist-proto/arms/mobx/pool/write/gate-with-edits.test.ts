@@ -24,7 +24,7 @@ import { checkArm, type CheckedArm } from '../../../../shared/src/gen/check'
 import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
 import { installMobxWarnTrap } from '../mobx-trap'
 
-import { writableMobxPoolArm } from './arm'
+import { harnessWritableMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 
 installMobxWarnTrap()
 
@@ -83,7 +83,7 @@ describe('L4b with optimistic edits enabled (write layer attached, idle)', () =>
       const cells = []
       for (const seed of SEEDS) {
         const transport = fakeTransport()
-        const arm = writableMobxPoolArm(transport)
+        const arm = harnessWritableMobxPoolArm(transport)
         const sequence = gen(seed, STEPS)
         const gap = { applied: 0 }
         const result = await checkArm(gapped(arm, gap), sequence)
@@ -106,7 +106,7 @@ describe('L4b with optimistic edits enabled (write layer attached, idle)', () =>
       let failures = 0
       for (const seed of SEEDS) {
         const transport = fakeTransport()
-        const writable = writableMobxPoolArm(transport)
+        const writable = harnessWritableMobxPoolArm(transport)
         const planted: CheckableArm = {
           create: (source, locals, reads) =>
             writable.create(deafToRemovals(source), locals, reads) as never,

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * POD-4577 (Mc5) — the round-three MobX pool (`mobxPoolArm`, `arms/mobx/pool`,
+ * POD-4577 (Mc5) — the round-three MobX pool (`harnessMobxPoolArm`, `arms/mobx/pool`,
  * NOT the round-two arm) on the native renderer: scenarios #1-#3 through the
  * shared fence steps with counts from outside (rows committed per `RowShell`,
  * reads per change) plus parity, and a planted whole-list re-render that fails
@@ -49,10 +49,14 @@ import { observer } from 'mobx-react-lite'
 import { act, type ReactElement } from 'react'
 import { View } from 'react-native'
 import { describe, expect, it, vi } from 'vitest'
-import { type MobxPoolHandle, mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
 import { PoolNativeRow } from '../../arms/mobx/pool/native/row'
-import { type MobxPool, tracked } from '../../arms/mobx/pool/pool'
+import { type MobxPool } from '../../arms/mobx/pool/pool'
+import {
+  type HarnessMobxPoolHandle,
+  harnessMobxPoolArm,
+  tracked,
+} from '../src/adapters/mobx-pool'
 import { createReadFence, DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { RowShell } from '../../shared/src/row-shell'
 import { startScenarioEngine } from '../../shared/src/scenarios'
@@ -81,7 +85,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const reads = createReadFence({ enabled: true })
-    const clean = mobxPoolArm.create(
+    const clean = harnessMobxPoolArm.create(
       reads.wrapSource(feeds.rows.source),
       feeds.locals.source,
       reads,
@@ -95,7 +99,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     // per visible id, each observing only its own view, stable keys, no data
     // arrays passed as props — the same rows through the same RowShells as
     // the windowed mount, without virtualization.
-    const full: MobxPoolHandle = {
+    const full: HarnessMobxPoolHandle = {
       ...clean,
       mountNative: () => <FullNativeList pool={clean.pool} />,
     }
@@ -161,7 +165,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const reads = createReadFence({ enabled: true })
-    const clean = mobxPoolArm.create(
+    const clean = harnessMobxPoolArm.create(
       reads.wrapSource(feeds.rows.source),
       feeds.locals.source,
       reads,
@@ -173,7 +177,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     // re-renders every slot and every drawn RowShell commits — the whole-list
     // work the per-row observers exist to avoid. Parity still holds (the
     // mistake is performance, not correctness).
-    const planted: MobxPoolHandle = {
+    const planted: HarnessMobxPoolHandle = {
       ...clean,
       mountNative: () => <PlantedNativeList pool={clean.pool} />,
     }
@@ -223,7 +227,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     })
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source, DISABLED_READ_FENCE, {
+    const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, DISABLED_READ_FENCE, {
       schedule: () => () => {},
     })
     const mounted = await mountNativeForCounts(handle)

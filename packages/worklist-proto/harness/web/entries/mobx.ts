@@ -16,7 +16,7 @@
  */
 
 import { observable, reaction, runInAction } from 'mobx'
-import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
+import { harnessMobxPoolArm } from '../../src/adapters/mobx-pool'
 import { startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { mountPage, pageEngineOptions, readPageCorpus, stagePoint } from '../entrylib'
 
@@ -55,7 +55,7 @@ void (async () => {
   const boot = await startEngineOnCorpus(corpus, pageEngineOptions())
   mountPage({
     arm: 'mobx',
-    createArm: () => mobxPoolArm,
+    createArm: () => harnessMobxPoolArm,
     boot,
     scale,
     cell,

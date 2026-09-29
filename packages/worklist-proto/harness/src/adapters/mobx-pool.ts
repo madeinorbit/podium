@@ -140,13 +140,13 @@ export function snapshotPool(pool: MobxPool): SliceSnapshot {
 const HarnessPoolNativeList = lazy(() => import('../../../arms/mobx/pool/native/list'))
 
 /** The harness handle: the live pool beside the full checker + lazy hooks. */
-export interface HarnessMobxPoolHandle extends CheckableArmHandle, LazyArmHandle {
+export type HarnessMobxPoolHandle = CheckableArmHandle & LazyArmHandle & {
   /** The live pool (tests; the copy sweep reaches the tables through it). */
   readonly pool: MobxPool
 }
 
 /** The harness writable handle: the live pool and the write api. */
-export interface HarnessWritableMobxPoolHandle extends CheckableArmHandle, LazyArmHandle {
+export type HarnessWritableMobxPoolHandle = CheckableArmHandle & LazyArmHandle & {
   readonly pool: MobxPool
   readonly write: MobxWriteApi
 }

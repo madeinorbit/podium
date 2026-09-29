@@ -8,15 +8,15 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { mobxPoolArm } from '../../arms/mobx/pool/arm'
+import { harnessMobxPoolArm } from '../src/adapters/mobx-pool'
 import { moduleGraphOf } from '../entry-pin'
 
 const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   ? process.cwd()
   : join(process.cwd(), 'packages', 'worklist-proto')
 
-function poolArm(): string {
-  return readFileSync(join(PACKAGE_DIR, 'arms/mobx/pool/arm.ts'), 'utf-8')
+function harnessAdapter(): string {
+  return readFileSync(join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'), 'utf-8')
 }
 
 function nativeList(): string {
@@ -24,10 +24,10 @@ function nativeList(): string {
 }
 
 describe('native entry mounts the round-three MobX pool', () => {
-  it('pool arm exposes mountNative from the pool native list', () => {
-    const code = poolArm()
-    expect(code, 'the pool arm value').toContain('mobxPoolArm')
-    expect(code, 'the native list chunk').toContain('./native/list')
+  it('harness adapter exposes mountNative from the pool native list', () => {
+    const code = harnessAdapter()
+    expect(code, 'the harness arm value').toContain('harnessMobxPoolArm')
+    expect(code, 'the native list chunk').toContain('native/list')
     expect(code, 'the native entry').toContain('mountNative')
   })
 
@@ -38,18 +38,19 @@ describe('native entry mounts the round-three MobX pool', () => {
     expect(code, 'not the unenforcing boundary').not.toContain('CommitBoundary')
   })
 
-  it('the pool arm module reaches the native list', () => {
+  it('the harness adapter module reaches the native list', () => {
     // By module, not by spelling (POD-4577: a text grep misses a relative
     // import of the same file). Renderer-free: the graph walk reads source,
-    // it never executes arm code.
-    const graph = moduleGraphOf(join(PACKAGE_DIR, 'arms/mobx/pool/arm.ts'))
+    // it never executes arm code. The adapter lazy-imports the product
+    // native list directly (`HarnessPoolNativeList`).
+    const graph = moduleGraphOf(join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'))
     expect(graph, 'the native entry').toContain(join(PACKAGE_DIR, 'arms/mobx/pool/native/list.tsx'))
   })
 
-  it('the mounted arm is mobxPoolArm by identity', () => {
-    // The fence lane mounts the export of `arms/mobx/pool/arm` (same path,
+  it('the mounted arm is harnessMobxPoolArm by identity', () => {
+    // The fence lane mounts the export of the harness adapter (same path,
     // so the same module instance).
-    expect(mobxPoolArm, 'the pool arm export').toBeDefined()
-    expect(typeof mobxPoolArm.create, 'mobxPoolArm.create').toBe('function')
+    expect(harnessMobxPoolArm, 'the harness arm export').toBeDefined()
+    expect(typeof harnessMobxPoolArm.create, 'harnessMobxPoolArm.create').toBe('function')
   })
 })

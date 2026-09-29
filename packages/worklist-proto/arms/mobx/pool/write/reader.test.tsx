@@ -27,10 +27,9 @@ import type {
   WriteEvent,
   WriteTransport,
 } from '../../../../shared/src/write-contract'
-import { mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { type MobxPool, tracked } from '../pool'
-import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
+import type { MobxPool } from '../pool'
 import { createMobxWriteApi } from './edit'
 import { PendingOverlay } from './overlay'
 import { ECHO_TTL_MS } from './pending'
@@ -142,7 +141,7 @@ function shownOf(pool: MobxPool, id: string): Shown {
  * nothing pending the reader hands out the server object itself.
  */
 function expectAgreement(
-  handle: WritableMobxPoolHandle,
+  handle: HarnessWritableMobxPoolHandle,
   id: string,
   want: { title: string; stage: string; visible: boolean },
   moment: string,
@@ -170,14 +169,14 @@ function expectAgreement(
 }
 
 async function withArm(
-  run: (ctx: ScenarioEngine, handle: WritableMobxPoolHandle, transport: FakeTransport) => Promise<void>,
+  run: (ctx: ScenarioEngine, handle: HarnessWritableMobxPoolHandle, transport: FakeTransport) => Promise<void>,
 ): Promise<void> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'truth')
   const transport = fakeTransport()
-  const mounted = mountArmForCounts(writableMobxPoolArm(transport, NEVER_AUTO), feeds.rows.source, feeds.locals)
+  const mounted = mountArmForCounts(harnessWritableMobxPoolArm(transport, NEVER_AUTO), feeds.rows.source, feeds.locals)
   try {
-    await run(ctx, mounted.handle as WritableMobxPoolHandle, transport)
+    await run(ctx, mounted.handle as HarnessWritableMobxPoolHandle, transport)
   } finally {
     mounted.unmount()
     feeds.dispose()
@@ -251,7 +250,7 @@ describe('POD-4743 one row reader with pending edits', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const overlay = new PendingOverlay()
-    const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, NEVER_AUTO, overlay)
+    const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, NEVER_AUTO, overlay)
     const { pool } = handle
     const members = (): Map<string, unknown> =>
       new Map([

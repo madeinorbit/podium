@@ -25,10 +25,10 @@ import type { RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
-import { type MobxPoolHandle, mobxPoolArm } from './arm'
+import { type HarnessMobxPoolHandle, harnessMobxPoolArm, poolPendingLoads, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
-import { MobxPool, tracked } from './pool'
+import { MobxPool } from './pool'
 import { LOAD_WINDOW_MS } from './residency'
 import { LOADING } from './worklist/rollup'
 import { sliceOrderOf } from './worklist/groups'
@@ -73,7 +73,7 @@ interface Timer {
 interface Rig {
   replay: ReplaySource
   reads: ReadFence
-  handle: MobxPoolHandle
+  handle: HarnessMobxPoolHandle
   pool: MobxPool
   /** Timers the loader armed, in order. */
   timers: Timer[]
@@ -115,7 +115,7 @@ function rig(
   }
   const reads = options.fence === false ? DISABLED_READ_FENCE : createReadFence({ enabled: true })
   const timers: Timer[] = []
-  const handle = mobxPoolArm.create(
+  const handle = harnessMobxPoolArm.create(
     reads.wrapSource(counted),
     locals.source,
     reads,
@@ -199,13 +199,13 @@ function expectAskedThenLanded(r: Rig, expected: readonly string[]): void {
   }
   expect(r.loads, 'rows read by id before the window').toEqual([])
   for (const key of expected) expect(residence(key), key).toBe('loading')
-  expect(r.pool.pendingLoads()).toBe(expected.length)
+  expect(poolPendingLoads(r.pool)).toBe(expected.length)
   const batches = r.pool.residency?.counters.batches ?? 0
   r.fire()
   expect([...r.loads].sort()).toEqual([...expected].sort())
   expect(r.pool.residency?.counters.batches).toBe(batches + 1)
   for (const key of expected) expect(residence(key), key).toBe('resident')
-  expect(r.pool.pendingLoads()).toBe(0)
+  expect(poolPendingLoads(r.pool)).toBe(0)
   expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
 }
 
@@ -986,7 +986,7 @@ describe('the lane source (R3, POD-4745)', () => {
     expect(resident(r.pool)).toBe(true)
     // Nothing read by id, nothing asked for.
     expect(r.loads).toEqual([])
-    expect(r.pool.pendingLoads()).toBe(0)
+    expect(poolPendingLoads(r.pool)).toBe(0)
     // And the pool is right: the partition, and every relation (the twins' collapse among them).
     expect(diffResidency(r.pool, r.replay.source)).toEqual([])
     expect(

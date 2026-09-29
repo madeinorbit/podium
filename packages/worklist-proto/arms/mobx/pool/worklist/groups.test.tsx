@@ -55,9 +55,9 @@ import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { CommitLogContext, currentCommitLog } from '../../../../shared/src/row-shell'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
-import { type MobxPoolHandle, mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, poolPendingLoads, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { type MobxPool, tracked } from '../pool'
+import type { MobxPool } from '../pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
 import { closedOf } from '../views'
 import { sliceOrderOf } from './groups'
@@ -67,7 +67,7 @@ installMobxWarnTrap()
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessMobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 const STEPS = ['#1', '#2', '#3', '#4', '#5', '#6a', '#6b', '#6c', '#6d', '#7'] as const
@@ -121,7 +121,7 @@ interface GroupParity {
   readonly closed: number
 }
 
-function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): GroupParity {
+function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: string): GroupParity {
   const { pool } = handle
   const locals = parityLocals(ctx)
   const store = ctx.engine.getSnapshot()
@@ -205,7 +205,7 @@ describe('groups and closed folds (Mb2)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as MobxPoolHandle
+    const handle = mounted.handle as HarnessMobxPoolHandle
     const { pool } = handle
     try {
       settle(pool)
@@ -278,7 +278,7 @@ describe('groups and closed folds (Mb2)', () => {
   it('the fold latch holds a selected grace-folded row open; a dismissal or a folded click does not', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = arm.create(feeds.rows.source, feeds.locals.source) as MobxPoolHandle
+    const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessMobxPoolHandle
     const { pool } = handle
     // Observed, as the mounted list observes them: an unobserved computed
     // re-runs on every read, so the layout counter would count the reads.
@@ -403,7 +403,7 @@ describe('the windowed web list (Mb2)', () => {
         return source.row?.(kind, id)
       },
     }
-    const handle = mobxPoolArm.create(counting, feeds.locals.source, undefined, {
+    const handle = harnessMobxPoolArm.create(counting, feeds.locals.source, undefined, {
       schedule: () => () => {},
     })
     const { pool } = handle
@@ -426,7 +426,7 @@ describe('the windowed web list (Mb2)', () => {
       expect(firstWindow).toBeGreaterThan(0)
       expect(firstWindow).toBeLessThanOrEqual(Math.ceil(height / HEADER_HEIGHT) + 10)
       expect(firstWindow).toBeLessThan(visible)
-      const queuedAtPaint = pool.pendingLoads()
+      const queuedAtPaint = poolPendingLoads(pool)
       const coldVisible = tracked(
         () => pool.worklist.order.filter((id) => pool.residency?.isCold('issue', id)).length,
       )

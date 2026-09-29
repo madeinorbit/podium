@@ -23,9 +23,8 @@
 import { observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { mobxPoolArm } from '../../arms/mobx/pool/arm'
+import { harnessMobxPoolArm, tracked } from '../src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
-import { tracked } from '../../arms/mobx/pool/pool'
 import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
@@ -62,7 +61,7 @@ describe('mobx pool on the native renderer', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     // No load window closes on its own mid-step.
-    const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
+    const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
       schedule: () => () => {},
     })
     const mounted = await mountNativeForCounts(handle)

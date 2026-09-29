@@ -26,9 +26,8 @@ import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
-import { type MobxPoolHandle, mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { tracked } from '../pool'
 
 installMobxWarnTrap()
 
@@ -96,14 +95,14 @@ async function measure(scale: 1 | 4) {
     })
   const arm: CheckableArm = {
     create: (source, locals, reads) =>
-      mobxPoolArm.create(counting(source), locals, reads, { schedule: () => () => {} }),
+      harnessMobxPoolArm.create(counting(source), locals, reads, { schedule: () => () => {} }),
   }
   let mounted: ReturnType<typeof mountArmForCounts> | undefined
   const reactions = collectReactions(() => {
     mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
   })
   const m = mounted as ReturnType<typeof mountArmForCounts>
-  const { pool } = m.handle as MobxPoolHandle
+  const { pool } = m.handle as HarnessMobxPoolHandle
   try {
     const visibility = [...reactions].filter((r) => r.name_.startsWith('pool.file.'))
     const nodes = objectsBehind(visibility)

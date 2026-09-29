@@ -23,7 +23,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { mobxPoolArm } from '../../arms/mobx/pool/arm'
+import { harnessMobxPoolArm } from './adapters/mobx-pool'
 import { type ScannableTables, scanRelations } from '../../arms/mobx/pool/enumerate'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
 import { diffSnapshots } from '../../shared/src/gen/check'
@@ -65,7 +65,7 @@ interface ScopeCheck {
 async function rescopeRun(scans: boolean): Promise<{ grown: ScopeCheck; back: ScopeCheck }> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
-  const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source)
+  const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
   let seq = 1
   const install = async (scope: StagedScope): Promise<void> => {
     if (scans) await stageScans(ctx, scope.repos)

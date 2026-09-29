@@ -26,9 +26,9 @@ import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
-import { mobxPoolArm } from './arm'
+import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
-import { MobxPool, tracked } from './pool'
+import { MobxPool } from './pool'
 
 installMobxWarnTrap()
 
@@ -57,7 +57,7 @@ function feedOf(scale: 1 | 4) {
 function boot(arm: Arm, feed: ReturnType<typeof feedOf>): MobxPool {
   const locals = settableLocals({ selectedIssueId: null, coarseNow: feed.corpus.fixedNow })
   if (arm === 'lazy') {
-    return mobxPoolArm.create(feed.replay.source, locals.source, DISABLED_READ_FENCE, {
+    return harnessMobxPoolArm.create(feed.replay.source, locals.source, DISABLED_READ_FENCE, {
       schedule: () => () => {},
     }).pool
   }

@@ -30,12 +30,10 @@ import type {
   WriteTransport,
 } from '../../../../shared/src/write-contract'
 import { commandFor, WriteContractError } from '../../../../shared/src/write-contract'
-import { mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, harnessWritableMobxPoolArm, poolPendingLoads, snapshotPool, tracked, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { diffRelations, knownTables } from '../enumerate'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { tracked } from '../pool'
 import { reaction, runInAction } from 'mobx'
-import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 import { rowViewOf } from '../models'
 import type { RowSource } from '../../../../shared/src/arm'
 import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
@@ -73,10 +71,10 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const before = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
@@ -115,10 +113,10 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const priorTitle = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
@@ -173,10 +171,10 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const serverStage = tracked(
@@ -225,10 +223,10 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       // The visible root: the mark-read paints a stamp, the rewind restores
       // whatever the server holds (null or an older stamp).
@@ -262,10 +260,10 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const prior = tracked(() => (handle.pool.inputs.issue(id) as SliceIssue)?.title)
@@ -302,10 +300,10 @@ describe('Mc1 MobX edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       expect(() => write.edit('issue', 'i-does-not-exist', { title: 'x' })).toThrow()
       expect(transport.sent).toHaveLength(0)
@@ -313,7 +311,7 @@ describe('Mc1 MobX edits on the model', () => {
       expect(() => write.edit('issue', ctx.targets.visibleRootId, {} as never)).toThrow()
       // snapshot() settles through its own tracked context; wrapping it in
       // another tracked() would observe nothing and trip enforcement.
-      expect(handle.pool.snapshot()).toBeDefined()
+      expect(snapshotPool(handle.pool)).toBeDefined()
     } finally {
       mounted.unmount()
       feeds.dispose()
@@ -344,7 +342,7 @@ describe('an edit on a row not in memory', () => {
     }
     const windows: { run: () => void; cancelled: boolean }[] = []
     const lazyTransport = fakeTransport()
-    const lazy = writableMobxPoolArm(lazyTransport, {
+    const lazy = harnessWritableMobxPoolArm(lazyTransport, {
       schedule: (run) => {
         const timer = { run, cancelled: false }
         windows.push(timer)
@@ -352,7 +350,7 @@ describe('an edit on a row not in memory', () => {
           timer.cancelled = true
         }
       },
-    }).create(counted, feeds.locals.source) as WritableMobxPoolHandle
+    }).create(counted, feeds.locals.source) as HarnessWritableMobxPoolHandle
     // The all-in-memory pool: no residency, every row in its tables.
     const overlay = new PendingOverlay()
     const full = new MobxPool(DISABLED_READ_FENCE, feeds.locals.source.get(), undefined, undefined, overlay)
@@ -387,7 +385,7 @@ describe('an edit on a row not in memory', () => {
       expect(lazy.write.log.size).toBe(0)
       expect(lazyTransport.sent).toEqual([])
       expect(tracked(() => pool.resident('issue', id))).toBe('loading')
-      expect(pool.pendingLoads()).toBe(1)
+      expect(poolPendingLoads(pool)).toBe(1)
       expect(windows.filter((timer) => !timer.cancelled)).toHaveLength(1)
 
       // The window closes: the row lands in one batch, read once.
@@ -430,14 +428,14 @@ describe('model edit setters', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       // What the first paint asked for lands first (the drawn rows' closed
       // families, POD-4754), so no load lands inside the measured step.
       act(() => {
-        handle.pool.settleLoads()
+        handle.settleLoads()
       })
       const id = ctx.targets.visibleRootId
       const issue = tracked(() => handle.pool.issue(id))
@@ -487,10 +485,10 @@ describe('model edit setters', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const id = ctx.targets.visibleRootId
       const issue = tracked(() => handle.pool.issue(id))
       if (issue === undefined) throw new Error('the visible root has a model')
@@ -523,7 +521,7 @@ describe('model edit setters', () => {
   it('a pool without a write layer refuses a model edit and changes nothing', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
-    const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, NEVER_AUTO)
+    const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, NEVER_AUTO)
     try {
       const id = ctx.targets.visibleRootId
       const issue = tracked(() => handle.pool.issue(id))

@@ -23,8 +23,9 @@ import {
 } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { diffRelations } from './enumerate'
+import { tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
-import { MobxPool, tracked } from './pool'
+import { MobxPool } from './pool'
 
 installMobxWarnTrap()
 

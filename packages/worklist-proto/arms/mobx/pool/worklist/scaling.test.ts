@@ -52,14 +52,13 @@ import { createReadFence } from '../../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../../shared/src/locals-source'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { type MobxPoolHandle, mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import type { MobxPool } from '../pool'
-import { tracked } from '../pool'
 
 interface Rig {
   replay: ReplaySource
   locals: SettableLocalsHandle
-  handle: MobxPoolHandle
+  handle: HarnessMobxPoolHandle
   push(event: { type: 'update'; rows: RowRecord[] }): void
   dispose(): void
 }
@@ -82,9 +81,9 @@ function rig(scale: 1 | 4): Rig {
     subscribe: (listener) => replay.source.subscribe(listener),
   }
   const reads = createReadFence({ enabled: true })
-  const handle = mobxPoolArm.create(reads.wrapSource(counted), locals.source, reads, {
+  const handle = harnessMobxPoolArm.create(reads.wrapSource(counted), locals.source, reads, {
     schedule: () => () => {},
-  }) as MobxPoolHandle
+  }) as HarnessMobxPoolHandle
   return {
     replay,
     locals,

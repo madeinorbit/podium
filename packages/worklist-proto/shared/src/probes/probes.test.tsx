@@ -22,7 +22,7 @@
  */
 
 import { afterAll, describe, expect, it } from 'vitest'
-import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
+import { harnessMobxPoolArm } from '../../../harness/src/adapters/mobx-pool'
 import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
 import { type ProbePlant, probeReferenceArmFor } from '../../../harness/src/reference-arm/probe-arm'
 import { writeResult } from '../../../harness/src/results'
@@ -191,7 +191,7 @@ describe('the relation check on a real round-three arm (the MobX pool, clean)', 
   const MOBX_POOL: ProbeSubject = {
     name: 'mobx pool (clean)',
     mode: 'overlaid',
-    armFor: () => mobxPoolArm,
+    armFor: () => harnessMobxPoolArm,
     oracle: false,
   }
   for (const probe of [evictIndexCleanup, missingInverse]) {

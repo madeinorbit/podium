@@ -51,9 +51,9 @@ import {
   upsert,
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
-import { type MobxPoolHandle, mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { type MobxPool, tracked } from '../pool'
+import type { MobxPool } from '../pool'
 import { PoolRow } from '../react/row'
 import { rowViewOf } from '../models'
 
@@ -62,7 +62,7 @@ installMobxWarnTrap()
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessMobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 /** The row fields Mb1's rows carry from the own row and one hop (the roll-ups are Mb3's, `rollup.test.tsx`). */
@@ -108,7 +108,7 @@ interface ParityCell {
   readonly fieldDiffs: number
 }
 
-function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): ParityCell {
+function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: string): ParityCell {
   const { pool } = handle
   const snapshot = handle.snapshot()
   const expected = oracleOrder(ctx)
@@ -149,7 +149,7 @@ describe('visible collection and order (Mb1)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as MobxPoolHandle
+    const handle = mounted.handle as HarnessMobxPoolHandle
     const { pool } = handle
     try {
       const rounds = settle(pool)
@@ -213,7 +213,7 @@ describe('visible collection and order (Mb1)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const { pool } = mounted.handle as MobxPoolHandle
+    const { pool } = mounted.handle as HarnessMobxPoolHandle
     try {
       settle(pool)
       const before = tracked(() => [...pool.worklist.order])
@@ -262,7 +262,7 @@ describe('visible collection and order (Mb1)', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      settle((mounted.handle as MobxPoolHandle).pool)
+      settle((mounted.handle as HarnessMobxPoolHandle).pool)
       mounted.log.reset()
       mounted.handle.stats.reset()
       mounted.reads.reset()
@@ -280,7 +280,7 @@ describe('visible collection and order (Mb1)', () => {
     // The L4b gate's shrunk sequence: with an untracked node registry the
     // descendants' nest parents never looked for the re-added node.
     const plain: CheckableArm = {
-      create: (source, locals, reads) => mobxPoolArm.create(source, locals, reads),
+      create: (source, locals, reads) => harnessMobxPoolArm.create(source, locals, reads),
     }
     const result = await checkArm(
       plain,
@@ -296,7 +296,7 @@ describe('visible collection and order (Mb1)', () => {
   it('a list that draws hidden rows fails the commit fence on #4 (a hidden spin-off)', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
-        const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
         const { pool } = handle
         return {
           ...handle,
@@ -316,7 +316,7 @@ describe('visible collection and order (Mb1)', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
     try {
-      settle((mounted.handle as MobxPoolHandle).pool)
+      settle((mounted.handle as HarnessMobxPoolHandle).pool)
       mounted.log.reset()
       mounted.handle.stats.reset()
       mounted.reads.reset()

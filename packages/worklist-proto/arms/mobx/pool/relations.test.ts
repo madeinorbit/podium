@@ -40,8 +40,9 @@ import {
 } from '../../../shared/src/schema'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { diffRelations } from './enumerate'
+import { snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
-import { MobxPool, tracked } from './pool'
+import { MobxPool } from './pool'
 import { rebuildSnapshot } from './rebuild'
 import { ancestorPaths } from './relations'
 import { rowViewOf } from './models'
@@ -1397,11 +1398,11 @@ describe('the row views resolve relations through the engine (M3 F2)', () => {
     try {
       const keep = autorun(() => rowViewOf(r.pool.issue('I1')))
       expect(view(r, 'I1')?.displayRef).toBe('POD-1')
-      expect(r.pool.snapshot().rowsById).toEqual(rebuilt(r).rowsById)
+      expect(snapshotPool(r.pool).rowsById).toEqual(rebuilt(r).rowsById)
       plant(r, 'repo', 'I1', 'RB')
       expect(view(r, 'I1')?.displayRef, 'the view reads the engine').toBe('XYZ-1')
       expect(rebuilt(r).rowsById['I1']?.displayRef, 'the scan resolves from the row').toBe('POD-1')
-      expect(r.pool.snapshot().rowsById).not.toEqual(rebuilt(r).rowsById)
+      expect(snapshotPool(r.pool).rowsById).not.toEqual(rebuilt(r).rowsById)
       keep()
     } finally {
       r.dispose()

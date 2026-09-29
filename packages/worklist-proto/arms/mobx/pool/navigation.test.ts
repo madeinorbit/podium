@@ -32,10 +32,9 @@ import { buildCorpus } from '../../../harness/src/fixture/index'
 import { type RelationLinks, refs, relationLinks, relationRef } from '../../../shared/src/links'
 import { settableLocals } from '../../../shared/src/locals-source'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
-import { mobxPoolArm } from './arm'
+import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
 import type { LazyCollection, ModelOf } from './models'
-import { tracked } from './pool'
 import { ENTITIES } from './tables'
 import { LOADING } from './worklist/rollup'
 
@@ -128,7 +127,7 @@ describe('typed relation links (POD-4758)', () => {
       })),
     })
     const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-    const handle = mobxPoolArm.create(replay.source, locals.source)
+    const handle = harnessMobxPoolArm.create(replay.source, locals.source)
     try {
       const { pool } = handle
       const links = relationLinks(pool.relations) as unknown as Record<string, Record<string, Link>>
@@ -192,7 +191,7 @@ function lazyRig() {
   })
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   const due: (() => void)[] = []
-  const handle = mobxPoolArm.create(replay.source, locals.source, undefined, {
+  const handle = harnessMobxPoolArm.create(replay.source, locals.source, undefined, {
     schedule: (run) => {
       due.push(run)
       return () => {}

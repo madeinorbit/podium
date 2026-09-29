@@ -20,9 +20,10 @@
 
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { ArmStats, LocalsSource, RowSource } from '../../../shared/src/arm'
+import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
+import type { ArmStats } from '../../../shared/src/stats'
 import { MobxPool, type PoolLazyOptions, type WriteSeam } from './pool'
 import { PoolList } from './react/list'
 

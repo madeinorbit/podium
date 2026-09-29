@@ -36,7 +36,7 @@ import {
   writeHeartbeat,
   writeSelectionClick,
 } from '../../../../shared/src/scenarios'
-import { mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 
 interface SoloCounts {
   rows: number
@@ -47,7 +47,7 @@ async function soloArm(scenario: 'heartbeat' | 'click'): Promise<SoloCounts> {
   const methodology = scenario === 'heartbeat' ? '#1' : '#3'
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
-  const mounted = mountArmForCounts(mobxPoolArm, feeds.rows.source, feeds.locals)
+  const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
   try {
     const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
     if (entry === undefined) throw new Error(`no fence scenario ${methodology}`)
@@ -113,7 +113,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       // Engine-backed locals (POD-4608): the click's selection reaches both
       // arms through the same channel the solo runs use.
       const feeds = openFenceFeeds(ctx, 'overlaid')
-      const armMounted = mountArmForCounts(mobxPoolArm, feeds.rows.source, feeds.locals)
+      const armMounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
       const controlMounted = mountArmForCounts(
         legacyControlArmFor(ctx.engine),
         feeds.rows.source,

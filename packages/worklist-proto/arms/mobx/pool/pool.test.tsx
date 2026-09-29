@@ -24,11 +24,10 @@ import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
-import { type MobxPoolHandle, mobxPoolArm } from './arm'
+import { type HarnessMobxPoolHandle, harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { ENFORCEMENT } from './enforce'
 import { installMobxWarnTrap } from './mobx-trap'
 import { rowViewOf } from './models'
-import { tracked } from './pool'
 import { ENTITIES } from './tables'
 import { FINISHED_GRACE_MS } from './views'
 
@@ -65,7 +64,7 @@ interface Rig {
   replay: ReplaySource
   locals: SettableLocalsHandle
   reads: ReadFence
-  handle: MobxPoolHandle
+  handle: HarnessMobxPoolHandle
   /** Feed subscriptions currently open (row source + locals). */
   listeners(): number
   push(event: RowSourceEvent): void
@@ -109,7 +108,7 @@ function rig(): Rig {
   }
   const reads = createReadFence({ enabled: true })
   // The load window never fires on its own: a test closes it (`pool.hydrate()`).
-  const handle = mobxPoolArm.create(reads.wrapSource(counted), localsSource, reads, {
+  const handle = harnessMobxPoolArm.create(reads.wrapSource(counted), localsSource, reads, {
     schedule: () => () => {},
   })
   return {
@@ -131,7 +130,7 @@ function rig(): Rig {
  * off the issue as a mounted row does (POD-4756), and count each row's
  * re-runs (`rerun`: the rows a change redrew, since `resetRuns`).
  */
-function observeAll(handle: MobxPoolHandle): {
+function observeAll(handle: HarnessMobxPoolHandle): {
   views: Map<string, RowView | undefined>
   rerun: Set<string>
   resetRuns(): void

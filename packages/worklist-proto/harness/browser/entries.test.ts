@@ -28,20 +28,26 @@ describe('browser entries mount the round-three pools', () => {
     expect(code, 'not the round-two store').not.toContain('HandStore')
   })
 
-  it('mobx mounts mobxPoolArm with no parity allowance (POD-4671 fixed)', () => {
+  it('mobx mounts harnessMobxPoolArm with no parity allowance (POD-4671 fixed)', () => {
     const code = entry('mobx')
-    expect(code, 'the round-three pool arm').toContain('arms/mobx/pool/arm')
-    expect(code, 'the pool arm value').toContain('mobxPoolArm')
+    expect(code, 'the harness pool adapter').toContain('src/adapters/mobx-pool')
+    expect(code, 'the harness arm value').toContain('harnessMobxPoolArm')
     expect(code, 'no parity allowance').not.toContain('MOBX_POOL_ALLOWANCES')
+    expect(code, 'not the product arm directly').not.toContain('arms/mobx/pool/arm')
   })
 
-  it('mobx web entry resolves to the pool arm', () => {
+  it('mobx web entry resolves to the harness adapter over the product pool', () => {
     // By module, not by spelling (POD-4577: the native pin's text grep missed
     // a relative import of the same file). Renderer-free: the graph walk
     // reads source, it never executes arm code, so this also runs in lanes
     // without the native alias.
     const graph = moduleGraphOf(join(PACKAGE_DIR, 'harness/web/entries/mobx.ts'))
-    expect(graph, 'the pool arm').toContain(join(PACKAGE_DIR, 'arms/mobx/pool/arm.ts'))
+    expect(graph, 'the harness adapter').toContain(
+      join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
+    )
+    expect(graph, 'the product pool under the adapter').toContain(
+      join(PACKAGE_DIR, 'arms/mobx/pool/pool.ts'),
+    )
   })
 
   it('mobx-write and mobx-pending resolve to the pool with its write layer (POD-4825)', () => {

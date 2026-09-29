@@ -3,7 +3,7 @@
  * and held to a committed baseline.
  *
  * WHAT IS COUNTED. The pool is created on the scenario feed as the arm
- * creates it (`mobxPoolArm.create`, one `replace`), then a first paint of a
+ * creates it (`harnessMobxPoolArm.create`, one `replace`), then a first paint of a
  * 20-row window is read. A MobX census (`harness/src/mobx-census.ts`) traps
  * MobX's own classes, so every computed, reaction, observable value, atom,
  * map, set, array and observable object built is seen as it is constructed;
@@ -27,7 +27,7 @@
  * method of the pool, wrapped from outside (`phaseMethod`), and every object
  * built and every run is charged to the innermost:
  *
- * - `create`: `mobxPoolArm.create` outside `apply` (the pool's constructor,
+ * - `create`: `harnessMobxPoolArm.create` outside `apply` (the pool's constructor,
  *   its stores, groups and selection; the feed subscriptions);
  * - `ingest`: `MobxPool.apply` up to the end of its action (tables,
  *   residency, the relation engine's per-row upkeep);
@@ -65,7 +65,7 @@
  * rewrites the file from the measured counts (and still checks nothing else).
  *
  * THE WRITE LAYER (POD-4825). The same census runs twice more on the arm that
- * owns optimism (`writableMobxPoolArm`, the pool built with its
+ * owns optimism (`harnessWritableMobxPoolArm`, the pool built with its
  * `PendingOverlay`): `write-idle` (the layer attached, nothing pending) and
  * `write-pending` (title edits on the last rows of the paint window queued in
  * the kernel outbox, re-applied at creation by the layer's `bootstrap`,
@@ -110,12 +110,16 @@ import { createReadFence } from '../../../shared/src/instrument/reads'
 import { ROW_DISPLAYED_FIELDS } from '../../../shared/src/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '../../../shared/src/schema'
-import { mobxPoolArm } from './arm'
+import {
+  harnessMobxPoolArm,
+  harnessWritableMobxPoolArm,
+  poolPendingLoads,
+  type HarnessWritableMobxPoolHandle,
+} from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool } from './pool'
 import { PoolRelations } from './relations'
 import { VisibleCollection } from './worklist/visible'
-import { type WritableMobxPoolHandle, writableMobxPoolArm } from './write/arm'
 
 installMobxWarnTrap()
 
@@ -396,15 +400,15 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
     const source = reads.wrapSource(feeds.rows.source)
     handle =
       variant === 'pool'
-        ? mobxPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
-        : (writableMobxPoolArm(transport, NEVER_LOAD).create(
+        ? harnessMobxPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
+        : (harnessWritableMobxPoolArm(transport, NEVER_LOAD).create(
             source,
             feeds.locals.source,
             reads,
-          ) as WritableMobxPoolHandle)
+          ) as HarnessWritableMobxPoolHandle)
     census.exit()
     if (pending !== null) {
-      const { write } = handle as WritableMobxPoolHandle
+      const { write } = handle as HarnessWritableMobxPoolHandle
       const shown = [...pending.titles.keys()].filter(
         (id) => write.pendingDisplay('issue', id) !== undefined,
       )
@@ -441,7 +445,7 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
         startup: startup,
         firstPaint: paint,
         phases,
-        pendingLoadsAfterPaint: handle.pool.pendingLoads(),
+        pendingLoadsAfterPaint: poolPendingLoads(handle.pool),
         pendingEdits: pending === null ? [] : [...pending.titles.keys()],
       },
     }

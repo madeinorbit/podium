@@ -27,7 +27,7 @@ import type { CheckableArm } from '../../../../shared/src/arm'
 import { countKinds, gen } from '../../../../shared/src/gen/changes'
 import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
-import { type MobxPoolHandle, mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { rowViewOf } from '../models'
 
@@ -43,7 +43,7 @@ const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 3_000)
 /** The planted mistake: the nest children's set is read untracked. */
 const untrackedNest: CheckableArm = {
   create(source, locals, reads) {
-    const handle = mobxPoolArm.create(source, locals, reads)
+    const handle = harnessMobxPoolArm.create(source, locals, reads)
     const inputs = handle.pool.visibleInputs as { nested: (id: string) => Iterable<string> }
     const nested = inputs.nested
     inputs.nested = (id) => untracked(() => [...nested(id)])
@@ -61,7 +61,7 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
   void tally
   return (ctx: ScenarioEngine) => ({
     create(source, locals, reads) {
-      const handle = base.create(source, locals, reads) as MobxPoolHandle
+      const handle = base.create(source, locals, reads) as HarnessMobxPoolHandle
       const { pool } = handle
       const stop = reaction(
         () => [pool.worklist.order.map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
@@ -89,7 +89,7 @@ describe('correctness gate (L4b) with the oracle every step (Mb3)', () => {
       for (const seed of SEEDS) {
         const sequence = gen(seed, STEPS)
         const tally = { applied: 0 }
-        const result = await checkArm(gapped(mobxPoolArm, tally), sequence, { oracleEvery: 1 })
+        const result = await checkArm(gapped(harnessMobxPoolArm, tally), sequence, { oracleEvery: 1 })
         const plantTally = { applied: 0 }
         const plant = await checkArm(gapped(untrackedNest, plantTally), sequence, {
           oracleEvery: 1,

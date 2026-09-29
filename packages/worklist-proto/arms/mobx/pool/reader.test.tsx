@@ -19,9 +19,8 @@ import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
 import type { RowRecord } from '../../../shared/src/stats'
-import { type MobxPoolHandle, mobxPoolArm } from './arm'
+import { type HarnessMobxPoolHandle, harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
-import { tracked } from './pool'
 import { LOADING } from './worklist/rollup'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -38,7 +37,7 @@ function records(): RowRecord[] {
 }
 
 interface Rig {
-  readonly handle: MobxPoolHandle
+  readonly handle: HarnessMobxPoolHandle
   /** Per-row reads through the feed, `kind:id`. */
   readonly loads: string[]
   /** Load windows armed and not cancelled. */
@@ -67,7 +66,7 @@ function rig(outOfMemory?: (entity: string, id: string) => boolean): Rig {
   }
   const reads = createReadFence({ enabled: true })
   const timers: { run: () => void; cancelled: boolean }[] = []
-  const handle = mobxPoolArm.create(reads.wrapSource(counted), locals.source, reads, {
+  const handle = harnessMobxPoolArm.create(reads.wrapSource(counted), locals.source, reads, {
     schedule: (run) => {
       const timer = { run, cancelled: false }
       timers.push(timer)

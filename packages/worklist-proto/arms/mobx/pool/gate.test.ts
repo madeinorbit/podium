@@ -118,10 +118,9 @@ import {
 import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
-import { type MobxPoolHandle, mobxPoolArm } from './arm'
+import { type HarnessMobxPoolHandle, harnessMobxPoolArm, snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
-import { tracked } from './pool'
 import { rebuildSnapshot, rebuildViews } from './rebuild'
 import { rowViewOf } from './models'
 
@@ -163,13 +162,13 @@ function deafToRemovals(source: RowSource): RowSource {
 }
 
 const planted: CheckableArm = {
-  create: (source, locals, reads) => mobxPoolArm.create(deafToRemovals(source), locals, reads),
+  create: (source, locals, reads) => harnessMobxPoolArm.create(deafToRemovals(source), locals, reads),
 }
 
 /** The residency plant: an update to a row the pool holds cold never reaches it. */
 const coldDeaf: CheckableArm = {
   create(source, locals, reads) {
-    let handle: MobxPoolHandle | null = null
+    let handle: HarnessMobxPoolHandle | null = null
     const filtered: RowSource = {
       snapshot: (kind) => source.snapshot(kind),
       ...(source.row === undefined ? {} : { row: source.row.bind(source) }),
@@ -185,7 +184,7 @@ const coldDeaf: CheckableArm = {
           })
         }),
     }
-    handle = mobxPoolArm.create(filtered, locals, reads)
+    handle = harnessMobxPoolArm.create(filtered, locals, reads)
     return handle
   },
 }
@@ -196,7 +195,7 @@ const coldDeaf: CheckableArm = {
  */
 const coldRelinkSkipped: CheckableArm = {
   create(source, locals, reads) {
-    const handle = mobxPoolArm.create(source, locals, reads)
+    const handle = harnessMobxPoolArm.create(source, locals, reads)
     const { graph, residency } = handle.pool
     const changed = graph.changed.bind(graph)
     graph.changed = (entity, id, prev, next) => {
@@ -210,7 +209,7 @@ const coldRelinkSkipped: CheckableArm = {
 /** The checkpoint's plant: resident sessions keep their relation slots plain. */
 const promoteSkipped: CheckableArm = {
   create(source, locals, reads) {
-    const handle = mobxPoolArm.create(source, locals, reads)
+    const handle = harnessMobxPoolArm.create(source, locals, reads)
     const graph = handle.pool.graph as unknown as {
       promote: (entity: string, id: string) => void
     }
@@ -232,7 +231,7 @@ const promoteSkipped: CheckableArm = {
  */
 const activityCached: CheckableArm = {
   create(source, locals, reads) {
-    const handle = mobxPoolArm.create(source, locals, reads)
+    const handle = harnessMobxPoolArm.create(source, locals, reads)
     const { pool } = handle
     const inputs = pool.inputs as { sessionActivity: (id: string) => number | null }
     const read = inputs.sessionActivity
@@ -265,7 +264,7 @@ const activityCached: CheckableArm = {
  */
 const presenceUntracked: CheckableArm = {
   create(source, locals, reads) {
-    const handle = mobxPoolArm.create(source, locals, reads)
+    const handle = harnessMobxPoolArm.create(source, locals, reads)
     const { pool } = handle
     const inputs = pool.inputs as {
       present: (entity: 'issue' | 'session', id: string) => boolean
@@ -304,7 +303,7 @@ const CHILD_RESULTS: ReadonlySet<PropertyKey> = new Set(['aggregate', 'unitsBelo
  */
 const chainUntracked: CheckableArm = {
   create(source, locals, reads) {
-    const handle = mobxPoolArm.create(source, locals, reads)
+    const handle = harnessMobxPoolArm.create(source, locals, reads)
     const { pool } = handle
     const inputs = pool.inputs as { parts: (id: string) => object | undefined }
     const parts = inputs.parts
@@ -342,7 +341,7 @@ function emptyTally(): ColdTally {
  * pool to the feed with no input from the pool. Throws on any difference.
  */
 function fullResidencyCheck(
-  handle: MobxPoolHandle,
+  handle: HarnessMobxPoolHandle,
   source: RowSource,
   locals: Parameters<CheckableArm['create']>[1],
   label: string,
@@ -354,7 +353,7 @@ function fullResidencyCheck(
     for (const id of residency.ids(entity)) residency.request(entity, id)
   }
   pool.hydrate()
-  const settled = pool.snapshot()
+  const settled = snapshotPool(pool)
   const left = [...residency.ids('issue'), ...residency.ids('session')]
   if (left.length > 0) {
     throw new Error(
@@ -387,7 +386,7 @@ function checked(
       locals: Parameters<CheckableArm['create']>[1],
       reads?: Parameters<CheckableArm['create']>[2],
     ) {
-      const handle = arm.create(source, locals, reads) as MobxPoolHandle
+      const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
       const { pool } = handle
       // Kept alive as the mounted list keeps it (see OBSERVED).
       const stop = reaction(
@@ -454,7 +453,7 @@ function checked(
   return wrapper
 }
 
-const relationChecked = checked(mobxPoolArm)
+const relationChecked = checked(harnessMobxPoolArm)
 
 /**
  * POD-4572: `arm` observed directly (POD-4671 fixed: no gap patch, the tally
@@ -661,7 +660,7 @@ describe('row fields against the oracle', () => {
   it('matches the oracle on every visible row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source)
+    const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
       const ids = Object.keys(expected)
@@ -671,13 +670,13 @@ describe('row fields against the oracle', () => {
       tracked(() => {
         for (const id of ids) handle.pool.resident('issue', id)
       })
-      handle.pool.snapshot()
+      snapshotPool(handle.pool)
       const actual = tracked(() =>
         Object.fromEntries(ids.map((id) => [id, rowViewOf(handle.pool.issue(id))])),
       )
       let closedByOracle = 0
       // POD-4671 fixed: no gap, every row's seat-fed fields compare.
-      const snapshot = handle.pool.snapshot()
+      const snapshot = snapshotPool(handle.pool)
       const gap: string | null = null
       for (const id of ids) {
         const want = expected[id]!

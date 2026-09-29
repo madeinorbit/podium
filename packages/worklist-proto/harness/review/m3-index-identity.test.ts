@@ -20,7 +20,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
-import { MobxPool, tracked } from '../../arms/mobx/pool/pool'
+import { MobxPool } from '../../arms/mobx/pool/pool'
+import { tracked } from '../src/adapters/mobx-pool'
 import { createReadFence } from '../../shared/src/instrument/reads'
 import { settableLocals } from '../../shared/src/locals-source'
 import type { RowRecord } from '../../shared/src/stats'

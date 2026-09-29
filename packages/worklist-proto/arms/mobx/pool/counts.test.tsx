@@ -59,9 +59,8 @@ import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm } from '../../../shared/src/arm'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
-import { type MobxPoolHandle, mobxPoolArm } from './arm'
+import { type HarnessMobxPoolHandle, harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
-import { tracked } from './pool'
 import { activityMsOf } from './views'
 
 installMobxWarnTrap()
@@ -80,7 +79,7 @@ const STEPS: readonly { methodology: string; commits: boolean }[] = [
  */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessMobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 describe('fence steps #1-#4', () => {
@@ -93,7 +92,7 @@ describe('fence steps #1-#4', () => {
       // with closed spin-off origins: live has 842 such edges, POD-4635), so
       // the mount queues loads. The shared fence lands them before step #1,
       // outside the count, and each step's own loads inside it (G2).
-      expect((mounted.handle as MobxPoolHandle).pendingLoads()).toBeGreaterThan(0)
+      expect((mounted.handle as HarnessMobxPoolHandle).pendingLoads()).toBeGreaterThan(0)
       const cells = []
       for (const step of STEPS) {
         const entry = FENCE_SCENARIOS.find(
@@ -130,10 +129,10 @@ describe('fence steps #1-#4', () => {
   }, 120_000)
 
   it('a sibling re-read alone fails #2: the target family is larger than the budget', async () => {
-    let plantedPool: MobxPoolHandle['pool'] | null = null
+    let plantedPool: HarnessMobxPoolHandle['pool'] | null = null
     const planted: CheckableArm = {
       create(source, locals, reads) {
-        const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
         plantedPool = handle.pool
         const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
         // The pre-POD-4568 activity: each member's row, read again on every run.
@@ -182,7 +181,7 @@ describe('fence steps #1-#4', () => {
     let target: string | null = null
     const planted: CheckableArm = {
       create(source, locals, reads) {
-        const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
         const { pool } = handle
         const inputs = pool.inputs as { sessionActivity: (id: string) => number | null }
         const original = inputs.sessionActivity
@@ -209,7 +208,7 @@ describe('fence steps #1-#4', () => {
       const one = await step('#1')
       assertReads(one.result, { readsPerChange: one.readsBudget })
       // A cold issue with two sessions, still cold after the mount's loads.
-      const { pool } = mounted.handle as MobxPoolHandle
+      const { pool } = mounted.handle as HarnessMobxPoolHandle
       const byIssue = new Map<string, number>()
       for (const s of ctx.corpus.sessions) {
         if (s.issueId != null) byIssue.set(s.issueId, (byIssue.get(s.issueId) ?? 0) + 1)
@@ -240,17 +239,17 @@ describe('fence steps #1-#4', () => {
     }
   }, 120_000)
   it('a lazy arm without the load hooks, or with a no-op settle, is refused (G2); so is a wrapped flush (N9)', async () => {
-    const noHooks = (handle: MobxPoolHandle): MobxPoolHandle => {
-      const bare: Partial<MobxPoolHandle> = { ...handle }
+    const noHooks = (handle: HarnessMobxPoolHandle): HarnessMobxPoolHandle => {
+      const bare: Partial<HarnessMobxPoolHandle> = { ...handle }
       delete bare.settleLoads
       delete bare.pendingLoads
-      return bare as MobxPoolHandle
+      return bare as HarnessMobxPoolHandle
     }
     for (const [name, strip, wrapFlush, message] of [
       ['no hooks', noHooks, false, 'but has no settleLoads() and pendingLoads()'],
       [
         'a no-op settle',
-        (handle: MobxPoolHandle) => ({ ...handle, settleLoads: () => {} }),
+        (handle: HarnessMobxPoolHandle) => ({ ...handle, settleLoads: () => {} }),
         false,
         'did not settle',
       ],
@@ -260,7 +259,7 @@ describe('fence steps #1-#4', () => {
     ] as const) {
       const stripped: CheckableArm = {
         create: (source, locals, reads) =>
-          strip(arm.create(source, locals, reads) as MobxPoolHandle),
+          strip(arm.create(source, locals, reads) as HarnessMobxPoolHandle),
       }
       const ctx = await startScenarioEngine(1)
       const feeds = openFenceFeeds(ctx, 'overlaid')

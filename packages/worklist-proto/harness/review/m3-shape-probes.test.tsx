@@ -26,9 +26,8 @@
 import { appendFileSync } from 'node:fs'
 import { autorun, computed, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
-import { tracked } from '../../arms/mobx/pool/pool'
+import { harnessMobxPoolArm, tracked } from '../src/adapters/mobx-pool'
 import type { LocalsSource, RowSource } from '../../shared/src/arm'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { settableLocals } from '../../shared/src/locals-source'
@@ -197,7 +196,7 @@ function feedOf(scale: 1 | 4) {
  * each insert copied and sorted, beside the `indexUpdates` slots it counted.
  */
 function measure(label: string, source: RowSource, locals: LocalsSource): void {
-  const handle = mobxPoolArm.create(source, locals, DISABLED_READ_FENCE, {
+  const handle = harnessMobxPoolArm.create(source, locals, DISABLED_READ_FENCE, {
     schedule: () => () => {},
   })
   const pool = handle.pool

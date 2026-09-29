@@ -22,8 +22,7 @@
  * must take its allowance with it.
  */
 
-import { mobxPoolArm } from '../../arms/mobx/pool/arm'
-import { writableMobxPoolArm } from '../../arms/mobx/pool/write/arm'
+import { harnessMobxPoolArm, harnessWritableMobxPoolArm } from './adapters/mobx-pool'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
@@ -104,7 +103,7 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     name: 'MobX pool',
     folder: 'mobx',
     mode: 'overlaid',
-    armFor: () => mobxPoolArm,
-    writable: (transport) => writableMobxPoolArm(transport),
+    armFor: () => harnessMobxPoolArm,
+    writable: (transport) => harnessWritableMobxPoolArm(transport),
   },
 ]

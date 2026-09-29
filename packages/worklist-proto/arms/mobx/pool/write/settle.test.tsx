@@ -39,9 +39,7 @@ import type {
 } from '../../../../shared/src/write-contract'
 import { ECHO_TTL_MS } from '../../../../shared/src/write-contract'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { tracked } from '../pool'
-import { mobxPoolArm, type MobxPoolHandle } from '../arm'
-import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
+import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, type HarnessMobxPoolHandle, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { createMobxWriteApi, type MobxWriteApi } from './edit'
 import { PendingOverlay } from './overlay'
 
@@ -100,11 +98,11 @@ function serverWrite(
   })
 }
 
-function titleOf(handle: WritableMobxPoolHandle, id: string): string | undefined {
+function titleOf(handle: HarnessWritableMobxPoolHandle, id: string): string | undefined {
   return tracked(() => (handle.pool.inputs.issue(id) as SliceIssue | undefined)?.title)
 }
 
-function stageOf(handle: WritableMobxPoolHandle, id: string): string | undefined {
+function stageOf(handle: HarnessWritableMobxPoolHandle, id: string): string | undefined {
   return tracked(() => (handle.pool.inputs.issue(id) as SliceIssue | undefined)?.stage as string | undefined)
 }
 
@@ -113,10 +111,10 @@ describe('Mc2 MobX receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -180,10 +178,10 @@ describe('Mc2 MobX receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const serverStage = stageOf(handle, id) as string
@@ -242,10 +240,10 @@ describe('Mc2 MobX receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -327,10 +325,10 @@ describe('Mc2 MobX receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -373,10 +371,10 @@ describe('Mc2 MobX receipts and remote updates', () => {
       },
     ]
     const transport = fakeTransport(pending)
-    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableMobxPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableMobxPoolHandle
+      const handle = mounted.handle as HarnessWritableMobxPoolHandle
       expect(titleOf(handle, id)).toBe('Bootstrapped title')
       expect(handle.write.log.pendingFor('issue', id)).toHaveLength(1)
       expect(transport.sent).toEqual([])
@@ -436,7 +434,7 @@ describe('MobX edit expiry timer (W10)', () => {
   interface ExpiryStack {
     readonly ctx: ScenarioEngine
     readonly id: string
-    readonly pool: MobxPoolHandle['pool']
+    readonly pool: HarnessMobxPoolHandle['pool']
     readonly write: MobxWriteApi
     readonly clock: ReturnType<typeof manualClock>
     readonly feeds: ReturnType<typeof openFenceFeeds>
@@ -452,7 +450,7 @@ describe('MobX edit expiry timer (W10)', () => {
     const feeds = openFenceFeeds(ctx, 'truth')
     const clock = manualClock()
     const overlay = new PendingOverlay()
-    const handle = mobxPoolArm.create(
+    const handle = harnessMobxPoolArm.create(
       feeds.rows.source,
       feeds.locals.source,
       undefined,

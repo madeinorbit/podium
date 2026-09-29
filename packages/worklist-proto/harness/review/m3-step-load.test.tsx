@@ -38,9 +38,12 @@
 import { appendFileSync } from 'node:fs'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
-import { type MobxPoolHandle, mobxPoolArm } from '../../arms/mobx/pool/arm'
+import {
+  type HarnessMobxPoolHandle,
+  harnessMobxPoolArm,
+  tracked,
+} from '../src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
-import { tracked } from '../../arms/mobx/pool/pool'
 import type { Schedule } from '../../arms/mobx/pool/residency'
 import type { CheckableArm } from '../../shared/src/arm'
 import { startScenarioEngine } from '../../shared/src/scenarios'
@@ -70,7 +73,7 @@ interface Plant {
 function plantedArm(schedule: Schedule, plant: Plant): CheckableArm {
   return {
     create(source, locals, reads) {
-      const handle = mobxPoolArm.create(source, locals, reads, { schedule }) as MobxPoolHandle
+      const handle = harnessMobxPoolArm.create(source, locals, reads, { schedule })
       const pool = handle.pool
       const inputs = pool.inputs as { sessionActivity: (id: string) => number | null }
       const original = inputs.sessionActivity
@@ -112,7 +115,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const mounted = mountArmForCounts(plantedArm(schedule, plant), feeds.rows.source, feeds.locals)
   try {
-    const { pool } = mounted.handle as MobxPoolHandle
+    const { pool } = mounted.handle as HarnessMobxPoolHandle
     const residency = pool.residency
     if (residency === null) throw new Error('the counts pool is lazy; residency is null')
     // Settle exactly as counts.test.tsx does, then zero.
@@ -170,9 +173,10 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     let hydratedInStep = -1
     // Count loads that land before runCountScenario samples its reads: the
     // sample is taken right after the step's act, so a load inside the act
-    // happens before the first `snapshot()` call.
-    const snapshot = pool.snapshot.bind(pool)
-    pool.snapshot = () => {
+    // happens before the first `snapshot()` call (the harness handle's: the
+    // product pool has no snapshot).
+    const snapshot = mounted.handle.snapshot.bind(mounted.handle)
+    mounted.handle.snapshot = () => {
       if (hydratedInStep < 0) hydratedInStep = residency.counters.hydrated - hydratedBefore
       return snapshot()
     }
@@ -249,15 +253,15 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
         feeds.locals,
       )
       try {
-        const { pool } = mounted.handle as MobxPoolHandle
+        const { pool } = mounted.handle as HarnessMobxPoolHandle
         const residency = pool.residency!
         while (residency.hasQueued()) act(() => pool.hydrate())
         mounted.log.reset()
         mounted.handle.stats.reset()
         mounted.reads.reset()
-        const snapshot = pool.snapshot.bind(pool)
+        const snapshot = mounted.handle.snapshot.bind(mounted.handle)
         let atSample = -1
-        pool.snapshot = () => {
+        mounted.handle.snapshot = () => {
           if (atSample < 0) atSample = residency.counters.hydrated
           return snapshot()
         }

@@ -19,10 +19,9 @@ import { buildCorpus } from '../../../harness/src/fixture/index'
 import { fixedLocals } from '../../../shared/src/locals-source'
 import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
-import { mobxPoolArm } from './arm'
+import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { IssueModel } from './models'
 import { installMobxWarnTrap } from './mobx-trap'
-import { tracked } from './pool'
 import { ENTITIES } from './tables'
 
 installMobxWarnTrap()
@@ -44,7 +43,7 @@ describe('schema fields on models', () => {
       })),
     })
     const locals = fixedLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-    const handle = mobxPoolArm.create(replay.source, locals.source)
+    const handle = harnessMobxPoolArm.create(replay.source, locals.source)
     try {
       const { pool } = handle
       expect([...ENTITIES].sort()).toEqual((Object.keys(SCHEMA) as EntityName[]).sort())

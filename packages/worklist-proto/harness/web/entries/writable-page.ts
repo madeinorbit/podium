@@ -1,6 +1,6 @@
 /**
  * POD-4825 (item 1) — the MobX pages for the arm that owns optimism: the
- * round-three pool with its write layer (`writableMobxPoolArm`), built by
+ * round-three pool with its write layer (`harnessWritableMobxPoolArm`), built by
  * the page through `createArm` like every arm (`entrylib.ts`). Two pages,
  * two variants (`harness/src/writable-arm.ts`):
  *
@@ -17,7 +17,7 @@
  * runtime (see `mobx.ts`): only the pending titles (strings) outlive a build.
  */
 
-import { writableMobxPoolArm } from '../../../arms/mobx/pool/write/arm'
+import { harnessWritableMobxPoolArm } from '../../src/adapters/mobx-pool'
 import { startEngineOnCorpus, targetRules } from '../../../shared/src/scenarios'
 import { oracleSnapshot } from '../../src/oracle/index'
 import {
@@ -46,7 +46,7 @@ export function bootWritablePage(variant: WriteVariant, scriptAt: number): void 
     mountPage({
       arm: `mobx-${variant === 'idle' ? 'write' : 'pending'}`,
       createArm: (over, source) => {
-        if (variant === 'idle') return writableMobxPoolArm(silentTransport())
+        if (variant === 'idle') return harnessWritableMobxPoolArm(silentTransport())
         const rules = targetRules(over.corpus)
         const edits = pendingTitleEditsOn(
           source.snapshot('issue'),
@@ -56,7 +56,7 @@ export function bootWritablePage(variant: WriteVariant, scriptAt: number): void 
           Date.now(),
         )
         titles = edits.titles
-        return writableMobxPoolArm(silentTransport(edits.queued))
+        return harnessWritableMobxPoolArm(silentTransport(edits.queued))
       },
       boot,
       scale,

@@ -17,9 +17,8 @@ import { buildCorpus } from '../../../../harness/src/fixture/index'
 import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../../shared/src/locals-source'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { tracked } from '../pool'
 
 installMobxWarnTrap()
 
@@ -36,7 +35,7 @@ function boot() {
   }
   const replay = createReplaySource(rows)
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-  const handle = mobxPoolArm.create(replay.source, locals.source, DISABLED_READ_FENCE, {
+  const handle = harnessMobxPoolArm.create(replay.source, locals.source, DISABLED_READ_FENCE, {
     schedule: () => () => {},
   })
   return { corpus, replay, handle, pool: handle.pool }

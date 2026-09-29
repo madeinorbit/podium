@@ -70,9 +70,9 @@ import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
 import type { RowView } from '../../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
-import { type MobxPoolHandle, mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
-import { type MobxPool, tracked } from '../pool'
+import type { MobxPool } from '../pool'
 import { rowViewOf } from '../models'
 
 installMobxWarnTrap()
@@ -80,7 +80,7 @@ installMobxWarnTrap()
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessMobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 /**
@@ -101,7 +101,7 @@ const everyAggregate: CheckableArm = {
           runInAction(() => epoch.set(epoch.get() + 1))
         }),
     }
-    const handle = mobxPoolArm.create(bumped, locals, reads, { schedule: () => () => {} })
+    const handle = harnessMobxPoolArm.create(bumped, locals, reads, { schedule: () => () => {} })
     const inputs = handle.pool.visibleInputs as { nested: (id: string) => Iterable<string> }
     const nested = inputs.nested
     inputs.nested = (id) => {
@@ -126,7 +126,7 @@ function settle(pool: MobxPool): number {
 }
 
 /** The settled snapshot against the oracle and the rebuild (no exception). */
-function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): string | null {
+function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: string): string | null {
   const snapshot = handle.snapshot()
   const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
@@ -139,7 +139,7 @@ async function withMounted<T>(
   run: (
     ctx: ScenarioEngine,
     mounted: MountedArm,
-    handle: MobxPoolHandle,
+    handle: HarnessMobxPoolHandle,
     flush: () => void,
   ) => Promise<T>,
 ): Promise<T> {
@@ -147,7 +147,7 @@ async function withMounted<T>(
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
-    const handle = mounted.handle as MobxPoolHandle
+    const handle = mounted.handle as HarnessMobxPoolHandle
     settle(handle.pool)
     return await run(ctx, mounted, handle, feeds.flush)
   } finally {
@@ -171,7 +171,7 @@ async function withMountedScale<T>(
   run: (
     ctx: ScenarioEngine,
     mounted: MountedArm,
-    handle: MobxPoolHandle,
+    handle: HarnessMobxPoolHandle,
     flush: () => void,
   ) => Promise<T>,
 ): Promise<T> {
@@ -179,7 +179,7 @@ async function withMountedScale<T>(
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
-    const handle = mounted.handle as MobxPoolHandle
+    const handle = mounted.handle as HarnessMobxPoolHandle
     settle(handle.pool)
     return await run(ctx, mounted, handle, feeds.flush)
   } finally {
@@ -315,10 +315,10 @@ async function familyRig(eagerRollups = false) {
       .filter((record) => closedRow(record.value))
       .map((record) => record.id),
   )
-  const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
+  const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
     schedule: () => () => {},
     outOfMemory: (entity, id) => entity === 'issue' && closed.has(id),
-  }) as MobxPoolHandle
+  }) as HarnessMobxPoolHandle
   const { pool } = handle
   const residency = pool.residency!
   const stops: (() => void)[] = []
@@ -491,7 +491,7 @@ describe('row roll-ups (Mb3)', () => {
      */
     const seatRelist: CheckableArm = {
       create(source, locals, reads) {
-        const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
         const pool = handle.pool
         const visible = pool.visibleInputs as {
           seats: (id: string) => Iterable<string>
@@ -616,7 +616,7 @@ describe('row roll-ups (Mb3)', () => {
       const feeds = openFenceFeeds(ctx, 'overlaid')
       const readsAtOpen = feeds.rowReads()
       const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-      const handle = mounted.handle as MobxPoolHandle
+      const handle = mounted.handle as HarnessMobxPoolHandle
       const { pool } = handle
       try {
         const residency = pool.residency!
@@ -793,7 +793,7 @@ describe('row roll-ups (Mb3)', () => {
   it('attention keeps the pending marker: a review ask waits on a cold spin-off, then withdraws (Ma3 addendum)', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = arm.create(feeds.rows.source, feeds.locals.source) as MobxPoolHandle
+    const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessMobxPoolHandle
     const { pool } = handle
     const residency = pool.residency!
     let observe = () => {}

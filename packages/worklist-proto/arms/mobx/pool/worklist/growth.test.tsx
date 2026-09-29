@@ -26,7 +26,7 @@ import {
   type FixtureScale,
   type ScenarioEngine,
 } from '../../../../shared/src/scenarios'
-import { mobxPoolArm } from '../arm'
+import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 
 const SCALES = [1, 2, 4] as const satisfies readonly FixtureScale[]
 /** The Mc4 growth scenarios: heartbeat, phase change, click, rename, stage move. */
@@ -71,7 +71,7 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
     for (const scale of SCALES) {
       const ctx = await startScenarioEngine(scale)
       const feeds = openFenceFeeds(ctx, 'overlaid')
-      const mounted = mountArmForCounts(mobxPoolArm, feeds.rows.source, feeds.locals)
+      const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
       try {
         for (const methodology of METHODOLOGIES) {
           const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
