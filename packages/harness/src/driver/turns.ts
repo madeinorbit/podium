@@ -198,21 +198,6 @@ export interface ActingPrincipal {
 export interface SendOptions {
   /** Driver-local attempt: refuse busy/lease races instead of nesting queues. */
   deliveryAttempt?: boolean
-  /**
-   * Daemon-held direct send (POD-4700).
-   *
-   * A direct `when-ready` that found the agent computing, admitted to the
-   * delivery FIFO under the server's turn id instead of being typed mid-turn.
-   * The RPC already answered `queued`, so unlike a durable row nothing waits
-   * on a delivery event — success settles the way direct sends always do
-   * (transcript echo for enveloped mail, the optimistic injection mark for
-   * operator sends). But if the row leaves the queue WITHOUT being typed
-   * (teardown, session end, an expired wait), nobody would ever settle it:
-   * those turn ids go out through the abandonment channel instead, so the
-   * server dead-letters them rather than dropping them silently.
-   * Daemon-local; never crosses the wire.
-   */
-  daemonHeld?: boolean
   signal?: AbortSignal
   /**
    * THE ENTRY, WHEN IT IS LEARNED AFTER THE RECEIPT (POD-4774).

@@ -1,20 +1,8 @@
 import type { TranscriptItemRef } from '@podium/model'
-import type { DeliveryFailureCause, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type { DeliveryFailureCause } from '@podium/protocol/daemon'
 import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
-import type { InputOrigin, SendOptions, TurnInput, TurnReceipt } from './turns.js'
-
-/**
- * One daemon-held direct send (POD-4700) that will never be typed. Carries
- * the server's turn id, which is what the server's failure channel keys on —
- * the same `{ id, text }` shape the terminal injection queue reports, so the
- * daemon can forward both through one abandonment frame.
- */
-export interface HeldAbandonedTurn {
-  readonly id: string
-  readonly text: string
-  readonly origin: InputOrigin
-}
+import type { SendOptions, TurnInput, TurnReceipt } from './turns.js'
 
 /**
  * Phases a row waits through with NO deadline: each ends on its own — a turn
@@ -31,38 +19,33 @@ export interface HeldAbandonedTurn {
 const ENDS_ON_ITS_OWN: ReadonlySet<string> = new Set(['working', 'compacting', 'needs_user'])
 const STUCK_CEILING_MS = 60_000
 
-/** Disposable daemon delivery state. Admission and ordering belong to the server;
- *  waiting for the agent belongs here [POD-4661]. */
+/** Disposable daemon delivery state. Admission belongs to the server; when to
+ *  type, and in which order, belongs here [POD-4661].
+ *
+ *  ONE QUEUE, TWO DELIVERY MODES (POD-4795). Every durable row waits here under
+ *  its row id; a row sent as `interrupt` differs only in WHERE it waits and in
+ *  what the drain does before typing it: it goes ahead of every row still
+ *  waiting (after earlier interrupts), and when it reaches the head of a
+ *  running turn the drain asks the driver to cut that turn, then types it at
+ *  the boundary like any other row. The server never sends an interrupt
+ *  around the queue, so dedupe by id, retraction and restart recovery are the
+ *  same for both modes. */
 export function withDeliveryQueue(
   handle: AgentSessionHandle,
   emit: (event: RuntimeEventBody) => void,
   ready: () => boolean = () => true,
   alive: () => boolean = () => true,
-  /**
-   * Reported when a daemon-held direct send (POD-4700) leaves the queue
-   * without being typed. Durable rows are never reported here: teardown
-   * discards delivery state, not durable work, and the next owner recovers
-   * those rows. A held row has no server ledger row behind it and nobody
-   * waiting on its delivery event, so without this report it would vanish
-   * silently — the server dead-letters the turn ids instead.
-   * Absent on hosts with no receipt to correct.
-   */
-  onHeldAbandoned?: (input: {
-    turns: readonly HeldAbandonedTurn[]
-    // The terminal family's arms only, mirroring its invariant
-    // (families/terminal/injection.ts): a queue that never got the session
-    // typeable cannot honestly report `delivery-failed` — these rows were
-    // never attempted, only waited on and then given up. Typed as an
-    // Extract so widening the wire enum can never silently widen this
-    // report; a new arm here is a conscious decision, not an accident.
-    reason: Extract<QueueDrainAbandonedReason, 'never-live' | 'teardown'>
-  }) => void,
 ): AgentSessionHandle {
   type Row = {
     input: TurnInput
     options: SendOptions
     abort: AbortController
     admittedAt: number
+    /** Sent as `interrupt`: waits ahead of plain rows and cuts a running turn. */
+    interrupt: boolean
+    /** The cut was asked for once; the row now waits for the boundary. */
+    interruptRequested?: boolean
+    /** Set only while the driver holds the text: typing cannot be undone. */
     inFlight?: Promise<TurnReceipt>
   }
   const rows = new Map<string, Row>()
@@ -117,24 +100,22 @@ export function withDeliveryQueue(
     emit(event)
   }
   /**
-   * Report daemon-held rows (POD-4700) that will never be typed. Only rows
-   * carrying the server's turn id are reported — a held row with no id has
-   * nothing the server could settle, and the daemon logs the loss instead
-   * (see the terminal driver's adapter). Durable rows are the caller's to
-   * filter: every call site below passes only held rows.
+   * An interrupt row waits ahead of every plain row that is still waiting,
+   * behind earlier interrupts and behind a row the driver is already typing —
+   * text that has started to cross cannot be pulled back, so the interrupt
+   * cuts the turn that row opens instead.
    */
-  function abandonHeld(
-    held: readonly Row[],
-    reason: Extract<QueueDrainAbandonedReason, 'never-live' | 'teardown'>,
-  ): void {
-    const turns = held.flatMap((row) =>
-      row.input.id === undefined
-        ? []
-        : [{ id: row.input.id, text: row.input.text, origin: row.options.origin }],
-    )
-    if (turns.length) onHeldAbandoned?.({ turns, reason })
+  function admit(id: string, row: Row): void {
+    if (!row.interrupt) {
+      rows.set(id, row)
+      return
+    }
+    const entries = [...rows]
+    const at = entries.findIndex(([, waiting]) => !waiting.interrupt && !waiting.inFlight)
+    entries.splice(at < 0 ? entries.length : at, 0, [id, row])
+    rows.clear()
+    for (const [key, value] of entries) rows.set(key, value)
   }
-  const isHeld = (row: Row): boolean => row.options.daemonHeld === true
   async function drain() {
     if (draining) return
     draining = true
@@ -143,9 +124,6 @@ export function withDeliveryQueue(
         if (!alive()) {
           // Teardown discards delivery state, not durable work: a new owner
           // receives the durable rows again, so they are cleared silently.
-          // Daemon-held rows (POD-4700) have no next owner — report them, so
-          // the server dead-letters the turns instead of dropping them.
-          abandonHeld([...rows.values()].filter(isHeld), 'teardown')
           for (const row of rows.values()) row.abort.abort()
           rows.clear()
           return
@@ -173,6 +151,16 @@ export function withDeliveryQueue(
           // busy/lease boundary for deliveryAttempt instead of creating a second queue.
           const state = await handle.state()
           if (row.abort.signal.aborted) continue
+          if (row.interrupt && !row.interruptRequested && ENDS_ON_ITS_OWN.has(state.phase)) {
+            // CUT THE RUNNING TURN, ONCE, then wait for its boundary below
+            // like any row. The driver owns the stop (its manifest key, its
+            // idle guard); the typing that follows is the ordinary when-ready
+            // attempt, so an interrupt is never typed over a turn that has
+            // not ended and never takes a second pipeline.
+            row.interruptRequested = true
+            await handle.interrupt().catch(() => undefined)
+            continue
+          }
           if (state.phase !== 'idle' || !ready()) {
             if (ENDS_ON_ITS_OWN.has(state.phase)) {
               // A live turn ends on its own: wait for the boundary with no
@@ -183,12 +171,8 @@ export function withDeliveryQueue(
             }
             if (Date.now() - row.admittedAt >= STUCK_CEILING_MS) {
               // The composer is genuinely stuck, not mid-turn: nothing will
-              // end this state on its own. A durable row's failure stays
-              // recoverable for an operator retry; a held row (POD-4700) has
-              // no ledger row to keep it alive, so its turn id goes out
-              // through abandonment instead of vanishing with a delivery
-              // event nobody settles.
-              if (isHeld(row)) abandonHeld([row], 'never-live')
+              // end this state on its own. The row's failure stays
+              // recoverable for an operator retry.
               settle(id, 'failed', 'agent not accepting input', 'not-accepting-input')
             } else {
               await pause(200)
@@ -213,6 +197,8 @@ export function withDeliveryQueue(
             verificationWindowMs: 0,
             at: new Date().toISOString(),
           }
+        } finally {
+          row.inFlight = undefined
         }
         if (row.abort.signal.aborted) continue
         if (receipt.outcome === 'accepted') {
@@ -244,9 +230,6 @@ export function withDeliveryQueue(
         // Neither an unverified write nor admission to another local queue
         // proves loss. Retyping either can open a duplicate turn. The durable
         // failure keeps the text recoverable for an explicit operator retry.
-        // A held row is left on its delivery event here too: the write may
-        // have landed, and the transcript echo remains its settler — an
-        // abandonment would dead-letter a turn that was actually typed.
         settle(
           id,
           'failed',
@@ -273,20 +256,23 @@ export function withDeliveryQueue(
           emit({ t: 'delivery', rowId: turnId, outcome: 'delivered', transcriptItem }),
       })
     }
-    // Durable delivery drains as when-ready. Never erase a boundary request.
+    // Durable delivery drains as when-ready, or cuts in as an interrupt.
+    // Never erase a boundary request.
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
     const prior = finished.get(input.rowId)
     if (prior) emit(prior)
     if (!prior && !rows.has(input.rowId)) {
-      // A daemon-held direct send (POD-4700) joins the same FIFO under the
-      // server's turn id and answers `queued` AT ONCE — the reply must land
-      // inside the server's RPC window, never after the turn it waits on.
-      // Success settles the way direct sends always do (transcript echo /
-      // the optimistic injection mark); only a never-typed loss is reported,
-      // through abandonment.
-      rows.set(input.rowId, { input, options, abort: new AbortController(), admittedAt: Date.now() })
+      // Answered `queued` AT ONCE: the reply must land inside the server's
+      // RPC window, never after the turn the row waits on.
+      admit(input.rowId, {
+        input,
+        options,
+        abort: new AbortController(),
+        admittedAt: Date.now(),
+        interrupt: options.delivery === 'interrupt',
+      })
       void drain()
     }
     return {
@@ -316,9 +302,6 @@ export function withDeliveryQueue(
         )
         return { reason: 'busy', detail: 'delivery may already have occurred' }
       }
-      // An explicit retraction, owned by its caller: the holder of the
-      // `queued` receipt knows it cancelled, so a held row needs no
-      // abandonment report — that channel is for losses nobody ordered.
       settle(id, 'dropped')
     } else if (finished.get(id)?.outcome === 'delivered') {
       emit(finished.get(id)!)
@@ -337,9 +320,6 @@ export function withDeliveryQueue(
     // remaining rows again; only explicit cancel produces a dropped outcome.
     ;(handle as any)[method] = async () => {
       if (method === 'hibernate' && !handle.binding.resume) return original()
-      // Same split as the alive() path above: durable rows go quietly to
-      // their next owner, held rows (POD-4700) are reported by turn id.
-      abandonHeld([...rows.values()].filter(isHeld), 'teardown')
       for (const row of rows.values()) row.abort.abort()
       rows.clear()
       return original()

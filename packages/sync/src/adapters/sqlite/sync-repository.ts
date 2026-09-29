@@ -530,6 +530,8 @@ export class SyncRepository {
     actorId?: string
     onBehalfOf?: string | null
     sourceMessageId?: string | null
+    delivery?: 'when-ready' | 'interrupt'
+    attachmentsJson?: string | null
   }): Promise<boolean> {
     // `INSERT OR IGNORE` -> `onConflictDoNothing()` [spec rules 31, 31a], and this
     // table is the one that needs the enumeration spelled out because it DOES
@@ -561,6 +563,8 @@ export class SyncRepository {
         actorId: row.actorId ?? 'legacy-session-inbox',
         onBehalfOf: row.onBehalfOf ?? null,
         sourceMessageId: row.sourceMessageId ?? null,
+        delivery: row.delivery ?? 'when-ready',
+        attachmentsJson: row.attachmentsJson ?? null,
       }))
       .onConflictDoNothing()
       .run()
@@ -582,8 +586,10 @@ export class SyncRepository {
     actorId: string
     onBehalfOf: string | null
     sourceMessageId: string | null
+    delivery: 'when-ready' | 'interrupt'
+    attachmentsJson: string | null
   }[]> {
-    // TWELVE COLUMNS OF THIRTEEN, named [spec rule 39]: `session_id` is the
+    // FOURTEEN COLUMNS OF FIFTEEN, named [spec rule 39]: `session_id` is the
     // predicate, not part of the answer. `queued_at` is the ordering AND an
     // answer since POD-4360: the inbox compares it against the transcript to
     // recognise a row a previous server process already delivered.
@@ -602,6 +608,8 @@ export class SyncRepository {
         actorId: this.queuedMessages.actorId,
         onBehalfOf: this.queuedMessages.onBehalfOf,
         sourceMessageId: this.queuedMessages.sourceMessageId,
+        delivery: this.queuedMessages.delivery,
+        attachmentsJson: this.queuedMessages.attachmentsJson,
       })
       .from(this.queuedMessages)
       .where(eq(this.queuedMessages.sessionId, sessionId))
@@ -623,6 +631,8 @@ export class SyncRepository {
       actorId: r.actorId as string,
       onBehalfOf: (r.onBehalfOf as string | null) ?? null,
       sourceMessageId: (r.sourceMessageId as string | null) ?? null,
+      delivery: r.delivery === 'interrupt' ? 'interrupt' : 'when-ready',
+      attachmentsJson: (r.attachmentsJson as string | null) ?? null,
     }))
   }
 

@@ -46,6 +46,8 @@ export type QueuedMessagesTable = SQLiteTable & {
   readonly actorId: SQLiteColumn
   readonly onBehalfOf: SQLiteColumn
   readonly sourceMessageId: SQLiteColumn
+  readonly delivery: SQLiteColumn
+  readonly attachmentsJson: SQLiteColumn
 }
 
 /** `upstream_outbox` — ARCHIVED at POD-309; this adapter has the one surviving
