@@ -62,8 +62,9 @@ import {
   labelOfRow,
   loadingPartOf,
   type OwnPart,
+  originIdPartOf,
   originRefPartOf,
-  originTickOf,
+  originTickPartOf,
   prefixPartOf,
   rankOfPart,
   type RepoRow,
@@ -128,12 +129,6 @@ export interface ModelHost {
   /** What the roll-up parts read (one per pool, shared by every issue). */
   readonly rollupInputs: RollupInputs
   readonly stats: ArmStats
-  /**
-   * The one object of issue `id` (an identity memo, untracked: its groups
-   * track what they read). A row reads another issue's cached groups
-   * through it, never that issue's table slot.
-   */
-  issueObject(id: string): IssueModel
   /** One transaction of the write layer's edit log; throws when the pool has no write layer. */
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
 }
@@ -480,15 +475,12 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     return this.loaded.originRef
   }
 
-  /** The origin while it is in memory: its own cached in-memory read answers, no table probe. */
   get originId(): string | null {
-    const ref = this.originRef
-    return ref !== null && this.host.issueObject(ref).loaded.facts.state === 'ready' ? ref : null
+    return originIdPartOf(this.host.inputs, this.originRef)
   }
 
   get originTick(): RowOriginTick | null {
-    const id = this.originId
-    return id === null ? null : originTickOf(id, this.host.issueObject(id).label)
+    return originTickPartOf(this.host.inputs, this.originId)
   }
 
   get sessionIds(): readonly string[] {

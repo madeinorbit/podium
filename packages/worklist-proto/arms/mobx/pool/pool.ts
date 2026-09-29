@@ -500,9 +500,15 @@ export class MobxPool {
       // The member's cached stamp (its object's, hot or cold): no row read.
       sessionActivity: (id) => (this.object('session', id) as SessionModel).activityMs,
       repo: (id) => inMemory(this.row('repo', id)) as RepoRow | undefined,
-      present: (entity, id) => fenced[entity].has(id),
+      // An issue answers from its object's cached in-memory read (no table
+      // probe per run); other entities from the table.
+      present: (entity, id) =>
+        entity === 'issue'
+          ? this.issueObject(id).loaded.facts.state === 'ready'
+          : fenced[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
-      parts: (id) => this.issue(id),
+      // Only asked for an issue in memory (`originTickPartOf`): its object.
+      parts: (id) => this.issueObject(id),
       rollup: (id) => this.worklist.issue(id)?.rollup,
       retainedSeats: (id) => this.worklist.issue(id)?.retainedSeatIds ?? [],
       // POD-4678 (sent back item 1, plant/old): the mirror IS the relation —
