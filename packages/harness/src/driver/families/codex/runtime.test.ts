@@ -2052,3 +2052,85 @@ describe('a message Codex holds in memory', () => {
     w.dispose()
   })
 })
+
+/**
+ * CODEX'S OWN IDS FOR OUR MESSAGE (POD-4841): the turn its answer named (the
+ * turn the message opened, or the running turn it was steered into) and our
+ * id as the recorded `userMessage` echoed it back in `clientId`. They travel
+ * with the receipt and with the entry, so the message can be found again.
+ */
+describe("Codex's own ids for our message", () => {
+  const deliveries = (events: RuntimeEvent[]) =>
+    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+  const turn = { kind: 'codex-turn', id: 'turn-1' }
+
+  it('names the turn on the receipt, and the turn and the echo with the entry', async () => {
+    const w = await world()
+    const receipt = await w.handle.send(
+      { id: 'msg_direct', text: 'direct' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt).toMatchObject({ outcome: 'accepted', harnessRef: [turn] })
+    w.liveServer().emitUserMessage('direct', 'usr-direct', { clientId: 'msg_direct' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({
+          rowId: 'msg_direct',
+          outcome: 'delivered',
+          transcriptItem: { id: 'usr-direct' },
+          harnessRef: [turn, { kind: 'codex-client-message', id: 'msg_direct' }],
+        }),
+      ])
+    w.dispose()
+  })
+
+  it("carries both on a durable row's delivered outcome", async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_row', rowId: 'msg_row', text: 'row' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await expect.poll(() => w.liveServer().turnStarts).toBe(1)
+    w.liveServer().emitUserMessage('row', 'usr-row', { clientId: 'msg_row' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({
+          rowId: 'msg_row',
+          outcome: 'delivered',
+          harnessRef: [turn, { kind: 'codex-client-message', id: 'msg_row' }],
+        }),
+      ])
+    w.dispose()
+  })
+
+  it('names the running turn a steer joined', async () => {
+    const w = await world()
+    await w.handle.send({ id: 'msg_open', text: 'open' }, { origin: 'human', delivery: 'when-ready' })
+    w.liveServer().emitUserMessage('open', 'usr-open', { clientId: 'msg_open' })
+    const steered = await w.handle.send(
+      { id: 'msg_steer', text: 'steered in' },
+      { origin: 'human', delivery: 'steer' },
+    )
+    expect(steered).toMatchObject({ outcome: 'accepted', deliveredAs: 'steer', harnessRef: [turn] })
+    w.liveServer().emitUserMessage('steered in', 'usr-steer', { clientId: 'msg_steer' })
+    await expect
+      .poll(() => deliveries(w.events()).at(-1))
+      .toMatchObject({
+        rowId: 'msg_steer',
+        harnessRef: [turn, { kind: 'codex-client-message', id: 'msg_steer' }],
+      })
+    w.dispose()
+  })
+
+  it('names no echo when Codex recorded no client id', async () => {
+    const w = await world()
+    await w.handle.send({ id: 'msg_old', text: 'old' }, { origin: 'human', delivery: 'when-ready' })
+    w.liveServer().emitUserMessage('old', 'usr-old', { clientId: null })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([expect.objectContaining({ rowId: 'msg_old', harnessRef: [turn] })])
+    w.dispose()
+  })
+})
