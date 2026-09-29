@@ -46,6 +46,9 @@ interface World {
    *  through here so a future second connection cannot silently strand them. */
   liveServer(): FakeAppServer
   authReports: { authMethod: string | undefined; subscription: boolean }[]
+  /** Every pairing the driver reported: which history entry a send became,
+   *  under Codex's own ids, and how it was matched (POD-4835). */
+  entryReports: Parameters<NonNullable<CodexRuntimeHost['reportEntryPaired']>>[0][]
   /** Every `onQueueAbandoned` the driver raised, in order (POD-2297). */
   abandonments: { turnIds: (string | undefined)[]; reason: string }[]
   events(): RuntimeEvent[]
@@ -70,6 +73,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
   let mintedThreads = 0
   const authReports: World['authReports'] = []
   const abandonments: World['abandonments'] = []
+  const entryReports: World['entryReports'] = []
   let failAbandonment = false
   const attachedAddresses: string[] = []
   let seq = 0
@@ -133,6 +137,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     },
     reportAuthMode: (report) =>
       void authReports.push({ authMethod: report.authMethod, subscription: report.subscription }),
+    reportEntryPaired: (report) => void entryReports.push(report),
     /**
      * Rebind to the LIVE fake server — the durable-engine path (POD-4433).
      * Returns the SAME server's transport (a second client on the open
@@ -209,6 +214,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     releaseConnect: () => openGate?.(),
     attachedAddresses,
     authReports,
+    entryReports,
     abandonments,
     liveServer: () => {
       const live = servers.get(handle.binding.sessionId)
@@ -1634,6 +1640,207 @@ describe('the history entry a delivered send became', () => {
     expect(deliveries(w.events())).toEqual([
       expect.objectContaining({ rowId: 'msg_first', transcriptItem: { id: 'usr-first' } }),
     ])
+    w.dispose()
+  })
+})
+
+/**
+ * CODEX KEEPS OUR MESSAGE ID ON ITS COPY OF THE MESSAGE (POD-4835).
+ *
+ * `turn/start` and `turn/steer` take `clientUserMessageId` (codex 0.136.0+),
+ * and the `userMessage` item Codex records for that input carries it back as
+ * `clientId`. So the send names the message it is, and the entry is paired by
+ * OUR id: exact for a steer — which joins a turn it did not open, so no turn
+ * id can name it — and for a turn whose input is not its first user item. The
+ * turn id stays as the fallback for a binary that records `clientId: null`,
+ * and every pairing says which of the two matched.
+ */
+describe('Codex carries our message id', () => {
+  const deliveries = (events: RuntimeEvent[]) =>
+    events.flatMap((event) => (event.t === 'delivery' ? [event] : []))
+
+  it('sends the message id on `turn/start` and on `turn/steer`', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_turn', text: 'first' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await w.handle.send(
+      { id: 'msg_steer', text: 'and more' },
+      { origin: 'human', delivery: 'steer' },
+    )
+    // A send with no id names none: nothing is minted.
+    w.liveServer().completeTurn()
+    await w.handle.send({ text: 'anonymous' }, { origin: 'human', delivery: 'when-ready' })
+    expect(w.liveServer().clientUserMessageIds).toEqual([
+      { method: 'turn/start', id: 'msg_turn' },
+      { method: 'turn/steer', id: 'msg_steer' },
+      { method: 'turn/start', id: null },
+    ])
+    w.dispose()
+  })
+
+  it('sends the same id again when a queued send is delivered later', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_busy', text: 'busy' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    const queued = await w.handle.send(
+      { id: 'msg_later', text: 'later' },
+      { origin: 'human', delivery: 'queue' },
+    )
+    expect(queued.outcome).toBe('queued')
+    w.liveServer().completeTurn()
+    await expect.poll(() => w.liveServer().turnStarts).toBe(2)
+    expect(w.liveServer().clientUserMessageIds.at(-1)).toEqual({
+      method: 'turn/start',
+      id: 'msg_later',
+    })
+    w.dispose()
+  })
+
+  it('pairs a turn’s entry by our id, not by being the turn’s first user item', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_mine', text: 'mine' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    // Another client's message recorded ahead of ours in the same turn — the
+    // stock TUI attached to this thread names its own ids.
+    w.liveServer().emitUserMessage('theirs', 'usr-theirs', { clientId: 'tui-1' })
+    w.liveServer().emitUserMessage('mine', 'usr-mine', { clientId: 'msg_mine' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([expect.objectContaining({ rowId: 'msg_mine', transcriptItem: { id: 'usr-mine' } })])
+    expect(w.entryReports).toEqual([
+      {
+        sessionId: w.handle.binding.sessionId,
+        messageId: 'msg_mine',
+        turnId: 'turn-1',
+        itemId: 'usr-mine',
+        pairedBy: 'client-id',
+        deliveredAs: 'turn',
+      },
+    ])
+    w.dispose()
+  })
+
+  it('names a steer’s entry by our id', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_open', text: 'open' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    w.liveServer().emitUserMessage('open', 'usr-open', { clientId: 'msg_open' })
+    const steered = await w.handle.send(
+      { id: 'msg_steer', text: 'steered in' },
+      { origin: 'human', delivery: 'steer' },
+    )
+    expect(steered).toMatchObject({ outcome: 'accepted', deliveredAs: 'steer' })
+    // Codex records a steer's input at its next model call, seconds later.
+    w.liveServer().emitUserMessage('steered in', 'usr-steer', { clientId: 'msg_steer' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({ rowId: 'msg_open', transcriptItem: { id: 'usr-open' } }),
+        expect.objectContaining({ rowId: 'msg_steer', transcriptItem: { id: 'usr-steer' } }),
+      ])
+    expect(w.entryReports.at(-1)).toMatchObject({
+      messageId: 'msg_steer',
+      turnId: 'turn-1',
+      itemId: 'usr-steer',
+      pairedBy: 'client-id',
+      deliveredAs: 'steer',
+    })
+    w.dispose()
+  })
+
+  it('falls back to the turn id when Codex records no client id, and says so', async () => {
+    const w = await world()
+    await w.handle.send({ id: 'msg_old', text: 'old' }, { origin: 'human', delivery: 'when-ready' })
+    w.liveServer().emitUserMessage('old', 'usr-old', { clientId: null })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([expect.objectContaining({ rowId: 'msg_old', transcriptItem: { id: 'usr-old' } })])
+    expect(w.entryReports).toEqual([
+      expect.objectContaining({ messageId: 'msg_old', itemId: 'usr-old', pairedBy: 'turn-id' }),
+    ])
+    w.dispose()
+  })
+
+  it('never takes an item carrying someone else’s id for our turn’s input', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_ours', text: 'ours' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    w.liveServer().emitUserMessage('theirs', 'usr-theirs', { clientId: 'tui-1' })
+    await settle()
+    expect(deliveries(w.events())).toEqual([])
+    expect(w.entryReports).toEqual([])
+    w.dispose()
+  })
+
+  it('pairs a resend under the same id with its OWN item, not the first one', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_again', text: 'again' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    w.liveServer().emitUserMessage('again', 'usr-first', { clientId: 'msg_again' })
+    w.liveServer().completeTurn()
+    // Codex does not dedupe the id: a resend is a second turn and a second item.
+    const resent = await w.handle.send(
+      { id: 'msg_again', text: 'again' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(resent).not.toHaveProperty('transcriptItem')
+    w.liveServer().emitUserMessage('again', 'usr-second', { clientId: 'msg_again' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({ rowId: 'msg_again', transcriptItem: { id: 'usr-first' } }),
+        expect.objectContaining({ rowId: 'msg_again', transcriptItem: { id: 'usr-second' } }),
+      ])
+    w.dispose()
+  })
+
+  it('never names an entry for a steer whose turn closed before Codex recorded it', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_open', text: 'open' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await w.handle.send({ id: 'msg_lost', text: 'lost' }, { origin: 'human', delivery: 'steer' })
+    // Measured: a steer acked, then interrupted before Codex's next model call,
+    // is dropped. Nothing may pair it later.
+    w.liveServer().completeTurn('interrupted')
+    await w.handle.send(
+      { id: 'msg_next', text: 'next' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    w.liveServer().emitUserMessage('lost', 'usr-late', { clientId: 'msg_lost' })
+    await settle()
+    expect(deliveries(w.events()).map((event) => event.rowId)).not.toContain('msg_lost')
+    w.dispose()
+  })
+
+  it('pairs a queued send’s entry once it is delivered', async () => {
+    const w = await world()
+    await w.handle.send(
+      { id: 'msg_busy', text: 'busy' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await w.handle.send({ id: 'msg_later', text: 'later' }, { origin: 'human', delivery: 'queue' })
+    w.liveServer().completeTurn()
+    await expect.poll(() => w.liveServer().turnStarts).toBe(2)
+    w.liveServer().emitUserMessage('later', 'usr-later', { clientId: 'msg_later' })
+    await expect
+      .poll(() => deliveries(w.events()))
+      .toEqual([
+        expect.objectContaining({ rowId: 'msg_later', transcriptItem: { id: 'usr-later' } }),
+      ])
     w.dispose()
   })
 })

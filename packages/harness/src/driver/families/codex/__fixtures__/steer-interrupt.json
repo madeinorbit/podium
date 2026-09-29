@@ -1,12 +1,13 @@
 {
-  "_recordedFrom": "codex-cli 0.147.0",
+  "_recordedFrom": "codex-cli 0.155.0 (POD-4835), except steerBeforeTurnStartedRequest/steerBeforeTurnStartedError, recorded from 0.147.0. 0.155.0 ACCEPTS that early steer instead (steerBeforeTurnStartedAccepted). A steer's userMessage item is recorded at Codex's next model call, not on the ack, and carries the steer's clientUserMessageId as clientId.",
   "steerRequest": {
     "jsonrpc": "2.0",
     "id": 6,
     "method": "turn/steer",
     "params": {
-      "threadId": "019fff94-7326-7032-b90b-3cc7e1805180",
-      "expectedTurnId": "019fff94-8653-77f2-b4ab-b36e0db39521",
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "expectedTurnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
+      "clientUserMessageId": "msg_podium_steer_C",
       "input": [
         {
           "type": "text",
@@ -19,8 +20,29 @@
   "steerAcceptedResponse": {
     "id": 6,
     "result": {
-      "turnId": "019fff94-8653-77f2-b4ab-b36e0db39521"
+      "turnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63"
     }
+  },
+  "steerUserMessageCompleted": {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a0ed5a-1f3f-7be2-abdf-fd2e6aa5a55f",
+        "clientId": "msg_podium_steer_C",
+        "content": [
+          {
+            "type": "text",
+            "text": "Also mention the word BANANA in your reply.",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "turnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
+      "completedAtMs": 1790688501567
+    },
+    "emittedAtMs": 1790688501571
   },
   "steerBeforeTurnStartedRequest": {
     "jsonrpc": "2.0",
@@ -45,13 +67,97 @@
     },
     "id": 5
   },
+  "steerBeforeTurnStartedAccepted": {
+    "turnStartResponse": {
+      "id": 4,
+      "result": {
+        "turn": {
+          "id": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": null,
+          "completedAt": null,
+          "durationMs": null
+        }
+      }
+    },
+    "request": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "turn/steer",
+      "params": {
+        "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+        "expectedTurnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
+        "clientUserMessageId": "msg_podium_steer_early",
+        "input": [
+          {
+            "type": "text",
+            "text": "Also append the word BANANA on the last line.",
+            "text_elements": []
+          }
+        ]
+      }
+    },
+    "response": {
+      "id": 5,
+      "result": {
+        "turnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63"
+      }
+    },
+    "userMessageCompleted": {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "01a0ed5a-1f22-7083-ab2a-dafed78a4f1e",
+          "clientId": "msg_podium_steer_early",
+          "content": [
+            {
+              "type": "text",
+              "text": "Also append the word BANANA on the last line.",
+              "text_elements": []
+            }
+          ]
+        },
+        "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+        "turnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
+        "completedAtMs": 1790688501538
+      },
+      "emittedAtMs": 1790688501559
+    }
+  },
+  "duplicateSteerRequest": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "turn/steer",
+    "params": {
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "expectedTurnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
+      "clientUserMessageId": "msg_podium_steer_C",
+      "input": [
+        {
+          "type": "text",
+          "text": "Also mention the word BANANA in your reply.",
+          "text_elements": []
+        }
+      ]
+    }
+  },
+  "duplicateSteerResponse": {
+    "id": 7,
+    "result": {
+      "turnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63"
+    }
+  },
   "interruptRequest": {
     "jsonrpc": "2.0",
     "id": 8,
     "method": "turn/interrupt",
     "params": {
-      "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
-      "turnId": "019fff9f-e5f3-74b1-bcb8-ffe8aa476f59"
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "turnId": "01a0ed5a-1272-7490-a4b6-456de84d2c63"
     }
   },
   "interruptResponse": {
@@ -61,18 +167,18 @@
   "interruptedTurnCompleted": {
     "method": "turn/completed",
     "params": {
-      "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
       "turn": {
-        "id": "019fff9f-e5f3-74b1-bcb8-ffe8aa476f59",
+        "id": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
         "items": [],
         "itemsView": "notLoaded",
         "status": "interrupted",
         "error": null,
-        "startedAt": 1786700097,
-        "completedAt": 1786700105,
-        "durationMs": 8694
+        "startedAt": 1790688498,
+        "completedAt": 1790688503,
+        "durationMs": 4807
       }
     },
-    "emittedAtMs": 1786700105756
+    "emittedAtMs": 1790688503109
   }
 }

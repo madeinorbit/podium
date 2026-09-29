@@ -813,6 +813,16 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       )
     },
 
+    /**
+     * CODEX'S OWN IDS FOR A DELIVERED MESSAGE, LOGGED until delivery records
+     * carry harness ids (POD-4835, POD-4841). The turn id and item id are what
+     * find the message in Codex's history again; `pairedBy` says whether the
+     * match was by our id or by the turn-id fallback.
+     */
+    reportEntryPaired(report) {
+      log.info('codex recorded a delivered message', report)
+    },
+
     async attachClient(input) {
       const entry = records.recorded(input.sessionId)
       if (!entry) return undefined

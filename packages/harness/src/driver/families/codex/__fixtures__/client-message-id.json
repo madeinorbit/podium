@@ -1,0 +1,272 @@
+{
+  "_recordedFrom": "codex-cli 0.155.0 (POD-4835), live `codex app-server` against a local fake model server. What clientUserMessageId is and is not.",
+  "firstUserMessageCompleted": {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a0ed5a-05c3-7620-b621-03c7fe0ab1f8",
+        "clientId": "msg_podium_turn_A",
+        "content": [
+          {
+            "type": "text",
+            "text": "Say exactly: ALPHA. Nothing else.",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "turnId": "01a0ed5a-03d0-70c0-9b40-d7b1b1abb6cc",
+      "completedAtMs": 1790688495043
+    },
+    "emittedAtMs": 1790688495059
+  },
+  "repeatTurnStartRequest": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "method": "turn/start",
+    "params": {
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "clientUserMessageId": "msg_podium_turn_A",
+      "input": [
+        {
+          "type": "text",
+          "text": "Say exactly: ALPHA. Nothing else.",
+          "text_elements": []
+        }
+      ]
+    }
+  },
+  "repeatTurnStartResponse": {
+    "id": 9,
+    "result": {
+      "turn": {
+        "id": "01a0ed5a-2556-7a41-9271-a5bb461f88b4",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "repeatUserMessageCompleted": {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a0ed5a-25d5-7b23-8727-a34abac10a06",
+        "clientId": "msg_podium_turn_A",
+        "content": [
+          {
+            "type": "text",
+            "text": "Say exactly: ALPHA. Nothing else.",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "turnId": "01a0ed5a-2556-7a41-9271-a5bb461f88b4",
+      "completedAtMs": 1790688503253
+    },
+    "emittedAtMs": 1790688503310
+  },
+  "threadReadAfterRestartRequest": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "thread/read",
+    "params": {
+      "threadId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+      "includeTurns": true
+    }
+  },
+  "threadReadAfterRestartResponse": {
+    "id": 2,
+    "result": {
+      "thread": {
+        "id": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+        "environments": null,
+        "extra": null,
+        "sessionId": "01a0ed5a-014c-7143-a06c-d5e3b0bc3746",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "Say exactly: ALPHA. Nothing else.",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "fake",
+        "model": "fake",
+        "reasoningEffort": null,
+        "createdAt": 1790688493,
+        "updatedAt": 1790688506,
+        "recencyAt": 1790688503,
+        "status": {
+          "type": "notLoaded"
+        },
+        "path": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4835-codex-messages-carry-our-id/9bb72054-7704-4cea-aff3-7eb1dfabd190/scratchpad/home/.codex/sessions/2026/09/29/rollout-2026-09-29T15-28-13-01a0ed5a-014c-7143-a06c-d5e3b0bc3746.jsonl",
+        "cwd": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4835-codex-messages-carry-our-id/9bb72054-7704-4cea-aff3-7eb1dfabd190/scratchpad/work",
+        "cliVersion": "0.155.0",
+        "originator": "podium",
+        "source": "vscode",
+        "canAcceptDirectInput": null,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": [
+          {
+            "id": "01a0ed5a-03d0-70c0-9b40-d7b1b1abb6cc",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a0ed5a-05c3-7620-b621-03c7fe0ab1f8",
+                "clientId": "msg_podium_turn_A",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Say exactly: ALPHA. Nothing else.",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "agentMessage",
+                "id": "msg_fake1",
+                "text": "w1 w2 w3 w4 w5 w6 ",
+                "phase": null,
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1790688494,
+            "completedAt": 1790688498,
+            "durationMs": 3708
+          },
+          {
+            "id": "01a0ed5a-1272-7490-a4b6-456de84d2c63",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a0ed5a-12c8-7223-8d6d-0990eab9cf5e",
+                "clientId": "msg_podium_turn_B",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Count slowly to eight.",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "agentMessage",
+                "id": "msg_fake2",
+                "text": "w1 w2 w3 w4 w5 w6 ",
+                "phase": null,
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              },
+              {
+                "type": "userMessage",
+                "id": "01a0ed5a-1f22-7083-ab2a-dafed78a4f1e",
+                "clientId": "msg_podium_steer_early",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Also append the word BANANA on the last line.",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "userMessage",
+                "id": "01a0ed5a-1f3f-7be2-abdf-fd2e6aa5a55f",
+                "clientId": "msg_podium_steer_C",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Also mention the word BANANA in your reply.",
+                    "text_elements": []
+                  }
+                ]
+              }
+            ],
+            "itemsView": "full",
+            "status": "interrupted",
+            "error": null,
+            "startedAt": 1790688498,
+            "completedAt": 1790688503,
+            "durationMs": 4807
+          },
+          {
+            "id": "01a0ed5a-2556-7a41-9271-a5bb461f88b4",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a0ed5a-25d5-7b23-8727-a34abac10a06",
+                "clientId": "msg_podium_turn_A",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Say exactly: ALPHA. Nothing else.",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "agentMessage",
+                "id": "msg_fake4",
+                "text": "w1 w2 w3 w4 w5 w6 ",
+                "phase": null,
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1790688503,
+            "completedAt": 1790688506,
+            "durationMs": 3402
+          }
+        ]
+      }
+    }
+  },
+  "_steerDroppedByInterrupt": {
+    "_summary": "Not frames: a steer acked with {turnId} and then interrupted before Codex's next model call was recorded in no item of that turn or the next, and never reached the model.",
+    "steerResponse": {
+      "id": 4,
+      "result": {
+        "turnId": "01a0ed5b-1f84-7a03-a828-7f1214d1ce89"
+      }
+    },
+    "userItemsInThatTurn": [
+      {
+        "at": 1790688567327,
+        "turnId": "01a0ed5b-1f84-7a03-a828-7f1214d1ce89",
+        "id": "01a0ed5b-2019-7fb1-a888-746321cd0a43",
+        "clientId": "a_turn"
+      }
+    ],
+    "userItemsInNextTurn": [
+      {
+        "at": 1790688568588,
+        "turnId": "01a0ed5b-24b4-7bf3-ab83-62d872fa536a",
+        "id": "01a0ed5b-24fc-7c92-a64b-1e01ea26fec8",
+        "clientId": "a_next"
+      }
+    ]
+  }
+}

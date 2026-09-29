@@ -321,6 +321,22 @@ export type CodexTurn = z.infer<typeof CodexTurn>
 export const CodexThreadItem = z.object({ type: z.string(), id: z.string() }).passthrough()
 export type CodexThreadItem = z.infer<typeof CodexThreadItem>
 
+/**
+ * THE `clientUserMessageId` A `userMessage` ITEM WAS SENT WITH, or `null`
+ * (POD-4835).
+ *
+ * `turn/start` and `turn/steer` take `clientUserMessageId` since codex 0.136.0,
+ * and the item Codex records for that input carries it back as `clientId` —
+ * next to Codex's own item id, never in place of it. `null` is what Codex
+ * records for a send that named none, and what a binary that does not echo it
+ * would give; the caller then has no id to pair by.
+ */
+export function userMessageClientId(item: CodexThreadItem): string | null {
+  if (item.type !== 'userMessage') return null
+  const clientId = (item as { clientId?: unknown }).clientId
+  return typeof clientId === 'string' && clientId.length > 0 ? clientId : null
+}
+
 // ---------------------------------------------------------------------------
 // Notifications — the ten arms this driver consumes
 // ---------------------------------------------------------------------------

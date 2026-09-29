@@ -137,6 +137,7 @@ import {
   type CodexTurn,
   type CodexTurnId,
   DELTA_NOTIFICATIONS,
+  userMessageClientId,
 } from './protocol.js'
 
 /**
@@ -281,6 +282,32 @@ export interface CodexRuntimeHost {
     subscription: boolean
   }): void
 
+  /**
+   * WHICH HISTORY ENTRY A SEND BECAME, UNDER CODEX'S OWN IDS (POD-4835).
+   *
+   * Called once per pairing, when the `userMessage` item Codex recorded for a
+   * send is matched to it. Codex's turn id and item id are what find the
+   * message in its history again — after a daemon restart, `thread/read` and
+   * `thread/items/list` return the same item ids and `clientId`s from the
+   * rollout. A HOST CALLBACK, like `reportAuthMode`, until delivery records
+   * carry harness ids (POD-4841): the fact goes to whoever owns surfacing, and
+   * the contract is left alone.
+   */
+  reportEntryPaired?(input: {
+    sessionId: SessionId
+    /** Our message id, as sent in `clientUserMessageId`; absent for a send
+     *  that carried none. */
+    messageId: string | undefined
+    turnId: CodexTurnId
+    /** Codex's id for the `userMessage` item — never equal to ours. */
+    itemId: string
+    /** `client-id`: the item's `clientId` is our message id — exact.
+     *  `turn-id`: Codex recorded no client id, so the turn's first user item
+     *  was taken as its `turn/start` input — the fallback. */
+    pairedBy: EntryPairing
+    deliveredAs: 'turn' | 'steer'
+  }): void
+
   /** Start Codex's own TUI against this thread, for `attach()`. `undefined` when
    *  the host has nowhere to run one. */
   attachClient?(input: {
@@ -386,8 +413,51 @@ const WHEN_READY_TIMEOUT_MS = 10 * 60_000
  * frames on one connection, not a wait on the model.
  */
 const STEER_OPEN_TIMEOUT_MS = 15_000
-/** Turns whose input entry is remembered for a send still reading it. */
-const USER_ITEM_TURNS_KEPT = 32
+/** Recent user items remembered for a send whose answer lands after them. */
+const USER_ITEMS_KEPT = 64
+/** Sends waiting for their entry. Each leaves when paired or when its turn
+ *  closes; this only bounds a pathological run of neither. */
+const AWAITING_ENTRIES_KEPT = 64
+
+/** How a send was matched to the history entry it became (POD-4835). */
+export type EntryPairing = 'client-id' | 'turn-id'
+
+/** A `userMessage` item Codex recorded, as the pairing reads it. */
+interface SeenUserItem {
+  ref: TranscriptItemRef
+  turnId: CodexTurnId
+  /** The `clientUserMessageId` it was sent with, or `null`. */
+  clientId: string | null
+  /** The turn's first user item: its `turn/start` input when nothing names it. */
+  firstOfTurn: boolean
+  /** Already paired to a send. A resend under the same id is a second item. */
+  claimed: boolean
+}
+
+/** A send whose entry Codex has not recorded yet. */
+interface AwaitedEntry {
+  messageId: string | undefined
+  turnId: CodexTurnId
+  deliveredAs: 'turn' | 'steer'
+  onItem: ((item: TranscriptItemRef) => void) | undefined
+}
+
+/**
+ * DOES THIS ITEM RECORD THIS SEND, AND BY WHICH ID (POD-4835)?
+ *
+ * An item carrying a client id belongs to whoever sent that id — ours, or the
+ * stock TUI's on an attached thread — and to nobody else, whatever its place
+ * in the turn. Only an item with NO client id falls back to the turn id, and
+ * then only as a `turn/start`'s input: the turn's first user item. A steer has
+ * no fallback, because it joins a turn it did not open and no turn id names it.
+ */
+function entryPairing(entry: AwaitedEntry, seen: SeenUserItem): EntryPairing | undefined {
+  if (seen.claimed) return undefined
+  if (seen.clientId !== null) return entry.messageId === seen.clientId ? 'client-id' : undefined
+  return entry.deliveredAs === 'turn' && seen.firstOfTurn && seen.turnId === entry.turnId
+    ? 'turn-id'
+    : undefined
+}
 
 export const CODEX_APP_SERVER_DRIVER_ID = 'codex-app-server'
 
@@ -469,14 +539,15 @@ interface DriverSession {
   /** Resolvers waiting for a turn to actually open (the steer window). */
   turnOpenWaiters: Set<() => void>
   /**
-   * THE PROMPT'S ENTRY, BY TURN (POD-4774). Codex records the input of
-   * `turn/start` as the turn's first `userMessage` item, under its own item id
-   * and the turn id the `turn/start` response returned — so the pairing is by
-   * id, never by text. Recent turns only; a send reads it once.
+   * THE PROMPT'S ENTRY, BY OUR ID (POD-4774, POD-4835). Codex records a send's
+   * input as a `userMessage` item under its own item id, carrying the
+   * `clientUserMessageId` we sent as `clientId` — so the pairing is by id,
+   * never by text. See `entryPairing` for the turn-id fallback. Recent items
+   * only.
    */
-  userItemByTurn: Map<CodexTurnId, TranscriptItemRef>
-  /** Sends whose `turn/start` came back before the turn's `userMessage`. */
-  userItemWaiters: Map<CodexTurnId, (item: TranscriptItemRef) => void>
+  userItems: SeenUserItem[]
+  /** Sends answered before Codex recorded their input. */
+  awaitingEntry: AwaitedEntry[]
   usage: UsageSnapshot | undefined
   title: string | undefined
 }
@@ -711,7 +782,7 @@ export function createCodexRuntime(
         for (const item of threadItemToItems(note.params.item, at)) {
           emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
           if (item.role === 'user' && note.params.turnId)
-            noteUserItem(session, note.params.turnId, item)
+            noteUserItem(session, note.params.turnId, item, userMessageClientId(note.params.item))
         }
         break
       }
@@ -1003,27 +1074,81 @@ export function createCodexRuntime(
    * completion arrives on, which is what "fences only on provider confirmation"
    * means in code rather than in a comment.
    */
-  /** The turn's FIRST user item is its `turn/start` input; a steer's item
-   *  joins the same turn later and is never mistaken for it. */
-  function noteUserItem(session: DriverSession, turnId: CodexTurnId, item: TranscriptItem): void {
-    if (session.userItemByTurn.has(turnId)) return
+  /** Codex recorded a user item: pair it to the send it records, if one is
+   *  waiting, and remember it for a send whose answer has not landed yet. */
+  function noteUserItem(
+    session: DriverSession,
+    turnId: CodexTurnId,
+    item: TranscriptItem,
+    clientId: string | null,
+  ): void {
     const ref = transcriptItemRefOf(item)
     if (!ref) return
-    session.userItemByTurn.set(turnId, ref)
-    if (session.userItemByTurn.size > USER_ITEM_TURNS_KEPT) {
-      const oldest = session.userItemByTurn.keys().next()
-      if (!oldest.done) session.userItemByTurn.delete(oldest.value)
+    const seen: SeenUserItem = {
+      ref,
+      turnId,
+      clientId,
+      firstOfTurn: !session.userItems.some((earlier) => earlier.turnId === turnId),
+      claimed: false,
     }
-    const waiter = session.userItemWaiters.get(turnId)
-    session.userItemWaiters.delete(turnId)
-    waiter?.(ref)
+    session.userItems.push(seen)
+    if (session.userItems.length > USER_ITEMS_KEPT) session.userItems.shift()
+    for (const [index, entry] of session.awaitingEntry.entries()) {
+      const pairedBy = entryPairing(entry, seen)
+      if (!pairedBy) continue
+      session.awaitingEntry.splice(index, 1)
+      claimEntry(session, entry, seen, pairedBy)
+      entry.onItem?.(ref)
+      return
+    }
+  }
+
+  /**
+   * THE ENTRY THIS SEND BECAME, or undefined while Codex has not recorded it
+   * (POD-4835). Codex can record the input before its answer to the send
+   * lands, so the items already seen are read first; otherwise the send waits,
+   * and `onItem` names the entry when it is recorded.
+   */
+  function awaitEntry(session: DriverSession, entry: AwaitedEntry): TranscriptItemRef | undefined {
+    for (const seen of session.userItems) {
+      const pairedBy = entryPairing(entry, seen)
+      if (!pairedBy) continue
+      claimEntry(session, entry, seen, pairedBy)
+      return seen.ref
+    }
+    session.awaitingEntry.push(entry)
+    if (session.awaitingEntry.length > AWAITING_ENTRIES_KEPT) session.awaitingEntry.shift()
+    return undefined
+  }
+
+  function claimEntry(
+    session: DriverSession,
+    entry: AwaitedEntry,
+    seen: SeenUserItem,
+    pairedBy: EntryPairing,
+  ): void {
+    seen.claimed = true
+    host.reportEntryPaired?.({
+      sessionId: session.sessionId,
+      messageId: entry.messageId,
+      turnId: seen.turnId,
+      itemId: seen.ref.id,
+      pairedBy,
+      deliveredAs: entry.deliveredAs,
+    })
   }
 
   function closeTurn(session: DriverSession, turn: CodexTurn): void {
     if (session.fencedTurnIds.has(turn.id)) return
     session.fencedTurnIds.add(turn.id)
-    // A turn that ended without recording its input names nothing.
-    session.userItemWaiters.delete(turn.id)
+    /**
+     * A TURN THAT ENDED WITHOUT RECORDING A SEND'S INPUT NAMES NOTHING, and it
+     * never will (POD-4835, measured on codex 0.155.0). A steer is recorded at
+     * Codex's next model call, not on its ack: one acked and then interrupted
+     * before that call is dropped — in no item, no later turn, and never shown
+     * to the model.
+     */
+    session.awaitingEntry = session.awaitingEntry.filter((entry) => entry.turnId !== turn.id)
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
@@ -1153,17 +1278,36 @@ export function createCodexRuntime(
     ]
   }
 
-  /** Open a NEW turn. The response IS the acceptance. */
+  /**
+   * OUR MESSAGE ID, ON THE MESSAGE CODEX RECORDS (POD-4835).
+   *
+   * `clientUserMessageId` on `turn/start` and `turn/steer` (codex 0.136.0+,
+   * below the 0.147 floor, so every admitted binary takes it) becomes the
+   * `clientId` of the `userMessage` item Codex records for this input. A
+   * delivery that is tried again carries the SAME id — `input.id` travels with
+   * the turn through the driver's queue unchanged. The id is not a dedupe key:
+   * measured on 0.155.0, a repeated id opens a second turn (or joins the turn a
+   * second time, for a steer), and the model sees the words twice. A send with
+   * no id names none; nothing is minted.
+   */
+  const clientUserMessageId = (input: TurnInput) =>
+    input.id !== undefined ? { clientUserMessageId: input.id } : {}
+
+  /** Open a NEW turn. The response IS the acceptance. `transcriptItem` is set
+   *  when Codex recorded the input before answering; otherwise `onItem` names
+   *  it once recorded. */
   async function deliver(
     session: DriverSession,
     input: TurnInput,
     origin: SendOptions['origin'] = 'human',
-  ): Promise<CodexTurnId | undefined> {
+    onItem?: (item: TranscriptItemRef) => void,
+  ): Promise<{ turnId: CodexTurnId | undefined; transcriptItem: TranscriptItemRef | undefined }> {
     const overrides = input.overrides?.supported ? input.overrides.value : undefined
     const model = overrides?.model ?? modelOf(session.spec)
     const effort = overrides?.effort ?? session.spec.model.effort
     const result = await session.client.call<{ turn?: { id?: string } }>(CODEX_METHODS.turnStart, {
       threadId: session.threadId,
+      ...clientUserMessageId(input),
       input: codexInput(input),
       ...(model ? { model } : {}),
       ...(effort && effort !== 'auto' ? { effort } : {}),
@@ -1197,7 +1341,11 @@ export function createCodexRuntime(
     })
     persist(session)
     emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
-    return result.turn?.id
+    const turnId = result.turn?.id
+    const transcriptItem = turnId
+      ? awaitEntry(session, { messageId: input.id, turnId, deliveredAs: 'turn', onItem })
+      : undefined
+    return { turnId, transcriptItem }
   }
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
@@ -1346,7 +1494,15 @@ export function createCodexRuntime(
       const next = session.queue.shift()
       if (!next) return
       try {
-        await deliver(session, next.input, next.options.origin)
+        const { transcriptItem } = await deliver(
+          session,
+          next.input,
+          next.options.origin,
+          next.options.onTranscriptItem,
+        )
+        // The caller's receipt went back long ago, so an entry already
+        // recorded is named the way a later one would be.
+        if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem)
       } catch {
         /**
          * THE SEND ITSELF FAILED, AND THE CALLER IS LONG GONE.
@@ -1576,10 +1732,26 @@ export function createCodexRuntime(
               await session.client.call(CODEX_METHODS.turnSteer, {
                 threadId: session.threadId,
                 expectedTurnId: turnId,
+                ...clientUserMessageId(input),
                 input: codexInput(input),
               })
+              /**
+               * A STEER'S ENTRY IS NAMED BY OUR ID OR NOT AT ALL (POD-4835).
+               * Codex records it at its next model call, seconds after this
+               * ack, as a later user item in a turn it did not open.
+               */
+              const transcriptItem =
+                input.id !== undefined
+                  ? awaitEntry(session, {
+                      messageId: input.id,
+                      turnId,
+                      deliveredAs: 'steer',
+                      onItem: options.onTranscriptItem,
+                    })
+                  : undefined
               return {
                 outcome: 'accepted',
+                ...(transcriptItem ? { transcriptItem } : {}),
                 // THE SAME EPOCH. A steer joins the open turn rather than
                 // opening one, so advancing the epoch would tell every consumer
                 // a new turn began and orphan the events still arriving under
@@ -1651,17 +1823,18 @@ export function createCodexRuntime(
          */
         if (session.disposed) return refuse('not_running')
 
-        let turnId: CodexTurnId | undefined
+        // The input's entry, if Codex recorded it before answering; otherwise
+        // named when its `userMessage` item completes (POD-4774, POD-4835).
+        let transcriptItem: TranscriptItemRef | undefined
         try {
-          turnId = await deliver(session, input, options.origin)
+          ;({ transcriptItem } = await deliver(
+            session,
+            input,
+            options.origin,
+            options.onTranscriptItem,
+          ))
         } catch (err) {
           return refuse('not_running', String(err))
-        }
-        // The input's entry, if Codex recorded it before answering; otherwise
-        // named when its `userMessage` item completes (POD-4774).
-        const transcriptItem = turnId ? session.userItemByTurn.get(turnId) : undefined
-        if (turnId && !transcriptItem && options.onTranscriptItem) {
-          session.userItemWaiters.set(turnId, options.onTranscriptItem)
         }
         return {
           outcome: 'accepted',
@@ -2257,8 +2430,8 @@ export function createCodexRuntime(
       disposed: false,
       idleWaiters: new Set(),
       turnOpenWaiters: new Set(),
-      userItemByTurn: new Map(),
-      userItemWaiters: new Map(),
+      userItems: [],
+      awaitingEntry: [],
       usage: undefined,
       title: journalled?.title,
     }

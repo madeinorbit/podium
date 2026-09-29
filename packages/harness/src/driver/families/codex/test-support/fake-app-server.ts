@@ -140,6 +140,12 @@ export interface FakeAppServer {
   lastTurnModel: { model?: string; effort?: string } | undefined
   /** `turn/steer` calls that were accepted into an open turn. */
   steers: number
+  /**
+   * The `clientUserMessageId` of every accepted `turn/start` and `turn/steer`,
+   * in arrival order — `null` for a call that named none (POD-4835). The real
+   * server stores it as the `clientId` of the `userMessage` item it records.
+   */
+  clientUserMessageIds: { method: 'turn/start' | 'turn/steer'; id: string | null }[]
   /** `thread/resume` calls received. A rebind must NOT move this: attaching to
    *  the surviving engine opens a second client on the open thread, and a
    *  resume RPC there would be the fresh-start path wearing a rebind's clothes. */
@@ -180,8 +186,16 @@ export interface FakeAppServer {
    * Announce the user's own message back, as codex does: `item/started` then
    * `item/completed` for a `userMessage`. Its started half is the one the
    * viewer least needs previewed — they typed it.
+   *
+   * `clientId` is the `clientUserMessageId` the send carried, which codex
+   * (0.136.0+) echoes on the item; `null`, the default, is what it records for
+   * a send that named none (POD-4835). `turnId` defaults to the open turn.
    */
-  emitUserMessage(text: string, itemId?: string): void
+  emitUserMessage(
+    text: string,
+    itemId?: string,
+    options?: { clientId?: string | null; turnId?: string },
+  ): void
   /**
    * Emit an agent-message item, as `item/started` then `item/completed`.
    *
@@ -227,6 +241,9 @@ export interface FakeAppServer {
   crash(): void
   close(): void
 }
+
+const clientIdOf = (params: Record<string, unknown>): string | null =>
+  typeof params.clientUserMessageId === 'string' ? params.clientUserMessageId : null
 
 export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppServer {
   const toClient = makePipe()
@@ -291,6 +308,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     lastTurnInput: undefined,
     lastTurnModel: undefined,
     steers: 0,
+    clientUserMessageIds: [],
     resumes: 0,
     answers: new Map(),
     optedOutOfDeltas: false,
@@ -390,20 +408,26 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         thread: { ...(threadPayload(threadId) as Record<string, unknown>), name },
       })
     },
-    emitUserMessage(text, itemId) {
+    emitUserMessage(text, itemId, options) {
       const id = itemId ?? `usr_${++itemSeq}`
+      const turnId = options?.turnId ?? openTurn
       // `content` parts, which is the shape `map.ts` reads — a bare `text`
       // field maps to nothing and would make this fixture prove nothing.
-      const item = { type: 'userMessage', id, content: [{ type: 'text', text }] }
+      const item = {
+        type: 'userMessage',
+        id,
+        clientId: options?.clientId ?? null,
+        content: [{ type: 'text', text }],
+      }
       notify('item/started', {
         threadId: server.threadId,
-        turnId: openTurn,
+        turnId,
         item,
         startedAtMs: 1_786_700_069_000,
       })
       notify('item/completed', {
         threadId: server.threadId,
-        turnId: openTurn,
+        turnId,
         item,
         completedAtMs: 1_786_700_069_500,
       })
@@ -664,6 +688,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
           return
         }
         server.turnStarts += 1
+        server.clientUserMessageIds.push({ method: 'turn/start', id: clientIdOf(params) })
         server.lastTurnInput = Array.isArray(params.input) ? params.input : undefined
         server.lastTurnModel = {
           ...(typeof params.model === 'string' ? { model: params.model } : {}),
@@ -675,6 +700,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         record({
           id: `item-user-${++itemSeq}`,
           type: 'userMessage',
+          clientId: clientIdOf(params),
           content: Array.isArray(params.input) ? params.input : [],
         })
         const turnId = `turn-${++turnSeq}`
@@ -717,6 +743,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
           return
         }
         server.steers += 1
+        server.clientUserMessageIds.push({ method: 'turn/steer', id: clientIdOf(params) })
         respond(id, { turnId: openTurn })
         return
       }
