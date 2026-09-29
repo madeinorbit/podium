@@ -241,26 +241,60 @@ describe('accepted only when Grok names our id', () => {
     }
   })
 
-  it('is refused, and opens no turn, when Grok rejects the request before naming it', async () => {
+  it('is unproven, never refused, and opens no turn, when Grok answers an error before naming it', async () => {
+    // NO GROK ERROR REPLY IS MEASURED AS RECORDING NOTHING (POD-4834; a model
+    // error there is recorded), so it is not a "no" (POD-4839, POD-4819 §7).
     const w = world()
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       const before = await handle.snapshot()
       w.serverFor(handle.binding.sessionId).failNextPrompt('invalid params')
-      const receipt = await handle.send(
-        { id: 'msg_rejected', text: 'rejected' },
-        { origin: 'human', delivery: 'when-ready' },
-      )
-      expect(receipt).toMatchObject({
-        outcome: 'refused',
-        refusal: { reason: 'not_running', detail: expect.stringContaining('invalid params') },
-      })
+      await expect(
+        handle.send(
+          { id: 'msg_rejected', text: 'rejected' },
+          { origin: 'human', delivery: 'when-ready' },
+        ),
+      ).rejects.toThrow(/invalid params/)
       expect((await handle.snapshot()).turnEpoch).toBe(before.turnEpoch)
       // Nothing holds the session: the next send goes straight through.
       await expect(
         handle.send({ id: 'msg_next', text: 'next' }, { origin: 'human', delivery: 'when-ready' }),
       ).resolves.toMatchObject({ outcome: 'accepted' })
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
+
+describe('a prompt Grok may hold is never refused (POD-4839)', () => {
+  it('is unproven when the pipe closes after the prompt was written and before Grok named it', async () => {
+    const w = world({ ackPrompt: 'hold' })
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const pending = handle.send(
+        { id: 'msg_lost', text: 'maybe recorded' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      const server = w.serverFor(handle.binding.sessionId)
+      await expect.poll(() => server.promptCount).toBe(1)
+      server.crash()
+      await expect(pending).rejects.toThrow()
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('refuses a prompt its client never wrote', async () => {
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      w.serverFor(handle.binding.sessionId).crash()
+      await expect(
+        handle.send({ id: 'msg_after', text: 'after' }, { origin: 'human', delivery: 'when-ready' }),
+      ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'not_running' } })
     } finally {
       runtime.dispose()
     }
