@@ -449,9 +449,11 @@ export async function runSessionCli(
             ? 'continued'
             : 'sent'
   const pending =
-    messageId !== undefined &&
-    (result.queued === true || ['held', 'spawning', 'queued'].includes(result.disposition ?? ''))
-  const text = pending ? `${outcome} as ${messageId}; ${pendingSendNote(messageId!)}` : outcome
+    result.queued === true || ['held', 'spawning', 'queued'].includes(result.disposition ?? '')
+  const text =
+    pending && messageId !== undefined
+      ? `${outcome} as ${messageId}; ${pendingSendNote(messageId)}`
+      : outcome
   return args.json === true
     ? JSON.stringify({
         command: action,

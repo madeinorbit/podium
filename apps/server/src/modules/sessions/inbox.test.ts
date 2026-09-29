@@ -2868,8 +2868,16 @@ describe('agent drain via the runtime contract', () => {
   // the target is told only what a person can act on, and a person's composer
   // never receives an agent's text.
   it.each([
-    ['never typed', { outcome: 'failed' as const, reason: 'no', cause: undefined }, 'delivery-failed'],
-    ['unconfirmed', { outcome: 'failed' as const, reason: 'maybe', cause: 'unconfirmed' as const }, undefined],
+    [
+      'never typed',
+      { outcome: 'failed' as const, reason: 'no', cause: undefined },
+      'delivery-failed',
+    ],
+    [
+      'unconfirmed',
+      { outcome: 'failed' as const, reason: 'maybe', cause: 'unconfirmed' as const },
+      undefined,
+    ],
   ])("an agent's %s message leaves the owner and the draft alone", async (_label, event, cause) => {
     vi.useFakeTimers()
     const h = harness({ contractReceipts: [] })
@@ -2887,7 +2895,9 @@ describe('agent drain via the runtime contract', () => {
     if (cause) {
       expect(h.rejected).toEqual([expect.objectContaining({ sourceMessageId: 'msg_agent', cause })])
     } else {
-      expect(h.unconfirmed).toHaveBeenCalledWith(expect.objectContaining({ sourceMessageId: 'msg_agent' }))
+      expect(h.unconfirmed).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceMessageId: 'msg_agent' }),
+      )
     }
   })
 

@@ -890,14 +890,18 @@ export class MessagesRepository {
     reason: QueueDrainAbandonedReason,
     notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.failWith(notice, async () => await this.move(id, 'failed', {
-      set: {
-        deadLetteredAt: at,
-        deliveryDeferredAt: at,
-        deliveryDeferredReason: reason,
-        deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${deliveredTo})`,
-      },
-    }))
+    return await this.failWith(
+      notice,
+      async () =>
+        await this.move(id, 'failed', {
+          set: {
+            deadLetteredAt: at,
+            deliveryDeferredAt: at,
+            deliveryDeferredReason: reason,
+            deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${deliveredTo})`,
+          },
+        }),
+    )
   }
 
   /**
@@ -1093,11 +1097,15 @@ export class MessagesRepository {
     cause?: QueueDrainAbandonedReason,
     notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.failWith(notice, async () => await this.move(id, 'failed', {
-      set: cause
-        ? { deadLetteredAt: at, deliveryDeferredAt: at, deliveryDeferredReason: cause }
-        : { deadLetteredAt: at },
-    }))
+    return await this.failWith(
+      notice,
+      async () =>
+        await this.move(id, 'failed', {
+          set: cause
+            ? { deadLetteredAt: at, deliveryDeferredAt: at, deliveryDeferredReason: cause }
+            : { deadLetteredAt: at },
+        }),
+    )
   }
 
   /**

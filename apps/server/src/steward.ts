@@ -8,12 +8,7 @@ import type {
   MutationId,
   IssueId,
 } from '@podium/model'
-import {
-  asIssueId,
-  asMutationId,
-  asSessionId,
-  spawnedByParentSessionId,
-} from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'

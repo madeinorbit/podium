@@ -366,7 +366,9 @@ export class SessionStart {
       const queued = await this.ports.queueInitialPrompt({
         sessionId: spawned.sessionId,
         text: taskPrompt,
-        ...(promptMessageId ? { sourceMessageId: promptMessageId, inputOrigin: 'mail' as const } : {}),
+        ...(promptMessageId
+          ? { sourceMessageId: promptMessageId, inputOrigin: 'mail' as const }
+          : {}),
       })
       if (!queued.ok) {
         throw new Error(queued.reason ?? 'initial prompt could not be queued')

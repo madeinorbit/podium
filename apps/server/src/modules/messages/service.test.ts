@@ -1180,7 +1180,9 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
       .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain("the target's machine could not hand it over; it was never typed")
+    expect(notices[0]!.body).toContain(
+      "the target's machine could not hand it over; it was never typed",
+    )
     expect(notices[0]!.body).toContain('Sending it again is safe.')
     expect(notices[0]!.body).not.toMatch(/target (was )?gone|has ended/)
     expect(notices[0]!.body).not.toContain('session no longer exists')
@@ -1217,7 +1219,9 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
       await store.messages.listMessagesFor({ kind: 'session', id: asSessionId('sX') })
     ).filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('the target is waiting on a person and was not accepting input')
+    expect(notices[0]!.body).toContain(
+      'the target is waiting on a person and was not accepting input',
+    )
     expect(notices[0]!.body).toContain('Sending it again later is safe')
     expect(notices[0]!.body).not.toMatch(/target (was )?gone|deadline|has ended/)
   })
@@ -1658,7 +1662,12 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     // The same row pushed again to the same session may go on; to another may not.
     expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s1'))).toBe(true)
     expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s2'))).toBe(false)
-    expect(await svc.onQueuedInputHandingOn('msg_00000000-0000-4000-8000-000000000000', asSessionId('s1'))).toBe(false)
+    expect(
+      await svc.onQueuedInputHandingOn(
+        'msg_00000000-0000-4000-8000-000000000000',
+        asSessionId('s1'),
+      ),
+    ).toBe(false)
   })
 
   it('cancels the named held operator chat message for an interrupted session', async () => {
@@ -3696,7 +3705,9 @@ describe('best-effort acks/notifications [POD-853]', () => {
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
       .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('the target is waiting on a person and was not accepting input')
+    expect(notices[0]!.body).toContain(
+      'the target is waiting on a person and was not accepting input',
+    )
   })
 })
 
@@ -4766,7 +4777,10 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
       sessions: () => [sender(), session({ sessionId: asSessionId('s1'), status: 'hibernated' })],
       fail: async (h, sessions) => {
         const id = await sendTo(h, asSessionId('s1'))
-        sessions.splice(sessions.findIndex((s) => s.sessionId === 's1'), 1)
+        sessions.splice(
+          sessions.findIndex((s) => s.sessionId === 's1'),
+          1,
+        )
         await h.svc.sweep()
         return id
       },
@@ -4804,7 +4818,9 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
         return r.message.id
       },
       repeat: async (h) => await h.svc.sweep(),
-      body: [`to #${ISSUE.seq} was not delivered: #${ISSUE.seq} is finished. Do not wait for a reply.`],
+      body: [
+        `to #${ISSUE.seq} was not delivered: #${ISSUE.seq} is finished. Do not wait for a reply.`,
+      ],
     },
     'session stopped before it was typed': {
       sessions: () => [sender(), session({ sessionId: asSessionId('s1') })],
@@ -4834,7 +4850,8 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
         await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live')
         return id
       },
-      repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live'),
+      repeat: async (h, id) =>
+        await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live'),
       body: [
         'the target is waiting on a person and was not accepting input; it was never typed, and its owner has been told.',
         'Sending it again later is safe; nothing is waiting in its queue.',
@@ -4847,8 +4864,11 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
         await h.svc.rejectQueuedInput(id, 'could not deliver', 'delivery-failed')
         return id
       },
-      repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'could not deliver', 'delivery-failed'),
-      body: ["the target's machine could not hand it over; it was never typed. Sending it again is safe."],
+      repeat: async (h, id) =>
+        await h.svc.rejectQueuedInput(id, 'could not deliver', 'delivery-failed'),
+      body: [
+        "the target's machine could not hand it over; it was never typed. Sending it again is safe.",
+      ],
     },
     'a spawn prompt reaches the parent': {
       sessions: () => [sender(), session({ sessionId: asSessionId('child') })],
@@ -4861,7 +4881,8 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
         await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live')
         return id
       },
-      repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live'),
+      repeat: async (h, id) =>
+        await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live'),
       body: [
         'to session child was not delivered: the target is waiting on a person',
         'the child session child has no task.',
@@ -4870,7 +4891,9 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     },
   }
 
-  it.each(Object.keys(outcomes))('%s: one notice, stored with the failure, delivered once', async (name) => {
+  it.each(
+    Object.keys(outcomes),
+  )('%s: one notice, stored with the failure, delivered once', async (name) => {
     const outcome = outcomes[name]!
     const sessions = outcome.sessions()
     const h1 = await harness(sessions, outcome.opts)
@@ -4942,7 +4965,10 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
   it("a person's own message tells the operator, never an agent", async () => {
     const h = await harness([session({ sessionId: asSessionId('s1') })])
     const id = (
-      await h.svc.send({ kind: 'operator' }, { to: { kind: 'session', id: asSessionId('s1') }, body: 'hi' })
+      await h.svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: asSessionId('s1') }, body: 'hi' },
+      )
     ).message.id
     await h.svc.rejectQueuedInput(id, 'could not deliver', 'delivery-failed')
     const notice = await h.store.messages.getMessage(failureNoticeId(id))

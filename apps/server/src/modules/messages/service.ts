@@ -2248,7 +2248,8 @@ export class MessageDeliveryService {
     opts: { notifySender?: boolean; cause?: QueueDrainAbandonedReason; failure: SendFailure },
   ): Promise<DeliveryOutcome> {
     const at = this.deps.now()
-    const cause = opts.cause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
+    const cause =
+      opts.cause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
     const notice = opts.notifySender ? await this.failureNotice(message, opts.failure) : null
     if (moved(await this.deps.messages.markDeadLetter(message.id, at, cause, notice))) {
       await this.emitTransition(
@@ -2276,7 +2277,10 @@ export class MessageDeliveryService {
    * still exists, else its issue, else the operator for a person's own
    * message. Reads only; the caller stores it with the failure.
    */
-  private async failureNotice(message: MessageRow, failure: SendFailure): Promise<MessageRow | null> {
+  private async failureNotice(
+    message: MessageRow,
+    failure: SendFailure,
+  ): Promise<MessageRow | null> {
     if (message.fromKind === 'system') return null
     const to = await this.replyTarget(message)
     const { reason, action } = await this.failureWords(message, failure)
@@ -2366,7 +2370,11 @@ export class MessageDeliveryService {
     })()
     // A spawn prompt that never arrived leaves a child with nothing to do: the
     // one step that helps is giving it the task, or stopping it.
-    if (message.toKind === 'session' && message.toId && message.id === spawnPromptMessageId(asSessionId(message.toId))) {
+    if (
+      message.toKind === 'session' &&
+      message.toId &&
+      message.id === spawnPromptMessageId(asSessionId(message.toId))
+    ) {
       return {
         reason: `${words.reason}; the child session ${message.toId} has no task`,
         action: `Send the task with \`podium session send ${message.toId}\` or stop it.`,
@@ -2392,7 +2400,9 @@ export class MessageDeliveryService {
       message.toKind === 'issue'
         ? message.toId
         : this.issueForSession(
-            message.toId ? await this.deps.sessions.sessionById(asSessionId(message.toId)) : undefined,
+            message.toId
+              ? await this.deps.sessions.sessionById(asSessionId(message.toId))
+              : undefined,
           )
     const issue = issueId ? await this.deps.issues.get(issueId) : undefined
     if (issue && !issue.archived && !isIssueClosed(issue)) {

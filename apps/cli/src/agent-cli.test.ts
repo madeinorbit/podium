@@ -161,9 +161,9 @@ describe('podium agent spawn', () => {
       "  task:   msg_task — if it cannot be delivered you will be told at your next turn — 'podium mail status msg_task' shows where it is\n",
     )
     // Launched with the process instead: nothing to follow.
-    expect(await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'go'], client())).not.toContain(
-      'task:',
-    )
+    expect(
+      await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'go'], client()),
+    ).not.toContain('task:')
   })
 
   it('--new maps to newTitle (the deliberate issue-create path)', async () => {

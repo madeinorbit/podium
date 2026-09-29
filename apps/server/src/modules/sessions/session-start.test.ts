@@ -613,7 +613,9 @@ describe('SessionStart: a parent session spawns with a task', () => {
       initialPrompt: 'your task',
     })
     expect(child.promptMessageId).toBeUndefined()
-    expect(await reg.sessionStore.messages.getMessage(spawnPromptMessageId(child.sessionId))).toBeNull()
+    expect(
+      await reg.sessionStore.messages.getMessage(spawnPromptMessageId(child.sessionId)),
+    ).toBeNull()
     const queued = await reg.sessionStore.sync.listQueuedMessages(child.sessionId)
     expect(queued).toEqual([expect.objectContaining({ sourceMessageId: null })])
   })

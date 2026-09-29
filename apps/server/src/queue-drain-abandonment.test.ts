@@ -314,7 +314,9 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
       (m) => m.kind === 'notification' && m.body.includes(messageId),
     )
     expect(notice?.body).toContain('was not delivered')
-    expect(notice?.body).toContain("the target's machine could not hand it over; it was never typed")
+    expect(notice?.body).toContain(
+      "the target's machine could not hand it over; it was never typed",
+    )
     // Sent back to whoever sent the original, not broadcast at the session.
     expect(replyTo.kind).toBe('operator')
     expect(notice?.toKind).toBe(replyTo.kind)
