@@ -11,6 +11,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
 import { issueCloseBlockers } from '../lib/issue-close'
+import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { type WorkMenuActionId, type WorkMenuLane, workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
@@ -141,8 +142,8 @@ export function WorkIssueMenu({
 
       <ActionSheet
         visible={sheet?.kind === 'confirm-delete'}
-        title="Delete this task?"
-        subtitle={`${describeCascade(1, sessionCount)} Tasks and sessions can be restored; running agents will be stopped.`}
+        title={DELETE_TASK_TITLE}
+        subtitle={deleteTaskSubtitle(sessionCount)}
         actions={[
           {
             label: 'Delete',
@@ -216,10 +217,4 @@ export function WorkIssueMenu({
         }
     }
   }
-}
-
-function describeCascade(taskCount: number, sessionCount: number): string {
-  const tasks = `${taskCount} task${taskCount === 1 ? '' : 's'}`
-  if (sessionCount === 0) return `This affects ${tasks}.`
-  return `This affects ${tasks} and ${sessionCount} agent${sessionCount === 1 ? '' : 's'}.`
 }

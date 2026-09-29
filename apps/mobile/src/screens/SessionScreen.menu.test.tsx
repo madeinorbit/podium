@@ -12,9 +12,13 @@ import type { IssueWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(cleanup)
+
+beforeEach(() => {
+  routerReplace.mockClear()
+})
 
 const routerReplace = vi.fn()
 
@@ -88,6 +92,7 @@ vi.mock('../components/BottomSheet', async () => {
 
 const { renderWithMobileStore } = await import('../client/test-support')
 const { SessionScreen } = await import('./SessionScreen')
+const { useStoreSelector } = await import('../client/hooks')
 
 const vesselId = asIssueId('vessel')
 
@@ -142,6 +147,42 @@ async function openMenu(issue: IssueWire) {
   return result
 }
 
+/** The live store's issues, watched through the real selector — the Delete
+ *  confirm resolves into `deleteIssue`, whose optimistic overlay stamps
+ *  `deletedAt` on the vessel. A Cancel must leave it unstamped. */
+function IssueProbe({ seen }: { seen: { issues: IssueWire[] } }) {
+  const issues = useStoreSelector((s) => s.issues)
+  seen.issues = issues as IssueWire[]
+  return null
+}
+
+const threeSessions = () => [
+  session(),
+  session({ sessionId: asSessionId('sess_menu_2'), title: 'Second agent' }),
+  session({ sessionId: asSessionId('sess_menu_3'), title: 'Third agent' }),
+]
+
+async function openDraftMenuWithSessions() {
+  const seen: { issues: IssueWire[] } = { issues: [] }
+  const result = await renderWithMobileStore(
+    <>
+      <SessionScreen />
+      <IssueProbe seen={seen} />
+    </>,
+    { sessions: threeSessions(), issues: [vessel()] },
+  )
+  fireEvent.click(await screen.findByLabelText('Session actions'))
+  await screen.findByLabelText('Cancel')
+  return { ...result, seen }
+}
+
+function vesselDeletedAt(seen: { issues: IssueWire[] }): string | null | undefined {
+  return seen.issues.find((issue) => issue.id === vesselId)?.deletedAt as
+    | string
+    | null
+    | undefined
+}
+
 describe('the draft chat menu', () => {
   it('is exactly destructive Delete plus Cancel', async () => {
     await openMenu(vessel())
@@ -165,11 +206,43 @@ describe('the draft chat menu', () => {
     }
   })
 
-  it('Delete leaves the dead draft behind', async () => {
-    await openMenu(vessel())
+  it('Delete asks first with the task cascade, and deletes nothing on the first tap', async () => {
+    const { seen } = await openDraftMenuWithSessions()
 
     fireEvent.click(screen.getByLabelText('Delete'))
+    await screen.findByText('Delete this task?')
+    expect(
+      screen.getByText(
+        'This affects 1 task and 3 agents. Tasks and sessions can be restored; running agents will be stopped.',
+      ),
+    ).toBeTruthy()
+    expect(routerReplace).not.toHaveBeenCalled()
+    expect(vesselDeletedAt(seen)).toBeFalsy()
+  })
+
+  it('Cancel keeps everything: no navigation, no tombstone', async () => {
+    const { seen } = await openDraftMenuWithSessions()
+
+    fireEvent.click(screen.getByLabelText('Delete'))
+    await screen.findByText('Delete this task?')
+    fireEvent.click(screen.getByLabelText('Cancel'))
+    await waitFor(() => expect(screen.queryByText('Delete this task?')).toBeNull())
+    expect(routerReplace).not.toHaveBeenCalled()
+    expect(vesselDeletedAt(seen)).toBeFalsy()
+    // The session itself is still here — Cancel did not kill, archive or remove it.
+    expect(await screen.findByLabelText('Session actions')).toBeTruthy()
+  })
+
+  it('Confirm deletes the whole task (task scope) and leaves the dead draft behind', async () => {
+    const { seen } = await openDraftMenuWithSessions()
+
+    fireEvent.click(screen.getByLabelText('Delete'))
+    await screen.findByText('Delete this task?')
+    // The menu handed off to the confirm sheet, so the only Delete on screen
+    // is the confirm's own — tapping it is the task-scope `deleteIssue`.
+    fireEvent.click(screen.getByLabelText('Delete'))
     await waitFor(() => expect(routerReplace).toHaveBeenCalledWith('/work'))
+    await waitFor(() => expect(vesselDeletedAt(seen)).toBeTruthy())
   })
 })
 

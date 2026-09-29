@@ -28,6 +28,7 @@ import { useHarnessDescriptors } from '@podium/client-core/react'
 import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models'
 import type { MobileTrpc } from '../client/trpc'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
+import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { color } from '../theme/theme'
 import { sessionAbsence, sessionAbsenceShowsLoader, sessionLinkAbsence } from './session-absence'
 import { useSessionLink } from './session-link'
@@ -88,6 +89,7 @@ export function SessionScreen() {
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [findRequest, setFindRequest] = useState(0)
   // Replica confirmation retires the engine-owned prompt in the same update
   // that replaces the provisional session. Keep the text until the transcript
@@ -132,6 +134,15 @@ export function SessionScreen() {
     if (next && next !== sessionId) router.replace(sessionHref(next, backTarget))
   }, [backTarget, focusSessionIds, router, sessionId])
 
+  // How many agents the draft-delete confirm names. Task scope, counted live:
+  // the vessel can hold more than the one session this sheet opened from, and
+  // the sentence must say so before anything is removed.
+  const draftAgentCount = useMemo(
+    () =>
+      issue ? allSessions.filter((s) => s.issueId === issue.id && !s.archived).length : 0,
+    [allSessions, issue],
+  )
+
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!session) return []
     // A DRAFT'S CHAT GETS A DRAFT'S MENU (2026-08-27 device review). A draft
@@ -139,15 +150,17 @@ export function SessionScreen() {
     // below (archive, work state, snooze, next session) manages work that does
     // not exist. The one decision a draft supports is discarding it, so the
     // sheet is exactly Delete plus the standard Cancel.
+    //
+    // DISCARDING IT IS A TASK DELETE, NOT A SESSION DELETE. `deleteIssue`
+    // tombstones the issue AND every member session, so this row must confirm
+    // first with the same cascade sentence the desktop's task menu uses —
+    // never silently from a session's own sheet.
     if (issue && isDraftAgentVessel(issue, [session])) {
       return [
         {
           label: 'Delete',
           destructive: true,
-          onPress: () => {
-            void store.deleteIssue(issue.id).catch(() => {})
-            goBack()
-          },
+          onPress: () => setConfirmDeleteOpen(true),
         },
       ]
     }
@@ -207,7 +220,7 @@ export function SessionScreen() {
       })
     }
     return actions
-  }, [goBack, issue, nextSession, store, session])
+  }, [issue, nextSession, store, session])
 
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
@@ -288,6 +301,24 @@ export function SessionScreen() {
         title={sessionTitle(session)}
         actions={menuActions}
         onClose={() => setMenuOpen(false)}
+      />
+      <ActionSheet
+        visible={confirmDeleteOpen}
+        title={DELETE_TASK_TITLE}
+        subtitle={deleteTaskSubtitle(draftAgentCount)}
+        actions={[
+          {
+            label: 'Delete',
+            destructive: true,
+            onPress: () => {
+              if (issue) {
+                void store.deleteIssue(issue.id).catch(() => {})
+                goBack()
+              }
+            },
+          },
+        ]}
+        onClose={() => setConfirmDeleteOpen(false)}
       />
       <ActionSheet
         visible={workMenuOpen}
