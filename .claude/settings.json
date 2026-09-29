@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun scripts/agent-command-guard.ts",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/scripts/agent-command-guard.ts\"",
             "timeout": 10
           }
         ]
