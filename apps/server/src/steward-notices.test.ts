@@ -100,12 +100,20 @@ describe('steward notices travel as messages', () => {
     expect(h.pushes).toHaveLength(0)
   })
 
-  it('a notice to a session that is gone fails on its own row and tells nobody', async () => {
+  it('a notice whose session goes away fails on its own row and tells nobody', async () => {
     const h = await mailHarness()
-    const id = noticeMessageId('unblock:iss_x:3', asSessionId('gone'), 7)
+    const iss = await h.createIssue({ title: 'dependent' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
+    const id = noticeMessageId(`unblock:${iss.id}:3`, asSessionId('s1'), 7)
+    // Held for the parked session's next run; stored is the steward's answer.
+    await stewardNoticeSender(h.svc)(asSessionId('s1'), body, id, 'wait')
+    expect((await h.svc.message(id))?.deliveryStatus).toBe('stored')
 
-    // Stored is answered: the failure is the row's, not a reason to resend.
-    await stewardNoticeSender(h.svc)(asSessionId('gone'), body, id, 'wait')
+    // The session is removed before it runs again. The sweep finds the notice
+    // undeliverable: a failure found after the send is the one that tells a
+    // sender — and a system sender has nobody to tell (POD-4778).
+    h.sessions.splice(0, h.sessions.length)
+    await h.svc.sweep()
 
     expect((await h.svc.message(id))?.deliveryStatus).toBe('failed')
     expect(await h.svc.message(failureNoticeId(id))).toBeNull()
