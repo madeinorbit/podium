@@ -388,23 +388,28 @@ export function withDeliveryQueue(
       // the same id (POD-4840).
       const turnId = input.id
       if (turnId === undefined) return send(input, options)
-      // The program's ids ride along (POD-4841); those its receipt named
-      // reach the server on the receipt itself.
-      const delivered = (transcriptItem?: TranscriptItemRef, harnessRef?: HarnessRef) =>
+      // The program's ids ride along (POD-4841): those the receipt named, and
+      // any named with the entry, since the server keeps ids from outcomes.
+      let known: HarnessRef | undefined
+      const delivered = (transcriptItem?: TranscriptItemRef, harnessRef?: HarnessRef) => {
+        const ids = mergeHarnessRefs(known, harnessRef)
         emit({
           t: 'delivery',
           rowId: turnId,
           outcome: 'delivered',
           ...(transcriptItem ? { transcriptItem } : {}),
-          ...(harnessRef?.length ? { harnessRef } : {}),
+          ...(ids ? { harnessRef: ids } : {}),
         })
-      return send(input, {
+      }
+      const receipt = await send(input, {
         ...options,
         onTranscriptItem: options.onTranscriptItem ?? delivered,
         onLateProof:
           options.onLateProof ??
           (({ transcriptItem, harnessRef }) => delivered(transcriptItem, harnessRef)),
       })
+      if (receipt.outcome === 'accepted') known = receipt.harnessRef
+      return receipt
     }
     // Durable delivery drains as when-ready, or cuts in as an interrupt.
     // Never erase a boundary request.
