@@ -9,10 +9,12 @@
  *  - `sendChatThroughOutbox` under an id minted before the first attempt, the
  *    one chat send path both apps take since POD-4762;
  *  - a `ConversationController` per session, wired as `use-chat-send.ts` wires
- *    it (deliver through the outbox, retract, discard, dismiss), fed by a real
+ *    it (deliver through the outbox, retract, discard, dismiss, and the
+ *    catch-up by id on start and on every reconnect, POD-4811), fed by a real
  *    `/client` socket: `transcriptDelta` frames for the history, and the
  *    metadata feed's `message` records (POD-4764) for where each sent message
- *    stands — pushed, never polled.
+ *    stands — pushed, never polled. The device's connection is its socket, as
+ *    the apps' is the hub's: down when it closes, back when it opens again.
  *
  * The network is the device's own: `setOnline(false)` fails every request and
  * closes the socket, exactly what a phone in a tunnel sees. A server restart is
@@ -188,6 +190,9 @@ export class Device {
   /** Requests this device made, per tRPC procedure. */
   readonly calls = new Map<string, number>()
   private readonly onlineListeners = new Set<() => void>()
+  /** Whether the socket is up — what the apps read from the hub's health. */
+  private connected = false
+  private readonly connectionListeners = new Set<(connected: boolean) => void>()
   private readonly settlements = new OutboxSettlements()
   private outbox: EngineOutbox | undefined
   private readonly transcripts = new Map<SessionId, TranscriptView>()
@@ -297,6 +302,15 @@ export class Device {
             ),
           ),
         records: storeConversationRecords(this.records.store, sessionId),
+        lookupRecords: (ids) =>
+          this.api.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
+        connection: {
+          connected: () => this.connected,
+          subscribe: (listener) => {
+            this.connectionListeners.add(listener)
+            return () => this.connectionListeners.delete(listener)
+          },
+        },
         retract: (id) =>
           this.api.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
         discard: (deliveryId) => discardChatThroughOutbox(outbox, asMutationId(deliveryId)),
@@ -349,6 +363,7 @@ export class Device {
       for (const sessionId of this.options.sessionIds) {
         ws.send(JSON.stringify({ type: 'transcriptSubscribe', sessionId }))
       }
+      this.setConnected(true)
       void this.catchUp()
     })
     ws.on('message', (data) => {
@@ -380,6 +395,7 @@ export class Device {
     const lost = (): void => {
       if (this.socket !== ws) return
       this.socket = undefined
+      this.setConnected(false)
       if (this.closed || !this.online) return
       this.socketTimer = setTimeout(() => this.openSocket(), 500)
     }
@@ -405,12 +421,19 @@ export class Device {
     this.loseAnswers.push(procedure)
   }
 
+  private setConnected(connected: boolean): void {
+    if (this.connected === connected) return
+    this.connected = connected
+    for (const listener of this.connectionListeners) listener(connected)
+  }
+
   setOnline(online: boolean): void {
     if (this.online === online) return
     this.online = online
     if (!online) {
       this.socket?.terminate()
       this.socket = undefined
+      this.setConnected(false)
       return
     }
     this.openSocket()
@@ -520,6 +543,9 @@ export class Device {
     if (this.socketTimer) clearTimeout(this.socketTimer)
     this.socket?.terminate()
     this.socket = undefined
+    // A reload starts with no socket; its first open is the edge the new
+    // controllers catch up on (they also catch up as they start).
+    this.connected = false
     for (const controller of this.controllers.values()) controller.dispose()
     this.controllers.clear()
     this.transcripts.clear()
@@ -527,6 +553,7 @@ export class Device {
     this.outbox?.dispose()
     this.outbox = undefined
     this.onlineListeners.clear()
+    this.connectionListeners.clear()
   }
 }
 
