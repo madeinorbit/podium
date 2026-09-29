@@ -1,0 +1,10 @@
+# Same pin as ./mise.toml, for anyone driving cargo through rustup directly.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+targets = [
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]

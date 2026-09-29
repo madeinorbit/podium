@@ -1,0 +1,25 @@
+[package]
+name = "podium-host"
+version = "1.0.0"
+edition = "2024"
+description = "Experimental Rust port of podium-host (SPEC-6); the C host in ../podium-host is the shipped one."
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "podium-host"
+path = "src/main.rs"
+
+[dependencies]
+# Safe wrappers for the POSIX calls std does not cover: poll, pty, winsize
+# ioctls, waitpid, kill, peer credentials, fd flags.
+rustix = { version = "1", default-features = false, features = ["std", "event", "fs", "net", "process", "pty", "stdio", "termios"] }
+# Only what rustix cannot offer safely: fork, sigaction, and macOS LOCAL_PEERCRED.
+libc = "0.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

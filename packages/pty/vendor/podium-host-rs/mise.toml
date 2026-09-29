@@ -1,0 +1,12 @@
+# Toolchain for the EXPERIMENTAL Rust port of podium-host (POD-4791).
+#
+# Kept here, not in the repository's mise.toml, on purpose: CI installs every tool in the
+# root file (jdx/mise-action), and nothing in the default build or the release uses this
+# crate. mise merges this file over the root one when you work in this directory, so the
+# pinned zig from the root file is the zig cargo-zigbuild links with.
+#
+#   mise trust && mise install
+#   cargo zigbuild --release --target x86_64-unknown-linux-musl
+[tools]
+rust = { version = "1.98.1", targets = "x86_64-unknown-linux-musl,aarch64-unknown-linux-musl,x86_64-apple-darwin,aarch64-apple-darwin" }
+"github:rust-cross/cargo-zigbuild" = "0.23.4"
