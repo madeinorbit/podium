@@ -43,7 +43,6 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import {
-  CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
   CLIENT_WIRE_VERSION,
   type MetadataChangeLenient,
@@ -127,7 +126,7 @@ interface FeedRow {
 
 /**
  * The `message` records this device's feed carries (POD-4764), folded from
- * the pushed feed frames (`feedDelta`, or v1's `metadataDelta`) after one
+ * the pushed `feedDelta` frames after one
  * catch-up read — the store half the apps read through
  * `storeConversationRecords`.
  */
@@ -330,7 +329,7 @@ export class Device {
   private openSocket(): void {
     if (this.closed || !this.online || this.socket) return
     const ws = new WebSocket(
-      `ws://127.0.0.1:${this.options.serverPort}/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}&cap=${CAP_METADATA_DELTA}`,
+      `ws://127.0.0.1:${this.options.serverPort}/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`,
       {
         headers: { cookie: this.options.cookie },
       },
@@ -343,7 +342,7 @@ export class Device {
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
           wireVersion: CLIENT_WIRE_VERSION,
-          caps: [CAP_SYNC_HTTP_V1, CAP_METADATA_DELTA],
+          caps: [CAP_SYNC_HTTP_V1],
         }),
       )
       for (const sessionId of this.options.sessionIds) {
