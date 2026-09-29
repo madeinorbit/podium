@@ -48,13 +48,15 @@ export interface SessionMetaOpsPorts {
   store: SessionStore
   toPtyInput: MachinesService['toPtyInput']
   /**
-   * Deliver a contract-routed continue (server-family, no PTY) through the
-   * driver contract. Optional only as a fixture affordance, and the missing
-   * case REFUSES rather than confirming — the same rule as the inbox's
-   * contract ports, for the same reason: a continue that cannot be delivered
-   * must say so.
+   * Send an agent's continue as a message from `system:auto-continue`, one per
+   * errored turn (POD-4846). Optional only as a fixture affordance, and the
+   * missing case REFUSES rather than confirming: a continue that cannot be
+   * delivered must say so.
    */
-  sendContinueViaContract?: (sessionId: SessionId) => Promise<{ ok: boolean; reason?: string }>
+  sendContinue?: (input: {
+    sessionId: SessionId
+    erroredTurn: string
+  }) => Promise<{ ok: boolean; reason?: string }>
   view: Pick<SessionView, 'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire' | 'buildProjectionPass'>
 }
 
@@ -326,16 +328,22 @@ export class SessionMetaOps {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
-    // Contract-only continue for agents (POD-4279): the follow-up text rides
-    // the same receipt seam as every other send. A raw 'continue\r' typed at a
-    // session with no PTY bridge is bytes into nothing answered ok:true.
-    // Plain-terminal shells (POD-4278) keep the raw keystroke — they have no
-    // driver to call.
+    // An agent's continue is a message (POD-4846; the contract send it
+    // replaces was POD-4279's): stored, one per errored turn, delivered like
+    // every other send. A raw 'continue\r' typed at a session with no PTY
+    // bridge is bytes into nothing answered ok:true. Plain-terminal shells
+    // (POD-4278) keep the raw keystroke — they have no driver to call.
     if (session.agentKind !== 'shell') {
       session.terminal.recordInputActivity(this.ports.now(), 'auto_continue')
-      const send = this.ports.sendContinueViaContract
+      const send = this.ports.sendContinue
       if (!send) return { ok: false }
-      const result = await send(sessionId)
+      // The errored turn: the runtime gate's turn epoch when the session has
+      // one, else the moment it entered the errored phase.
+      const checkpoint = await this.ports.store.events.runtimeEventCheckpoint(sessionId)
+      const erroredTurn = checkpoint
+        ? `epoch:${checkpoint.turnEpoch}`
+        : `since:${session.agentState.since}`
+      const result = await send({ sessionId, erroredTurn })
       if (result.ok) return { ok: true }
       return { ok: false, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
     }

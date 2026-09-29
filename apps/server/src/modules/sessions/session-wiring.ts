@@ -1146,14 +1146,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     state: bag.state,
     store,
     toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
-    // A server-family session has no PTY bridge, so its continue rides the
-    // same receipt seam as every other send: one durable when-ready row.
-    sendContinueViaContract: (sessionId: SessionId) =>
-      bag.receiptSender.send('now', {
-        sessionId,
-        text: 'continue',
-        inputOrigin: 'auto_continue',
-      }),
+    // An agent's continue is a message from system:auto-continue (POD-4846),
+    // sent by the message ledger the composition root wires in.
+    ...(bag.deps.sendContinue ? { sendContinue: bag.deps.sendContinue } : {}),
     view: bag.view,
   })
   // Revival needs sessionStart.spawn, workspace, repository, launchConfig,

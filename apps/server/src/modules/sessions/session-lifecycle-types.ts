@@ -113,6 +113,12 @@ export interface SessionLifecycleDeps {
     sessionId: SessionId
     text: string
   }): Promise<string>
+  /** Send an agent's continue as a message from `system:auto-continue`, one
+   *  per errored turn (POD-4846). */
+  sendContinue?(input: {
+    sessionId: SessionId
+    erroredTurn: string
+  }): Promise<{ ok: boolean; reason?: string }>
   /** The message is about to become this session's input: record the hand-off
    *  and answer whether it may still be handed on (POD-4776). */
   handOffQueuedMessage?(messageId: string, sessionId: SessionId): Promise<boolean>

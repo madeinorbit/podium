@@ -212,6 +212,10 @@ export class MessageRenderer {
     // Substrate boundary: every NON-operator delivered body is control-stripped
     // so it can never break out of the bracketed paste (ESC[201~) in typeText.
     const body = sanitizeBody(message.body)
+    // The one server sender typed bare: auto-continue's key press stands in for
+    // the person, so it gets no frame (POD-4846; `deliversUnwrapped` declares
+    // the exception). Its row still has an id and a delivery status.
+    if (deliversUnwrapped(principalOfRow(message), message.kind)) return body
     // `turnClose` is for mail an AGENT will act on [POD-604]. Two exclusions,
     // both about who actually reads the frame: the operator path above is the
     // human typing into a session they are still watching, and a `toKind:
