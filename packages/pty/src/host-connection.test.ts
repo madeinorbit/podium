@@ -65,7 +65,9 @@ function resized(cols: number, rows: number): Buffer {
 type Frame = { type: number; payload: Buffer }
 
 /** A fake host: answers HELLO with WELCOME, then hands each frame to `script`. */
-function fakeHost(script: (frames: Frame[], sock: Socket) => void): Promise<{ path: string; close: () => void }> {
+function fakeHost(
+  script: (frames: Frame[], sock: Socket) => void,
+): Promise<{ path: string; close: () => void }> {
   const dir = mkdtempSync(join(tmpdir(), 'podium-host-conn-'))
   const path = join(dir, 'h.sock')
   const server: Server = createServer((sock) => {
