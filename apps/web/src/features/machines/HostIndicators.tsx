@@ -22,6 +22,7 @@ import { ConnectionIndicator, describeHealth, useStableConnection } from './Conn
 import { HealthPopover } from './HealthPopover'
 import type { HostInfoTab } from './HostMemoryView'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
+import { MessageNoticeIndicator } from '../chat/MessageNotices'
 import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
 import { SEVERITY, TONE_KEY } from './severity'
@@ -166,6 +167,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
         </Tooltip>
       )}
       <OutboxRecoveryIndicator compact={compact} />
+      <MessageNoticeIndicator compact={compact} />
       <QuotaIndicator compact={compact} />
       {info && (
         <Suspense fallback={null}>
@@ -407,6 +409,7 @@ export function HeaderHostIndicators(): JSX.Element {
         )
       })}
       <OutboxRecoveryIndicator compact />
+      <MessageNoticeIndicator compact />
       {/* The chamber rule between host pressure and plan quota. Taller and
           given air so the two groups stop reading as one run of meters. */}
       <span className="header-strip-seam" aria-hidden="true" />

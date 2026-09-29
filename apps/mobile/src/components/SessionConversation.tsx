@@ -12,7 +12,10 @@ import {
   type ConversationPendingTurn,
   createConversationController,
   nativeSessionCanInterrupt,
+  storeConversationOutbox,
+  storeConversationRecords,
 } from '@podium/client-core/conversation'
+import { useStoreHandle } from '@podium/client-core/react'
 import { randomUUID } from '@podium/client-core/id'
 import {
   createTranscriptController,
@@ -27,7 +30,6 @@ import { useHub, useIssues, useStoreSelector, useSessionDraft, useSessions } fro
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { interruptSession } from '../lib/interrupt-session'
-import { deadLetteredOperatorMessages, type DeadLetteredChatMessage } from '../lib/dead-letter'
 import { chatSendTransport } from '../lib/chat-send-transport'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
@@ -222,19 +224,23 @@ export function SessionConversation({
           at: Date.now(),
           state: 'sent',
           kind: 'message',
-          acceptsAppendedBrief: true,
+          // Typed at start, not sent as a message: no record follows it, and
+          // the first user entry in its history is it.
+          reconcile: 'next-user-item',
         },
       ]
     : []
-  // DEAD-LETTERED ROWS, RESTORED (web chat's path, same wording). Declared
-  // before the controller so its `onQueueRows` can report into it.
-  const [failedMessages, setFailedMessages] = useState<DeadLetteredChatMessage[]>([])
+  const storeHandle = useStoreHandle()
   // biome-ignore lint/correctness/useExhaustiveDependencies: the spawn seed belongs to this session's controller lifetime
   const conversationController = useMemo(
     () =>
       createConversationController({
         sessionId,
         transcript: transcriptController,
+        // Where each sent message stands, by id, from the synced records
+        // (POD-4764) — not a poll of the ledger, and never its text.
+        records: storeConversationRecords(storeHandle, sessionId),
+        outbox: storeConversationOutbox(storeHandle, sessionId),
         initialDraft: draftSeed,
         // The messages the outbox still holds for this session come back as the
         // bubbles they were (POD-4762): still sending — the controller waits on
@@ -288,16 +294,9 @@ export function SessionConversation({
             throw error
           }
         },
-        readQueue: () => trpc.messages.ledger.query({ sessionId, limit: 100 }),
-        // DEAD-LETTERED ROWS, RESTORED — the web chat's path, same wording.
-        // A delivery the authority gave up on is terminal, so it is not in the
-        // queued projection the controller keeps — but dropping it off the
-        // surface is what made a failed send look like a send that never
-        // happened. Derived from the controller's OWN ledger read rather than
-        // a second query of the same rows.
-        onQueueRows: (rows) => setFailedMessages(deadLetteredOperatorMessages(rows, sessionId)),
         retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
         discard: (deliveryId) => store.discardChat(asMutationId(deliveryId)),
+        dismissNotice: (id) => trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
         // The store's recoverable outbox owns the optimistic overlay. Keeping a
         // second local hide here unmounted the action card before a rejected
@@ -313,6 +312,7 @@ export function SessionConversation({
       store.chatSendsFor,
       store.discardChat,
       store.setSessionDraft,
+      storeHandle,
       draftSeed,
       transcriptController,
       trpc.messages,
@@ -323,48 +323,27 @@ export function SessionConversation({
     conversationController.subscribe,
     conversationController.getSnapshot,
   )
-  const pendingTurns = useMemo<LocalPendingTurn[]>(() => {
-    const projected = conversation.projected.pending.map((turn) => ({
-      at: turn.at,
-      value: {
-        id: turn.id,
-        text: turn.text,
-        wire: turn.wire,
-        ...(turn.files ? { files: turn.files as readonly SentAttachment[] } : {}),
-        ...(turn.error ? { failed: turn.error } : {}),
-        ...(turn.retryable === false ? { retryable: false } : {}),
-        ...(turn.state === 'interrupted' ? { interrupted: true } : {}),
-        ...(turn.durable?.injectedAt === null ? { queuedId: turn.durable.id } : {}),
-        ...(turn.state === 'queued' || turn.durable ? { queued: true } : {}),
-      } satisfies LocalPendingTurn,
-    }))
-    const restored = conversation.projected.queued.map((message) => ({
-      at: message.at,
-      value: {
-        id: `queued:${message.id}`,
-        text: message.text,
-        wire: message.text,
-        ...(message.injectedAt === null ? { queuedId: message.id } : {}),
-        queued: true,
-      } satisfies LocalPendingTurn,
-    }))
-    // A dead letter is terminal delivery history: the transcript can never
-    // echo it because the session never took the turn. Keep the durable
-    // attempt visible as a failed row — the web chat's restoredFailed, same
-    // shared wording — and retry it with a fresh normal send below.
-    const restoredFailed = failedMessages.map((message) => ({
-      at: message.at,
-      value: {
-        id: `dead-letter:${message.id}`,
-        text: message.text,
-        wire: message.text,
-        failed: message.failure,
-      } satisfies LocalPendingTurn,
-    }))
-    return [...projected, ...restored, ...restoredFailed]
-      .sort((left, right) => left.at - right.at || left.value.id.localeCompare(right.value.id))
-      .map((entry) => entry.value)
-  }, [conversation.projected, failedMessages])
+  const pendingTurns = useMemo<LocalPendingTurn[]>(
+    () =>
+      conversation.bubbles.map((bubble) => ({
+        id: bubble.id,
+        text: bubble.text,
+        wire: bubble.wire,
+        ...(bubble.files ? { files: bubble.files as readonly SentAttachment[] } : {}),
+        ...(bubble.state === 'failed'
+          ? { failed: bubble.error ?? (bubble.notice ? 'not delivered' : 'not sent') }
+          : {}),
+        ...(bubble.retryable === false ? { retryable: false } : {}),
+        ...(bubble.state === 'interrupted' ? { interrupted: true } : {}),
+        ...(bubble.state === 'queued' ? { queued: true } : {}),
+        ...(bubble.state === 'sent' || bubble.state === 'unknown'
+          ? { delivery: bubble.state }
+          : {}),
+        ...(bubble.notice ? { notice: bubble.notice } : {}),
+        ...(bubble.retractable ? { retractable: true } : {}),
+      })),
+    [conversation.bubbles],
+  )
   const justSent = conversation.justSent
   const pendingSeedSession = useRef<SessionMeta['sessionId'] | null>(
     initialPendingText ? sessionId : null,
@@ -396,7 +375,7 @@ export function SessionConversation({
   }, [activitySignal, sessionLive, transcriptController])
 
   useEffect(() => {
-    void conversationController.start()
+    conversationController.start()
     return () => conversationController.stop()
   }, [conversationController])
 
@@ -467,16 +446,18 @@ export function SessionConversation({
 
   const retry = useCallback(
     (turn: PendingTurn) => {
-      // A dead letter is terminal: there is no pending turn to retry, so a
-      // retry is a fresh normal send of the same words — the web chat's
-      // retryFailedMessage, not the controller's pending-turn retry.
-      if (turn.id.startsWith('dead-letter:')) {
-        send(turn.text)
-        return
-      }
       void conversationController.retry(turn.id)
     },
-    [conversationController, send],
+    [conversationController],
+  )
+  // "Send again" on a message the server says did not arrive (POD-4764): its
+  // words go back into the composer and the operator sends them — a NEW
+  // message, by choice. Never a resend of the one that failed.
+  const sendAgain = useCallback(
+    (turn: PendingTurn) => {
+      void conversationController.sendAgain(turn.id)
+    },
+    [conversationController],
   )
   const discard = useCallback(
     (turn: PendingTurn) => {
@@ -648,6 +629,7 @@ export function SessionConversation({
               findRequest={findRequest}
               onRetryPending={retry}
               onDiscardPending={discard}
+              onSendAgainPending={sendAgain}
               onRetractPending={(id) => void conversationController.retract(id)}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
               bottomInset={composerHeight + askHeight + keyboardLift}

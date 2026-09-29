@@ -99,8 +99,9 @@ interface MobileTrpcExtras {
     >
   }
   messages: {
-    ledger: QueryProcedure<{ sessionId: SessionId; limit: number }, unknown[]>
     cancel: MutationProcedure<{ id: string }>
+    /** The sender dismisses a failed chat message's notice (POD-4764). */
+    dismissNotice: MutationProcedure<{ id: string }>
   }
   /**
    * THE BLOCKING-ASK ANSWER (POD-2414).
