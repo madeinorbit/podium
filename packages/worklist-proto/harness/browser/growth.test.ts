@@ -221,7 +221,7 @@ describe('active x4: heap and cold start at most linear, per-change walls flat',
 })
 
 describe('what a time check can see (POD-4825)', () => {
-  it('prints a wall whose noise hides a doubling of the arm’s own time as blind, never flat', () => {
+  it('reports a wall whose noise hides a doubling of the arm’s own time as not measurable, never a pass', () => {
     // The arm's own time over the floor is 3.2 ms; rounds move it by ±4 ms.
     const noisy: Shape = {
       ...FLAT_ARM,
@@ -235,7 +235,7 @@ describe('what a time check can see (POD-4825)', () => {
       'history flat',
       'rename ms over floor',
     )
-    expect(v).toMatchObject({ kind: 'time', pass: true })
+    expect(v).toMatchObject({ kind: 'time', pass: true, outcome: 'not measurable' })
     expect(v?.tolerance).toBeGreaterThan(v!.base)
     // At this noise a doubling of 2.7 ms shows after about thirty rounds.
     expect(v?.blind?.roundsToSee).toBeGreaterThan(4)
@@ -338,6 +338,38 @@ describe('runGrowth over a matrix directory', () => {
     const lines: string[] = []
     expect(runGrowth([write({ noop: FLOOR, 'noop+hold:1': FLOOR })], (l) => lines.push(l))).toBe(1)
     expect(lines).toContain('PLANT NOT CAUGHT: noop+hold:1 passes every check it must fail')
+  })
+
+  it('prints a not-measurable check with its rounds, and never counts it as a pass (POD-4825)', () => {
+    const noisy: Shape = {
+      ...FLAT_ARM,
+      wall: flat(4.2),
+      jitter: 0,
+      noise: { h1a1: [4, -3, 1, -2], h10a1: [-2, 4, -1, 3], h1a4: [3, -2, 2, -3] },
+    }
+    const lines: string[] = []
+    expect(
+      runGrowth([write({ noop: { ...FLOOR, jitter: 0 }, mobx: noisy })], (l) => lines.push(l)),
+    ).toBe(0)
+    const row = lines.find((l) =>
+      l.startsWith('| mobx | history flat | rename ms over floor | h1a1 → h10a1 |'),
+    )
+    expect(row).toMatch(/\| not measurable at this noise \(\d+ rounds needed\) \|$/)
+    expect(row).not.toMatch(/flat \|$/)
+    const counts = lines.find((l) => l.startsWith('mobx: '))
+    const [, pass, fail, unmeasured] =
+      /^mobx: (\d+) pass, (\d+) fail, (\d+) not measurable \(never a pass\)$/.exec(counts ?? '') ??
+      []
+    expect(Number(unmeasured)).toBeGreaterThan(0)
+    expect(Number(fail)).toBe(0)
+    // Every judged arm check is in exactly one count.
+    const judged = lines.filter(
+      (l) => l.startsWith('| mobx |') && !l.includes('switch vs cold'),
+    ).length
+    expect(Number(pass) + Number(fail) + Number(unmeasured)).toBe(judged)
+    expect(lines).toContain(
+      `mobx history flat rename ms over floor: ${row?.split('|').at(-2)?.trim()}`,
+    )
   })
 
   it('reports the engine and gates on it only with --engine-gate (POD-4825)', () => {

@@ -28,10 +28,14 @@
  * shrinks with every round, and round effects both cells share cancel.
  *
  * WHAT A CHECK CAN SEE. A time check whose tolerance is at least `factor ×
- * base` cannot tell a doubling of the arm's own time from noise: its pass
- * is printed `blind`, never `flat`, with the rounds a matrix would need
- * (at this noise) to see one. A blind check never fails; it is not evidence
- * of flatness either. The planted slow arm (`noop+double:<ms>`: `ms` per
+ * base` cannot tell a doubling of the arm's own time from noise. If it holds
+ * anyway, its outcome is `not measurable`, printed "not measurable at this
+ * noise (N rounds needed)", with the rounds a matrix would need to see a
+ * doubling: never `flat`, never a pass, and never counted with the passes.
+ * It does not fail the run either (coordinator ruling, POD-4286, 2026-09-30:
+ * the MobX walls it concerns are 0.1-6.5 ms of the arm's own time, and
+ * failing them would fail every run on noise). A check whose growth exceeds
+ * its bound fails whether or not it could see a doubling. The planted slow arm (`noop+double:<ms>`: `ms` per
  * change and per build on the base cell, twice that on a grown one) must
  * fail a time check, or the summary says the plant was not caught.
  * - A PRINCIPAL SWITCH is REPORTED, not judged: the heap a switch leaves
@@ -259,6 +263,16 @@ export interface GrowthVerdict {
    * on heap checks and on time checks that can see one.
    */
   blind?: { roundsToSee: number | null }
+  /**
+   * POD-4825: `fail` when the bound is exceeded; else `not measurable` for a
+   * blind check (NEVER a pass); else `pass`. What a report counts.
+   */
+  outcome: 'pass' | 'fail' | 'not measurable'
+}
+
+/** The wording a report uses for a check that held but could not see a doubling. */
+export function notMeasurable(roundsToSee: number | null): string {
+  return `not measurable at this noise (${roundsToSee ?? '>1000'} rounds needed)`
 }
 
 const roleOf = (label: string): GrowthVerdict['role'] => (label.includes('+') ? 'plant' : 'arm')
@@ -309,6 +323,7 @@ export function growthVerdicts(series: Series[]): GrowthVerdict[] {
       role,
       kind,
       ...(blind === undefined ? {} : { blind }),
+      outcome: grown.median > bound ? 'fail' : blind !== undefined ? 'not measurable' : 'pass',
     })
   }
   /** The arm's time above the floor's, round by round (same cell, same round). */
@@ -473,8 +488,8 @@ export function runGrowth(argv: string[], print: (line: string) => void): number
   for (const v of verdicts) {
     const ratio = v.base !== 0 ? f(v.grown / v.base) : '—'
     const word = v.pass
-      ? v.blind !== undefined
-        ? `blind (sees a doubling at ${v.blind.roundsToSee ?? '>1000'} rounds)`
+      ? v.outcome === 'not measurable'
+        ? notMeasurable(v.blind?.roundsToSee ?? null)
         : v.check === 'active linear'
           ? 'linear'
           : v.check === 'switch vs cold'
@@ -495,15 +510,19 @@ export function runGrowth(argv: string[], print: (line: string) => void): number
   const uncaught = [
     ...new Set(verdicts.filter((v) => v.role === 'plant').map((v) => v.label)),
   ].filter((plant) => !plantCaught(verdicts, plant))
-  const blind = verdicts.filter((v) => v.role === 'arm' && v.blind !== undefined)
+  const unmeasured = verdicts.filter((v) => v.role === 'arm' && v.outcome === 'not measurable')
   print('')
   for (const plant of uncaught) print(`PLANT NOT CAUGHT: ${plant} passes every check it must fail`)
-  if (blind.length > 0)
+  for (const label of [...new Set(verdicts.filter((v) => v.role === 'arm').map((v) => v.label))]) {
+    const own = verdicts.filter((v) => v.role === 'arm' && v.label === label)
+    const count = (outcome: GrowthVerdict['outcome']) =>
+      own.filter((v) => v.outcome === outcome).length
     print(
-      `cannot see a doubling (noise above the arm's own time; not evidence of flatness): ${blind
-        .map((v) => `${v.label} ${v.check} ${v.metric}`)
-        .join('; ')}`,
+      `${label}: ${count('pass')} pass, ${count('fail')} fail, ${count('not measurable')} not measurable (never a pass)`,
     )
+  }
+  for (const v of unmeasured)
+    print(`${v.label} ${v.check} ${v.metric}: ${notMeasurable(v.blind?.roundsToSee ?? null)}`)
   print(
     `arms failing a check: ${[...new Set(armFailures.map((v) => v.label))].join(', ') || 'none'}`,
   )
