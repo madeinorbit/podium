@@ -1278,6 +1278,21 @@ export function createTerminalRuntime(
       isDeepStrictEqual(session.state, state)
     )
       return
+    // A CLOSED EPOCH DOES NOT REOPEN VIA POLL EITHER (POD-4804). A live
+    // `working`/`compacting` snapshot stamped in a fenced epoch is exactly what
+    // the server rejects as `terminal-epoch-closed` — and folding it here is
+    // what flipped the driver back to working with no turn open. Suppress the
+    // fold and the emit; bootstrap restores stay exempt. `needs_user` is left
+    // to the ask path (the server admits those snapshots), and idle/errored
+    // still land.
+    if (
+      provenance !== 'bootstrap' &&
+      session.fencedTurnEpoch >= session.turnEpoch &&
+      session.turnEpoch > 0 &&
+      (state.phase === 'working' || state.phase === 'compacting')
+    ) {
+      return
+    }
     session.state = state
     session.stateGeneration = session.observerGeneration
     emit(
@@ -1311,6 +1326,23 @@ export function createTerminalRuntime(
       alreadyFenced =
         observation.transitionKind === 'turn_terminal' &&
         observation.turnEpoch <= session.fencedTurnEpoch
+      // A CLOSED EPOCH DOES NOT REOPEN (POD-4804). The server's gate rejects a
+      // live `working` snapshot in a closed epoch as `terminal-epoch-closed`
+      // (and F18 shows the daemon sending exactly those after Grok's first
+      // turn); worse, folding one here flips the driver's own phase back to
+      // working with no turn open to ever end it, so the delivery queue holds
+      // follow-ups for the outer 30 min ceiling while the status reads working.
+      // Suppress every non-bootstrap observation in a fenced epoch outright:
+      // a duplicate close (alreadyFenced above), a late activity that would
+      // restamp working, or a stale open for an epoch that already closed.
+      // A genuinely new turn carries `turnEpoch > fencedTurnEpoch` and passes.
+      if (
+        !alreadyFenced &&
+        observation.provenance !== 'bootstrap' &&
+        observation.turnEpoch <= session.fencedTurnEpoch
+      ) {
+        return
+      }
       // MONOTONIC. Fences are absorbing: an epoch that closed does not reopen, and
       // an epoch that went backwards would make a replayed stream read as new work.
       session.turnEpoch = Math.max(session.turnEpoch, observation.turnEpoch)

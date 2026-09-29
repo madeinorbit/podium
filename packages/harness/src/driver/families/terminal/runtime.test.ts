@@ -4127,3 +4127,218 @@ describe('a Stop the daemon must follow up [POD-4633]', () => {
     expect(requested).toEqual([session.binding.sessionId, session.binding.sessionId])
   })
 })
+
+describe('headed Grok follow-ups are never held without end [POD-4804]', () => {
+  const GROK_SPEC = { ...SPEC, harness: 'grok' as const }
+
+  async function openAndCloseFirstTurn(
+    world: ReturnType<typeof makeWorld>,
+    sessionId: SessionId,
+    epoch: number,
+  ): Promise<void> {
+    world.observe(sessionId, {
+      transitionKind: 'turn_opened',
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      turnEpoch: epoch,
+      state: {
+        phase: 'working',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    world.observe(sessionId, {
+      transitionKind: 'turn_terminal',
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      turnEpoch: epoch,
+      state: {
+        phase: 'idle',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+  }
+
+  it('a stale working observation in a fenced epoch never flips the driver back to working', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(GROK_SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // Past the raw-first-turn window so follow-ups go as pastes the
+    // assertions can read (Grok types its very first prompt as raw keystrokes).
+    world.echo(sessionId, 'first prompt')
+    await openAndCloseFirstTurn(world, sessionId, 1)
+    expect((await session.state()).phase).toBe('idle')
+
+    const pastes = (): string[] =>
+      world.written
+        .map(pastedText)
+        .filter((text): text is string => text !== undefined)
+    const deliveries = (): Array<{ rowId: string; outcome: string }> =>
+      world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
+          ? [{ rowId: frame.event.rowId, outcome: frame.event.outcome }]
+          : [],
+      )
+    const waitForPaste = async (text: string): Promise<void> => {
+      for (let i = 0; i < 80 && !pastes().includes(text); i++) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(pastes()).toContain(text)
+    }
+    const waitForDelivery = async (rowId: string): Promise<void> => {
+      for (
+        let i = 0;
+        i < 80 &&
+        !deliveries().some((event) => event.rowId === rowId && event.outcome === 'delivered');
+        i++
+      ) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(deliveries()).toContainEqual({ rowId, outcome: 'delivered' })
+    }
+
+    // Timeline with part 1 alone: the turn closed, so a queued follow-up
+    // drains at once — typed and delivered, never held for the outer 30 min
+    // working ceiling. The late `turn_completed` (Grok's 17–20 s file-tail
+    // lag) only adds latency to the close itself; it never blocks the queue.
+    expect(
+      (
+        await session.send(
+          { text: 'second prompt', rowId: 'row-after-close' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await waitForPaste('second prompt')
+    world.echo(sessionId, 'second prompt')
+    await waitForDelivery('row-after-close')
+
+    // A late trailing activity (or a live working snapshot) stamped in the
+    // already-closed epoch: the server rejects exactly these as
+    // `terminal-epoch-closed` (F18 01:08:10, 01:17:50). The driver must not
+    // fold it either — otherwise the phase flips to working with no turn open
+    // and the delivery queue holds follow-ups with nothing to end them.
+    const framesBefore = world.frames.length
+    world.observe(sessionId, {
+      transitionKind: 'activity',
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      turnEpoch: 1,
+      state: {
+        phase: 'working',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+
+    expect((await session.state()).phase).toBe('idle')
+    const workingStates = world.frames.slice(framesBefore).filter(
+      (frame) =>
+        frame.type === 'runtimeEvent' &&
+        frame.event.t === 'state' &&
+        (frame.event.change as { state?: { phase?: string } }).state?.phase === 'working',
+    )
+    expect(workingStates).toEqual([])
+
+    // And the next follow-up still drains — the stale fold did not re-arm
+    // the hold.
+    expect(
+      (
+        await session.send(
+          { text: 'third prompt', rowId: 'row-after-stale' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await waitForPaste('third prompt')
+    world.echo(sessionId, 'third prompt')
+    await waitForDelivery('row-after-stale')
+    world.runtime.dispose()
+  })
+
+  it('a live working poll snapshot in a fenced epoch never flips the driver back to working', async () => {
+    // The harness that actually sends these is Grok: its late tool hooks
+    // (PostToolUse, SubagentStop, …) miss the causal hook ingest and fall
+    // through to the translate fallback, which folds working into the tracker
+    // and forwards it as a live terminalState — possibly after the turn
+    // already closed. Same fence as the observation path: a closed epoch does
+    // not reopen via poll either.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(GROK_SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.echo(sessionId, 'first prompt')
+    await openAndCloseFirstTurn(world, sessionId, 1)
+    expect((await session.state()).phase).toBe('idle')
+
+    const pastes = (): string[] =>
+      world.written
+        .map(pastedText)
+        .filter((text): text is string => text !== undefined)
+    const deliveries = (): Array<{ rowId: string; outcome: string }> =>
+      world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
+          ? [{ rowId: frame.event.rowId, outcome: frame.event.outcome }]
+          : [],
+      )
+    const waitForPaste = async (text: string): Promise<void> => {
+      for (let i = 0; i < 80 && !pastes().includes(text); i++) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(pastes()).toContain(text)
+    }
+    const waitForDelivery = async (rowId: string): Promise<void> => {
+      for (
+        let i = 0;
+        i < 80 &&
+        !deliveries().some((event) => event.rowId === rowId && event.outcome === 'delivered');
+        i++
+      ) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(deliveries()).toContainEqual({ rowId, outcome: 'delivered' })
+    }
+
+    const framesBefore = world.frames.length
+    world.runtime.observeState({
+      sessionId,
+      state: {
+        phase: 'working',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+      },
+      observerGeneration: 1,
+      bindingVersion: session.binding.bindingVersion,
+    })
+
+    expect((await session.state()).phase).toBe('idle')
+    const workingStates = world.frames.slice(framesBefore).filter(
+      (frame) =>
+        frame.type === 'runtimeEvent' &&
+        frame.event.t === 'state' &&
+        (frame.event.change as { state?: { phase?: string } }).state?.phase === 'working',
+    )
+    expect(workingStates).toEqual([])
+
+    // The follow-up still drains — the poll fold did not re-arm the hold.
+    expect(
+      (
+        await session.send(
+          { text: 'second prompt', rowId: 'row-after-poll-stale' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await waitForPaste('second prompt')
+    world.echo(sessionId, 'second prompt')
+    await waitForDelivery('row-after-poll-stale')
+    world.runtime.dispose()
+  })
+})
