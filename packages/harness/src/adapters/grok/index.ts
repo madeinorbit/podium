@@ -242,6 +242,10 @@ export const grokManifest: AgentManifest = {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      // `chat_history.jsonl` records carry NO time field (checked against real
+      // sessions, 2026-09-29) — the reader's `timestamp`/`created_at` fallbacks
+      // never fire on them. The echo proof rests on position alone (POD-4838).
+      transcriptTimestamps: 'absent',
     },
     // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
     // subscription auth while providing receipts, permission asks, interrupt,

@@ -321,6 +321,10 @@ export const piManifest: AgentManifest = {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      // Session entries carry an ISO `timestamp` at millisecond resolution,
+      // with the message's epoch-ms `timestamp` behind it. Taken from the
+      // reader and its fixtures; no real Pi session was on hand to check.
+      transcriptTimestamps: { resolutionMs: 1 },
     },
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },

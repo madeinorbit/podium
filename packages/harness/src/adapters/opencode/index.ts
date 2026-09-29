@@ -296,6 +296,9 @@ export const opencodeManifest: AgentManifest = {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      // Parts carry epoch-ms `time_created`/`time_updated` columns; the
+      // cursor offset is `time_created` itself.
+      transcriptTimestamps: { resolutionMs: 1 },
       // SQLite polling calls onStateEvents, never onObservation; opencode is
       // not a causal ObservationProvider. Keep poll state as the sole lifecycle
       // and epoch authority until a causal observer replaces that producer.

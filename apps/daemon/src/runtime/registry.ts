@@ -63,6 +63,7 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
+    transcriptTimestamps: terminal.transcriptTimestamps,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),

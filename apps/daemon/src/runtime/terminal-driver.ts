@@ -119,7 +119,9 @@ import type {
   AgentStateEvent,
   TerminalAcceptCorrelation,
   TerminalAcceptCorrelations,
+  TranscriptTimestampFidelity,
 } from '@podium/harness'
+import { decodeCursor } from '@podium/harness/store'
 import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
@@ -323,8 +325,31 @@ interface LoggedEvent {
   event: RuntimeEvent
 }
 
-/** One open accept watch: the prompt text it credits, and how to tell it. */
-type AcceptWaiter = { text: string; resolve: (seen: AcceptSeen) => void }
+/**
+ * How far into the harness's transcript the driver has seen (POD-4838).
+ *
+ * `unknown` until a delta says anything; `empty` when the store's last re-read
+ * held no items at all, so everything after it is new; otherwise the segment
+ * (the cursor's `fileId`) and the furthest offset seen in it. Offsets are the
+ * producer's own order key — a byte offset for JSONL, `time_created` for
+ * OpenCode — and compare only within one segment.
+ */
+type TranscriptPosition =
+  | { kind: 'unknown' }
+  | { kind: 'empty' }
+  | { kind: 'at'; fileId: string; offset: number }
+
+/**
+ * One open accept watch: the prompt text it credits, how to tell it, and where
+ * the send started — the transcript position and the clock when the watch was
+ * armed, before the first byte went out. Only the echo channel reads `start`;
+ * see `echoIsAfterStart`.
+ */
+type AcceptWaiter = {
+  text: string
+  resolve: (seen: AcceptSeen) => void
+  start: { atMs: number; position: TranscriptPosition }
+}
 
 interface DriverSession {
   resumeConfidence?: 'exact' | 'heuristic'
@@ -374,6 +399,9 @@ interface DriverSession {
   /** Open waiters for a transcript echo, keyed by the prompt text they watch.
    *  Same shape and same reason as `hookWaiters` — see `creditEchoWaiters`. */
   echoWaiters: Set<AcceptWaiter>
+  /** The furthest transcript position a delta has shown; each watch copies it
+   *  when armed. See {@link TranscriptPosition}. */
+  transcriptPosition: TranscriptPosition
   /**
    * Whether ANY `UserPromptSubmit` hook payload has reached this session.
    *
@@ -430,6 +458,9 @@ export interface TerminalHarnessProfile {
   sendProof: DriverCapabilities['send']['proof']
   /** Manifest-owned content matchers; absence means no proof on that channel. */
   acceptCorrelation?: TerminalAcceptCorrelations
+  /** Whether transcript entries say when they were written — the echo proof's
+   *  floor across segments. Manifest-owned; see `TranscriptTimestampFidelity`. */
+  transcriptTimestamps: TranscriptTimestampFidelity
   /** Provider-poll agentState owns lifecycle and epochs; causal observations are ignored. */
   lifecycleFromState?: boolean
   /** Whether this harness's CLI needs the submit-verify CR nudges. */
@@ -1143,7 +1174,13 @@ export function createTerminalRuntime(
         // THE COUNT NO LONGER PROVES A SEND (POD-4055). It still answers
         // `rawFirstTurn`, which is a question about the CONVERSATION's position
         // and not about any one delivery. Delivery is proven by content, below.
+        // Credit BEFORE the position moves: each watch compares against where
+        // the transcript stood when it was armed, not where this delta leaves it.
         creditEchoWaiters(session, msg.items)
+        session.transcriptPosition = advancePosition(
+          msg.reset ? (msg.items.length === 0 ? { kind: 'empty' } : { kind: 'unknown' }) : session.transcriptPosition,
+          msg.items,
+        )
         if (msg.reset) {
           session.transcriptVersions.clear()
           for (const item of msg.items) {
@@ -1539,6 +1576,7 @@ export function createTerminalRuntime(
     correlation: TerminalAcceptCorrelation<Observation>,
     observation: Observation,
     seen: AcceptSeen,
+    eligible: (waiter: AcceptWaiter) => boolean = () => true,
   ): void {
     if (waiters.size === 0) return
     const fingerprint = correlation.fingerprint(observation)
@@ -1548,6 +1586,7 @@ export function createTerminalRuntime(
     if (fingerprint === null) return
     for (const waiter of [...waiters]) {
       if (correlation.fingerprintText(waiter.text) !== fingerprint) continue
+      if (!eligible(waiter)) continue
       waiters.delete(waiter)
       waiter.resolve(seen)
       return
@@ -1555,8 +1594,10 @@ export function createTerminalRuntime(
   }
 
   function creditEchoWaiters(session: DriverSession, items: readonly TranscriptItem[]): void {
-    const correlation = profiles.get(session.sessionId)?.acceptCorrelation?.['transcript-echo']
+    const profile = profiles.get(session.sessionId)
+    const correlation = profile?.acceptCorrelation?.['transcript-echo']
     if (!correlation || session.echoWaiters.size === 0) return
+    const timestamps = profile?.transcriptTimestamps ?? 'absent'
     for (const item of items) {
       // The manifest adapter excludes non-prompts, including interrupt markers.
       // The echo IS the harness's record of the prompt, so it names the entry
@@ -1568,17 +1609,22 @@ export function createTerminalRuntime(
         correlation,
         item,
         transcriptItem ? { transcriptItem } : {},
+        (waiter) => echoIsAfterStart(item, waiter.start, timestamps),
       )
     }
   }
 
-  const acceptFor = (waiters: DriverSession['hookWaiters']): AcceptPort => ({
+  const acceptFor = (session: DriverSession, waiters: DriverSession['hookWaiters']): AcceptPort => ({
     watch(text: string) {
       let settle: ((seen: AcceptSeen) => void) | undefined
       const accepted = new Promise<AcceptSeen>((resolve) => {
         settle = resolve
       })
-      const waiter: AcceptWaiter = { text, resolve: (seen) => settle?.(seen) }
+      const waiter: AcceptWaiter = {
+        text,
+        resolve: (seen) => settle?.(seen),
+        start: { atMs: host.now(), position: session.transcriptPosition },
+      }
       waiters.add(waiter)
       return {
         accepted,
@@ -1605,9 +1651,9 @@ export function createTerminalRuntime(
         now: host.now,
         setTimer: host.setTimer,
         clearTimer: host.clearTimer,
-        ...(profile?.acceptCorrelation?.hook ? { hookAccept: acceptFor(session.hookWaiters) } : {}),
+        ...(profile?.acceptCorrelation?.hook ? { hookAccept: acceptFor(session, session.hookWaiters) } : {}),
         ...(profile?.acceptCorrelation?.['transcript-echo']
-          ? { echoAccept: acceptFor(session.echoWaiters) }
+          ? { echoAccept: acceptFor(session, session.echoWaiters) }
           : {}),
         // READS THE SAME RESET-AWARE COUNT as the echo baseline, and for the same
         // reason: `isRawFirstTurn` in `inbox.ts` asks whether the harness's own
@@ -1747,6 +1793,7 @@ export function createTerminalRuntime(
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
       echoWaiters: new Set(),
+      transcriptPosition: { kind: 'unknown' },
       hookSeen: false,
       hookAbsenceWarned: false,
       userTurns: 0,
@@ -2731,6 +2778,69 @@ export function createTerminalRuntime(
 
 const capabilityCache = new WeakMap<TerminalHarnessProfile, DriverCapabilities>()
 
+/**
+ * Fold a delta's cursors into the furthest position seen. A cursor that does
+ * not decode says nothing about position and is skipped; a cursor in another
+ * segment means the store moved on (resume, new file, rotation), so the
+ * position moves with it. Within one segment the MAX wins: a producer may
+ * re-emit an earlier item, as OpenCode does when a part is updated.
+ */
+function advancePosition(
+  from: TranscriptPosition,
+  items: readonly TranscriptItem[],
+): TranscriptPosition {
+  let position = from
+  for (const item of items) {
+    const parts = item.cursor ? decodeCursor(item.cursor) : null
+    if (!parts) continue
+    position =
+      position.kind === 'at' && position.fileId === parts.fileId
+        ? { ...position, offset: Math.max(position.offset, parts.offset) }
+        : { kind: 'at', fileId: parts.fileId, offset: parts.offset }
+  }
+  return position
+}
+
+/**
+ * WHETHER A TRANSCRIPT ENTRY WAS WRITTEN AFTER THE SEND STARTED (POD-4838).
+ *
+ * The echo matches by content, and short prompts repeat — "yes", "continue" —
+ * so an entry may credit a send only if the harness wrote it after the send
+ * began. A re-read (`reset`) carries every older copy of the same words, and a
+ * polled tail can hand over a record written just before the send just after
+ * it; neither may confirm a new send.
+ *
+ *   - A timestamp, where the harness writes a usable one, must be at or after
+ *     the start, less the harness's own resolution. Same machine, same clock.
+ *   - In the segment the send started in, the entry must lie AFTER the
+ *     position the driver had seen.
+ *   - When the transcript was empty at the start, every entry lies after it.
+ *   - Anywhere else — another segment, or a start before any delta arrived —
+ *     position proves nothing, and only the timestamp can answer.
+ *
+ * FAIL CLOSED. No usable timestamp and no comparable position ⇒ no credit; the
+ * send reports `unverified`, the honest outcome, instead of a guessed accept.
+ *
+ * THE HOOK CHANNEL NEEDS NO FLOOR. A hook payload is one live HTTP request,
+ * handled in-process and never stored or re-sent by Podium, so it cannot reach
+ * a waiter armed after it; and it carries no write time a floor could read.
+ */
+function echoIsAfterStart(
+  item: TranscriptItem,
+  start: AcceptWaiter['start'],
+  timestamps: TranscriptTimestampFidelity,
+): boolean {
+  const writtenAtMs = timestamps !== 'absent' && item.ts ? Date.parse(item.ts) : Number.NaN
+  const dated = Number.isFinite(writtenAtMs)
+  if (dated && timestamps !== 'absent' && writtenAtMs < start.atMs - timestamps.resolutionMs) return false
+  const parts = item.cursor ? decodeCursor(item.cursor) : null
+  if (parts && start.position.kind === 'at' && parts.fileId === start.position.fileId) {
+    return parts.offset > start.position.offset
+  }
+  if (parts && start.position.kind === 'empty') return true
+  return dated
+}
+
 function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCapabilities {
   const resolved: TerminalHarnessProfile = profile ?? {
     driverId: 'generic-pty',
@@ -2738,6 +2848,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     instrumentationRequired: false,
     sendProof: ['transcript-echo'],
     acceptCorrelation: {},
+    transcriptTimestamps: 'absent',
     needsSubmitVerification: true,
     usesRawFirstTurn: false,
     archivable: false,

@@ -438,6 +438,9 @@ export const codexManifest: AgentManifest = {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      // Rollout records carry an ISO `timestamp` at millisecond resolution
+      // (checked against real rollouts, 2026-09-29).
+      transcriptTimestamps: { resolutionMs: 1 },
     },
     // App-server is the default for every LOGGED-IN Codex auth mode when the
     // version probe admits it. A logged-out session needs the PTY's interactive
