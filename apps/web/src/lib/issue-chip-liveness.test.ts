@@ -126,6 +126,21 @@ describe('the key a chip is looked up under', () => {
     decorateIssueRefAnchors(anchor, issueReferenceLookup([legacy]))
 
     expect(anchor.getAttribute('data-issue-stage')).toBe('review')
+    expect(anchor.getAttribute('aria-label')).toBe('Review task POD-13: Stable chips')
+  })
+
+  it('announces the canonical ref for a fallback-displayRef row (POD-4731)', () => {
+    // Merged replica row in a prefix-less harness world: legacy `POD` beside
+    // view-derived `#13`. Stage matched; the label fell back to `#13`.
+    const { anchor } = rowWithRef('POD-13')
+    decorateIssueRefAnchors(
+      anchor,
+      issueReferenceLookup([issue({ stage: 'review', displayRef: '#13' })]),
+    )
+
+    expect(anchor.getAttribute('data-issue-stage')).toBe('review')
+    expect(anchor.getAttribute('data-issue-availability')).toBe('present')
+    expect(anchor.getAttribute('aria-label')).toBe('Review task POD-13: Stable chips')
   })
 
   it('still refuses a token naming a different issue', () => {
