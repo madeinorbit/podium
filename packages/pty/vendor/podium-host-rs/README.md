@@ -19,13 +19,16 @@ Deliberate, each for a reason; everything else matches host.c byte for byte.
 **Protocol**
 
 - **ERR 5 "input queue full".** The input queue toward a child that is not reading is
-  capped at 16 MiB (plus 64 bytes per queued write, so empty WRITEs are bounded too): room
-  for any real burst to a child that reads slowly, a bound for one that has stopped. A
-  WRITE past the cap is refused with ERR 5 and the connection keeps working. host.c
-  queues without limit.
+  capped at 16 MiB (plus 64 bytes per queued write, so empty WRITEs are bounded too): up
+  to 16 MiB in flight toward a slow reader still lands, and a child that has stopped
+  reading is bounded. A WRITE past the cap is refused with ERR 5 and its input is
+  dropped (a deliberate policy; host.c queues without limit). The connection keeps
+  working.
 - **An ERR that refuses a WRITE names it.** After the message it carries the write's
-  `u32` id (for ERR 1 not-the-writer, ERR 4 child-exited and ERR 5). A client that
-  reads only up to the message is unaffected. host.c sends no id.
+  `u32` id (for ERR 1 not-the-writer, ERR 4 child-exited and ERR 5). host.c sends no
+  id. An older client still parses the frame (it reads only up to the message) but
+  routes the ERR to its oldest pending request, which is wrong for ERR 5: **the Rust
+  host needs the `host.ts` from `78f80726d` or later.**
 - **A client whose queue would pass ring size + 1 MiB is dropped before the copy.**
   Checked per request, so a burst of pipelined REPLAYs cannot copy a ring each first.
 - **SIGNAL with a number that has no name** (0, real-time signals) does nothing; host.c

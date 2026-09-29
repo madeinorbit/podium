@@ -66,9 +66,12 @@ impl Hosts {
                 rustix::process::pidfd_open(p, rustix::process::PidfdFlags::empty()).ok()
             })
         };
-        if let Some(host) = open(c.host_pid) {
-            self.0.push((host, open(c.child_pid)));
-        }
+        // The host just answered WELCOME, so its pidfd must open; the child may
+        // already have exited (a `true` child), so its pidfd is optional. A test
+        // that fails between `create` and its first HELLO still leaks that host:
+        // no pid is known yet.
+        let host = open(c.host_pid).expect("pidfd of the host that just answered WELCOME");
+        self.0.push((host, open(c.child_pid)));
     }
 }
 

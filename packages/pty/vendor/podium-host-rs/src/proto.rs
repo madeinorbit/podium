@@ -51,10 +51,10 @@ pub const DATA_CHUNK: usize = 32 * 1024;
 /// A client whose control queue holds more than a whole ring replay plus this is not reading.
 pub const MAX_OUTBUF_SLACK: usize = 1 << 20;
 /// Bytes (plus [`WRITE_OVERHEAD`] per write) the input queue toward the child
-/// may hold; a WRITE beyond it is refused with ERR_INPUT_FULL. Large enough for
-/// any real burst toward a child that is reading slowly (two 800 KB pastes
-/// must both land, as with host.c; POD-4847), small enough to bound a child
-/// that is not reading at all.
+/// may hold; a WRITE beyond it is refused with ERR_INPUT_FULL and its input
+/// dropped. Up to 16 MiB in flight toward a slowly reading child still lands
+/// (two 800 KB pastes must both land, as with host.c; POD-4847), and a child
+/// that is not reading at all is bounded.
 pub const MAX_INPUT_QUEUE: usize = 16 << 20;
 /// What one queued write costs besides its bytes, so a flood of empty WRITEs
 /// is bounded too.
@@ -123,8 +123,9 @@ pub fn err(out: &mut Vec<u8>, code: u16, msg: &str) {
 /// Queue an ERR frame that refuses a WRITE: the same layout plus the write's
 /// `u32 id` after the message, so the client rejects exactly that write. An
 /// ERR carries no id otherwise, and a client matching it to the oldest
-/// pending request would reject the wrong one. Older clients read only up to
-/// the message and ignore the trailing bytes. Rust port only (host.c sends no id).
+/// pending request would reject the wrong one. An older client still parses
+/// the frame (it reads only up to the message) but misroutes the refusal, so
+/// the Rust host needs host.ts from 78f80726d on. Rust port only (host.c sends no id).
 pub fn err_write(out: &mut Vec<u8>, code: u16, msg: &str, write_id: u32) {
     Frame::begin(out, H_ERR)
         .u16(code)
