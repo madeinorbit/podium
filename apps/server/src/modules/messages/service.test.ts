@@ -366,7 +366,7 @@ const NEEDS_USER = {
 async function echo(svc: MessageDeliveryService, sessionId: SessionId, ...ids: string[]): Promise<void> {
   await svc.onTranscriptDelta(
     sessionId,
-    ids.map((id) => ({ role: 'user', text: `[podium message ${id} · from x · to y]` })),
+    ids.map((id) => ({ role: 'user', text: `[podium message ${id} · from x · to y]\nbody\n[end podium message ${id}]` })),
   )
 }
 
@@ -3385,7 +3385,7 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     )
     // An assistant turn merely quoting the id must not self-confirm it.
     await svc.onTranscriptDelta(asSessionId('s1'), [
-      { role: 'assistant', text: `re: podium message ${r.message.id}` },
+      { role: 'assistant', text: `[podium message ${r.message.id} · from x · to y]\nx\n[end podium message ${r.message.id}]` },
     ])
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('dispatched')
     // Nor an echo seen in a DIFFERENT session than the one we pushed to.
@@ -3411,7 +3411,10 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     expect((await store.messages.getMessage(r.message.id))!.injectedAt).toBeNull()
     // A completely unrelated session echoes the id — must be ignored.
     await svc.onTranscriptDelta(asSessionId('someOtherSession'), [
-      { role: 'user', text: `look at [podium message ${r.message.id} · from x · to y]` },
+      {
+        role: 'user',
+        text: `[podium message ${r.message.id} · from x · to y]\nheld note\n[end podium message ${r.message.id}]`,
+      },
     ])
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('stored')
     expect((await store.messages.getMessage(r.message.id))!.deliveredAt).toBeNull()
@@ -3633,10 +3636,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     ).toHaveLength(1)
   })
 
-  it('onTranscriptDelta confirms EVERY id across a multi-id, multi-item delta', async () => {
-    // Regression lock for the issue parenthetical: the global matchAll already
-    // loops all ids in every delta item — keep it that way (two ids concatenated
-    // in one item, a third in a second item, all confirmed).
+  it('onTranscriptDelta confirms each item by its own frame across a multi-item delta', async () => {
     const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
     const mk = async (body: string) =>
       (await svc.send(
@@ -3645,14 +3645,63 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       )).message.id
     const a = await mk('a')
     const b = await mk('b')
-    const c = await mk('c')
     await svc.onTranscriptDelta(asSessionId('s1'), [
-      { role: 'user', text: `[podium message ${a} · from x · to y] and [podium message ${b}]` },
-      { role: 'user', text: `[podium message ${c} · from x · to y]` },
+      { role: 'user', text: `[podium message ${a} · from x · to y]\na\n[end podium message ${a}]` },
+      { role: 'user', text: `[podium message ${b} · from x · to y]\nb\n[end podium message ${b}]` },
     ])
     expect((await store.messages.getMessage(a))!.deliveryStatus).toBe('confirmed')
     expect((await store.messages.getMessage(b))!.deliveryStatus).toBe('confirmed')
-    expect((await store.messages.getMessage(c))!.deliveryStatus).toBe('confirmed')
+  })
+
+  it('a wrapped message whose body quotes another pending message\'s frame confirms only itself (POD-4860)', async () => {
+    // Bodies are not escaped: a mail that quotes another mail's frame carries
+    // that frame's id INSIDE its own. Echoing the quoting mail proves only the
+    // quoting mail arrived; the quoted one may never have.
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
+    const send = async (body: string) =>
+      (await svc.send(
+        { kind: 'superagent' },
+        { to: { kind: 'session', id: asSessionId('s1') }, body, urgency: 'next-turn' },
+      )).message
+    const quoted = await send('the original')
+    const quoting = await send(
+      `you were sent this:\n[podium message ${quoted.id} · from x · to y]\nthe original\n[end podium message ${quoted.id}]\nplease check`,
+    )
+    const typed = await svc.renderFor((await store.messages.getMessage(quoting.id))!, asSessionId('s1'))
+    await svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: typed }])
+    expect((await store.messages.getMessage(quoting.id))!.deliveryStatus).toBe('confirmed')
+    expect((await store.messages.getMessage(quoted.id))!.deliveryStatus).toBe('dispatched')
+  })
+
+  it('an entry that only mentions a frame, without being that frame, confirms nothing (POD-4860)', async () => {
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
+    const r = await svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'x', urgency: 'next-turn' },
+    )
+    const id = r.message.id
+    await svc.onTranscriptDelta(asSessionId('s1'), [
+      // The operator pasting the head line into their own prompt.
+      { role: 'user', text: `what does [podium message ${id} · from x · to y] mean?` },
+      // A frame followed by more of the person's words: the entry is not the frame.
+      { role: 'user', text: `[podium message ${id} · from x · to y]\nx\n[end podium message ${id}]\nand also this` },
+    ])
+    expect((await store.messages.getMessage(id))!.deliveryStatus).toBe('dispatched')
+  })
+
+  it('a frame typed after its attachment paths still confirms (POD-4860)', async () => {
+    // The drivers put each attached file's path on its own line ahead of the
+    // text, so the entry does not start with the frame.
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
+    const r = await svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'see file', urgency: 'next-turn' },
+    )
+    const typed = await svc.renderFor((await store.messages.getMessage(r.message.id))!, asSessionId('s1'))
+    await svc.onTranscriptDelta(asSessionId('s1'), [
+      { role: 'user', text: `/tmp/a.png\n/tmp/b.txt\n${typed}\n` },
+    ])
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 })
 

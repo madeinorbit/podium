@@ -551,16 +551,18 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
 
     // An assistant turn quoting the id must never self-confirm.
     await h.svc.onTranscriptDelta(asSessionId('s1'), [
-      { role: 'assistant', text: `podium message ${id}` },
+      { role: 'assistant', text: `[podium message ${id} · from x]\nx\n[end podium message ${id}]` },
     ])
     expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
     // Nor may a DIFFERENT session's transcript quoting the id confirm it (the
     // operator pasting it elsewhere) — that would strand the real target.
-    await h.svc.onTranscriptDelta(asSessionId('sOther'), [{ role: 'user', text: `podium message ${id}` }])
+    await h.svc.onTranscriptDelta(asSessionId('sOther'), [
+      { role: 'user', text: `[podium message ${id} · from x]\nx\n[end podium message ${id}]` },
+    ])
     expect((await h.svc.message(id))!.deliveryStatus).toBe('dispatched')
 
     await h.svc.onTranscriptDelta(asSessionId('s1'), [
-      { role: 'user', text: `[podium message ${id} · from x]` },
+      { role: 'user', text: `[podium message ${id} · from x]\nx\n[end podium message ${id}]` },
     ])
     const delivered = (await h.svc.message(id))!
     expect(delivered.deliveryStatus).toBe('confirmed')
@@ -859,7 +861,10 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
       // has: the query is gated on status delivered/read, so an enveloped push
       // still awaiting its echo is deliberately not notifiable yet.
       await h.svc.onTranscriptDelta(asSessionId('sTo'), [
-        { role: 'user', text: `podium message ${sent.message.id}` },
+        {
+          role: 'user',
+          text: `[podium message ${sent.message.id} · from x]\n${body}\n[end podium message ${sent.message.id}]`,
+        },
       ])
     }
     h.pushes.length = 0
