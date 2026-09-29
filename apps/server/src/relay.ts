@@ -1010,6 +1010,7 @@ export class SessionRegistry {
     // device from the write path, whichever module moved them.
     const messageFeed = new MessageFeedPublisher({
       ledger,
+      sessions: this.store.sessions,
       snapshot: async () => await ledger.authority.snapshot('message'),
       listOpen: async () => await this.store.messages.listOpenChat(),
       transact: async (fn) => await this.store.transact(fn),
