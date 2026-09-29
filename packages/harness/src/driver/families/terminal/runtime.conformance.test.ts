@@ -66,6 +66,7 @@ import {
 } from './runtime.js'
 import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import { encodeCursor } from '../../../store/cursor-codec.js'
 
 /**
  * Local mirror of the daemon's `terminalProfileFor`
@@ -83,6 +84,7 @@ function testProfileFor(harness: AgentKind): TerminalHarnessProfile | undefined 
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
+    transcriptTimestamps: terminal.transcriptTimestamps,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(harness),
     usesRawFirstTurn: harnessUsesRawFirstTurn(harness),
@@ -284,7 +286,10 @@ function makeWorld(options: WorldOptions): {
   const echoUserTurn = (sessionId: SessionId, text: string): void => {
     const item: TranscriptItem = {
       id: `item-${++nextId}`,
-      cursor: `c${nextId}`,
+      // A REAL CURSOR, as the tailer stamps it: the segment and an offset
+      // that grows as the file does. The echo proof places each record by it
+      // (POD-4838), so an opaque token here would prove nothing about position.
+      cursor: encodeCursor({ fileId: `transcript-${sessionId}`, offset: nextId, uuid: null, sub: 0 }),
       role: 'user',
       ts: iso(),
       text,
@@ -691,7 +696,9 @@ for (const { target } of worlds) {
 describe('shipped terminal profile coverage', () => {
   it('covers every manifest, with cursor representing the identical pi shape', () => {
     expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...SHIPPED_ARMS, 'pi'].sort())
-    expect(shippedProfile('pi')).toEqual(shippedProfile('cursor'))
+    // Pi writes a timestamp on every entry and Cursor writes none; the echo
+    // floor's timestamped path runs in the claude, codex and opencode arms.
+    expect({ ...shippedProfile('pi'), transcriptTimestamps: 'absent' }).toEqual(shippedProfile('cursor'))
     expect(testProfileFor('shell')).toBeUndefined()
   })
   it('keeps the adversarial shape distinct from every shipped profile', () => {
