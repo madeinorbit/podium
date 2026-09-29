@@ -40,11 +40,43 @@ export function codexAppServerCapabilities(): DriverCapabilities {
        * real and is why the driver waits for `turn/started` before steering: the
        * turn/start RESPONSE lands before the turn is actually open, and a steer
        * fired in that window is refused with "no active turn to steer". Both
-       * frames are in the fixtures.
+       * frames are in the fixtures. (0.155.0 accepts that early steer instead —
+       * `steerBeforeTurnStartedAccepted` — so the wait costs nothing there and
+       * still guards the 0.147 floor.)
        */
       native: ['when-ready', 'queue', 'interrupt', 'steer', 'at-boundary'],
-      /** The `turn/start` response carrying a `Turn` with `status: inProgress`.
-       *  Nothing else is consulted, and nothing else is needed. */
+      /**
+       * The `turn/start` response carrying a `Turn` with `status: inProgress`,
+       * or the `turn/steer` response carrying `{turnId}`.
+       *
+       * THE ENTRY IS NAMED BY OUR MESSAGE ID (POD-4835). Every send carries
+       * Podium's message id as `clientUserMessageId`, and the `userMessage`
+       * item Codex records for it carries it back as `clientId`, beside its own
+       * item id. Measured on codex-cli 0.155.0 (scratch CODEX_HOME, fake model
+       * server; frames in `./__fixtures__/client-message-id.json`,
+       * `turn-lifecycle.json` and `steer-interrupt.json`):
+       *
+       *   - INTRODUCED IN 0.136.0 — `TurnStartParams`, `TurnSteerParams` and
+       *     the `userMessage` arm's `clientId` all first appear in rust-v0.136.0
+       *     (absent in 0.135.0). The 0.147 floor is above it, so every admitted
+       *     binary takes it and no version branch exists. A binary that records
+       *     `clientId: null` anyway gets the turn-id fallback, and the pairing
+       *     says which one matched (`reportEntryPaired`).
+       *   - NOT A DEDUPE KEY. The same id on a second `turn/start` opens a
+       *     second turn with a second item carrying the same `clientId`, and
+       *     the model sees the words twice. The same id on a second `turn/steer`
+       *     is accepted and recorded twice. No refusal, and no replay of the
+       *     original answer.
+       *   - FINDABLE AFTER A RESTART. `thread/read {includeTurns: true}` and
+       *     `thread/items/list` on a FRESH app-server (no `thread/resume`)
+       *     return every item with its `clientId`, from the rollout.
+       *   - A STEER'S ACK IS NOT ITS RECORD. Codex records a steer's input at
+       *     its next model call, seconds after the ack. A steer acked and then
+       *     interrupted before that call is DROPPED: in no item of that turn or
+       *     the next, and never shown to the model. So only the item proves a
+       *     steer reached the history; what the receipt should say about the
+       *     gap waits on the Phase B status taxonomy.
+       */
       proof: ['protocol-ack'],
       /**
        * FALSE, AND THE CORPUS CHECKS THE CONVERSE. There is no verification

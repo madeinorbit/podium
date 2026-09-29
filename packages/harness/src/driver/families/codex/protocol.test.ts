@@ -5,7 +5,10 @@
  * The behavioural frame fixtures in `./__fixtures__` were captured from a LIVE
  * `codex app-server` on codex-cli 0.147.0 — real turns, a real
  * command-execution approval answered over the wire, a real steer into an open
- * turn, a real interrupt. The method inventory in `protocol-pins.json` was
+ * turn, a real interrupt. The turn-lifecycle and steer fixtures were
+ * re-recorded from codex-cli 0.155.0 with `clientUserMessageId` on every send
+ * (POD-4835), and `client-message-id.json` holds what that id is and is not.
+ * The method inventory in `protocol-pins.json` was
  * regenerated from codex-cli 0.151.0 before that minor was admitted. These
  * tests parse the recorded bytes with the schemas the driver ships and pin the
  * methods it sends and listens for.
@@ -17,6 +20,7 @@
 
 import { describe, expect, it } from 'vitest'
 import approvalFixture from './__fixtures__/approval-command.json' with { type: 'json' }
+import clientIdFixture from './__fixtures__/client-message-id.json' with { type: 'json' }
 import handshakeFixture from './__fixtures__/handshake.json' with { type: 'json' }
 import pinsFixture from './__fixtures__/protocol-pins.json' with { type: 'json' }
 import steerFixture from './__fixtures__/steer-interrupt.json' with { type: 'json' }
@@ -35,6 +39,7 @@ import {
   CodexTurn,
   offersDecision,
   parseCodexNotification,
+  userMessageClientId,
 } from './protocol.js'
 import { SUPPORTED_CODEX } from './version.js'
 
@@ -51,6 +56,9 @@ const frame = (raw: unknown) => CodexFrame.parse(raw)
  */
 const resultOf = (raw: unknown): Record<string, unknown> =>
   (frame(raw).result ?? {}) as Record<string, unknown>
+/** A request frame's `params`, as a record — the same narrowing as `resultOf`. */
+const paramsOf = (raw: unknown): Record<string, unknown> =>
+  (frame(raw).params ?? {}) as Record<string, unknown>
 
 describe('the recorded handshake', () => {
   it('parses the initialize response the live server actually sent', () => {
@@ -237,7 +245,37 @@ describe('the recorded steer and interrupt', () => {
     expect(response.result).toHaveProperty('turnId')
   })
 
-  it('refuses a steer sent before the turn actually opened', () => {
+  it('records a steer’s input as a later user item carrying the steer’s own id', () => {
+    const request = paramsOf(steerFixture.steerRequest)
+    const recorded = parseCodexNotification(frame(steerFixture.steerUserMessageCompleted))
+    expect(recorded?.method).toBe('item/completed')
+    if (recorded?.method !== 'item/completed') return
+    // Recorded into the turn it joined, under Codex's own item id, with OUR id
+    // beside it — the only id that can name a steer's entry.
+    expect(recorded.params.turnId).toBe(request.expectedTurnId)
+    expect(userMessageClientId(recorded.params.item)).toBe(request.clientUserMessageId)
+    expect(recorded.params.item.id).not.toBe(request.clientUserMessageId)
+  })
+
+  it('does not dedupe a repeated steer id: the second steer is accepted too', () => {
+    expect(paramsOf(steerFixture.duplicateSteerRequest).clientUserMessageId).toBe(
+      paramsOf(steerFixture.steerRequest).clientUserMessageId,
+    )
+    expect(frame(steerFixture.duplicateSteerResponse).result).toHaveProperty('turnId')
+  })
+
+  it('accepts, on 0.155.0, the steer 0.147.0 refused before the turn opened', () => {
+    // The driver still waits for `turn/started` — the 0.147 floor refuses.
+    const early = steerFixture.steerBeforeTurnStartedAccepted
+    expect(frame(early.response).error).toBeUndefined()
+    const recorded = parseCodexNotification(frame(early.userMessageCompleted))
+    if (recorded?.method !== 'item/completed') throw new Error('not an item')
+    expect(userMessageClientId(recorded.params.item)).toBe(
+      paramsOf(early.request).clientUserMessageId,
+    )
+  })
+
+  it('refuses a steer sent before the turn actually opened (0.147.0)', () => {
     const response = frame(steerFixture.steerBeforeTurnStartedError)
     expect(response.error?.code).toBe(-32600)
     expect(response.error?.message).toContain('no active turn')
@@ -275,6 +313,61 @@ describe('the recorded steer and interrupt', () => {
     // PROVIDER CONFIRMATION, not a manufactured fence. `interrupt()` returns
     // nothing to await precisely because this is what ends the turn.
     expect(fence.params.turn.status).toBe('interrupted')
+  })
+})
+
+describe('the recorded client message id', () => {
+  const userItem = (raw: unknown) => {
+    const parsed = parseCodexNotification(frame(raw))
+    if (parsed?.method !== 'item/completed') throw new Error('not a completed item')
+    return parsed.params
+  }
+
+  it('comes back on the turn’s user item, beside Codex’s own item id', () => {
+    const sent = paramsOf(turnFixture.turnStartRequest).clientUserMessageId
+    expect(sent).toBeTruthy()
+    const turnId = CodexTurn.parse(resultOf(turnFixture.turnStartResponse).turn).id
+    const recorded = turnFixture.notifications
+      .map((note) => parseCodexNotification(frame(note)))
+      .flatMap((note) =>
+        note?.method === 'item/completed' && note.params.item.type === 'userMessage'
+          ? [note.params]
+          : [],
+      )
+    expect(recorded).toHaveLength(1)
+    const [input] = recorded
+    if (!input) throw new Error('no user item recorded')
+    expect(input.turnId).toBe(turnId)
+    expect(userMessageClientId(input.item)).toBe(sent)
+    expect(input.item.id).not.toBe(sent)
+  })
+
+  it('is not a dedupe key: the same id again opens a second turn and a second item', () => {
+    const first = userItem(clientIdFixture.firstUserMessageCompleted)
+    const again = userItem(clientIdFixture.repeatUserMessageCompleted)
+    expect(paramsOf(clientIdFixture.repeatTurnStartRequest).clientUserMessageId).toBe(
+      userMessageClientId(first.item),
+    )
+    expect(userMessageClientId(again.item)).toBe(userMessageClientId(first.item))
+    expect(again.turnId).not.toBe(first.turnId)
+    expect(again.item.id).not.toBe(first.item.id)
+  })
+
+  it('is read back by `thread/read` on a fresh app-server — findable after a restart', () => {
+    // The raw result: `CodexThread` does not model `turns`.
+    const thread = resultOf(clientIdFixture.threadReadAfterRestartResponse).thread as {
+      turns: { items: Record<string, unknown>[] }[]
+    }
+    const items = thread.turns.flatMap((turn) => turn.items)
+    const first = userItem(clientIdFixture.firstUserMessageCompleted).item
+    expect(items).toContainEqual(
+      expect.objectContaining({ id: first.id, clientId: 'msg_podium_turn_A' }),
+    )
+  })
+
+  it('reads null for an item that carries none', () => {
+    expect(userMessageClientId({ type: 'userMessage', id: 'u', clientId: null })).toBeNull()
+    expect(userMessageClientId({ type: 'agentMessage', id: 'a', clientId: 'x' })).toBeNull()
   })
 })
 
