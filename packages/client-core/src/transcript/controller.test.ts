@@ -264,6 +264,45 @@ describe('transcript lifecycle boundaries', () => {
     controller.dispose()
   })
 
+  it('carries the server offline marker so an empty page does not read as done (POD-4808 half 1)', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [], hasMore: false, offline: { machineName: 'desk' } })
+    await starting
+    expect(controller.getSnapshot()).toMatchObject({
+      items: [],
+      initialLoaded: true,
+      offlineMachineName: 'desk',
+    })
+    controller.dispose()
+  })
+
+  it('keeps the offline marker alongside mirrored history for a live session (POD-4808 half 2)', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({
+      items: [item('a', 'c1')],
+      head: 'c1',
+      tail: 'c1',
+      hasMore: false,
+      offline: { machineName: 'desk' },
+    })
+    await starting
+    expect(controller.getSnapshot()).toMatchObject({
+      items: [item('a', 'c1')],
+      offlineMachineName: 'desk',
+    })
+    controller.dispose()
+  })
+
   it('keeps an equal tail probe cheap and escalates a changed tail to refresh', async () => {
     const io = source()
     const controller = createTranscriptController({
