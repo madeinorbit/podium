@@ -23,7 +23,11 @@
  * touched, and walking the same family three times (a roll-up, a sort, a
  * filter) is a constant factor, not growth. An element is its value when that
  * is an object or a string (a row, a node, an id), a Map entry is its key,
- * and any other primitive is its position in its container. `visits` keeps
+ * and any other primitive is its position in its container. A row's own MobX
+ * node stands for its row (POD-4792): the arm names a row's derivations
+ * `<Class>@<id>.<part>` (`arms/mobx/pool/cached.ts`, as the census attributes
+ * them), and MobX's fan-out to a changed row's twenty-odd parts touches one
+ * row, a constant factor like the three walks above. `visits` keeps
  * the raw count, and `elementsBy` splits the distinct count by the derivation
  * that walked it, to name where a count comes from.
  *
@@ -172,10 +176,21 @@ function owner(): string {
 const containerIds = new WeakMap<object, number>()
 let nextContainer = 0
 
-/** An element's identity: itself when an object or a string, else its position in its container. */
+/** `<Class>@<id>.<part>`: a row's MobX node, named for its row (`arms/mobx/pool/cached.ts`). */
+const ROW_NODE = /^[A-Za-z]\w*@([^.]+)\./
+
+/**
+ * An element's identity: its row's id when it is a row's MobX node, else
+ * itself when an object or a string, else its position in its container.
+ */
 function identity(value: unknown, container: unknown, position: unknown): unknown {
   if (typeof value === 'string') return value
-  if ((typeof value === 'object' && value !== null) || typeof value === 'function') return value
+  if (typeof value === 'object' && value !== null) {
+    const name = (value as { name_?: unknown }).name_
+    const row = typeof name === 'string' ? ROW_NODE.exec(name) : null
+    return row === null ? value : row[1]
+  }
+  if (typeof value === 'function') return value
   if (typeof container !== 'object' || container === null) return value
   let id = containerIds.get(container)
   if (id === undefined) {

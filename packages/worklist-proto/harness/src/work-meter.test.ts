@@ -64,6 +64,22 @@ describe('elements', () => {
     expect(work.visits).toBe(12 + 12 + 12 + 12 + 4)
   })
 
+  it('counts a row’s MobX nodes as the row (`<Class>@<id>.<part>`), any other node as itself', async () => {
+    // POD-4792: MobX's fan-out to one changed row's parts is one row touched.
+    const nodes = [
+      { name_: 'IssueModel@i1.attention' },
+      { name_: 'IssueModel@i1.phase' },
+      { name_: 'GroupNode@g1.rowIds' },
+      { name_: 'pool.seats' },
+      { name_: 'observerPoolRow' },
+      'i1',
+    ]
+    const { work } = await measureWork(async () => insideArm(() => nodes.forEach(() => {})))
+    // i1 (its two parts and the id), g1, and the two unnamed-for-a-row nodes.
+    expect(work.elements).toBe(4)
+    expect(work.visits).toBe(6)
+  })
+
   it('counts MobX observable collections through the native ones they are built on', async () => {
     const set = new ObservableSet(ids(40))
     const map = new ObservableMap(ids(40).map((id): [string, string] => [id, id]))

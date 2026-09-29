@@ -4,7 +4,8 @@
  * discipline as the web list (`../react/list.tsx`), windowed by React
  * Native's own `SectionList` (a `VirtualizedList`: it draws an initial batch
  * and grows the window from layout and scroll). One section for the PINNED
- * rows, then one per group whose header toggles its closed fold. Loaded
+ * rows, then per group its open lane under a header that toggles the closed
+ * fold, and the closed fold as a section of its own. Loaded
  * lazily by `../arm.ts` so the node lanes never parse `react-native`.
  */
 
@@ -71,10 +72,16 @@ const PoolNativeGroupHeader = observer(function PoolNativeGroupHeader({
   )
 })
 
-/** One section: the PINNED rows (no header key) or a group. */
+/**
+ * One section: the PINNED rows (no group), a group's open lane (with its
+ * header) or its closed fold (no header). Each section's data IS its lane's
+ * id list, so building the sections walks the groups, never their rows
+ * (POD-4792).
+ */
 interface Section {
   readonly key: string
   readonly group: string | null
+  readonly header: boolean
   readonly data: readonly string[]
 }
 
@@ -95,15 +102,14 @@ const PoolNativeList = observer(function PoolNativeList({
 
   const sections: Section[] = []
   if (groups.pinnedIds.length > 0) {
-    sections.push({ key: 'pinned', group: null, data: groups.pinnedIds })
+    sections.push({ key: 'pinned', group: null, header: true, data: groups.pinnedIds })
   }
   for (const key of groups.keys) {
     const group = groups.group(key)
-    sections.push({
-      key: `group:${key}`,
-      group: key,
-      data: folded.has(key) ? group.rowIds : [...group.rowIds, ...group.closedIds],
-    })
+    sections.push({ key: `group:${key}`, group: key, header: true, data: group.rowIds })
+    if (!folded.has(key)) {
+      sections.push({ key: `closed:${key}`, group: key, header: false, data: group.closedIds })
+    }
   }
 
   return (
@@ -115,7 +121,7 @@ const PoolNativeList = observer(function PoolNativeList({
       stickySectionHeadersEnabled={false}
       renderItem={({ item }) => <PoolNativeSlot pool={pool} id={item} />}
       renderSectionHeader={({ section }) =>
-        section.group === null ? (
+        !section.header ? null : section.group === null ? (
           <Text testID="group-PINNED">Pinned</Text>
         ) : (
           <PoolNativeGroupHeader

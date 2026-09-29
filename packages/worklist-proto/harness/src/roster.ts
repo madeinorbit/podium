@@ -89,22 +89,10 @@ export interface RosterArm {
 export const ROUND_THREE_ARMS: readonly RosterArm[] = [
   {
     // POD-4572 (Mb4): the round-three MobX pool with its worklist (Mb1-Mb3).
-    // POD-4671 fixed: no parity allowance.
+    // POD-4671 fixed: no parity allowance. POD-4792 fixed: no work allowance.
     name: 'MobX pool',
     folder: 'mobx',
     mode: 'overlaid',
     armFor: () => mobxPoolArm,
-    allowances: {
-      work: [
-        {
-          // The list rebuilds its whole item array on every placement change.
-          issue: 'POD-4792',
-          steps: ['#5', '#6a', '#6b', '#6c', '#6d', '#8b'].map((methodology) => ({
-            methodology,
-            kind: 'elements' as const,
-          })),
-        },
-      ],
-    },
   },
 ]
