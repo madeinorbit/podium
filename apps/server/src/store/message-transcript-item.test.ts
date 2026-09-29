@@ -94,6 +94,18 @@ describe('naming the entry a message became', () => {
     expect((await messages.getMessage('msg_d'))?.transcriptItem).toBeUndefined()
   })
 
+  it('is refused for a message that ended without being typed (POD-4840)', async () => {
+    await messages.addMessage(row('msg_failed'))
+    await messages.markDispatched('msg_failed', S1, 't1')
+    await messages.markDeadLetter('msg_failed', 't2', 'never-live')
+    await messages.addMessage(row('msg_cancelled'))
+    await messages.markCancelled('msg_cancelled')
+    for (const id of ['msg_failed', 'msg_cancelled']) {
+      expect(await messages.nameTranscriptItem(id, S1, { id: 'entry-stray' })).toBe(false)
+      expect((await messages.getMessage(id))?.transcriptItem).toBeUndefined()
+    }
+  })
+
   it('names nothing for an id no message has (a turn that was never a message)', async () => {
     expect(await messages.nameTranscriptItem('turn_random', S1, { id: 'entry-5' })).toBe(false)
   })

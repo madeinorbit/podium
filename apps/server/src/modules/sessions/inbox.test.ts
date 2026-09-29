@@ -130,6 +130,7 @@ function harness(
   const unconfirmed = vi.fn(
     async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {},
   )
+  const provenLate = vi.fn(async (_input: { messageId: string; sessionId: SessionId }) => {})
   const named = vi.fn(
     async (_input: {
       messageId: string
@@ -245,6 +246,7 @@ function harness(
       typing,
       interruptedPending,
       unconfirmed,
+      provenLate,
       named,
       rejected: async (input) => { rejected.push(input) },
     },
@@ -361,6 +363,7 @@ function harness(
     typing,
     interruptedPending,
     unconfirmed,
+    provenLate,
     named,
     handleInput,
     handleInputBytes,
@@ -2130,6 +2133,35 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       transcriptItem: { id: 'entry-direct' },
     })
     expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('hands a delivered outcome for a row no longer queued to the ledger as late proof (POD-4840)', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'msg_late', 'msg_late')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_late',
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+      cause: 'unconfirmed',
+    })
+    expect(h.rows).toEqual([])
+    expect(h.provenLate).not.toHaveBeenCalled()
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_late',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-late' },
+    })
+    // Not `applied`: that settles a row. The ledger decides whether anything
+    // moves, and names the entry after it.
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.provenLate).toHaveBeenCalledExactlyOnceWith({ messageId: 'msg_late', sessionId: SID })
+    expect(h.named).toHaveBeenCalledWith({
+      messageId: 'msg_late',
+      sessionId: SID,
+      transcriptItem: { id: 'entry-late' },
+    })
   })
   it('keeps the row visibly queued when the contract refuses (not_running)', async () => {
     vi.useFakeTimers()

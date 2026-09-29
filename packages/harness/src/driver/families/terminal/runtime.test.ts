@@ -37,6 +37,7 @@ import {
   type BoundaryContextOperation,
   closesPasteEnvelope,
   ESC,
+  LATE_PROOF_WAIT_MS,
   type PendingInteraction,
   RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
   type RuntimeEvent,
@@ -346,6 +347,12 @@ interface World {
     sessionId: SessionId,
     options?: { prompt?: unknown; payload?: Record<string, unknown> },
   ): void
+  /** Run `fn` when the fake CLI receives the CR that submits a paste, with the
+   *  pasted text — the moment a send's window is open, whatever async path
+   *  (a delivery queue's drain) led to it. */
+  onSubmit(sessionId: SessionId, fn: (pasted: string) => void): void
+  /** Run `fn` on every frame the driver sends the host, as it is sent. */
+  onFrame(fn: (frame: DaemonMessage) => void): void
   /** Post a transcript record, as the harness's own store would. `reset` is the
    *  harness saying its store was REPLACED — a re-tail, a file rewrite, a resume
    *  rolling onto a new file — which is the case that used to mint a false
@@ -412,7 +419,18 @@ interface EchoRecord {
 }
 
 function makeWorld(
-  options: { readItems?: (session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef }, range: { limit: number }) => Promise<readonly TranscriptItem[]>; primeSource?: Parameters<typeof createTerminalRuntime>[1] } = {},
+  options: {
+    readItems?: (
+      session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef },
+      range: { limit: number },
+    ) => Promise<readonly TranscriptItem[]>
+    primeSource?: Parameters<typeof createTerminalRuntime>[1]
+    /** Fire each virtual timer in its own macrotask, as real timers fire, so
+     *  every promise chain a timer starts settles before the clock moves on.
+     *  The default steps the clock in microtasks, which lets it outrun an
+     *  async path (a delivery queue's drain) by minutes of virtual time. */
+    macrotaskTimers?: boolean
+  } = {},
 ): World {
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
@@ -424,6 +442,8 @@ function makeWorld(
   const frames: DaemonMessage[] = []
   const abandoned: World['abandoned'] = []
   const autoHook = new Map<SessionId, { prompt?: unknown; payload?: Record<string, unknown> }>()
+  const submitted = new Map<SessionId, (pasted: string) => void>()
+  const frameListeners: Array<(frame: DaemonMessage) => void> = []
   const pendingPaste = new Map<SessionId, string>()
   let runtime!: TerminalRuntime
   let bindOnLaunch = false
@@ -444,7 +464,10 @@ function makeWorld(
   const pump = (): void => {
     if (draining) return
     draining = true
-    queueMicrotask(() => {
+    const step = options.macrotaskTimers
+      ? (fn: () => void) => void setTimeout(fn, 0)
+      : queueMicrotask
+    step(() => {
       draining = false
       timers = timers.filter((timer) => !timer.cancelled)
       if (timers.length === 0) return
@@ -507,7 +530,10 @@ function makeWorld(
       mediaType: source.mediaType,
       kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
     }),
-    send: (msg) => frames.push(msg),
+    send: (msg) => {
+      frames.push(msg)
+      for (const listener of frameListeners) listener(msg)
+    },
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
@@ -597,6 +623,12 @@ function makeWorld(
     abandoned,
     hookOnSubmit: (sessionId, options) => {
       autoHook.set(sessionId, options ?? {})
+    },
+    onSubmit: (sessionId, fn) => {
+      submitted.set(sessionId, fn)
+    },
+    onFrame: (fn) => {
+      frameListeners.push(fn)
     },
     echo: (sessionId, text, options) => {
       const record = (entry: EchoRecord): TranscriptItem => {
@@ -1746,6 +1778,155 @@ describe('the echo floor', () => {
     await Promise.resolve()
     world.echo(sessionId, 'yes', { at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
     expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-1' } })
+  })
+})
+
+/**
+ * PROOF THAT LANDS AFTER THE WINDOW STILL COUNTS (POD-4840).
+ *
+ * A send whose echo did not land inside its window answers `unverified`, and
+ * its row settles `failed` with cause `unconfirmed` — `unknown` on the server.
+ * The echo watch stays open after that, bounded, and a record that lands
+ * later moves the row to `delivered`, naming the entry. The watch closes on
+ * its maximum wait, when another prompt is recorded after the send started
+ * (history keeps submit order, so ours would have come first), or when the
+ * history is rewritten. The start floor (POD-4838) holds for a late record
+ * exactly as for one inside the window.
+ */
+describe('late proof (POD-4840)', () => {
+  const FILE = 'segment-one'
+  const DATED: TerminalHarnessProfile = { ...GROK, transcriptTimestamps: { resolutionMs: 1 } }
+  const deliveries = (world: World) =>
+    world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'delivery' ? [frame.event] : [],
+    )
+  const UNCONFIRMED = {
+    t: 'delivery',
+    rowId: 'msg_late',
+    outcome: 'failed',
+    reason: 'delivery could not be confirmed; check the transcript before retrying',
+    cause: 'unconfirmed',
+  }
+  type Post = (world: World, sessionId: SessionId) => void
+  /**
+   * A durable row typed into a Grok session (echo proof only), with records
+   * posted on the world's clock, counted from one of two moments: its Enter
+   * (`submit`) or its `unconfirmed` outcome. Resolves once every timer has
+   * run out, the late watch's maximum included.
+   */
+  const run = async (
+    records: ReadonlyArray<readonly [from: 'submit' | 'unconfirmed', atMs: number, post: Post]>,
+    profile: TerminalHarnessProfile = GROK,
+  ) => {
+    const world = makeWorld({ macrotaskTimers: true })
+    const session = await world.runtime.driverFor('grok', profile).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // The conversation so far: one earlier prompt, an hour ago.
+    world.echo(sessionId, 'earlier prompt', {
+      at: { fileId: FILE, offset: 0 },
+      writtenAgoMs: 3_600_000,
+    })
+    const schedule = (from: 'submit' | 'unconfirmed') => {
+      for (const [when, atMs, post] of records) {
+        if (when === from) world.host.setTimer(() => post(world, sessionId), atMs)
+      }
+    }
+    world.onSubmit(sessionId, () => schedule('submit'))
+    const done = new Promise<void>((resolve) => {
+      world.onFrame((frame) => {
+        if (frame.type !== 'runtimeEvent' || frame.event.t !== 'delivery') return
+        if (frame.event.outcome !== 'failed') return
+        schedule('unconfirmed')
+        world.host.setTimer(resolve, LATE_PROOF_WAIT_MS + 60_000)
+      })
+    })
+    const receipt = await session.send(
+      { text: 'ship it', rowId: 'msg_late' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('queued')
+    await done
+    const outcomes = deliveries(world)
+    world.runtime.dispose()
+    return outcomes
+  }
+  const ours =
+    (offset: number, writtenAgoMs?: number): Post =>
+    (world, sessionId) =>
+      world.echo(sessionId, 'ship it', {
+        at: { fileId: FILE, offset },
+        ...(writtenAgoMs ? { writtenAgoMs } : {}),
+      })
+  const foreign: Post = (world, sessionId) =>
+    world.echo(sessionId, 'somebody else', { at: { fileId: FILE, offset: 50 } })
+
+  it('a record that lands after the window moves the unconfirmed row to delivered, naming it', async () => {
+    expect(await run([['unconfirmed', 5_000, ours(100)]])).toMatchObject([
+      UNCONFIRMED,
+      { t: 'delivery', rowId: 'msg_late', outcome: 'delivered', transcriptItem: { id: 'item-2' } },
+    ])
+  })
+
+  it('another prompt recorded after the start, inside the window, closes the watch', async () => {
+    expect(
+      await run([
+        ['submit', 1_000, foreign],
+        ['unconfirmed', 5_000, ours(100)],
+      ]),
+    ).toMatchObject([UNCONFIRMED])
+  })
+
+  it('another prompt recorded after the window closes the watch', async () => {
+    expect(
+      await run([
+        ['unconfirmed', 1_000, foreign],
+        ['unconfirmed', 5_000, ours(100)],
+      ]),
+    ).toMatchObject([UNCONFIRMED])
+  })
+
+  it('an older record a re-read carries does not close the watch', async () => {
+    // Passing, like crediting, counts only what was written after the start.
+    const reread: Post = (world, sessionId) =>
+      world.echo(sessionId, 'earlier prompt', {
+        at: { fileId: FILE, offset: 0 },
+        writtenAgoMs: 3_600_000,
+      })
+    const outcomes = await run([
+      ['unconfirmed', 1_000, reread],
+      ['unconfirmed', 5_000, ours(100)],
+    ])
+    expect(outcomes.map((event) => event.outcome)).toEqual(['failed', 'delivered'])
+  })
+
+  it('a rewrite of the history closes the watch', async () => {
+    const rewrite: Post = (world, sessionId) =>
+      world.echo(sessionId, 'earlier prompt', {
+        reset: true,
+        at: { fileId: FILE, offset: 0 },
+        writtenAgoMs: 3_600_000,
+      })
+    expect(
+      await run([
+        ['unconfirmed', 1_000, rewrite],
+        ['unconfirmed', 5_000, ours(100)],
+      ]),
+    ).toMatchObject([UNCONFIRMED])
+  })
+
+  it('the watch closes after its maximum wait', async () => {
+    expect(await run([['unconfirmed', LATE_PROOF_WAIT_MS + 30_000, ours(100)]])).toMatchObject([
+      UNCONFIRMED,
+    ])
+  })
+
+  it('a late record written before the send started proves nothing', async () => {
+    // The tailer hands it over late, and past the position, but the harness
+    // wrote it before the send began.
+    expect(await run([['unconfirmed', 5_000, ours(100, 15_000)]], DATED)).toMatchObject([
+      UNCONFIRMED,
+    ])
   })
 })
 
