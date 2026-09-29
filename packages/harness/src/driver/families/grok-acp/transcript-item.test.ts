@@ -505,3 +505,43 @@ describe("Grok's own history names the entry by the same id", () => {
     }
   })
 })
+
+describe("Grok's own id for our message (POD-4841)", () => {
+  it('names the promptId the prompt runs under, on the receipt and with the entry', async () => {
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const named: unknown[] = []
+      const receipt = await handle.send(
+        { id: 'msg_ship', text: 'ship it' },
+        {
+          origin: 'human',
+          delivery: 'when-ready',
+          onTranscriptItem: (item, harnessRef) => named.push([item, harnessRef]),
+        },
+      )
+      const ref = [{ kind: 'grok-prompt', id: 'msg_ship' }]
+      expect(receipt).toMatchObject({ outcome: 'accepted', harnessRef: ref })
+      w.serverFor(handle.binding.sessionId).streamAgentText(['on it'])
+      expect(named).toEqual([[{ id: 'grok-user-msg_ship' }, ref]])
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('names the promptId it minted for a send with no id', async () => {
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const receipt = await handle.send({ text: 'no id' }, { origin: 'human', delivery: 'when-ready' })
+      const promptId = (
+        w.serverFor(handle.binding.sessionId).prompts.at(-1)?._meta as { promptId?: string }
+      )?.promptId
+      expect(receipt).toMatchObject({ harnessRef: [{ kind: 'grok-prompt', id: promptId }] })
+    } finally {
+      runtime.dispose()
+    }
+  })
+})

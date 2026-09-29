@@ -13,6 +13,7 @@ import { classifyGrokProviderFailure, translateGrokUpdatePayload } from '../../.
 import { initialAgentState, reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
+  HarnessRef,
   ResumeRef,
   SessionId,
   TranscriptItem,
@@ -193,6 +194,10 @@ interface BufferedToolResult {
  * entry carries the message's own id.
  */
 const grokUserItemId = (promptId: string): string => `grok-user-${promptId}`
+
+/** The promptId the prompt runs under: ours, or the one minted for a send
+ *  with no id. Grok keeps it as the turn's id (POD-4841). */
+const grokPromptRef = (promptId: string): HarnessRef => [{ kind: 'grok-prompt', id: promptId }]
 
 /**
  * ONE `session/prompt` ON ITS WAY THROUGH GROK (POD-4837).
@@ -759,6 +764,7 @@ export function createGrokAcpRuntime(
       turnEpoch: epoch,
       deliveredAs: delivery.deliveredAs,
       provenBy: 'protocol-ack',
+      harnessRef: grokPromptRef(promptId),
       at,
     })
     delivery.decide()
@@ -778,7 +784,7 @@ export function createGrokAcpRuntime(
     const id = grokUserItemId(promptId)
     const at = delivery.ackedAt ?? iso()
     addItem(session, { id, role: 'user', text: delivery.text, ts: at }, at, 'live')
-    delivery.onTranscriptItem?.({ id })
+    delivery.onTranscriptItem?.({ id }, grokPromptRef(promptId))
   }
 
   function ingestQueueChanged(session: DriverSession, frame: GrokAcpFrame): void {
@@ -1531,6 +1537,7 @@ export function createGrokAcpRuntime(
       deliveredAs,
       provenBy: 'transcript-echo',
       transcriptItem: { id: grokUserItemId(promptId) },
+      harnessRef: grokPromptRef(promptId),
       at,
     }
   }
