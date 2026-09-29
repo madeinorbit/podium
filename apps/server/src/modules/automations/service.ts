@@ -15,9 +15,8 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { createLogger, describeError } from '@podium/logger'
-import type { IssueId, SessionId, MutationId, AutomationId } from '@podium/model'
+import type { IssueId, SessionId, AutomationId } from '@podium/model'
 import {
-  asMutationId,
   type AgentKind,
   type AutomationScheduleKind,
   type AutomationSessionMode,
@@ -37,6 +36,7 @@ import type {
   AutomationsRepository,
 } from '../../store/automations'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
+import type { DeliverAutomationPrompt } from './prompt'
 
 const log = createLogger('server:automations')
 
@@ -56,28 +56,11 @@ export interface AutomationsDeps {
     issueId?: IssueId
     ownerUserId: UserId
   }): Promise<{ sessionId: SessionId }> | { sessionId: SessionId }
-  /** SessionLifecycle.queueText — the durable outbox (see `spawn` below for why
-   *  this and not `initialPrompt`). */
-  queueText(input: {
-    sessionId: SessionId
-    text: string
-    mutationId?: MutationId
-    inputOrigin?: 'system'
-  }): Promise<{
-    ok: boolean
-    reason?: string
-  }> | {
-    ok: boolean
-    reason?: string
-  }
-  /** Wake and deliver to the previous run's session in resume mode. */
-  resumeAndSend(input: { sessionId: SessionId; text: string; mutationId?: MutationId }): Promise<{
-    ok: boolean
-    reason?: string
-  }> | {
-    ok: boolean
-    reason?: string
-  }
+  /** Deliver a run's prompt to a session as its owner's message
+   *  ({@link automationPromptSender}, POD-4846). `resume` answers 'unknown
+   *  session' / 'no resume ref' without storing anything, so the run falls back
+   *  to a fresh session. */
+  deliverPrompt: DeliverAutomationPrompt
   /** A fresh run owns a fresh automation-typed issue and attached session. */
   createIssue(input: {
     repoPath: string
@@ -611,9 +594,10 @@ export class AutomationsService {
    * issue/session. Other resume failures are honest error runs. Fresh mode creates
    * an automation-typed issue for every occurrence and attaches the new session.
    *
-   * Fresh prompt delivery uses queueText rather than initialPrompt so every harness
-   * gets the turn through the durable outbox. The run id is the replay-safe outbox
-   * mutation id.
+   * Both modes deliver the prompt as the owner's message (POD-4846) rather than
+   * as an initialPrompt, so every harness gets the turn through the durable
+   * queue. Its id derives from the run id and the session, so a replayed run
+   * stores and types it once.
    */
   private async spawn(automation: AutomationRow, runId: string): Promise<SessionId> {
     const principal = await this.deps.principalForOwner(automation.ownerUserId)
@@ -627,10 +611,13 @@ export class AutomationsService {
       const previousSessionId =
         automation.targetSessionId ?? (await this.deps.store.lastSpawnedSessions()).get(automation.id)
       if (previousSessionId) {
-        const resumed = await this.deps.resumeAndSend({
+        const resumed = await this.deps.deliverPrompt({
+          automationId: automation.id,
+          ownerUserId: automation.ownerUserId,
+          runId,
           sessionId: previousSessionId,
           text: automation.prompt,
-          mutationId: asMutationId(runId),
+          resume: true,
         })
         if (resumed.ok) return previousSessionId
         const reason = resumed.reason ?? 'unknown resume failure'
@@ -685,11 +672,13 @@ export class AutomationsService {
       issueId: issue.id,
       ownerUserId: automation.ownerUserId,
     })
-    const queued = await this.deps.queueText({
+    const queued = await this.deps.deliverPrompt({
+      automationId: automation.id,
+      ownerUserId: automation.ownerUserId,
+      runId,
       sessionId,
       text: automation.prompt,
-      mutationId: asMutationId(runId),
-      inputOrigin: 'system',
+      resume: false,
     })
     if (!queued.ok) {
       throw new AutomationSpawnError(

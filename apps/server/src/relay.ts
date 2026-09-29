@@ -87,6 +87,7 @@ import { type CodexTransport, llmClient } from './llm'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
+import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
@@ -193,10 +194,10 @@ import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
-import { systemIssueNotice } from './system-notices'
 import { SessionStore } from './store'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
+import { systemIssueNotice } from './system-notices'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
@@ -2518,16 +2519,12 @@ export class SessionRegistry {
       store: this.store.automations,
       ledger,
       createSession: async (o) => await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),
-      // MIGRATED AT THE PORT, NOT IN THE SERVICE (POD-1761 W4, C4). Automations
-      // already names its two transports as ports and asks nothing about session
-      // phase — the delivery decision it makes is "durable outbox for a fresh
-      // prompt, wake for a resume", which is a policy the contract expresses
-      // directly. So the honest migration is to point the ports at the seam and
-      // leave the service alone; rewriting it would change code that was never
-      // the problem, and its `{ok, reason}` handling (spawn throws
-      // AutomationSpawnError on a rejected prompt) is unchanged either way.
-      queueText: async (o) => await sessionsSvc.receiptSend('queue', o),
-      resumeAndSend: async (o) => await sessionsSvc.receiptSend('wake', o),
+      // A run's prompt is its owner's message (POD-4846): stored, typed without a
+      // frame, attributed to the automation, followed by its delivery status.
+      deliverPrompt: automationPromptSender({
+        messages: messagesSvc,
+        sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+      }),
       createIssue: async (o) => {
         const issue = await issues.create({
           ...o,
