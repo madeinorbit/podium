@@ -1,0 +1,188 @@
+
+===== 1790699786535 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…-facts/…/tui/t-order/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Use /init to create an AGENTS.md with project-specific guidance.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-order/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699801092 after order
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…-facts/…/tui/t-order/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Use /init to create an AGENTS.md with project-specific guidance.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› D1 daemon enter second
+
+
+• ok4
+
+  done 6:36 PM
+
+
+› P1 person tab-queued first
+
+
+• ok6
+
+  done 6:36 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-order/work
+
+
+
+===== 1790699816521 after race
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› D1 daemon enter second
+
+
+• ok4
+
+  done 6:36 PM
+
+
+› P1 person tab-queued first
+
+
+• ok6
+
+  done 6:36 PM
+
+
+› SLOWTEXT race-a
+
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› RACE-B right after
+
+
+• ok10
+
+  done 6:36 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-order/work
+
+===== 1790699830190 after bg
+
+
+› D1 daemon enter second
+
+
+• ok4
+
+  done 6:36 PM
+
+
+› P1 person tab-queued first
+
+
+• ok6
+
+  done 6:36 PM
+
+
+› SLOWTEXT race-a
+
+
+• slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 slow12 slow13 slow14 slow15 slow16 slow17 slow18 slow19 slow20
+
+
+› RACE-B right after
+
+
+• ok10
+
+  done 6:36 PM
+
+
+› TOOLBG start a background terminal
+
+
+• ok15
+
+  done 6:36 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-order/work
+
+

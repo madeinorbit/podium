@@ -1,0 +1,6 @@
++4860 thread/read after interrupt:
+   turn 01a0edf3-ee45-7211-9123-3c4fdf378fe7 interrupted startedAt=1790698581 users=[our_busy="SLOWTEXT busy"] items=userMessage
++4863 thread/queue/list after interrupt: ["our_queued"]
++13924 thread/read end:
+   turn 01a0edf3-ee45-7211-9123-3c4fdf378fe7 interrupted startedAt=1790698581 users=[our_busy="SLOWTEXT busy"] items=userMessage
++13929 thread/queue/list end: ["our_queued"]

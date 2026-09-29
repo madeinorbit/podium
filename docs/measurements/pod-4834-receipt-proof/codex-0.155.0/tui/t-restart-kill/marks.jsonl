@@ -1,0 +1,16 @@
+{"at":1790699294411,"dir":"mark","label":"launch codex","extra":{"args":[]}}
+{"at":1790699314469,"dir":"mark","label":"waitLog timeout hooks.jsonl /\"ev\":\"SessionStart\"/","extra":{}}
+{"at":1790699316985,"dir":"mark","label":"type one","extra":{}}
+{"at":1790699317630,"dir":"mark","label":"send one Enter","extra":{}}
+{"at":1790699318910,"dir":"mark","label":"type busy","extra":{}}
+{"at":1790699319538,"dir":"mark","label":"send busy Enter","extra":{}}
+{"at":1790699320419,"dir":"mark","label":"type gamma","extra":{}}
+{"at":1790699321060,"dir":"mark","label":"send gamma Enter","extra":{}}
+{"at":1790699321594,"dir":"mark","label":"type epsilon","extra":{}}
+{"at":1790699322384,"dir":"mark","label":"send epsilon Tab","extra":{}}
+{"at":1790699323423,"dir":"mark","label":"kill -9 codex","extra":{"pids":[1021849,1021859,1023936]}}
+{"at":1790699324928,"dir":"mark","label":"kill tmux session","extra":{}}
+{"at":1790699325947,"dir":"mark","label":"launch codex","extra":{"args":["resume","--last"]}}
+{"at":1790699340541,"dir":"mark","label":"type two","extra":{}}
+{"at":1790699341148,"dir":"mark","label":"send two Enter","extra":{}}
+{"at":1790699342302,"dir":"mark","label":"kill tmux session","extra":{}}

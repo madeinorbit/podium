@@ -1,0 +1,94 @@
+
+===== 1790699028375 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…t-facts/…/tui/t-idle/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: See the Codex keymap documentation for supported actions and examples.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-idle/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699033040 end
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…t-facts/…/tui/t-idle/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: See the Codex keymap documentation for supported actions and examples.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› ALPHA idle
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• ok1
+
+  done 6:23 PM
+
+
+› SAME text twice
+
+
+• ok3
+
+  done 6:23 PM
+
+
+› SAME text twice
+
+
+• ok5
+
+  done 6:23 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-idle/work
+

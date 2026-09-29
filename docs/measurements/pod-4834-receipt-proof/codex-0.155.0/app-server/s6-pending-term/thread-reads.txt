@@ -1,0 +1,6 @@
++4219 thread/read after restart:
+   turn 01a0edf5-147f-7ad3-a666-be9664077767 interrupted startedAt=1790698656 users=[our_busy="TOOLSLEEP busy"] items=userMessage,commandExecution
++4235 thread/queue/list after restart: ["our_queued"]
++10369 thread/read after 6s:
+   turn 01a0edf5-147f-7ad3-a666-be9664077767 interrupted startedAt=1790698656 users=[our_busy="TOOLSLEEP busy"] items=userMessage,commandExecution
++10379 thread/queue/list after 6s: ["our_queued"]

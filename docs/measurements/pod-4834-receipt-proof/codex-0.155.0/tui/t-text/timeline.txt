@@ -1,0 +1,100 @@
+ -25030  MODEL           # listening
+ -24560  QUEUEDB         queued_items=[]
+ -23304  MARK            launch codex {"args":[]}
+  -3191  MARK            waitLog timeout hooks.jsonl /"ev":"SessionStart"/ {}
+   -648  MARK            type ws {}
+      0  MARK            send ws Enter {}
+     63  FILE:rollout#1  session_meta {"session_id":"01a0ee01-a15d-7631-8d31-b9fce919f112","id":"01a0ee01-a15d-7631-8d31-b9fce91…(21814) [ts 2026-09-29T16:31:42.000Z]
+     63  FILE:rollout#2  event_msg/task_started turn=01a0ee01-f991-7f51-8898-e0377174bf98 [ts 2026-09-29T16:31:42.002Z]
+     73  FILE:hist       history.jsonl ts=1790699502 "lead and trail spaces"
+    364  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(4310)" id=msg_01a0ee01-fae6-7811-8fba-e758e4b67654 [ts 2026-09-29T16:31:42.310Z]
+    364  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(625)" id=msg_01a0ee01-fae6-7811-8fba-e762bd23ec26 [ts 2026-09-29T16:31:42.311Z]
+    375  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3949) [ts 2026-09-29T16:31:42.315Z]
+    375  FILE:rollout#6  turn_context turn=01a0ee01-f991-7f51-8898-e0377174bf98 [ts 2026-09-29T16:31:42.316Z]
+    407  HOOK            SessionStart turn_id=- source=startup
+    551  HOOK            UserPromptSubmit turn_id=01a0ee01-f991-7f51-8898-e0377174bf98 prompt="lead and trail spaces"
+    559  FILE:rollout#7  response_item/message:user "lead and trail spaces" id=msg_01a0ee01-fba8-7990-8d6a-66a7417bb083 [ts 2026-09-29T16:31:42.505Z]
+    570  FILE:rollout#8  event_msg/item_completed turn=01a0ee01-f991-7f51-8898-e0377174bf98 [ts 2026-09-29T16:31:42.508Z]
+    657  MODEL           #1 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(625)","lead and trail spaces"]
+    658  MODEL           #1 stream-done quick
+    794  FILE:rollout#9  event_msg/item_completed turn=01a0ee01-f991-7f51-8898-e0377174bf98 [ts 2026-09-29T16:31:42.711Z]
+    819  FILE:rollout#10 response_item/message:assistant "ok1 " id=msg_fake1 [ts 2026-09-29T16:31:42.758Z]
+    840  FILE:rollout#11 token_usage_record {"thread_id":"01a0ee01-a15d-7631-8d31-b9fce919f112","turn_id":"01a0ee01-f991-7f51-8898-e03…(693) [ts 2026-09-29T16:31:42.783Z]
+    968  FILE:rollout#12 event_msg/token_count [ts 2026-09-29T16:31:42.907Z]
+   1008  HOOK            Stop turn_id=01a0ee01-f991-7f51-8898-e0377174bf98
+   1014  MODEL           #2 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(434)"]
+   1014  MODEL           #2 stream-done quick
+   1162  FILE:rollout#13 event_msg/task_complete turn=01a0ee01-f991-7f51-8898-e0377174bf98 [ts 2026-09-29T16:31:43.099Z]
+   1530  MARK            paste multiline {"len":41}
+   2351  MARK            send multiline Enter {}
+   2368  FILE:rollout#14 event_msg/thread_settings_applied [ts 2026-09-29T16:31:44.314Z]
+   2378  FILE:rollout#15 event_msg/task_started turn=01a0ee02-02b8-7680-a081-2457b4af72d8 [ts 2026-09-29T16:31:44.325Z]
+   2388  FILE:hist       history.jsonl ts=1790699504 "pasted line1
+
+  line3 indented
+line4	tab"
+   2410  FILE:rollout#16 turn_context turn=01a0ee02-02b8-7680-a081-2457b4af72d8 [ts 2026-09-29T16:31:44.351Z]
+   2464  HOOK            UserPromptSubmit turn_id=01a0ee02-02b8-7680-a081-2457b4af72d8 prompt="pasted line1
+
+  line3 indented
+line4	tab"
+   2576  FILE:rollout#17 response_item/message:user "pasted line1
+
+  line3 indented
+line4	tab" id=msg_01a0ee02-0374-7481-a0a5-53f3b9e47694 [ts 2026-09-29T16:31:44.500Z]
+   2586  FILE:rollout#18 event_msg/item_completed turn=01a0ee02-02b8-7680-a081-2457b4af72d8 [ts 2026-09-29T16:31:44.532Z]
+   2847  MODEL           #3 request mode=quick items=5 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(625)","lead and trail spaces","pasted line1\n\n  line3 indented\nline4\ttab"]
+   2847  MODEL           #3 stream-done quick
+   2859  FILE:rollout#19 event_msg/item_completed turn=01a0ee02-02b8-7680-a081-2457b4af72d8 [ts 2026-09-29T16:31:44.798Z]
+   2871  FILE:rollout#20 response_item/message:assistant "ok3 " id=msg_fake3 [ts 2026-09-29T16:31:44.811Z]
+   2882  FILE:rollout#21 token_usage_record {"thread_id":"01a0ee01-a15d-7631-8d31-b9fce919f112","turn_id":"01a0ee02-02b8-7680-a081-245…(694) [ts 2026-09-29T16:31:44.819Z]
+   2893  FILE:rollout#22 event_msg/token_count [ts 2026-09-29T16:31:44.836Z]
+   2933  HOOK            Stop turn_id=01a0ee02-02b8-7680-a081-2457b4af72d8
+   2935  MODEL           #4 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(453)"]
+   2935  MODEL           #4 stream-done quick
+   3055  FILE:rollout#23 event_msg/task_complete turn=01a0ee02-02b8-7680-a081-2457b4af72d8 [ts 2026-09-29T16:31:44.988Z]
+   3454  MARK            paste long {"len":15889}
+   4974  MARK            send long Enter {}
+   5001  FILE:rollout#24 event_msg/thread_settings_applied [ts 2026-09-29T16:31:46.941Z]
+   5001  FILE:rollout#25 event_msg/task_started turn=01a0ee02-0cf8-7203-8b0d-3351df334fc4 [ts 2026-09-29T16:31:46.946Z]
+   5001  FILE:hist       history.jsonl ts=1790699506 "long 0 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+long 1 yyyyyyyyyyyyyyy…(15889)"
+   5068  FILE:rollout#26 turn_context turn=01a0ee02-0cf8-7203-8b0d-3351df334fc4 [ts 2026-09-29T16:31:47.014Z]
+   5106  HOOK            UserPromptSubmit turn_id=01a0ee02-0cf8-7203-8b0d-3351df334fc4 prompt="long 0 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+long 1 yyyyyyyyyyyyyyy…(15889)"
+   5130  FILE:rollout#27 response_item/message:user "long 0 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+long 1 yyyyyyyyyyyyyyyyyyyyyyyyy…(15889)" id=msg_01a0ee02-0d7c-7710-b3b1-0f29dfc5d889 [ts 2026-09-29T16:31:47.069Z]
+   5130  FILE:rollout#28 event_msg/item_completed turn=01a0ee02-0cf8-7203-8b0d-3351df334fc4 [ts 2026-09-29T16:31:47.072Z]
+   5208  MODEL           #5 request mode=quick items=7 lastItem=message:user users(last3)=["lead and trail spaces","pasted line1\n\n  line3 indented\nline4\ttab","long 0 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\nlo…(15889)"]
+   5209  MODEL           #5 stream-done quick
+   5214  FILE:rollout#29 event_msg/item_completed turn=01a0ee02-0cf8-7203-8b0d-3351df334fc4 [ts 2026-09-29T16:31:47.160Z]
+   5245  FILE:rollout#30 response_item/message:assistant "ok5 " id=msg_fake5 [ts 2026-09-29T16:31:47.186Z]
+   5256  FILE:rollout#31 token_usage_record {"thread_id":"01a0ee01-a15d-7631-8d31-b9fce919f112","turn_id":"01a0ee02-0cf8-7203-8b0d-335…(694) [ts 2026-09-29T16:31:47.195Z]
+   5256  FILE:rollout#32 event_msg/token_count [ts 2026-09-29T16:31:47.198Z]
+   5286  HOOK            Stop turn_id=01a0ee02-0cf8-7203-8b0d-3351df334fc4
+   5288  MODEL           #6 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(960)"]
+   5289  MODEL           #6 stream-done quick
+   5307  FILE:rollout#33 event_msg/task_complete turn=01a0ee02-0cf8-7203-8b0d-3351df334fc4 [ts 2026-09-29T16:31:47.250Z]
+   5803  MARK            paste unicode {"len":54}
+   6642  MARK            send unicode Enter {}
+   6695  FILE:rollout#34 event_msg/thread_settings_applied [ts 2026-09-29T16:31:48.633Z]
+   6787  FILE:rollout#35 event_msg/task_started turn=01a0ee02-1394-7f23-8925-153223ed76d6 [ts 2026-09-29T16:31:48.725Z]
+   6787  FILE:hist       history.jsonl ts=1790699508 "nfc:é nfd:é emoji:👩‍👩‍👧 rtl:שלום zwsp:[​] nbsp:[ ]"
+   6912  FILE:rollout#36 turn_context turn=01a0ee02-1394-7f23-8925-153223ed76d6 [ts 2026-09-29T16:31:48.851Z]
+   7061  HOOK            UserPromptSubmit turn_id=01a0ee02-1394-7f23-8925-153223ed76d6 prompt="nfc:é nfd:é emoji:👩‍👩‍👧 rtl:שלום zwsp:[​] nbsp:[ ]"
+   7125  FILE:rollout#37 response_item/message:user "nfc:é nfd:é emoji:👩‍👩‍👧 rtl:שלום zwsp:[​] nbsp:[ ]" id=msg_01a0ee02-1542-77e1-8a18-28fea3db0be2 [ts 2026-09-29T16:31:49.058Z]
+   7166  FILE:rollout#38 event_msg/item_completed turn=01a0ee02-1394-7f23-8925-153223ed76d6 [ts 2026-09-29T16:31:49.104Z]
+   7477  MODEL           #7 request mode=quick items=9 lastItem=message:user users(last3)=["pasted line1\n\n  line3 indented\nline4\ttab","long 0 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\nlo…(15889)","nfc:é nfd:é emoji:👩‍👩‍👧 rtl:שלום zws…(54)"]
+   7477  MODEL           #7 stream-done quick
+   7494  FILE:rollout#39 event_msg/item_completed turn=01a0ee02-1394-7f23-8925-153223ed76d6 [ts 2026-09-29T16:31:49.428Z]
+   7505  FILE:rollout#40 response_item/message:assistant "ok7 " id=msg_fake7 [ts 2026-09-29T16:31:49.443Z]
+   7505  FILE:rollout#41 token_usage_record {"thread_id":"01a0ee01-a15d-7631-8d31-b9fce919f112","turn_id":"01a0ee02-1394-7f23-8925-153…(694) [ts 2026-09-29T16:31:49.446Z]
+   7505  FILE:rollout#42 event_msg/token_count [ts 2026-09-29T16:31:49.447Z]
+   7625  HOOK            Stop turn_id=01a0ee02-1394-7f23-8925-153223ed76d6
+   7650  FILE:rollout#43 event_msg/task_complete turn=01a0ee02-1394-7f23-8925-153223ed76d6 [ts 2026-09-29T16:31:49.585Z]
+   7651  MODEL           #8 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(467)"]
+   7651  MODEL           #8 stream-done quick
+   8157  MARK            kill tmux session {}

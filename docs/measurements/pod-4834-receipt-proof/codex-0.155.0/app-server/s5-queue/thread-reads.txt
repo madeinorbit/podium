@@ -1,0 +1,5 @@
++13103 thread/read end:
+   turn 01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa completed startedAt=1790698599 users=[our_busy="TOOLSLEEP busy"] items=userMessage,commandExecution,agentMessage
+   turn 01a0edf4-583c-7cc3-b6db-ba024a9f5787 completed startedAt=1790698608 users=[our_dup="same id twice"] items=userMessage,agentMessage
+   turn 01a0edf4-59d1-7742-9079-64d3f064d9e9 completed startedAt=1790698609 users=[our_dup="same id twice"] items=userMessage,agentMessage
++13104 thread/queue/list end: []

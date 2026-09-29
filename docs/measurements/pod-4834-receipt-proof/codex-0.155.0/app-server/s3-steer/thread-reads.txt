@@ -1,0 +1,3 @@
++14083 thread/read end:
+   turn 01a0edf2-a888-7ba1-9137-1179dfb378d8 completed startedAt=1790698498 users=[our_busy="SLOWTEXT busy", our_second="second while busy"] items=userMessage,agentMessage,userMessage,agentMessage
++14085 thread/queue/list end: []

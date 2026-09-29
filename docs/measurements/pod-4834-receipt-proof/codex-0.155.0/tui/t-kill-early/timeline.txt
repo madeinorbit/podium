@@ -1,0 +1,40 @@
+ -24880  MODEL           # listening
+ -24586  QUEUEDB         queued_items=[]
+ -23228  MARK            launch codex {"args":[]}
+  -3173  MARK            waitLog timeout hooks.jsonl /"ev":"SessionStart"/ {}
+   -649  MARK            type one {}
+      0  MARK            send one Enter {}
+     51  FILE:rollout#1  session_meta {"session_id":"01a0ee05-6181-7321-b9d2-fc4e8efd3768","id":"01a0ee05-6181-7321-b9d2-fc4e8ef…(21826) [ts 2026-09-29T16:35:47.945Z]
+     51  FILE:rollout#2  event_msg/task_started turn=01a0ee05-ba4f-7b61-9ea2-907de7bee72f [ts 2026-09-29T16:35:47.947Z]
+     51  FILE:hist       history.jsonl ts=1790699747 "ONE first"
+    191  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(4316)" id=msg_01a0ee05-bac1-7b70-ae92-8f1f0f69656c [ts 2026-09-29T16:35:48.049Z]
+    191  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(637)" id=msg_01a0ee05-bac1-7b70-ae92-8f24b1be7e71 [ts 2026-09-29T16:35:48.073Z]
+    274  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3967) [ts 2026-09-29T16:35:48.167Z]
+    274  FILE:rollout#6  turn_context turn=01a0ee05-ba4f-7b61-9ea2-907de7bee72f [ts 2026-09-29T16:35:48.170Z]
+    322  HOOK            SessionStart turn_id=- source=startup
+    402  HOOK            UserPromptSubmit turn_id=01a0ee05-ba4f-7b61-9ea2-907de7bee72f prompt="ONE first"
+    411  FILE:rollout#7  response_item/message:user "ONE first" id=msg_01a0ee05-bbd3-72c3-800a-78aeb9f0e5b1 [ts 2026-09-29T16:35:48.308Z]
+    411  FILE:rollout#8  event_msg/item_completed turn=01a0ee05-ba4f-7b61-9ea2-907de7bee72f [ts 2026-09-29T16:35:48.310Z]
+    478  MODEL           #1 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(637)","ONE first"]
+    480  MODEL           #1 stream-done quick
+    493  FILE:rollout#9  event_msg/item_completed turn=01a0ee05-ba4f-7b61-9ea2-907de7bee72f [ts 2026-09-29T16:35:48.387Z]
+    503  FILE:rollout#10 response_item/message:assistant "ok1 " id=msg_fake1 [ts 2026-09-29T16:35:48.391Z]
+    503  FILE:rollout#11 token_usage_record {"thread_id":"01a0ee05-6181-7321-b9d2-fc4e8efd3768","turn_id":"01a0ee05-ba4f-7b61-9ea2-907…(693) [ts 2026-09-29T16:35:48.397Z]
+    503  FILE:rollout#12 event_msg/token_count [ts 2026-09-29T16:35:48.401Z]
+    522  HOOK            Stop turn_id=01a0ee05-ba4f-7b61-9ea2-907de7bee72f
+    543  FILE:rollout#13 event_msg/task_complete turn=01a0ee05-ba4f-7b61-9ea2-907de7bee72f [ts 2026-09-29T16:35:48.431Z]
+    570  MODEL           #2 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(422)"]
+    570  MODEL           #2 stream-done quick
+   1055  MARK            type killed {}
+   1782  MARK            send killed Enter {}
+   1802  FILE:rollout#14 event_msg/thread_settings_applied [ts 2026-09-29T16:35:49.695Z]
+   1813  FILE:rollout#15 event_msg/task_started turn=01a0ee05-c139-7a12-9172-ad00b96d8b9d [ts 2026-09-29T16:35:49.705Z]
+   1813  FILE:hist       history.jsonl ts=1790699749 "SLOWTEXT killed early"
+   1825  MARK            kill -9 codex {"pids":[1049722,1049732]}
+   2830  MARK            kill tmux session {}
+   2837  MARK            launch codex {"args":["resume","--last"]}
+   4192  FILE:rollout#16 event_msg/thread_settings_applied [ts 2026-09-29T16:35:52.086Z]
+  11454  MARK            kill tmux session {}

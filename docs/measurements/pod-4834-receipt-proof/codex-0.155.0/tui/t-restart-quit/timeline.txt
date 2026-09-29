@@ -1,0 +1,89 @@
+ -25274  MODEL           # listening
+ -24663  QUEUEDB         queued_items=[]
+ -23335  MARK            launch codex {"args":[]}
+  -3261  MARK            waitLog timeout hooks.jsonl /"ev":"SessionStart"/ {}
+   -611  MARK            type one {}
+      0  MARK            send one Enter {}
+     67  FILE:rollout#1  session_meta {"session_id":"01a0ee00-b1f3-7b82-bd4a-92bed3f414c0","id":"01a0ee00-b1f3-7b82-bd4a-92bed3f…(21830) [ts 2026-09-29T16:30:40.778Z]
+     67  FILE:rollout#2  event_msg/task_started turn=01a0ee01-0a63-7ee2-a784-33a857bc13ac [ts 2026-09-29T16:30:40.779Z]
+     67  FILE:hist       history.jsonl ts=1790699440 "ONE before restart"
+    181  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(4318)" id=msg_01a0ee01-0af8-7982-b3b4-f4d33f025ce5 [ts 2026-09-29T16:30:40.889Z]
+    181  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(641)" id=msg_01a0ee01-0af8-7982-b3b4-f4e6a4f0acc3 [ts 2026-09-29T16:30:40.889Z]
+    193  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3973) [ts 2026-09-29T16:30:40.902Z]
+    203  FILE:rollout#6  turn_context turn=01a0ee01-0a63-7ee2-a784-33a857bc13ac [ts 2026-09-29T16:30:40.919Z]
+    245  HOOK            SessionStart turn_id=- source=startup
+    332  HOOK            UserPromptSubmit turn_id=01a0ee01-0a63-7ee2-a784-33a857bc13ac prompt="ONE before restart"
+    342  FILE:rollout#7  response_item/message:user "ONE before restart" id=msg_01a0ee01-0ba0-7aa1-9072-44d7cb1a6120 [ts 2026-09-29T16:30:41.057Z]
+    352  FILE:rollout#8  event_msg/item_completed turn=01a0ee01-0a63-7ee2-a784-33a857bc13ac [ts 2026-09-29T16:30:41.067Z]
+    465  MODEL           #1 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(641)","ONE before restart"]
+    473  MODEL           #1 stream-done quick
+    486  FILE:rollout#9  event_msg/item_completed turn=01a0ee01-0a63-7ee2-a784-33a857bc13ac [ts 2026-09-29T16:30:41.194Z]
+    498  FILE:rollout#10 response_item/message:assistant "ok1 " id=msg_fake1 [ts 2026-09-29T16:30:41.205Z]
+    498  FILE:rollout#11 token_usage_record {"thread_id":"01a0ee00-b1f3-7b82-bd4a-92bed3f414c0","turn_id":"01a0ee01-0a63-7ee2-a784-33a…(693) [ts 2026-09-29T16:30:41.208Z]
+    521  FILE:rollout#12 event_msg/token_count [ts 2026-09-29T16:30:41.237Z]
+    541  MODEL           #2 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(431)"]
+    541  MODEL           #2 stream-done quick
+    608  HOOK            Stop turn_id=01a0ee01-0a63-7ee2-a784-33a857bc13ac
+    637  FILE:rollout#13 event_msg/task_complete turn=01a0ee01-0a63-7ee2-a784-33a857bc13ac [ts 2026-09-29T16:30:41.353Z]
+   1140  MARK            type busy {}
+   1764  MARK            send busy Enter {}
+   1790  FILE:rollout#14 event_msg/thread_settings_applied [ts 2026-09-29T16:30:42.506Z]
+   1826  FILE:rollout#15 event_msg/task_started turn=01a0ee01-1143-71c1-b361-22def99422f6 [ts 2026-09-29T16:30:42.533Z]
+   1826  FILE:hist       history.jsonl ts=1790699442 "TOOLSLEEP busy"
+   1836  FILE:rollout#16 turn_context turn=01a0ee01-1143-71c1-b361-22def99422f6 [ts 2026-09-29T16:30:42.551Z]
+   1864  HOOK            UserPromptSubmit turn_id=01a0ee01-1143-71c1-b361-22def99422f6 prompt="TOOLSLEEP busy"
+   1877  FILE:rollout#17 response_item/message:user "TOOLSLEEP busy" id=msg_01a0ee01-119c-72f1-9e0e-6b2e59b2e726 [ts 2026-09-29T16:30:42.589Z]
+   1889  FILE:rollout#18 event_msg/item_completed turn=01a0ee01-1143-71c1-b361-22def99422f6 [ts 2026-09-29T16:30:42.601Z]
+   2028  MODEL           #3 request mode=tool items=5 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(641)","ONE before restart","TOOLSLEEP busy"]
+   2067  MODEL           #3 stream-done tool
+   2089  FILE:rollout#19 response_item/function_call id=fc_fake3 call=call_fake3 [ts 2026-09-29T16:30:42.790Z]
+   2125  FILE:rollout#20 token_usage_record {"thread_id":"01a0ee00-b1f3-7b82-bd4a-92bed3f414c0","turn_id":"01a0ee01-1143-71c1-b361-22d…(694) [ts 2026-09-29T16:30:42.839Z]
+   2137  HOOK            PreToolUse turn_id=01a0ee01-1143-71c1-b361-22def99422f6 tool={"command":"sleep 8"}
+   2257  MODEL           #4 request mode=tool items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(427)"]
+   2257  MODEL           #4 stream-done tool
+   2293  MODEL           #5 request mode=quick items=5 lastItem=function_call_output users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(427)"]
+   2296  MODEL           #5 stream-done quick
+   2671  MARK            type gamma {}
+   3293  MARK            send gamma Enter {}
+   3318  FILE:hist       history.jsonl ts=1790699444 "GAMMA pending steer at exit"
+   3813  MARK            type epsilon {}
+   4441  MARK            send epsilon Tab {}
+   5267  MARK            send ctrl-c 1 {}
+   5339  FILE:rollout#21 response_item/function_call_output id=fco_01a0ee01-1f1b-7012-8921-c87a1eddac84 call=call_fake3 [ts 2026-09-29T16:30:46.043Z]
+   5354  FILE:rollout#22 event_msg/token_count [ts 2026-09-29T16:30:46.062Z]
+   5385  FILE:rollout#23 response_item/message:user "<turn_aborted>
+The user interrupted the previous turn on purpose. Any …(226)" id=msg_01a0ee01-1f4d-7131-9947-6f908ee4d3f3 [ts 2026-09-29T16:30:46.093Z]
+   5430  FILE:rollout#24 event_msg/turn_aborted turn=01a0ee01-1143-71c1-b361-22def99422f6 reason=interrupted [ts 2026-09-29T16:30:46.137Z]
+   5720  MARK            send ctrl-c 2 {}
+   5855  FILE:hist       history.jsonl ts=1790699446 "GAMMA pending steer at exit
+EPSILON tab queued at exit"
+   6183  MARK            send ctrl-c 3 {}
+   6351  FILE:rollout#25 event_msg/item_completed turn=01a0ee01-1143-71c1-b361-22def99422f6 [ts 2026-09-29T16:30:47.062Z]
+   6540  HOOK            SessionEnd turn_id=- reason=other
+   9475  MARK            kill tmux session {}
+  10527  MARK            launch codex {"args":["resume","--last"]}
+  11652  FILE:rollout#26 event_msg/thread_settings_applied [ts 2026-09-29T16:30:52.364Z]
+  25145  MARK            type two {}
+  25762  MARK            send two Enter {}
+  25785  FILE:rollout#27 event_msg/thread_settings_applied [ts 2026-09-29T16:31:06.494Z]
+  25795  FILE:rollout#28 event_msg/task_started turn=01a0ee01-6efa-7fa0-91d8-c6a06412b00f [ts 2026-09-29T16:31:06.509Z]
+  25795  FILE:hist       history.jsonl ts=1790699466 "TWO after resume"
+  25822  FILE:rollout#29 turn_context turn=01a0ee01-6efa-7fa0-91d8-c6a06412b00f [ts 2026-09-29T16:31:06.527Z]
+  25913  HOOK            SessionStart turn_id=- source=resume
+  25955  HOOK            UserPromptSubmit turn_id=01a0ee01-6efa-7fa0-91d8-c6a06412b00f prompt="TWO after resume"
+  25969  FILE:rollout#30 response_item/message:user "TWO after resume" id=msg_01a0ee01-6fb8-7632-8959-f35cde6ffc07 [ts 2026-09-29T16:31:06.680Z]
+  25969  FILE:rollout#31 event_msg/item_completed turn=01a0ee01-6efa-7fa0-91d8-c6a06412b00f [ts 2026-09-29T16:31:06.686Z]
+  26073  MODEL           #6 request mode=quick items=9 lastItem=message:user users(last3)=["TOOLSLEEP busy","<turn_aborted>\nThe user interrupted the …(226)","TWO after resume"]
+  26074  MODEL           #6 stream-done quick
+  26086  FILE:rollout#32 event_msg/item_completed turn=01a0ee01-6efa-7fa0-91d8-c6a06412b00f [ts 2026-09-29T16:31:06.796Z]
+  26096  FILE:rollout#33 response_item/message:assistant "ok6 " id=msg_fake6 [ts 2026-09-29T16:31:06.805Z]
+  26096  FILE:rollout#34 token_usage_record {"thread_id":"01a0ee00-b1f3-7b82-bd4a-92bed3f414c0","turn_id":"01a0ee01-6efa-7fa0-91d8-c6a…(694) [ts 2026-09-29T16:31:06.807Z]
+  26096  FILE:rollout#35 event_msg/token_count [ts 2026-09-29T16:31:06.810Z]
+  26128  MODEL           #7 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(429)"]
+  26128  MODEL           #7 stream-done quick
+  26130  HOOK            Stop turn_id=01a0ee01-6efa-7fa0-91d8-c6a06412b00f
+  26149  FILE:rollout#36 event_msg/task_complete turn=01a0ee01-6efa-7fa0-91d8-c6a06412b00f [ts 2026-09-29T16:31:06.860Z]
+  26680  MARK            kill tmux session {}

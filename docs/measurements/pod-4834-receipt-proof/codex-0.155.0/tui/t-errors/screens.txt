@@ -1,0 +1,188 @@
+
+===== 1790699584730 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…facts/…/tui/t-errors/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-errors/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699593389 after http400
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…facts/…/tui/t-errors/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› HTTP400 please
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+■ {"error":{"message":"fake: bad request (HTTP400 marker)","type":"invalid_request_error","code":"fake_400"}}
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-errors/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699598161 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…facts/…/tui/t-errors/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+
+› HTTP400 please
+
+
+■ {"error":{"message":"fake: bad request (HTTP400 marker)","type":"invalid_request_error","code":"fake_400"}}
+
+
+› SLOWTEXT killed after submit
+
+
+■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-errors/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699606192 after resume
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…facts/…/tui/t-errors/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+
+› HTTP400 please
+
+
+■ {"error":{"message":"fake: bad request (HTTP400 marker)","type":"invalid_request_error","code":"fake_400"}}
+
+
+› SLOWTEXT killed after submit
+
+
+■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-errors/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

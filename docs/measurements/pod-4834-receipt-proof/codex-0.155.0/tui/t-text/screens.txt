@@ -1,0 +1,141 @@
+
+===== 1790699501299 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…t-facts/…/tui/t-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Visit the Codex community forum: https://community.openai.com/c/codex/37
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-text/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699506921 long paste in box
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…t-facts/…/tui/t-text/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Visit the Codex community forum: https://community.openai.com/c/codex/37
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› lead and trail spaces
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• ok1
+
+  done 6:31 PM
+
+
+› pasted line1
+
+    line3 indented
+  line4 tab
+
+
+• ok3
+
+  done 6:31 PM
+
+
+› [Pasted Content 15889 chars]
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-text/work
+
+
+
+
+
+
+
+===== 1790699510103 end
+  long 373 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 374 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 375 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 376 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 377 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 378 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 379 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 380 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 381 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 382 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 383 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 384 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 385 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 386 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 387 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 388 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 389 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 390 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 391 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 392 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 393 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 394 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 395 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 396 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 397 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 398 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  long 399 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+
+
+• ok5
+
+  done 6:31 PM
+
+
+› nfc:é nfd:é emoji:👩‍👩‍👧 rtl:שלום zwsp:[​] nbsp:[ ]
+
+
+• ok7
+
+  done 6:31 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-text/work

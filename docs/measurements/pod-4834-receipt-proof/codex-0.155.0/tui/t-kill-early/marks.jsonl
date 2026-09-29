@@ -1,0 +1,10 @@
+{"at":1790699724670,"dir":"mark","label":"launch codex","extra":{"args":[]}}
+{"at":1790699744725,"dir":"mark","label":"waitLog timeout hooks.jsonl /\"ev\":\"SessionStart\"/","extra":{}}
+{"at":1790699747249,"dir":"mark","label":"type one","extra":{}}
+{"at":1790699747898,"dir":"mark","label":"send one Enter","extra":{}}
+{"at":1790699748953,"dir":"mark","label":"type killed","extra":{}}
+{"at":1790699749680,"dir":"mark","label":"send killed Enter","extra":{}}
+{"at":1790699749723,"dir":"mark","label":"kill -9 codex","extra":{"pids":[1049722,1049732]}}
+{"at":1790699750728,"dir":"mark","label":"kill tmux session","extra":{}}
+{"at":1790699750735,"dir":"mark","label":"launch codex","extra":{"args":["resume","--last"]}}
+{"at":1790699759352,"dir":"mark","label":"kill tmux session","extra":{}}

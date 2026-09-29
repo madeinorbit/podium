@@ -1,0 +1,235 @@
+
+===== 1790699316984 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…cts/…/t-restart-kill/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Use /status to see the current model, approvals, and token usage.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-restart-kill/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699323332 before exit
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…cts/…/t-restart-kill/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Use /status to see the current model, approvals, and token usage.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› ONE before restart
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• ok1
+
+  done 6:28 PM
+
+
+› TOOLSLEEP busy
+
+
+• Working (3s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA pending steer at exit
+
+• Queued follow-up inputs
+  ↳ EPSILON tab queued at exit
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-restart-kill/work
+
+
+
+
+
+
+===== 1790699328516 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…cts/…/t-restart-kill/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+
+› ONE before restart
+
+
+• ok1
+
+  done 6:28 PM
+
+
+› TOOLSLEEP busy
+
+
+■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-restart-kill/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699340541 after resume +12s
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…cts/…/t-restart-kill/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+
+› ONE before restart
+
+
+• ok1
+
+  done 6:28 PM
+
+
+› TOOLSLEEP busy
+
+
+■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-restart-kill/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699342302 end
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…cts/…/t-restart-kill/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+
+› ONE before restart
+
+
+• ok1
+
+  done 6:28 PM
+
+
+› TOOLSLEEP busy
+
+
+■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TWO after resume
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• ok6
+
+  done 6:29 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-restart-kill/work
+
+
+

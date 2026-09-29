@@ -1,0 +1,11 @@
+{"at":1790699103942,"dir":"mark","label":"launch codex","extra":{"args":[]}}
+{"at":1790699124100,"dir":"mark","label":"waitLog timeout hooks.jsonl /\"ev\":\"SessionStart\"/","extra":{}}
+{"at":1790699126610,"dir":"mark","label":"type busy","extra":{}}
+{"at":1790699127222,"dir":"mark","label":"send busy Enter","extra":{}}
+{"at":1790699128911,"dir":"mark","label":"type gamma","extra":{}}
+{"at":1790699129529,"dir":"mark","label":"send gamma Enter","extra":{}}
+{"at":1790699129951,"dir":"mark","label":"type delta","extra":{}}
+{"at":1790699130617,"dir":"mark","label":"send delta Enter","extra":{}}
+{"at":1790699131337,"dir":"mark","label":"type epsilon","extra":{}}
+{"at":1790699131944,"dir":"mark","label":"send epsilon Tab","extra":{}}
+{"at":1790699149269,"dir":"mark","label":"kill tmux session","extra":{}}

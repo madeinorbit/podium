@@ -1,0 +1,940 @@
+
+===== 1790699075839 booted
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699080599 after two Enters while busy
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (4s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699082128 after Tab while busy
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (5s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699083137 poll 0
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (6s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699084149 poll 1
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Working (7s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ GAMMA typed while busy
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== 1790699085161 poll 2
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.155.0)                               │
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+• Working (8s • esc to interrupt)
+
+• Messages to be submitted after next tool call (press esc to interrupt and send immediately)
+  ↳ DELTA typed while busy
+
+• Queued follow-up inputs
+  ↳ EPSILON tabbed while busy
+    shift + ← edit last queued message
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work · renam…
+
+
+
+
+
+
+
+===== 1790699086202 poll 3
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699087213 poll 4
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699088228 poll 5
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699089251 poll 6
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699090273 poll 7
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699091303 poll 8
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699092314 poll 9
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699093352 poll 10
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699094364 poll 11
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699095379 poll 12
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699096433 poll 13
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699097538 poll 14
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699098593 poll 15
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work
+
+===== 1790699098601 end
+│                                                          │
+│ model:       fake   /model to change                     │
+│ directory:   /tmp/claude-1000/…ts/…/tui/t-busy-tool/work │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+⚠ 1 startup issue · ctrl + t for details
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› TOOLSLEEP busy
+
+
+⚠ Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+
+• Ran sleep 8
+  └ (no output)
+
+
+› GAMMA typed while busy
+
+
+
+› DELTA typed while busy
+
+
+• ok4
+
+  done 6:24 PM
+
+
+› EPSILON tabbed while busy
+
+
+• ok6
+
+  done 6:24 PM
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/tui/t-busy-tool/work

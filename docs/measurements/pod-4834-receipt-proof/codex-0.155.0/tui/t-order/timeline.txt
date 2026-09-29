@@ -1,0 +1,131 @@
+ -26426  MODEL           # listening
+ -25231  QUEUEDB         queued_items=[]
+ -23190  MARK            launch codex {"args":[]}
+  -3128  MARK            waitLog timeout hooks.jsonl /"ev":"SessionStart"/ {}
+   -610  MARK            type busy {}
+      0  MARK            send busy Enter {}
+     31  FILE:rollout#1  session_meta {"session_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","id":"01a0ee05-fd08-7913-8b47-c86d435…(21816) [ts 2026-09-29T16:36:27.172Z]
+     31  FILE:rollout#2  event_msg/task_started turn=01a0ee06-5392-7442-b5d6-0d2c87418a6e [ts 2026-09-29T16:36:27.172Z]
+     31  FILE:hist       history.jsonl ts=1790699787 "TOOLSLEEP busy"
+    104  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(4311)" id=msg_01a0ee06-53ed-7493-8dcf-037649220d09 [ts 2026-09-29T16:36:27.247Z]
+    104  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(627)" id=msg_01a0ee06-53ed-7493-8dcf-0382dc9ffefd [ts 2026-09-29T16:36:27.247Z]
+    104  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3952) [ts 2026-09-29T16:36:27.250Z]
+    116  FILE:rollout#6  turn_context turn=01a0ee06-5392-7442-b5d6-0d2c87418a6e [ts 2026-09-29T16:36:27.252Z]
+    144  HOOK            SessionStart turn_id=- source=startup
+    174  HOOK            UserPromptSubmit turn_id=01a0ee06-5392-7442-b5d6-0d2c87418a6e prompt="TOOLSLEEP busy"
+    187  FILE:rollout#7  response_item/message:user "TOOLSLEEP busy" id=msg_01a0ee06-543d-7921-af19-c0d9e7486ff8 [ts 2026-09-29T16:36:27.326Z]
+    187  FILE:rollout#8  event_msg/item_completed turn=01a0ee06-5392-7442-b5d6-0d2c87418a6e [ts 2026-09-29T16:36:27.328Z]
+    264  MODEL           #1 request mode=tool items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(627)","TOOLSLEEP busy"]
+    266  MODEL           #1 stream-done tool
+    276  FILE:rollout#9  response_item/function_call id=fc_fake1 call=call_fake1 [ts 2026-09-29T16:36:27.416Z]
+    287  FILE:rollout#10 token_usage_record {"thread_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","turn_id":"01a0ee06-5392-7442-b5d6-0d2…(693) [ts 2026-09-29T16:36:27.423Z]
+    296  HOOK            PreToolUse turn_id=01a0ee06-5392-7442-b5d6-0d2c87418a6e tool={"command":"sleep 8"}
+    323  MARK            type p1 {}
+    383  MODEL           #2 request mode=tool items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(427)"]
+    384  MODEL           #2 stream-done tool
+    468  MODEL           #3 request mode=quick items=5 lastItem=function_call_output users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(427)"]
+    468  MODEL           #3 stream-done quick
+    942  MARK            send p1 Tab {}
+   1255  MARK            type d1 {}
+   1880  MARK            send d1 Enter {}
+   1899  FILE:hist       history.jsonl ts=1790699789 "D1 daemon enter second"
+   8384  FILE:rollout#11 event_msg/item_completed turn=01a0ee06-5392-7442-b5d6-0d2c87418a6e [ts 2026-09-29T16:36:35.523Z]
+   8393  HOOK            PostToolUse turn_id=01a0ee06-5392-7442-b5d6-0d2c87418a6e tool={"command":"sleep 8"}
+   8404  FILE:rollout#12 response_item/function_call_output id=fco_01a0ee06-7459-7323-83f4-2833ad7ce309 call=call_fake1 [ts 2026-09-29T16:36:35.545Z]
+   8404  FILE:rollout#13 event_msg/token_count [ts 2026-09-29T16:36:35.549Z]
+   8423  HOOK            UserPromptSubmit turn_id=01a0ee06-5392-7442-b5d6-0d2c87418a6e prompt="D1 daemon enter second"
+   8435  FILE:rollout#14 response_item/message:user "D1 daemon enter second" id=msg_01a0ee06-7477-7d92-a054-fd0787875e93 [ts 2026-09-29T16:36:35.575Z]
+   8435  FILE:rollout#15 event_msg/item_completed turn=01a0ee06-5392-7442-b5d6-0d2c87418a6e [ts 2026-09-29T16:36:35.579Z]
+   8477  MODEL           #4 request mode=quick items=6 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(627)","TOOLSLEEP busy","D1 daemon enter second"]
+   8478  MODEL           #4 stream-done quick
+   8485  FILE:rollout#16 event_msg/item_completed turn=01a0ee06-5392-7442-b5d6-0d2c87418a6e [ts 2026-09-29T16:36:35.629Z]
+   8495  FILE:rollout#17 response_item/message:assistant "ok4 " id=msg_fake4 [ts 2026-09-29T16:36:35.635Z]
+   8506  FILE:rollout#18 token_usage_record {"thread_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","turn_id":"01a0ee06-5392-7442-b5d6-0d2…(695) [ts 2026-09-29T16:36:35.643Z]
+   8506  FILE:rollout#19 event_msg/token_count [ts 2026-09-29T16:36:35.652Z]
+   8529  HOOK            Stop turn_id=01a0ee06-5392-7442-b5d6-0d2c87418a6e
+   8547  FILE:rollout#20 event_msg/task_complete turn=01a0ee06-5392-7442-b5d6-0d2c87418a6e [ts 2026-09-29T16:36:35.685Z]
+   8557  FILE:rollout#21 event_msg/thread_settings_applied [ts 2026-09-29T16:36:35.699Z]
+   8564  MODEL           #5 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(435)"]
+   8564  MODEL           #5 stream-done quick
+   8568  FILE:rollout#22 event_msg/task_started turn=01a0ee06-74ef-7741-85a3-b8fff89cbcc1 [ts 2026-09-29T16:36:35.706Z]
+   8568  FILE:hist       history.jsonl ts=1790699795 "P1 person tab-queued first"
+   8578  FILE:rollout#23 turn_context turn=01a0ee06-74ef-7741-85a3-b8fff89cbcc1 [ts 2026-09-29T16:36:35.715Z]
+   8606  HOOK            UserPromptSubmit turn_id=01a0ee06-74ef-7741-85a3-b8fff89cbcc1 prompt="P1 person tab-queued first"
+   8620  FILE:rollout#24 response_item/message:user "P1 person tab-queued first" id=msg_01a0ee06-752e-7763-8ce8-4e0069bb69c2 [ts 2026-09-29T16:36:35.758Z]
+   8620  FILE:rollout#25 event_msg/item_completed turn=01a0ee06-74ef-7741-85a3-b8fff89cbcc1 [ts 2026-09-29T16:36:35.763Z]
+   8668  MODEL           #6 request mode=quick items=8 lastItem=message:user users(last3)=["TOOLSLEEP busy","D1 daemon enter second","P1 person tab-queued first"]
+   8669  MODEL           #6 stream-done quick
+   8682  FILE:rollout#26 event_msg/item_completed turn=01a0ee06-74ef-7741-85a3-b8fff89cbcc1 [ts 2026-09-29T16:36:35.818Z]
+   8682  FILE:rollout#27 response_item/message:assistant "ok6 " id=msg_fake6 [ts 2026-09-29T16:36:35.825Z]
+   8692  FILE:rollout#28 token_usage_record {"thread_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","turn_id":"01a0ee06-74ef-7741-85a3-b8f…(694) [ts 2026-09-29T16:36:35.830Z]
+   8692  FILE:rollout#29 event_msg/token_count [ts 2026-09-29T16:36:35.833Z]
+   8714  HOOK            Stop turn_id=01a0ee06-74ef-7741-85a3-b8fff89cbcc1
+   8725  FILE:rollout#30 event_msg/task_complete turn=01a0ee06-74ef-7741-85a3-b8fff89cbcc1 [ts 2026-09-29T16:36:35.871Z]
+   8769  MODEL           #7 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(439)"]
+   8769  MODEL           #7 stream-done quick
+  13946  MARK            type race-a {}
+  14609  MARK            send race-a Enter {}
+  14630  FILE:rollout#31 event_msg/thread_settings_applied [ts 2026-09-29T16:36:41.770Z]
+  14630  FILE:rollout#32 event_msg/task_started turn=01a0ee06-8ca7-7531-b3ed-516f051ef0cb [ts 2026-09-29T16:36:41.781Z]
+  14688  MARK            type race-b {}
+  14714  FILE:hist       history.jsonl ts=1790699801 "SLOWTEXT race-a"
+  14758  FILE:rollout#33 turn_context turn=01a0ee06-8ca7-7531-b3ed-516f051ef0cb [ts 2026-09-29T16:36:41.896Z]
+  14780  HOOK            UserPromptSubmit turn_id=01a0ee06-8ca7-7531-b3ed-516f051ef0cb prompt="SLOWTEXT race-a"
+  14828  FILE:rollout#34 response_item/message:user "SLOWTEXT race-a" id=msg_01a0ee06-8d63-76f1-9e02-f291ca54b477 [ts 2026-09-29T16:36:41.955Z]
+  14896  FILE:rollout#35 event_msg/item_completed turn=01a0ee06-8ca7-7531-b3ed-516f051ef0cb [ts 2026-09-29T16:36:42.032Z]
+  14955  MODEL           #8 request mode=slow items=10 lastItem=message:user users(last3)=["D1 daemon enter second","P1 person tab-queued first","SLOWTEXT race-a"]
+  14985  MODEL           #9 request mode=slow items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(428)"]
+  15353  MARK            send race-b Enter {}
+  15380  FILE:hist       history.jsonl ts=1790699802 "RACE-B right after"
+  25119  MODEL           #8 stream-done slow
+  25120  MODEL           #9 stream-done slow
+  25163  FILE:rollout#36 event_msg/item_completed turn=01a0ee06-8ca7-7531-b3ed-516f051ef0cb [ts 2026-09-29T16:36:52.296Z]
+  25196  FILE:rollout#37 response_item/message:assistant "slow1 slow2 slow3 slow4 slow5 slow6 slow7 slow8 slow9 slow10 slow11 sl…(131)" id=msg_fake8 [ts 2026-09-29T16:36:52.318Z]
+  25196  FILE:rollout#38 token_usage_record {"thread_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","turn_id":"01a0ee06-8ca7-7531-b3ed-516…(694) [ts 2026-09-29T16:36:52.337Z]
+  25253  FILE:rollout#39 event_msg/token_count [ts 2026-09-29T16:36:52.392Z]
+  25274  HOOK            UserPromptSubmit turn_id=01a0ee06-8ca7-7531-b3ed-516f051ef0cb prompt="RACE-B right after"
+  25287  FILE:rollout#40 response_item/message:user "RACE-B right after" id=msg_01a0ee06-b64b-7052-ba70-5600fc04d57b [ts 2026-09-29T16:36:52.428Z]
+  25287  FILE:rollout#41 event_msg/item_completed turn=01a0ee06-8ca7-7531-b3ed-516f051ef0cb [ts 2026-09-29T16:36:52.429Z]
+  25370  MODEL           #10 request mode=quick items=12 lastItem=message:user users(last3)=["P1 person tab-queued first","SLOWTEXT race-a","RACE-B right after"]
+  25370  MODEL           #10 stream-done quick
+  25381  FILE:rollout#42 event_msg/item_completed turn=01a0ee06-8ca7-7531-b3ed-516f051ef0cb [ts 2026-09-29T16:36:52.520Z]
+  25381  FILE:rollout#43 response_item/message:assistant "ok10 " id=msg_fake10 [ts 2026-09-29T16:36:52.524Z]
+  25392  FILE:rollout#44 token_usage_record {"thread_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","turn_id":"01a0ee06-8ca7-7531-b3ed-516…(696) [ts 2026-09-29T16:36:52.533Z]
+  25406  FILE:rollout#45 event_msg/token_count [ts 2026-09-29T16:36:52.546Z]
+  25417  MODEL           #11 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(431)"]
+  25417  MODEL           #11 stream-done quick
+  25434  HOOK            Stop turn_id=01a0ee06-8ca7-7531-b3ed-516f051ef0cb
+  25462  FILE:rollout#46 event_msg/task_complete turn=01a0ee06-8ca7-7531-b3ed-516f051ef0cb [ts 2026-09-29T16:36:52.599Z]
+  29377  MARK            type bg {}
+  29983  MARK            send bg Enter {}
+  29994  FILE:rollout#47 event_msg/thread_settings_applied [ts 2026-09-29T16:36:57.138Z]
+  30007  FILE:rollout#48 event_msg/task_started turn=01a0ee06-c8af-79a3-b49d-c0b176a646d1 [ts 2026-09-29T16:36:57.145Z]
+  30007  FILE:rollout#49 turn_context turn=01a0ee06-c8af-79a3-b49d-c0b176a646d1 [ts 2026-09-29T16:36:57.152Z]
+  30007  FILE:hist       history.jsonl ts=1790699817 "TOOLBG start a background terminal"
+  30033  HOOK            UserPromptSubmit turn_id=01a0ee06-c8af-79a3-b49d-c0b176a646d1 prompt="TOOLBG start a background terminal"
+  30049  FILE:rollout#50 response_item/message:user "TOOLBG start a background terminal" id=msg_01a0ee06-c8e8-77c0-8b22-3adbecb5e4ff [ts 2026-09-29T16:36:57.193Z]
+  30059  FILE:rollout#51 event_msg/item_completed turn=01a0ee06-c8af-79a3-b49d-c0b176a646d1 [ts 2026-09-29T16:36:57.199Z]
+  30108  MODEL           #12 request mode=toolbg items=14 lastItem=message:user users(last3)=["SLOWTEXT race-a","RACE-B right after","TOOLBG start a background terminal"]
+  30109  MODEL           #12 stream-done toolbg
+  30121  FILE:rollout#52 response_item/function_call id=fc_fake12 call=call_fake12 [ts 2026-09-29T16:36:57.258Z]
+  30131  FILE:rollout#53 token_usage_record {"thread_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","turn_id":"01a0ee06-c8af-79a3-b49d-c0b…(695) [ts 2026-09-29T16:36:57.268Z]
+  30144  HOOK            PreToolUse turn_id=01a0ee06-c8af-79a3-b49d-c0b176a646d1 tool={"command":"sleep 6"}
+  30184  MODEL           #13 request mode=toolbg items=3 lastItem=message:user users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(447)"]
+  30184  MODEL           #13 stream-done toolbg
+  30241  MODEL           #14 request mode=quick items=5 lastItem=function_call_output users(last3)=["<environment_context>\n  <current_date>20…(123)","Generate a concise, single-line task tit…(447)"]
+  30241  MODEL           #14 stream-done quick
+  30832  FILE:rollout#54 response_item/function_call_output id=fco_01a0ee06-cbf2-74d0-892f-1e7b0257b3bb call=call_fake12 [ts 2026-09-29T16:36:57.970Z]
+  30842  FILE:rollout#55 event_msg/token_count [ts 2026-09-29T16:36:57.983Z]
+  30909  MODEL           #15 request mode=quick items=16 lastItem=function_call_output users(last3)=["SLOWTEXT race-a","RACE-B right after","TOOLBG start a background terminal"]
+  30909  MODEL           #15 stream-done quick
+  30916  FILE:rollout#56 event_msg/item_completed turn=01a0ee06-c8af-79a3-b49d-c0b176a646d1 [ts 2026-09-29T16:36:58.059Z]
+  30947  FILE:rollout#57 response_item/message:assistant "ok15 " id=msg_fake15 [ts 2026-09-29T16:36:58.084Z]
+  30968  FILE:rollout#58 token_usage_record {"thread_id":"01a0ee05-fd08-7913-8b47-c86d4354bb69","turn_id":"01a0ee06-c8af-79a3-b49d-c0b…(697) [ts 2026-09-29T16:36:58.105Z]
+  30968  FILE:rollout#59 event_msg/token_count [ts 2026-09-29T16:36:58.109Z]
+  31023  HOOK            Stop turn_id=01a0ee06-c8af-79a3-b49d-c0b176a646d1
+  31060  FILE:rollout#60 event_msg/task_complete turn=01a0ee06-c8af-79a3-b49d-c0b176a646d1 [ts 2026-09-29T16:36:58.209Z]
+  36201  FILE:rollout#61 event_msg/item_completed turn=01a0ee06-c8af-79a3-b49d-c0b176a646d1 [ts 2026-09-29T16:37:03.336Z]
+  43045  MARK            kill tmux session {}

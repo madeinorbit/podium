@@ -1,0 +1,111 @@
+  -4466  MODEL           # listening
+  -3222  QUEUEDB         queued_items=[]
+  -1302  RPC:srv         → req#1 initialize {"clientInfo":{"name":"podium","title":"Podium","version":"0.0.0"},"capabilities":{"experimentalApi":true}}
+   -565  RPC:srv         ← resp#1 {"userAgent":"podium/0.155.0 (Ubuntu 24.4.0; x86_64) xterm-256color (podium; 0.0.0)","codexHome":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45…(304)
+   -565  RPC:srv         → initialized
+   -565  RPC:srv         → req#2 thread/start {"cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/as/s6-settled/work…(162)
+     -3  RPC:srv         ← resp#2 {"thread":{"id":"01a0edf4-fc5f-7512-81ba-851f94be530c","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59…(2052)
+      0  MARK            send our_one turn/start {"clientUserMessageId":"our_one","text":"first message"}
+      0  RPC:srv         → req#3 turn/start {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c","clientUserMessageId":"our_one","input":[{"type":"text","text":"first message","text_elements":[]}]}
+      0  RPC:srv         ← thread/started
+     24  RPC:srv         ← warning {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c","message":"Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance…(180)
+     50  RPC:srv         ← resp#3 {"turn":{"id":"01a0edf4-fe19-7692-a382-97911ad2ef46","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}
+     50  MARK            reply our_one {"id":3,"result":{"turn":{"id":"01a0edf4-fe19-7692-a382-97911ad2ef46","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}
+     55  FILE:rollout#1  session_meta {"session_id":"01a0edf4-fc5f-7512-81ba-851f94be530c","id":"01a0edf4-fc5f-7512-81ba-851f94b…(21797) [ts 2026-09-29T16:17:31.201Z]
+     55  FILE:rollout#2  event_msg/task_started turn=01a0edf4-fe19-7692-a382-97911ad2ef46 [ts 2026-09-29T16:17:31.205Z]
+    148  RPC:srv         ← thread/status/changed status={"type":"active","activeFlags":[]}
+    149  RPC:srv         ← turn/started turn=01a0edf4-fe19-7692-a382-97911ad2ef46 status=inProgress
+    180  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(2984)" id=msg_01a0edf4-feb8-7f91-8d0a-04bc3b286f1b [ts 2026-09-29T16:17:31.326Z]
+    180  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(631)" id=msg_01a0edf4-feb8-7f91-8d0a-04ca51f4450b [ts 2026-09-29T16:17:31.326Z]
+    200  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3958) [ts 2026-09-29T16:17:31.349Z]
+    222  FILE:rollout#6  turn_context turn=01a0edf4-fe19-7692-a382-97911ad2ef46 [ts 2026-09-29T16:17:31.364Z]
+    268  RPC:srv         ← hook/started turnId=01a0edf4-fe19-7692-a382-97911ad2ef46 hook=sessionStart status=running
+    278  HOOK            SessionStart turn_id=- source=startup
+    284  RPC:srv         ← hook/completed turnId=01a0edf4-fe19-7692-a382-97911ad2ef46 hook=sessionStart status=completed
+    297  RPC:srv         ← hook/started turnId=01a0edf4-fe19-7692-a382-97911ad2ef46 hook=userPromptSubmit status=running
+    300  HOOK            UserPromptSubmit turn_id=01a0edf4-fe19-7692-a382-97911ad2ef46 prompt="first message"
+    305  RPC:srv         ← hook/completed turnId=01a0edf4-fe19-7692-a382-97911ad2ef46 hook=userPromptSubmit status=completed
+    310  FILE:rollout#7  response_item/message:user "first message" id=msg_01a0edf4-ff3e-7e50-a8ec-9ba7dca8f6d2 [ts 2026-09-29T16:17:31.455Z]
+    319  RPC:srv         ← item/started userMessage id=01a0edf4-ff4c-7a81-a722-05935297e0b0 clientId=our_one "first message" turnId=01a0edf4-fe19-7692-a382-97911ad2ef46
+    320  FILE:rollout#8  event_msg/item_completed turn=01a0edf4-fe19-7692-a382-97911ad2ef46 [ts 2026-09-29T16:17:31.468Z]
+    335  RPC:srv         ← item/completed userMessage id=01a0edf4-ff4c-7a81-a722-05935297e0b0 clientId=our_one "first message" turnId=01a0edf4-fe19-7692-a382-97911ad2ef46
+    389  MODEL           #1 request mode=quick items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(631)","first message"]
+    391  MODEL           #1 stream-done quick
+    415  RPC:srv         ← item/started agentMessage id=msg_fake1 turnId=01a0edf4-fe19-7692-a382-97911ad2ef46
+    430  FILE:rollout#9  event_msg/item_completed turn=01a0edf4-fe19-7692-a382-97911ad2ef46 [ts 2026-09-29T16:17:31.571Z]
+    467  RPC:srv         ← item/completed agentMessage id=msg_fake1 turnId=01a0edf4-fe19-7692-a382-97911ad2ef46
+    479  FILE:rollout#10 response_item/message:assistant "ok1 " id=msg_fake1 [ts 2026-09-29T16:17:31.616Z]
+    529  FILE:rollout#11 token_usage_record {"thread_id":"01a0edf4-fc5f-7512-81ba-851f94be530c","turn_id":"01a0edf4-fe19-7692-a382-979…(693) [ts 2026-09-29T16:17:31.670Z]
+    540  FILE:rollout#12 event_msg/token_count [ts 2026-09-29T16:17:31.682Z]
+    566  RPC:srv         ← hook/started turnId=01a0edf4-fe19-7692-a382-97911ad2ef46 hook=stop status=running
+    573  HOOK            Stop turn_id=01a0edf4-fe19-7692-a382-97911ad2ef46
+    579  RPC:srv         ← hook/completed turnId=01a0edf4-fe19-7692-a382-97911ad2ef46 hook=stop status=completed
+    583  FILE:rollout#13 event_msg/task_complete turn=01a0edf4-fe19-7692-a382-97911ad2ef46 [ts 2026-09-29T16:17:31.732Z]
+    590  RPC:srv         ← thread/status/changed status={"type":"idle"}
+    591  RPC:srv         ← turn/completed turn=01a0edf4-fe19-7692-a382-97911ad2ef46 status=completed
+   1093  MARK            kill app-server SIGTERM {}
+   1129  HOOK            SessionEnd turn_id=- reason=other
+   1201  MARK            app-server exited {}
+   1202  RPC:srv2        → req#1 initialize {"clientInfo":{"name":"podium","title":"Podium","version":"0.0.0"},"capabilities":{"experimentalApi":true}}
+   1507  RPC:srv2        ← resp#1 {"userAgent":"podium/0.155.0 (Ubuntu 24.4.0; x86_64) xterm-256color (podium; 0.0.0)","codexHome":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45…(304)
+   1507  RPC:srv2        → initialized
+   1507  RPC:srv2        → req#2 thread/resume {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c"}
+   1524  RPC:srv2        ← deprecationNotice
+   1603  FILE:rollout#14 event_msg/thread_settings_applied [ts 2026-09-29T16:17:32.751Z]
+   1703  RPC:srv2        ← thread/status/changed status={"type":"idle"}
+   1712  RPC:srv2        ← resp#2 {"thread":{"id":"01a0edf4-fc5f-7512-81ba-851f94be530c","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59…(2891)
+   1712  MARK            resume {"id":2,"result":{"thread":{"id":"01a0edf4-fc5f-7512-81ba-851f94be530c","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-…(2909)
+   1713  RPC:srv2        → req#3 thread/read {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c","includeTurns":true}
+   1713  RPC:srv2        ← thread/goal/cleared
+   1743  RPC:srv2        ← deprecationNotice
+   1743  RPC:srv2        ← resp#3 {"thread":{"id":"01a0edf4-fc5f-7512-81ba-851f94be530c","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59…(1913)
+   1743  MARK            thread/read after restart {"id":3,"result":{"thread":{"id":"01a0edf4-fc5f-7512-81ba-851f94be530c","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-…(1931)
+   1743  RPC:srv2        → req#4 thread/queue/list {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c"}
+   1745  RPC:srv2        ← resp#4 {"data":[],"nextCursor":null}
+   1747  MARK            thread/queue/list after restart {"id":4,"result":{"data":[],"nextCursor":null}}
+   1747  MARK            send our_two turn/start {"clientUserMessageId":"our_two","text":"after restart"}
+   1747  RPC:srv2        → req#5 turn/start {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c","clientUserMessageId":"our_two","input":[{"type":"text","text":"after restart","text_elements":[]}]}
+   1753  RPC:srv2        ← warning {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c","message":"Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance…(180)
+   1761  RPC:srv2        ← resp#5 {"turn":{"id":"01a0edf5-04e3-75f0-835a-d475fd20ed47","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}
+   1761  MARK            reply our_two {"id":5,"result":{"turn":{"id":"01a0edf5-04e3-75f0-835a-d475fd20ed47","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}
+   1772  FILE:rollout#15 event_msg/task_started turn=01a0edf5-04e3-75f0-835a-d475fd20ed47 [ts 2026-09-29T16:17:32.910Z]
+   1786  RPC:srv2        ← thread/status/changed status={"type":"active","activeFlags":[]}
+   1786  RPC:srv2        ← turn/started turn=01a0edf5-04e3-75f0-835a-d475fd20ed47 status=inProgress
+   1797  FILE:rollout#16 turn_context turn=01a0edf5-04e3-75f0-835a-d475fd20ed47 [ts 2026-09-29T16:17:32.937Z]
+   1835  HOOK            SessionStart turn_id=- source=resume
+   1837  RPC:srv2        ← hook/started turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47 hook=sessionStart status=running
+   1842  RPC:srv2        ← hook/completed turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47 hook=sessionStart status=completed
+   1855  RPC:srv2        ← hook/started turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47 hook=userPromptSubmit status=running
+   1861  HOOK            UserPromptSubmit turn_id=01a0edf5-04e3-75f0-835a-d475fd20ed47 prompt="after restart"
+   1871  FILE:rollout#17 response_item/message:user "after restart" id=msg_01a0edf5-055b-7c53-986a-e20e6e43d228 [ts 2026-09-29T16:17:33.019Z]
+   1872  RPC:srv2        ← hook/completed turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47 hook=userPromptSubmit status=completed
+   1874  RPC:srv2        ← item/started userMessage id=01a0edf5-0560-7550-b802-966940c4fecc clientId=our_two "after restart" turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47
+   1880  RPC:srv2        ← item/completed userMessage id=01a0edf5-0560-7550-b802-966940c4fecc clientId=our_two "after restart" turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47
+   1882  FILE:rollout#18 event_msg/item_completed turn=01a0edf5-04e3-75f0-835a-d475fd20ed47 [ts 2026-09-29T16:17:33.024Z]
+   1928  MODEL           #2 request mode=quick items=5 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(631)","first message","after restart"]
+   1929  MODEL           #2 stream-done quick
+   1942  RPC:srv2        ← item/started agentMessage id=msg_fake2 turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47
+   1944  FILE:rollout#19 event_msg/item_completed turn=01a0edf5-04e3-75f0-835a-d475fd20ed47 [ts 2026-09-29T16:17:33.086Z]
+   1947  RPC:srv2        ← item/completed agentMessage id=msg_fake2 turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47
+   1954  FILE:rollout#20 response_item/message:assistant "ok2 " id=msg_fake2 [ts 2026-09-29T16:17:33.095Z]
+   1954  FILE:rollout#21 token_usage_record {"thread_id":"01a0edf4-fc5f-7512-81ba-851f94be530c","turn_id":"01a0edf5-04e3-75f0-835a-d47…(694) [ts 2026-09-29T16:17:33.097Z]
+   1954  FILE:rollout#22 event_msg/token_count [ts 2026-09-29T16:17:33.098Z]
+   1962  RPC:srv2        ← hook/started turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47 hook=stop status=running
+   1966  HOOK            Stop turn_id=01a0edf5-04e3-75f0-835a-d475fd20ed47
+   1976  RPC:srv2        ← hook/completed turnId=01a0edf5-04e3-75f0-835a-d475fd20ed47 hook=stop status=completed
+   1986  FILE:rollout#23 event_msg/task_complete turn=01a0edf5-04e3-75f0-835a-d475fd20ed47 [ts 2026-09-29T16:17:33.129Z]
+   1996  RPC:srv2        ← thread/status/changed status={"type":"idle"}
+   1997  RPC:srv2        ← turn/completed turn=01a0edf5-04e3-75f0-835a-d475fd20ed47 status=completed
+   1998  RPC:srv2        → req#6 thread/read {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c","includeTurns":true}
+   2030  RPC:srv2        ← deprecationNotice
+   2030  RPC:srv2        ← resp#6 {"thread":{"id":"01a0edf4-fc5f-7512-81ba-851f94be530c","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59…(2368)
+   2030  MARK            thread/read end {"id":6,"result":{"thread":{"id":"01a0edf4-fc5f-7512-81ba-851f94be530c","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-…(2386)
+   2030  RPC:srv2        → req#7 thread/queue/list {"threadId":"01a0edf4-fc5f-7512-81ba-851f94be530c"}
+   2034  RPC:srv2        ← resp#7 {"data":[],"nextCursor":null}
+   2034  MARK            thread/queue/list end {"id":7,"result":{"data":[],"nextCursor":null}}
+   2034  MARK            kill app-server SIGTERM {}
+   2091  HOOK            SessionEnd turn_id=- reason=other
+   2277  MARK            app-server exited {}

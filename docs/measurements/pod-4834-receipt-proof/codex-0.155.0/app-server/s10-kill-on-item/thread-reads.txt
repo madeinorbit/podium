@@ -1,0 +1,8 @@
++1035 thread/read after restart:
+   turn 01a0edf6-d3cd-7690-a792-f408d74b5b83 completed startedAt=1790698771 users=[our_first="first message"] items=userMessage,agentMessage
+   turn 01a0edf6-d55d-7c11-bbe1-3c06862a93fd interrupted startedAt=1790698771 users=[our_killed="SLOWTEXT killed right after the item"] items=userMessage
++1037 thread/queue/list after restart: []
++4080 thread/read after 3s:
+   turn 01a0edf6-d3cd-7690-a792-f408d74b5b83 completed startedAt=1790698771 users=[our_first="first message"] items=userMessage,agentMessage
+   turn 01a0edf6-d55d-7c11-bbe1-3c06862a93fd interrupted startedAt=1790698771 users=[our_killed="SLOWTEXT killed right after the item"] items=userMessage
++4081 thread/queue/list after 3s: []

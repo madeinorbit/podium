@@ -1,0 +1,141 @@
+  -2649  MODEL           # listening
+  -2066  QUEUEDB         queued_items=[]
+   -474  RPC:srv         → req#1 initialize {"clientInfo":{"name":"podium","title":"Podium","version":"0.0.0"},"capabilities":{"experimentalApi":true}}
+    -53  RPC:srv         ← resp#1 {"userAgent":"podium/0.155.0 (Ubuntu 24.4.0; x86_64) xterm-256color (podium; 0.0.0)","codexHome":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45…(302)
+    -52  RPC:srv         → initialized
+    -52  RPC:srv         → req#2 thread/start {"cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/as/s5-queue/work"}
+     -3  RPC:srv         ← resp#2 {"thread":{"id":"01a0edf4-34a5-7432-be85-503fd90a13f5","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59…(2040)
+      0  MARK            send our_busy turn/start {"clientUserMessageId":"our_busy","text":"TOOLSLEEP busy"}
+      0  RPC:srv         → req#3 turn/start {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5","clientUserMessageId":"our_busy","input":[{"type":"text","text":"TOOLSLEEP busy","text_elements":[]}]}
+      0  RPC:srv         ← thread/started
+      8  RPC:srv         ← warning {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5","message":"Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance…(180)
+     21  RPC:srv         ← resp#3 {"turn":{"id":"01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}
+     21  MARK            reply our_busy {"id":3,"result":{"turn":{"id":"01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":null,"completedAt":null,"durationMs":null}}}
+     25  FILE:rollout#1  session_meta {"session_id":"01a0edf4-34a5-7432-be85-503fd90a13f5","id":"01a0edf4-34a5-7432-be85-503fd90…(21793) [ts 2026-09-29T16:16:39.640Z]
+     25  FILE:rollout#2  event_msg/task_started turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa [ts 2026-09-29T16:16:39.641Z]
+    382  RPC:srv         ← thread/status/changed status={"type":"active","activeFlags":[]}
+    386  RPC:srv         ← turn/started turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa status=inProgress
+    399  FILE:rollout#3  response_item/message:developer "<skills_instructions>
+## Skills
+A skill is a set of local instructions…(2982)" id=msg_01a0edf4-3647-72d2-a779-c0b8e8fdb3f6 [ts 2026-09-29T16:16:40.015Z]
+    399  FILE:rollout#4  response_item/message:user "<environment_context>
+  <cwd>/tmp/claude-1000/-home-mgw-src-other-podi…(627)" id=msg_01a0edf4-3647-72d2-a779-c0cbbcedfa07 [ts 2026-09-29T16:16:40.017Z]
+    399  FILE:rollout#5  world_state {"full":true,"state":{"agents_md":{},"apps_instructions":false,"collaboration_mode":{"mode…(3952) [ts 2026-09-29T16:16:40.019Z]
+    399  FILE:rollout#6  turn_context turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa [ts 2026-09-29T16:16:40.020Z]
+    478  RPC:srv         ← hook/started turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=sessionStart status=running
+    502  HOOK            SessionStart turn_id=- source=startup
+    536  RPC:srv         ← hook/completed turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=sessionStart status=completed
+    608  RPC:srv         ← hook/started turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=userPromptSubmit status=running
+    622  HOOK            UserPromptSubmit turn_id=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa prompt="TOOLSLEEP busy"
+    629  RPC:srv         ← hook/completed turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=userPromptSubmit status=completed
+    633  RPC:srv         ← item/started userMessage id=01a0edf4-373f-7101-8d11-0e56db7d5f93 clientId=our_busy "TOOLSLEEP busy" turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa
+    636  FILE:rollout#7  response_item/message:user "TOOLSLEEP busy" id=msg_01a0edf4-373a-7510-aac2-cf917aeb05dc [ts 2026-09-29T16:16:40.250Z]
+    636  FILE:rollout#8  event_msg/item_completed turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa [ts 2026-09-29T16:16:40.255Z]
+    646  RPC:srv         ← item/completed userMessage id=01a0edf4-373f-7101-8d11-0e56db7d5f93 clientId=our_busy "TOOLSLEEP busy" turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa
+    700  MODEL           #1 request mode=tool items=3 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(627)","TOOLSLEEP busy"]
+    704  MODEL           #1 stream-done tool
+    713  FILE:rollout#9  response_item/function_call id=fc_fake1 call=call_fake1 [ts 2026-09-29T16:16:40.331Z]
+    713  FILE:rollout#10 token_usage_record {"thread_id":"01a0edf4-34a5-7432-be85-503fd90a13f5","turn_id":"01a0edf4-34c9-75f3-9e4b-fd2…(693) [ts 2026-09-29T16:16:40.336Z]
+    729  RPC:srv         ← hook/started turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=preToolUse status=running
+    734  HOOK            PreToolUse turn_id=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa tool={"command":"sleep 8"}
+    793  RPC:srv         ← hook/completed turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=preToolUse status=completed
+    953  RPC:srv         ← item/started commandExecution id=call_fake1 turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa
+   1387  MARK            send our_dup thread/queue/add {"clientUserMessageId":"our_dup","text":"same id twice"}
+   1387  RPC:srv         → req#4 thread/queue/add {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5","clientUserMessageId":"our_dup","input":[{"type":"text","text":"same id twice","text_elements":[]}]}
+   1412  RPC:srv         ← resp#4 {"queuedSubmission":{"id":"01a0edf4-3a35-7023-949e-b79b5d2f5fc0","input":[{"type":"text","text":"same id twice","text_elements":[]}],"clientUserMessageId":"our_dup"}}
+   1413  MARK            reply our_dup {"id":4,"result":{"queuedSubmission":{"id":"01a0edf4-3a35-7023-949e-b79b5d2f5fc0","input":[{"type":"text","text":"same id twice","text_elements":[]}],"clientUserMessageId":"our_dup"}}}
+   1413  MARK            send our_dup thread/queue/add {"clientUserMessageId":"our_dup","text":"same id twice"}
+   1413  RPC:srv         → req#5 thread/queue/add {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5","clientUserMessageId":"our_dup","input":[{"type":"text","text":"same id twice","text_elements":[]}]}
+   1413  RPC:srv         ← thread/queue/changed
+   1424  RPC:srv         ← resp#5 {"queuedSubmission":{"id":"01a0edf4-3a4d-74d2-89d1-9e10ed6e34ae","input":[{"type":"text","text":"same id twice","text_elements":[]}],"clientUserMessageId":"our_dup"}}
+   1424  MARK            reply our_dup {"id":5,"result":{"queuedSubmission":{"id":"01a0edf4-3a4d-74d2-89d1-9e10ed6e34ae","input":[{"type":"text","text":"same id twice","text_elements":[]}],"clientUserMessageId":"our_dup"}}}
+   1425  RPC:srv         ← thread/queue/changed
+   1449  QUEUEDB         queued_items=[{"id":"01a0edf4-3a35-7023-949e-b79b5d2f5fc0","order":0,"p":{"UserInput":{"content":[{"type":"text","text":"same id twice","text_elements":[]}],"client_id":"our_dup"}}},{"id":"01a0edf4-3a4d-74d2-89d1-9e10ed6e34ae","order":1,"p":{"UserInput":{"content":[{"type":"text","text":"same id twice","text_ele…(337)
+   8829  FILE:rollout#11 event_msg/item_completed turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa [ts 2026-09-29T16:16:48.446Z]
+   8856  RPC:srv         ← item/completed commandExecution id=call_fake1 turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa
+   8872  RPC:srv         ← hook/started turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=postToolUse status=running
+   8880  HOOK            PostToolUse turn_id=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa tool={"command":"sleep 8"}
+   8890  RPC:srv         ← hook/completed turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=postToolUse status=completed
+   8892  FILE:rollout#12 response_item/function_call_output id=fco_01a0edf4-5781-78c1-8936-0a138a954ac4 call=call_fake1 [ts 2026-09-29T16:16:48.513Z]
+   8902  FILE:rollout#13 event_msg/token_count [ts 2026-09-29T16:16:48.519Z]
+   9021  MODEL           #2 request mode=quick items=5 lastItem=function_call_output users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(627)","TOOLSLEEP busy"]
+   9022  MODEL           #2 stream-done quick
+   9030  RPC:srv         ← item/started agentMessage id=msg_fake2 turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa
+   9034  FILE:rollout#14 event_msg/item_completed turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa [ts 2026-09-29T16:16:48.653Z]
+   9037  RPC:srv         ← item/completed agentMessage id=msg_fake2 turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa
+   9044  FILE:rollout#15 response_item/message:assistant "ok2 " id=msg_fake2 [ts 2026-09-29T16:16:48.660Z]
+   9044  FILE:rollout#16 token_usage_record {"thread_id":"01a0edf4-34a5-7432-be85-503fd90a13f5","turn_id":"01a0edf4-34c9-75f3-9e4b-fd2…(695) [ts 2026-09-29T16:16:48.666Z]
+   9044  FILE:rollout#17 event_msg/token_count [ts 2026-09-29T16:16:48.667Z]
+   9065  RPC:srv         ← hook/started turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=stop status=running
+   9068  HOOK            Stop turn_id=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa
+   9073  RPC:srv         ← hook/completed turnId=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa hook=stop status=completed
+   9077  RPC:srv         ← thread/status/changed status={"type":"idle"}
+   9079  RPC:srv         ← turn/completed turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa status=completed
+   9082  RPC:srv         ← warning {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5","message":"Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance…(180)
+   9084  RPC:srv         ← thread/queue/changed
+   9087  RPC:srv         ← thread/status/changed status={"type":"active","activeFlags":[]}
+   9087  FILE:rollout#18 event_msg/task_complete turn=01a0edf4-34c9-75f3-9e4b-fd2dfa6c41fa [ts 2026-09-29T16:16:48.698Z]
+   9087  FILE:rollout#19 event_msg/task_started turn=01a0edf4-583c-7cc3-b6db-ba024a9f5787 [ts 2026-09-29T16:16:48.706Z]
+   9090  RPC:srv         ← turn/started turn=01a0edf4-583c-7cc3-b6db-ba024a9f5787 status=inProgress
+   9097  FILE:rollout#20 turn_context turn=01a0edf4-583c-7cc3-b6db-ba024a9f5787 [ts 2026-09-29T16:16:48.714Z]
+   9165  QUEUEDB         queued_items=[{"id":"01a0edf4-3a4d-74d2-89d1-9e10ed6e34ae","order":1,"p":{"UserInput":{"content":[{"type":"text","text":"same id twice","text_elements":[]}],"client_id":"our_dup"}}}]
+   9197  RPC:srv         ← hook/started turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787 hook=userPromptSubmit status=running
+   9198  HOOK            UserPromptSubmit turn_id=01a0edf4-583c-7cc3-b6db-ba024a9f5787 prompt="same id twice"
+   9205  RPC:srv         ← hook/completed turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787 hook=userPromptSubmit status=completed
+   9206  FILE:rollout#21 response_item/message:user "same id twice" id=msg_01a0edf4-58bb-7291-ad50-3eb9da7209d4 [ts 2026-09-29T16:16:48.828Z]
+   9208  RPC:srv         ← item/started userMessage id=01a0edf4-58be-7e40-b5be-50068c92d99c clientId=our_dup "same id twice" turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787
+   9222  RPC:srv         ← item/completed userMessage id=01a0edf4-58be-7e40-b5be-50068c92d99c clientId=our_dup "same id twice" turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787
+   9232  FILE:rollout#22 event_msg/item_completed turn=01a0edf4-583c-7cc3-b6db-ba024a9f5787 [ts 2026-09-29T16:16:48.830Z]
+   9405  MODEL           #3 request mode=quick items=7 lastItem=message:user users(last3)=["<environment_context>\n  <cwd>/tmp/claude…(627)","TOOLSLEEP busy","same id twice"]
+   9406  MODEL           #3 stream-done quick
+   9412  FILE:rollout#23 event_msg/item_completed turn=01a0edf4-583c-7cc3-b6db-ba024a9f5787 [ts 2026-09-29T16:16:49.035Z]
+   9416  RPC:srv         ← item/started agentMessage id=msg_fake3 turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787
+   9418  RPC:srv         ← item/completed agentMessage id=msg_fake3 turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787
+   9422  FILE:rollout#24 response_item/message:assistant "ok3 " id=msg_fake3 [ts 2026-09-29T16:16:49.040Z]
+   9422  FILE:rollout#25 token_usage_record {"thread_id":"01a0edf4-34a5-7432-be85-503fd90a13f5","turn_id":"01a0edf4-583c-7cc3-b6db-ba0…(694) [ts 2026-09-29T16:16:49.043Z]
+   9422  FILE:rollout#26 event_msg/token_count [ts 2026-09-29T16:16:49.045Z]
+   9457  RPC:srv         ← hook/started turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787 hook=stop status=running
+   9461  HOOK            Stop turn_id=01a0edf4-583c-7cc3-b6db-ba024a9f5787
+   9466  RPC:srv         ← hook/completed turnId=01a0edf4-583c-7cc3-b6db-ba024a9f5787 hook=stop status=completed
+   9475  FILE:rollout#27 event_msg/task_complete turn=01a0edf4-583c-7cc3-b6db-ba024a9f5787 [ts 2026-09-29T16:16:49.096Z]
+   9486  RPC:srv         ← thread/status/changed status={"type":"idle"}
+   9486  RPC:srv         ← turn/completed turn=01a0edf4-583c-7cc3-b6db-ba024a9f5787 status=completed
+   9496  RPC:srv         ← warning {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5","message":"Model metadata for `fake` not found. Defaulting to fallback metadata; this can degrade performance…(180)
+   9505  RPC:srv         ← thread/queue/changed
+   9510  FILE:rollout#28 event_msg/task_started turn=01a0edf4-59d1-7742-9079-64d3f064d9e9 [ts 2026-09-29T16:16:49.124Z]
+   9520  RPC:srv         ← thread/status/changed status={"type":"active","activeFlags":[]}
+   9523  FILE:rollout#29 turn_context turn=01a0edf4-59d1-7742-9079-64d3f064d9e9 [ts 2026-09-29T16:16:49.145Z]
+   9524  QUEUEDB         queued_items=[]
+   9525  RPC:srv         ← turn/started turn=01a0edf4-59d1-7742-9079-64d3f064d9e9 status=inProgress
+   9602  RPC:srv         ← hook/started turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9 hook=userPromptSubmit status=running
+   9608  HOOK            UserPromptSubmit turn_id=01a0edf4-59d1-7742-9079-64d3f064d9e9 prompt="same id twice"
+   9628  RPC:srv         ← hook/completed turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9 hook=userPromptSubmit status=completed
+   9630  RPC:srv         ← item/started userMessage id=01a0edf4-5a65-7142-aa15-ff8c4d045b03 clientId=our_dup "same id twice" turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9
+   9630  FILE:rollout#30 response_item/message:user "same id twice" id=msg_01a0edf4-5a60-7e00-a65a-de22a2708e43 [ts 2026-09-29T16:16:49.248Z]
+   9640  FILE:rollout#31 event_msg/item_completed turn=01a0edf4-59d1-7742-9079-64d3f064d9e9 [ts 2026-09-29T16:16:49.253Z]
+   9643  RPC:srv         ← item/completed userMessage id=01a0edf4-5a65-7142-aa15-ff8c4d045b03 clientId=our_dup "same id twice" turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9
+   9703  MODEL           #4 request mode=quick items=9 lastItem=message:user users(last3)=["TOOLSLEEP busy","same id twice","same id twice"]
+   9704  MODEL           #4 stream-done quick
+   9708  RPC:srv         ← item/started agentMessage id=msg_fake4 turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9
+   9710  RPC:srv         ← item/completed agentMessage id=msg_fake4 turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9
+   9712  FILE:rollout#32 event_msg/item_completed turn=01a0edf4-59d1-7742-9079-64d3f064d9e9 [ts 2026-09-29T16:16:49.330Z]
+   9722  FILE:rollout#33 response_item/message:assistant "ok4 " id=msg_fake4 [ts 2026-09-29T16:16:49.333Z]
+   9722  FILE:rollout#34 token_usage_record {"thread_id":"01a0edf4-34a5-7432-be85-503fd90a13f5","turn_id":"01a0edf4-59d1-7742-9079-64d…(694) [ts 2026-09-29T16:16:49.340Z]
+   9761  FILE:rollout#35 event_msg/token_count [ts 2026-09-29T16:16:49.346Z]
+   9789  RPC:srv         ← hook/started turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9 hook=stop status=running
+   9799  HOOK            Stop turn_id=01a0edf4-59d1-7742-9079-64d3f064d9e9
+   9805  RPC:srv         ← hook/completed turnId=01a0edf4-59d1-7742-9079-64d3f064d9e9 hook=stop status=completed
+   9808  RPC:srv         ← thread/status/changed status={"type":"idle"}
+   9808  RPC:srv         ← turn/completed turn=01a0edf4-59d1-7742-9079-64d3f064d9e9 status=completed
+   9810  FILE:rollout#36 event_msg/task_complete turn=01a0edf4-59d1-7742-9079-64d3f064d9e9 [ts 2026-09-29T16:16:49.429Z]
+   9878  RPC:srv         ← thread/queue/changed
+  13081  RPC:srv         → req#6 thread/read {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5","includeTurns":true}
+  13103  RPC:srv         ← deprecationNotice
+  13103  RPC:srv         ← resp#6 {"thread":{"id":"01a0edf4-34a5-7432-be85-503fd90a13f5","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59…(3278)
+  13103  MARK            thread/read end {"id":6,"result":{"thread":{"id":"01a0edf4-34a5-7432-be85-503fd90a13f5","environments":[{"environmentId":"local","cwd":"/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-…(3296)
+  13103  RPC:srv         → req#7 thread/queue/list {"threadId":"01a0edf4-34a5-7432-be85-503fd90a13f5"}
+  13104  RPC:srv         ← resp#7 {"data":[],"nextCursor":null}
+  13104  MARK            thread/queue/list end {"id":7,"result":{"data":[],"nextCursor":null}}
+  13104  MARK            kill app-server SIGTERM {}
+  13126  HOOK            SessionEnd turn_id=- reason=other
+  13214  MARK            app-server exited {}
