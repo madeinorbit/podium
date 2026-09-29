@@ -127,6 +127,81 @@ export async function gotoWorkspace(page: Page): Promise<void> {
   await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
 }
 
+/**
+ * Enter the workspace, spawning the first mission through the ColdStartComposer
+ * when the lane state is empty (POD-4733). Same destination as openApp, but the
+ * empty-state Launch press matches the composer's `cold-start-launch` testid:
+ * after `Start first task` the box is closed, so Launch is named
+ * `Start a <Agent> session`, not `Start work` — the name gotoWorkspace clicks.
+ * A folded sidebar (auto-fold below 1600px) is expanded first so the work list
+ * is reachable.
+ */
+export async function openWorkspace(page: Page): Promise<void> {
+  await openHome(page)
+  // If the "New panel" button is already visible we're already in the workspace.
+  const newPanelBtn = page.locator('button[aria-label="New panel"]:visible').first()
+  if (await newPanelBtn.isVisible().catch(() => false)) {
+    return
+  }
+
+  // Desktop layout renders an <aside> sidebar. Mobile renders MobileApp without
+  // one; there the work list is the home view, so navigate to it first.
+  const sidebar = page.getByRole('complementary').first()
+  const mobileShell = page.locator('.mobile-shell')
+  await sidebar.or(mobileShell).first().waitFor({ state: 'visible', timeout: 60_000 })
+  const onDesktop = await sidebar.isVisible()
+  const list = onDesktop ? sidebar : mobileShell
+  if (!onDesktop) await page.locator('button[title="Tasks"]').click({ timeout: 15_000 })
+
+  // A folded sidebar hides the work list; unfold it before looking for rows.
+  if (onDesktop) {
+    const expand = page.getByRole('button', { name: 'Expand sidebar' }).first()
+    if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
+  }
+
+  // Work rows load with the repos/sessions feeds — give the top row a
+  // loaded-host window (15s) to appear (it exists whenever earlier specs or a
+  // pre-reload page already created sessions).
+  const firstRow = list
+    .locator('[data-testid="unified-worktree-row"], [data-testid="unified-issue-row"]')
+    .first()
+  const rowVisible = await firstRow
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (rowVisible) {
+    await firstRow.locator('button.flex-1').first().click()
+  } else {
+    // Empty state — start a task in the first repo and launch it as it stands.
+    // Since f22417ba3 a task opens the launch composer, and Launch with no
+    // prompt is the removed chip's own draft spawn (the default agent, which
+    // the harness runs as keyecho).
+    await list.getByRole('button', { name: 'Start first task' }).first().click({ timeout: 15_000 })
+    await page.getByTestId('cold-start-launch').first().click({ timeout: 30_000 })
+  }
+  // Confirm the workspace loaded by waiting for the "New panel" button.
+  await newPanelBtn.waitFor({ state: 'visible', timeout: 30_000 })
+}
+
+/**
+ * Unfold the work sidebar when the window boots it folded (below 1600px, or a
+ * synced collapse), so work-list rows are reachable (POD-4733). No-op when
+ * already open.
+ */
+export async function expandSidebarIfFolded(page: Page): Promise<void> {
+  const expand = page.getByRole('button', { name: 'Expand sidebar' }).first()
+  if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
+}
+
+/**
+ * Unfold the Flight Deck when it boots folded, so the engraved glow surface
+ * is mounted (POD-4733). No-op when already open.
+ */
+export async function expandFlightDeckIfFolded(page: Page): Promise<void> {
+  const expand = page.getByRole('button', { name: 'Expand Flight Deck' }).first()
+  if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 15_000 })
+}
+
 /** Create a session of the given kind and wait for its test API to attach. */
 export async function newSession(
   page: Page,

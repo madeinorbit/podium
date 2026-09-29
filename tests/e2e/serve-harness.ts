@@ -117,6 +117,30 @@ const PORT = Number(process.env.PORT ?? 8799)
 const KEYECHO_CLI = fileURLToPath(new URL('../keyecho/src/cli.tsx', import.meta.url))
 const KEYECHO_PKG = fileURLToPath(new URL('../keyecho', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '')
+/**
+ * What REPO_ROOT can actually start a session worktree from: the current
+ * branch when on one, else a present main/master, else HEAD itself (a SHA is
+ * a valid `worktree add` start point). Keeps issues.create working from fresh
+ * detached lane checkouts that have no `main` ref.
+ */
+function resolveHarnessParentBranch(repoRoot: string): string {
+  const run = (args: string[]): string | undefined => {
+    try {
+      const out = execFileSync('git', ['-C', repoRoot, ...args], { encoding: 'utf8' }).trim()
+      return out === '' ? undefined : out
+    } catch {
+      return undefined
+    }
+  }
+  const current = run(['branch', '--show-current'])
+  if (current) return current
+  for (const name of ['main', 'master']) {
+    if (run(['rev-parse', '--verify', '--quiet', `refs/heads/${name}`])) return name
+  }
+  const head = run(['rev-parse', 'HEAD'])
+  if (!head) throw new Error(`harness repo has no HEAD to start from: ${repoRoot}`)
+  return head
+}
 // Reap only abandoned, explicitly owned run roots before claiming this run.
 // A fresh short run token makes simultaneous same-port harnesses independent.
 reapStaleHarnessDirs()
@@ -280,6 +304,18 @@ const startHarnessServer = async (): Promise<Awaited<ReturnType<typeof startServ
   const store = started.registry.sessionStore
   await store.machines.setMachineOwner(machineId, await firstAdminMemberId(store))
   for (const path of [REPO_ROOT, SCRATCH_REPO]) await store.repos.addRepo(path, machineId)
+  // issues.create with startNow cuts the session worktree from the settings'
+  // defaultParentBranch ('main'). A lane checkout is detached with no `main`
+  // ref, so that cut fails with `fatal: invalid reference: main`. Seed the
+  // branch THIS repo can actually start from into the isolated state dir.
+  const settings = await store.settings.getSettings()
+  await store.settings.setSettings({
+    ...settings,
+    gitWorkflow: {
+      ...settings.gitWorkflow,
+      defaultParentBranch: resolveHarnessParentBranch(REPO_ROOT),
+    },
+  })
   return Object.assign(started, { machineToken })
 }
 

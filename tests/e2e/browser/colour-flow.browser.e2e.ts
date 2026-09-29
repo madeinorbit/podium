@@ -1,27 +1,33 @@
 /**
  * Colour-flow propagation (#44, .design/specs/colour-flow.md): ONE reactive
  * source — the selected issue's flow colour scoped as --issue on the shell
- * root — drives every desktop surface: sidebar selected row + bridge notch,
- * engraved-column glow, tray cards (with ancestor inheritance), native tab
- * strip + pane chrome, right rail gradient/border, and the xterm terminal
- * background (live, no remount). The no-colour default runs the identical
- * mechanics quieter (handoff 1b percentages) under data-issue-colored='false',
- * and recolouring crossfades through the registered --issue transition.
+ * root — drives every desktop surface: sidebar selected row,
+ * engraved-column glow, native tab strip + pane chrome, right rail
+ * gradient/border (with ancestor inheritance through the scope), and the
+ * xterm terminal background (live, no remount). The no-colour default runs
+ * the identical mechanics quieter (handoff 1b percentages) under
+ * data-issue-colored='false', and recolouring crossfades through the
+ * registered --issue transition.
  *
  * Real Chromium against the harness relay: real issues (seeded over HTTP
  * tRPC), a real live session for the terminal proof, real pixels.
  */
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
-import { RELAY } from './_harness'
+import type { SessionMeta } from '@podium/model'
+import {
+  expandFlightDeckIfFolded,
+  expandSidebarIfFolded,
+  newSession,
+  openHome,
+  RELAY,
+} from './_harness'
 
 test.skip(({ isMobile }) => isMobile, 'desktop colour flow')
 // Cold-start discovery + real session spawns overrun the 30s default; siblings
 // (native-pane, engraved-column) size the budget the same way.
 test.setTimeout(120_000)
 
-const HTTP = (process.env.PODIUM_RELAY ?? 'ws://localhost:8799')
-  .replace('ws://', 'http://')
-  .replace('wss://', 'https://')
+const HTTP = RELAY.replace(/^ws/, 'http')
 
 async function rpc<T>(
   request: APIRequestContext,
@@ -32,7 +38,9 @@ async function rpc<T>(
   const res =
     method === 'post'
       ? await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
-      : await request.get(`${HTTP}/trpc/${proc}`)
+      : await request.get(
+          `${HTTP}/trpc/${proc}${input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : ''}`,
+        )
   if (!res.ok()) throw new Error(`${proc} → ${res.status()}: ${await res.text()}`)
   const body = (await res.json()) as { result?: { data?: T } }
   return body.result?.data as T
@@ -41,15 +49,6 @@ async function rpc<T>(
 interface SeededIssue {
   id: string
   seq: number
-}
-
-async function openShell(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
-  await page.goto(`/?server=${RELAY}&e2e=1`)
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 60_000,
-  })
-  await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
 }
 
 /** The browser's own resolution of a color-mix() expression (as a <color>). */
@@ -65,7 +64,7 @@ async function resolveColor(page: Page, expr: string): Promise<string> {
 }
 
 /** The browser's serialization of a colour INSIDE a computed gradient — the
- *  same engine path the tinted gradients (rail fade, glow, notch) go through,
+ *  same engine path the tinted gradients (rail fade, glow) go through,
  *  so containment checks compare like with like. */
 async function resolveGradientColor(page: Page, expr: string): Promise<string> {
   return page.evaluate((e) => {
@@ -89,16 +88,21 @@ function mixRgb(color: string, base: string, pct: number): string {
 
 const VIOLET = '#8b5cf6'
 const SLATE = '#94a3b8'
+// The neutral no-colour flow on the dark harness theme (--flow on Dark Ink;
+// the terminal mixer still uses SLATE above).
+const FLOW = '#949aa4'
 
-test('one --issue source: slate runs quieter, recolour flows to every surface incl. tray inheritance', async ({
+test('one --issue source: slate runs quieter, recolour flows live, child keeps the mission flow', async ({
   page,
   request,
 }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
+  // 1680px keeps the work sidebar unfolded (it folds below 1600px), so the
+  // seeded rows are reachable.
+  await page.setViewportSize({ width: 1680, height: 900 })
 
   // Seed a parent with real work (its session exits in the throwaway repo but
   // still yields the tab strip + header chrome) and an UNCOLOURED child that
-  // needs a human — its tray card must inherit the parent's flow colour (§2.5).
+  // needs a human.
   const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
   const repoPath = repos[0]
   if (!repoPath) throw new Error('harness registered no repo')
@@ -119,17 +123,19 @@ test('one --issue source: slate runs quieter, recolour flows to every surface in
     question: `Inherit the flow? ${stamp}`,
   })
 
-  await openShell(page)
+  await openHome(page)
+  await expandSidebarIfFolded(page)
   const row = page
     .getByTestId('unified-issue-row')
     .filter({ hasText: `Colour flow parent ${stamp}` })
     .first()
   await expect(row).toBeVisible({ timeout: 30_000 })
   await row.locator('button.flex-1').first().click()
+  // The deck mounts folded; unfold it once the workspace has settled so the
+  // engraved glow surface is in the DOM.
+  await expandFlightDeckIfFolded(page)
 
   const shell = page.locator('.desktop-shell')
-  const rowSurface = row.locator('[data-selected="true"]').first()
-  await expect(rowSurface).toBeVisible({ timeout: 15_000 })
 
   // ── The scope: one root carries the channel, the coloured flag and the
   // crossfade. The .4s transition is on the VARIABLE (registered @property),
@@ -147,136 +153,149 @@ test('one --issue source: slate runs quieter, recolour flows to every surface in
   )
   expect(rampText.trim()).not.toBe('')
 
-  // ── Slate (no colour) values — handoff 1b, quieter than the coloured set.
+  // ── Slate (no colour) values — the neutral flow over each surface's base.
+  // The focused tab strip runs 2% over the tabstrip tier, the engraved glow
+  // 13% over card; selection/rows/pane/rail/header are flat now (lift, spine
+  // and tier do that work), so the scope and the strip carry the proof.
   const strip = page.getByTestId('native-tab-strip')
   await expect(strip).toBeVisible({ timeout: 30_000 })
   await expect
     .poll(async () => strip.evaluate((el) => getComputedStyle(el).backgroundColor))
-    .toBe(await resolveColor(page, `color-mix(in srgb, ${SLATE} 14%, #101016)`))
-  const pane = page.locator('.native-agents-pane').first()
-  expect(await pane.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${SLATE} 9%, #0e0e12)`),
-  )
-  const rail = page.getByTestId('right-rail')
-  await expect(rail).toBeVisible()
-  expect(await rail.evaluate((el) => getComputedStyle(el).borderLeftColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${SLATE} 30%, transparent)`),
-  )
-  const railFadeSlate = await resolveGradientColor(
-    page,
-    `color-mix(in srgb, ${SLATE} 13%, #16161c)`,
-  )
-  expect(await rail.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(railFadeSlate)
+    .toBe(await resolveColor(page, `color-mix(in srgb, ${FLOW} 2%, #202228)`))
   const glow = page.locator('.engraved-column').first()
   await expect(glow).toBeVisible()
   expect(await glow.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(
-    await resolveGradientColor(page, `color-mix(in srgb, ${SLATE} 9%, transparent)`),
+    await resolveGradientColor(page, `color-mix(in srgb, ${FLOW} 13%, #23262d)`),
   )
-  // Selected row: 20% (vs 28% coloured), notch at 75% (vs 85%).
-  expect(await rowSurface.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${SLATE} 20%, #16161c)`),
-  )
-  const notch = row.getByTestId('bridge-notch')
-  await expect(notch).toBeVisible()
-  expect(await notch.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(
-    await resolveGradientColor(page, `color-mix(in srgb, ${SLATE} 75%, transparent)`),
-  )
-  // Tray: the uncoloured child's question card under an uncoloured parent runs
-  // the slate flow too.
-  const childCard = page
-    .getByTestId('tray-card-question')
-    .filter({ hasText: `Colour flow child ${stamp}` })
-    .first()
-  await expect(childCard).toBeVisible({ timeout: 20_000 })
-  await expect(childCard).toHaveAttribute('data-issue-colored', 'false')
+  // The scope carries the neutral flow (serializes as rgb()); the parent's
+  // own row is uncoloured.
+  expect(
+    await shell.evaluate((el) => getComputedStyle(el).getPropertyValue('--issue').trim()),
+  ).toBe(await resolveColor(page, FLOW))
+  await expect(row).toHaveAttribute('data-issue-colored', 'false')
   await page.screenshot({ path: 'test-results/colour-flow-slate.png', fullPage: true })
 
-  // ── Recolour the PARENT server-side: the push must recolour every surface
-  // live — shell flag, strip, pane, rail, glow, row, notch — and the child's
-  // tray card must INHERIT violet (its own colour is unset).
+  // ── Recolour the PARENT server-side: the push must recolour the live
+  // scope — flag, channel, strip, glow — and the uncoloured child must
+  // INHERIT violet through the shell scope (its own colour is unset).
   await rpc(request, 'issues.update', { id: parent.id, patch: { color: 'violet' } })
   await expect(shell).toHaveAttribute('data-issue-colored', 'true', { timeout: 15_000 })
   await expect
     .poll(async () => strip.evaluate((el) => getComputedStyle(el).backgroundColor))
-    .toBe(await resolveColor(page, `color-mix(in srgb, ${VIOLET} 18%, #101016)`))
-  expect(await pane.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${VIOLET} 12%, #0e0e12)`),
-  )
-  const header = page.getByTestId('agent-panel-header').first()
-  await expect(header).toBeVisible({ timeout: 20_000 })
-  expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${VIOLET} 24%, #0e0e12)`),
-  )
-  expect(await rail.evaluate((el) => getComputedStyle(el).borderLeftColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${VIOLET} 35%, transparent)`),
-  )
-  expect(await rail.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(
-    await resolveGradientColor(page, `color-mix(in srgb, ${VIOLET} 16%, #16161c)`),
-  )
+    .toBe(await resolveColor(page, `color-mix(in srgb, ${VIOLET} 3%, #202228)`))
   expect(await glow.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(
-    await resolveGradientColor(page, `color-mix(in srgb, ${VIOLET} 10%, transparent)`),
+    await resolveGradientColor(page, `color-mix(in srgb, ${VIOLET} 16%, #23262d)`),
   )
-  expect(await rowSurface.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${VIOLET} 28%, #16161c)`),
+  await expect(row).toHaveAttribute('data-issue-colored', 'true', { timeout: 15_000 })
+  // The child runs under the mission: its own colour slot is empty (server
+  // truth), and working it in the mission deck focuses — never globally
+  // selects — it (POD-1151 selects the mission root for a task pick, so the
+  // ancestor walk in effectiveIssueColorHex, unit-covered, never faces a
+  // nested global selection). The mission flow must survive that focus: the
+  // parent stays selected and the scope stays violet.
+  const fetchedChild = await rpc<{ color?: string | null }>(
+    request,
+    'issues.get',
+    { id: child.id },
+    'get',
   )
-  expect(await notch.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(
-    await resolveGradientColor(page, `color-mix(in srgb, ${VIOLET} 85%, transparent)`),
-  )
-  // Inheritance: the child card flows the parent's violet — coloured card
-  // percentages (question: 10% fill, 40% hairline) and the flat violet chip.
-  await expect(childCard).toHaveAttribute('data-issue-colored', 'true', { timeout: 15_000 })
-  expect(await childCard.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    await resolveColor(page, `color-mix(in srgb, ${VIOLET} 10%, #0e0e12)`),
-  )
-  expect(
-    await childCard
-      .locator('span[aria-hidden="true"]')
-      .first()
-      .evaluate((el) => getComputedStyle(el).backgroundColor),
-  ).toBe(await resolveColor(page, VIOLET))
+  expect(fetchedChild.color ?? null).toBeNull()
+  await page
+    .locator('.deck-task-content', { hasText: `Colour flow child ${stamp}` })
+    .first()
+    .click()
+  await expect(row.locator('[data-selected="true"]')).toHaveCount(1, { timeout: 15_000 })
+  await expect(shell).toHaveAttribute('data-issue-colored', 'true', { timeout: 15_000 })
+  await expect
+    .poll(
+      async () =>
+        shell.evaluate((el) => getComputedStyle(el).getPropertyValue('--issue').trim()),
+      { timeout: 15_000 },
+    )
+    .toBe(await resolveColor(page, VIOLET))
   await page.screenshot({ path: 'test-results/colour-flow-violet.png', fullPage: true })
 })
 
 test('a colour pick retints the LIVE terminal through setAppearance (no remount)', async ({
   page,
+  request,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 820 })
-  await openShell(page)
+  // 1680px keeps the work sidebar unfolded (it folds below 1600px), so the
+  // harness workspace entry reaches the launch composer on an empty state.
+  await page.setViewportSize({ width: 1680, height: 900 })
 
-  // A genuinely live session in the harness repo's own worktree (issue-spawned
-  // sessions exit immediately there) — its draft issue becomes the selection.
+  // A genuinely live session of our own: open the launch composer through New
+  // task (always present) and Launch with no prompt — the path that replaced
+  // the removed `New <Agent> in <Repo>` chip (f22417ba3). Spawning our own
+  // draft keeps the test independent of other suites' issues; the new draft
+  // becomes the selection. A fresh Shell panel then guarantees a live,
+  // native terminal (newSession preserves the selection).
+  await openHome(page)
+  await expandSidebarIfFolded(page)
+  await page.getByRole('button', { name: 'New task' }).first().click()
+  await page.getByTestId('cold-start-launch').first().click()
   await page
-    .getByRole('button', { name: /^New .+ in .+/ })
+    .locator('button[aria-label="New panel"]:visible')
     .first()
-    .click({ timeout: 20_000 })
+    .waitFor({ state: 'visible', timeout: 30_000 })
+  await newSession(page, 'Shell')
+  // The spawn never selects a sidebar row — join our live terminal to its
+  // issue through the session list and select it by row id. Exact match on
+  // our own active session, so it cannot drift onto another suite's issue.
+  const activeSessionId = await page.evaluate(
+    () =>
+      (window as unknown as { __podium?: { state(): { sessionId?: string } } }).__podium?.state()
+        .sessionId,
+  )
+  let ownIssueId: string | undefined
+  await expect
+    .poll(
+      async () => {
+        const all = await rpc<SessionMeta[]>(request, 'sessions.list', undefined, 'get')
+        ownIssueId = all.find((s) => s.sessionId === activeSessionId)?.issueId ?? undefined
+        return ownIssueId ?? null
+      },
+      { timeout: 30_000 },
+    )
+    .not.toBeNull()
+  if (!ownIssueId) throw new Error('own spawned issue never resolved from sessions.list')
+  const ownRow = page.locator(`[data-issue-row="${ownIssueId}"]`).first()
+  await expect(ownRow).toBeVisible({ timeout: 20_000 })
+  await ownRow.locator('button.flex-1').first().click()
   await expect(page.getByTestId('native-tab-strip')).toBeVisible({ timeout: 20_000 })
-  const surface = page.getByTestId('terminal-surface').first()
+  // Inactive panels keep their mounted surface in the DOM, so first() can grab
+  // a hidden one — the live terminal is the visible surface.
+  const surface = page.getByTestId('terminal-surface').locator('visible=true').first()
   await expect(surface).toBeVisible({ timeout: 30_000 })
   await expect
     .poll(async () => surface.evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe(mixRgb(SLATE, '#0e0e12', 9))
 
-  // Pick Teal on the selected (draft) row's ID square — the picker needs the
-  // spawn to reconcile into a real issue, so retry the trigger until the
-  // dialog is up.
+  // Pick Teal on the selected (draft) row's context menu — the picker moved
+  // off the ID square into the row menu, and needs the spawn to reconcile
+  // into a real issue, so retry the trigger until the picker is up.
   const selectedRow = page
     .getByTestId('unified-issue-row')
     .filter({ has: page.locator('[data-selected="true"]') })
     .first()
   await expect(selectedRow).toBeVisible({ timeout: 20_000 })
-  const square = selectedRow.getByRole('button', { name: /Set colour for issue/ })
-  const picker = page.getByRole('dialog', { name: /Issue colour for/ })
+  const teal = page.getByRole('button', { name: 'Teal' }).first()
   await expect
     .poll(
       async () => {
-        if (await picker.isVisible().catch(() => false)) return true
-        await square.click().catch(() => {})
-        return picker.isVisible().catch(() => false)
+        if (await teal.isVisible().catch(() => false)) return true
+        const setColour = page.getByRole('menuitem', { name: /Set colour/ }).first()
+        if (await setColour.isVisible().catch(() => false)) {
+          await setColour.click().catch(() => {})
+        } else {
+          await selectedRow.click({ button: 'right' }).catch(() => {})
+        }
+        return teal.isVisible().catch(() => false)
       },
       { timeout: 30_000 },
     )
     .toBe(true)
-  await picker.getByRole('button', { name: 'Teal' }).click()
+  await teal.click()
 
   // The mounted terminal (container + xterm ITheme share termBg) retints live:
   // 12% teal over the terminal base — same panel, no remount.
