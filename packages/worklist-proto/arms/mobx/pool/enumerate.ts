@@ -256,38 +256,35 @@ export function scanRelations(
     if (buckets === undefined) throw new Error(`[scan] ${from}.${relation} is not a collection`)
     return buckets.get(id) ?? NO_IDS
   }
-  // POD-4671 ruling Sep27: the scan's issueless sets, from scratch — the same
-  // filter the engines maintain at the delta (members with no `issueId`).
-  const rowsById = new Map<EntityName, Map<string, unknown>>()
-  for (const entity of entities) {
-    const rows = new Map<string, unknown>()
-    for (const [id, row] of tables[entity].entries()) rows.set(id, row)
-    rowsById.set(entity, rows)
-  }
-  const issuelessByCollection = new Map<string, Map<string, string[]>>()
+  // POD-4758: every declared subset, from scratch — the scanned bucket
+  // filtered by the subset's own test over each member's row, the same
+  // declaration the engines maintain at the delta (POD-4671 ruling Sep27).
+  const subsets = new Map<string, Map<string, readonly string[]>>()
   for (const from of entities) {
     for (const [name, spec] of Object.entries(schema[from].relations)) {
-      if (!isLinkSpec(spec)) continue
-      if (spec.kind !== 'prefix') continue
-      if ((schema[from].fields as Record<string, unknown>).issueId === undefined) continue
-      const buckets = inverse.get(`${spec.to}.${spec.inverse}`)
-      if (buckets === undefined) continue
-      const rows = rowsById.get(from)
-      const filtered = new Map<string, string[]>()
-      for (const [target, members] of buckets) {
-        const kept = members.filter((id) => {
-          const row = rows?.get(id) as Readonly<Record<string, unknown>> | undefined
-          return row !== undefined && row.issueId === undefined
-        })
-        if (kept.length > 0) filtered.set(target, kept)
+      if (spec.kind !== 'hasMany') continue
+      for (const [subset, test] of Object.entries(spec.subsets ?? {})) {
+        const rows = new Map(tables[spec.to].entries())
+        const filtered = new Map<string, readonly string[]>()
+        for (const [target, members] of inverse.get(`${from}.${name}`) ?? []) {
+          const kept = members.filter((id) => {
+            const row = rows.get(id) as Readonly<Record<string, unknown>> | undefined
+            return row !== undefined && test.test(row)
+          })
+          if (kept.length > 0) filtered.set(target, kept)
+        }
+        subsets.set(`${from}.${name}.${subset}`, filtered)
       }
-      issuelessByCollection.set(`${spec.to}.${spec.inverse}`, filtered)
-      void name
     }
   }
-  const issuelessOf = (from: EntityName, id: string, relation: string): readonly string[] => {
-    const buckets = issuelessByCollection.get(`${from}.${relation}`)
-    if (buckets === undefined) throw new Error(`[scan] ${from}.${relation} has no issueless index`)
+  const subsetOf = (
+    from: EntityName,
+    id: string,
+    relation: string,
+    subset: string,
+  ): readonly string[] => {
+    const buckets = subsets.get(`${from}.${relation}.${subset}`)
+    if (buckets === undefined) throw new Error(`[scan] ${from}.${relation} declares no subset "${subset}"`)
     return buckets.get(id) ?? NO_IDS
   }
   return {
@@ -306,7 +303,7 @@ export function scanRelations(
     },
     many: bucketOf,
     size: (from, id, relation) => bucketOf(from, id, relation).length,
-    issueless: issuelessOf,
+    subset: subsetOf,
   }
 }
 
@@ -342,23 +339,23 @@ export function diffRelations(
       }
     }
   }
-  // POD-4671 ruling Sep27: hold the maintained issueless sets to the scan too.
+  // POD-4758: hold every maintained subset to the scan too.
   for (const from of Object.keys(schema) as EntityName[]) {
     for (const [name, spec] of Object.entries(schema[from].relations)) {
-      if (!isLinkSpec(spec) || spec.kind !== 'prefix') continue
-      if ((schema[from].fields as Record<string, unknown>).issueId === undefined) continue
-      const ids = new Set([...tables[spec.to].keys(), ...(extra[spec.to] ?? [])])
-      for (const id of ids) {
-        const got = [...live.issueless(spec.to, id, spec.inverse)].sort()
-        const want = [...scan.issueless(spec.to, id, spec.inverse)]
-        if (JSON.stringify(got) === JSON.stringify(want)) continue
-        if (out.length < 12) {
-          out.push(
-            `${spec.to}:${id}.${spec.inverse}.issueless: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`,
-          )
+      if (spec.kind !== 'hasMany') continue
+      for (const subset of Object.keys(spec.subsets ?? {})) {
+        const ids = new Set([...tables[from].keys(), ...(extra[from] ?? [])])
+        for (const id of ids) {
+          const got = [...live.subset(from, id, name, subset)].sort()
+          const want = [...scan.subset(from, id, name, subset)]
+          if (JSON.stringify(got) === JSON.stringify(want)) continue
+          if (out.length < 12) {
+            out.push(
+              `${from}:${id}.${name}.${subset}: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`,
+            )
+          }
         }
       }
-      void name
     }
   }
   return out

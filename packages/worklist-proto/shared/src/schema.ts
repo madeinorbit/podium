@@ -182,7 +182,33 @@ export interface BelongsToSpec extends RelationCommon {
 
 export interface HasManySpec extends RelationCommon {
   readonly kind: 'hasMany'
+  /**
+   * Named filtered views of this collection (POD-4758), maintained with it
+   * by the pool: `subsets.issueless` on `worktree.sessions` holds the members
+   * with no `issueId`. A member belongs to a subset while it is in the
+   * collection AND passes the subset's test, so a reader lists it without
+   * reading one member row to filter.
+   */
+  readonly subsets?: Readonly<Record<string, SubsetSpec>>
 }
+
+/**
+ * A filtered view of a `hasMany` (POD-4758). The test reads the MEMBER's raw
+ * row; `fields` are the member fields it reads, and a change to any of them
+ * re-decides membership where the member sits.
+ */
+export interface SubsetSpec {
+  readonly fields: readonly string[]
+  readonly test: (member: Readonly<Record<string, unknown>>) => boolean
+  readonly why: string
+}
+
+/**
+ * Names a subset may not take: the members a navigation handle already
+ * answers (`ready`, `loading`) and the id reads a typed link exposes (`ids`,
+ * `size`).
+ */
+export const RESERVED_SUBSET_NAMES: ReadonlySet<string> = new Set(['ready', 'loading', 'ids', 'size'])
 
 export interface PrefixSpec extends RelationCommon {
   readonly kind: 'prefix'
@@ -324,10 +350,10 @@ export interface MembersKeptBySpec {
  * row names its lane through `through` (a `belongsTo`, by its raw foreign
  * key); the lane's `relation` is a `hasMany` whose inverse is the `prefix`,
  * read as the relation holds it (the prefix's `where`, collapsed twins out,
- * the lane resolved over the union root set); a member counts only while its
- * `unownedBy` foreign key is ABSENT (the legacy tests `issueId !== undefined`,
- * `session-ownership.ts:152-158`). Bounded by the lane's members: a row reads
- * its own lane, never a scan.
+ * the lane resolved over the union root set); a member counts only while it
+ * is in the relation's declared `subset` (POD-4758: the issueless sessions,
+ * the legacy test `issueId !== undefined`, `session-ownership.ts:152-158`).
+ * Bounded by the lane's members: a row reads its own lane, never a scan.
  */
 export interface LaneKeptBySpec {
   readonly kind: 'lane'
@@ -335,8 +361,8 @@ export interface LaneKeptBySpec {
   readonly through: string
   /** A `hasMany` on the lane whose inverse is a `prefix` on the member entity. */
   readonly relation: string
-  /** A `belongsTo` on the member entity: members whose raw foreign key is set are not counted. */
-  readonly unownedBy: string
+  /** A subset declared on `relation`: only its members are counted. */
+  readonly subset: string
   /** Member fields `keep` reads. */
   readonly dependsOn: readonly string[]
   readonly keep: (member: Readonly<Record<string, unknown>>) => MemberKeep
@@ -391,8 +417,13 @@ export interface EntitySpec {
 
 export type ModelSchema = Readonly<Record<EntityName, EntitySpec>>
 
-/** Identity, typed. The schema is data; this only pins its shape. */
-function defineSchema(schema: ModelSchema): ModelSchema {
+/**
+ * Identity, typed. The schema is data; this only pins its shape, and keeps
+ * its literal type (entity and relation names, each relation's kind, target
+ * and laziness) for the typed navigation derived from it (`DeclaredSchema`,
+ * POD-4758).
+ */
+function defineSchema<const S extends ModelSchema>(schema: S): S {
   return schema
 }
 
@@ -402,10 +433,12 @@ function defineSchema(schema: ModelSchema): ModelSchema {
 
 type Opts<T> = Omit<T, 'kind'>
 
-const belongsTo = (spec: Opts<BelongsToSpec>): BelongsToSpec => ({ kind: 'belongsTo', ...spec })
-const hasMany = (spec: Opts<HasManySpec>): HasManySpec => ({ kind: 'hasMany', ...spec })
-const prefix = (spec: Opts<PrefixSpec>): PrefixSpec => ({ kind: 'prefix', ...spec })
-const edge = (spec: Opts<EdgeSpec>): EdgeSpec => ({ kind: 'edge', ...spec })
+// Each keeps its argument's literal type (`to`, `lazy`, `direction`,
+// `subsets`): the typed navigation reads them (POD-4758).
+const belongsTo = <const S extends Opts<BelongsToSpec>>(spec: S) => ({ kind: 'belongsTo' as const, ...spec })
+const hasMany = <const S extends Opts<HasManySpec>>(spec: S) => ({ kind: 'hasMany' as const, ...spec })
+const prefix = <const S extends Opts<PrefixSpec>>(spec: S) => ({ kind: 'prefix' as const, ...spec })
+const edge = <const S extends Opts<EdgeSpec>>(spec: S) => ({ kind: 'edge' as const, ...spec })
 
 // ---------------------------------------------------------------------------
 // Reusable source shorthands
@@ -552,7 +585,7 @@ function sessionKeep(row: Readonly<Record<string, unknown>>): MemberKeep {
 // THE SCHEMA
 // ---------------------------------------------------------------------------
 
-export const SCHEMA: ModelSchema = defineSchema({
+const DECLARED = defineSchema({
   /**
    * An issue: the wire row joined with its normalized projection row by `id`
    * (slice §1). Both spellings are held; the join key is always `id`.
@@ -711,7 +744,7 @@ export const SCHEMA: ModelSchema = defineSchema({
           kind: 'lane',
           through: 'worktree',
           relation: 'sessions',
-          unownedBy: 'issue',
+          subset: 'issueless',
           dependsOn: SESSION_KEEP_FIELDS,
           keep: sessionKeep,
           why: "R3 (POD-4745): an issueless session running in the issue's own checkout is one of its seats by containment (`indexSessionOwnership`, session-ownership.ts:152-158), and a retained seat keeps the row shown exactly as an explicit member does. Without it the bound held only on today's data (no closed row at 1x or 4x is kept by such a session alone), and an arm had to evaluate every cold row at bootstrap to be safe.",
@@ -867,6 +900,13 @@ export const SCHEMA: ModelSchema = defineSchema({
         lazy: true,
         slice: 'R3',
         why: 'The prefix relation’s inverse collection; may hold sessions of closed issues.',
+        subsets: {
+          issueless: {
+            fields: ['issueId'],
+            test: (row: Readonly<Record<string, unknown>>) => row['issueId'] === undefined,
+            why: "The lane's sessions no explicit owner claims (`indexSessionOwnership`, session-ownership.ts:152-158: the legacy tests `issueId !== undefined`, so an explicit null still claims). They seat by containment under the issues checked out here (R3), and keep a closed one of them shown (`issue.cold.keptBy`, POD-4745).",
+          },
+        },
       }),
       issues: hasMany({
         to: 'issue',
@@ -925,6 +965,16 @@ export const SCHEMA: ModelSchema = defineSchema({
     cold: { kind: 'never', why: 'One row per repo: a handful. Always resident.' },
   },
 })
+
+/** The schema, as every engine reads it: data, keyed by name. */
+export const SCHEMA: ModelSchema = DECLARED
+
+/**
+ * The schema's literal type (POD-4758): what the typed relation navigation
+ * derives its names, targets, kinds and laziness from, so a misspelled
+ * relation does not compile (`shared/src/links.ts`).
+ */
+export type DeclaredSchema = typeof DECLARED
 
 // ---------------------------------------------------------------------------
 // Rule L — lazy is derived, never hand-set
@@ -1097,8 +1147,9 @@ export interface LaneSource {
   /** The member's `prefix` relation name and spec (`session.worktree`). */
   readonly prefixName: string
   readonly prefix: PrefixSpec
-  /** The member's `belongsTo` whose raw foreign key must be absent (`session.issue`). */
-  readonly unowned: BelongsToSpec
+  /** The subset of `relation` whose members count (`issueless`), and its declaration. */
+  readonly subsetName: string
+  readonly subset: SubsetSpec
 }
 
 /** A `lane` source's resolution, or the reason it does not resolve. */
@@ -1118,9 +1169,9 @@ function resolveLane(
   if (prefix?.kind !== 'prefix') {
     return `"${lane}.${source.relation}"'s inverse must be a prefix (got ${prefix?.kind})`
   }
-  const unowned = schema[relation.to].relations[source.unownedBy]
-  if (unowned?.kind !== 'belongsTo') {
-    return `unownedBy "${relation.to}.${source.unownedBy}" must name a belongsTo`
+  const subset = relation.subsets?.[source.subset]
+  if (subset === undefined) {
+    return `subset "${source.subset}" is not declared on ${lane}.${source.relation}`
   }
   return {
     owner,
@@ -1132,7 +1183,8 @@ function resolveLane(
     member: relation.to,
     prefixName: relation.inverse,
     prefix,
-    unowned,
+    subsetName: source.subset,
+    subset,
   }
 }
 
@@ -1196,14 +1248,14 @@ export function keeperOf(
 
 /**
  * How long `row` of `lane.member` can keep, through `lane`, the owners of
- * whatever lane seats it (POD-4745): its keep while it is UNOWNED (the raw
- * `unownedBy` foreign key absent), else null. Which lane seats it (the
- * prefix's `where`, collapse, the union roots) is the relation's to say, not
- * the row's.
+ * whatever lane seats it (POD-4745): its keep while it passes the lane's
+ * declared subset (POD-4758), else null. Which lane seats it (the prefix's
+ * `where`, collapse, the union roots) is the relation's to say, not the
+ * row's.
  */
 export function laneKeepOf(lane: LaneSource, row: object): MemberKeep | null {
   const fields = row as Readonly<Record<string, unknown>>
-  return fields[lane.unowned.foreignKey] === undefined ? lane.source.keep(fields) : null
+  return lane.subset.test(fields) ? lane.source.keep(fields) : null
 }
 
 /** `schema[entity].cold.finishOf(row)` for an `unlessShown` entity, else null. */
@@ -1605,6 +1657,22 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
         for (const field of relation.where.fields) {
           if (!(field in entity.fields)) {
             problems.push(`${here}.where names undeclared field "${field}"`)
+          }
+        }
+      }
+
+      if (relation.kind === 'hasMany') {
+        for (const [subset, spec] of Object.entries(relation.subsets ?? {})) {
+          if (RESERVED_SUBSET_NAMES.has(subset)) {
+            problems.push(`${here}.subsets.${subset}: the name is reserved`)
+          }
+          if (spec.fields.length === 0) {
+            problems.push(`${here}.subsets.${subset}: declares no fields`)
+          }
+          for (const field of spec.fields) {
+            if (!(field in target.fields)) {
+              problems.push(`${here}.subsets.${subset} names undeclared ${relation.to} field "${field}"`)
+            }
           }
         }
       }

@@ -210,7 +210,7 @@ class IssueGraph {
       },
       many: members,
       size: (from, id, relation) => link(from, relation, 'many').buckets.get(id)?.size ?? 0,
-      issueless: () => [],
+      subset: () => [],
     }
   }
 }

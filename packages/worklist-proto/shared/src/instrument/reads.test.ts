@@ -262,7 +262,7 @@ describe('relation door', () => {
     one: (_from, _id, relation) => (relation === 'parent' ? 'i0' : null),
     many: () => ['s1', 's2', 's3'],
     size: () => 3,
-    issueless: () => [],
+    subset: () => [],
   }
 
   it('counts the target of a single relation, and every member of a collection', () => {
@@ -314,7 +314,7 @@ describe('rows read: data, not ids (POD-4746)', () => {
       one: () => 'i1',
       many: () => ['s7', 's8'],
       size: () => 2,
-      issueless: () => [],
+      subset: () => [],
     } satisfies RelationReader)
     void [...relations.many('issue', 'i1', 'sessions')]
     expect(fence.stats().data).toBe(1)
@@ -356,7 +356,7 @@ describe('disabled (timing runs)', () => {
       one: () => null,
       many: () => [],
       size: () => 0,
-      issueless: () => [],
+      subset: () => [],
     }
     expect(DISABLED_READ_FENCE.wrapTables({ session: raw }).session).toBe(raw)
     expect(DISABLED_READ_FENCE.wrapSource(source)).toBe(source)

@@ -306,11 +306,21 @@ export class PoolRelations implements RelationReader {
     return this.bucket(from, id, relation).size
   }
 
-  issueless(from: EntityName, id: string, relation: string): Iterable<string> {
+  subset(from: EntityName, id: string, relation: string, subset: string): Iterable<string> {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) {
       specOf(this.schema, from, relation)
-      throw new Error(`[pool] ${from}.${relation} is single-valued; read it with issueless()`)
+      throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
+    }
+    // POD-4758: the schema declares the subset (`HasManySpec.subsets`); this
+    // paused arm still maintains the one declared today by its own hard-coded
+    // test (the MobX engine maintains any declared subset generically).
+    const declared = this.schema[from].relations[relation]
+    if (declared?.kind !== 'hasMany' || declared.subsets?.[subset] === undefined) {
+      throw new Error(`[pool] ${from}.${relation} declares no subset "${subset}"`)
+    }
+    if (subset !== 'issueless') {
+      throw new Error(`[pool] the hand engine maintains only the issueless subset, not "${subset}"`)
     }
     // POD-4671 ruling Sep27: maintained issueless set, never session rows.
     if (link.issueless === null) {

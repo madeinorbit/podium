@@ -156,8 +156,12 @@ describe('the declared schema', () => {
     // and the issueless sessions its own checkout seats (R3).
     expect(cold.keptBy).toMatchObject([
       { kind: 'members', relation: 'sessions' },
-      { kind: 'lane', through: 'worktree', relation: 'sessions', unownedBy: 'issue' },
+      { kind: 'lane', through: 'worktree', relation: 'sessions', subset: 'issueless' },
     ])
+    // POD-4758: the lane's subset is declared once, on the collection.
+    const lane = SCHEMA.worktree.relations['sessions']
+    if (lane?.kind !== 'hasMany') throw new Error('unreachable')
+    expect(lane.subsets?.['issueless']?.fields).toEqual(['issueId'])
 
     // A session cannot decide its own residency: it inherits the issue's.
     expect(SCHEMA.session.cold).toMatchObject({ kind: 'via', relation: 'issue' })
@@ -314,9 +318,44 @@ describe('validateStructure', () => {
     )
   })
 
-  it('fires when the lane source names an owner link that is not a belongsTo', () => {
-    expect(validateStructure(withLane({ unownedBy: 'worktree' })).join('\n')).toMatch(
-      /unownedBy "session\.worktree" must name a belongsTo/,
+  it('fires when the lane source names a subset its collection does not declare', () => {
+    expect(validateStructure(withLane({ subset: 'unowned' })).join('\n')).toMatch(
+      /subset "unowned" is not declared on worktree\.sessions/,
+    )
+  })
+
+  /** The schema with `worktree.sessions`' `issueless` subset replaced by `change` of it (under `name`). */
+  function withSubset(change: Record<string, unknown>, name = 'issueless'): ModelSchema {
+    const schema = clone()
+    const sessions = SCHEMA.worktree.relations['sessions']
+    if (sessions?.kind !== 'hasMany') throw new Error('unreachable')
+    const subset = sessions.subsets?.['issueless']
+    ;(schema as Record<string, unknown>).worktree = {
+      ...schema.worktree,
+      relations: {
+        ...schema.worktree.relations,
+        sessions: { ...sessions, subsets: { [name]: { ...subset, ...change } } },
+      },
+    }
+    return schema
+  }
+
+  it('fires when a subset reads a member field that is not declared (POD-4758)', () => {
+    expect(validateStructure(withSubset({})).join('\n')).toBe('')
+    expect(validateStructure(withSubset({ fields: ['issueRef'] })).join('\n')).toMatch(
+      /worktree\.sessions\.subsets\.issueless names undeclared session field "issueRef"/,
+    )
+  })
+
+  it('fires when a subset declares no fields (POD-4758)', () => {
+    expect(validateStructure(withSubset({ fields: [] })).join('\n')).toMatch(
+      /worktree\.sessions\.subsets\.issueless: declares no fields/,
+    )
+  })
+
+  it('fires when a subset takes a reserved name (POD-4758)', () => {
+    expect(validateStructure(withSubset({}, 'size')).join('\n')).toMatch(
+      /worktree\.sessions\.subsets\.size: the name is reserved/,
     )
   })
 

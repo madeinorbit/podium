@@ -33,6 +33,12 @@
  * - for a `prefix` link, `under`: normalized path → the members whose source
  *   path is that path or lies inside it. It is the ONLY way a new root finds
  *   the sessions it now owns without a scan (doc §4.3).
+ * - for each SUBSET its collection declares (`HasManySpec.subsets`,
+ *   POD-4758; today R3's lane subset), target → the members in the bucket
+ *   that pass the subset's test. Filed wherever the member is placed (its
+ *   own row's relink, a root gained or lost) and re-decided in place when a
+ *   field the subset reads moves, so a reader lists a subset without reading
+ *   one member row.
  *
  * MAINTENANCE (`changed`, called by ingest after each table write, doc §4):
  * 1. collapse: when the row's collapse inputs moved, its old and new groups
@@ -76,6 +82,10 @@
 
 import { type ObservableMap, type ObservableSet, observable } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
+import { relationRef } from '../../../shared/src/links'
+
+// Moved to the typed links (POD-4758); kept importable from the engine.
+export { relationRef }
 import {
   type BelongsToSpec,
   type CollapseSpec,
@@ -88,6 +98,7 @@ import {
   type PrefixSpec,
   type RelationSpec,
   SCHEMA,
+  type SubsetSpec,
 } from '../../../shared/src/schema'
 
 type Row = Readonly<Record<string, unknown>>
@@ -117,42 +128,6 @@ export function isLinkSpec(spec: RelationSpec): spec is LinkSpec {
     spec.kind === 'prefix' ||
     (spec.kind === 'edge' && spec.direction === 'out')
   )
-}
-
-/**
- * The target key a `belongsTo` or outgoing `edge` names on `source` (the
- * foreign key; the first edge of the declared type), after the declared
- * membership filter, WITHOUT checking the target is present. Reading it costs
- * the source row only. The engine computes a link's forward key with it, and
- * the from-scratch scan (`enumerate.ts`) its oracle's; derivations read `one`
- * instead, with one exception: the worklist files each issue under its
- * `issue.parent` key (POD-4571, `visible.ts` `Standing.formalParent`), a
- * maintenance key that must not depend on the parent's residency.
- */
-export function relationRef(
-  from: EntityName,
-  relation: string,
-  source: object,
-  schema: ModelSchema = SCHEMA,
-): string | null {
-  const spec = specOf(schema, from, relation)
-  const row = source as Row
-  if (spec.where !== undefined && !spec.where.test(row)) return null
-  let target: unknown
-  if (spec.kind === 'belongsTo') {
-    if (spec.targetKey !== schema[spec.to].key) {
-      throw new Error(`[pool] ${from}.${relation} joins on a non-key field; not a keyed read`)
-    }
-    target = row[spec.foreignKey]
-  } else if (spec.kind === 'edge' && spec.direction === 'out') {
-    const edges = row[spec.edgeField]
-    if (!Array.isArray(edges)) return null
-    const hit = (edges as readonly Row[]).find((edge) => edge[spec.edgeTypeKey] === spec.edgeType)
-    target = hit?.[spec.edgeIdKey]
-  } else {
-    throw new Error(`[pool] ${from}.${relation} is not resolved from its own row (${spec.kind})`)
-  }
-  return typeof target === 'string' && target.length > 0 ? target : null
 }
 
 /** The fields a link's answer depends on: a change to any re-resolves it (doc §4.2). */
@@ -220,13 +195,19 @@ interface Link {
    */
   readonly extraByRow: Map<string, string | null> | null
   /**
-   * POD-4671 ruling Sep27 — `prefix` from an entity with `issueId` only
-   * (R3): target → the issueless members under it (those with no `issueId`).
-   * Maintained at the delta (on enter/leave/issueId/cwd change and root
-   * gain/loss), so a reader never reads session rows to filter — the same
-   * pattern as POD-4678's seat list. Unordered like `buckets`.
+   * POD-4758 — the subsets the collection declares, each target → its
+   * members that pass the subset's test (POD-4671's sessions with no owner).
+   * Maintained at the delta, so a reader never reads member rows to filter —
+   * the same pattern as POD-4678's seat list. Unordered like `buckets`.
    */
-  readonly issueless: ObservableMap<string, ObservableSet<string>> | null
+  readonly subsets: readonly Subset[]
+}
+
+/** One declared subset of a link's collection (POD-4758). */
+interface Subset {
+  readonly name: string
+  readonly spec: SubsetSpec
+  readonly sets: ObservableMap<string, ObservableSet<string>>
 }
 
 /**
@@ -280,13 +261,13 @@ export interface PoolRelationsOptions {
   /** Residency (POD-4567): slots of rows that are not resident stay plain. */
   readonly cold?: ColdSlots
   /**
-   * POD-4745 — `member` joined the issueless set of `collection` at
+   * POD-4745 — `member` joined the declared `subset` of `collection` at
    * `target` (inside the action, as it happens, by any cause: its own row,
    * a collapse flip, a root gained or lost). Residency settles what it can
    * keep once the publication's rows are in; never call back into the engine
    * from here.
    */
-  readonly onIssuelessJoin?: (collection: string, target: string, member: string) => void
+  readonly onSubsetJoin?: (collection: string, subset: string, target: string, member: string) => void
 }
 
 /** What ingest needs from the engine. */
@@ -314,7 +295,12 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     added: boolean,
   ) => void
   private readonly cold: ColdSlots | null
-  private readonly onIssuelessJoin: (collection: string, target: string, member: string) => void
+  private readonly onSubsetJoin: (
+    collection: string,
+    subset: string,
+    target: string,
+    member: string,
+  ) => void
   private readonly links = new Map<string, Link>()
   /** Links by the entity their collection belongs to (buckets keyed by its ids). */
   private readonly incoming = new Map<EntityName, Link[]>()
@@ -339,7 +325,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.onElements = options.onElements ?? (() => {})
     this.onBucket = options.onBucket ?? (() => {})
     this.cold = options.cold ?? null
-    this.onIssuelessJoin = options.onIssuelessJoin ?? (() => {})
+    this.onSubsetJoin = options.onSubsetJoin ?? (() => {})
     for (const from of Object.keys(this.schema) as EntityName[]) {
       const entity = this.schema[from]
       this.outgoing.set(from, [])
@@ -358,8 +344,15 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         if (!isLinkSpec(spec)) continue
         const prefix = spec.kind === 'prefix'
         const extra = prefix && spec.alsoRoots !== undefined && spec.alsoRoots.length > 0
-        const issueless =
-          prefix && (this.schema[from].fields as Record<string, unknown>).issueId !== undefined
+        const inverse = this.schema[spec.to].relations[spec.inverse]
+        const declared = inverse?.kind === 'hasMany' ? Object.entries(inverse.subsets ?? {}) : []
+        // A subset set is keyed by its target and has no plain twin: a
+        // target that can be cold would need one (POD-4567). None does today.
+        if (declared.length > 0 && this.schema[spec.to].cold.kind !== 'never') {
+          throw new Error(
+            `[pool] ${spec.to}.${spec.inverse} declares subsets, but ${spec.to} can be cold`,
+          )
+        }
         const link: Link = {
           from,
           name,
@@ -380,12 +373,14 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           coldBuckets: new Map(),
           extraCounts: extra ? new Map() : null,
           extraByRow: extra ? new Map() : null,
-          issueless: issueless
-            ? observable.map<string, ObservableSet<string>>(undefined, {
-                deep: false,
-                name: `pool.${spec.to}.${spec.inverse}.issueless`,
-              })
-            : null,
+          subsets: declared.map(([subset, subsetSpec]) => ({
+            name: subset,
+            spec: subsetSpec,
+            sets: observable.map<string, ObservableSet<string>>(undefined, {
+              deep: false,
+              name: `pool.${spec.to}.${spec.inverse}.${subset}`,
+            }),
+          })),
         }
         this.links.set(`${from}.${name}`, link)
         this.collections.set(link.collection, link)
@@ -450,20 +445,15 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return this.bucket(from, id, relation).size
   }
 
-  issueless(from: EntityName, id: string, relation: string): Iterable<string> {
+  subset(from: EntityName, id: string, relation: string, subset: string): Iterable<string> {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) {
       specOf(this.schema, from, relation)
-      throw new Error(`[pool] ${from}.${relation} is single-valued; read it with issueless()`)
+      throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
     }
-    // POD-4671 ruling Sep27: maintained issueless set, never session rows.
-    if (link.issueless === null) {
-      throw new Error(`[pool] ${from}.${relation} has no issueless index`)
-    }
-    const set = link.issueless.get(id)
-    if (set !== undefined) return set
-    // Cold targets never happen for worktree (never cold), but keep the shape.
-    return NONE
+    // The maintained set, never member rows (POD-4671 ruling Sep27). Its
+    // target is never cold (checked at construction), so it has no twin.
+    return subsetOf(link, subset).sets.get(id) ?? NONE
   }
 
   private bucket(from: EntityName, id: string, relation: string): ReadonlySet<string> {
@@ -566,20 +556,16 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       const row = this.tables[entity].get(other) as Row | undefined
       for (const link of this.outgoing.get(entity) ?? []) this.relink(link, other, row)
     }
-    // POD-4671 ruling Sep27: a session flipping its issueId without moving
-    // lanes (relink skipped: issueId is not a link input) still leaves or
-    // joins the issueless set of its current root. No table read: before and
-    // after are already in hand; the forward is peeked, not read.
-    if (entity === 'session' && before !== undefined && after !== undefined) {
-      const was = (before as Row).issueId === undefined
-      const now = (after as Row).issueId === undefined
-      if (was !== now) {
-        for (const link of this.outgoing.get(entity) ?? []) {
-          if (link.issueless === null || link.spec.kind !== 'prefix') continue
+    // POD-4758: a field a subset reads moved without moving the member
+    // (relink skipped: subset fields are not link inputs), so the member
+    // re-decides its subsets where it sits. No table read: before and after
+    // are in hand; the forward is peeked, not read.
+    if (before !== undefined && after !== undefined) {
+      for (const link of this.outgoing.get(entity) ?? []) {
+        for (const subset of link.subsets) {
+          if (sameInputs(subset.spec.fields, before, after)) continue
           const target = peekForward(link, id)
-          if (target === undefined) continue
-          if (now) this.addIssueless(link, target, id)
-          else this.dropIssueless(link, target, id)
+          if (target !== undefined) this.fileSubset(link, subset, target, id, after)
         }
       }
     }
@@ -780,7 +766,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       link.placed?.clear()
       link.extraCounts?.clear()
       link.extraByRow?.clear()
-      link.issueless?.clear()
+      for (const subset of link.subsets) subset.sets.clear()
     }
     for (const collapse of this.collapses.values()) {
       collapse.groups.clear()
@@ -867,49 +853,54 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     }
     const old = peekForward(link, id) ?? null
     this.point(link, id, target)
-    // POD-4671 ruling Sep27: maintain the issueless set at the delta (no row
-    // reads to filter later). `row` is already in hand; `old` is the forward
-    // before `point()`.
-    if (link.issueless !== null) {
-      const was = row !== undefined && old !== null ? this.wasIssueless(link, id, old) : false
-      // `was` reads the maintained set, not the row (no extra reads). For a
-      // delete (`row` undefined) it drops the old membership, if any.
-      if (old !== null && old !== target) this.dropIssueless(link, old, id)
-      if (row !== undefined && target !== null && (row as Row).issueId === undefined) {
-        this.addIssueless(link, target, id)
-      } else if (row === undefined && old !== null) {
-        // Delete: `dropIssueless` above already tried; nothing more (no row).
-        void was
-      }
+    // POD-4758: the subsets follow at the delta; `row` is already in hand.
+    this.refile(link, id, old, target, row)
+  }
+
+  /**
+   * File source `id`, which moved from `old` to `target` (either may be
+   * null), in each of `link`'s subsets: out of `old`'s, and into `target`'s
+   * while `row` passes the subset's test. No row is read here.
+   */
+  private refile(
+    link: Link,
+    id: string,
+    old: string | null,
+    target: string | null,
+    row: Row | undefined,
+  ): void {
+    for (const subset of link.subsets) {
+      if (old !== null && old !== target) this.dropSubset(subset, old, id)
+      if (target !== null && row !== undefined) this.fileSubset(link, subset, target, id, row)
     }
   }
 
-  /** Whether `id` is currently in `link`'s issueless set for `target` (no row read). */
-  private wasIssueless(link: Link, id: string, target: string): boolean {
-    return link.issueless?.get(target)?.has(id) === true
-  }
-
-  private addIssueless(link: Link, target: string, id: string): void {
-    const sets = link.issueless
-    if (sets === null) return
-    let set = sets.get(target)
+  /** Put member `id` of `target` in `subset` or take it out, by its row. */
+  private fileSubset(link: Link, subset: Subset, target: string, id: string, row: Row): void {
+    if (!subset.spec.test(row)) {
+      this.dropSubset(subset, target, id)
+      return
+    }
+    let set = subset.sets.get(target)
     if (set === undefined) {
-      set = newBucket(link) as unknown as ObservableSet<string>
-      sets.set(target, set)
+      set = observable.set<string>(undefined, {
+        deep: false,
+        name: `pool.${link.collection}.${subset.name}.bucket`,
+      })
+      subset.sets.set(target, set)
     }
-    if (!set.has(id)) {
-      set.add(id)
-      this.touched(1)
-      this.onIssuelessJoin(link.collection, target, id)
-    }
+    if (set.has(id)) return
+    set.add(id)
+    this.touched(1)
+    this.onSubsetJoin(link.collection, subset.name, target, id)
   }
 
-  private dropIssueless(link: Link, target: string, id: string): void {
-    const set = link.issueless?.get(target)
+  private dropSubset(subset: Subset, target: string, id: string): void {
+    const set = subset.sets.get(target)
     if (set === undefined || !set.has(id)) return
     set.delete(id)
     this.touched(1)
-    if (set.size === 0) link.issueless?.delete(target)
+    if (set.size === 0) subset.sets.delete(target)
   }
 
   /** Point source `id` at `target` (null: nothing): detach, then attach. */
@@ -979,17 +970,12 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     for (const id of [...candidates]) {
       const current = peekForward(link, id)
       if (current !== undefined && normalizeRootPath(current).length >= normalized.length) continue
-      const was = current !== undefined ? this.wasIssueless(link, id, current) : false
       this.point(link, id, root)
-      // POD-4671 ruling Sep27: keep the issueless set at the delta. Reads the
-      // moving row once (O(sessions under the path), never the corpus; never
-      // on a rename, which moves no root).
-      if (link.issueless !== null) {
-        if (was) this.dropIssueless(link, current as string, id)
+      // The subsets follow. Reads the moving row once (O(members under the
+      // path), never the corpus; never on a rename, which moves no root).
+      if (link.subsets.length > 0) {
         const row = this.tables[link.from].get(id) as Row | undefined
-        if (row !== undefined && (row as Row).issueId === undefined) {
-          this.addIssueless(link, root, id)
-        }
+        this.refile(link, id, current ?? null, root, row)
       }
     }
   }
@@ -1001,27 +987,17 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
    */
   private rootRemoved(link: Link, root: string): void {
     const members = this.members(link.spec.to, root, link.spec.inverse)
-    if (members.length === 0) {
-      // Even with no bucket members, the issueless set for a removed root is
-      // dropped with the root (its sets are keyed by the raw root).
-      link.issueless?.delete(root)
-      return
-    }
+    if (members.length === 0) return
     const next = this.probeRoot(link, normalizeRootPath(root))
     for (const id of members) {
-      const was = this.wasIssueless(link, id, root)
       this.point(link, id, next)
-      if (link.issueless !== null) {
-        if (was) this.dropIssueless(link, root, id)
-        if (next !== null) {
-          const row = this.tables[link.from].get(id) as Row | undefined
-          if (row !== undefined && (row as Row).issueId === undefined) {
-            this.addIssueless(link, next, id)
-          }
-        }
+      // The subsets follow (a subset holds only bucket members, so the
+      // removed root's subset sets empty with its bucket).
+      if (link.subsets.length > 0) {
+        const row = next === null ? undefined : (this.tables[link.from].get(id) as Row | undefined)
+        this.refile(link, id, root, next, row)
       }
     }
-    if ((link.issueless?.get(root)?.size ?? 0) === 0) link.issueless?.delete(root)
   }
 
   /**
@@ -1078,6 +1054,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.lastWrites.push(slot)
     this.onWrite(1)
   }
+}
+
+/** `link`'s declared subset `name` (throws when its collection declares none by that name). */
+function subsetOf(link: Link, name: string): Subset {
+  const found = link.subsets.find((subset) => subset.name === name)
+  if (found === undefined) throw new Error(`[pool] ${link.collection} declares no subset "${name}"`)
+  return found
 }
 
 /** A source's forward entry, wherever it lives (maintenance: untracked). */

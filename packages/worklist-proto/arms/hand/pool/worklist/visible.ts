@@ -476,7 +476,7 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
     const worktree = input.relations.one('issue', id, 'worktree')
     if (worktree === null) return seatIds
     const members = new Set(seatIds)
-    for (const sessionId of input.relations.issueless('worktree', worktree, 'sessions')) {
+    for (const sessionId of input.relations.subset('worktree', worktree, 'sessions', 'issueless')) {
       members.add(sessionId)
     }
     return members.size === seatIds.length ? seatIds : [...members].sort()

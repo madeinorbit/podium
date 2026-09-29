@@ -451,8 +451,8 @@ export class MobxPool {
               },
               changed: (entity: EntityName, id: string) => residency.notify(entity, id),
             },
-            onIssuelessJoin: (collection: string, _target: string, member: string) =>
-              residency.laneJoined(collection, member),
+            onSubsetJoin: (collection: string, subset: string, _target: string, member: string) =>
+              residency.laneJoined(collection, subset, member),
           }),
     })
     this.relations = reads.wrapRelations(this.graph)
@@ -834,9 +834,9 @@ export class MobxPool {
       one: (from, id, relation) => this.rawOne(from, id, relation),
       many: (from, id, relation) => this.rawMany(from, id, relation),
       size: (from, id, relation) => this.graph.size(from, id, relation),
-      // POD-4671: the maintained issueless set, engine-direct like size
-      // (the plain pass counts nothing; both arms resolved in favour of both).
-      issueless: (from, id, relation) => this.graph.issueless(from, id, relation),
+      // POD-4671: a maintained subset, engine-direct like size (the plain
+      // pass counts nothing; both arms resolved in favour of both).
+      subset: (from, id, relation, subset) => this.graph.subset(from, id, relation, subset),
     }
     // Row reads go through the one reader (fenced, and projecting pending
     // edits): the plain pass answers what the nodes would, including

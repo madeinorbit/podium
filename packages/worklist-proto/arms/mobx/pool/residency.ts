@@ -43,7 +43,7 @@
  *    pass, so the clock never makes a cold row hot.
  *    The rule's `lane` source (R3, POD-4745) keeps an issue shown by the
  *    issueless sessions its own checkout seats. Which sessions those are is
- *    the relation engine's maintained issueless set (`lanes`), not a row
+ *    the relation engine's maintained subset (`lanes`), not a row
  *    field, so every way a session can JOIN one (a new or moved cwd, a lost
  *    `issueId`, a twin collapse flipping, a root appearing or disappearing)
  *    arrives as the engine's join delta (`laneJoined`), and a session's own
@@ -113,8 +113,8 @@ export interface ResidencyOptions {
   readonly schedule?: Schedule
   /**
    * The relation engine, as the rule's `lane` source reads it (POD-4745): a
-   * collection's members at a target (this action's moves included), the
-   * issueless members of a prefix's inverse, and a link's raw forward. Read
+   * collection's members at a target (this action's moves included), a
+   * collection's declared subset, and a link's raw forward. Read
    * lazily: the engine is built after residency. Without it a `lane` source
    * keeps nothing.
    */
@@ -131,7 +131,7 @@ export interface ResidencyOptions {
 /** What a `lane` source reads of the relation engine (uncounted maintenance reads). */
 export interface LaneReader {
   members(from: EntityName, id: string, relation: string): readonly string[]
-  issueless(from: EntityName, id: string, relation: string): Iterable<string>
+  subset(from: EntityName, id: string, relation: string, subset: string): Iterable<string>
   forwardTarget(from: EntityName, id: string, relation: string): string | null
 }
 
@@ -315,7 +315,7 @@ export class Residency {
     if (lane === undefined || reader === null) return []
     const deadlines = this.laneKeeps.get(source) as Map<string, MemberKeep>
     const out: MemberKeep[] = []
-    for (const member of reader.issueless(lane.lane, key, lane.relation)) {
+    for (const member of reader.subset(lane.lane, key, lane.relation, lane.subsetName)) {
       const keep = deadlines.get(member)
       if (keep !== undefined) out.push(keep)
     }
@@ -545,13 +545,15 @@ export class Residency {
   }
 
   /**
-   * The engine moved `member` into the issueless set of `collection` at
-   * `target` (POD-4745): a lane may now be kept by it. Settled with the
-   * publication (`settleLanes`), never inside the engine's own maintenance.
+   * The engine moved `member` into `subset` of `collection` (POD-4745,
+   * POD-4758): a lane whose source counts that subset may now be kept by it.
+   * Settled with the publication (`settleLanes`), never inside the engine's
+   * own maintenance.
    */
-  laneJoined(collection: string, member: string): void {
+  laneJoined(collection: string, subset: string, member: string): void {
     for (const lane of this.laneSources) {
-      if (`${lane.lane}.${lane.relation}` === collection) this.laneDirty.get(lane)?.add(member)
+      if (`${lane.lane}.${lane.relation}` !== collection || lane.subsetName !== subset) continue
+      this.laneDirty.get(lane)?.add(member)
     }
   }
 
@@ -582,7 +584,7 @@ export class Residency {
       const at = reader.forwardTarget(lane.member, member, lane.prefixName)
       if (at === null) continue
       let counted = false
-      for (const id of reader.issueless(lane.lane, at, lane.relation)) {
+      for (const id of reader.subset(lane.lane, at, lane.relation, lane.subsetName)) {
         if (id === member) {
           counted = true
           break

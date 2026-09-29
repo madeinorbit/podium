@@ -686,7 +686,7 @@ export class HandPool {
       size: (from, id, relation) => this.engine.members(from, id, relation).size,
       // POD-4671: the maintained issueless set, engine-direct like many/size
       // (the plain pass counts nothing; both arms resolved in favour of both).
-      issueless: (from, id, relation) => this.engine.issueless(from, id, relation),
+      subset: (from, id, relation, subset) => this.engine.subset(from, id, relation, subset),
     }
     const plain: VisibleInputs = {
       relations: raw,

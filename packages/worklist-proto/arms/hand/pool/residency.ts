@@ -150,7 +150,7 @@ export interface ResidencyOptions {
 /** What a `lane` source reads of the relation engine (uncounted maintenance reads). */
 export interface LaneReader {
   members(from: EntityName, id: string, relation: string): Iterable<string>
-  issueless(from: EntityName, id: string, relation: string): Iterable<string>
+  subset(from: EntityName, id: string, relation: string, subset: string): Iterable<string>
   forwardTarget(from: EntityName, id: string, relation: string): string | null
 }
 
@@ -319,7 +319,7 @@ export class Residency {
     if (lane === undefined || reader === null) return []
     const deadlines = this.laneKeeps.get(source) as Map<string, MemberKeep>
     const out: MemberKeep[] = []
-    for (const member of reader.issueless(lane.lane, key, lane.relation)) {
+    for (const member of reader.subset(lane.lane, key, lane.relation, lane.subsetName)) {
       const keep = deadlines.get(member)
       if (keep !== undefined) out.push(keep)
     }
@@ -593,7 +593,7 @@ export class Residency {
       const at = reader.forwardTarget(lane.member, member, lane.prefixName)
       if (at === null) continue
       let counted = false
-      for (const id of reader.issueless(lane.lane, at, lane.relation)) {
+      for (const id of reader.subset(lane.lane, at, lane.relation, lane.subsetName)) {
         if (id === member) {
           counted = true
           break

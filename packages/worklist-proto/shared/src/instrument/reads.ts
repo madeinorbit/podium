@@ -113,14 +113,13 @@ export interface RelationReader {
   /** The collection's size. Uncounted, like `Map.size`. */
   size(from: EntityName, id: string, relation: string): number
   /**
-   * POD-4671 (R3 membership): the issueless sessions under a worktree root
-   * (those with no `issueId`), unordered like `many()`. Maintained at the
-   * delta (on session enter/leave/issueId/cwd change and root gain/loss), so
-   * a reader never reads session rows to filter — the same pattern as
-   * POD-4678's seat list. `from`/`relation` name the `worktree.sessions`
-   * collection; `id` is the root.
+   * The members of a collection's declared subset (POD-4758,
+   * `HasManySpec.subsets`; POD-4671 for the one there is, the issueless
+   * sessions under a worktree root), unordered like `many()`. Maintained at
+   * the delta, so a reader never reads member rows to filter — the same
+   * pattern as POD-4678's seat list.
    */
-  issueless(from: EntityName, id: string, relation: string): Iterable<string>
+  subset(from: EntityName, id: string, relation: string, subset: string): Iterable<string>
 }
 
 /** A table the fence can wrap: keyed by id, or an array of rows. */
@@ -633,9 +632,9 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           relationTarget(from, relation)
           return reader.size(from, id, relation)
         },
-        issueless(from, id, relation) {
+        subset(from, id, relation, subset) {
           const to = relationTarget(from, relation)
-          const ids = reader.issueless(from, id, relation)
+          const ids = reader.subset(from, id, relation, subset)
           return {
             *[Symbol.iterator]() {
               for (const target of ids) {

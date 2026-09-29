@@ -508,7 +508,7 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
 export function laneMemberIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
   const worktree = input.relations.one('issue', id, 'worktree')
   if (worktree === null) return []
-  return [...input.relations.issueless('worktree', worktree, 'sessions')].sort()
+  return [...input.relations.subset('worktree', worktree, 'sessions', 'issueless')].sort()
 }
 
 /** R2 then R3, id order, no duplicates. */
