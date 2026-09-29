@@ -1,5 +1,6 @@
-//! podium-host — a small durable process host. EXPERIMENTAL Rust port
-//! (POD-4791) of ../podium-host/host.c, which stays the shipped host.
+//! podium-host — a small durable process host. Rust port (POD-4791) of
+//! ../podium-host/host.c, which stays the shipped host until the release
+//! ships this one (POD-3190 step A2).
 //!
 //! One process per session. It owns a child (through a pty, or through pipes
 //! with --no-pty), keeps a bounded ring of the child's output addressed by a
@@ -7,9 +8,13 @@
 //! grants one writer lease at a time, applies resizes itself and answers with
 //! the size the kernel now reports, reports the child's real exit status,
 //! lingers briefly so a late client can read it, then unlinks its socket and
-//! exits. The protocol is SPEC-6 (POD-3190 artifact #31).
+//! exits. The protocol is SPEC-6 (POD-3190 artifact #31). With the `screen`
+//! feature (the default) a pty host also keeps the terminal's screen and puts
+//! pictures of it into the output stream (POD-4909).
 
 mod args;
+#[cfg(feature = "screen")]
+mod cut;
 mod host;
 mod proto;
 mod ring;
@@ -36,7 +41,9 @@ const VERSION: &str = match option_env!("PODIUM_HOST_VERSION") {
     Some(v) => v,
     None => "1-podium",
 };
-const HOST_FEATURES: u32 = 1;
+/// 1 — SPEC-6 protocol version 1. 2 — the screen: WELCOME's features byte
+/// and PICTURE (POD-4909). host.c stays at 1.
+const HOST_FEATURES: u32 = if cfg!(feature = "screen") { 2 } else { 1 };
 
 pub fn die(msg: fmt::Arguments) -> ! {
     let _ = writeln!(io::stderr(), "podium-host: {msg}");
@@ -57,7 +64,8 @@ macro_rules! die {
 fn usage() -> ! {
     let _ = io::stderr().write_all(
         b"usage: podium-host create --socket <path> [--cols N --rows N | --no-pty]\n\
-          \x20                         [--ring-bytes N] [--linger-secs N] [--cwd <dir>] -- <cmd> [args...]\n\
+          \x20                         [--ring-bytes N] [--linger-secs N] [--cwd <dir>]\n\
+          \x20                         [--screen-scrollback N] -- <cmd> [args...]\n\
           \x20      podium-host version\n",
     );
     std::process::exit(2)
@@ -248,7 +256,8 @@ fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: OwnedFd, ri
     let _ = (&report_w).write_all(b"OK\n");
     let _ = rustix::stdio::dup2_stderr(&devnull);
     drop((devnull, report_w));
-    Host::new(
+    #[cfg_attr(not(feature = "screen"), allow(unused_mut))]
+    let mut host = Host::new(
         sock_path,
         sock_id,
         listener,
@@ -256,8 +265,13 @@ fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: OwnedFd, ri
         child,
         ring,
         opts.linger_secs,
-    )
-    .run()
+    );
+    // Only a pty is a terminal: a --no-pty child's output is not a screen.
+    #[cfg(feature = "screen")]
+    if !opts.no_pty {
+        host.keep_screen(opts.screen_scrollback);
+    }
+    host.run()
 }
 
 fn main() {

@@ -1,5 +1,6 @@
 //! Host state and the single-threaded poll loop: the child's output into the
-//! ring, clients, the writer lease, the write queue, exit and linger.
+//! ring, clients, the writer lease, the write queue, exit and linger, and (in
+//! `screen` builds) the kept screen and the pictures sent from it.
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -8,6 +9,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "screen")]
+use crate::cut::CutClock;
 use crate::proto::{self, Frame, Next, Request};
 use crate::ring::Ring;
 use crate::sys::{self, Pid, PollFd, PollFlags, Timespec, Winsize};
@@ -32,6 +35,9 @@ const READ_CHUNK: usize = 65536;
 struct Outbox {
     buf: Vec<u8>,
     sent: usize,
+    /// Bytes ever queued before `buf[0]`: positions in the stream of
+    /// everything queued survive the resets and compactions.
+    base: u64,
 }
 
 impl Outbox {
@@ -47,6 +53,7 @@ impl Outbox {
     fn advance(&mut self, n: usize) {
         self.sent += n;
         if self.is_empty() {
+            self.base += self.buf.len() as u64;
             self.buf.clear();
             self.sent = 0;
         } else {
@@ -57,8 +64,19 @@ impl Outbox {
     fn compact(&mut self) {
         if self.sent >= Self::COMPACT_AT && self.sent * 4 >= self.buf.len() {
             self.buf.drain(..self.sent);
+            self.base += self.sent as u64;
             self.sent = 0;
         }
+    }
+    /// Stream position of the next byte to send.
+    #[cfg(feature = "screen")]
+    fn sent_pos(&self) -> u64 {
+        self.base + self.sent as u64
+    }
+    /// Stream position after the last byte queued.
+    #[cfg(feature = "screen")]
+    fn end_pos(&self) -> u64 {
+        self.base + self.buf.len() as u64
     }
     /// Where new frames are appended.
     fn tail(&mut self) -> &mut Vec<u8> {
@@ -85,6 +103,40 @@ struct Client {
     input: Vec<u8>,
     /// Control frames + the DATA frame being sent.
     out: Outbox,
+    /// Asked for a picture: gets cuts and resize resets from then on.
+    #[cfg(feature = "screen")]
+    pictures: bool,
+    /// The picture being sent: its (start, end) stream positions in `out`.
+    #[cfg(feature = "screen")]
+    picture: Option<(u64, u64)>,
+    /// A picture due to this client, and why: sent once `picture` is gone,
+    /// so it holds at most one (H4). A reset outranks a cut.
+    #[cfg(feature = "screen")]
+    owed: Option<u8>,
+}
+
+impl Client {
+    /// Unsent bytes that count against the queue limit: a queued picture
+    /// does not (its budget bounds it; a visible screen past the budget is
+    /// sent whole).
+    fn queued(&self) -> usize {
+        #[cfg(feature = "screen")]
+        if let Some((start, end)) = self.picture {
+            let sent = self.out.sent_pos();
+            if sent < end {
+                return self.out.len() - (end - start.max(sent)) as usize;
+            }
+        }
+        self.out.len()
+    }
+
+    /// Owe this client a picture; a reset is never downgraded to a cut.
+    #[cfg(feature = "screen")]
+    fn owe(&mut self, reason: u8) {
+        if self.owed != Some(proto::PICTURE_RESET) {
+            self.owed = Some(reason);
+        }
+    }
 }
 
 struct PendingWrite {
@@ -149,6 +201,18 @@ pub struct Host {
     linger_deadline: Option<Instant>,
     linger: Duration,
     scratch: Box<[u8]>,
+    /// The kept screen (a `screen` build with a pty).
+    #[cfg(feature = "screen")]
+    screen: Option<Kept>,
+}
+
+/// The emulator, the cut clock, and whether some client may now be sent the
+/// picture it is owed.
+#[cfg(feature = "screen")]
+struct Kept {
+    screen: crate::screen::Screen,
+    clock: CutClock,
+    due: bool,
 }
 
 impl Host {
@@ -185,11 +249,23 @@ impl Host {
             linger_deadline: None,
             linger: Duration::from_secs(linger_secs),
             scratch: vec![0u8; READ_CHUNK].into_boxed_slice(),
+            #[cfg(feature = "screen")]
+            screen: None,
         };
         if let Some(ws) = h.read_winsize() {
             h.ws = ws;
         }
         h
+    }
+
+    /// Keep the screen from here on (the ring is still empty).
+    #[cfg(feature = "screen")]
+    pub fn keep_screen(&mut self, scrollback: usize) {
+        self.screen = Some(Kept {
+            screen: crate::screen::Screen::new(self.ws.ws_col, self.ws.ws_row, scrollback),
+            clock: CutClock::new(Instant::now()),
+            due: false,
+        });
     }
 
     /// The most a client's output queue may hold: a whole ring replay plus slack.
@@ -261,6 +337,12 @@ impl Host {
             next_seq: 0,
             input: Vec::new(),
             out: Outbox::default(),
+            #[cfg(feature = "screen")]
+            pictures: false,
+            #[cfg(feature = "screen")]
+            picture: None,
+            #[cfg(feature = "screen")]
+            owed: None,
         });
     }
 
@@ -299,6 +381,7 @@ impl Host {
         let ws = self.read_winsize().unwrap_or(self.ws);
         let (low, high) = (self.ring.low(), self.ring.high());
         let (has_pty, child, announced) = (self.has_pty, self.child, self.exit_announced);
+        let features = self.features();
         if writer && self.writer.is_none() {
             self.writer = Some(self.clients[ci].id);
             self.clients[ci].writer = true;
@@ -314,7 +397,8 @@ impl Host {
             .u16(if has_pty { ws.ws_row } else { 0 })
             .u64(low)
             .u64(high)
-            .u8(c.writer as u8);
+            .u8(c.writer as u8)
+            .u8(features);
         if from == proto::TAIL_ONLY || from > high {
             c.next_seq = high;
         } else if from < low {
@@ -326,6 +410,15 @@ impl Host {
         if announced {
             c.exit_owed = true;
         }
+    }
+
+    /// WELCOME's trailing features byte.
+    fn features(&self) -> u8 {
+        #[cfg(feature = "screen")]
+        if self.screen.is_some() {
+            return proto::FEATURE_SCREEN;
+        }
+        0
     }
 
     fn kill_child(&self, signo: i32) {
@@ -421,6 +514,10 @@ impl Host {
                         changed = 1;
                     }
                     cur = sys::get_winsize(pty).unwrap_or(cur);
+                    #[cfg(feature = "screen")]
+                    if changed == 1 {
+                        self.screen_resized(cur);
+                    }
                 }
                 self.ws = cur;
                 Frame::begin(self.clients[ci].out.tail(), proto::H_RESIZED)
@@ -459,22 +556,14 @@ impl Host {
                 // it by a ring each, POD-4842 C-2). A client asking for that
                 // is not reading; it is dropped.
                 let frames = (high - from).div_ceil(proto::DATA_CHUNK as u64) as usize + 2;
-                let queued = self.clients[ci].out.len() + (high - from) as usize + frames * 13;
+                let queued = self.clients[ci].queued() + (high - from) as usize + frames * 13;
                 if queued > self.out_limit() {
                     self.clients[ci].overflowed = true;
                     return;
                 }
                 let out = self.clients[ci].out.tail();
                 Frame::begin(out, proto::H_REPLAYING).u64(from);
-                let mut seq = from;
-                while seq < high {
-                    let len = (high - seq).min(proto::DATA_CHUNK as u64) as usize;
-                    let mut f = Frame::begin(out, proto::H_DATA);
-                    f.u64(seq);
-                    self.ring.copy_to(seq, len, f.buf());
-                    drop(f);
-                    seq += len as u64;
-                }
+                queue_data(&self.ring, from, high, out);
                 Frame::begin(out, proto::H_REPLAYED);
             }
             Request::Kill => self.request_kill(),
@@ -493,6 +582,17 @@ impl Host {
                     self.clients[ci].writer = true;
                 }
                 Frame::begin(self.clients[ci].out.tail(), proto::H_STOLEN);
+            }
+            #[cfg(feature = "screen")]
+            Request::Picture => {
+                let Some(kept) = &mut self.screen else {
+                    // No pty, no screen: as any host answers an unknown frame.
+                    return self.bad(ci, "bad frame");
+                };
+                let c = &mut self.clients[ci];
+                c.pictures = true;
+                c.owe(proto::PICTURE_RESET);
+                kept.due = true;
             }
         }
     }
@@ -514,7 +614,7 @@ impl Host {
                     let c = &mut self.clients[ci];
                     // Checked per frame, not once per read: one read can carry
                     // thousands of pipelined requests.
-                    if c.out.len() > self.ring.size() + proto::MAX_OUTBUF_SLACK {
+                    if c.queued() > self.ring.size() + proto::MAX_OUTBUF_SLACK {
                         c.overflowed = true;
                     }
                     if c.closing || c.overflowed {
@@ -594,7 +694,18 @@ impl Host {
                     self.client_close(ci);
                     return false;
                 }
-                Ok(n) => c.out.advance(n),
+                Ok(n) => {
+                    c.out.advance(n);
+                    #[cfg(feature = "screen")]
+                    if c.picture.is_some_and(|(_, end)| c.out.sent_pos() >= end) {
+                        c.picture = None;
+                        // The one it is owed can go now (H4), and a cut
+                        // skipped meanwhile is re-checked (H2).
+                        if let (Some(_), Some(kept)) = (c.owed, &mut self.screen) {
+                            kept.due = true;
+                        }
+                    }
+                }
                 Err(e) if is_transient(&e) => return true,
                 Err(_) => {
                     self.client_close(ci);
@@ -604,6 +715,89 @@ impl Host {
             self.client_fill(ci); // a no-op until the outbox has drained
         }
         true
+    }
+
+    // ---- pictures ---------------------------------------------------------------
+
+    /// When the loop must wake for a cut that waits only for its gap (H2).
+    fn cut_deadline(&self) -> Option<Instant> {
+        #[cfg(feature = "screen")]
+        if let Some(kept) = &self.screen
+            && self.clients.iter().any(|c| c.pictures)
+        {
+            return kept.clock.due(self.ring.high());
+        }
+        None
+    }
+
+    /// The pty took a new size: the screen follows, and every client that
+    /// asked for pictures is owed a reset at that size.
+    #[cfg(feature = "screen")]
+    fn screen_resized(&mut self, ws: Winsize) {
+        let Some(kept) = &mut self.screen else { return };
+        kept.screen.resize(ws.ws_col, ws.ws_row);
+        for c in self.clients.iter_mut().filter(|c| c.pictures) {
+            c.owe(proto::PICTURE_RESET);
+            kept.due = true;
+        }
+        if kept.due {
+            // everyone is about to get a picture: count the next cut from here
+            kept.clock.restart(Instant::now(), self.ring.high());
+        }
+    }
+
+    /// Take a cut when one is due, then send each client the picture it is
+    /// owed, unless it is still sending one. One picture is serialised for
+    /// all of them, of the state at the ring's high seq; each client first
+    /// gets its DATA up to there, so the picture sits exactly between the
+    /// bytes it stands for and the bytes after it.
+    #[cfg(feature = "screen")]
+    fn pictures(&mut self, now: Instant) {
+        let high = self.ring.high();
+        let Some(kept) = &mut self.screen else { return };
+        if !self.clients.iter().any(|c| c.pictures) {
+            kept.clock.restart(now, high); // nobody to cut for: nothing owed
+        } else if kept.clock.due(high).is_some_and(|at| now >= at) {
+            kept.clock.restart(now, high);
+            for c in self.clients.iter_mut().filter(|c| c.pictures) {
+                c.owe(proto::PICTURE_CUT);
+            }
+            kept.due = true;
+        }
+        // A picture now must be exact: wait while a sequence longer than the
+        // hold limit is still open (the next read retries).
+        if !kept.due || !kept.screen.at_ground() {
+            return;
+        }
+        kept.due = false;
+        let ready =
+            |c: &Client| c.owed.is_some() && c.picture.is_none() && !c.closing && !c.overflowed;
+        if !self.clients.iter().any(ready) {
+            return;
+        }
+        debug_assert_eq!(kept.screen.fed_seq() + kept.screen.held_len() as u64, high);
+        let mut picture = Vec::new();
+        kept.screen.picture(&mut picture);
+        kept.clock.sized(picture.len());
+        let (cols, rows) = kept.screen.size();
+        let low = self.ring.low();
+        for c in self.clients.iter_mut().filter(|c| ready(c)) {
+            let out = c.out.tail();
+            if c.next_seq < low {
+                Frame::begin(out, proto::H_GAP).u64(low);
+                c.next_seq = low;
+            }
+            queue_data(&self.ring, c.next_seq, high, out);
+            c.next_seq = high;
+            let start = c.out.end_pos();
+            Frame::begin(c.out.tail(), proto::H_PICTURE)
+                .u64(high)
+                .u8(c.owed.take().expect("owed"))
+                .u16(cols)
+                .u16(rows)
+                .bytes(&picture);
+            c.picture = Some((start, c.out.end_pos()));
+        }
     }
 
     // ---- child I/O ------------------------------------------------------------
@@ -640,6 +834,10 @@ impl Host {
             match (&io.output).read(&mut self.scratch) {
                 Ok(n) if n > 0 => {
                     self.ring.append(&self.scratch[..n]);
+                    #[cfg(feature = "screen")]
+                    if let Some(kept) = &mut self.screen {
+                        kept.screen.feed(&self.scratch[..n]);
+                    }
                     if !drain_all {
                         return;
                     }
@@ -804,10 +1002,17 @@ impl Host {
                 }
             }
 
-            let next = match (self.kill_deadline, self.linger_deadline) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
+            #[cfg(feature = "screen")]
+            self.pictures(now);
+
+            let next = [
+                self.kill_deadline,
+                self.linger_deadline,
+                self.cut_deadline(),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
             let timeout = next.map(|d| d.saturating_duration_since(now).min(MAX_WAIT));
             match self.wait(timeout, &mut ev) {
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {
@@ -857,12 +1062,25 @@ impl Host {
                     continue;
                 }
                 let c = &self.clients[ci];
-                if (c.closing && c.out.is_empty()) || c.overflowed || c.out.len() > self.out_limit()
+                if (c.closing && c.out.is_empty()) || c.overflowed || c.queued() > self.out_limit()
                 {
                     self.client_close(ci);
                 }
             }
         }
+    }
+}
+
+/// Queue DATA frames for the ring's bytes `from..to`.
+fn queue_data(ring: &Ring, from: u64, to: u64, out: &mut Vec<u8>) {
+    let mut seq = from;
+    while seq < to {
+        let len = (to - seq).min(proto::DATA_CHUNK as u64) as usize;
+        let mut f = Frame::begin(out, proto::H_DATA);
+        f.u64(seq);
+        ring.copy_to(seq, len, f.buf());
+        drop(f);
+        seq += len as u64;
     }
 }
 

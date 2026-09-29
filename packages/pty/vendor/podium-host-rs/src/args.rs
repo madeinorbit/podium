@@ -13,6 +13,9 @@ pub struct CreateOpts {
     pub ring_bytes: usize,
     pub linger_secs: u64,
     pub no_pty: bool,
+    /// Lines of scrollback the kept screen holds (`screen` builds).
+    #[cfg(feature = "screen")]
+    pub screen_scrollback: usize,
     pub command: Vec<CString>,
 }
 
@@ -65,6 +68,8 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
     let (mut sock, mut cwd) = (None, None);
     let (mut cols, mut rows, mut ring, mut linger) = (0, 0, 4i64 << 20, 30);
     let mut no_pty = false;
+    #[cfg(feature = "screen")]
+    let mut screen_scrollback = crate::screen::DEFAULT_SCROLLBACK as i64;
     let mut i = 2;
     while i < argv.len() {
         let a = argv[i].as_slice();
@@ -80,6 +85,10 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
             (b"--rows", Some(v)) => rows = arg_long(a, v, 1, 65535)?,
             (b"--ring-bytes", Some(v)) => ring = arg_long(a, v, 4096, 1 << 30)?,
             (b"--linger-secs", Some(v)) => linger = arg_long(a, v, 0, 86400)?,
+            #[cfg(feature = "screen")]
+            (b"--screen-scrollback", Some(v)) => {
+                screen_scrollback = arg_long(a, v, 0, 100_000)?;
+            }
             (b"--no-pty", _) => {
                 no_pty = true;
                 i += 1;
@@ -110,6 +119,8 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
         ring_bytes: ring as usize,
         linger_secs: linger as u64,
         no_pty,
+        #[cfg(feature = "screen")]
+        screen_scrollback: screen_scrollback as usize,
         command,
     }))
 }
@@ -163,6 +174,12 @@ mod tests {
         );
         assert_eq!(o.cwd.as_deref(), Some(&b"/tmp"[..]));
         assert!(create("create --no-pty --socket /s -- x").no_pty);
+        #[cfg(feature = "screen")]
+        {
+            assert_eq!(create("create --socket /s -- x").screen_scrollback, 1000);
+            let o = create("create --socket /s --screen-scrollback 0 -- x");
+            assert_eq!(o.screen_scrollback, 0);
+        }
     }
 
     #[test]

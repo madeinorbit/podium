@@ -1,16 +1,16 @@
-//! PROTOTYPE (POD-4861, cargo feature `screen`): the host keeps the terminal's
-//! screen itself. Every byte the ring takes is fed to an in-process emulator
-//! (alacritty_terminal), and a PICTURE request is answered with an ANSI redraw
-//! of the whole state plus the ring seq it stands for: "picture @ seq, then
-//! DATA from seq" reproduces the terminal exactly.
+//! The host keeps the terminal's screen (POD-4909; prototype and numbers on
+//! POD-4861). Every byte the ring takes is fed to an in-process emulator
+//! (alacritty_terminal), and a picture is an ANSI redraw of the whole state:
+//! written to a fresh terminal of the same size, it reproduces the stream up
+//! to the ring's high seq, so "picture, then DATA from there" is exact.
 //!
 //! The emulator is only ever stopped at parser ground state. vte (alacritty's
 //! parser) does not say whether it is at ground, so [`Ground`] mirrors its state
 //! machine and the feed holds back an unfinished escape sequence or UTF-8
-//! character until it completes. `fed` is therefore always a ground point, and
-//! the held bytes are still in the ring after it. A sequence longer than
-//! [`HOLD_MAX`] (a huge OSC or DCS string) is fed through instead; until the
-//! parser returns to ground, pictures wait.
+//! character until it completes. The picture is the state at that ground
+//! point followed by the held bytes, which the DATA after it completes. A
+//! sequence longer than [`HOLD_MAX`] (a huge OSC or DCS string) is fed through
+//! instead; until the parser returns to ground, pictures wait.
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
@@ -19,13 +19,16 @@ use std::rc::Rc;
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Grid};
 use alacritty_terminal::index::{Column, Line};
-use alacritty_terminal::term::cell::{Cell, Flags};
+use alacritty_terminal::term::cell::{Cell, Flags, Hyperlink};
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor, Timeout};
 
 /// The longest unfinished sequence held back from the emulator.
 pub const HOLD_MAX: usize = 64 * 1024;
 pub const DEFAULT_SCROLLBACK: usize = 1000;
+/// The most a picture takes: scrollback lines are dropped from the top until
+/// it fits. The visible screens are always sent whole.
+pub const PICTURE_BUDGET: usize = 1 << 20;
 
 /// Receives what the terminal would tell its window: only the title matters here.
 /// Replies to queries (DA, DSR) are dropped; the real terminal answers them.
@@ -110,7 +113,15 @@ struct Ground {
 
 impl Ground {
     fn new() -> Self {
-        Ground { st: St::Ground, params: [0; 2], nparam: 0, plain: true, region: None, private: false, sync: false }
+        Ground {
+            st: St::Ground,
+            params: [0; 2],
+            nparam: 0,
+            plain: true,
+            region: None,
+            private: false,
+            sync: false,
+        }
     }
 
     fn csi_start(&mut self) {
@@ -121,10 +132,12 @@ impl Ground {
     }
 
     fn csi_dispatch(&mut self, b: u8) {
-        if (b == b'h' || b == b'l') && self.private && !self.plain {
-            if self.params[..=self.nparam.min(1)].contains(&2026) {
-                self.sync = b == b'h';
-            }
+        if (b == b'h' || b == b'l')
+            && self.private
+            && !self.plain
+            && self.params[..=self.nparam.min(1)].contains(&2026)
+        {
+            self.sync = b == b'h';
         }
         if b == b'r' && self.plain {
             // an invalid region (top >= bottom) is ignored, as alacritty does;
@@ -171,7 +184,13 @@ impl Ground {
             (Ground, 0xE0..=0xEF) => Utf8(2),
             (Ground, 0xF0..=0xF4) => Utf8(3),
             (Ground, _) => Ground,
-            (Utf8(n), 0x80..=0xBF) => if n > 1 { Utf8(n - 1) } else { Ground },
+            (Utf8(n), 0x80..=0xBF) => {
+                if n > 1 {
+                    Utf8(n - 1)
+                } else {
+                    Ground
+                }
+            }
             (Utf8(_), _) => {
                 // vte drops the partial character and reads this byte afresh
                 self.st = Ground;
@@ -206,7 +225,9 @@ impl Ground {
                 Csi
             }
             // `?` first: a DEC private mode (kept for mode 2026)
-            (Csi, b'?') if self.plain && self.nparam == 0 && self.params[0] == 0 && !self.private => {
+            (Csi, b'?')
+                if self.plain && self.nparam == 0 && self.params[0] == 0 && !self.private =>
+            {
                 self.plain = false;
                 self.private = true;
                 Csi
@@ -251,8 +272,15 @@ impl Screen {
     pub fn new(cols: u16, rows: u16, scrollback: usize) -> Screen {
         let listener = Listener::default();
         let title = listener.0.clone();
-        let cfg = Config { scrolling_history: scrollback, kitty_keyboard: true, ..Default::default() };
-        let size = Size { cols: cols.max(1) as usize, rows: rows.max(1) as usize };
+        let cfg = Config {
+            scrolling_history: scrollback,
+            kitty_keyboard: true,
+            ..Default::default()
+        };
+        let size = Size {
+            cols: cols.max(1) as usize,
+            rows: rows.max(1) as usize,
+        };
         Screen {
             term: Term::new(cfg, &size, listener),
             parser: Processor::new(),
@@ -268,26 +296,23 @@ impl Screen {
     pub fn feed(&mut self, bytes: &[u8]) {
         match self.ground.last_ground(bytes) {
             Some(n) => {
-                if !self.held.is_empty() {
-                    let held = std::mem::take(&mut self.held);
+                self.fed += (self.held.len() + n) as u64;
+                if self.held.is_empty() {
+                    self.parser.advance(&mut self.term, &bytes[..n]);
+                } else {
+                    // One call, never the held part alone: vte 0.15.0 drops the
+                    // byte after a character it was handed in part.
+                    let mut held = std::mem::take(&mut self.held);
+                    held.extend_from_slice(&bytes[..n]);
                     self.parser.advance(&mut self.term, &held);
-                    self.fed += held.len() as u64;
+                    held.clear();
                     self.held = held;
-                    self.held.clear();
                 }
-                self.parser.advance(&mut self.term, &bytes[..n]);
-                self.fed += n as u64;
                 self.overflowed = false;
                 self.hold(&bytes[n..]);
             }
             None => self.hold(bytes),
         }
-    }
-
-    /// Bench only: run the ground tracker alone.
-    #[allow(dead_code)]
-    pub fn track_only(&mut self, bytes: &[u8]) -> usize {
-        self.ground.last_ground(bytes).unwrap_or(0)
     }
 
     fn hold(&mut self, rest: &[u8]) {
@@ -305,8 +330,13 @@ impl Screen {
         !self.overflowed
     }
 
+    /// Bytes the emulator has consumed; the rest of what was fed is held.
     pub fn fed_seq(&self) -> u64 {
         self.fed
+    }
+
+    pub fn held_len(&self) -> usize {
+        self.held.len()
     }
 
     pub fn size(&self) -> (u16, u16) {
@@ -315,7 +345,10 @@ impl Screen {
 
     /// Apply a size the host just set on the pty (TIOCSWINSZ).
     pub fn resize(&mut self, cols: u16, rows: u16) {
-        let size = Size { cols: cols.max(1) as usize, rows: rows.max(1) as usize };
+        let size = Size {
+            cols: cols.max(1) as usize,
+            rows: rows.max(1) as usize,
+        };
         self.term.resize(size);
         // alacritty resets the scrolling region on resize
         self.ground.region = None;
@@ -331,11 +364,16 @@ impl Screen {
         (t < b && (t, b) != (1, rows)).then_some((t, b))
     }
 
-    /// The full state as bytes for a fresh terminal of `size()`: reset,
-    /// scrollback and screen with attributes, alternate screen, saved cursor,
-    /// scrolling region, modes, pen and cursor.
-    pub fn picture(&mut self, out: &mut Vec<u8>) {
+    /// Append the full state as bytes for a fresh terminal of `size()`:
+    /// reset, scrollback and screen with attributes, alternate screen, saved
+    /// cursor, scrolling region, modes, pen and cursor, then the held bytes.
+    /// Returns true when scrollback was dropped to keep within
+    /// [`PICTURE_BUDGET`].
+    pub fn picture(&mut self, out: &mut Vec<u8>) -> bool {
+        let start = out.len();
         out.extend_from_slice(b"\x1bc");
+        let mut link = None; // the hyperlink written last
+        let mut cuts = Vec::new(); // where history lines may be dropped from
         let alt = self.term.mode().contains(TermMode::ALT_SCREEN);
         if alt {
             // The primary grid is private while the alternate screen is up.
@@ -343,15 +381,18 @@ impl Screen {
             // alternate grid, so it is restored from a copy.
             let alt_grid = self.term.grid().clone();
             self.term.swap_alt();
-            write_grid(self.term.grid(), true, out);
-            let c = self.term.grid().cursor.point;
-            cup(out, c.line.0 + 1, c.column.0 + 1);
+            write_grid(self.term.grid(), Some(&mut cuts), &mut link, out);
+            // The primary cursor and its pen: entering the alternate screen
+            // keeps both for when the program leaves it.
+            let c = &self.term.grid().cursor;
+            cup(out, c.point.line.0 + 1, c.point.column.0 + 1);
+            sgr(out, &c.template, &mut link);
             self.term.swap_alt();
             *self.term.grid_mut() = alt_grid;
             out.extend_from_slice(b"\x1b[?1049h\x1b[H");
-            write_grid(self.term.grid(), false, out);
+            write_grid(self.term.grid(), None, &mut link, out);
         } else {
-            write_grid(self.term.grid(), true, out);
+            write_grid(self.term.grid(), Some(&mut cuts), &mut link, out);
         }
         let grid = self.term.grid();
         let mode = *self.term.mode();
@@ -359,7 +400,7 @@ impl Screen {
         // Saved cursor (DECSC) of the active screen
         let sc = &grid.saved_cursor;
         cup(out, sc.point.line.0 + 1, sc.point.column.0 + 1);
-        sgr(out, &sc.template);
+        sgr(out, &sc.template, &mut link);
         out.extend_from_slice(b"\x1b7");
 
         // Scrolling region and origin mode (both home the cursor)
@@ -381,12 +422,12 @@ impl Screen {
             // Re-print the last cell so the cursor waits to wrap, as it did
             let cell = &grid[Line(line)][Column(col)];
             cup(out, line - top + 1, col + 1);
-            sgr(out, cell);
+            sgr(out, cell, &mut link);
             put_cell(out, cell);
         } else {
             cup(out, line - top + 1, col + 1);
         }
-        sgr(out, &cur.template);
+        sgr(out, &cur.template, &mut link);
 
         // Modes
         let set = |out: &mut Vec<u8>, m: TermMode, seq: &[u8]| {
@@ -430,12 +471,39 @@ impl Screen {
         if !mode.contains(TermMode::SHOW_CURSOR) {
             out.extend_from_slice(b"\x1b[?25l");
         }
-        // Last: a client that honours it holds the picture until the ?2026l
-        // the program sends next, as it would have held the live frame.
+        // Last of the state: a client that honours it holds the picture until
+        // the ?2026l the program sends next, as it would have held the live frame.
         if self.ground.sync {
             out.extend_from_slice(b"\x1b[?2026h");
         }
+
+        let trimmed = trim_history(out, start, &cuts, self.held.len());
+        // The unfinished sequence: the DATA after the picture completes it.
+        out.extend_from_slice(&self.held);
+        trimmed
     }
+}
+
+/// Drop whole history lines from the top of the picture at `out[start..]`
+/// until it and `extra` bytes fit the budget, or no history is left to drop.
+/// `cuts` are the offsets of the history's logical line starts, top first;
+/// at each the pen is the default and no link is open.
+fn trim_history(out: &mut Vec<u8>, start: usize, cuts: &[usize], extra: usize) -> bool {
+    let len = out.len() - start + extra;
+    let Some(&first) = cuts.first() else {
+        return false;
+    };
+    if len <= PICTURE_BUDGET {
+        return false;
+    }
+    let excess = len - PICTURE_BUDGET;
+    let to = cuts
+        .iter()
+        .copied()
+        .find(|&c| c - first >= excess)
+        .unwrap_or(cuts[cuts.len() - 1]);
+    out.drain(first..to);
+    to > first
 }
 
 struct Str<'a>(&'a mut Vec<u8>);
@@ -472,7 +540,8 @@ fn color(out: &mut Vec<u8>, c: Color, base: u8) {
     let _ = match c {
         Color::Named(n) => {
             let i = n as usize;
-            let i = if (NamedColor::DimBlack as usize..=NamedColor::DimWhite as usize).contains(&i) {
+            let i = if (NamedColor::DimBlack as usize..=NamedColor::DimWhite as usize).contains(&i)
+            {
                 i - NamedColor::DimBlack as usize
             } else {
                 i
@@ -488,8 +557,9 @@ fn color(out: &mut Vec<u8>, c: Color, base: u8) {
     };
 }
 
-/// A full SGR for a cell's pen (reset first), plus its hyperlink.
-fn sgr(out: &mut Vec<u8>, c: &Cell) {
+/// A full SGR for a cell's pen (reset first), and its hyperlink when that is
+/// not `link`, the one written last.
+fn sgr(out: &mut Vec<u8>, c: &Cell, link: &mut Option<Hyperlink>) {
     out.extend_from_slice(b"\x1b[0");
     let f = c.flags;
     for (flag, code) in [
@@ -521,11 +591,15 @@ fn sgr(out: &mut Vec<u8>, c: &Cell) {
         _ => {}
     }
     out.push(b'm');
-    match c.hyperlink() {
-        Some(h) => {
-            let _ = write!(Str(out), "\x1b]8;id={};{}\x1b\\", h.id(), h.uri());
+    let h = c.hyperlink();
+    if h != *link {
+        match &h {
+            Some(h) => {
+                let _ = write!(Str(out), "\x1b]8;id={};{}\x1b\\", h.id(), h.uri());
+            }
+            None => out.extend_from_slice(b"\x1b]8;;\x1b\\"),
         }
-        None => out.extend_from_slice(b"\x1b]8;;\x1b\\"),
+        *link = h;
     }
 }
 
@@ -547,18 +621,35 @@ fn is_blank(c: &Cell) -> bool {
         && c.extra.is_none()
 }
 
-/// Every line of the grid, scrollback first when `history`, top to bottom:
-/// rows end in CRLF unless they wrapped (then the next character wraps them),
-/// so a fresh terminal scrolls the history into its own scrollback.
-fn write_grid(grid: &Grid<Cell>, history: bool, out: &mut Vec<u8>) {
-    let top = if history { -(grid.history_size() as i32) } else { 0 };
+/// Every line of the grid, scrollback first when `cuts` is given, top to
+/// bottom: rows end in CRLF unless they wrapped (then the next character wraps
+/// them), so a fresh terminal scrolls the history into its own scrollback.
+/// `cuts` gets the offset of every logical line start down to the first
+/// screen row: the pen is the default there, and no link is open.
+fn write_grid(
+    grid: &Grid<Cell>,
+    mut cuts: Option<&mut Vec<usize>>,
+    link: &mut Option<Hyperlink>,
+    out: &mut Vec<u8>,
+) {
+    let top = if cuts.is_some() {
+        -(grid.history_size() as i32)
+    } else {
+        0
+    };
     let bottom = grid.screen_lines() as i32 - 1;
     let cols = grid.columns();
     let default = Cell::default();
     let mut pen: &Cell = &default;
     let mut prev_wrapped = false;
     out.extend_from_slice(b"\x1b[0m");
+    if link.take().is_some() {
+        out.extend_from_slice(b"\x1b]8;;\x1b\\");
+    }
     for l in top..=bottom {
+        if let Some(cuts) = cuts.as_deref_mut().filter(|_| l <= 0 && !prev_wrapped) {
+            cuts.push(out.len());
+        }
         let row = &grid[Line(l)];
         let wrapped = row[Column(cols - 1)].flags.contains(Flags::WRAPLINE);
         let mut end = cols;
@@ -581,7 +672,7 @@ fn write_grid(grid: &Grid<Cell>, history: bool, out: &mut Vec<u8>) {
                 continue;
             }
             if !same_pen(pen, cell) {
-                sgr(out, cell);
+                sgr(out, cell, link);
                 pen = cell;
             }
             if cell.flags.contains(Flags::WIDE_CHAR)
@@ -598,14 +689,14 @@ fn write_grid(grid: &Grid<Cell>, history: bool, out: &mut Vec<u8>) {
             // This row began with an implicit wrap; if that scrolled, the new
             // line took the pen's background (BCE). Clear the trimmed tail.
             if !same_pen(pen, &default) {
-                sgr(out, &default);
+                sgr(out, &default, link);
                 pen = &default;
             }
             out.extend_from_slice(b"\x1b[K");
         }
         if l < bottom && !wrapped {
             if !same_pen(pen, &default) {
-                sgr(out, &default);
+                sgr(out, &default, link);
                 pen = &default;
             }
             out.extend_from_slice(b"\r\n");
@@ -613,7 +704,7 @@ fn write_grid(grid: &Grid<Cell>, history: bool, out: &mut Vec<u8>) {
         prev_wrapped = wrapped;
     }
     if !same_pen(pen, &default) {
-        sgr(out, &default);
+        sgr(out, &default, link);
     }
 }
 
@@ -630,7 +721,10 @@ mod tests {
     fn ground_after_complete_sequences_only() {
         let s = b"a\x1b[1;31mb";
         let g = grounds(s);
-        assert_eq!(g, [true, false, false, false, false, false, false, true, true]);
+        assert_eq!(
+            g,
+            [true, false, false, false, false, false, false, true, true]
+        );
         assert!(!*grounds(b"\x1b]0;title").last().unwrap());
         assert!(*grounds(b"\x1b]0;title\x07").last().unwrap());
         assert!(*grounds(b"\x1b]0;title\x1b\\").last().unwrap());
@@ -646,7 +740,12 @@ mod tests {
         let s = "plain \x1b[1mbold é 日本 \x1b]0;t\x07 tail \x1b[3".as_bytes();
         for cut in 0..=s.len() {
             let (mut a, mut b) = (Ground::new(), Ground::new());
-            let slow = s[..cut].iter().enumerate().filter(|&(_, &x)| a.step(x)).map(|(i, _)| i + 1).last();
+            let slow = s[..cut]
+                .iter()
+                .enumerate()
+                .filter(|&(_, &x)| a.step(x))
+                .map(|(i, _)| i + 1)
+                .last();
             assert_eq!(b.last_ground(&s[..cut]), slow, "cut {cut}");
             assert_eq!(a.st, b.st, "cut {cut}");
         }
@@ -679,7 +778,10 @@ mod tests {
         for &b in b"\x1b[?2026l\x1b[2026h" {
             g.step(b);
         }
-        assert!(!g.sync, "?2026l ends it; a non-private 2026h is not the mode");
+        assert!(
+            !g.sync,
+            "?2026l ends it; a non-private 2026h is not the mode"
+        );
         let mut s = Screen::new(20, 5, 10);
         s.feed(b"\x1b[?2026hframe");
         let mut p = Vec::new();
@@ -731,7 +833,10 @@ mod tests {
                 }
                 let mut ch = ch;
                 if cell.flags.contains(Flags::WIDE_CHAR)
-                    && !(c + 1 < g.columns() && g[Line(l)][Column(c + 1)].flags.contains(Flags::WIDE_CHAR_SPACER))
+                    && !(c + 1 < g.columns()
+                        && g[Line(l)][Column(c + 1)]
+                            .flags
+                            .contains(Flags::WIDE_CHAR_SPACER))
                 {
                     // unprintable: a wide character without its spacer (see write_grid)
                     ch = ' ';
@@ -766,8 +871,18 @@ mod tests {
         let mut b = Screen::new(cols, rows, sb);
         b.feed(&pic);
         let (sa, sb_) = (state(&a), state(&b));
-        let diffs: Vec<_> = sa.iter().zip(&sb_).filter(|(x, y)| x != y).take(8).collect();
-        assert!(sa.len() == sb_.len() && diffs.is_empty(), "{} vs {} lines; first diffs {diffs:#?}", sa.len(), sb_.len());
+        let diffs: Vec<_> = sa
+            .iter()
+            .zip(&sb_)
+            .filter(|(x, y)| x != y)
+            .take(8)
+            .collect();
+        assert!(
+            sa.len() == sb_.len() && diffs.is_empty(),
+            "{} vs {} lines; first diffs {diffs:#?}",
+            sa.len(),
+            sb_.len()
+        );
     }
 
     /// Deterministic pseudo-random escapes: colours (16/256/rgb), attributes,
@@ -780,15 +895,33 @@ mod tests {
             x ^= x << 17;
             x % m
         };
-        let words = ["the ", "quick ", "日本語 ", "é ", "e\u{301} ", "✓ ", "★ ", "brown fox jumps over "];
+        let words = [
+            "the ",
+            "quick ",
+            "日本語 ",
+            "é ",
+            "e\u{301} ",
+            "✓ ",
+            "★ ",
+            "brown fox jumps over ",
+        ];
         let mut out = String::new();
         while out.len() < n {
             match r(20) {
                 0 => out += &format!("\x1b[38;5;{}m", r(256)),
                 1 => out += &format!("\x1b[48;2;{};{};{}m", r(256), r(256), r(256)),
-                2 => out += &format!("\x1b[{}m", [0, 1, 2, 3, 4, 7, 9, 22, 24, 27, 31, 42, 95, 104][r(14) as usize]),
+                2 => {
+                    out += &format!(
+                        "\x1b[{}m",
+                        [0, 1, 2, 3, 4, 7, 9, 22, 24, 27, 31, 42, 95, 104][r(14) as usize]
+                    )
+                }
                 3 => out += &format!("\x1b[{};{}H", r(30), r(90)),
-                4 => out += ["\x1b[K", "\x1b[1K", "\x1b[2K", "\x1b[J", "\x1b[3X", "\x1b[2P", "\x1b[2@"][r(7) as usize],
+                4 => {
+                    out += [
+                        "\x1b[K", "\x1b[1K", "\x1b[2K", "\x1b[J", "\x1b[3X", "\x1b[2P", "\x1b[2@",
+                    ][r(7) as usize]
+                }
                 5 => out += "\r\n",
                 6 => out += ["\x1b[2L", "\x1b[1M", "\x1bM", "\x1b[S", "\x1b[T"][r(5) as usize],
                 _ => out += words[r(words.len() as u64) as usize],
@@ -835,8 +968,16 @@ mod tests {
             replay.feed(pic);
             replay.feed(&stream[*seq..]);
             let got = state(&replay);
-            let diffs: Vec<_> = want.iter().zip(&got).filter(|(a, b)| a != b).take(6).collect();
-            assert!(diffs.is_empty() && want.len() == got.len(), "picture @ {seq}: {diffs:#?}");
+            let diffs: Vec<_> = want
+                .iter()
+                .zip(&got)
+                .filter(|(a, b)| a != b)
+                .take(6)
+                .collect();
+            assert!(
+                diffs.is_empty() && want.len() == got.len(),
+                "picture @ {seq}: {diffs:#?}"
+            );
         }
         assert!(pictures.len() > 10);
         held
@@ -852,7 +993,12 @@ mod tests {
         // OSC and DCS strings split across reads, titles, sync output, alt screen
         let mut s = Vec::new();
         for i in 0..400 {
-            s.extend_from_slice(format!("\x1b]2;title {i}\x07\x1b[?2026hline {i} \x1bP1$q\"m\x1b\\é日\x1b[?2026l\r\n").as_bytes());
+            s.extend_from_slice(
+                format!(
+                    "\x1b]2;title {i}\x07\x1b[?2026hline {i} \x1bP1$q\"m\x1b\\é日\x1b[?2026l\r\n"
+                )
+                .as_bytes(),
+            );
             if i % 97 == 0 {
                 s.extend_from_slice(b"\x1b[?1049h\x1b[5;20rin alt\x1b[?1049l");
             }
@@ -869,11 +1015,49 @@ mod tests {
         direct.feed(b"ab\x1b[3");
         let mut pic = Vec::new();
         direct.picture(&mut pic);
-        assert!(pic.ends_with(b"\x1b[3"), "{:?}", String::from_utf8_lossy(&pic));
+        assert!(
+            pic.ends_with(b"\x1b[3"),
+            "{:?}",
+            String::from_utf8_lossy(&pic)
+        );
         let mut replay = Screen::new(20, 5, 100);
         replay.feed(&pic);
         replay.feed(b"1mc");
         direct.feed(b"1mc");
+        assert_eq!(state(&replay), state(&direct));
+    }
+
+    /// A character split across two reads, then an ASCII byte and the start
+    /// of another multibyte character: vte 0.15.0 drops the ASCII byte when it
+    /// completes a character it was handed in part (`advance_partial_utf8`
+    /// returns `valid_bytes - old_bytes`), so the feed never hands it one.
+    #[test]
+    fn a_character_split_across_reads_keeps_the_byte_after_it() {
+        let stream = "é ✓ done".as_bytes();
+        let mut whole = Screen::new(20, 3, 10);
+        whole.feed(stream);
+        for cut in 1..stream.len() {
+            let mut split = Screen::new(20, 3, 10);
+            split.feed(&stream[..cut]);
+            split.feed(&stream[cut..]);
+            assert_eq!(state(&split), state(&whole), "split after byte {cut}");
+        }
+    }
+
+    /// The primary screen's pen survives a picture taken while the
+    /// alternate screen is up: leaving it, the program writes with that pen.
+    #[test]
+    fn a_picture_under_the_alternate_screen_keeps_the_primary_pen() {
+        let before = b"main \x1b[1;3;38;5;169m\x1b[?1049h\x1b[0;32malt text";
+        let after = b"\x1b[?1049lpen";
+        let mut direct = Screen::new(30, 5, 10);
+        direct.feed(before);
+        let mut pic = Vec::new();
+        direct.picture(&mut pic);
+        let mut replay = Screen::new(30, 5, 10);
+        replay.feed(&pic);
+        replay.feed(after);
+        direct.feed(after);
         assert_eq!(state(&replay), state(&direct));
     }
 
@@ -883,7 +1067,12 @@ mod tests {
         for l in 0..lines {
             for c in 0..cols {
                 let v = (l * 7 + c * 13) % 251;
-                out += &format!("\x1b[48;2;{v};{};{}m{}", (v * 3) % 256, (v * 5) % 256, (b'a' + (c % 26) as u8) as char);
+                out += &format!(
+                    "\x1b[48;2;{v};{};{}m{}",
+                    (v * 3) % 256,
+                    (v * 5) % 256,
+                    (b'a' + (c % 26) as u8) as char
+                );
             }
             out += "\x1b[0m\r\n";
         }
@@ -913,7 +1102,10 @@ mod tests {
         let mut b = Screen::new(200, 30, 1000);
         b.feed(&pic);
         let kept = b.term.grid().history_size();
-        assert!(kept > 0 && kept < a.term.grid().history_size(), "kept {kept} lines");
+        assert!(
+            kept > 0 && kept < a.term.grid().history_size(),
+            "kept {kept} lines"
+        );
         assert_eq!(visible(&b), visible(&a));
     }
 
@@ -941,14 +1133,24 @@ mod tests {
         s.feed(b"plain \x1b[31mred \x1b[1mbold\x1b[0m\r\n\x1b[32mgreen\x1b[0m\r\n");
         let mut p = Vec::new();
         s.picture(&mut p);
-        assert_eq!(count(&p, b"\x1b]8;"), 0, "{:?}", String::from_utf8_lossy(&p));
+        assert_eq!(
+            count(&p, b"\x1b]8;"),
+            0,
+            "{:?}",
+            String::from_utf8_lossy(&p)
+        );
 
         let stream = b"see \x1b]8;id=x;http://a/\x1b\\li\x1b[1mnk\x1b[31m!\x1b]8;;\x1b\\ done \x1b[4mu\x1b[0m\r\nnext";
         let mut s = Screen::new(40, 6, 100);
         s.feed(stream);
         let mut p = Vec::new();
         s.picture(&mut p);
-        assert_eq!(count(&p, b"\x1b]8;"), 2, "one open, one close: {:?}", String::from_utf8_lossy(&p));
+        assert_eq!(
+            count(&p, b"\x1b]8;"),
+            2,
+            "one open, one close: {:?}",
+            String::from_utf8_lossy(&p)
+        );
         let mut r = Screen::new(40, 6, 100);
         r.feed(&p);
         let mut q = Vec::new();
@@ -967,7 +1169,8 @@ mod tests {
 
     #[test]
     fn a_picture_round_trips_modes_region_and_the_alternate_screen() {
-        let s = b"primary line\r\n\x1b[1;33mmore\x1b[0m\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[?1h\x1b=\
+        let s =
+            b"primary line\r\n\x1b[1;33mmore\x1b[0m\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[?1h\x1b=\
                   \x1b[?1049h\x1b[2;20r\x1b[5;3Halt text\x1b[?25l\x1b[4 q\x1b]2;my title\x07";
         round_trip(s, 40, 24, 100, 7);
         round_trip(&[&noise(9, 20_000)[..], &s[..]].concat(), 40, 24, 100, 4095);

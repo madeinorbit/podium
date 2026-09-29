@@ -14,6 +14,10 @@ pub const C_REPLAY: u8 = 0x09;
 /// Deliberate takeover (POD-4434): revoke the current writer's lease and grant
 /// it to the sender. Sent only on an explicit operator action, never as a retry.
 pub const C_STEAL: u8 = 0x0A;
+/// Ask for pictures (POD-4909, `screen` hosts): answered at once with a reset
+/// picture, and from then on this connection also gets cuts and resize resets.
+#[cfg(feature = "screen")]
+pub const C_PICTURE: u8 = 0x0B;
 
 pub const H_WELCOME: u8 = 0x81;
 pub const H_DATA: u8 = 0x82;
@@ -28,6 +32,13 @@ pub const H_REPLAYING: u8 = 0x8A;
 pub const H_REPLAYED: u8 = 0x8B;
 /// Ack for C_STEAL: the sender now holds the writer lease.
 pub const H_STOLEN: u8 = 0x8C;
+/// A picture of the screen, in the output stream: `u64 seq`, `u8 reason`,
+/// `u16 cols`, `u16 rows`, the picture bytes. Written to a fresh terminal of
+/// `cols` x `rows` they leave it as the child's output before `seq` did; the
+/// DATA before it on this connection ends at `seq`, and the DATA after it
+/// goes on from there.
+#[cfg(feature = "screen")]
+pub const H_PICTURE: u8 = 0x8D;
 pub const H_ERR: u8 = 0x8F;
 
 pub const ERR_NOT_WRITER: u16 = 1;
@@ -38,6 +49,18 @@ pub const ERR_EXITED: u16 = 4;
 /// full (the child is not reading its input). host.c queues without a limit
 /// (POD-4842 C-3); the connection survives this error.
 pub const ERR_INPUT_FULL: u16 = 5;
+
+/// Why a picture was sent: it answers a request, or follows a resize.
+#[cfg(feature = "screen")]
+pub const PICTURE_RESET: u8 = 0;
+/// Why a picture was sent: it bounds the output since the last one.
+#[cfg(feature = "screen")]
+pub const PICTURE_CUT: u8 = 1;
+
+/// WELCOME's trailing features byte (Rust host only; host.c sends none):
+/// this host keeps the screen and answers PICTURE.
+#[cfg(feature = "screen")]
+pub const FEATURE_SCREEN: u8 = 1;
 
 pub const MODE_WRITER: u8 = 1;
 pub const MODE_READER: u8 = 2;
@@ -165,16 +188,29 @@ pub fn next_frame(buf: &[u8]) -> Next {
 /// checks are the host's; everything knowable from the bytes alone is here.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Request<'a> {
-    Hello { writer: bool, from: u64 },
-    Write { id: u32, data: &'a [u8] },
-    Resize { cols: u16, rows: u16 },
+    Hello {
+        writer: bool,
+        from: u64,
+    },
+    Write {
+        id: u32,
+        data: &'a [u8],
+    },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
     Size,
     Status,
     Signal(u8),
     Detach,
     Kill,
-    Replay { tail: u32 },
+    Replay {
+        tail: u32,
+    },
     Steal,
+    #[cfg(feature = "screen")]
+    Picture,
 }
 
 /// Decode one frame's payload. Errors are the ERR messages host.c sends
@@ -223,6 +259,11 @@ pub fn parse_request(ty: u8, p: &[u8]) -> Result<Request<'_>, &'static str> {
         C_STEAL => {
             exact(0)?;
             Request::Steal
+        }
+        #[cfg(feature = "screen")]
+        C_PICTURE => {
+            exact(0)?;
+            Request::Picture
         }
         _ => return Err(BAD),
     })
@@ -403,10 +444,18 @@ mod tests {
             (C_REPLAY, &[0, 0, 0, 0, 0][..]),
             (C_STEAL, &[0][..]),
             (0x00, &[][..]),
-            (0x0B, &[][..]),
+            (0x0C, &[][..]),
             (H_DATA, &[][..]),
         ] {
             assert_eq!(parse_request(ty, p), Err("bad frame"), "type {ty:#x}");
+        }
+        // PICTURE exists only in a `screen` build, and takes no payload
+        #[cfg(not(feature = "screen"))]
+        assert_eq!(parse_request(0x0B, &[]), Err("bad frame"));
+        #[cfg(feature = "screen")]
+        {
+            assert_eq!(parse_request(C_PICTURE, &[]), Ok(Request::Picture));
+            assert_eq!(parse_request(C_PICTURE, &[0]), Err("bad frame"));
         }
     }
 }

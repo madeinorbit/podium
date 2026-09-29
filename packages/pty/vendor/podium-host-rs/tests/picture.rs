@@ -3,7 +3,7 @@
 //! to bound the tail. Each test drives the real binary through its socket.
 //! Linux: the helpers read /proc.
 
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", feature = "screen"))]
 
 mod common;
 
@@ -97,11 +97,19 @@ impl Read {
             }
             H_PICTURE => {
                 let pic = Picture::parse(&p);
-                assert!(pic.reason == RESET || pic.reason == CUT, "reason {}", pic.reason);
+                assert!(
+                    pic.reason == RESET || pic.reason == CUT,
+                    "reason {}",
+                    pic.reason
+                );
                 if self.data.is_empty() && self.from == u64::MAX {
                     self.from = pic.seq;
                 }
-                assert_eq!(pic.seq, self.end(), "a picture follows the DATA it stands for");
+                assert_eq!(
+                    pic.seq,
+                    self.end(),
+                    "a picture follows the DATA it stands for"
+                );
                 self.pictures.push(pic);
             }
             H_ERR => panic!("ERR {:?}", String::from_utf8_lossy(&p)),
@@ -116,7 +124,10 @@ impl Read {
     }
 
     fn pictures_of(&self, reason: u8) -> Vec<&Picture> {
-        self.pictures.iter().filter(|p| p.reason == reason).collect()
+        self.pictures
+            .iter()
+            .filter(|p| p.reason == reason)
+            .collect()
     }
 }
 
@@ -131,15 +142,32 @@ fn noise(seed: u64, n: usize) -> Vec<u8> {
         x ^= x << 17;
         x % m
     };
-    let words = ["the ", "quick ", "日本語 ", "é ", "e\u{301} ", "✓ ", "brown fox jumps over "];
+    let words = [
+        "the ",
+        "quick ",
+        "日本語 ",
+        "é ",
+        "e\u{301} ",
+        "✓ ",
+        "brown fox jumps over ",
+    ];
     let mut out = String::new();
     while out.len() < n {
         match r(26) {
             0 => out += &format!("\x1b[38;5;{}m", r(256)),
             1 => out += &format!("\x1b[48;2;{};{};{}m", r(256), r(256), r(256)),
-            2 => out += &format!("\x1b[{}m", [0, 1, 2, 3, 4, 7, 9, 22, 24, 27, 31, 42, 95][r(13) as usize]),
+            2 => {
+                out += &format!(
+                    "\x1b[{}m",
+                    [0, 1, 2, 3, 4, 7, 9, 22, 24, 27, 31, 42, 95][r(13) as usize]
+                )
+            }
             3 => out += &format!("\x1b[{};{}H", r(32), r(102)),
-            4 => out += ["\x1b[K", "\x1b[1K", "\x1b[2K", "\x1b[J", "\x1b[3X", "\x1b[2P", "\x1b[2@"][r(7) as usize],
+            4 => {
+                out += [
+                    "\x1b[K", "\x1b[1K", "\x1b[2K", "\x1b[J", "\x1b[3X", "\x1b[2P", "\x1b[2@",
+                ][r(7) as usize]
+            }
             5 => out += "\r\n",
             6 => out += ["\x1b[2L", "\x1b[1M", "\x1bM", "\x1b[S", "\x1b[T"][r(5) as usize],
             7 => out += &format!("\x1b]2;title {}\x07", r(1000)),
@@ -159,7 +187,12 @@ fn dense(cols: usize, lines: usize) -> Vec<u8> {
     for l in 0..lines {
         for c in 0..cols {
             let v = (l * 7 + c * 13) % 251;
-            out += &format!("\x1b[48;2;{v};{};{}m{}", (v * 3) % 256, (v * 5) % 256, (b'a' + (c % 26) as u8) as char);
+            out += &format!(
+                "\x1b[48;2;{v};{};{}m{}",
+                (v * 3) % 256,
+                (v * 5) % 256,
+                (b'a' + (c % 26) as u8) as char
+            );
         }
         out += "\x1b[0m\r\n";
     }
@@ -210,7 +243,18 @@ fn pictures_amid_heavy_output_are_exact() {
     );
     create(
         &sock,
-        &["--cols", "100", "--rows", "30", "--ring-bytes", "67108864", "--linger-secs", "0", "--screen-scrollback", "200"],
+        &[
+            "--cols",
+            "100",
+            "--rows",
+            "30",
+            "--ring-bytes",
+            "67108864",
+            "--linger-secs",
+            "0",
+            "--screen-scrollback",
+            "200",
+        ],
         &["sh", "-c", &play],
     );
     let (mut c, _) = Conn::open(&sock, READER, 0);
@@ -234,9 +278,19 @@ fn pictures_amid_heavy_output_are_exact() {
 
     let (resets, cuts) = (read.pictures_of(RESET), read.pictures_of(CUT));
     assert!(resets.len() >= 3, "{} reset pictures", resets.len());
-    assert!(cuts.len() >= 2, "{} cuts in {} bytes", cuts.len(), read.data.len());
+    assert!(
+        cuts.len() >= 2,
+        "{} cuts in {} bytes",
+        cuts.len(),
+        read.data.len()
+    );
     for w in cuts.windows(2) {
-        assert!(w[1].seq - w[0].seq >= 65536, "cuts at {} and {}", w[0].seq, w[1].seq);
+        assert!(
+            w[1].seq - w[0].seq >= 65536,
+            "cuts at {} and {}",
+            w[0].seq,
+            w[1].seq
+        );
     }
 
     let mut direct = Screen::new(100, 30, 200);
@@ -293,16 +347,27 @@ fn a_resize_sends_a_reset_picture_to_every_opted_in_connection() {
         assert_eq!((p.reason, p.cols, p.rows), (RESET, 100, 40));
     }
     let at = |ty| rw.types.iter().rposition(|&t| t == ty).unwrap();
-    assert!(at(H_RESIZED) < at(H_PICTURE), "RESIZED comes first: {:?}", rw.types);
+    assert!(
+        at(H_RESIZED) < at(H_PICTURE),
+        "RESIZED comes first: {:?}",
+        rw.types
+    );
 
     let mut r2r = Read::new(u64::MAX);
     r2r.until_quiet(&mut r2, Duration::from_millis(500));
-    assert!(r2r.pictures.is_empty(), "a connection that never asked gets no picture");
+    assert!(
+        r2r.pictures.is_empty(),
+        "a connection that never asked gets no picture"
+    );
 
     w.send(&resize(100, 40));
     rw.until_quiet(&mut w, Duration::from_millis(500));
     r1r.until_quiet(&mut r1, Duration::from_millis(500));
-    assert_eq!((rw.pictures.len(), r1r.pictures.len()), (2, 2), "a same-size RESIZE sends none");
+    assert_eq!(
+        (rw.pictures.len(), r1r.pictures.len()),
+        (2, 2),
+        "a same-size RESIZE sends none"
+    );
 }
 
 /// WELCOME ends with a features byte (bit 0 = screen), and `version` says
@@ -316,8 +381,16 @@ fn the_welcome_announces_the_screen() {
 
     let dir = Scratch::new("pic-welcome");
     let (pty, nopty) = (dir.path("a.sock"), dir.path("b.sock"));
-    create(&pty, &["--cols", "80", "--rows", "24", "--linger-secs", "0"], &["sleep", "60"]);
-    create(&nopty, &["--no-pty", "--linger-secs", "0"], &["sleep", "60"]);
+    create(
+        &pty,
+        &["--cols", "80", "--rows", "24", "--linger-secs", "0"],
+        &["sleep", "60"],
+    );
+    create(
+        &nopty,
+        &["--no-pty", "--linger-secs", "0"],
+        &["sleep", "60"],
+    );
     let mut hosts = Hosts::default();
     let (a, _) = Conn::open(&pty, READER, u64::MAX);
     hosts.track(&a);
@@ -328,8 +401,15 @@ fn the_welcome_announces_the_screen() {
 
     b.send(&frame(C_PICTURE, &[]));
     let (ty, p) = b.next(Duration::from_secs(5)).expect("an answer");
-    assert_eq!((ty, u16::from_be_bytes([p[0], p[1]])), (H_ERR, 3), "ERR bad frame");
-    assert!(b.next(Duration::from_secs(2)).is_none(), "then the host closes it");
+    assert_eq!(
+        (ty, u16::from_be_bytes([p[0], p[1]])),
+        (H_ERR, 3),
+        "ERR bad frame"
+    );
+    assert!(
+        b.next(Duration::from_secs(2)).is_none(),
+        "then the host closes it"
+    );
 }
 
 /// SPEC v4 step A, done-when 2: a dense truecolour screen yields a picture
@@ -343,7 +423,16 @@ fn a_dense_screen_yields_a_picture_within_the_budget() {
     let play = format!("cat {}/dense; exec sleep 60", dir.0.display());
     create(
         &sock,
-        &["--cols", "200", "--rows", "30", "--ring-bytes", "65536", "--linger-secs", "0"],
+        &[
+            "--cols",
+            "200",
+            "--rows",
+            "30",
+            "--ring-bytes",
+            "65536",
+            "--linger-secs",
+            "0",
+        ],
         &["sh", "-c", &play],
     );
     let (mut c, _) = Conn::open(&sock, READER, u64::MAX);
@@ -355,8 +444,16 @@ fn a_dense_screen_yields_a_picture_within_the_budget() {
     read.until_quiet(&mut c, Duration::from_millis(1000));
     assert_eq!(read.pictures.len(), 1);
     let p = &read.pictures[0];
-    assert!(p.bytes.len() <= BUDGET, "a picture of {} bytes", p.bytes.len());
-    assert!(p.bytes.len() > BUDGET / 2, "scrollback was kept up to the budget: {}", p.bytes.len());
+    assert!(
+        p.bytes.len() <= BUDGET,
+        "a picture of {} bytes",
+        p.bytes.len()
+    );
+    assert!(
+        p.bytes.len() > BUDGET / 2,
+        "scrollback was kept up to the budget: {}",
+        p.bytes.len()
+    );
     c.seq_high(); // still served
 }
 
@@ -371,7 +468,18 @@ fn a_picture_larger_than_the_queue_limit_is_delivered() {
     let play = format!("cat {}/dense; exec sleep 60", dir.0.display());
     create(
         &sock,
-        &["--cols", "1000", "--rows", "100", "--ring-bytes", "4096", "--screen-scrollback", "0", "--linger-secs", "0"],
+        &[
+            "--cols",
+            "1000",
+            "--rows",
+            "100",
+            "--ring-bytes",
+            "4096",
+            "--screen-scrollback",
+            "0",
+            "--linger-secs",
+            "0",
+        ],
         &["sh", "-c", &play],
     );
     let (mut c, _) = Conn::open(&sock, READER, u64::MAX);
@@ -384,7 +492,10 @@ fn a_picture_larger_than_the_queue_limit_is_delivered() {
     read.until_quiet(&mut c, Duration::from_millis(1000));
     assert_eq!(read.pictures.len(), 1, "frames {:x?}", read.types);
     let n = read.pictures[0].bytes.len();
-    assert!(n > 4096 + BUDGET + 65536, "the picture ({n} bytes) must exceed the queue limit");
+    assert!(
+        n > 4096 + BUDGET + 65536,
+        "the picture ({n} bytes) must exceed the queue limit"
+    );
     c.seq_high(); // still served
 }
 
@@ -398,7 +509,18 @@ fn resets_while_a_picture_is_pending_coalesce_into_one() {
     let play = format!("cat {}/dense; exec sleep 60", dir.0.display());
     create(
         &sock,
-        &["--cols", "1000", "--rows", "100", "--ring-bytes", "4096", "--screen-scrollback", "0", "--linger-secs", "0"],
+        &[
+            "--cols",
+            "1000",
+            "--rows",
+            "100",
+            "--ring-bytes",
+            "4096",
+            "--screen-scrollback",
+            "0",
+            "--linger-secs",
+            "0",
+        ],
         &["sh", "-c", &play],
     );
     let (mut w, _) = Conn::open(&sock, WRITER, u64::MAX);
@@ -414,7 +536,12 @@ fn resets_while_a_picture_is_pending_coalesce_into_one() {
     let mut read = Read::new(u64::MAX);
     read.until_quiet(&mut w, Duration::from_millis(1500));
     let sizes: Vec<_> = read.pictures.iter().map(|p| (p.reason, p.cols)).collect();
-    assert_eq!(sizes, [(RESET, 1000), (RESET, 997)], "frames {:x?}", read.types);
+    assert_eq!(
+        sizes,
+        [(RESET, 1000), (RESET, 997)],
+        "frames {:x?}",
+        read.types
+    );
     assert_eq!(read.types.iter().filter(|&&t| t == H_RESIZED).count(), 5);
 }
 
@@ -457,5 +584,8 @@ fn a_due_cut_is_sent_without_further_output() {
     let cuts = read.pictures_of(CUT);
     let last = cuts.last().expect("at least one cut");
     let tail = read.end() - last.seq;
-    assert!(tail < 65536, "{tail} bytes after the last cut: a due cut was stranded");
+    assert!(
+        tail < 65536,
+        "{tail} bytes after the last cut: a due cut was stranded"
+    );
 }
