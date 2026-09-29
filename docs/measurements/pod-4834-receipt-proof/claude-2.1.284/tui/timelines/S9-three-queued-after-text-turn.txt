@@ -1,0 +1,39 @@
+     +0 MARK   A13_BUSY
+   +188 HOOK   UserPromptSubmit {"prompt_id": "a8d62661-e8bd-48ed-8ef3-26f9aa915edf", "prompt": "SLOWTEXT A13 streaming"} keys=prompt,prompt_id
+   +190 HIST   history.jsonl ts=1790698627651 sid=db6804f3 SLOWTEXT A13 streaming pasted={}
+   +316 MODEL  #41 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +353 MODEL  #42 tools=True n=75 last=user: SLOWTEXT A13 streaming
+   +380 REC    user/ {"promptId": "a8d62661", "uuid": "52a38dc4", "parentUuid": "6c0df2c6", "promptSource": "typed", "timestamp": "2026-09-29T16:17:07.692Z", "origin": {"kind": "human"}} SLOWTEXT A13 streaming
+  +3041 MARK   A13_Q1
+  +3066 HOOK   UserPromptSubmit {"prompt_id": "a8d62661-e8bd-48ed-8ef3-26f9aa915edf", "prompt": "Q1-A13 first"} keys=prompt,prompt_id
+  +3153 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:17:10.643Z"} Q1-A13 first
+  +4098 MARK   A13_Q2
+  +4274 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:17:11.757Z"} Q2-A13 second
+  +4277 HOOK   UserPromptSubmit {"prompt_id": "a8d62661-e8bd-48ed-8ef3-26f9aa915edf", "prompt": "Q2-A13 second"} keys=prompt,prompt_id
+  +5126 MARK   A13_Q3
+  +5195 HOOK   UserPromptSubmit {"prompt_id": "a8d62661-e8bd-48ed-8ef3-26f9aa915edf", "prompt": "Q3-A13 third"} keys=prompt,prompt_id
+  +5346 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:17:12.765Z"} Q3-A13 third
+ +10478 HOOK   MessageDisplay {"prompt_id": "a8d62661-e8bd-48ed-8ef3-26f9aa915edf"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +10484 HOOK   Stop {"prompt_id": "a8d62661-e8bd-48ed-8ef3-26f9aa915edf", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +10768 MODEL  #43 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+ +10841 REC    assistant/ {"uuid": "edff7b0d", "parentUuid": "a229e5b6", "timestamp": "2026-09-29T16:17:17.997Z"} [{"type": "text", "text": "r42w1 r42w2 r42w3 r42w4 r42w5 r42w6 r42w7 r42w8 r42w9 r42w10 r4…
+ +10841 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:17:18.153Z"} null
+ +10841 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:17:18.153Z"} null
+ +10841 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:17:18.154Z"} null
+ +10841 REC    system/stop_hook_summary {"uuid": "981974bb", "parentUuid": "edff7b0d", "timestamp": "2026-09-29T16:17:18.117Z"} null
+ +10841 REC    system/turn_duration {"uuid": "efad03c5", "parentUuid": "981974bb", "isMeta": false, "timestamp": "2026-09-29T16:17:18.122Z"} null
+ +10873 REC    user/ {"promptId": "22270bd7", "uuid": "aa73705d", "parentUuid": "efad03c5", "promptSource": "queued", "timestamp": "2026-09-29T16:17:18.207Z", "origin": {"kind": "human"}} Q1-A13 first
+ +10873 REC    user/ {"promptId": "8208bfaa", "uuid": "6bdcf386", "parentUuid": "98b1d7dc", "promptSource": "queued", "timestamp": "2026-09-29T16:17:18.209Z", "origin": {"kind": "human"}} Q2-A13 second
+ +10873 REC    user/ {"promptId": "71b9fd3b", "uuid": "f7d5b6b9", "parentUuid": "6bdcf386", "promptSource": "queued", "timestamp": "2026-09-29T16:17:18.211Z", "origin": {"kind": "human"}} Q3-A13 third
+ +10905 MODEL  #44 tools=True n=78 last=user: Q1-A13 first\n | Q2-A13 second\n | Q3-A13 third
+ +10908 HIST   history.jsonl ts=1790698638160 sid=db6804f3 Q1-A13 first pasted={}
+ +10908 HIST   history.jsonl ts=1790698638161 sid=db6804f3 Q2-A13 second pasted={}
+ +10908 HIST   history.jsonl ts=1790698638162 sid=db6804f3 Q3-A13 third pasted={}
+ +10919 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +11070 HOOK   Stop {"prompt_id": "71b9fd3b-eef0-40e1-b3a7-8c0052f0fcb0", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +11094 HOOK   MessageDisplay {"prompt_id": "71b9fd3b-eef0-40e1-b3a7-8c0052f0fcb0"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +11200 REC    assistant/ {"uuid": "1db429fd", "parentUuid": "f7d5b6b9", "timestamp": "2026-09-29T16:17:18.628Z"} [{"type": "text", "text": "r44w1 r44w2 r44w3 "}]
+ +11200 REC    system/stop_hook_summary {"uuid": "d2e5b3e6", "parentUuid": "1db429fd", "timestamp": "2026-09-29T16:17:18.695Z"} null
+ +11200 REC    system/turn_duration {"uuid": "cebeba0a", "parentUuid": "d2e5b3e6", "isMeta": false, "timestamp": "2026-09-29T16:17:18.699Z"} null
+ +11406 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +15330 MARK   A13_END

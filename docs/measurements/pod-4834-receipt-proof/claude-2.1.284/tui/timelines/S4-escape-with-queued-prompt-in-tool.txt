@@ -1,0 +1,27 @@
+     +0 MARK   A1_BUSY
+    +60 HOOK   UserPromptSubmit {"prompt_id": "c53b895d-9f46-413a-87c4-3b0c011c1650", "prompt": "TOOLSLEEP A1 busy"} keys=prompt,prompt_id
+    +63 HIST   history.jsonl ts=1790698384849 sid=db6804f3 TOOLSLEEP A1 busy pasted={}
+   +108 MODEL  #2 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +113 MODEL  #3 tools=True n=8 last=user: TOOLSLEEP A1 busy
+   +139 HOOK   PreToolUse {"prompt_id": "c53b895d-9f46-413a-87c4-3b0c011c1650", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+   +240 REC    user/ {"promptId": "c53b895d", "uuid": "cb124b7c", "parentUuid": "d944a5f4", "promptSource": "typed", "timestamp": "2026-09-29T16:13:04.857Z", "origin": {"kind": "human"}} TOOLSLEEP A1 busy
+   +240 REC    assistant/ {"uuid": "804695f9", "parentUuid": "822caeb2", "timestamp": "2026-09-29T16:13:04.944Z"} [{"type": "tool_use", "id": "toolu_fake3", "name": "Bash", "input": {"command": "sleep 8",…
+   +584 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +2982 MARK   A1_Q
+  +3041 HOOK   UserPromptSubmit {"prompt_id": "c53b895d-9f46-413a-87c4-3b0c011c1650", "prompt": "QUEUED-A1 typed while the tool runs"} keys=prompt,prompt_id
+  +3113 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:13:07.835Z"} QUEUED-A1 typed while the tool runs
+  +4582 MARK   A1_ESC
+  +4771 HIST   history.jsonl ts=1790698389538 sid=db6804f3 QUEUED-A1 typed while the tool runs pasted={}
+  +4808 MODEL  #4 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+  +4809 MODEL  #5 tools=True n=11 last=user: [tool_result toolu_fake3: [Tool result missing due to internal error]] | QUEUED-A1 typed while the tool runs
+  +4850 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:13:09.535Z"} null
+  +4850 REC    user/ {"promptId": "1f8f32bd", "uuid": "8a278860", "parentUuid": "804695f9", "promptSource": "queued", "timestamp": "2026-09-29T16:13:09.590Z", "origin": {"kind": "human"}} QUEUED-A1 typed while the tool runs
+  +4850 REC    user/ {"promptId": "1f8f32bd", "uuid": "e5607cf8", "parentUuid": "804695f9", "timestamp": "2026-09-29T16:13:09.609Z"} [{"type": "tool_result", "content": "The user doesn't want to proceed with this tool use. …
+  +4850 REC    user/ {"promptId": "1f8f32bd", "uuid": "d6108e85", "parentUuid": "e5607cf8", "timestamp": "2026-09-29T16:13:09.613Z"} [{"type": "text", "text": "[Request interrupted by user for tool use]"}]
+  +4948 HOOK   MessageDisplay {"prompt_id": "1f8f32bd-c1fb-444b-9bcb-0ee43ac5958f"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +4969 HOOK   Stop {"prompt_id": "1f8f32bd-c1fb-444b-9bcb-0ee43ac5958f", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +5053 REC    assistant/ {"uuid": "0dea4e8f", "parentUuid": "d6108e85", "timestamp": "2026-09-29T16:13:09.743Z"} [{"type": "text", "text": "r5w1 r5w2 r5w3 "}]
+  +5053 REC    system/stop_hook_summary {"uuid": "a553950d", "parentUuid": "0dea4e8f", "timestamp": "2026-09-29T16:13:09.803Z"} null
+  +5053 REC    system/turn_duration {"uuid": "7e4669b5", "parentUuid": "a553950d", "isMeta": false, "timestamp": "2026-09-29T16:13:09.810Z"} null
+  +5281 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +28070 MARK   A1_END

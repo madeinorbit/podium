@@ -1,0 +1,20 @@
+     +0 MARK   A10_STOPFB
+   +206 HOOK   UserPromptSubmit {"prompt_id": "1353ae4a-1e04-4e58-9d99-a1525d8de359", "prompt": "STOPFB A10 idle"} keys=prompt,prompt_id
+   +252 HIST   history.jsonl ts=1790698585419 sid=db6804f3 STOPFB A10 idle pasted={}
+   +263 MODEL  #31 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +267 MODEL  #32 tools=True n=57 last=user: STOPFB A10 idle
+   +377 REC    user/ {"promptId": "1353ae4a", "uuid": "b9ed9336", "parentUuid": "24bb2794", "promptSource": "typed", "timestamp": "2026-09-29T16:16:25.438Z", "origin": {"kind": "human"}} STOPFB A10 idle
+   +421 HOOK   MessageDisplay {"prompt_id": "1353ae4a-1e04-4e58-9d99-a1525d8de359"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +424 HOOK   Stop {"prompt_id": "1353ae4a-1e04-4e58-9d99-a1525d8de359", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +507 MODEL  #33 tools=True n=60 last=user: Stop hook feedback:\nSTOPFEEDBACK please say done
+   +592 REC    assistant/ {"uuid": "4e15c38b", "parentUuid": "d4dbddd9", "timestamp": "2026-09-29T16:16:25.716Z"} [{"type": "text", "text": "r32w1 r32w2 r32w3 "}]
+   +592 REC    user/ {"promptId": "1353ae4a", "uuid": "0bfc0802", "parentUuid": "4e15c38b", "isMeta": true, "timestamp": "2026-09-29T16:16:25.777Z"} Stop hook feedback:\nSTOPFEEDBACK please say done
+   +592 REC    attachment/hook_blocking_error {"uuid": "77bbd727", "parentUuid": "0bfc0802", "timestamp": "2026-09-29T16:16:25.777Z"} null
+   +592 REC    system/stop_hook_summary {"uuid": "f26f5f75", "parentUuid": "77bbd727", "timestamp": "2026-09-29T16:16:25.791Z"} null
+   +675 HOOK   MessageDisplay {"prompt_id": "1353ae4a-1e04-4e58-9d99-a1525d8de359"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +724 HOOK   Stop {"prompt_id": "1353ae4a-1e04-4e58-9d99-a1525d8de359", "stop_hook_active": true} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +892 REC    assistant/ {"uuid": "3d0be38f", "parentUuid": "f26f5f75", "timestamp": "2026-09-29T16:16:25.940Z"} [{"type": "text", "text": "r33w1 r33w2 r33w3 "}]
+   +892 REC    system/stop_hook_summary {"uuid": "6d768d4d", "parentUuid": "3d0be38f", "timestamp": "2026-09-29T16:16:26.096Z"} null
+   +892 REC    system/turn_duration {"uuid": "959a303e", "parentUuid": "6d768d4d", "isMeta": false, "timestamp": "2026-09-29T16:16:26.125Z"} null
+  +1114 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +4442 MARK   A10_END

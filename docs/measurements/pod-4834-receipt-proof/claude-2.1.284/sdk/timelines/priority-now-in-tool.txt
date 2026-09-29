@@ -1,0 +1,45 @@
+     +0 MARK   K4_BUSY
+    +10 IN     user/ {"uuid": "OURS-06"} [{"type": "text", "text": "TOOLSLEEP K4 busy"}]
+    +28 OUT    command_lifecycle/queued {"uuid": "4a89b131", "command_uuid": "OURS-06"} 
+    +32 OUT    command_lifecycle/started {"uuid": "0298d218", "command_uuid": "OURS-06"} 
+   +121 HOOK   UserPromptSubmit {"prompt_id": "86ad4878-0e88-466c-ab04-646a26a9b5a6", "prompt": "TOOLSLEEP K4 busy"} keys=prompt,prompt_id
+   +128 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:24:53.335Z"} null
+   +128 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:24:53.336Z"} null
+   +135 OUT    system/init {"uuid": "d32da9d8"} 
+   +139 OUT    system/status {"uuid": "96779fc1", "status": "requesting"} 
+   +167 MODEL  #8 tools=True n=17 last=user: TOOLSLEEP K4 busy
+   +173 OUT    user/ {"uuid": "OURS-06", "isReplay": true, "timestamp": "2026-09-29T16:24:53.346Z"} [{"type": "text", "text": "TOOLSLEEP K4 busy"}]
+   +175 SE     message_start
+   +180 OUT    assistant/ {"uuid": "476f6017", "timestamp": "2026-09-29T16:24:53.486Z"} [{"type": "tool_use", "id": "toolu_fake8", "name": "Bash", "input": {"command": "sleep 8", "descript…
+   +191 SE     message_stop
+   +201 HOOK   PreToolUse {"prompt_id": "86ad4878-0e88-466c-ab04-646a26a9b5a6", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+   +233 REC    user/ {"promptId": "86ad4878", "uuid": "OURS-06", "parentUuid": "29229190", "promptSource": "sdk", "timestamp": "2026-09-29T16:24:53.346Z"} [{"type": "text", "text": "TOOLSLEEP K4 busy"}]
+   +233 REC    assistant/ {"uuid": "476f6017", "parentUuid": "ca9acb45", "timestamp": "2026-09-29T16:24:53.486Z"} [{"type": "tool_use", "id": "toolu_fake8", "name": "Bash", "input": {"command": "sleep 8",…
+  +2522 MARK   K4_Q
+  +2525 IN     user/ {"uuid": "OURS-07", "priority": "now"} [{"type": "text", "text": "NOW-K4 priority now in tool"}]
+  +2567 OUT    command_lifecycle/queued {"uuid": "e7cabaa2", "command_uuid": "OURS-07"} 
+  +2672 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:24:55.873Z"} null
+  +3244 OUT    system/task_started {"uuid": "da49f6d3"} 
+  +8256 OUT    system/task_notification {"uuid": "e9544770", "status": "completed"} 
+  +8288 OUT    user/ {"uuid": "24148c05", "timestamp": "2026-09-29T16:25:01.580Z"} [{"tool_use_id": "toolu_fake8", "type": "tool_result", "content": "(Bash completed with no output)",…
+  +8301 OUT    result/success {"uuid": "f32ed550", "is_error": false, "result": "", "num_turns": 2} 
+  +8317 REC    user/ {"promptId": "86ad4878", "uuid": "24148c05", "parentUuid": "476f6017", "timestamp": "2026-09-29T16:25:01.580Z"} [{"tool_use_id": "toolu_fake8", "type": "tool_result", "content": "(Bash completed with no…
+  +8423 OUT    command_lifecycle/cancelled {"uuid": "e07d1f22", "command_uuid": "OURS-06"} 
+  +8424 OUT    command_lifecycle/started {"uuid": "a35a03e6", "command_uuid": "OURS-07"} 
+  +8453 HOOK   UserPromptSubmit {"prompt_id": "5d395e82-4f83-491c-a035-6bdb009bd3d4", "prompt": "NOW-K4 priority now in tool"} keys=prompt,prompt_id
+  +8461 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:25:01.660Z"} null
+  +8469 OUT    system/init {"uuid": "aca0fa9a"} 
+  +8471 OUT    system/status {"uuid": "dcada7af", "status": "requesting"} 
+  +8491 MODEL  #9 tools=True n=20 last=user: [tool_result toolu_fake8: (Bash completed with no output)] | NOW-K4 priority now in tool
+  +8493 OUT    user/ {"uuid": "OURS-07", "isReplay": true, "timestamp": "2026-09-29T16:25:01.746Z"} [{"type": "text", "text": "NOW-K4 priority now in tool"}]
+  +8493 SE     message_start
+  +8599 REC    user/ {"promptId": "5d395e82", "uuid": "OURS-07", "parentUuid": "24148c05", "promptSource": "sdk", "timestamp": "2026-09-29T16:25:01.746Z"} [{"type": "text", "text": "NOW-K4 priority now in tool"}]
+  +8601 HOOK   MessageDisplay {"prompt_id": "5d395e82-4f83-491c-a035-6bdb009bd3d4"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +8610 OUT    assistant/ {"uuid": "99f875bf", "timestamp": "2026-09-29T16:25:01.896Z"} [{"type": "text", "text": "r9w1 r9w2 r9w3 "}]
+  +8645 SE     message_stop
+  +8720 HOOK   Stop {"prompt_id": "5d395e82-4f83-491c-a035-6bdb009bd3d4", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +8736 OUT    result/success {"uuid": "cf31bf79", "is_error": false, "result": "r9w1 r9w2 r9w3 ", "num_turns": 1} 
+  +8740 REC    assistant/ {"uuid": "99f875bf", "parentUuid": "158298ab", "timestamp": "2026-09-29T16:25:01.896Z"} [{"type": "text", "text": "r9w1 r9w2 r9w3 "}]
+  +8740 REC    system/stop_hook_summary {"uuid": "af7eefb5", "parentUuid": "99f875bf", "timestamp": "2026-09-29T16:25:02.038Z"} null
+  +8761 OUT    command_lifecycle/completed {"uuid": "38fe5b26", "command_uuid": "OURS-07"} 
+ +14526 MARK   K5_BUSY

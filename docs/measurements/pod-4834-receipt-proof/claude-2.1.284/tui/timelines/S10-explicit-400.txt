@@ -1,0 +1,45 @@
+     +0 MARK   D1_ERR
+    +98 HOOK   UserPromptSubmit {"prompt_id": "f4f9e966-eb10-4105-99fd-c1f83a484d4d", "prompt": "ERR400 D1 idle"} keys=prompt,prompt_id
+   +152 HIST   history.jsonl ts=1790698972259 sid=db6804f3 ERR400 D1 idle pasted={}
+   +153 MODEL  #82 tools=True n=31 last=user: ERR400 D1 idle
+   +153 MODEL  #82 replied 400
+   +184 MODEL  #83 tools=True n=31 last=user: ERR400 D1 idle
+   +184 MODEL  #83 replied 400
+   +255 HOOK   StopFailure {"prompt_id": "f4f9e966-eb10-4105-99fd-c1f83a484d4d", "error": "unknown"} keys=effort,error,last_assistant_message,prompt_id
+   +296 REC    user/ {"promptId": "f4f9e966", "uuid": "c7760ebd", "parentUuid": "2e6cdf41", "promptSource": "typed", "timestamp": "2026-09-29T16:22:52.277Z", "origin": {"kind": "human"}} ERR400 D1 idle
+   +296 REC    assistant/ {"uuid": "e3230dc9", "parentUuid": "0b8bbf2a", "isApiErrorMessage": true, "timestamp": "2026-09-29T16:22:52.454Z"} [{"type": "text", "text": "API Error: 400 fake: rejected by test (ERR400)"}]
+   +296 REC    system/turn_duration {"uuid": "3c2d6066", "parentUuid": "e3230dc9", "isMeta": false, "timestamp": "2026-09-29T16:22:52.479Z"} null
+   +897 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +5115 MARK   D1_END
+  +5577 MARK   D2_BUSY
+  +5646 HOOK   UserPromptSubmit {"prompt_id": "2b5f5311-934d-439b-b630-cf933667feed", "prompt": "TOOLSLEEP D2 busy"} keys=prompt,prompt_id
+  +5659 HIST   history.jsonl ts=1790698977831 sid=db6804f3 TOOLSLEEP D2 busy pasted={}
+  +5679 MODEL  #84 tools=True n=31 last=user: ERR400 D1 idle\n | TOOLSLEEP D2 busy
+  +5679 MODEL  #84 replied 400
+  +5731 HOOK   StopFailure {"prompt_id": "2b5f5311-934d-439b-b630-cf933667feed", "error": "unknown"} keys=effort,error,last_assistant_message,prompt_id
+  +5766 REC    user/ {"promptId": "2b5f5311", "uuid": "d9350a50", "parentUuid": "3c2d6066", "promptSource": "typed", "timestamp": "2026-09-29T16:22:57.840Z", "origin": {"kind": "human"}} TOOLSLEEP D2 busy
+  +5766 REC    assistant/ {"uuid": "df14a8a4", "parentUuid": "7b2ca1db", "isApiErrorMessage": true, "timestamp": "2026-09-29T16:22:57.930Z"} [{"type": "text", "text": "API Error: 400 fake: rejected by test (ERR400)"}]
+  +5766 REC    system/turn_duration {"uuid": "6a8b1d32", "parentUuid": "df14a8a4", "isMeta": false, "timestamp": "2026-09-29T16:22:57.951Z"} null
+  +6049 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +8586 MARK   D2_Q
+  +8644 HOOK   UserPromptSubmit {"prompt_id": "916cb1be-8310-416e-b801-2e8801c8daa2", "prompt": "ERR400 D2 queued in tool"} keys=prompt,prompt_id
+  +8726 HIST   history.jsonl ts=1790698980859 sid=db6804f3 ERR400 D2 queued in tool pasted={}
+  +8768 MODEL  #85 tools=True n=31 last=user: ERR400 D1 idle\n | TOOLSLEEP D2 busy\n | ERR400 D2 queued in tool
+  +8768 MODEL  #85 replied 400
+  +8807 HOOK   StopFailure {"prompt_id": "916cb1be-8310-416e-b801-2e8801c8daa2", "error": "unknown"} keys=effort,error,last_assistant_message,prompt_id
+  +8858 REC    user/ {"promptId": "916cb1be", "uuid": "56a2d91e", "parentUuid": "6a8b1d32", "promptSource": "typed", "timestamp": "2026-09-29T16:23:00.868Z", "origin": {"kind": "human"}} ERR400 D2 queued in tool
+  +8858 REC    assistant/ {"uuid": "9640f6b8", "parentUuid": "19f35e1d", "isApiErrorMessage": true, "timestamp": "2026-09-29T16:23:01.009Z"} [{"type": "text", "text": "API Error: 400 fake: rejected by test (ERR400)"}]
+  +8858 REC    system/turn_duration {"uuid": "285783ef", "parentUuid": "9640f6b8", "isMeta": false, "timestamp": "2026-09-29T16:23:01.022Z"} null
+  +9199 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +17766 MARK   D2_END
+ +18383 MARK   D3_AFTER
+ +18518 HOOK   UserPromptSubmit {"prompt_id": "2ab92cd1-ebd9-4257-983c-24bb572a6857", "prompt": "AFTER-ERR D3"} keys=prompt,prompt_id
+ +18521 HIST   history.jsonl ts=1790698990647 sid=db6804f3 AFTER-ERR D3 pasted={}
+ +18564 MODEL  #86 tools=True n=31 last=user: ERR400 D1 idle\n | TOOLSLEEP D2 busy\n | ERR400 D2 queued in tool\n | AFTER-ERR D3
+ +18564 MODEL  #86 replied 400
+ +18626 HOOK   StopFailure {"prompt_id": "2ab92cd1-ebd9-4257-983c-24bb572a6857", "error": "unknown"} keys=effort,error,last_assistant_message,prompt_id
+ +18666 REC    user/ {"promptId": "2ab92cd1", "uuid": "5a70989a", "parentUuid": "285783ef", "promptSource": "typed", "timestamp": "2026-09-29T16:23:10.663Z", "origin": {"kind": "human"}} AFTER-ERR D3
+ +18666 REC    assistant/ {"uuid": "058db91d", "parentUuid": "a7a561ec", "isApiErrorMessage": true, "timestamp": "2026-09-29T16:23:10.824Z"} [{"type": "text", "text": "API Error: 400 fake: rejected by test (ERR400)"}]
+ +18666 REC    system/turn_duration {"uuid": "2104d68f", "parentUuid": "058db91d", "isMeta": false, "timestamp": "2026-09-29T16:23:10.838Z"} null
+ +18970 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +21417 MARK   D3_END

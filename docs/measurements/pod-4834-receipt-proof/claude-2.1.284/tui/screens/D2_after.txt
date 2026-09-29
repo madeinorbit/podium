@@ -1,0 +1,45 @@
+
+❯ AFTER-KILL9 B4
+
+● r71w1 r71w2 r71w3
+
+✻ Crunched for 0s · done 6:21 PM
+
+❯ HANGFIRST B6 killed at 400ms
+
+❯ AFTER-KILL9 B7
+
+● r75w1 r75w2 r75w3
+
+✻ Churned for 0s · done 6:21 PM
+
+❯ AFTER-KILL9 C
+
+● r81w1 r81w2 r81w3
+
+✻ Baked for 0s · done 6:22 PM
+
+❯ ERR400 D1 idle
+
+● API Error: 400 fake: rejected by test (ERR400)
+
+✻ Baked for 0s · done 6:22 PM
+
+❯ TOOLSLEEP D2 busy
+
+● API Error: 400 fake: rejected by test (ERR400)
+
+✻ Baked for 0s · done 6:22 PM
+
+❯ ERR400 D2 queued in tool
+
+● API Error: 400 fake: rejected by test (ERR400)
+
+✻ Crunched for 0s · done 6:23 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+

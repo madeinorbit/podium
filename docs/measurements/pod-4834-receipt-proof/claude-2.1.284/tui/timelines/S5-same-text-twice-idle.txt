@@ -1,0 +1,24 @@
+     +0 MARK   A11_SAME1
+    +70 HOOK   UserPromptSubmit {"prompt_id": "39661ca9-9f62-4f85-894d-18ba1325fa59", "prompt": "SAME-TEXT A11"} keys=prompt,prompt_id
+    +70 HIST   history.jsonl ts=1790698590292 sid=db6804f3 SAME-TEXT A11 pasted={}
+   +153 MODEL  #34 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +159 MODEL  #35 tools=True n=63 last=user: SAME-TEXT A11
+   +199 REC    user/ {"promptId": "39661ca9", "uuid": "1ee0a306", "parentUuid": "959a303e", "promptSource": "typed", "timestamp": "2026-09-29T16:16:30.299Z", "origin": {"kind": "human"}} SAME-TEXT A11
+   +289 HOOK   Stop {"prompt_id": "39661ca9-9f62-4f85-894d-18ba1325fa59", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +292 HOOK   MessageDisplay {"prompt_id": "39661ca9-9f62-4f85-894d-18ba1325fa59"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +429 REC    assistant/ {"uuid": "0e4cba4a", "parentUuid": "547631f6", "timestamp": "2026-09-29T16:16:30.527Z"} [{"type": "text", "text": "r35w1 r35w2 r35w3 "}]
+   +429 REC    system/stop_hook_summary {"uuid": "2aba1f0b", "parentUuid": "0e4cba4a", "timestamp": "2026-09-29T16:16:30.584Z"} null
+   +429 REC    system/turn_duration {"uuid": "83eb3a4f", "parentUuid": "2aba1f0b", "isMeta": false, "timestamp": "2026-09-29T16:16:30.587Z"} null
+   +617 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +3450 MARK   A11_SAME2
+  +3506 HOOK   UserPromptSubmit {"prompt_id": "be8d93e9-e862-4a59-8343-1bffc9e2c398", "prompt": "SAME-TEXT A11"} keys=prompt,prompt_id
+  +3688 MODEL  #36 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+  +3689 MODEL  #37 tools=True n=66 last=user: SAME-TEXT A11
+  +3699 REC    user/ {"promptId": "be8d93e9", "uuid": "536c4dfe", "parentUuid": "83eb3a4f", "promptSource": "typed", "timestamp": "2026-09-29T16:16:33.752Z", "origin": {"kind": "human"}} SAME-TEXT A11
+  +3858 HOOK   MessageDisplay {"prompt_id": "be8d93e9-e862-4a59-8343-1bffc9e2c398"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +3873 HOOK   Stop {"prompt_id": "be8d93e9-e862-4a59-8343-1bffc9e2c398", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +4000 REC    assistant/ {"uuid": "af0aa863", "parentUuid": "f5b2ce02", "timestamp": "2026-09-29T16:16:34.106Z"} [{"type": "text", "text": "r37w1 r37w2 r37w3 "}]
+  +4000 REC    system/stop_hook_summary {"uuid": "85182727", "parentUuid": "af0aa863", "timestamp": "2026-09-29T16:16:34.169Z"} null
+  +4000 REC    system/turn_duration {"uuid": "ca25f477", "parentUuid": "85182727", "isMeta": false, "timestamp": "2026-09-29T16:16:34.173Z"} null
+  +4197 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +6493 MARK   A11_END

@@ -1,0 +1,45 @@
+
+ ▐▛███▛█   Claude Code v2.1.284
+▝▜██████▀  Opus 5.5 (1M context) · API Usage Billing
+ ▝▝   ▝▝   /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/runs/tA/work
+
+
+● r61w1 r61w2 r61w3
+
+✻ Cogitated for 0s · done 6:19 PM
+
+❯ /compact
+  ⎿  Compacted (ctrl+o to see full summary)
+     PreCompact [/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/rig/hook.sh PreCompact]
+     completed successfully
+     PostCompact [/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4862-claude-receipt-facts/6f8b9d07-6812-49f0-a25b-f073e1754037/scratchpad/rig/hook.sh PostCompact]
+     completed successfully
+  ⎿  Skills restored (cmdx)
+
+❯ AFTER-COMPACT A25
+
+● r64w1 r64w2 r64w3
+
+✻ Sautéed for 0s · done 6:19 PM
+
+❯ TOOLSLEEP B1 busy
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ AFTER-RESUME B3
+
+● r68w1 r68w2 r68w3
+
+✻ Sautéed for 0s · done 6:20 PM
+
+❯ SLOWTEXT B4 streaming
+
+
+
+                                                                                                                                                                ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sl
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

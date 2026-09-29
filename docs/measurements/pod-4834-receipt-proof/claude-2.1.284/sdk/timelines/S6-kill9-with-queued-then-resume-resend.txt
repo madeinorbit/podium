@@ -1,0 +1,63 @@
+   -343 OUT    system/hook_started {"uuid": "fd91332b"} 
+   -297 HOOK   SessionStart {"source": "startup"} keys=source
+   -261 OUT    system/hook_response {"uuid": "b4f1163b"} 
+     -5 OUT    {"type":"control_response","response":{"subtype":"success","request_id":"init-1","response":{"commands":[{"name":"deep-research","description":"Deep research ha…
+     +0 MARK   R1_BUSY
+     +0 IN     user/ {"uuid": "OURS-41"} [{"type": "text", "text": "TOOLSLEEP R1 busy"}]
+    +66 OUT    command_lifecycle/queued {"uuid": "c4a2dd1b", "command_uuid": "OURS-41"} 
+    +71 OUT    command_lifecycle/started {"uuid": "b97eadff", "command_uuid": "OURS-41"} 
+   +156 HOOK   UserPromptSubmit {"prompt_id": "1b138798-ce69-456c-882c-d3a3a3d8fac2", "prompt": "TOOLSLEEP R1 busy"} keys=prompt,prompt_id
+   +188 OUT    system/init {"uuid": "6a58f1a0"} 
+   +202 OUT    system/status {"uuid": "4eae52ee", "status": "requesting"} 
+   +307 MODEL  #26 tools=True n=2 last=user: eply@anthropic.com>\n- End pull request descriptions with:\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n</system-reminder>\n | TOOLSLEEP R1 …
+   +313 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:27:42.779Z"} null
+   +313 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:27:42.780Z"} null
+   +313 REC    user/ {"promptId": "1b138798", "uuid": "OURS-41", "parentUuid": null, "promptSource": "sdk", "timestamp": "2026-09-29T16:27:42.847Z"} [{"type": "text", "text": "TOOLSLEEP R1 busy"}]
+   +320 OUT    user/ {"uuid": "OURS-41", "isReplay": true, "timestamp": "2026-09-29T16:27:42.847Z"} [{"type": "text", "text": "TOOLSLEEP R1 busy"}]
+   +321 SE     message_start
+   +333 OUT    assistant/ {"uuid": "f33baab8", "timestamp": "2026-09-29T16:27:43.037Z"} [{"type": "tool_use", "id": "toolu_fake26", "name": "Bash", "input": {"command": "sleep 8", "descrip…
+   +373 SE     message_stop
+   +406 HOOK   PreToolUse {"prompt_id": "1b138798-ce69-456c-882c-d3a3a3d8fac2", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+   +611 REC    assistant/ {"uuid": "f33baab8", "parentUuid": "2e89ee1c", "timestamp": "2026-09-29T16:27:43.037Z"} [{"type": "tool_use", "id": "toolu_fake26", "name": "Bash", "input": {"command": "sleep 8"…
+  +2501 MARK   R1_Q
+  +2501 IN     user/ {"uuid": "OURS-42"} [{"type": "text", "text": "QUEUED-R1 before kill9"}]
+  +2510 OUT    command_lifecycle/queued {"uuid": "a4f6bf3e", "command_uuid": "OURS-42"} 
+  +2607 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:27:45.217Z"} null
+  +3103 MARK   R1_KILL9
+  +3103 NOTE   SIGKILL
+  +3144 EXIT   null SIGKILL
+  +4772 ARGS   ["--output-format","stream-json","--verbose","--input-format","stream-json","--include-partial-messages","--replay-user-messages","--permission-mode","bypassPermissions","--allow-dangerously-skip-perm…
+  +4793 IN     control_request/initialize {"request_id": "init-1"} 
+  +5260 OUT    system/hook_started {"uuid": "124bb832"} 
+  +5275 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+  +5305 OUT    system/hook_response {"uuid": "1734fe9c"} 
+  +5411 OUT    {"type":"control_response","response":{"subtype":"success","request_id":"init-1","response":{"commands":[{"name":"deep-research","description":"Deep research ha…
+  +5412 MARK   R2_RESUMED
+  +6919 MARK   R2_RESEND42
+  +6923 IN     user/ {"uuid": "OURS-42"} [{"type": "text", "text": "QUEUED-R1 resent after resume"}]
+  +6972 OUT    command_lifecycle/queued {"uuid": "d1ca0366", "command_uuid": "OURS-42"} 
+  +6980 OUT    command_lifecycle/started {"uuid": "0689e419", "command_uuid": "OURS-42"} 
+  +7050 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:27:49.648Z"} null
+  +7050 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:27:49.686Z"} null
+  +7084 HOOK   UserPromptSubmit {"prompt_id": "df2501ce-2312-4f93-8802-3813be7866d4", "prompt": "QUEUED-R1 resent after resume"} keys=prompt,prompt_id
+  +7148 OUT    system/init {"uuid": "bfe46f9b"} 
+  +7162 OUT    system/status {"uuid": "7f8049ed", "status": "requesting"} 
+  +7262 REC    user/ {"promptId": "df2501ce", "uuid": "67af9d2f", "parentUuid": "f33baab8", "timestamp": "2026-09-29T16:27:47.964Z"} [{"type": "tool_result", "content": "[Tool call interrupted: the session ended before this…
+  +7262 REC    assistant/ {"uuid": "441a78a7", "parentUuid": "67af9d2f", "isApiErrorMessage": false, "timestamp": "2026-09-29T16:27:47.965Z"} [{"type": "text", "text": "No response requested."}]
+  +7262 REC    user/ {"promptId": "df2501ce", "uuid": "OURS-42", "parentUuid": "441a78a7", "promptSource": "sdk", "timestamp": "2026-09-29T16:27:49.785Z"} [{"type": "text", "text": "QUEUED-R1 resent after resume"}]
+  +7318 MODEL  #28 tools=True n=7 last=user: QUEUED-R1 resent after resume
+  +7373 OUT    user/ {"uuid": "OURS-42", "isReplay": true, "timestamp": "2026-09-29T16:27:49.785Z"} [{"type": "text", "text": "QUEUED-R1 resent after resume"}]
+  +7373 SE     message_start
+  +7476 HOOK   MessageDisplay {"prompt_id": "df2501ce-2312-4f93-8802-3813be7866d4"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +7507 OUT    assistant/ {"uuid": "6153e639", "timestamp": "2026-09-29T16:27:50.172Z"} [{"type": "text", "text": "r28w1 r28w2 r28w3 "}]
+  +7511 SE     message_stop
+  +7531 HOOK   Stop {"prompt_id": "df2501ce-2312-4f93-8802-3813be7866d4", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +7549 REC    assistant/ {"uuid": "6153e639", "parentUuid": "fc6d6f73", "timestamp": "2026-09-29T16:27:50.172Z"} [{"type": "text", "text": "r28w1 r28w2 r28w3 "}]
+  +7549 REC    system/stop_hook_summary {"uuid": "87fffa5f", "parentUuid": "303e97c7", "timestamp": "2026-09-29T16:27:50.250Z"} null
+  +7552 OUT    result/success {"uuid": "5cd0a0d8", "is_error": false, "result": "r28w1 r28w2 r28w3 ", "num_turns": 1} 
+  +7560 OUT    command_lifecycle/completed {"uuid": "0563ac9c", "command_uuid": "OURS-42"} 
+  +9941 MARK   R2_RESEND41
+  +9941 IN     user/ {"uuid": "OURS-41"} [{"type": "text", "text": "TOOLSLEEP R1 resent after resume"}]
+  +9965 OUT    user/ {"uuid": "OURS-41", "isReplay": true} [{"type": "text", "text": "TOOLSLEEP R1 resent after resume"}]
+  +9966 OUT    command_lifecycle/completed {"uuid": "af4839c3", "command_uuid": "OURS-41"} 
+ +12944 MARK   R2_END

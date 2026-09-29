@@ -1,0 +1,27 @@
+    -11 MARK   A13_END
+     +0 MARK   A14_A
+    +60 MARK   A14_B_SENT
+   +138 HOOK   UserPromptSubmit {"prompt_id": "5d287fbc-bc2f-4e4e-a04f-2c03a88a7fcb", "prompt": "RAPID-A A14"} keys=prompt,prompt_id
+   +187 HIST   history.jsonl ts=1790698642980 sid=db6804f3 RAPID-A A14 pasted={}
+   +190 MODEL  #45 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +194 MODEL  #46 tools=True n=81 last=user: RAPID-A A14
+   +232 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:17:23.064Z"} RAPID-B A14
+   +232 REC    user/ {"promptId": "5d287fbc", "uuid": "2c56e14c", "parentUuid": "cebeba0a", "promptSource": "typed", "timestamp": "2026-09-29T16:17:23.038Z", "origin": {"kind": "human"}} RAPID-A A14
+   +326 HOOK   Stop {"prompt_id": "5d287fbc-bc2f-4e4e-a04f-2c03a88a7fcb", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +340 HOOK   MessageDisplay {"prompt_id": "5d287fbc-bc2f-4e4e-a04f-2c03a88a7fcb"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +424 HOOK   UserPromptSubmit {"prompt_id": "56b1bf4c-d77d-4063-8f7f-4e14907f0cb8", "prompt": "RAPID-B A14"} keys=prompt,prompt_id
+   +430 HIST   history.jsonl ts=1790698643322 sid=db6804f3 RAPID-B A14 pasted={}
+   +460 REC    assistant/ {"uuid": "72208d3f", "parentUuid": "ddce88f8", "timestamp": "2026-09-29T16:17:23.229Z"} [{"type": "text", "text": "r46w1 r46w2 r46w3 "}]
+   +460 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:17:23.319Z"} null
+   +460 REC    system/stop_hook_summary {"uuid": "6244840a", "parentUuid": "72208d3f", "timestamp": "2026-09-29T16:17:23.292Z"} null
+   +460 REC    system/turn_duration {"uuid": "ec4e89af", "parentUuid": "6244840a", "isMeta": false, "timestamp": "2026-09-29T16:17:23.298Z"} null
+   +475 MODEL  #47 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +476 MODEL  #48 tools=True n=84 last=user: RAPID-B A14
+   +627 HOOK   MessageDisplay {"prompt_id": "56b1bf4c-d77d-4063-8f7f-4e14907f0cb8"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +646 HOOK   Stop {"prompt_id": "56b1bf4c-d77d-4063-8f7f-4e14907f0cb8", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +738 REC    user/ {"promptId": "56b1bf4c", "uuid": "27e6942a", "parentUuid": "ec4e89af", "promptSource": "queued", "timestamp": "2026-09-29T16:17:23.348Z", "origin": {"kind": "human"}} RAPID-B A14
+   +738 REC    assistant/ {"uuid": "9076642d", "parentUuid": "0e2353c3", "timestamp": "2026-09-29T16:17:23.520Z"} [{"type": "text", "text": "r48w1 r48w2 r48w3 "}]
+   +899 REC    system/stop_hook_summary {"uuid": "7c8d4657", "parentUuid": "9076642d", "timestamp": "2026-09-29T16:17:23.626Z"} null
+   +899 REC    system/turn_duration {"uuid": "612e4fe4", "parentUuid": "7c8d4657", "isMeta": false, "timestamp": "2026-09-29T16:17:23.637Z"} null
+   +976 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +5128 MARK   A14_END

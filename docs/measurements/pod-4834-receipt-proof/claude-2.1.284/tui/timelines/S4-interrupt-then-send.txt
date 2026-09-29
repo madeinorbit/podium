@@ -1,0 +1,47 @@
+     +0 MARK   A2_BUSY
+    +51 HOOK   UserPromptSubmit {"prompt_id": "cacde754-6e2c-448f-8f58-7d416b633227", "prompt": "SLOWTEXT A2 streaming"} keys=prompt,prompt_id
+    +51 HIST   history.jsonl ts=1790698431098 sid=db6804f3 SLOWTEXT A2 streaming pasted={}
+   +118 MODEL  #6 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +132 MODEL  #7 tools=True n=14 last=user: SLOWTEXT A2 streaming
+   +171 REC    user/ {"promptId": "cacde754", "uuid": "ff33f33a", "parentUuid": "7e4669b5", "promptSource": "typed", "timestamp": "2026-09-29T16:13:51.101Z", "origin": {"kind": "human"}} SLOWTEXT A2 streaming
+  +3037 MARK   A2_ESC
+  +3262 REC    assistant/ {"uuid": "a492d144", "parentUuid": "80174b3c", "timestamp": "2026-09-29T16:13:54.190Z"} [{"type": "text", "text": "r7w1 r7w2 r7w3 r7w4 r7w5 "}]
+  +3262 REC    user/ {"promptId": "cacde754", "uuid": "d537b276", "parentUuid": "a492d144", "timestamp": "2026-09-29T16:13:54.198Z"} [{"type": "text", "text": "[Request interrupted by user]"}]
+  +3452 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +5502 MARK   A2_AFTER
+  +5563 HOOK   UserPromptSubmit {"prompt_id": "927cef79-70ce-4d28-a725-26fad2bdb2c6", "prompt": "AFTER-INT A2 sent after interrupt"} keys=prompt,prompt_id
+  +5571 HIST   history.jsonl ts=1790698436598 sid=db6804f3 AFTER-INT A2 sent after interrupt pasted={}
+  +5619 MODEL  #8 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+  +5620 MODEL  #9 tools=True n=17 last=user: [Request interrupted by user]\n | AFTER-INT A2 sent after interrupt
+  +5675 REC    user/ {"promptId": "927cef79", "uuid": "b257865d", "parentUuid": "d537b276", "promptSource": "typed", "timestamp": "2026-09-29T16:13:56.605Z", "origin": {"kind": "human"}} AFTER-INT A2 sent after interrupt
+  +5733 HOOK   MessageDisplay {"prompt_id": "927cef79-70ce-4d28-a725-26fad2bdb2c6"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +5735 HOOK   Stop {"prompt_id": "927cef79-70ce-4d28-a725-26fad2bdb2c6", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +5872 REC    assistant/ {"uuid": "b7925a47", "parentUuid": "b40a9aef", "timestamp": "2026-09-29T16:13:56.797Z"} [{"type": "text", "text": "r9w1 r9w2 r9w3 "}]
+  +5872 REC    system/stop_hook_summary {"uuid": "8f232594", "parentUuid": "b7925a47", "timestamp": "2026-09-29T16:13:56.827Z"} null
+  +5872 REC    system/turn_duration {"uuid": "05638f5b", "parentUuid": "8f232594", "isMeta": false, "timestamp": "2026-09-29T16:13:56.832Z"} null
+  +6050 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +8979 MARK   A3_BUSY
+  +9042 HOOK   UserPromptSubmit {"prompt_id": "7c8a44a0-f82b-4640-ac38-205471d9c81f", "prompt": "TOOLSLEEP A3 busy"} keys=prompt,prompt_id
+  +9042 HIST   history.jsonl ts=1790698440080 sid=db6804f3 TOOLSLEEP A3 busy pasted={}
+  +9421 MODEL  #10 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+  +9423 MODEL  #11 tools=True n=20 last=user: TOOLSLEEP A3 busy
+  +9449 HOOK   PreToolUse {"prompt_id": "7c8a44a0-f82b-4640-ac38-205471d9c81f", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+  +9493 REC    user/ {"promptId": "7c8a44a0", "uuid": "af5d7676", "parentUuid": "05638f5b", "promptSource": "typed", "timestamp": "2026-09-29T16:14:00.084Z", "origin": {"kind": "human"}} TOOLSLEEP A3 busy
+  +9493 REC    assistant/ {"uuid": "115aa260", "parentUuid": "e15b10ba", "timestamp": "2026-09-29T16:14:00.507Z"} [{"type": "tool_use", "id": "toolu_fake11", "name": "Bash", "input": {"command": "sleep 8"…
+  +9824 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +11555 MARK   A3_ESC
+ +11800 REC    user/ {"promptId": "7c8a44a0", "uuid": "54ef2a44", "parentUuid": "115aa260", "timestamp": "2026-09-29T16:14:02.748Z"} [{"type": "tool_result", "content": "The user doesn't want to proceed with this tool use. …
+ +11800 REC    user/ {"promptId": "7c8a44a0", "uuid": "5e637146", "parentUuid": "54ef2a44", "timestamp": "2026-09-29T16:14:02.751Z"} [{"type": "text", "text": "[Request interrupted by user for tool use]"}]
+ +14076 MARK   A3_AFTER
+ +14216 HOOK   UserPromptSubmit {"prompt_id": "11bf0d10-6903-4c08-937b-180f2388e8ce", "prompt": "AFTER-INT A3 sent after interrupt"} keys=prompt,prompt_id
+ +14232 HIST   history.jsonl ts=1790698445235 sid=db6804f3 AFTER-INT A3 sent after interrupt pasted={}
+ +14272 MODEL  #12 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+ +14276 MODEL  #13 tools=True n=23 last=user: e). STOP what you are doing and wait for the user to tell you how to proceed.] | [Request interrupted by user for tool use]\n | AFTER-INT A3 sent after interrup…
+ +14346 REC    user/ {"promptId": "11bf0d10", "uuid": "db8a91f5", "parentUuid": "5e637146", "promptSource": "typed", "timestamp": "2026-09-29T16:14:05.264Z", "origin": {"kind": "human"}} AFTER-INT A3 sent after interrupt
+ +14395 HOOK   MessageDisplay {"prompt_id": "11bf0d10-6903-4c08-937b-180f2388e8ce"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +14397 HOOK   Stop {"prompt_id": "11bf0d10-6903-4c08-937b-180f2388e8ce", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +14529 REC    assistant/ {"uuid": "f74399d9", "parentUuid": "2470a8c6", "timestamp": "2026-09-29T16:14:05.454Z"} [{"type": "text", "text": "r13w1 r13w2 r13w3 "}]
+ +14529 REC    system/stop_hook_summary {"uuid": "3c967fd0", "parentUuid": "f74399d9", "timestamp": "2026-09-29T16:14:05.498Z"} null
+ +14529 REC    system/turn_duration {"uuid": "516b07d3", "parentUuid": "3c967fd0", "isMeta": false, "timestamp": "2026-09-29T16:14:05.501Z"} null
+ +14723 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +17151 MARK   A3_END

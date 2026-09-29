@@ -1,0 +1,4 @@
+CRLF-A22 one
+two
+three
+LF-only four

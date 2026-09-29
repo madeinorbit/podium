@@ -1,0 +1,24 @@
+   -500 MARK   A5_END
+     +0 MARK   A6_BUSY
+   +249 HIST   history.jsonl ts=1790698500555 sid=db6804f3 SLOWTEXT A6 streaming pasted={}
+   +256 HOOK   UserPromptSubmit {"prompt_id": "73faa584-a038-4a26-9fff-69568b2bea69", "prompt": "SLOWTEXT A6 streaming"} keys=prompt,prompt_id
+   +302 MODEL  #22 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +303 MODEL  #23 tools=True n=42 last=user: SLOWTEXT A6 streaming
+   +390 REC    user/ {"promptId": "73faa584", "uuid": "1512002b", "parentUuid": "c91664ed", "promptSource": "typed", "timestamp": "2026-09-29T16:15:00.564Z", "origin": {"kind": "human"}} SLOWTEXT A6 streaming
+  +3130 MARK   A6_Q
+  +3253 HOOK   UserPromptSubmit {"prompt_id": "73faa584-a038-4a26-9fff-69568b2bea69", "prompt": "SENDNOW-A6 queued during text"} keys=prompt,prompt_id
+  +3348 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:15:03.617Z"} SENDNOW-A6 queued during text
+  +4773 MARK   A6_CXCS
+  +4943 MODEL  #24 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+  +4945 MODEL  #25 tools=True n=45 last=user: SENDNOW-A6 queued during text
+  +4952 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:15:05.217Z"} null
+  +4952 REC    assistant/ {"uuid": "425104d1", "parentUuid": "4062a65b", "timestamp": "2026-09-29T16:15:05.184Z"} [{"type": "text", "text": "r23w1 r23w2 r23w3 r23w4 r23w5 r23w6 r23w7 r23w8 "}]
+  +4952 REC    user/ {"promptId": "f5529966", "uuid": "637d7dd7", "parentUuid": "425104d1", "promptSource": "queued", "timestamp": "2026-09-29T16:15:05.249Z", "origin": {"kind": "human"}} SENDNOW-A6 queued during text
+  +4952 HIST   history.jsonl ts=1790698505220 sid=db6804f3 SENDNOW-A6 queued during text pasted={}
+  +5145 HOOK   MessageDisplay {"prompt_id": "f5529966-fef5-40d9-a887-c33c406f1305"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +5159 HOOK   Stop {"prompt_id": "f5529966-fef5-40d9-a887-c33c406f1305", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +5295 REC    assistant/ {"uuid": "6f2814eb", "parentUuid": "2fb0e38d", "timestamp": "2026-09-29T16:15:05.436Z"} [{"type": "text", "text": "r25w1 r25w2 r25w3 "}]
+  +5295 REC    system/stop_hook_summary {"uuid": "427b7b8e", "parentUuid": "6f2814eb", "timestamp": "2026-09-29T16:15:05.575Z"} null
+  +5295 REC    system/turn_duration {"uuid": "ea92b4bd", "parentUuid": "427b7b8e", "isMeta": false, "timestamp": "2026-09-29T16:15:05.582Z"} null
+  +5571 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +15896 MARK   A6_END

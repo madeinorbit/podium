@@ -1,0 +1,34 @@
+     +0 MARK   C1_ENTER
+   +108 HOOK   UserPromptSubmit {"prompt_id": "52b74b39-b3ce-41ad-8946-631e74b21792", "prompt": "TOOLSLEEP C1 killed at 150ms"} keys=prompt,prompt_id
+   +151 MARK   C1_KILL9
+  +2281 MARK   START_rf4862tA51
+  +3541 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+  +4078 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +10869 MARK   C2_ENTER
+ +10922 HOOK   UserPromptSubmit {"prompt_id": "fbf66a6d-0ef5-4f5d-8974-9502043f0dfb", "prompt": "TOOLSLEEP C2 killed at 200ms"} keys=prompt,prompt_id
+ +11035 MODEL  #77 tools=True n=28 last=user: TOOLSLEEP C2 killed at 200ms
+ +11038 HIST   history.jsonl ts=1790698935730 sid=db6804f3 TOOLSLEEP C2 killed at 200ms pasted={}
+ +11069 MARK   C2_KILL9
+ +13118 MARK   START_rf4862tA52
+ +14060 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +14063 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+ +21685 MARK   C3_ENTER
+ +21773 HOOK   UserPromptSubmit {"prompt_id": "60a8df60-8f40-4a13-a778-9414805e9c02", "prompt": "TOOLSLEEP C3 killed at 250ms"} keys=prompt,prompt_id
+ +21877 HIST   history.jsonl ts=1790698946569 sid=db6804f3 TOOLSLEEP C3 killed at 250ms pasted={}
+ +21884 MODEL  #79 tools=True n=28 last=user: TOOLSLEEP C3 killed at 250ms
+ +21971 MARK   C3_KILL9
+ +24086 MARK   START_rf4862tA53
+ +24995 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +25007 HOOK   SessionStart {"source": "resume"} keys=context_tokens,estimated_cache_write_usd,prompt_cache_likely_expired,seconds_since_last_response,source
+ +32529 MARK   C_AFTER
+ +32611 HOOK   UserPromptSubmit {"prompt_id": "a5a59260-454c-47d0-87de-f0ea6b39dbc6", "prompt": "AFTER-KILL9 C"} keys=prompt,prompt_id
+ +32875 HIST   history.jsonl ts=1790698957401 sid=db6804f3 AFTER-KILL9 C pasted={}
+ +32889 MODEL  #81 tools=True n=28 last=user: AFTER-KILL9 C
+ +32944 REC    user/ {"promptId": "a5a59260", "uuid": "59f628d8", "parentUuid": "e6c4b0f5", "promptSource": "typed", "timestamp": "2026-09-29T16:22:37.441Z", "origin": {"kind": "human"}} AFTER-KILL9 C
+ +33082 HOOK   MessageDisplay {"prompt_id": "a5a59260-454c-47d0-87de-f0ea6b39dbc6"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +33086 HOOK   Stop {"prompt_id": "a5a59260-454c-47d0-87de-f0ea6b39dbc6", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +33223 REC    assistant/ {"uuid": "f8f1030f", "parentUuid": "33a62cca", "timestamp": "2026-09-29T16:22:37.858Z"} [{"type": "text", "text": "r81w1 r81w2 r81w3 "}]
+ +33223 REC    system/stop_hook_summary {"uuid": "50261e31", "parentUuid": "f8f1030f", "timestamp": "2026-09-29T16:22:37.964Z"} null
+ +33223 REC    system/turn_duration {"uuid": "2e6cdf41", "parentUuid": "50261e31", "isMeta": false, "timestamp": "2026-09-29T16:22:37.967Z"} null
+ +33430 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +35568 MARK   C_END

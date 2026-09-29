@@ -1,0 +1,38 @@
+   -465 MARK   A11_END
+     +0 MARK   A12_BUSY
+    +87 HOOK   UserPromptSubmit {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc", "prompt": "TOOLSLEEP A12 busy"} keys=prompt,prompt_id
+   +162 HIST   history.jsonl ts=1790698597286 sid=db6804f3 TOOLSLEEP A12 busy pasted={}
+   +226 REC    user/ {"promptId": "24e5d8ab", "uuid": "b41691b7", "parentUuid": "ca25f477", "promptSource": "typed", "timestamp": "2026-09-29T16:16:37.289Z", "origin": {"kind": "human"}} TOOLSLEEP A12 busy
+   +226 MODEL  #38 tools=False n=1 last=user:  the predominant language of the session — a stray word or code token in another language doesn't change it, and neither does the English of these instructions.
+   +228 MODEL  #39 tools=True n=69 last=user: TOOLSLEEP A12 busy
+   +274 HOOK   PreToolUse {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc", "tool_name": "Bash"} keys=effort,prompt_id,tool_name,tool_use_id
+   +398 REC    assistant/ {"uuid": "afe2d248", "parentUuid": "27ee40ab", "timestamp": "2026-09-29T16:16:37.469Z"} [{"type": "tool_use", "id": "toolu_fake39", "name": "Bash", "input": {"command": "sleep 8"…
+   +680 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +2980 MARK   A12_Q1
+  +3079 HOOK   UserPromptSubmit {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc", "prompt": "SAME-Q A12"} keys=prompt,prompt_id
+  +3223 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:16:40.232Z"} SAME-Q A12
+  +3949 MARK   A12_Q2
+  +3985 HOOK   UserPromptSubmit {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc", "prompt": "SAME-Q A12"} keys=prompt,prompt_id
+  +4069 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:16:41.196Z"} SAME-Q A12
+  +4937 MARK   A12_Q3
+  +5045 HOOK   UserPromptSubmit {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc", "prompt": "OTHER-Q A12"} keys=prompt,prompt_id
+  +5066 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:16:42.188Z"} OTHER-Q A12
+  +8417 HOOK   PostToolUse {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc", "tool_name": "Bash"} keys=duration_ms,effort,prompt_id,tool_name,tool_use_id
+  +8480 HOOK   PostToolBatch {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc"} keys=effort,prompt_id,tool_calls
+  +8634 HIST   history.jsonl ts=1790698605788 sid=db6804f3 SAME-Q A12 pasted={}
+  +8634 HIST   history.jsonl ts=1790698605789 sid=db6804f3 OTHER-Q A12 pasted={}
+  +8638 MODEL  #40 tools=True n=72 last=user: within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.
+  +8645 REC    user/ {"promptId": "24e5d8ab", "uuid": "f5b61705", "parentUuid": "afe2d248", "timestamp": "2026-09-29T16:16:45.657Z"} [{"tool_use_id": "toolu_fake39", "type": "tool_result", "content": "(Bash completed with n…
+  +8645 REC    queue-operation/remove {"timestamp": "2026-09-29T16:16:45.780Z"} SAME-Q A12
+  +8645 REC    queue-operation/remove {"timestamp": "2026-09-29T16:16:45.780Z"} SAME-Q A12
+  +8645 REC    queue-operation/remove {"timestamp": "2026-09-29T16:16:45.780Z"} OTHER-Q A12
+  +8645 REC    attachment/queued_command {"uuid": "fc324b70", "parentUuid": "f5b61705", "timestamp": "2026-09-29T16:16:40.232Z", "att.source_uuid": "c32307d5", "att.commandMode": "prompt", "att.origin": {"kind": "human"}} SAME-Q A12
+  +8645 REC    attachment/queued_command {"uuid": "7e82cf0d", "parentUuid": "fc324b70", "timestamp": "2026-09-29T16:16:41.196Z", "att.source_uuid": "d2f9322d", "att.commandMode": "prompt", "att.origin": {"kind": "human"}} SAME-Q A12
+  +8645 REC    attachment/queued_command {"uuid": "904b2be7", "parentUuid": "7e82cf0d", "timestamp": "2026-09-29T16:16:42.188Z", "att.source_uuid": "eb1ecdf7", "att.commandMode": "prompt", "att.origin": {"kind": "human"}} OTHER-Q A12
+  +8748 HOOK   MessageDisplay {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc"} keys=delta,final,index,message_id,prompt_id,turn_id
+  +8751 HOOK   Stop {"prompt_id": "24e5d8ab-90f1-4be7-97ed-49c7354fdbcc", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+  +8890 REC    assistant/ {"uuid": "8961be8b", "parentUuid": "dd41c479", "timestamp": "2026-09-29T16:16:45.960Z"} [{"type": "text", "text": "r40w1 r40w2 r40w3 "}]
+  +8890 REC    system/stop_hook_summary {"uuid": "02d9efb0", "parentUuid": "8961be8b", "timestamp": "2026-09-29T16:16:46.030Z"} null
+  +8890 REC    system/turn_duration {"uuid": "6c0df2c6", "parentUuid": "02d9efb0", "isMeta": false, "timestamp": "2026-09-29T16:16:46.061Z"} null
+  +9091 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+ +12976 MARK   A12_END

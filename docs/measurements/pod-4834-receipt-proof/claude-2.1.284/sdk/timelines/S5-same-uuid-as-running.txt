@@ -1,0 +1,26 @@
+     +0 MARK   S5B_BUSY
+     +0 IN     user/ {"uuid": "OURS-29"} [{"type": "text", "text": "SLOWTEXT S5B streaming"}]
+    +10 OUT    command_lifecycle/queued {"uuid": "056e01f0", "command_uuid": "OURS-29"} 
+    +10 OUT    command_lifecycle/started {"uuid": "ea3e82b8", "command_uuid": "OURS-29"} 
+    +38 HOOK   UserPromptSubmit {"prompt_id": "2fa02a7e-cab2-4ada-875b-8c3b557fa45f", "prompt": "SLOWTEXT S5B streaming"} keys=prompt,prompt_id
+    +53 OUT    system/init {"uuid": "0d7a5595"} 
+    +57 OUT    system/status {"uuid": "8a828844", "status": "requesting"} 
+    +88 MODEL  #23 tools=True n=26 last=user: SLOWTEXT S5B streaming
+    +93 OUT    user/ {"uuid": "OURS-29", "isReplay": true, "timestamp": "2026-09-29T16:26:54.879Z"} [{"type": "text", "text": "SLOWTEXT S5B streaming"}]
+    +94 SE     message_start
+   +112 REC    queue-operation/enqueue {"timestamp": "2026-09-29T16:26:54.862Z"} null
+   +112 REC    queue-operation/dequeue {"timestamp": "2026-09-29T16:26:54.862Z"} null
+   +112 REC    user/ {"promptId": "2fa02a7e", "uuid": "OURS-29", "parentUuid": "48767660", "promptSource": "sdk", "timestamp": "2026-09-29T16:26:54.879Z"} [{"type": "text", "text": "SLOWTEXT S5B streaming"}]
+  +2002 MARK   S5B_Q
+  +2002 IN     user/ {"uuid": "OURS-29"} [{"type": "text", "text": "DUP-S5B same uuid as the running one"}]
+  +2003 OUT    user/ {"uuid": "OURS-29", "isReplay": true} [{"type": "text", "text": "DUP-S5B same uuid as the running one"}]
+ +10173 HOOK   MessageDisplay {"prompt_id": "2fa02a7e-cab2-4ada-875b-8c3b557fa45f"} keys=delta,final,index,message_id,prompt_id,turn_id
+ +10185 OUT    assistant/ {"uuid": "981e44f4", "timestamp": "2026-09-29T16:27:04.997Z"} [{"type": "text", "text": "r23w1 r23w2 r23w3 r23w4 r23w5 r23w6 r23w7 r23w8 r23w9 r23w10 r23w11 r23w1…
+ +10199 SE     message_stop
+ +10216 HOOK   Stop {"prompt_id": "2fa02a7e-cab2-4ada-875b-8c3b557fa45f", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+ +10243 REC    assistant/ {"uuid": "981e44f4", "parentUuid": "821e2476", "timestamp": "2026-09-29T16:27:04.997Z"} [{"type": "text", "text": "r23w1 r23w2 r23w3 r23w4 r23w5 r23w6 r23w7 r23w8 r23w9 r23w10 r2…
+ +10243 REC    system/stop_hook_summary {"uuid": "246516fd", "parentUuid": "981e44f4", "timestamp": "2026-09-29T16:27:05.091Z"} null
+ +10245 OUT    result/success {"uuid": "15ae5e82", "is_error": false, "result": "r23w1 r23w2 r23w3 r23w4 r23w5 r23w6 r23w7 r23w8 r23w9 r23w10 r23w11 r23w12 r23w13 r23w14 r23w15 r23w16 r23w17 r23w18 r23w19 r23w20 ", "num_turns": 1} 
+ +10245 OUT    command_lifecycle/completed {"uuid": "c0080c30", "command_uuid": "OURS-29"} 
+ +13003 MARK   S10A_ERR
+ +13003 IN     user/ {"uuid": "OURS-30"} [{"type": "text", "text": "ERR400 S10A idle"}]

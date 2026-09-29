@@ -1,0 +1,19 @@
+     +0 MARK   A15_CMDX
+   +237 HOOK   UserPromptExpansion {"prompt_id": "d862c26c-096c-4adf-88ab-8cd47d8675c9", "prompt": "/cmdx CMDARG-A15"} keys=command_args,command_name,command_source,expansion_type,prompt,prompt_id
+   +244 HIST   history.jsonl ts=1790698666371 sid=db6804f3 /cmdx CMDARG-A15 pasted={}
+   +289 HOOK   UserPromptSubmit {"prompt_id": "d862c26c-096c-4adf-88ab-8cd47d8675c9", "prompt": "/cmdx CMDARG-A15"} keys=prompt,prompt_id
+   +360 MODEL  #49 tools=True n=86 last=user: <command-message>cmdx</command-message>\n<command-name>/cmdx</command-name>\n<command-args>CMDARG-A15</command-args>\n | Reply to CMDX: CMDARG-A15\n
+   +433 REC    user/ {"promptId": "d862c26c", "uuid": "916b94c9", "parentUuid": "612e4fe4", "timestamp": "2026-09-29T16:17:46.473Z", "origin": {"kind": "human"}} <command-message>cmdx</command-message>\n<command-name>/cmdx</command-name>\n<command-args…
+   +433 REC    user/ {"promptId": "d862c26c", "uuid": "e3be4356", "parentUuid": "916b94c9", "isMeta": true, "timestamp": "2026-09-29T16:17:46.473Z"} [{"type": "text", "text": "Reply to CMDX: CMDARG-A15\n"}]
+   +433 REC    attachment/command_permissions {"uuid": "26bca6bc", "parentUuid": "e3be4356", "timestamp": "2026-09-29T16:17:46.473Z"} null
+   +519 HOOK   MessageDisplay {"prompt_id": "d862c26c-096c-4adf-88ab-8cd47d8675c9"} keys=delta,final,index,message_id,prompt_id,turn_id
+   +523 HOOK   Stop {"prompt_id": "d862c26c-096c-4adf-88ab-8cd47d8675c9", "stop_hook_active": false} keys=background_tasks,effort,last_assistant_message,prompt_id,session_crons,stop_hook_active
+   +726 REC    assistant/ {"uuid": "ea090a04", "parentUuid": "26bca6bc", "timestamp": "2026-09-29T16:17:46.662Z"} [{"type": "text", "text": "r49w1 r49w2 r49w3 "}]
+   +726 REC    system/stop_hook_summary {"uuid": "e5ee6d12", "parentUuid": "ea090a04", "timestamp": "2026-09-29T16:17:46.785Z"} null
+   +726 REC    system/turn_duration {"uuid": "a2cfc230", "parentUuid": "e5ee6d12", "isMeta": false, "timestamp": "2026-09-29T16:17:46.805Z"} null
+  +1177 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +4319 MARK   A15_END
+  +4751 MARK   A16_COST
+  +4962 HIST   history.jsonl ts=1790698670972 sid=db6804f3 /cost pasted={}
+  +8292 STATUS {"session_id": "db6804f3-2a9b-4aca-a640-bd3c9c68544e", "tran…
+  +9061 MARK   A16_END
