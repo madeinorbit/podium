@@ -15,7 +15,7 @@ import type {
   WorkState,
   MachineId,
 } from '@podium/model'
-import type { AgentKind, TranscriptItemRef, UserId } from '@podium/model'
+import type { AgentKind, Attribution, TranscriptItemRef, UserId } from '@podium/model'
 import type {
   MetadataChange,
   SubscriptionRegistry,
@@ -112,6 +112,13 @@ export interface SessionLifecycleDeps {
     parentSessionId: SessionId
     sessionId: SessionId
     text: string
+  }): Promise<string>
+  /** Store the task a person (or a job) started a session with as the owner's
+   *  message, attributed to its creator (POD-4846); answers its id. */
+  recordOwnerPrompt?(input: {
+    sessionId: SessionId
+    text: string
+    attribution: Attribution
   }): Promise<string>
   /** Send an agent's continue as a message from `system:auto-continue`, one
    *  per errored turn (POD-4846). */

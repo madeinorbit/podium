@@ -182,6 +182,14 @@ export interface SessionStartPorts {
     sessionId: SessionId
     text: string
   }): Promise<string>
+  /** Store the task a person (or a job) started a session with as the owner's
+   *  message, attributed to its creator, already handed to it (POD-4846).
+   *  Answers its id. Absent = no message ledger. */
+  recordOwnerPrompt?(input: {
+    sessionId: SessionId
+    text: string
+    attribution: Attribution
+  }): Promise<string>
   emitSessionCreated(payload: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -348,27 +356,33 @@ export class SessionStart {
       sessionId,
     })
     await preparedInstructions.commit()
-    // A TASK FROM A PARENT SESSION IS ITS MESSAGE (POD-4778): stored under a
-    // message id before it is queued, so its outcome settles that message and a
-    // failure reaches the parent rather than only the person who owns the child.
+    // A TASK IS A MESSAGE: from the parent session that spawned this one
+    // (POD-4778), or else from its owner, attributed to whoever created it
+    // (POD-4846). Stored under the session's spawn-prompt id before it is
+    // queued, so its outcome settles that message: a parent is told of a
+    // failure; a person hears of it through the prompt-failed attention.
     const parentSessionId = spawnedByParentSessionId(input.spawnedBy)
     let promptMessageId: string | undefined
     if (taskPrompt !== undefined && !useArgv) {
-      promptMessageId =
-        parentSessionId && this.ports.recordSpawnPrompt
-          ? await this.ports.recordSpawnPrompt({
-              parentSessionId,
-              sessionId: spawned.sessionId,
-              text: taskPrompt,
-            })
-          : undefined
+      promptMessageId = parentSessionId
+        ? await this.ports.recordSpawnPrompt?.({
+            parentSessionId,
+            sessionId: spawned.sessionId,
+            text: taskPrompt,
+          })
+        : await this.ports.recordOwnerPrompt?.({
+            sessionId: spawned.sessionId,
+            text: taskPrompt,
+            attribution: createdBy,
+          })
       await this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
       const queued = await this.ports.queueInitialPrompt({
         sessionId: spawned.sessionId,
         text: taskPrompt,
-        ...(promptMessageId
-          ? { sourceMessageId: promptMessageId, inputOrigin: 'mail' as const }
-          : {}),
+        ...(promptMessageId ? { sourceMessageId: promptMessageId } : {}),
+        // A parent's task is agent mail; a person's (or a job's) keeps the
+        // start path's own origin, as before.
+        ...(parentSessionId && promptMessageId ? { inputOrigin: 'mail' as const } : {}),
       })
       if (!queued.ok) {
         throw new Error(queued.reason ?? 'initial prompt could not be queued')
