@@ -3179,10 +3179,10 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     )
     const peek = (await gate.dispatch(peerCap, undefined, 'inbox', {
       issue: ISSUE.id,
-    })) as { body: string; status: string }[]
+    })) as { body: string; deliveryStatus: string }[]
     expect(peek.map((m) => m.body)).toEqual(['my own note']) // sender may re-read its own
     // ...and the peek never consumed anything (pure read).
-    expect(peek[0]?.status).toBe('queued')
+    expect(peek[0]?.deliveryStatus).toBe('stored')
     // The operator's peek is unrestricted.
     const operatorCap: Capability = {
       role: 'admin',
