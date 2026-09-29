@@ -86,8 +86,6 @@ export interface UseTerminalSessionOptions {
    * update must not remount the terminal.
    */
   initialGeometry?: { cols: number; rows: number }
-  /** What {@link initialGeometry} is worth; see MountSessionOptions.geometryState. */
-  geometryState?: 'current' | 'unknown' | 'absent'
   readyTimeoutMs?: number
   /** Per-frame callback (mountSession's onFrame) — e.g. sampling the rendered
    *  prompt. Latest identity is used; changing it never remounts. */
@@ -183,8 +181,6 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   // property of THIS mount, not a prop the live terminal follows.
   const initialGeometryRef = useRef(opts.initialGeometry)
   initialGeometryRef.current = opts.initialGeometry
-  const geometryStateRef = useRef(opts.geometryState)
-  geometryStateRef.current = opts.geometryState
   const echoLatencyEnabledRef = useRef(opts.echoLatencyEnabled)
   echoLatencyEnabledRef.current = opts.echoLatencyEnabled
 
@@ -218,7 +214,6 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
               ...(initialGeometryRef.current
                 ? { initialGeometry: initialGeometryRef.current }
                 : {}),
-              ...(geometryStateRef.current ? { geometryState: geometryStateRef.current } : {}),
               ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
               ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
               ...(testRef.current ? { test: true } : {}),

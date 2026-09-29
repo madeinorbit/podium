@@ -98,9 +98,8 @@ export function TerminalPane({
   // PTY this phone has never attached to.
   const [controlView, setControlView] = useState<TerminalControlView>({
     role: 'spectator',
-    phase: 'spectating',
-    cols: 80,
-    rows: 24,
+    cols: undefined,
+    rows: undefined,
   })
   // HOLD THE MOUNT UNTIL THE SPAWN IS CONFIRMED (POD-1613). The create path
   // lands here with an OPTIMISTIC session: the row is painted, so the screen
@@ -138,7 +137,6 @@ export function TerminalPane({
       // constructed at 80x24 and then moved is the same wrong first frame here
       // as on the desktop — with a scroll position that jumps as well.
       ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
-      geometryState: session?.geometryState ?? 'unknown',
       test: new URLSearchParams(window.location.search).get('e2e') === '1',
       // Ref underlines are configured at mount so the very first replayed frame
       // is already marked — the desktop AgentPanel arms them in the same place.

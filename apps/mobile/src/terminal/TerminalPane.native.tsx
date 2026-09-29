@@ -1,4 +1,8 @@
-import type { ConnectionState, SessionConnection } from '@podium/client-core/socket-transport'
+import type {
+  ConnectionState,
+  SessionConnection,
+  ViewportStatement,
+} from '@podium/client-core/socket-transport'
 import type { IssueId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
@@ -18,8 +22,8 @@ import { encodeFrameBytes } from './terminal-dom-bridge'
  * /client socket (terminal-dom-bridge.ts says exactly why), so the pane
  * attaches through the app's ONE authenticated SocketHub — the same hub every
  * other native surface shares — and streams the session across the DOM bridge:
- * frames/state/reset/attach IN through the imperative handle, input/resize/
- * control claims OUT through the async function props.
+ * frames/state/reset/attach IN through the imperative handle, input and the
+ * one size statement OUT through the async function props.
  *
  * THE ATTACH IS THE WEBVIEW'S TO REQUEST (POD-1613 kept intact). `hub.attach`
  * spends its one attach frame at connection construction, so this side must
@@ -67,7 +71,7 @@ export function TerminalPane({
    * socket). It is NOT cosmetic presence: the server's `viewVisible` gate
    * ignores resize/geometry claims from a connection that has not declared the
    * session rendered — without the lease, the phone's take-control claim is
-   * silently dropped and the pane sits in "fitting" forever (observed live).
+   * silently dropped (observed live).
    */
   const releaseLeaseRef = useRef<(() => void) | null>(null)
   const activeRef = useRef(active)
@@ -123,17 +127,10 @@ export function TerminalPane({
   const onSendInput = useCallback(async (data: string) => {
     connRef.current?.sendInput(data)
   }, [])
-  const onSendResize = useCallback(async (cols: number, rows: number) => {
-    connRef.current?.sendResize(cols, rows)
-  }, [])
-  const onReportViewport = useCallback(async (cols: number, rows: number) => {
-    connRef.current?.reportViewport(cols, rows)
-  }, [])
-  const onRequestControl = useCallback(async (geometry: { cols: number; rows: number } | null) => {
-    connRef.current?.requestControl(geometry ?? undefined)
-  }, [])
-  const onRedraw = useCallback(async () => {
-    connRef.current?.redraw()
+  // A statement made before the native connection exists is dropped: the
+  // webview's mount states its box again on the attach.
+  const onViewportRequest = useCallback(async (request: ViewportStatement) => {
+    connRef.current?.sendViewportRequest(request)
   }, [])
 
   const onControlEvent = useCallback(async (view: TerminalDomControlEvent) => {
@@ -181,14 +178,10 @@ export function TerminalPane({
           spawnPending={spawnPending}
           cols={session?.geometry.cols}
           rows={session?.geometry.rows}
-          geometryState={session?.geometryState ?? 'unknown'}
           onAttachTerminal={onAttachTerminal}
           onDetachTerminal={onDetachTerminal}
           onSendInput={onSendInput}
-          onSendResize={onSendResize}
-          onReportViewport={onReportViewport}
-          onRequestControl={onRequestControl}
-          onRedraw={onRedraw}
+          onViewportRequest={onViewportRequest}
           onControlState={onControlEvent}
         />
       </View>

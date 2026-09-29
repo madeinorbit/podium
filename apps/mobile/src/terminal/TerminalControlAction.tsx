@@ -20,7 +20,7 @@ import { type TerminalControlState, terminalControlCopy } from './terminal-contr
  */
 export function TerminalControlAction({ control }: { control: TerminalControlState }) {
   const copy = terminalControlCopy(control)
-  const controlling = control.phase === 'controlling'
+  const controlling = control.role === 'controller'
   return (
     <HeaderButton label={copy.label} onPress={control.takeControl}>
       <Icon

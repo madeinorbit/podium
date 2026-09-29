@@ -313,7 +313,6 @@ export function usePanelSurface(input: {
     terminalCapable,
     switchAlreadyOffered: switchOfferedRef.current.offered,
     loginRequired,
-    ...(session?.geometryState ? { geometryState: session.geometryState } : {}),
     machineOffline: offlineMachine !== null,
   })
   if (gates.modeSwitchOffered) switchOfferedRef.current.offered = true

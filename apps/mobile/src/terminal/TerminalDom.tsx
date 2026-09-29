@@ -44,14 +44,13 @@ interface TerminalDomProps extends TerminalDomActions {
   connected: boolean
   spawnPending: boolean
   /**
-   * The session's last-known grid and what it is worth (POD-3239 B1), marshalled
-   * across the DOM bridge from the native side's store. Primitives rather than an
-   * object because everything crossing this boundary is serialized, and the pair
-   * is read once at mount.
+   * The session's last-known grid (POD-3239 B1), marshalled across the DOM
+   * bridge from the native side's store. Primitives rather than an object
+   * because everything crossing this boundary is serialized, and the pair is
+   * read once at mount.
    */
   cols?: number
   rows?: number
-  geometryState?: 'current' | 'unknown' | 'absent'
   /** Control-state publication for the screen header (role/phase/grid/ready);
    *  the native wrapper re-binds `takeControl` onto it. */
   onControlState(view: TerminalDomControlEvent): Promise<void>
@@ -79,14 +78,10 @@ export default function TerminalDom({
   spawnPending,
   cols,
   rows,
-  geometryState,
   onAttachTerminal,
   onDetachTerminal,
   onSendInput,
-  onSendResize,
-  onReportViewport,
-  onRequestControl,
-  onRedraw,
+  onViewportRequest,
   onControlState,
   ref,
 }: TerminalDomProps) {
@@ -96,19 +91,13 @@ export default function TerminalDom({
     onAttachTerminal,
     onDetachTerminal,
     onSendInput,
-    onSendResize,
-    onReportViewport,
-    onRequestControl,
-    onRedraw,
+    onViewportRequest,
   })
   actionsRef.current = {
     onAttachTerminal,
     onDetachTerminal,
     onSendInput,
-    onSendResize,
-    onReportViewport,
-    onRequestControl,
-    onRedraw,
+    onViewportRequest,
   }
   const onControlStateRef = useRef(onControlState)
   onControlStateRef.current = onControlState
@@ -122,9 +111,8 @@ export default function TerminalDom({
 
   const [controlView, setControlView] = useState<TerminalControlView>({
     role: 'spectator',
-    phase: 'spectating',
-    cols: 80,
-    rows: 24,
+    cols: undefined,
+    rows: undefined,
   })
 
   // Same lifecycle as the Expo-web pane: hold the mount until the transport is
@@ -144,7 +132,6 @@ export default function TerminalDom({
       crop: 'scroll',
       // Born at W, like every other surface (B1).
       ...(cols !== undefined && rows !== undefined ? { initialGeometry: { cols, rows } } : {}),
-      geometryState: geometryState ?? 'unknown',
       onState: (state) => setControlView(terminalControlView(state)),
     })
 

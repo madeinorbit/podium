@@ -118,15 +118,6 @@ export interface MountSessionOptions {
    * corrects it.
    */
   initialGeometry?: { cols: number; rows: number }
-  /**
-   * What {@link initialGeometry} is WORTH (MODEL rule 6). `unknown` — the
-   * default — RENDERS: inside the system W can only change through the daemon,
-   * so last-known is right until the first ask corrects it. `absent` means there
-   * is no pty and the caller should not be mounting at all; the panel's own gate
-   * owns that decision, and this is here so a mount cannot silently paint a grid
-   * for a session that has none.
-   */
-  geometryState?: 'current' | 'unknown' | 'absent'
 }
 
 export interface MountedSession {
@@ -196,10 +187,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const crop = opts.crop ?? 'clip'
   const viewportEl = opts.viewportEl ?? el
   const diagnostics = createTerminalDiagnosticRecorder(sessionId)
-  // BORN AT W (B1). `absent` is the one state that must not paint a grid — there
-  // is no pty behind the row — so it falls back to xterm's own default, which the
-  // panel keeps behind its transcript/overlay.
-  const birthGeometry = opts.geometryState === 'absent' ? undefined : opts.initialGeometry
+  // BORN AT W (B1). The panel mounts only a live session, so the last-known grid
+  // is the one to paint until the attach snapshot says otherwise.
+  const birthGeometry = opts.initialGeometry
   const view = new TerminalView({
     ...(opts.appearance ?? {}),
     ...(birthGeometry ? { cols: birthGeometry.cols, rows: birthGeometry.rows } : {}),
@@ -230,7 +220,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
    * unconditionally: visible or hidden, controller or spectator.
    */
   let authoritative = false
-  let serverGrid: Grid = { cols: view.cols(), rows: view.rows() }
   const pageVisible = (): boolean =>
     typeof document === 'undefined' || document.visibilityState === 'visible'
   const eligible = (): boolean => active && pageVisible()
@@ -240,41 +229,34 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       pageVisible: pageVisible(),
       eligible: eligible(),
       authoritative,
-      serverGrid: { ...serverGrid },
       crop,
       ...data,
       view: view.diagnosticSnapshot(),
     })
   }
-  const sameGrid = (left: Grid, right: Grid): boolean =>
-    left.cols === right.cols && left.rows === right.rows
-
   // WHAT THIS MOUNT WAS ASKED FOR, beside what it ended up at (`view.grid` in
   // every entry). The two disagreeing is the whole diagnosis of a terminal born
   // at the wrong size: a missing `initialGeometry` is a wiring gap somewhere
   // above, an ignored one is a bug here.
-  trace('mount', {
-    initialGeometry: opts.initialGeometry ?? null,
-    geometryState: opts.geometryState ?? null,
-  })
+  trace('mount', { initialGeometry: opts.initialGeometry ?? null })
 
   const proposeViewport = (): Grid | undefined =>
     viewportEl === el ? view.proposeFit() : view.proposeFitIn(viewportEl)
 
   /**
-   * THE ONE ASK (POD-3239 B4 / MODEL rules 3 and 4).
+   * THE ONE ASK (POD-3239 B4; POD-3190 design rev 3).
    *
-   * Every trigger that used to have its own path — reveal, reconnect, a box
-   * change, an appearance change, a font arriving — ends here, sends one
-   * message, and waits for nothing. There is no ladder because nothing is
-   * waiting on this measurement to RENDER: the buffer is already at W and stays
-   * there until the server reports otherwise, so a measurement that is not
-   * available yet costs nothing. The ResizeObserver on the box fires when the
-   * layout the ladder used to poll for actually happens, and asks then.
+   * The browser STATES its measured grid and draws whatever the server sends.
+   * It keeps no memory of what it asked, compares nothing and retries nothing:
+   * the server records every statement and forwards only a change, so a repeat
+   * costs one small frame and no resize, and a lost one is repaired by the next
+   * trigger. There are three triggers — the measured grid changed
+   * ({@link measuredGridChanged}), a reveal, and an attach — plus the explicit
+   * takeover.
    *
-   * An unmeasurable box still ASKS when the ask is a claim, carrying the current
-   * W — because the claim is the point (rule 4) and "I want control, at the size
-   * you already have" is exactly the honest request there.
+   * An unmeasurable box still ASKS when the ask is a claim, carrying the grid
+   * the view is at — because the claim is the point (rule 4) and "I want
+   * control, at the size you already have" is exactly the honest request there.
    */
   function ask(reason: string, claimControl: boolean): void {
     if (!eligible()) {
@@ -288,17 +270,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('ask:skipped', { reason, claimControl, cause: 'unmeasurable' })
       return
     }
-    if (measured) everMeasured = true
-    const geometry = measured ?? { ...serverGrid }
-    // A NON-CLAIMING ASK REPEATS NOTHING. A reveal fires the box observer as
-    // well (display:none → visible is a resize), so the settling burst that
-    // follows would otherwise re-state a box nobody has changed. A CLAIM always
-    // sends: the claim is the point, and the size is incidental to it (rule 4).
-    if (!claimControl && lastAsked && sameGrid(lastAsked, geometry)) {
-      trace('ask:skipped', { reason, geometry, cause: 'unchanged' })
-      return
-    }
-    lastAsked = { ...geometry }
+    const geometry = measured ?? { cols: view.cols(), rows: view.rows() }
     trace('ask:sent', { reason, geometry, claimControl, measured: measured !== undefined })
     connection.sendViewportRequest({
       geometry,
@@ -327,11 +299,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
    */
   const claimsOnReveal = (): boolean => crop !== 'scroll'
 
-  /** The last box this mount stated, so a repeat is not re-sent. Cleared on a
-   *  reconnect: a new server has heard nothing from us. */
-  let lastAsked: Grid | null = null
   /**
-   * Has this mount ever successfully measured its box?
+   * Has xterm rendered yet?
    *
    * The one case the box observer cannot cover: the VIEWPORT has a size, but
    * xterm has not rendered yet, so there is no `.xterm-screen` to derive a cell
@@ -340,7 +309,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
    * whatever the server last said until the operator moved something. xterm's
    * first render is the event that makes it measurable, and it is what asks.
    */
-  let everMeasured = false
+  let rendered = false
 
   // FONT READINESS. A web font that has not loaded yet measures at the fallback
   // metrics, so the box reads a grid the terminal will not actually have once
@@ -365,7 +334,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     const settle = (source: string): void => {
       if (generation !== fontGeneration) return
       trace('font:ready', { source, families })
-      ask('font-ready', false)
+      measuredGridChanged('font-ready')
     }
     // One generation-guarded listener, so a face that finishes after the bound
     // still triggers the re-measure instead of being lost.
@@ -387,22 +356,26 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const fontDisposers: Array<() => void> = []
 
   /**
-   * This pane became the foreground of a visible page — a reveal, or a mount
-   * that started active. One ask, and a repaint for the canvas that a hidden
-   * pane's `display:none` may have freed.
+   * TRIGGER 1: THE MEASURED GRID MAY HAVE CHANGED. A box resize, a web font
+   * arriving, xterm's first render and an appearance change are one event: each
+   * can change what this box measures to, and none of them knows whether it
+   * did. Debounced, because a layout transition emits a burst of intermediate
+   * sizes and each forwarded one is a SIGWINCH; the burst states its last box.
+   * Never a claim: a wider window is a reason to ask for a size, never a reason
+   * to take a session away from whoever is driving it.
    */
-  function becomeEligible(reason: string): void {
-    if (!eligible()) {
-      trace('eligible:skipped', { reason })
-      return
-    }
-    trace('eligible:became', { reason })
-    view.forceRepaint()
-    ask(reason, claimsOnReveal())
+  const MEASURE_DEBOUNCE_MS = 60
+  let measureTimer: ReturnType<typeof setTimeout> | undefined
+  function measuredGridChanged(reason: string): void {
+    if (measureTimer !== undefined) clearTimeout(measureTimer)
+    measureTimer = setTimeout(() => {
+      measureTimer = undefined
+      ask(reason, false)
+    }, MEASURE_DEBOUNCE_MS)
   }
 
   /**
-   * A true REVEAL — the panel was hidden with `display:none` (a tab switch) or
+   * TRIGGER 2: A REVEAL — the panel was hidden with `display:none` (a tab switch) or
    * the page was backgrounded, either of which frees the WebGL canvas's backing
    * store so it comes back blank.
    *
@@ -433,7 +406,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   function applyServerGrid(state: ConnectionState, source: string): void {
     const { cols, rows } = state
     if (cols === undefined || rows === undefined) return
-    serverGrid = { cols, rows }
     if (view.cols() === cols && view.rows() === rows) return
     trace('geometry:applied', { state, source })
     view.resize(cols, rows)
@@ -444,18 +416,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   }
 
   let lastEpoch = -1
-  // Defense in depth for embedders that deliver onState directly. Production
-  // geometry ordering is enforced before emission by
-  // SessionConnection.acceptGeometryRevision.
-  let lastGeometryRevision: number | undefined
-  let geometryTimelineResetPending = false
   let firstFrameSeen = false
-  // Tracks whether we've seen an attach before, so onAttached can tell a fresh mount
-  // (sizing already driven by the mount/setActive path) from a RECONNECT (where we must
-  // re-assert the size — see the onAttached handler).
-  let everAttached = false
   let lastTracedState = ''
-  let lastRole: ConnectionState['role'] = 'spectator'
 
   // Ready = "usable, drop the Starting… overlay". Fires on the FIRST of: the server
   // confirming the attach (onAttached), the first real frame, or the timeout backstop
@@ -473,26 +435,20 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   const connection = hub.attach(sessionId, {
     onAttached: () => {
-      trace('connection:attached', { reconnect: everAttached, connection: connection.state() })
+      trace('connection:attached', { connection: connection.state() })
       markReady('attach')
-      geometryTimelineResetPending = false
       // THE ATTACH SNAPSHOT IS THE FIRST AUTHORITATIVE W, AND IT IS APPLIED HERE
       // (B2). `attached` sets cols/rows and emits its state BEFORE this callback
       // runs (0b C3), so there is no later event to wait for — a mount that
       // waited would sit at its birth grid until something unrelated moved it.
       authoritative = true
-      // A NEW SERVER HAS HEARD NOTHING FROM US, so the dedup memory goes with
-      // the old one — otherwise a reconnect's ask would be suppressed as a
-      // repeat of something only the previous server was ever told.
-      lastAsked = null
       applyServerGrid(connection.state(), 'attach')
-      // RECONNECT IS AN ASK (B4). A restarted server rebuilt this session and
-      // reset who was driving; the buffer has already followed its attach
-      // snapshot above, and this says what box we actually have and re-claims.
-      // Skip the FIRST attach — the mount/setActive path has just asked, and a
-      // second identical claim would bump the controller epoch for nothing.
-      if (everAttached && eligible()) becomeEligible('reconnect')
-      everAttached = true
+      // TRIGGER 3: EVERY ATTACH IS AN ASK. The server's per-connection record of
+      // this box dies with the socket, so a new one — a reconnect, a restarted
+      // server — has heard nothing from us, and a statement lost on the way is
+      // repaired here. On the first attach it repeats the mount's ask, which the
+      // server finds equal to what it already forwarded and drops.
+      ask('attach', claimsOnReveal())
     },
     onFrame: (bytes) => {
       view.write(bytes)
@@ -510,15 +466,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     onReset: () => {
       trace('connection:reset', { connection: connection.state() })
       lastEpoch = connection.state().epoch
-      lastGeometryRevision = undefined
-      geometryTimelineResetPending = false
       view.clear()
-    },
-    onGeometryTimelineReset: () => {
-      // A restarted server may resume with no frames; reset ordering without
-      // clearing the screen. onReset owns the full-replay clear below.
-      lastGeometryRevision = undefined
-      geometryTimelineResetPending = true
     },
     onState: (state) => {
       const signature = JSON.stringify([
@@ -528,52 +476,19 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         state.rows,
         state.epoch,
         state.controllerId,
-        state.geometryRevision ?? null,
-        state.requestedGeometry?.cols ?? null,
-        state.requestedGeometry?.rows ?? null,
         state.outputSeen,
       ])
       if (signature !== lastTracedState) {
         lastTracedState = signature
         trace('connection:state', { state })
       }
-      const geometryRevision = state.geometryRevision
-      const staleGeometry =
-        geometryRevision !== undefined &&
-        lastGeometryRevision !== undefined &&
-        geometryRevision < lastGeometryRevision
-      if (staleGeometry) {
-        trace('connection:stale-geometry-state', {
-          state,
-          acceptedRevision: lastGeometryRevision,
-        })
-      } else if (geometryRevision !== undefined) {
-        lastGeometryRevision = geometryRevision
-      }
-      const geometrySuppressed = geometryTimelineResetPending || staleGeometry
-      // THE FENCES ARE GONE (POD-3239 B3/B8), and they are gone because their
-      // premise is. `assertedControlGrid`, `pendingRequestedGrid` and
-      // `holdClaimedGrid` all existed to protect a grid this client had applied
-      // OPTIMISTICALLY from its own measurement, against a server state that had
-      // not caught up. Nothing applies a local measurement any more (rule 2), so
-      // there is never a local grid to hold and never a disagreement to arbitrate:
-      // the only ordering question left is "is this state stale?", and the
-      // geometry revision above answers it.
-      if (authoritative && !geometrySuppressed) applyServerGrid(state, 'state')
-      const roleChanged = state.role !== lastRole
-      // Update before an atomic claim emits its local pending state; otherwise
-      // that nested notification would look like a second role transition and
-      // recursively claim again.
-      lastRole = state.role
-      if (roleChanged && eligible()) {
-        // The server made this client the controller (it is the only viewer), or
-        // took it away again. Either way its box is worth stating: as a
-        // controller it can be sized to, and as a spectator its recorded
-        // viewport is what a later sole-renderer promotion needs. Not
-        // platform-conditional — it is true of any viewer whose role moved — and
-        // the dedup makes it free when the box was already stated.
-        ask('role-change', false)
-      }
+      // THE XTERM FOLLOWS THE SERVER, AND NOTHING ELSE (POD-3190 rev 3). No
+      // ordering token and no staleness test: every grid arrives on one ordered
+      // socket, frames from a replaced socket are dropped before they get here,
+      // and after a reconnect the attach snapshot is the first word. A role
+      // change asks nothing either: the server already holds this box, and
+      // reconciles a new controller against it.
+      if (authoritative) applyServerGrid(state, 'state')
       // Clear only on an in-session epoch bump — a controller takeover repaints the
       // grid for the new owner. The (re)attach clear is owned by onReset above, so a
       // plain reconnect that resumes from our cursor leaves the screen intact.
@@ -587,10 +502,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)
-      // A role transition may synchronously create a pending geometry claim.
-      // Publish the connection's latest state so UI never overwrites “fitting”
-      // with the stale pre-claim controller snapshot from this callback.
-      opts.onState?.(connection.state())
+      opts.onState?.(state)
     },
   })
   connection.setEchoLatencyEnabled?.(opts.echoLatencyEnabled ?? false)
@@ -625,8 +537,11 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const offEchoRender =
     typeof view.onRender === 'function'
       ? view.onRender(() => {
-          // FIRST RENDER = FIRST MEASURABLE (B4). See `everMeasured`.
-          if (!everMeasured) ask('first-render', false)
+          // FIRST RENDER = FIRST MEASURABLE (B4). See `rendered`.
+          if (!rendered) {
+            rendered = true
+            measuredGridChanged('first-render')
+          }
           if (!connection.echoPaintPending?.() || echoPaintRaf !== undefined) return
           echoPaintRaf = requestAnimationFrame(() => {
             echoPaintRaf = undefined
@@ -635,11 +550,12 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         })
       : () => {}
 
-  // Becoming the active tab of a visible page claims control (last-foregrounded-wins)
-  // and states this client's box. We never ask while ineligible, so a hidden tab
-  // cannot pin the shared PTY to its stale grid.
+  // A mount that starts as the active tab of a visible page is revealed by
+  // being mounted: it claims control (last-foregrounded-wins) and states this
+  // client's box. We never ask while ineligible, so a hidden tab cannot pin the
+  // shared PTY to its stale grid.
   syncRendererLease()
-  if (active) becomeEligible('mount')
+  if (active) ask('mount', claimsOnReveal())
   // A web font that has not loaded yet measures at fallback metrics, so ask
   // again when the real faces arrive (B4).
   awaitFontReadiness()
@@ -650,7 +566,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // so the server applies ownership and size atomically. The resize observer is
   // debounced, so the grid is sampled synchronously HERE — a takeover that
   // immediately follows a rotation or a keyboard change must not pin the shared
-  // PTY to the previous size. The role transition in onState then fits/repaints.
+  // PTY to the previous size. The xterm moves when the server's report of the
+  // new size arrives, like every other size change.
   function takeControl(): void {
     ask('take-control', true)
   }
@@ -679,24 +596,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     sendInput(toolbar ? toolbar.applyModifiers(data) : data, inputEventAt),
   )
 
-  // Container-size changes (ResizeObserver + visualViewport) re-fit the grid. This
-  // is the backstop that catches EVERY layout path — pane drags, dock toggles, and
-  // the display:none → visible transition (ResizeObserver fires on it) — not just
-  // window resizes. Debounced: a layout transition emits a burst of intermediate
-  // sizes, and fitting each one would sendResize → SIGWINCH-flash the TUI per step.
-  const VIEWPORT_FIT_DEBOUNCE_MS = 60
-  let viewportFitTimer: ReturnType<typeof setTimeout> | undefined
+  // Container-size changes (ResizeObserver + visualViewport). This is the
+  // backstop that catches EVERY layout path — pane drags, dock toggles, and the
+  // display:none → visible transition (ResizeObserver fires on it) — not just
+  // window resizes.
   const viewport = new DomViewportSource(viewportEl)
   const offViewport = viewport.onChange((size) => {
     trace('viewport:changed', { viewport: size })
-    if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
-    viewportFitTimer = setTimeout(() => {
-      viewportFitTimer = undefined
-      // A BOX CHANGE NEVER CLAIMS (B4). The window got wider, or a dock opened;
-      // that is a reason to ask for a different size, never a reason to take a
-      // session away from whoever is driving it.
-      ask('box-change', false)
-    }, VIEWPORT_FIT_DEBOUNCE_MS)
+    measuredGridChanged('box-change')
   })
 
   const onPageResume = (source: 'visibility-change' | 'focus' | 'pageshow'): void => {
@@ -825,9 +732,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       currentAppearance = appearance
       trace('appearance:change')
       // A font-metric change altered the cell size, so the same box now holds a
-      // different grid — ask (B4). A theme-only change measures the same and the
-      // server finds the request equal to W, which costs nothing.
-      ask('appearance', false)
+      // different grid (B4). A theme-only change measures the same and the
+      // server finds the statement equal to what it forwarded, which costs nothing.
+      measuredGridChanged('appearance')
       // …and the new family may not be loaded yet, so re-arm the readiness
       // probe. Its generation guard retires the previous one.
       awaitFontReadiness()
@@ -835,7 +742,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     dispose() {
       trace('dispose')
       if (readyTimer !== undefined) clearTimeout(readyTimer)
-      if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
+      if (measureTimer !== undefined) clearTimeout(measureTimer)
       releaseRendererLease?.()
       releaseRendererLease = null
       fontGeneration += 1

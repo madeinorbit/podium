@@ -174,15 +174,6 @@ export interface ConnectionState {
    */
   cols: number | undefined
   rows: number | undefined
-  /** Server-issued monotonic revision for the authoritative geometry timeline.
-   * Optional for older servers/embedders; current server messages populate it. */
-  geometryRevision?: number
-  /**
-   * Geometry this connection most recently asked the server to make
-   * authoritative. Non-null means the controller/geometry acknowledgment has
-   * not arrived yet; UI must not claim the phone is driving that grid.
-   */
-  requestedGeometry: Geometry | null
   epoch: number
   lastSeq: number
   /**
@@ -197,6 +188,16 @@ export interface ConnectionState {
   outputSeen: boolean
 }
 
+/** What a viewer states about its box — the payload of
+ *  {@link SessionConnection.sendViewportRequest}. Plain JSON, so it can also
+ *  cross the mobile app's webview bridge unchanged. */
+export interface ViewportStatement {
+  geometry: Geometry
+  visible: boolean
+  mode: 'native' | 'chat'
+  claimControl: boolean
+}
+
 export interface SessionCallbacks {
   onFrame?: (bytes: Uint8Array) => void
   onState?: (state: ConnectionState) => void
@@ -206,12 +207,6 @@ export interface SessionCallbacks {
    * resume, where the view keeps its content and appends.
    */
   onReset?: () => void
-  /**
-   * The attach belongs to a new in-memory server geometry timeline. Reset
-   * geometry ordering state without clearing the screen; an empty resumed
-   * attach has no replay frames to rebuild it.
-   */
-  onGeometryTimelineReset?: () => void
   /**
    * The server confirmed the attach (the PTY is bound and ready for input). Fires
    * on every `attached` message — independent of whether any output follows, so a
@@ -2401,10 +2396,6 @@ export class SessionConnection {
   private outcome: TerminalOutcome | null = null
   private cols: number | undefined
   private rows: number | undefined
-  private requestedGeometry: Geometry | null = null
-  /** Monotonic per-(connection, session) counter for {@link sendViewportRequest}. */
-  private viewportSeq = 0
-  private geometryRevision = 0
   private epoch = 0
   private lastSeq = -1
   /** What the last attach said about the session's durable output counter. An
@@ -2456,51 +2447,16 @@ export class SessionConnection {
     return this.echo.stats(interactionNow())
   }
 
-  sendResize(cols: number, rows: number): void {
-    this.requestedGeometry = { cols, rows }
-    // Existing authoritative state may already equal the target; otherwise the
-    // pending target remains visible until a geometry frame acknowledges it.
-    if (this.state().role === 'controller') this.settleRequestedGeometry()
-    this.emit()
-    this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
-  }
-
   /**
-   * Report this client's fitted viewport without optimistically replacing the
-   * authoritative geometry in {@link state}. The server already records resize
-   * frames from spectators; a crop view uses that record if its first input
-   * later requests control, while continuing to render the current server grid.
-   */
-  reportViewport(cols: number, rows: number): void {
-    this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
-  }
-
-  /**
-   * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE (POD-3239 B4 / MODEL rule 3).
+   * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE (POD-3239 B4; POD-3190 rev 3).
    *
-   * `seq` is owned here because it belongs to the (connection, session) pair and
-   * nothing else: it starts at 1 on a fresh connection, only increases, and the
-   * server rejects anything at or below the watermark it has already processed.
-   * A reconnect builds a new `SessionConnection`, which is exactly why starting
-   * again at 1 is correct rather than a collision.
-   *
-   * A CLAIMING ask publishes `requestedGeometry` the way `requestControl` does —
-   * that is real local intent and the UI reads it while the claim is in flight.
-   * A non-claiming one publishes nothing: it is a report about a box, not a
-   * statement about the pty.
+   * A statement of this viewer's measured box, optionally with a control claim.
+   * It changes nothing here: the grid in {@link state} moves only when the
+   * server says so, and there is nothing pending to publish, because an ask the
+   * host refuses is never answered. No `seq` either — one ordered socket needs
+   * no watermark.
    */
-  sendViewportRequest(request: {
-    geometry: Geometry
-    visible: boolean
-    mode: 'native' | 'chat'
-    claimControl: boolean
-  }): void {
-    this.viewportSeq += 1
-    if (request.claimControl) {
-      this.requestedGeometry = { ...request.geometry }
-      if (this.state().role === 'controller') this.settleRequestedGeometry()
-      this.emit()
-    }
+  sendViewportRequest(request: ViewportStatement): void {
     this.hub._send({
       type: 'viewportRequest',
       sessionId: this.sessionId,
@@ -2508,21 +2464,12 @@ export class SessionConnection {
       visible: request.visible,
       mode: request.mode,
       claimControl: request.claimControl,
-      seq: this.viewportSeq,
     })
   }
 
-  requestControl(geometry?: Geometry): void {
-    if (geometry) {
-      this.requestedGeometry = { ...geometry }
-      if (this.state().role === 'controller') this.settleRequestedGeometry()
-      this.emit()
-    }
-    this.hub._send({
-      type: 'requestControl',
-      sessionId: this.sessionId,
-      ...(geometry ? { geometry } : {}),
-    })
+  /** Claim control without stating a box (the desktop's "take control"). */
+  requestControl(): void {
+    this.hub._send({ type: 'requestControl', sessionId: this.sessionId })
   }
 
   redraw(): void {
@@ -2541,8 +2488,6 @@ export class SessionConnection {
       role: clientId !== '' && clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
       rows: this.rows,
-      geometryRevision: this.geometryRevision,
-      requestedGeometry: this.requestedGeometry ? { ...this.requestedGeometry } : null,
       epoch: this.epoch,
       lastSeq: this.lastSeq,
       outputSeen: this.attachOutputSeen || this.frameSeen,
@@ -2568,16 +2513,11 @@ export class SessionConnection {
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
-      const previousGeometryRevision = this.geometryRevision
-      this.geometryRevision = msg.geometryRevision ?? 0
-      const geometryTimelineReset = this.geometryRevision < previousGeometryRevision
       this.epoch = msg.epoch
-      if (msg.controllerId === this.hub.clientId) this.settleRequestedGeometry()
       this.attachOutputSeen = msg.outputSeen !== false
       // A full replay (not a `resumed` catch-up) is about to re-send the whole
       // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
       // screen and appends the missed frames.
-      if (geometryTimelineReset) this.cb.onGeometryTimelineReset?.()
       if (msg.resumed !== true) this.cb.onReset?.()
       this.emit()
       this.cb.onAttached?.()
@@ -2586,20 +2526,15 @@ export class SessionConnection {
       this.ingestOutput(msg.seq, msg.epoch, fromBase64Bytes(msg.data))
     },
     controllerChanged: (msg) => {
-      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.controllerId = msg.controllerId
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
-      if (msg.controllerId === this.hub.clientId) this.settleRequestedGeometry()
-      else this.requestedGeometry = null
       this.emit()
     },
     geometry: (msg) => {
-      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.cols = msg.cols
       this.rows = msg.rows
-      this.settleRequestedGeometry()
       this.emit()
     },
     agentExit: () => {
@@ -2620,7 +2555,6 @@ export class SessionConnection {
   /** @internal Transport outcome for this session. */
   _outcome(outcome: TerminalOutcome): void {
     this.outcome = outcome
-    this.requestedGeometry = null
     this.emit()
     this.cb.onOutcome?.(outcome)
   }
@@ -2634,29 +2568,4 @@ export class SessionConnection {
     this.cb.onState?.(this.state())
   }
 
-  /**
-   * Production geometry fence: reject a delayed logical state from the same
-   * server timeline before it reaches subscribers. `geometryRevision` is an
-   * in-memory per-process counter, not durable session state; one server process
-   * owns a session, and a lower revision on attach starts a new timeline. The
-   * counter is monotonic and is not modulo-wrapped. Missing revisions remain
-   * accepted for older peers/embedders.
-   */
-  private acceptGeometryRevision(revision: number | undefined): boolean {
-    if (revision === undefined) return true
-    if (revision < this.geometryRevision) return false
-    this.geometryRevision = revision
-    return true
-  }
-
-  private settleRequestedGeometry(): void {
-    if (
-      this.requestedGeometry &&
-      this.controllerId === this.hub.clientId &&
-      this.cols === this.requestedGeometry.cols &&
-      this.rows === this.requestedGeometry.rows
-    ) {
-      this.requestedGeometry = null
-    }
-  }
 }

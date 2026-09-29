@@ -634,7 +634,6 @@ export function AgentPanel({
     // which is the quadrant the operator saw. Read at mount time only; from then
     // on the attach snapshot and the daemon's reports are what move the buffer.
     ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
-    geometryState: session?.geometryState ?? 'unknown',
     // THE BOX CLIPS (POD-3239 B3). The desktop pane hides what does not fit and
     // pads the rest with the terminal background; it never scrolls over the pty
     // and never scales it.

@@ -3,6 +3,7 @@ import type {
   SessionCallbacks,
   SessionConnection,
   SocketHub,
+  ViewportStatement,
 } from '@podium/client-core/socket-transport'
 import type { SessionId } from '@podium/model'
 import type { TerminalControlView } from './terminal-control'
@@ -47,8 +48,9 @@ export function decodeFrameBytes(b64: string): Uint8Array {
  *   native → DOM   PTY frames / connection state / reset / attached, delivered
  *                  through the DOM component's imperative handle
  *                  ({@link TerminalDomHandle}).
- *   DOM → native   input, resize, viewport reports, control claims, delivered
- *                  through async function props ({@link TerminalDomActions}).
+ *   DOM → native   input and the one size statement (which may carry a control
+ *                  claim), delivered through async function props
+ *                  ({@link TerminalDomActions}).
  *
  * Inside the webview, {@link createTerminalBridge} impersonates just enough of
  * SocketHub/SessionConnection for `mountSession` to run UNCHANGED — the same
@@ -57,6 +59,11 @@ export function decodeFrameBytes(b64: string): Uint8Array {
  * ConnectionState so the mount's synchronous `connection.state()` reads stay
  * answerable; every mutation is forwarded to the real connection, whose own
  * `onState` echo refreshes the mirror.
+ *
+ * THE BRIDGE CARRIES EXACTLY WHAT THE MOUNT SENDS (POD-3190 rev 3). The mount
+ * speaks about size through one method, `sendViewportRequest`, and so does this
+ * seam: the webview's xterm follows the server's grid in the mirrored state and
+ * nothing else, and the bridge keeps no size of its own.
  */
 
 /** ConnectionState crosses the webview bridge as plain JSON — every field is a
@@ -98,15 +105,14 @@ export interface TerminalDomActions {
   onAttachTerminal(): Promise<void>
   onDetachTerminal(): Promise<void>
   onSendInput(data: string): Promise<void>
-  onSendResize(cols: number, rows: number): Promise<void>
-  onReportViewport(cols: number, rows: number): Promise<void>
-  onRequestControl(geometry: { cols: number; rows: number } | null): Promise<void>
-  onRedraw(): Promise<void>
+  /** The mount's size statement, verbatim — see SessionConnection.sendViewportRequest. */
+  onViewportRequest(request: ViewportStatement): Promise<void>
 }
 
 /** The mirror's pre-attach value — the same posture a fresh SessionConnection
- *  reports: disconnected spectator on the default grid, `outputSeen` optimistic
- *  (a mount that has heard nothing must not accuse the PTY of silence). */
+ *  reports: disconnected spectator with no grid (nobody has stated one yet),
+ *  `outputSeen` optimistic (a mount that has heard nothing must not accuse the
+ *  PTY of silence). */
 export function initialBridgeState(sessionId: SessionId): BridgeConnectionState {
   return {
     connected: false,
@@ -116,9 +122,8 @@ export function initialBridgeState(sessionId: SessionId): BridgeConnectionState 
     outcome: null,
     sessionId,
     role: 'spectator',
-    cols: 80,
-    rows: 24,
-    requestedGeometry: null,
+    cols: undefined,
+    rows: undefined,
     epoch: 0,
     lastSeq: -1,
     outputSeen: true,
@@ -158,19 +163,10 @@ export function createTerminalBridge(
     sendInput: (data: string) => {
       void actions.current.onSendInput(data)
     },
-    sendResize: (cols: number, rows: number) => {
-      void actions.current.onSendResize(cols, rows)
+    sendViewportRequest: (request: ViewportStatement) => {
+      void actions.current.onViewportRequest(request)
     },
-    reportViewport: (cols: number, rows: number) => {
-      void actions.current.onReportViewport(cols, rows)
-    },
-    requestControl: (geometry?: { cols: number; rows: number }) => {
-      void actions.current.onRequestControl(geometry ?? null)
-    },
-    redraw: () => {
-      void actions.current.onRedraw()
-    },
-  } as unknown as SessionConnection
+  } satisfies Pick<SessionConnection, 'sessionId' | 'state' | 'sendInput' | 'sendViewportRequest'>
 
   const hub = {
     attach: (_sessionId: SessionId, callbacks: SessionCallbacks = {}) => {
@@ -181,7 +177,7 @@ export function createTerminalBridge(
         attached = true
         void actions.current.onAttachTerminal()
       }
-      return connection
+      return connection as unknown as SessionConnection
     },
     detach: () => {
       cb = {}

@@ -17,12 +17,10 @@ import type { ConnectionState } from '@podium/client-core/socket-transport'
  */
 
 export type TerminalRole = ConnectionState['role']
-export type TerminalControlPhase = 'spectating' | 'fitting' | 'controlling'
 
 /** What the pane publishes so the SCREEN's header can own the affordance. */
 export interface TerminalControlState {
   role: TerminalRole
-  phase: TerminalControlPhase
   /** The grid the SERVER holds, or `undefined` before this connection has been
    *  told one (POD-3239 B8). The caption says so rather than naming a number
    *  nobody has stated. */
@@ -35,27 +33,19 @@ export interface TerminalControlState {
 
 /** The published state minus the action — what a renderer derives from a
  *  ConnectionState alone (the pane adds `ready` + `takeControl` on publish). */
-export type TerminalControlView = Pick<TerminalControlState, 'role' | 'phase' | 'cols' | 'rows'>
+export type TerminalControlView = Pick<TerminalControlState, 'role' | 'cols' | 'rows'>
 
 /**
- * ConnectionState → the control view both panes publish. `requestedGeometry`
- * non-null means a takeover/fit claim is pending server acknowledgment, so the
- * UI must say "fitting" rather than claim the phone is driving that grid —
- * regardless of which role the stale snapshot still reports.
+ * ConnectionState → the control view both panes publish: the server's word on
+ * who drives, and the grid it holds. There is no in-between "fitting" state
+ * (POD-3190 rev 3): the phone keeps no record of what it asked for, because an
+ * ask the host refuses is never answered and such a state would never end. The
+ * caption names the new grid when the server reports it.
  */
 export function terminalControlView(
-  state: Pick<ConnectionState, 'role' | 'cols' | 'rows' | 'requestedGeometry'>,
+  state: Pick<ConnectionState, 'role' | 'cols' | 'rows'>,
 ): TerminalControlView {
-  return {
-    role: state.role,
-    phase: state.requestedGeometry
-      ? 'fitting'
-      : state.role === 'controller'
-        ? 'controlling'
-        : 'spectating',
-    cols: state.cols,
-    rows: state.rows,
-  }
+  return { role: state.role, cols: state.cols, rows: state.rows }
 }
 
 export interface TerminalControlCopy {
@@ -75,14 +65,7 @@ export interface TerminalControlCopy {
 }
 
 export function terminalControlCopy(control: TerminalControlState): TerminalControlCopy {
-  if (control.phase === 'fitting') {
-    return {
-      label: 'Taking control — waiting for the phone grid to be applied',
-      status: 'Fitting…',
-      caption: 'Taking control — fitting the shared terminal to this phone…',
-    }
-  }
-  if (control.phase === 'controlling') {
+  if (control.role === 'controller') {
     return {
       label: 'In control — the terminal is sized to this phone. Tap to re-claim it.',
       status: 'In control',

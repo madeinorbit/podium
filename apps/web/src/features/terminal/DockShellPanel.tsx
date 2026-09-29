@@ -231,7 +231,6 @@ function DockShellTerminal({
     // terminal like any other; constructing it at 80x24 and moving it is the
     // same wrong first frame.
     ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
-    geometryState: session?.geometryState ?? 'unknown',
     // Human-facing ref links (#474 / POD-529): clickable PREFIX-N tokens with
     // live stage-coloured underlines when the issue is known.
     onMounted: (mounted) => {
