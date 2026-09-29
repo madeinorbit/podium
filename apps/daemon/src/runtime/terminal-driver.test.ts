@@ -1975,21 +1975,20 @@ describe('the queue drain', () => {
   })
 })
 
-describe('busy OpenCode delivery (POD-4700)', () => {
-  it('holds a direct send past the RPC window and types it once after the turn, in order', async () => {
+describe('busy OpenCode delivery (POD-4700, POD-4795)', () => {
+  it('waits out a long turn, and an interrupt row cuts it and is typed before the older row', async () => {
     // THE RUN-13 SHAPE (POD-4604): a headed OpenCode session accepts a first
     // turn; while it runs, a second message arrives. Typing into the running
     // turn cuts it off — OpenCode answers the second prompt and the first row
     // is later reported lost as "target gone". The daemon holds every
-    // when-ready send until the turn ends (POD-4661: the server never holds or
-    // retries on agent state; the daemon owns delivery): durable rows wait in
-    // the delivery queue, and a direct send made while busy joins that same
-    // FIFO under the server's turn id.
+    // when-ready row until the turn ends (POD-4661: the server never holds or
+    // retries on agent state; the daemon owns delivery).
     //
-    // THE REPLY DOES NOT WAIT FOR THE TURN. The server's RPC gives up at
-    // 12 s, so the hold answers `queued` at once — the turn below runs
-    // LONGER than that window on purpose — and the typing settles it the
-    // way direct sends always settle. No refusal, no server round-trip.
+    // AN INTERRUPT IS A ROW TOO (POD-4795): it waits in the same queue under
+    // its id, goes ahead of the older row, cuts the running turn with the
+    // manifest key once, and is typed at the boundary. The reply to every
+    // row is `queued` at once — the turn below runs LONGER than the server's
+    // 12 s RPC window on purpose.
     const world = makeWorld()
     const driver = world.runtime.driverFor('opencode', OPENCODE)
     const session = await driver.create({ ...SPEC, harness: 'opencode' })
@@ -2036,9 +2035,6 @@ describe('busy OpenCode delivery (POD-4700)', () => {
       world.written
         .map(pastedText)
         .filter((text): text is string => text !== undefined)
-    const pump = async (rounds = 100): Promise<void> => {
-      for (let i = 0; i < rounds; i++) await Promise.resolve()
-    }
     const waitForPaste = async (text: string): Promise<void> => {
       for (let i = 0; i < 40 && !pastes().includes(text); i++) {
         await Promise.resolve()
@@ -2087,34 +2083,43 @@ describe('busy OpenCode delivery (POD-4700)', () => {
       ).outcome,
     ).toBe('queued')
 
-    // A direct send made while busy is HELD daemon-side in the same FIFO —
-    // not refused (a refusal would push the retry onto the server, which must
-    // never retry on agent state) and not typed (which would cut the turn
-    // off). The reply arrives AT ONCE as `queued`: awaiting it here, while
-    // the turn still runs, proves the answer never waited for the typing.
+    // A DIRECT when-ready (no row id) made while busy is refused `busy`:
+    // nothing is typed over the turn, and the server, whose sends are all
+    // durable rows, never makes one (POD-4795).
     const direct = await session.send(
-      { id: 'turn-direct', text: 'cut in line' },
+      { id: 'turn-direct', text: 'not typed' },
       { origin: 'controller', delivery: 'when-ready' },
     )
-    expect(direct).toMatchObject({ outcome: 'queued', deliveredAs: 'queue' })
-    await pump()
-    expect(pastes()).not.toContain('cut in line')
+    expect(direct).toMatchObject({ outcome: 'refused', refusal: { reason: 'busy' } })
 
-    // The turn outlasts the server's 12 s RPC window on the fake clock. A
-    // hold that answered late would already have timed out on the server as
-    // a false `unverified` — but the reply above is in hand, so there is
-    // nothing left to time out. Let the outer drain poll while it runs:
-    // still nothing typed, and the first row stays delivered (no duplicate
-    // turn, no loss).
+    // The turn outlasts the server's 12 s RPC window on the fake clock. Let
+    // the outer drain poll while it runs: still nothing typed, and the first
+    // row stays delivered (no duplicate turn, no loss).
     await new Promise<void>((resolve) => {
       world.host.setTimer(() => resolve(), 13_000)
     })
     await new Promise((resolve) => setTimeout(resolve, 450))
     expect(pastes()).toEqual(['first turn'])
     expect(deliveryOutcomes()).toEqual([{ rowId: 'row-first', outcome: 'delivered' }])
-    expect(world.abandoned).toEqual([])
 
-    // The turn ends. The queued row drains, and both rows end delivered.
+    // An interrupt row arrives: answered `queued` at once, and the running
+    // turn is cut with the manifest key — once — while nothing is typed yet.
+    const writtenBefore = world.written.length
+    expect(
+      (
+        await session.send(
+          { text: 'cut in line', rowId: 'row-interrupt' },
+          { origin: 'controller', delivery: 'interrupt' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    // OpenCode's manifest stop: kitty-encoded ESC, twice.
+    const stopKey = '\x1b[27u\x1b[27u'
+    expect(world.written.slice(writtenBefore)).toEqual([stopKey])
+    expect(pastes()).toEqual(['first turn'])
+
+    // The cut turn ends. The interrupt row is typed first, then the older row.
     world.setPhase(sessionId, 'idle')
     world.observe(sessionId, {
       priorPhase: 'working',
@@ -2125,94 +2130,21 @@ describe('busy OpenCode delivery (POD-4700)', () => {
         nativeSubagentCount: 0,
       },
     })
+    await waitForPaste('cut in line')
+    await waitForDelivery('row-interrupt', 'delivered')
     await waitForPaste('second turn')
     await waitForDelivery('row-second', 'delivered')
 
-    // The held direct send drains in arrival order behind the durable row —
-    // typed once, when the turn ended. No refusal, no server retry, and no
-    // abandonment: it was typed, so there is nothing to dead-letter.
-    await waitForPaste('cut in line')
-
-    expect(pastes()).toEqual(['first turn', 'second turn', 'cut in line'])
-    const outcomes = deliveryOutcomes()
-    expect(outcomes).toContainEqual({ rowId: 'row-first', outcome: 'delivered' })
-    expect(outcomes).toContainEqual({ rowId: 'row-second', outcome: 'delivered' })
-    // The held send went through the same FIFO under the server's turn id.
-    expect(outcomes).toContainEqual({ rowId: 'turn-direct', outcome: 'delivered' })
+    expect(pastes()).toEqual(['first turn', 'cut in line', 'second turn'])
+    expect(deliveryOutcomes().map((event) => event.rowId)).toEqual([
+      'row-first',
+      'row-interrupt',
+      'row-second',
+    ])
+    // The key went out once: the interrupt row was typed as when-ready at the
+    // boundary, not with a second stop.
+    expect(world.written.filter((bytes) => bytes === stopKey)).toHaveLength(1)
     expect(world.abandoned).toEqual([])
-    world.runtime.dispose()
-  })
-
-  it('reports a held send as abandoned when the session ends, typing nothing', async () => {
-    const world = makeWorld()
-    const driver = world.runtime.driverFor('opencode', OPENCODE)
-    const session = await driver.create({ ...SPEC, harness: 'opencode' })
-    const sessionId = session.binding.sessionId
-    world.ready(sessionId)
-
-    const pendingEchoes = new Set(['first turn', 'cut in line'])
-    const realBridge = world.host.bridge.bind(world.host)
-    world.host.bridge = (id) => {
-      const bridge = realBridge(id)
-      if (!bridge || id !== sessionId) return bridge
-      return new Proxy(bridge, {
-        get(target, prop, receiver) {
-          if (prop === 'writeBase64') {
-            return (dataBase64: string) => {
-              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-              const pasted = pastedText(text)
-              if (pasted !== undefined && pendingEchoes.has(pasted)) {
-                pendingEchoes.delete(pasted)
-                world.echo(id, pasted)
-              }
-              return target.writeBase64(dataBase64)
-            }
-          }
-          return Reflect.get(target, prop, target)
-        },
-      })
-    }
-
-    const pastes = (): string[] =>
-      world.written
-        .map(pastedText)
-        .filter((text): text is string => text !== undefined)
-
-    expect(
-      (
-        await session.send(
-          { text: 'first turn', rowId: 'row-first' },
-          { origin: 'controller', delivery: 'when-ready' },
-        )
-      ).outcome,
-    ).toBe('queued')
-    for (let i = 0; i < 40 && !pastes().includes('first turn'); i++) {
-      await Promise.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 25))
-    }
-    expect(pastes()).toContain('first turn')
-
-    // The turn is now running; a direct send is held under the turn id.
-    world.setPhase(sessionId, 'working')
-    world.observe(sessionId, {})
-    expect((await session.state()).phase).toBe('working')
-    const direct = await session.send(
-      { id: 'turn-direct', text: 'cut in line' },
-      { origin: 'controller', delivery: 'when-ready' },
-    )
-    expect(direct).toMatchObject({ outcome: 'queued' })
-
-    // The session ends with the turn still held: nothing is typed, and the
-    // turn id goes out through abandonment so the server dead-letters it
-    // instead of dropping it silently.
-    await session.stop()
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(pastes()).toEqual(['first turn'])
-    expect(world.abandoned).toHaveLength(1)
-    expect(world.abandoned[0]?.sessionId).toBe(sessionId)
-    expect(world.abandoned[0]?.reason).toBe('teardown')
-    expect(world.abandoned[0]?.turns.map((turn) => turn.id)).toEqual(['turn-direct'])
-    expect(world.abandoned[0]?.turns.map((turn) => turn.text)).toEqual(['cut in line'])
     world.runtime.dispose()
   })
 })
