@@ -148,7 +148,7 @@ export interface PendingTurn {
 }
 
 /** What the line under a bubble says about a retract of it (POD-4776). */
-export function retractLine(turn: Pick<LocalPendingTurn, 'retracted' | 'retract'>): string | undefined {
+export function retractLine(turn: Pick<PendingTurn, 'retracted' | 'retract'>): string | undefined {
   if (turn.retracted) return 'retracted'
   if (turn.retract === 'requested') return 'retracting…'
   if (turn.retract === 'too-late') return 'too late to retract — already typed'

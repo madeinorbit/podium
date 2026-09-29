@@ -21,7 +21,13 @@ import {
   createTranscriptController,
   transcriptActivitySignal,
 } from '@podium/client-core/transcript'
-import { asMutationId, type IssueWire, isAgentComputing, type SessionMeta } from '@podium/model'
+import {
+  asMutationId,
+  type IssueWire,
+  isAgentComputing,
+  type MessageDeliveryStatus,
+  type SessionMeta,
+} from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
@@ -294,7 +300,11 @@ export function SessionConversation({
             throw error
           }
         },
-        retract: (id) => trpc.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
+        // The status after the request: `cancelled` when the retract won (POD-4776).
+        retract: (id) =>
+          trpc.messages.cancel
+            .mutate({ id })
+            .then((message) => (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus),
         discard: (deliveryId) => store.discardChat(asMutationId(deliveryId)),
         dismissNotice: (id) => trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
