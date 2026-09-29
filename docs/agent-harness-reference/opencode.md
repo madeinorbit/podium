@@ -12,6 +12,42 @@
 
 ---
 
+## Podium driver selection and request contracts (2026-09-30)
+
+Podium probes the stable `opencode` executable and the separate `opencode2` preview
+executable independently. `apps/daemon/src/runtime/version-probe.ts` delegates their
+admission decisions to `evaluateOpencodeVersionProbe` and `evaluateOpencode2VersionProbe`
+in `packages/harness/src/driver/families/opencode/engine-host.ts`. The manifest's
+`runtime.server` and `runtime.serverAlternatives` declare the same compatibility bounds.
+Inventory lists admitted drivers; session creation and the engine host check admission again.
+
+| Installed build | Driver | Prompt request and sender ids |
+|---|---|---|
+| Stable `opencode` 1.18.x, including 1.18.33, and newer versions above the stable floor | `opencode-server` (HTTP v1) | `POST /session/{session}/prompt_async` with `{messageID, parts: [{id, type: "text", text}]}`; both message and text-part ids come from Podium |
+| `opencode2` exactly `0.0.0-beta-18743` or `0.0.0-beta-18866` | `opencode2-server` (HTTP v2 preview) | `POST /api/session/{session}/prompt` with `{id, text, files?, delivery: "queue"}`; `id` comes from Podium |
+| Other preview builds, failed preview probes, or a stable binary installed as `opencode2` | Preview driver unavailable | Selection falls back to an available stable driver or the terminal; an explicit v2 preference does not bypass admission |
+
+The manifest defaults to stable v1 when both drivers are available. A logged-out session
+uses the terminal. The stable policy admits versions at or above 1.18 and treats its
+`verifiedThrough` value as a measurement marker, rather than a ceiling. The preview policy
+requires an exact exercised build because its protocol differs from the stable API.
+
+OpenCode 1.18.33 also serves HTTP v2, but **Podium does not select `opencode2-server` for it**.
+Its accepted v2 request is `{id, prompt: {text, files?}, delivery}`. The preview's flat request
+gets 400 `InvalidRequestError`, `Missing key` at `["prompt"]`. Its admission fields and
+events differ too, so changing only the prompt body would not establish stable v2 support.
+These wire facts were measured on the real CLIs in
+[the OpenCode receipt lane](../measurements/pod-4834-receipt-proof/opencode-1.18.33/results.md).
+The regression tests replay the lane's requests and replies and explicitly pin stable v1
+selection, including an operator preference for v2.
+
+Both measured v2 builds answer **409** when an id belongs to another session. Stable also
+answers 409 for a different text under a known id; beta-18866 returns the original admission.
+409 means already recorded. The preview client looks for the id in the target session's
+user history and credits only a record with text. If the lookup finds nothing or fails,
+the original conflict remains unproven; even a 400/404 from that lookup is not a refusal
+of the prompt. Pending-admission and promotion tracking is covered by POD-4892.
+
 ## 1. Discovery & identity
 
 - **Binary detection / "installed?"** — Command name is `opencode`, no aliases. Resolve `opencode` on `PATH` first (`which opencode` / `where` on Windows). The npm/bun/pnpm (`@opencode-ai/opencode`) and brew installs drop `opencode` on PATH normally; the standalone curl installer instead puts a native ELF executable at **`~/.opencode/bin/opencode`** (not a shim/symlink). So a robust probe is: PATH → else `~/.opencode/bin/opencode` → else scan known install dirs (e.g. `~/Library/pnpm/opencode` on macOS, pnpm/bun global bins) for an unhydrated PATH. Confirm with `opencode --version`.

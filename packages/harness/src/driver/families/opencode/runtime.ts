@@ -368,7 +368,8 @@ const OPENCODE_MESSAGE_ID = /^msg_/
  * every one of them.
  *
  * Ids are unique per opencode DATABASE, not per session. An id already
- * recorded in another session is refused by v2 (see its client); v1 answers
+ * recorded in another session answers 409 on v2 (already recorded, never
+ * refusal proof; see its client's history lookup); v1 answers
  * 204, attaches the words to the other session's message and reports a
  * `session.error` here. A Podium message has one recipient session, so its id
  * reaches one opencode session.
