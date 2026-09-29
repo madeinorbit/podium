@@ -771,8 +771,8 @@ export function createClaudeSdkRuntime(
    * it becomes is named by our id, and every attempt at the same message names
    * the same entry. The receipt waits for the CLI's own ack of that uuid
    * (`ClaudeSdkTurnHandle.accepted`); until then the session is `delivering` —
-   * not in a turn, but taken. The turn opens on the ack. A failure before it
-   * is a refusal, and no turn opened.
+   * not in a turn, but taken. The turn opens on the ack. Only a line never
+   * written can be refused if the attempt fails before it.
    *
    * The ack proves only custody in memory. A duplicate may also be queued
    * or running without a record. Only the session file can name its entry;
