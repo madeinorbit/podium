@@ -527,8 +527,11 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       return undefined
     }
     if (!welcome.lease) {
+      // A REFUSED SECOND ATTACH NEVER DROPS THE FIRST (POD-4807). The
+      // attachment that failed was never tapped into `engines`, so whatever
+      // the map holds is the still-live first holder. Disposing the failed
+      // attachment releases the second connection; the entry stays for its owner.
       session.dispose()
-      engines.delete(sessionId)
       log.error('refusing an opencode engine whose writer lease is held elsewhere', {
         sessionId,
         label,
