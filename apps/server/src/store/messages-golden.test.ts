@@ -290,6 +290,25 @@ describe('guarded ledger transitions', () => {
     expect((await back('m1'))?.deliveredTo).toBe(OTHER)
   })
 
+  // POD-4776: the retract request is a stamp beside the status, never a move.
+  it('requestRetract stamps a pending row once, and never a settled one', async () => {
+    await add({ id: 'q', deliveryStatus: 'dispatched' })
+    await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: 't1' })
+    expect(await messages.requestRetract('q', 't2')).toBe(true)
+    expect(await messages.requestRetract('q', 't3')).toBe(true)
+    expect(await messages.requestRetract('d', 't2')).toBe(false)
+    expect(await back('q')).toMatchObject({ deliveryStatus: 'dispatched', retractRequestedAt: 't2' })
+    expect((await back('d'))?.retractRequestedAt).toBeUndefined()
+  })
+
+  it('markCancelled onlyFrom moves only from that status', async () => {
+    await add({ id: 's' })
+    await add({ id: 'h', deliveryStatus: 'dispatched' })
+    expect((await messages.markCancelled('h', { onlyFrom: 'stored' })).kind).not.toBe('applied')
+    expect((await messages.markCancelled('s', { onlyFrom: 'stored' })).kind).toBe('applied')
+    expect((await back('h'))?.deliveryStatus).toBe('dispatched')
+  })
+
   it('markCancelled only moves a row that is not yet typed or ended', async () => {
     await add({ id: 'q' })
     await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: 't1' })
