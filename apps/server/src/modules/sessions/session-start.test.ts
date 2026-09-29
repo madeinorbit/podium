@@ -640,11 +640,4 @@ describe('SessionStart: a parent session spawns with a task', () => {
     // Reported by the prompt-failed attention, not by mail.
     expect(await reg.sessionStore.messages.getMessage(failureNoticeId(promptId))).toBeNull()
   })
-    expect(child.promptMessageId).toBeUndefined()
-    expect(
-      await reg.sessionStore.messages.getMessage(spawnPromptMessageId(child.sessionId)),
-    ).toBeNull()
-    const queued = await reg.sessionStore.sync.listQueuedMessages(child.sessionId)
-    expect(queued).toEqual([expect.objectContaining({ sourceMessageId: null })])
-  })
 })
