@@ -102,7 +102,7 @@ async function harness(
       write: async () => {
         if (patch === 'purge') await store.sessions.purgeSession(sessionId)
         else if (patch === null) await store.sessions.softDeleteSessions([id], 't', 'standalone')
-        else await store.sessions.upsertSession({ ...(await store.sessions.getSession(sessionId))!, ...patch })
+        else await store.sessions.upsertSession({ ...(await rowOf(store, sessionId)), ...patch })
       },
       changes: async () => [
         patch === null || patch === 'purge'
@@ -119,6 +119,12 @@ async function harness(
   /** The ids a device bootstrapping now would receive, sorted. */
   const ids = async (): Promise<string[]> => [...(await carried()).keys()].sort()
   return { store, ledger, feed, carried, reboot, move, ids }
+}
+
+async function rowOf(store: SessionStore, id: string): Promise<SessionRow> {
+  const row = await store.sessions.getSession(asSessionId(id))
+  if (!row) throw new Error(`no session ${id}`)
+  return row
 }
 
 /** The part of a session's feed row the message feed reads. */
@@ -393,7 +399,10 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     // table and the by-id read still have them.
     const since = (await ledger.changesSince(cursor)) ?? []
     expect(
-      since.filter((c) => c.entity === 'message' && c.op === 'remove').map((c) => c.id).sort(),
+      since
+        .filter((c) => c.entity === 'message' && c.op === 'remove')
+        .map((c) => c.id)
+        .sort(),
     ).toEqual(
       ['msg_s1a', 'msg_s1b'].map((messageId) =>
         messageRecordRowId({ sessionId: S1, senderUserId: ALICE, messageId }),
@@ -427,10 +436,7 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     // The table says live again by the time the retire reads it.
     await store.transact(async () => {
       await move(S1, { status: 'exited' })
-      await store.sessions.upsertSession({
-        ...(await store.sessions.getSession(S1))!,
-        status: 'live',
-      })
+      await store.sessions.upsertSession({ ...(await rowOf(store, S1)), status: 'live' })
     })
     // Retires run in order: once a later one has, this one has too.
     await move(S2, { status: 'exited' })
@@ -453,15 +459,14 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     const sessions = Array.from({ length: 8 }, (_, i) => asSessionId(`ses_b${i}`))
     const { store, move, ids } = await harness({ window, sessions })
     for (const sessionId of sessions) {
-      for (let n = 0; n < window + 2; n += 1) await confirm(store, `msg_${sessionId}_${n}`, sessionId)
+      for (let n = 0; n < window + 2; n += 1)
+        await confirm(store, `msg_${sessionId}_${n}`, sessionId)
       await store.messages.addMessage(chat(`msg_${sessionId}_open`, { toId: sessionId }))
     }
     const ended = sessions.slice(0, 5)
     for (const sessionId of ended) await move(sessionId, { status: 'exited' })
     const live = sessions.length - ended.length
-    await vi.waitFor(async () =>
-      expect((await ids()).length).toBe(live * window + sessions.length),
-    )
+    await vi.waitFor(async () => expect((await ids()).length).toBe(live * window + sessions.length))
     const carried = await ids()
     for (const sessionId of ended) {
       expect(carried.filter((id) => id.startsWith(`msg_${sessionId}_`))).toEqual([
@@ -477,7 +482,7 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     await store.messages.addMessage(chat('msg_open', { toId: S2 }))
     // The session is archived with no feed change the running feed could see
     // (a crash before its retire, a release before this one).
-    await store.sessions.upsertSession({ ...(await store.sessions.getSession(S2))!, archived: true })
+    await store.sessions.upsertSession({ ...(await rowOf(store, S2)), archived: true })
     expect(await ids()).toEqual(['msg_gone', 'msg_live', 'msg_open'])
     await reboot()
     expect(await ids()).toEqual(['msg_live', 'msg_open'])

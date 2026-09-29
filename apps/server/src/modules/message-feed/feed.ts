@@ -81,12 +81,8 @@
  * rows that predate the feed altogether (an upgrade) are carried the same way.
  */
 
-import {
-  isMessageRecordAttention,
-  type MessageRecordWire,
-  messageRecordRowId,
-} from '@podium/model'
 import { createLogger } from '@podium/logger'
+import { isMessageRecordAttention, type MessageRecordWire, messageRecordRowId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import { applyAfterCommit } from '../../store/executor/executor'
