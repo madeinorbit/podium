@@ -125,10 +125,13 @@ describe('a send to a session that no longer exists', () => {
     outbox.dispose()
   })
 
-  it('any OTHER refused send still parks for recovery and holds the session behind it', async () => {
+  it('any OTHER refused send still parks for recovery, without holding the next message', async () => {
     // The control arm: only the "session is gone" reply resolves. A send
     // refused for a reason the operator can still act on keeps its words
-    // recoverable, and ordering on that session is kept by waiting behind it.
+    // recoverable as a parked entry. It no longer holds that session's next
+    // message: a chat message that visibly failed does not hold the next one
+    // (POD-4762, `OUTBOX_PARKED_YIELDS_PARTITION`), which replaced the D12 hold
+    // this arm used to pin.
     const { api, sends } = authority({
       ok: false,
       reason: 'session archived',
@@ -138,9 +141,9 @@ describe('a send to a session that no longer exists', () => {
 
     await sendThree(outbox)
 
-    expect([...sends].sort()).toEqual(['msg_gone', 'msg_other_session'])
+    expect([...sends].sort()).toEqual(['msg_gone', 'msg_other_session', 'msg_same_session'])
     expect(outbox.deadLetters().map((parked) => parked.entry.mutationId)).toEqual(['msg_gone'])
-    expect(outbox.pending().map((entry) => entry.mutationId)).toEqual(['msg_same_session'])
+    expect(outbox.pending()).toEqual([])
     expect(errors).not.toContainEqual(expect.stringMatching(/session no longer exists/i))
     outbox.dispose()
   })

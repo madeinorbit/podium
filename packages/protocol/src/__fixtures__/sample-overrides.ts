@@ -24,6 +24,7 @@ import {
   LayoutKeyField,
   LayoutSnapshot,
   MemberId,
+  MessageId,
   READ_STREAM_IDS,
   ReadPositionSnapshot,
   ReadStreamIdField,
@@ -65,6 +66,8 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   // Each …IdField aliases its …Id schema, so these also cover both field exports.
   [MemberId, () => 'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv'],
   [InviteId, () => 'inv_0ujtsYcgvSTl8PAuAdqWYSMnLOv'],
+  // `msg_` + a UUID (POD-4763): the path-derived "MessageId" fails the regex.
+  [MessageId, () => 'msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70'],
   // Closed isLayoutKey vocabulary (POD-1350 / POD-402). Path-derived samples
   // like "" / "entityId" / "key" fail the refine; pin the first exact key.
   [LayoutKeyField, () => FIXTURE_LAYOUT_KEY],

@@ -157,10 +157,13 @@ describe('a send stopped before it reached the server', () => {
     outbox.dispose()
   })
 
-  it('any OTHER refused send still parks for recovery and holds the session behind it', async () => {
+  it('any OTHER refused send still parks for recovery, without holding the next message', async () => {
     // The control arm: only the stop's own reply is a resolution. A send the
     // server refused for a reason the operator did not choose keeps its words
-    // recoverable, and ordering on the session is kept by waiting behind it.
+    // recoverable as a parked entry. It no longer holds the session behind it:
+    // a chat message that visibly failed does not hold the next one the user
+    // writes (POD-4762, `OUTBOX_PARKED_YIELDS_PARTITION`), which replaced the
+    // D12 hold this arm used to pin.
     const { api, sends } = authority({
       ok: false,
       reason: 'session archived',
@@ -170,9 +173,9 @@ describe('a send stopped before it reached the server', () => {
 
     await sendTwo(outbox)
 
-    expect(sends).toEqual(['msg_stopped'])
+    expect(sends).toEqual(['msg_stopped', 'msg_next'])
     expect(outbox.deadLetters().map((parked) => parked.entry.mutationId)).toEqual(['msg_stopped'])
-    expect(outbox.pending().map((entry) => entry.mutationId)).toEqual(['msg_next'])
+    expect(outbox.pending()).toEqual([])
     outbox.dispose()
   })
 
