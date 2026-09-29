@@ -1327,6 +1327,8 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
       id: r.message.id,
     })) as Record<string, unknown>
     expect(wire).toMatchObject({ id: r.message.id, deliveryStatus: 'stored' })
+    // The legacy word is gone from the wire (POD-4787): one status, not two.
+    expect(wire).not.toHaveProperty('status')
     // The lifecycle timestamps are on the wire (all null until they transition).
     expect(wire).toHaveProperty('deliveredAt')
     expect(wire).toHaveProperty('readAt')
