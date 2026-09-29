@@ -26,6 +26,7 @@ import {
   asMutationId,
   type IssueWire,
   isAgentComputing,
+  isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
   type SessionMeta,
 } from '@podium/model'
@@ -33,7 +34,7 @@ import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
-import { useHub, useIssues, useStoreSelector, useSessionDraft, useSessions } from '../client/hooks'
+import { useHub, useIssues, useMachines, useStoreSelector, useSessionDraft, useSessions } from '../client/hooks'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { interruptSession } from '../lib/interrupt-session'
@@ -165,7 +166,19 @@ export function SessionConversation({
   const hub = useHub()
   const issues = useIssues()
   const allSessions = useSessions()
+  const machines = useMachines()
   const sessionId = session.sessionId
+  // LIVE machine presence (this issue, POD-4830's desktop banner):
+  // session.machineId -> the store's live machines list, via the same
+  // live-terminal predicate (online OR daemon). Unknown (no row) reads as no
+  // banner — never a fabricated offline.
+  const offlineMachineName = useMemo(() => {
+    const id = session.machineId
+    if (!id) return null
+    const machine = machines.find((m) => m.id === id)
+    if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
+    return machine.name || session.machineName || 'This machine'
+  }, [machines, session.machineId, session.machineName])
   const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
     (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
   ))
@@ -633,6 +646,17 @@ export function SessionConversation({
         onResume={store.resurrectSession}
         onRemove={store.killSession}
       />
+      {offlineMachineName ? (
+        <View
+          style={styles.offlineBanner}
+          testID="machine-offline-banner"
+          accessibilityRole="alert"
+        >
+          <Text style={styles.offlineText}>
+            {`machine '${offlineMachineName}' is offline — showing last known transcript.`}
+          </Text>
+        </View>
+      ) : null}
       {readOnly && !hasTranscript ? null : (
         <BootstrapCrossfade
           resolved={loaded || items.length > 0}
@@ -765,6 +789,30 @@ export function SessionConversation({
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  /**
+   * THE OFFLINE-MACHINE BANNER (this issue) — the phone's copy of the
+   * desktop's `transcript-offline-banner` (POD-4830): the same
+   * "machine '<name>' is offline — showing last known transcript" copy from
+   * the same live-terminal predicate and the same live presence, cleared on
+   * reattach. Danger tone, bar chrome like the lifecycle banner above it.
+   */
+  offlineBanner: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: color.dangerSoft,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.danger,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs + 1,
+  },
+  offlineText: {
+    ...sans(500),
+    flex: 1,
+    color: color.dangerText,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
   },
   /** Lifted by the measured keyboard overlap without resizing the feed. */
   composerLayer: {
