@@ -61,7 +61,9 @@ function write(term: Terminal, data: string | Uint8Array): Promise<void> {
   return new Promise((resolve) => term.write(data as string, () => resolve()))
 }
 
-async function replay(mode: 'normal' | 'alternate'): Promise<{ source: Terminal; viewer: Terminal; bytes: Buffer }> {
+async function replay(
+  mode: 'normal' | 'alternate',
+): Promise<{ source: Terminal; viewer: Terminal; bytes: Buffer }> {
   const enter = mode === 'alternate' ? '\x1b[?1049h' : ''
   // The source of truth: a plain headless terminal fed the same bytes.
   const source = new Terminal({ cols: COLS, rows: ROWS, allowProposedApi: true, scrollback: 0 })
@@ -84,11 +86,11 @@ describe('reopen snapshot is a faithful picture of the model (POD-4848)', () => 
       expect(viewer.buffer.active.type).toBe(mode)
       const want = cells(source)
       // Arm the comparison: the frame really carries what we claim it does.
-      expect(want[3]!.slice(0, 2).map((c) => c.chars)).toEqual(['⏵', '⏵'])
-      expect(want[3]![0]!.fgMode).not.toBe(0)
-      expect(want[1]!.some((c) => c.chars === '漢' && c.width === 2 && c.bold)).toBe(true)
-      expect(want[1]!.some((c) => c.chars === '😀')).toBe(true)
-      expect(want[0]![0]!.chars).toBe('╭')
+      expect(want[3]?.slice(0, 2).map((c) => c.chars)).toEqual(['⏵', '⏵'])
+      expect(want[3]?.[0]?.fgMode).not.toBe(0)
+      expect(want[1]?.some((c) => c.chars === '漢' && c.width === 2 && c.bold)).toBe(true)
+      expect(want[1]?.some((c) => c.chars === '😀')).toBe(true)
+      expect(want[0]?.[0]?.chars).toBe('╭')
       expect(cells(viewer)).toEqual(want)
       expect([viewer.buffer.active.cursorX, viewer.buffer.active.cursorY]).toEqual([
         source.buffer.active.cursorX,
@@ -110,15 +112,17 @@ describe('reopen snapshot is a faithful picture of the model (POD-4848)', () => 
   it('never carries a mode or buffer switch beyond its own framing', async () => {
     const screen = new TerminalScreen({ cols: COLS, rows: ROWS })
     // A program that turned on mouse tracking, bracketed paste and app cursor keys.
-    screen.push(Buffer.from('\x1b[?1049h\x1b[?1000h\x1b[?2004h\x1b[?1h\x1b]0;title\x07hello', 'utf8'))
+    screen.push(
+      Buffer.from('\x1b[?1049h\x1b[?1000h\x1b[?2004h\x1b[?1h\x1b]0;title\x07hello', 'utf8'),
+    )
     await screen.flush()
     const text = screen.snapshotFirstFrame().toString('utf8')
     screen.dispose()
     expect(text.startsWith('\x1b[?1049l\x1b[?1049h')).toBe(true)
     const body = text.slice('\x1b[?1049l\x1b[?1049h'.length)
     // Only SGR, cursor moves and erases survive; no ?-mode, no OSC.
-    expect(body).not.toMatch(/\x1b\[\?/)
-    expect(body).not.toMatch(/\x1b\]/)
+    expect(body).not.toContain('\x1b[?')
+    expect(body).not.toContain('\x1b]')
     expect(body).toContain('hello')
   })
 

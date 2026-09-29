@@ -28,37 +28,50 @@ import { decideReopenScreen, type ReopenDecision } from './reopen-policy.js'
 import { type ScreenMode, ScreenModeTracker } from './screen-mode.js'
 import { createHeadlessScreen, type HeadlessScreen, type ScreenReader } from './screen-model.js'
 
-/**
- * What a snapshot body may carry: text, CR/LF/BS, and CSI SGR, cursor moves
- * (A-D) and erase-characters (X) with plain numeric parameters. Anything else
- * that starts with ESC, and any other C0 control, is dropped.
- */
-const SNAPSHOT_KEEP = /\x1b\[[0-9;]*[mABCDX]/y
-const SNAPSHOT_ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[^[\]])?/y
+const ESC = '\x1b'
+const BEL = '\x07'
+/** The CSI finals a snapshot body keeps: SGR, cursor moves, erase-characters. */
+const PAINT_FINALS = 'mABCDX'
 
+/** Where the escape sequence starting at `at` ends (exclusive). */
+function escapeEnd(body: string, at: number): number {
+  const kind = body[at + 1]
+  if (kind === '[') {
+    // CSI: parameter and intermediate bytes, then one final byte (0x40-0x7e).
+    let i = at + 2
+    while (i < body.length && (body.charCodeAt(i) < 0x40 || body.charCodeAt(i) > 0x7e)) i += 1
+    return Math.min(i + 1, body.length)
+  }
+  if (kind === ']') {
+    // OSC: up to BEL or ST (ESC \).
+    let i = at + 2
+    while (i < body.length && body[i] !== BEL && body[i] !== ESC) i += 1
+    if (body[i] === BEL) return i + 1
+    return body[i] === ESC && body[i + 1] === '\\' ? i + 2 : i
+  }
+  return Math.min(at + 2, body.length)
+}
+
+/**
+ * Keep only what paints: text, CR/LF/BS, and CSI SGR, cursor moves (A-D) and
+ * erase-characters (X) with plain numeric parameters. Every other escape
+ * sequence and C0 control is dropped, so a snapshot can never switch a mode,
+ * a buffer, a title or anything else a program would.
+ */
 function paintOnly(body: string): string {
   let out = ''
   let i = 0
   while (i < body.length) {
-    const ch = body[i]!
-    if (ch === '\x1b') {
-      SNAPSHOT_KEEP.lastIndex = i
-      const keep = SNAPSHOT_KEEP.exec(body)
-      if (keep) {
-        out += keep[0]
-        i += keep[0].length
-        continue
-      }
-      SNAPSHOT_ESCAPE.lastIndex = i
-      i += SNAPSHOT_ESCAPE.exec(body)?.[0].length ?? 1
+    const ch = body.charAt(i)
+    if (ch === ESC) {
+      const end = escapeEnd(body, i)
+      const seq = body.slice(i, end)
+      if (/^.\[[0-9;]*.$/.test(seq) && PAINT_FINALS.includes(seq.charAt(seq.length - 1))) out += seq
+      i = end
       continue
     }
-    const code = ch.charCodeAt(0)
-    if ((code < 0x20 && ch !== '\r' && ch !== '\n' && ch !== '\b') || code === 0x7f) {
-      i += 1
-      continue
-    }
-    out += ch
+    const code = body.charCodeAt(i)
+    if ((code >= 0x20 && code !== 0x7f) || ch === '\r' || ch === '\n' || ch === '\b') out += ch
     i += 1
   }
   return out
