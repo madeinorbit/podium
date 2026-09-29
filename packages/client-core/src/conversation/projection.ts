@@ -132,16 +132,19 @@ function recordState(record: MessageRecordWire): ConversationBubbleState {
 }
 
 /**
- * Whether a record still needs a bubble: its history entry is not on screen,
- * and — once confirmed — this view watched it go out and the machine named the
- * entry it became. A confirmed record naming nothing has no id to wait for, so
- * the history shows it without a bubble; no text is ever compared.
+ * Whether a record still needs a bubble: its sender has not dismissed its
+ * notice, its history entry is not on screen, and — once confirmed — this view
+ * watched it go out and the machine named the entry it became. A confirmed
+ * record naming nothing has no id to wait for, so the history shows it without
+ * a bubble; no text is ever compared.
  */
 function recordShows(
   record: MessageRecordWire,
   onScreen: ReadonlySet<string>,
   seenOpen: ReadonlySet<string>,
 ): boolean {
+  // Only a read by id carries a dismissal (POD-4811): the feed lets one go.
+  if (record.noticeDismissedAt !== undefined) return false
   if (record.transcriptItem && onScreen.has(record.transcriptItem.id)) return false
   if (record.status !== 'confirmed') return true
   return record.transcriptItem !== undefined && seenOpen.has(record.id)

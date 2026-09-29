@@ -781,3 +781,285 @@ describe('conversation controller over a durable send', () => {
     controller.dispose()
   })
 })
+
+/** A link to the server the test takes down and brings back. */
+function link(initial = true) {
+  let connected = initial
+  const listeners = new Set<(connected: boolean) => void>()
+  return {
+    port: {
+      connected: () => connected,
+      subscribe(listener: (connected: boolean) => void) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+    },
+    set(next: boolean) {
+      connected = next
+      for (const listener of listeners) listener(next)
+    },
+  }
+}
+
+const heldSend = (mutationId: string, state: OutboxChatSend['state']): OutboxChatSend =>
+  ({
+    mutationId,
+    sessionId: asSessionId('s1'),
+    text: `the words of ${mutationId}`,
+    wake: false,
+    queuedAt: 1,
+    state,
+  }) as unknown as OutboxChatSend
+
+/**
+ * A DEVICE AWAY FOR LONG SETTLES ITS OWN BUBBLES BY ID (POD-4811). The feed
+ * carries a confirmed message only for its session's last few confirmations;
+ * a device that was away longer never sees the record of what it sent. On
+ * start and whenever it is back online, it asks the server for every one of
+ * its sends the feed does not carry, in one read, and settles the bubbles from
+ * the answer. An id the server does not know never reads as "on its way".
+ */
+describe('conversation controller catching up by id', () => {
+  it('settles the bubbles of a device that was away longer than the window, on reconnect, in one read', async () => {
+    const feed = transcript()
+    const net = link()
+    const ids = ['msg-1', 'msg-2', 'msg-3']
+    const lookup = vi.fn(async (asked: readonly string[]) =>
+      asked.map((id) =>
+        id === 'msg-3'
+          ? record(id, { status: 'confirmed' })
+          : record(id, {
+              status: 'confirmed',
+              transcriptItem: { id: `entry-${id}`, cursor: `c-${id}` },
+            }),
+      ),
+    )
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: records().port,
+      lookupRecords: lookup,
+      connection: net.port,
+      createDeliveryId: () => ids.shift() ?? 'msg-x',
+      deliver: async () => ({ state: 'sent' }),
+    })
+    controller.start()
+    await controller.submit({ text: 'one' })
+    await controller.submit({ text: 'two' })
+    await controller.submit({ text: 'three' })
+    // Sent, and the device goes away before the feed carries any of them; by
+    // the time it is back they were confirmed and left the feed.
+    net.set(false)
+    expect(states(controller)).toEqual(['msg-1:sent', 'msg-2:sent', 'msg-3:sent'])
+    lookup.mockClear()
+    net.set(true)
+    expect(lookup).toHaveBeenCalledTimes(1)
+    expect(lookup).toHaveBeenCalledWith(['msg-1', 'msg-2', 'msg-3'])
+    // Confirmed, naming nothing: the history shows it without a bubble. The
+    // two that name an entry wait for it, and leave once it is on screen.
+    await vi.waitFor(() => expect(states(controller)).toEqual(['msg-1:sent', 'msg-2:sent']))
+    feed.set([user('entry-msg-1', 'one'), user('entry-msg-2', 'two')])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    controller.dispose()
+  })
+
+  it('asks at start for the sends a reload seeded, and follows what the server holds', async () => {
+    const lookup = vi.fn(async () => [record('msg_held', { status: 'stored' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      lookupRecords: lookup,
+      initialPending: [
+        {
+          id: 'outbox-0-msg_held',
+          deliveryId: 'msg_held',
+          text: 'written before the reload',
+          wire: 'written before the reload',
+          at: 1,
+          state: 'sending',
+          kind: 'message',
+        },
+      ],
+      createDeliveryId: () => 'msg-new',
+      deliver: () => new Promise(() => {}),
+    })
+    controller.start()
+    expect(lookup).toHaveBeenCalledWith(['msg_held'])
+    await vi.waitFor(() => expect(states(controller)).toEqual(['msg_held:queued']))
+    controller.dispose()
+  })
+
+  it('never asks for what the feed carries', async () => {
+    const lookup = vi.fn(async () => [])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records([record('msg-1', { status: 'dispatched' })]).port,
+      lookupRecords: lookup,
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => ({ state: 'sent' }),
+    })
+    controller.start()
+    await controller.submit({ text: 'carried' })
+    expect(lookup).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it('an id the server does not know stays honest: "not sent" once gone, the outbox’s word while it holds it', async () => {
+    const net = link()
+    const lookup = vi.fn(async () => [] as MessageRecordWire[])
+    const outbox = source<readonly OutboxChatSend[]>([
+      heldSend('msg-trying', 'sending'),
+      heldSend('msg-parked', 'failed'),
+    ])
+    const ids = ['msg-gone']
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      outbox: { held: () => outbox.get(), subscribe: outbox.port.subscribe },
+      lookupRecords: lookup,
+      connection: net.port,
+      initialPending: [
+        { id: 'o-1', deliveryId: 'msg-trying', text: 't', wire: 't', at: 1, state: 'sending', kind: 'message' },
+        {
+          id: 'o-2',
+          deliveryId: 'msg-parked',
+          text: 'p',
+          wire: 'p',
+          at: 2,
+          state: 'failed',
+          kind: 'message',
+          error: "not sent — couldn't reach the server",
+        },
+      ],
+      createDeliveryId: () => ids.shift() ?? 'msg-x',
+      deliver: (turn) =>
+        turn.deliveryId === 'msg-gone' ? Promise.resolve({ state: 'sent' }) : new Promise(() => {}),
+    })
+    controller.start()
+    await controller.submit({ text: 'the device thought this went' })
+    net.set(false)
+    net.set(true)
+    await vi.waitFor(() =>
+      expect(controller.getSnapshot().bubbles).toMatchObject([
+        { deliveryId: 'msg-trying', state: 'sending' },
+        { deliveryId: 'msg-parked', state: 'failed', error: "not sent — couldn't reach the server" },
+        { deliveryId: 'msg-gone', state: 'failed', error: 'not sent — the server has no record of it' },
+      ]),
+    )
+    // "Not sent" with the way on: a retry of the same message.
+    expect(controller.getSnapshot().bubbles[2]?.notice).toBeUndefined()
+    expect(controller.getSnapshot().bubbles[2]?.retryable).not.toBe(false)
+    controller.dispose()
+  })
+
+  it('does not call a send "not sent" that got its answer while the read was out', async () => {
+    const answer = deferred<MessageRecordWire[]>()
+    const sent = deferred<{ state: 'sent' }>()
+    const lookup = vi.fn(() => answer.promise)
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      lookupRecords: lookup,
+      initialPending: [
+        { id: 'o-1', deliveryId: 'msg-1', text: 't', wire: 't', at: 1, state: 'sending', kind: 'message' },
+      ],
+      createDeliveryId: () => 'msg-new',
+      deliver: () => sent.promise,
+    })
+    controller.start()
+    expect(lookup).toHaveBeenCalledWith(['msg-1'])
+    // The server stores it after the read looked, and answers the send.
+    sent.resolve({ state: 'sent' })
+    await vi.waitFor(() => expect(states(controller)).toEqual(['msg-1:sent']))
+    answer.resolve([])
+    await answer.promise
+    await Promise.resolve()
+    expect(states(controller)).toEqual(['msg-1:sent'])
+    controller.dispose()
+  })
+
+  it('shows nothing for a message whose notice its sender already dismissed elsewhere', async () => {
+    const lookup = vi.fn(async () => [
+      record('msg-1', { status: 'failed', noticeDismissedAt: '2026-09-29T11:00:00.000Z' }),
+    ])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      lookupRecords: lookup,
+      initialPending: [
+        { id: 'o-1', deliveryId: 'msg-1', text: 't', wire: 't', at: 1, state: 'sent', kind: 'message' },
+      ],
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    await vi.waitFor(() => expect(controller.getSnapshot().bubbles).toEqual([]))
+    controller.dispose()
+  })
+
+  it('lets go of the outbox’s parked copy of a message the server turns out to have', async () => {
+    const outbox = source<readonly OutboxChatSend[]>([heldSend('msg-1', 'failed')])
+    const discard = vi.fn(async () => {
+      outbox.set([])
+    })
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      outbox: { held: () => outbox.get(), subscribe: outbox.port.subscribe },
+      lookupRecords: async () => [record('msg-1', { status: 'dispatched' })],
+      discard,
+      initialPending: [
+        {
+          id: 'o-1',
+          deliveryId: 'msg-1',
+          text: 't',
+          wire: 't',
+          at: 1,
+          state: 'failed',
+          kind: 'message',
+          error: "not sent — couldn't reach the server",
+        },
+      ],
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    await vi.waitFor(() => expect(discard).toHaveBeenCalledWith('msg-1'))
+    // It went: the bubble says so, not "not sent".
+    expect(states(controller)).toEqual(['msg-1:sent'])
+    controller.dispose()
+  })
+
+  it('asks again when the device is back online after a read that could not get through', async () => {
+    const net = link(false)
+    const lookup = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce([record('msg-1', { status: 'confirmed' })])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: transcript().port,
+      records: records().port,
+      lookupRecords: lookup,
+      connection: net.port,
+      initialPending: [
+        { id: 'o-1', deliveryId: 'msg-1', text: 't', wire: 't', at: 1, state: 'sent', kind: 'message' },
+      ],
+      createDeliveryId: () => 'msg-new',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(1))
+    expect(states(controller)).toEqual(['msg-1:sent'])
+    net.set(true)
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(controller.getSnapshot().bubbles).toEqual([]))
+    controller.dispose()
+  })
+})

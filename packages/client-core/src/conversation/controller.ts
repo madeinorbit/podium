@@ -26,6 +26,22 @@ export interface ConversationRecords {
 }
 
 /**
+ * This device's link to the server (POD-4811). Its return is the moment a
+ * device that was away catches up on its own messages by id.
+ */
+export interface ConversationConnection {
+  connected(): boolean
+  subscribe(listener: (connected: boolean) => void): () => void
+}
+
+/** How many message ids one catch-up read names (`mail.records`). */
+export const CATCH_UP_BATCH = 100
+
+/** Why a message the server never stored shows "not sent": the device thought
+ *  it had gone, and the server has no record of it. The way on is a retry. */
+export const NOT_STORED = 'not sent — the server has no record of it'
+
+/**
  * The chat sends this device's outbox holds for the session. A send parked
  * after giving up can be retried or discarded from elsewhere in the app (the
  * outbox recovery panel); the bubble follows what the outbox holds.
@@ -74,6 +90,16 @@ export interface ConversationControllerOptions {
   /** The synced records that say where each sent message stands. Absent for a
    *  conversation whose sends make no message record (a headless thread). */
   records?: ConversationRecords
+  /**
+   * Read these messages' records from the server by id, all in one request
+   * (POD-4811) — the catch-up for this device's own sends the feed does not
+   * carry: it was away while they were confirmed and left the feed, or it
+   * reloaded while the outbox still held them. Answers only the ids the server
+   * has and this person may read.
+   */
+  lookupRecords?: (ids: readonly string[]) => Promise<readonly MessageRecordWire[]>
+  /** When the device is back online, it catches up again. */
+  connection?: ConversationConnection
   outbox?: ConversationOutbox
   initialDraft?: string
   initialPending?: readonly ConversationPendingTurn[]
@@ -171,6 +197,15 @@ export class ConversationController {
    * failed, with why, until the next attempt.
    */
   private readonly retracting = new Map<string, { error?: string }>()
+  /**
+   * Records read by id for this device's own sends the feed does not carry
+   * (POD-4811). Each stands in for the feed's record of that message while a
+   * local turn still shows it; the feed's own record wins whenever it has one.
+   */
+  private readonly looked = new Map<string, MessageRecordWire>()
+  /** A catch-up read is in flight; one asked for meanwhile runs after it. */
+  private catchingUp = false
+  private catchUpAgain = false
 
   constructor(private readonly options: ConversationControllerOptions) {
     this.clock = options.clock ?? defaultClock
@@ -213,6 +248,18 @@ export class ConversationController {
       this.unsubscribes.push(this.options.outbox.subscribe(() => this.observeOutbox()))
     }
     this.observeRecords()
+    const connection = this.options.connection
+    if (connection) {
+      let wasConnected = connection.connected()
+      this.unsubscribes.push(
+        connection.subscribe((connected) => {
+          const back = connected && !wasConnected
+          wasConnected = connected
+          if (back) this.catchUp()
+        }),
+      )
+    }
+    this.catchUp()
     // A turn seeded as `sending` is a send the sender still holds from before
     // this controller existed — a reload, a remount. Its delivery is idempotent
     // by id, so asking again just waits on the send already under way.
@@ -518,9 +565,7 @@ export class ConversationController {
     this.patch({})
     try {
       await work()
-      const record = this.options.records
-        ?.getSnapshot()
-        .find((candidate) => candidate.id === messageId)
+      const record = this.currentRecords().find((candidate) => candidate.id === messageId)
       if (record) this.hidden.set(messageId, record.status)
       else this.hidden.delete(messageId)
     } catch (error) {
@@ -639,6 +684,109 @@ export class ConversationController {
     return offer.createdAt
   }
 
+  /** What the feed carries for this session, and — for this device's own sends
+   *  it does not carry, while a turn still shows them — what the server
+   *  answered by id. */
+  private currentRecords(
+    pending: readonly ConversationPendingTurn[] = this.state.pending,
+  ): readonly MessageRecordWire[] {
+    const feed = this.options.records?.getSnapshot() ?? []
+    if (this.looked.size === 0) return feed
+    const carried = new Set(feed.map((record) => record.id))
+    const shown = new Set(pending.map((turn) => turn.deliveryId))
+    const extra = [...this.looked.values()].filter(
+      (record) => !carried.has(record.id) && shown.has(record.id),
+    )
+    return extra.length === 0 ? feed : [...feed, ...extra]
+  }
+
+  /**
+   * CATCH UP BY ID (POD-4811). A send of this device's whose record the feed
+   * does not carry, and never carried while this view watched, may be one the
+   * feed let go while the device was away — confirmed, and pushed out of its
+   * session's short window — or one the outbox still holds from before a
+   * reload. Nothing on the feed will ever say where it stands, so ask the
+   * server for all of them in one read, now and whenever the device is back
+   * online. What the server answers stands in for the feed's record; an id it
+   * does not know stays as the outbox says, and one the device thought had gone
+   * says "not sent".
+   */
+  private catchUp(): void {
+    const lookup = this.options.lookupRecords
+    if (!lookup || !this.started || this.disposed) return
+    if (this.catchingUp) {
+      this.catchUpAgain = true
+      return
+    }
+    const carried = new Set((this.options.records?.getSnapshot() ?? []).map((record) => record.id))
+    const asked = new Map<string, ConversationPendingTurn['state']>()
+    for (const turn of this.state.pending) {
+      if (turn.reconcile === 'next-user-item') continue
+      if (turn.state === 'interrupted' || turn.state === 'retracted') continue
+      if (carried.has(turn.deliveryId)) continue
+      asked.set(turn.deliveryId, turn.state)
+    }
+    if (asked.size === 0) return
+    this.catchingUp = true
+    const ids = [...asked.keys()]
+    const reads: Promise<readonly MessageRecordWire[]>[] = []
+    for (let at = 0; at < ids.length; at += CATCH_UP_BATCH) {
+      reads.push(lookup(ids.slice(at, at + CATCH_UP_BATCH)))
+    }
+    void Promise.all(reads)
+      .then(
+        (answers) => this.settleFromLookup(asked, answers.flat()),
+        // Offline, or the server refused: the next time the device is back
+        // online it asks again.
+        () => {},
+      )
+      .finally(() => {
+        this.catchingUp = false
+        if (!this.catchUpAgain) return
+        this.catchUpAgain = false
+        this.catchUp()
+      })
+  }
+
+  private settleFromLookup(
+    asked: ReadonlyMap<string, ConversationPendingTurn['state']>,
+    answer: readonly MessageRecordWire[],
+  ): void {
+    if (this.disposed) return
+    const found = new Map<string, MessageRecordWire>()
+    for (const record of answer) if (asked.has(record.id)) found.set(record.id, record)
+    for (const id of asked.keys()) {
+      const record = found.get(id)
+      if (record) this.looked.set(id, record)
+      else this.looked.delete(id)
+    }
+    const carried = new Set((this.options.records?.getSnapshot() ?? []).map((record) => record.id))
+    const held = new Map(
+      (this.options.outbox?.held() ?? []).map((send) => [send.mutationId as string, send]),
+    )
+    // The server has it: a copy the outbox parked as "not sent" is moot. Let it
+    // go, so the recovery panel does not offer to send it again.
+    for (const id of found.keys()) {
+      if (held.get(id)?.state === 'failed') void this.options.discard?.(id).catch(() => {})
+    }
+    let changed = false
+    const pending = this.state.pending.map((turn) => {
+      const was = asked.get(turn.deliveryId)
+      if (was === undefined || found.has(turn.deliveryId) || carried.has(turn.deliveryId)) {
+        return turn
+      }
+      // The server has no record of it. One still on its way from this device
+      // (`sending`), or already "not sent", is the outbox's to settle; so is
+      // anything the outbox still holds, and a turn that moved while the read
+      // was out. One the device thought had gone was never stored: say so.
+      if (turn.state !== was || (was !== 'queued' && was !== 'sent')) return turn
+      if (held.has(turn.deliveryId)) return turn
+      changed = true
+      return { ...turn, state: 'failed' as const, error: NOT_STORED }
+    })
+    this.patch(changed ? { pending } : {})
+  }
+
   /**
    * The records moved. A local turn whose record this view saw and that has
    * since left the feed is settled — confirmed and out of the window,
@@ -676,6 +824,7 @@ export class ConversationController {
     const held = new Set(pending.map((turn) => turn.deliveryId))
     for (const id of this.seenRecord) if (!present.has(id) && !held.has(id)) this.seenRecord.delete(id)
     for (const id of this.seenOpen) if (!present.has(id) && !held.has(id)) this.seenOpen.delete(id)
+    for (const id of this.looked.keys()) if (!held.has(id)) this.looked.delete(id)
     if (!notify) {
       this.state = { ...this.state, pending }
       return
@@ -693,7 +842,7 @@ export class ConversationController {
     const outbox = this.options.outbox
     if (!outbox) return
     const held = new Map(outbox.held().map((send) => [send.mutationId as string, send]))
-    const records = new Set((this.options.records?.getSnapshot() ?? []).map((record) => record.id))
+    const records = new Set(this.currentRecords().map((record) => record.id))
     let changed = false
     const pending: ConversationPendingTurn[] = []
     const resumed: ConversationPendingTurn[] = []
@@ -835,7 +984,7 @@ export class ConversationController {
     const pending = patch.pending ?? this.state.pending
     const bubbles = projectConversation({
       turns: pending,
-      records: this.options.records?.getSnapshot() ?? [],
+      records: this.currentRecords(pending),
       transcript: this.options.transcript.getSnapshot().items,
       seenOpen: this.seenOpen,
       hidden: new Set(this.hidden.keys()),
