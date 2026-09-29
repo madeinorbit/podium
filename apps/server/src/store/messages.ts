@@ -915,8 +915,9 @@ export class MessagesRepository {
    * the naming arrives with the confirmation or after it (a hook proves the
    * send before the harness records it). Written once — the first naming wins
    * and a repeat changes nothing — and only for the push this report answers:
-   * a row handed to another session is not named by this one's history.
-   * Answers whether THIS call wrote it.
+   * a row handed to another session is not named by this one's history, and
+   * a message that ended without being typed — failed, cancelled, expired —
+   * became no entry at all (POD-4840). Answers whether THIS call wrote it.
    */
   async nameTranscriptItem(
     id: string,
@@ -933,6 +934,7 @@ export class MessagesRepository {
               eq(messagesTable.id, id),
               isNull(messagesTable.transcriptItemId),
               or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, deliveredTo)),
+              notInArray(messagesTable.deliveryStatus, ['failed', 'cancelled', 'expired']),
             ),
           )
           .returning()

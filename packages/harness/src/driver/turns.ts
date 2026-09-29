@@ -220,6 +220,17 @@ export interface SendOptions {
    * Daemon-local; never crosses the wire.
    */
   onUnrecorded?: (reason: string) => void
+  /**
+   * LATE PROOF OF AN `unverified` SEND (POD-4840).
+   *
+   * A driver that could not prove the send inside its window may keep
+   * watching, bounded, and call this at most once when the harness's own
+   * record of the prompt lands after all, naming the entry when it can. The
+   * delivery queue moves the row's `failed`/`unconfirmed` outcome forward to
+   * `delivered`. Never called for any other receipt. Daemon-local; never
+   * crosses the wire.
+   */
+  onLateProof?: (proof: { readonly transcriptItem?: TranscriptItemRef }) => void
   origin: InputOrigin
   delivery: TurnDelivery
   /**

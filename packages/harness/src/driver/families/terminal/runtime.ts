@@ -235,6 +235,9 @@ type AcceptWaiter = {
   text: string
   resolve: (seen: AcceptSeen) => void
   start: { atMs: number; position: TranscriptPosition }
+  /** The history moved past this prompt without it (POD-4840): see
+   *  `AcceptWatch.passed`. Idempotent. */
+  pass: () => void
 }
 
 interface DriverSession {
@@ -1072,6 +1075,10 @@ export function createTerminalRuntime(
         // Credit BEFORE the position moves: each watch compares against where
         // the transcript stood when it was armed, not where this delta leaves it.
         creditEchoWaiters(session, msg.items)
+        // A REWRITE ENDS EVERY LATE WATCH (POD-4840): after a replaced store,
+        // "the next prompt after ours" no longer means anything. Credited
+        // first, so a re-read that carries our record still proves it.
+        if (msg.reset) for (const waiter of session.echoWaiters) waiter.pass()
         session.transcriptPosition = advancePosition(
           msg.reset ? (msg.items.length === 0 ? { kind: 'empty' } : { kind: 'unknown' }) : session.transcriptPosition,
           msg.items,
@@ -1560,20 +1567,21 @@ export function createTerminalRuntime(
     observation: Observation,
     seen: AcceptSeen,
     eligible: (waiter: AcceptWaiter) => boolean = () => true,
-  ): void {
-    if (waiters.size === 0) return
+  ): AcceptWaiter | undefined {
+    if (waiters.size === 0) return undefined
     const fingerprint = correlation.fingerprint(observation)
     // FAIL CLOSED. An unattributable payload cannot credit an arbitrary waiter,
     // including one whose own fingerprint is null. The keystrokes still went
     // out; `unverified` is true and a mis-credit would be worse.
-    if (fingerprint === null) return
+    if (fingerprint === null) return undefined
     for (const waiter of [...waiters]) {
       if (correlation.fingerprintText(waiter.text) !== fingerprint) continue
       if (!eligible(waiter)) continue
       waiters.delete(waiter)
       waiter.resolve(seen)
-      return
+      return waiter
     }
+    return undefined
   }
 
   function creditEchoWaiters(session: DriverSession, items: readonly TranscriptItem[]): void {
@@ -1587,13 +1595,19 @@ export function createTerminalRuntime(
       // the send became — by the item's own id, never by its text (POD-4774).
       if (!correlation.accepts(item)) continue
       const transcriptItem = transcriptItemRefOf(item)
-      creditAcceptWaiter(
+      const credited = creditAcceptWaiter(
         session.echoWaiters,
         correlation,
         item,
         transcriptItem ? { transcriptItem } : {},
         (waiter) => echoIsAfterStart(item, waiter.start, timestamps),
       )
+      // Every other watch this prompt came after has been passed by it
+      // (POD-4840). Under the same floor as the credit: an older record a
+      // re-read carries passes nothing.
+      for (const waiter of session.echoWaiters) {
+        if (waiter !== credited && echoIsAfterStart(item, waiter.start, timestamps)) waiter.pass()
+      }
     }
   }
 
@@ -1603,14 +1617,20 @@ export function createTerminalRuntime(
       const accepted = new Promise<AcceptSeen>((resolve) => {
         settle = resolve
       })
+      let pass: (() => void) | undefined
+      const passed = new Promise<void>((resolve) => {
+        pass = resolve
+      })
       const waiter: AcceptWaiter = {
         text,
         resolve: (seen) => settle?.(seen),
         start: { atMs: host.now(), position: session.transcriptPosition },
+        pass: () => pass?.(),
       }
       waiters.add(waiter)
       return {
         accepted,
+        passed,
         cancel() {
           waiters.delete(waiter)
         },
@@ -2155,6 +2175,7 @@ export function createTerminalRuntime(
               delivery: 'interrupt',
               afterEsc: true,
               ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
+              ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
             }),
           )
         }
@@ -2167,6 +2188,7 @@ export function createTerminalRuntime(
             durable: options.deliveryAttempt,
             initialPrompt: input.initialPrompt,
             ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
+            ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
           }),
         )
       },

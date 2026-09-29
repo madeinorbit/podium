@@ -117,6 +117,20 @@ export const VERIFICATION_WINDOW_MS = SUBMIT_VERIFY_DELAY_MS * (SUBMIT_MAX_RETRI
 export const HOOK_ECHO_ITEM_WAIT_MS = 30_000
 
 /**
+ * How long an `unverified` send keeps watching for its transcript echo, as
+ * late proof that it landed (POD-4840).
+ *
+ * THE SAME CEILING THE WINDOW ALREADY HOLDS A DURABLE ROW FOR (`awaitProof`'s
+ * `heldUntil`): a prompt typed while the agent is busy is recorded only when
+ * the running turn or tool call ends, and 30 minutes is how long this machine
+ * already believes such a turn may run. A proof later than that is not
+ * awaited. The ceiling is the backstop, not the usual end: the watch closes
+ * first when the history moves past the send without it (see
+ * {@link AcceptWatch.passed}).
+ */
+export const LATE_PROOF_WAIT_MS = 30 * 60_000
+
+/**
  * The ESC this module is allowed to write.
  *
  * NOT AN EXCEPTION TO THE PASTE BOUNDARY — the distinction the boundary draws is
@@ -186,6 +200,15 @@ export interface AcceptWatch {
   /** Resolves only for this prompt, with what the observation saw. It never
    *  resolves otherwise: the caller's window ends the wait. */
   readonly accepted: Promise<AcceptSeen>
+  /**
+   * Resolves once the history has moved past this prompt without recording
+   * it (POD-4840): another prompt entry was recorded after the send started
+   * and did not credit this watch — history keeps submit order, so ours
+   * would have come first — or the history was rewritten. Only a late watch
+   * reads it; inside the window a later entry changes nothing. Absent where
+   * the channel cannot tell, as for a hook.
+   */
+  readonly passed?: Promise<void>
   /** Idempotent; removes the waiter when the send ends. */
   cancel(): void
 }
@@ -325,6 +348,9 @@ export interface DeliverOptions {
   afterEsc?: boolean
   /** The entry, when a hook proved the send before its echo named it (POD-4774). */
   onTranscriptItem?: (item: TranscriptItemRef) => void
+  /** The echo of a send that answered `unverified`, when it lands after the
+   *  window (POD-4840). Called at most once. */
+  onLateProof?: (seen: AcceptSeen) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +545,10 @@ export function createTerminalInjection(
       const verificationStartedAt = ports.now()
       const proof = await awaitProof(hookWatch, echoWatch, options.signal, options.durable, options.initialPrompt)
       if (!proof) {
+        if (echoWatch && options.onLateProof) {
+          awaitLateProof(echoWatch, options.onLateProof)
+          lateEcho = echoWatch
+        }
         return {
           outcome: 'unverified',
           deliveredAs: options.delivery,
@@ -547,6 +577,33 @@ export function createTerminalInjection(
       hookWatch?.cancel()
       if (echoWatch !== lateEcho) echoWatch?.cancel()
     }
+  }
+
+  /**
+   * Keep an `unverified` send's echo watch open, bounded, for late proof that
+   * it landed (POD-4840). The same match as inside the window — the prompt's
+   * content, recorded after the send started — so a late proof is exactly as
+   * strong as a timely one. It closes on the first of: the proof; the history
+   * moving past the send without it (`passed`); `LATE_PROOF_WAIT_MS`; the
+   * session's teardown. `passed` is attached first, so a history that moved
+   * on before the proof arrived closes the watch even when both are already
+   * settled.
+   */
+  function awaitLateProof(echoWatch: AcceptWatch, onProof: (seen: AcceptSeen) => void): void {
+    let open = true
+    const close = (): void => {
+      if (!open) return
+      open = false
+      ports.clearTimer(timer)
+      echoWatch.cancel()
+    }
+    const timer = setTimer(close, LATE_PROOF_WAIT_MS)
+    void echoWatch.passed?.then(close)
+    void echoWatch.accepted.then((seen) => {
+      if (!open || disposed) return
+      close()
+      onProof(seen)
+    })
   }
 
   /** Keep a hook-proven send's echo watch open, bounded, to name its entry

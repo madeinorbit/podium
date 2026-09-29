@@ -298,6 +298,10 @@ export interface InboxAuthorizationPort {
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
+  /** The agent's machine proved, after reporting it could not, that a row it
+   *  no longer holds landed (POD-4840): the ledger moves the message to
+   *  `confirmed` only from `unknown`, for this session. */
+  provenLate?(input: { messageId: string; sessionId: SessionId }): Promise<void>
   /** The agent's machine named the entry in its history that message became
    *  (POD-4774). A stamp on the message, independent of its status. */
   named?(input: {
@@ -1450,6 +1454,18 @@ export class SessionInbox {
     if (!session) return
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
     if (!row) {
+      // LATE PROOF (POD-4840). An `unconfirmed` failure deleted the row and
+      // left the message `unknown`; the daemon kept watching, and the agent's
+      // history recorded it after all. A row id IS its message id, so the
+      // ledger takes it by id — and moves only a message still `unknown` for
+      // this session: a replay of a settled row, a direct send's naming and a
+      // message that failed as never typed all find nothing to move. It runs
+      // ahead of the settled-row guard below, since an unconfirmed row is one
+      // this inbox already settled.
+      if (event.outcome === 'delivered') {
+        await this.deps.authorization.provenLate?.({ messageId: event.rowId, sessionId })
+        return
+      }
       // A replayed report for a durable row settled above is neither a live
       // row nor a direct send: acknowledge it without re-firing anything.
       if (this.settledQueueRowIds.has(event.rowId)) return

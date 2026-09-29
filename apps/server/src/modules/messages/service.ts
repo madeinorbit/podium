@@ -1606,6 +1606,20 @@ export class MessageDeliveryService {
     else await this.markDelivered(message, sessionId, 'injection')
   }
 
+  /** SessionInbox calls this when the agent's machine proves, after it had
+   *  reported it could not, that a message landed (POD-4840): the row is gone,
+   *  the message `unknown`, and the agent's own history recorded it after
+   *  all. Only that moves — `unknown` for this very session → `confirmed` —
+   *  so a replayed or stray outcome changes nothing. A pointer turn names
+   *  mail its body still waits for a read, so it is not confirmed here. */
+  async onQueuedInputProvenLate(messageId: string, sessionId: SessionId): Promise<void> {
+    const message = await this.deps.messages.getMessage(messageId)
+    if (!message || message.deliveryStatus !== 'unknown' || message.deliveredTo !== sessionId)
+      return
+    if (this.render.isPointer(message)) return
+    await this.markDelivered(message, sessionId, 'injection')
+  }
+
   /** SessionInbox calls this the moment a durable row's bytes cross into the CLI,
    *  which is BEFORE the agent takes them: a busy harness parks typed input in its
    *  own composer queue until the running turn ends (POD-1242). Delivery still
