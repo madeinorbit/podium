@@ -34,7 +34,7 @@ import { mobxPoolArm } from '../arm'
 import { diffRelations, knownTables } from '../enumerate'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { tracked } from '../pool'
-import { runInAction } from 'mobx'
+import { reaction, runInAction } from 'mobx'
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 
 installMobxWarnTrap()
@@ -335,6 +335,14 @@ describe('model edit setters', () => {
       const issue = tracked(() => handle.pool.issue(id))
       if (issue === undefined) throw new Error('the visible root has a model')
       const serverTitle = tracked(() => issue.title)
+      // Every paint of the row's view, as its observer sees it (React batches
+      // a whole step into one commit, so the commit count alone cannot see an
+      // interim paint).
+      const paints: (string | undefined)[] = []
+      const stop = reaction(
+        () => issue.view,
+        (view) => paints.push(view?.title),
+      )
 
       const edited = await runCountScenario(mounted, {
         scenario: 'mobxModelSetter',
@@ -344,6 +352,7 @@ describe('model edit setters', () => {
         },
         expected: () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
       })
+      stop()
       // One transaction: one command sent, one pending edit in the log.
       expect(transport.sent).toHaveLength(1)
       expect(transport.sent[0]!.command).toEqual(
@@ -351,7 +360,8 @@ describe('model edit setters', () => {
       )
       expect(handle.write.log.size).toBe(1)
       expect(handle.write.log.pendingFor('issue', id)).toHaveLength(1)
-      // One paint: that row, once.
+      // One paint: that row's view changed once, and only that row committed.
+      expect(paints).toEqual(['Set on the model'])
       expect(edited.rowsCommitted).toBe(1)
       expect(edited.commitsByRow).toEqual({ [id]: 1 })
       // Reading back shows the pending value (the one reader), as the row does.
