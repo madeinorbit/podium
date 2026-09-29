@@ -63,6 +63,7 @@ import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { sessionHref } from '../lib/session-route'
+import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import { useIssueActivity } from '../lib/use-issue-detail'
 import { issueColorHex } from '../theme/issueColors'
 import { color, space } from '../theme/theme'
@@ -539,8 +540,8 @@ function IssueContent({
 
       <ActionSheet
         visible={sheet?.kind === 'confirm-delete'}
-        title="Delete this task?"
-        subtitle={`The task and its ${sessions.length} session${sessions.length === 1 ? '' : 's'} can be restored; running processes will be stopped.`}
+        title={DELETE_TASK_TITLE}
+        subtitle={deleteTaskSubtitle(sessions.length)}
         actions={[
           {
             label: 'Delete',
