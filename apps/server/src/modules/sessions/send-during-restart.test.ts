@@ -10,7 +10,14 @@
  * row that is forwarded when the daemon re-attaches.
  */
 import { afterEach, describe, expect, it } from 'vitest'
+import { legacyMessageStatus } from '../../store/messages'
+import type { MessageRow } from '../../store/types'
 import { disposeOracles, makeOracle } from './oracle-support'
+
+/** The ledger row's status in the words these tests were written in: the
+ *  delivery status mapped the way the store maps it for older readers. */
+const statusOf = (row: MessageRow | undefined | null): string | undefined =>
+  row ? legacyMessageStatus(row.deliveryStatus, row.readAt != null) : undefined
 
 afterEach(() => disposeOracles())
 
@@ -45,7 +52,7 @@ describe('pod-4800: send queued across daemon restart', () => {
     // The ledger row stays queued (not dead-lettered) for the same send.
     const messageId = (sent as { message?: { id?: string } }).message?.id ?? (sent as { id?: string }).id
     if (typeof messageId === 'string') {
-      expect((await o.store.messages.getMessage(messageId))?.status).toBe('queued')
+      expect(statusOf(await o.store.messages.getMessage(messageId))).toBe('queued')
     }
   })
 

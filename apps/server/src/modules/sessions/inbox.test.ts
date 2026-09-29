@@ -3275,11 +3275,11 @@ describe('isCoalescableMailRow [POD-4716]', () => {
       })
       h.rows.push({
         id: 'q-fyi', sessionId: SID, text: 'fyi', principal: agentPrincipal(),
-        queuedAt: 0, attempts: 0, inputOrigin: 'mail', sourceMessageId: 'msg-fyi',
+        queuedAt: 0, attempts: 0, inputOrigin: 'mail', sourceMessageId: 'msg-fyi', delivery: 'when-ready',
       })
       h.rows.push({
         id: 'q-urgent', sessionId: SID, text: 'urgent', principal: agentPrincipal(),
-        queuedAt: 1, attempts: 0, inputOrigin: 'mail', sourceMessageId: 'msg-urgent',
+        queuedAt: 1, attempts: 0, inputOrigin: 'mail', sourceMessageId: 'msg-urgent', delivery: 'when-ready',
       })
       await h.inbox.drain(SID)
       await vi.advanceTimersByTimeAsync(1000)

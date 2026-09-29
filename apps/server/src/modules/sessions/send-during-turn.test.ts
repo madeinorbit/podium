@@ -13,7 +13,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { SessionId } from '@podium/model'
+import { legacyMessageStatus } from '../../store/messages'
+import type { MessageRow } from '../../store/types'
 import { disposeOracles, makeOracle, waitFor } from './oracle-support'
+
+/** The ledger row's status in the words these tests were written in: the
+ *  delivery status mapped the way the store maps it for older readers. */
+const statusOf = (row: MessageRow | undefined | null): string | undefined =>
+  row ? legacyMessageStatus(row.deliveryStatus, row.readAt != null) : undefined
 
 afterEach(() => disposeOracles())
 
@@ -90,7 +97,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     const inboxBefore = await o.store.sync.listQueuedMessages(sessionId)
     expect(inboxBefore).toHaveLength(1)
     const ledgerId = inboxBefore[0]!.sourceMessageId!
-    expect((await o.store.messages.getMessage(ledgerId))?.status).toBe('queued')
+    expect(statusOf(await o.store.messages.getMessage(ledgerId))).toBe('queued')
 
     // Turn ends; daemon types and reports delivered.
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
@@ -124,8 +131,8 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
       'the inbox row to settle on its delivery event',
     )
     const row = await o.store.messages.getMessage(ledgerId)
-    expect(row?.status).toBe('delivered')
-    expect(row?.status).not.toBe('dead_letter')
+    expect(statusOf(row)).toBe('delivered')
+    expect(statusOf(row)).not.toBe('dead_letter')
   })
 
   it('an ambiguous daemon failure leaves the ledger for the turn boundary, which delivers it', async () => {
@@ -199,7 +206,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
       'the inbox row to leave on ambiguous failure',
     )
     const stuck = await o.store.messages.getMessage(ledgerId)
-    expect(stuck?.status).toBe('queued')
+    expect(statusOf(stuck)).toBe('queued')
     expect(stuck?.injectedAt).not.toBeNull()
     expect(stuck?.deliveredTo).toBe(sessionId)
 
@@ -228,10 +235,10 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
       'the session to read idle',
     )
     await waitFor(
-      async () => (await o.store.messages.getMessage(ledgerId))?.status === 'delivered',
+      async () => statusOf(await o.store.messages.getMessage(ledgerId)) === 'delivered',
       'the boundary to deliver the ambiguous row',
     )
-    expect((await o.store.messages.getMessage(ledgerId))?.status).not.toBe('dead_letter')
+    expect(statusOf(await o.store.messages.getMessage(ledgerId))).not.toBe('dead_letter')
   })
 
   it('a never-typed failure still ends visibly failed, never silently delivered', async () => {
@@ -286,7 +293,7 @@ describe('pod-4802: queued-during-turn send settles delivered', () => {
     } as never)
 
     await waitFor(
-      async () => (await o.store.messages.getMessage(ledgerId))?.status === 'dead_letter',
+      async () => statusOf(await o.store.messages.getMessage(ledgerId)) === 'dead_letter',
       'the never-typed row to dead-letter',
     )
     const row = await o.store.messages.getMessage(ledgerId)

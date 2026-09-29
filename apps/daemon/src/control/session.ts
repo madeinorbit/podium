@@ -1212,7 +1212,7 @@ async function adoptServerDriverSession(
   if (live) {
     try {
       ctx.send(
-        bindFrame(appliedGeometryFor(ctx), {
+        bindFrame(sessionSize(ctx, msg.sessionId), {
           sessionId: msg.sessionId,
           cmd: `${live.binding.driver} (${live.binding.driver})`,
           cwd: live.binding.workdir ?? msg.cwd,

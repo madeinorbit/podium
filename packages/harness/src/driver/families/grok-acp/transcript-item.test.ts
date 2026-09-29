@@ -53,6 +53,7 @@ function world(options: { echoPrompt?: boolean } = {}): {
       },
       now: () => Date.UTC(2026, 7, 20) + ++seq * 1000,
       mintSessionId: () => `gk-item-${++seq}` as SessionId,
+      readHistory: async () => ({ items: [], hasMore: false }),
       async launch(input) {
         const server = startFakeGrokAcpServer(`grok-native-${input.sessionId}`, options)
         servers.set(input.sessionId, server)
