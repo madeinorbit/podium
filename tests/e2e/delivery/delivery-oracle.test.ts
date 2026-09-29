@@ -7,8 +7,8 @@
  * shape AND its clean neighbour, so a rule that fires on everything fails too.
  */
 
-import type { ConversationState } from '@podium/client-core/conversation'
-import type { SessionId, TranscriptItem } from '@podium/model'
+import type { ConversationBubble, ConversationState } from '@podium/client-core/conversation'
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   kindsOf,
@@ -228,7 +228,7 @@ describe('delivery oracle', () => {
         ),
       ),
     ).toEqual(['devices-disagree', 'lost'])
-    // Sender "failed" and another device's dead-letter row are the same story.
+    // Sender "failed" and another device's failed record are the same story.
     expect(
       kindsOf(
         violations(
@@ -237,7 +237,7 @@ describe('delivery oracle', () => {
             rows: [row('failed')],
             devices: [
               screen('phone', { bubbles: 1, shownAs: 'pending:failed' }),
-              screen('laptop', { bubbles: 1, shownAs: 'not-delivered' }),
+              screen('laptop', { bubbles: 1, shownAs: 'pending:failed' }),
             ],
           }),
         ),
@@ -267,40 +267,20 @@ describe('delivery oracle', () => {
 })
 
 describe('bubblesOf — what a chat surface draws', () => {
-  const state = (parts: Partial<ConversationState['projected']>): ConversationState =>
-    ({ projected: { pending: [], queued: [], ...parts } }) as unknown as ConversationState
+  const state = (bubbles: Partial<ConversationBubble>[]): ConversationState =>
+    ({ bubbles }) as unknown as ConversationState
   const item = (id: string): TranscriptItem =>
     ({ id: `t-${id}`, role: 'user', text: text(id) }) as TranscriptItem
 
-  it('a transcript entry and a dead-letter row for the same message are two bubbles', () => {
-    const drawn = bubblesOf(
-      state({}),
-      [item(ID)],
-      [{ id: ID, from: 'operator', to: `session:${S}`, status: 'dead_letter', body: text(ID) }],
-      S as SessionId,
-    )
+  it('a transcript entry and a bubble for the same message are two bubbles', () => {
+    const drawn = bubblesOf(state([{ deliveryId: ID, state: 'failed' }]), [item(ID)])
     expect(drawn.get(ID)).toMatchObject({ bubbles: 2, shownAs: 'in-transcript' })
   })
 
-  it('a pending turn carries its error; a delivered one is one transcript bubble', () => {
+  it('a bubble carries its error; a delivered message is one transcript bubble', () => {
     const drawn = bubblesOf(
-      state({
-        pending: [
-          {
-            id: 'p',
-            deliveryId: OTHER,
-            text: text(OTHER),
-            wire: text(OTHER),
-            at: 0,
-            state: 'failed',
-            kind: 'message',
-            error: 'not sent',
-          },
-        ],
-      }),
+      state([{ id: 'p', deliveryId: OTHER, state: 'failed', error: 'not sent' }]),
       [item(ID)],
-      [],
-      S as SessionId,
     )
     expect(drawn.get(ID)).toEqual({ bubbles: 1, shownAs: 'in-transcript' })
     expect(drawn.get(OTHER)).toEqual({ bubbles: 1, shownAs: 'pending:failed', error: 'not sent' })

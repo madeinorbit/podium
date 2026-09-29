@@ -111,24 +111,31 @@ export interface Violation {
 }
 
 /** What a user reads off one bubble, in words that devices can agree on:
- *  the sender's own "sending…" and another device's queued row both say "on
- *  its way"; the sender's failed bubble and the web's dead-letter row both say
- *  "not delivered". */
-export type UserVerdict = 'delivered' | 'on-its-way' | 'not-delivered' | 'interrupted' | 'absent'
+ *  the sender's own "sending…" and another device's queued record both say
+ *  "on its way"; a failed bubble says "not delivered" on every device (POD-4764
+ *  draws them all from the one record, by id); and a message nobody can vouch
+ *  for says so. */
+export type UserVerdict =
+  | 'delivered'
+  | 'on-its-way'
+  | 'not-delivered'
+  | 'unconfirmed'
+  | 'interrupted'
+  | 'absent'
 
 export function verdictOf(shown: MessageOnScreen | undefined): UserVerdict {
   const as = shown?.shownAs ?? 'absent'
   switch (as) {
     case 'in-transcript':
       return 'delivered'
-    case 'queued':
     case 'pending:sending':
     case 'pending:sent':
     case 'pending:queued':
       return 'on-its-way'
     case 'pending:failed':
-    case 'not-delivered':
       return 'not-delivered'
+    case 'pending:unknown':
+      return 'unconfirmed'
     case 'pending:interrupted':
       return 'interrupted'
     default:

@@ -9,11 +9,10 @@
  *  - `sendChatThroughOutbox` under an id minted before the first attempt, the
  *    one chat send path both apps take since POD-4762;
  *  - a `ConversationController` per session, wired as `use-chat-send.ts` wires
- *    it (deliver through the outbox, the ledger read, retract, discard), fed by
- *    a real `/client` socket's `transcriptDelta` frames;
- *  - the web's dead-letter bubble rule (`deadLetteredOperatorMessages`), which
- *    lives in apps/web and is restated in {@link bubblesOf} because a test must
- *    not import a React app.
+ *    it (deliver through the outbox, retract, discard, dismiss), fed by a real
+ *    `/client` socket: `transcriptDelta` frames for the history, and the
+ *    metadata feed's `message` records (POD-4764) for where each sent message
+ *    stands — pushed, never polled.
  *
  * The network is the device's own: `setOnline(false)` fails every request and
  * closes the socket, exactly what a phone in a tunnel sees. A server restart is
@@ -23,9 +22,11 @@
 
 import { randomUUID } from 'node:crypto'
 import {
+  type ConversationBubbleState,
   ConversationController,
   type ConversationPendingTurn,
   type ConversationState,
+  storeConversationRecords,
 } from '@podium/client-core/conversation'
 import {
   discardChatThroughOutbox,
@@ -35,8 +36,18 @@ import {
   outboxChatSends,
   sendChatThroughOutbox,
 } from '@podium/client-core/engine'
-import { asMutationId, type SessionId, type TranscriptItem } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import {
+  asMutationId,
+  type MessageRecordWire,
+  type SessionId,
+  type TranscriptItem,
+} from '@podium/model'
+import {
+  CAP_METADATA_DELTA,
+  CAP_SYNC_HTTP_V1,
+  CLIENT_WIRE_VERSION,
+  type MetadataChangeLenient,
+} from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import WebSocket from 'ws'
@@ -58,12 +69,7 @@ export interface MessageOnScreen {
   /** How many bubbles carry this message id — 1 is the only right answer. */
   readonly bubbles: number
   /** What the user is told, in the device's own words. */
-  readonly shownAs:
-    | 'in-transcript'
-    | `pending:${ConversationPendingTurn['state']}`
-    | 'queued'
-    | 'not-delivered'
-    | 'absent'
+  readonly shownAs: 'in-transcript' | `pending:${ConversationBubbleState}` | 'absent'
   /** The words on a failed bubble, when it has some. */
   readonly error?: string
 }
@@ -108,6 +114,48 @@ class TranscriptView {
   }
 }
 
+/**
+ * The `message` records this device's feed carries (POD-4764), folded from
+ * the pushed `metadataDelta` frames after one catch-up read — the store half
+ * the apps read through `storeConversationRecords`.
+ */
+class RecordsView {
+  private byRowId = new Map<string, MessageRecordWire>()
+  private snapshot: { messageRecords: readonly MessageRecordWire[] } = { messageRecords: [] }
+  private readonly listeners = new Set<() => void>()
+  cursor = 0
+  readonly store = {
+    getSnapshot: () => this.snapshot,
+    subscribe: (listener: () => void): (() => void) => {
+      this.listeners.add(listener)
+      return () => this.listeners.delete(listener)
+    },
+  }
+
+  apply(changes: readonly MetadataChangeLenient[], through: number): void {
+    let touched = false
+    for (const change of changes) {
+      if (change.seq <= this.cursor) continue
+      if (change.entity !== 'message') continue
+      touched = true
+      if (change.op === 'upsert' && change.value) {
+        this.byRowId.set(change.id, change.value as MessageRecordWire)
+      } else {
+        this.byRowId.delete(change.id)
+      }
+    }
+    this.cursor = Math.max(this.cursor, through)
+    if (!touched) return
+    this.snapshot = { messageRecords: [...this.byRowId.values()] }
+    for (const listener of this.listeners) listener()
+  }
+
+  /** Every record, keyed as the feed keys it — for a lane's own assertions. */
+  all(): readonly MessageRecordWire[] {
+    return this.snapshot.messageRecords
+  }
+}
+
 export interface DeviceOptions {
   readonly name: string
   readonly serverPort: number
@@ -132,7 +180,7 @@ export class Device {
   private outbox: EngineOutbox | undefined
   private readonly transcripts = new Map<SessionId, TranscriptView>()
   private readonly controllers = new Map<SessionId, ConversationController>()
-  private readonly ledgers = new Map<SessionId, unknown>()
+  private records = new RecordsView()
   private socket: WebSocket | undefined
   private socketTimer: ReturnType<typeof setTimeout> | undefined
   private closed = false
@@ -236,18 +284,28 @@ export class Device {
               asMutationId(turn.deliveryId),
             ),
           ),
-        readQueue: () => this.api.messages.ledger.query({ sessionId, limit: 200 }),
-        onQueueRows: (rows) => this.ledgers.set(sessionId, rows),
+        records: storeConversationRecords(this.records.store, sessionId),
         retract: (id) => this.api.messages.cancel.mutate({ id }).then(() => undefined),
         discard: (deliveryId) => discardChatThroughOutbox(outbox, asMutationId(deliveryId)),
-        echoMode: 'matching-user',
-        queueRefreshMs: 1_000,
+        dismissNotice: (id) => this.api.messages.dismissNotice.mutate({ id }).then(() => undefined),
       })
       this.controllers.set(sessionId, controller)
-      void controller.start()
-      controller.setActive(true)
+      controller.start()
     }
+    await this.catchUp()
     this.openSocket()
+  }
+
+  /** The feed read a reconnecting client heals through (`sync.changesSince`):
+   *  everything after this device's cursor, then the pushed frames carry on. */
+  private async catchUp(): Promise<void> {
+    if (this.closed || !this.online) return
+    try {
+      const result = await this.api.sync.changesSince.query({ cursor: this.records.cursor })
+      if (result.kind === 'delta') this.records.apply(result.changes, result.cursor)
+    } catch {
+      // Offline or restarting: the next socket open reads again.
+    }
   }
 
   private track<T>(promise: Promise<T>): Promise<T> {
@@ -259,7 +317,7 @@ export class Device {
   private openSocket(): void {
     if (this.closed || !this.online || this.socket) return
     const ws = new WebSocket(
-      `ws://127.0.0.1:${this.options.serverPort}/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`,
+      `ws://127.0.0.1:${this.options.serverPort}/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}&cap=${CAP_METADATA_DELTA}`,
       {
         headers: { cookie: this.options.cookie },
       },
@@ -272,21 +330,33 @@ export class Device {
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
           wireVersion: CLIENT_WIRE_VERSION,
-          caps: [CAP_SYNC_HTTP_V1],
+          caps: [CAP_SYNC_HTTP_V1, CAP_METADATA_DELTA],
         }),
       )
       for (const sessionId of this.options.sessionIds) {
         ws.send(JSON.stringify({ type: 'transcriptSubscribe', sessionId }))
       }
+      void this.catchUp()
     })
     ws.on('message', (data) => {
-      let frame: { type?: string; sessionId?: string; items?: TranscriptItem[]; reset?: boolean }
+      let frame: {
+        type?: string
+        sessionId?: string
+        items?: TranscriptItem[]
+        reset?: boolean
+        seq?: number
+        changes?: MetadataChangeLenient[]
+      }
       try {
         frame = JSON.parse(String(data)) as typeof frame
       } catch {
         return
       }
       this.socketFrames.set(frame.type ?? '?', (this.socketFrames.get(frame.type ?? '?') ?? 0) + 1)
+      if (frame.type === 'metadataDelta' && Array.isArray(frame.changes)) {
+        this.records.apply(frame.changes, frame.seq ?? this.records.cursor)
+        return
+      }
       if (frame.type !== 'transcriptDelta' || !frame.sessionId || !Array.isArray(frame.items))
         return
       this.transcripts.get(frame.sessionId as SessionId)?.apply(frame.items, frame.reset === true)
@@ -349,21 +419,32 @@ export class Device {
 
   /** The user's retry of a failed bubble — the same message, the same id. */
   async retry(sessionId: SessionId, messageId: string): Promise<void> {
-    const turn = this.controller(sessionId)
-      .getSnapshot()
-      .pending.find((candidate) => candidate.deliveryId === messageId)
-    if (!turn) throw new Error(`${this.name}: no bubble for ${messageId} to retry`)
+    const bubble = this.bubble(sessionId, messageId)
+    if (!bubble) throw new Error(`${this.name}: no bubble for ${messageId} to retry`)
     await this.controller(sessionId)
-      .retry(turn.id)
+      .retry(bubble.id)
       .catch(() => undefined)
   }
 
   /** Retract a queued message by its id — from ANY device, as the web does
    *  from the queued bubble's menu. */
   async retract(sessionId: SessionId, messageId: string): Promise<void> {
+    const bubble = this.bubble(sessionId, messageId)
+    if (!bubble) throw new Error(`${this.name}: no bubble for ${messageId} to retract`)
     await this.controller(sessionId)
-      .retract(messageId)
+      .retract(bubble.id)
       .catch(() => undefined)
+  }
+
+  private bubble(sessionId: SessionId, messageId: string) {
+    return this.controller(sessionId)
+      .getSnapshot()
+      .bubbles.find((candidate) => candidate.deliveryId === messageId)
+  }
+
+  /** The `message` records this device's feed carries right now. */
+  messageRecords(): readonly MessageRecordWire[] {
+    return this.records.all()
   }
 
   /** Close the app and open it again over the same disk. */
@@ -379,12 +460,6 @@ export class Device {
     return controller
   }
 
-  /** The last ledger rows this device read for a session. */
-  ledger(sessionId: SessionId): readonly Record<string, unknown>[] {
-    const rows = this.ledgers.get(sessionId)
-    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : []
-  }
-
   /** The chat sends this device's queue still holds for a session: `sending`
    *  (no answer yet) or `failed` (gave up — the user's "not sent"). */
   heldSends(sessionId: SessionId): { mutationId: string; state: 'sending' | 'failed' }[] {
@@ -396,9 +471,9 @@ export class Device {
     }))
   }
 
-  /** Refresh every conversation's ledger read now, as a focus/refresh would. */
+  /** Catch up on the feed now, as a reconnecting client does. */
   async refresh(): Promise<void> {
-    await Promise.all([...this.controllers.values()].map((controller) => controller.refreshQueue()))
+    await this.catchUp()
   }
 
   /** Every message id this device shows for a session, and how. */
@@ -406,8 +481,6 @@ export class Device {
     return bubblesOf(
       this.controller(sessionId).getSnapshot(),
       this.transcripts.get(sessionId)?.items ?? [],
-      this.ledger(sessionId),
-      sessionId,
     )
   }
 
@@ -423,7 +496,7 @@ export class Device {
     for (const controller of this.controllers.values()) controller.dispose()
     this.controllers.clear()
     this.transcripts.clear()
-    this.ledgers.clear()
+    this.records = new RecordsView()
     this.outbox?.dispose()
     this.outbox = undefined
     this.onlineListeners.clear()
@@ -432,16 +505,13 @@ export class Device {
 
 /**
  * The bubbles a chat surface draws for one session, counted per message id:
- * the controller's projected pending turns and queued rows, the transcript's
- * user entries, and the ledger's dead-lettered operator rows (the web's red
- * "not delivered" bubbles). A message drawn twice is a duplicate bubble no
- * matter which two of these drew it.
+ * the controller's bubbles (this device's sends and the synced records, by
+ * id) and the transcript's user entries. A message drawn twice is a duplicate
+ * bubble no matter which two of these drew it.
  */
 export function bubblesOf(
   state: ConversationState,
   transcript: readonly TranscriptItem[],
-  ledger: readonly Record<string, unknown>[],
-  sessionId: SessionId,
 ): Map<string, MessageOnScreen> {
   const drawn = new Map<string, MessageOnScreen>()
   const draw = (
@@ -462,22 +532,6 @@ export function bubblesOf(
   for (const item of transcript) {
     if (item.role === 'user') draw(messageIdsIn(item.text), 'in-transcript')
   }
-  for (const turn of state.projected.pending)
-    draw([turn.deliveryId], `pending:${turn.state}`, turn.error)
-  for (const message of state.projected.queued) draw([message.id], 'queued')
-  for (const row of ledger) {
-    if (
-      row.from === 'operator' &&
-      row.to === `session:${sessionId}` &&
-      row.status === 'dead_letter' &&
-      typeof row.id === 'string'
-    ) {
-      draw(
-        [row.id],
-        'not-delivered',
-        typeof row.deliveryDeferredReason === 'string' ? row.deliveryDeferredReason : undefined,
-      )
-    }
-  }
+  for (const bubble of state.bubbles) draw([bubble.deliveryId], `pending:${bubble.state}`, bubble.error)
   return drawn
 }
