@@ -1149,8 +1149,8 @@ describe("the program's own ids for a row (POD-4841)", () => {
     })
   })
 
-  it("names a direct send's late ids under its turn id, with its entry", async () => {
-    const f = fixture({ outcome: 'accepted' })
+  it("names a direct send's ids under its turn id, the receipt's with the entry's", async () => {
+    const f = fixture({ outcome: 'accepted', harnessRef: [turn] })
     await f.handle.send({ id: 'msg_direct', text: 'a' }, options)
     f.name({ id: 'entry-3' }, [echo])
     expect(f.events()).toEqual([
@@ -1159,7 +1159,7 @@ describe("the program's own ids for a row (POD-4841)", () => {
         rowId: 'msg_direct',
         outcome: 'delivered',
         transcriptItem: { id: 'entry-3' },
-        harnessRef: [echo],
+        harnessRef: [turn, echo],
       },
     ])
   })
