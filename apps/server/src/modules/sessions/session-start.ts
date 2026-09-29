@@ -467,7 +467,7 @@ export class SessionStart {
       sessionId,
       principal,
       ...(parent ? { parent } : {}),
-      ...(issueId ? { issueId } : {}),
+      ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.binding?.requestedScope ? { requestedScope: input.binding.requestedScope } : {}),
       ...(input.binding?.scopeOverrideConfirmed ? { scopeOverrideConfirmed: true as const } : {}),
       ...(input.binding?.relaunch ? { relaunch: true as const } : {}),
