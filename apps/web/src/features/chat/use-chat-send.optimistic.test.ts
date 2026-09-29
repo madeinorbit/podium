@@ -532,4 +532,24 @@ describe('useChatSend optimistic window', () => {
     })
     expect(result.current.justSent).toBe(false)
   })
+
+  /** POD-4800: a send the server refuses as dead_letter keeps a visible failed
+   *  bubble — the composer clears but the message must not vanish silently. */
+  it('keeps a failed bubble when the server answers dead_letter machine unreachable', async () => {
+    sendText.mockResolvedValueOnce({
+      ok: false,
+      reason: 'machine unreachable',
+      disposition: 'dead_letter',
+    } as never)
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    await act(async () => {
+      await result.current.send('are you there')
+    })
+    const failed = result.current.pending.at(-1)
+    expect(failed?.state).toBe('failed')
+    expect(failed?.text).toBe('are you there')
+    expect(result.current.justSent).toBe(false)
+  })
 })

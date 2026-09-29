@@ -243,7 +243,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // the row 'live' again with no daemon behind it. The detach itself still
     // drops the row to 'reconnecting' synchronously (machine-reconciler
     // `onDetached`); the fixture has to let the bind finish first for that to
-    // be the state under test. Nothing about the refusal below changed.
+    // be the state under test.
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId,
@@ -253,6 +253,9 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       geometry: { cols: 80, rows: 24 },
     })
     // The machine drops off: no daemon socket, so nothing can reach the PTY.
+    // A machine being briefly UNREACHABLE is transport state (POD-4800): the
+    // durable row stays queued and is forwarded on reconnect. Dead-lettering
+    // here lost a message sent during a 3-second daemon restart without a word.
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     expect((await o.meta(sessionId)).status).toBe('reconnecting')
     o.daemon.length = 0
@@ -266,6 +269,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // and nothing crossed toward the machine meanwhile.
     expect((await o.meta(sessionId)).queuedMessageCount).toBeGreaterThan(0)
     expect(o.daemon.filter((m) => m.type === 'input')).toEqual([])
+    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
   })
 
   it(`${MUST_NOT_CHANGE}: an UNKNOWN machine id is a different message from an offline one`, async () => {
