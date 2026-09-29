@@ -105,7 +105,7 @@ gives no separate `accepted` signal, the message goes from `typed` straight to `
 
 | Program | `accepted` | `confirmed` | Matched by | Issue |
 |---|---|---|---|---|
-| Codex app-server | `turn/start` reply (or `turn/steer` reply for a steer). | `userMessage` item (`item/started` / `item/completed`). | Our id — `clientUserMessageId` on `turn/start` and `turn/steer`, echoed as `clientId` on the item (landed at `b8ec41b27`); the turn id from the reply as the fallback. | POD-4835 |
+| Codex app-server | `turn/start` reply (or `turn/steer` reply for a steer). A steer is recorded only at Codex's next model call: acknowledged and then interrupted before that call, it is dropped silently (measured, POD-4835; POD-4849). | `userMessage` item (`item/started` / `item/completed`). | Our id — `clientUserMessageId` on `turn/start` and `turn/steer`, echoed as `clientId` on the item (landed at `b8ec41b27`; available since Codex 0.136); the turn id from the reply as the fallback. Codex does not dedupe a repeated id: a second send is a second turn, so never resending stays our job. `thread/read` returns items with `clientId` on a fresh app-server, so N3 (§7) works after a restart. | POD-4835 |
 | Claude SDK (stream-json) | Today: none — `accepted` is returned before the line is written (`packages/harness/src/driver/families/claude-sdk/runtime.ts:750`). Planned: the CLI's echo of the user line, if it can echo it (**measure**, POD-4836). | The transcript record under our uuid. | Planned: our id — the uuid derived from the message id. Today a random uuid per send (`runtime.ts:658`). | POD-4836 |
 | OpenCode v1 | `prompt_async` 204. | The stored user message part carrying our id (`message.part.updated`). | Our id (`packages/harness/src/driver/families/opencode/runtime.ts:346-354`). | — |
 | OpenCode v2 | The admission reply: OpenCode stored the input under our id; a repeat returns the original (POD-4813). Sent with `delivery: 'queue'`, so a busy session holds it until its turn ends (`packages/harness/src/driver/families/opencode2/client.ts:128-150`). | Today the admission is treated as confirmed. Strictly: when the input enters the conversation — at once if the session was idle; for a busy session, a history read or an event naming it (**measure**). | Our id. | — |
@@ -324,6 +324,10 @@ matches them with §5. Without them, a message typed before a crash stays `unkno
 - **Low-priority issue mail under 6000 characters** is typed in full but stops at `typed` —
   POD-4845.
 - **A refusal ends as `unknown`** although nothing was written — POD-4839.
+- **An acknowledged Codex steer can be lost** when the turn is interrupted before Codex's next
+  model call, while we report it accepted — POD-4849. It is the clearest case for `accepted`
+  being separate from `confirmed`: the steer rests at `accepted`, and N3 (§7) turns it into
+  `failed` once the turn is over and `thread/read` has no item with our id.
 
 ## 12. Work
 
@@ -342,6 +346,7 @@ Filed under POD-4819:
 | POD-4844 | Bug: a failed system send lands in the person's input box |
 | POD-4845 | Bug: low-priority mail stays `typed` |
 | POD-4846 | System sends travel as messages |
+| POD-4849 | An acknowledged Codex steer lost to an interrupt is reported accepted (filed by POD-4835) |
 
 To file once this spec is approved:
 
