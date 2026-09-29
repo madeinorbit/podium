@@ -91,6 +91,10 @@ const bind = (sessionId: SessionId) =>
     geometry: G,
   }) as const
 
+
+/** Auto-continue's 'continue' as typed: inside the short frame (POD-4868). */
+const CONTINUE_IN_SHORT_FRAME = expect.stringMatching(/^\[podium message (msg_\S+) · from system:auto-continue · to your session\]\ncontinue\n\[end podium message \1\]$/)
+
 describe('SessionRegistry', () => {
   it('assembles recovery-only over a query-only store without running writable boot repairs', async () => {
     const file = join(trackTmp('podium-recovery-only-'), 'podium.db')
@@ -2606,7 +2610,7 @@ describe('agent state', () => {
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       expect(durableSends(daemon, sessionId)).toEqual([
         expect.objectContaining({
-          text: 'continue',
+          text: CONTINUE_IN_SHORT_FRAME,
           origin: 'auto_continue',
           delivery: 'when-ready',
         }),
@@ -6214,12 +6218,12 @@ describe('SessionRegistry — auto-continue', () => {
   }
   // An agent's continue is a when-ready contract send, not 'continue\r' typed
   // at the PTY (358ad0ffb POD-4427, POD-4279), a message from
-  // system:auto-continue (POD-4846), and like every agent send a durable row
-  // (POD-4795).
+  // system:auto-continue (POD-4846) typed in the short frame (POD-4868), and
+  // like every agent send a durable row (POD-4795).
   const continueInput = expect.objectContaining({
     type: 'runtimeDurableSendRequest',
     delivery: 'when-ready',
-    text: 'continue',
+    text: CONTINUE_IN_SHORT_FRAME,
     origin: 'auto_continue',
   })
 

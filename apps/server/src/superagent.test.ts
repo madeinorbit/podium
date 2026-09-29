@@ -708,7 +708,12 @@ describe('session-steering tool belt (issue #62)', () => {
     // One contract send of the retry text, stamped as an auto-continue — and no
     // PTY bytes (d43ac0682: only a plain shell keeps the raw keystroke).
     await vi.waitFor(() => expect(h.sends).toHaveLength(1))
-    expect(h.sends[0]).toMatchObject({ sessionId, text: 'continue', origin: 'auto_continue' })
+    // The retry text in the short frame (POD-4868).
+    expect(h.sends[0]).toMatchObject({
+      sessionId,
+      text: expect.stringMatching(/^\[podium message (msg_\S+) · from system:auto-continue · to your session\]\ncontinue\n\[end podium message \1\]$/),
+      origin: 'auto_continue',
+    })
     expect(h.inputs).toEqual([])
     // Not errored anymore → refused, with the gate surfaced.
     h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
