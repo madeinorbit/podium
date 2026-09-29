@@ -1,0 +1,24 @@
+# timeline for RACE-after (Enter at 1790699030013), ms relative to Enter
+     +0  KEY           RACE-after Enter: AFTERRACE check context
+   +110  prompt_history {"timestamp": "2026-09-29T16:23:50.114305381Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "AFTERRACE check context", "is_bash": false}
+   +110  events        {"ts": "2026-09-29T16:23:50.115Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 31, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 21, "session_relationship": "primary", "schema_version": "1…
+   +130  HOOK          UserPromptSubmit promptId=758ef01d-4be0-45e2-9abc-98503250d897 prompt='AFTERRACE check context'
+   +233  PODIUM-HOOK   user_prompt_submit promptId=758ef01d-4be0-45e2-9abc-98503250d897
+   +257  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=758ef01d-4be0-45e2-9abc-98503250d897 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-390 _meta.agentTimestampMs=1790699030257
+   +278  updates       session/update user_message_chunk text='AFTERRACE check context' u._meta.promptIndex=31 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-391 _meta.agentTimestampMs=1790699030257
+   +278  chat_history  user '<user_query>\\nAFTERRACE check context\\n</user_query>' {"type": "user", "prompt_index": 31}
+   +298  events        {"ts": "2026-09-29T16:23:50.306Z", "type": "loop_started", "loop_index": 0}
+   +332  MODEL         #20 model=fake tools=25 n=21 last: user:<system-reminder>\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may … || user:<system-reminder>\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may … || user:<system-reminder>\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may … || user:<user_query>\nAFTERRACE check context\n</user_query>
+   +426  MODEL         #20 reply done (quick)
+   +444  chat_history  assistant 'r20w1 r20w2 r20w3 ' {"type": "assistant", "model_id": "fake"}
+   +459  HOOK          Stop promptId=758ef01d-4be0-45e2-9abc-98503250d897 reason=end_turn
+   +490  PODIUM-HOOK   stop promptId=758ef01d-4be0-45e2-9abc-98503250d897
+   +504  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=758ef01d-4be0-45e2-9abc-98503250d897 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-399 _meta.agentTimestampMs=1790699030508
+   +504  updates       session/update agent_message_chunk text='r20w1 r20w2 r20w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-395 _meta.promptId=758ef01d-4be0-45e2-9abc-98503250d897 _meta.agentTimestampMs=1790699030442
+   +525  events        {"ts": "2026-09-29T16:23:50.528Z", "type": "turn_ended", "outcome": "completed"}
+   +525  rewind_points {"prompt_index": 31, "created_at": "2026-09-29T16:23:50.257452725Z", "file_snapshots": {}, "after_snapshots": {}}
+   +545  MODEL         #21 model=fake tools=25 n=23 last: user:<system-reminder>\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may … || user:<user_query>\nAFTERRACE check context\n</user_query> || assistant:r20w1 r20w2 r20w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+   +548  updates       _x.ai/session/update turn_completed prompt_id=758ef01d-4be0-45e2-9abc-98503250d897 stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-400 _meta.agentTimestampMs=1790699030551
+   +551  MODEL         #22 model=fake tools=0 n=1 last: user:CWD: <scratch>/grok/work\n\nTranscript:\n\nUser: <user_query>\nOMEGA two\n</user_query>\n\nUser: <user_query>\n# /loop -…
+   +554  MODEL         #22 reply done (error-400)
+   +642  MODEL         #21 reply done (quick)

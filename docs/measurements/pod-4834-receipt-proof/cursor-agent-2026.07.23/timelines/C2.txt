@@ -1,0 +1,14 @@
+# cursor-agent TUI, C2: ms after Enter (capture server on localhost cannot answer the agent run, HTTP/2 → "[internal] Protocol error")
+     +0  KEY      C2 Enter: CURSORBETA first while connecting
+   +255  FILE     prompt_history.json ["CURSORALPHA idle promptCURSORBETA first while connecting", "CURSORALPHA idle prompt"]
+   +422  HOOK     beforeSubmitPrompt conversation_id=33a0a54a-b20d-41f0-ae30-0a023d5bfacf generation_id=c75595da-944f-4dae-8b28-e8761fdcd555 prompt='CURSORALPHA idle promptCURSORBETA first while connecting' transcript_path=set
+   +577  REQUEST  /aiserver.v1.AiService/NameAgent bytes=58 strings=['8CURSORALPHA idle promptCURSORBETA first while connecting']
+  +3098  KEY      C2-busy Enter: CURSORGAMMA sent while retrying
+  +3276  FILE     prompt_history.json ["CURSORGAMMA sent while retrying", "CURSORALPHA idle promptCURSORBETA first while connecting", "CURSORALPHA idle prompt"]
+  +3287  HOOK     beforeSubmitPrompt conversation_id=33a0a54a-b20d-41f0-ae30-0a023d5bfacf generation_id=6f883ae1-4b9f-4a79-a418-69913b72f201 prompt='CURSORGAMMA sent while retrying' transcript_path=set
+  +3567  REQUEST  /aiserver.v1.AnalyticsService/TrackEvents bytes=11372
+  +5644  REQUEST  /v1/traces bytes=9517
+ +12421  REQUEST  /v1/traces bytes=3956
+ +16686  HOOK     stop conversation_id=33a0a54a-b20d-41f0-ae30-0a023d5bfacf generation_id=c75595da-944f-4dae-8b28-e8761fdcd555 status=error transcript_path=set
+ +19573  REQUEST  /aiserver.v1.AnalyticsService/TrackEvents bytes=13751
+ +21630  REQUEST  /v1/traces bytes=5417

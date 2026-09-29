@@ -1,0 +1,5 @@
+{"at": 1790699522859, "file": "chats/6cc18757cba71b42fe51272eec1b0a19/33a0a54a-b20d-41f0-ae30-0a023d5bfacf/prompt_history.json", "json": ["CURSORALPHA idle prompt"]}
+{"at": 1790699538538, "file": "projects/<work-dir-slug>/agent-transcripts/33a0a54a-b20d-41f0-ae30-0a023d5bfacf/33a0a54a-b20d-41f0-ae30-0a023d5bfacf.jsonl", "rec": {"type": "turn_ended", "status": "error", "error": "[internal] Protocol error"}}
+{"at": 1790699538538, "file": "chats/6cc18757cba71b42fe51272eec1b0a19/33a0a54a-b20d-41f0-ae30-0a023d5bfacf/meta.json", "json": {"schemaVersion": 1, "createdAtMs": 1790699385897, "hasConversation": true, "updatedAtMs": 1790699538500, "cwd": "<scratch>/cursor/work"}}
+{"at": 1790699584283, "file": "chats/6cc18757cba71b42fe51272eec1b0a19/33a0a54a-b20d-41f0-ae30-0a023d5bfacf/prompt_history.json", "json": ["CURSORALPHA idle promptCURSORBETA first while connecting", "CURSORALPHA idle prompt"]}
+{"at": 1790699587304, "file": "chats/6cc18757cba71b42fe51272eec1b0a19/33a0a54a-b20d-41f0-ae30-0a023d5bfacf/prompt_history.json", "json": ["CURSORGAMMA sent while retrying", "CURSORALPHA idle promptCURSORBETA first while connecting", "CURSORALPHA idle prompt"]}

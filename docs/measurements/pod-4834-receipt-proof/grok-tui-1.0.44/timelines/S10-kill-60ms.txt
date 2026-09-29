@@ -1,0 +1,7 @@
+# timeline for RACE60 (Enter at 1790699012469), ms relative to Enter
+     +0  KEY           RACE60 Enter: RACE60 killed right after Enter
+    +32  prompt_history {"timestamp": "2026-09-29T16:23:32.498610190Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "RACE60 killed right after Enter", "is_bash": false}
+    +32  events        {"ts": "2026-09-29T16:23:32.500Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 31, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 20, "session_relationship": "primary", "schema_version": "1…
+    +42  HOOK          UserPromptSubmit promptId=b239b967-a0cd-4d3d-a6a3-67505cb0ed0a prompt='RACE60 killed right after Enter'
+    +74  PODIUM-HOOK   user_prompt_submit promptId=b239b967-a0cd-4d3d-a6a3-67505cb0ed0a
+    +75  KEY           RACE60-kill Enter: kill -9 997281

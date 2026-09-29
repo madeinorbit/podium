@@ -1,0 +1,30 @@
+# timeline for S6t-busy (Enter at 1790699105692), ms relative to Enter
+     +0  KEY           S6t-busy Enter: SIGMABUSY TOOLSLEEP before term
+    +79  prompt_history {"timestamp": "2026-09-29T16:25:05.754132709Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "SIGMABUSY TOOLSLEEP before term", "is_bash": false}
+   +110  events        {"ts": "2026-09-29T16:25:05.803Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 34, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 29, "session_relationship": "primary", "schema_version": "1…
+   +196  HOOK          UserPromptSubmit promptId=f8d2755f-da44-4d9c-bb8c-7c8faa702d1b prompt='SIGMABUSY TOOLSLEEP before term'
+   +335  PODIUM-HOOK   user_prompt_submit promptId=f8d2755f-da44-4d9c-bb8c-7c8faa702d1b
+   +423  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=f8d2755f-da44-4d9c-bb8c-7c8faa702d1b _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-444 _meta.agentTimestampMs=1790699106088
+   +464  updates       session/update user_message_chunk text='SIGMABUSY TOOLSLEEP before term' u._meta.promptIndex=34 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-445 _meta.agentTimestampMs=1790699106088
+   +464  chat_history  user '<user_query>\\nSIGMABUSY TOOLSLEEP before term\\n</user_query>' {"type": "user", "prompt_index": 34}
+   +569  events        {"ts": "2026-09-29T16:25:06.200Z", "type": "loop_started", "loop_index": 0}
+   +670  events        {"ts": "2026-09-29T16:25:06.381Z", "type": "tool_started", "tool_name": "run_terminal_command"}
+   +670  chat_history  assistant '' {"type": "assistant", "tool_calls": [{"id": "call_fake31", "name": "run_terminal_command", "arguments": "{\"command\":\"sleep 8\",\"description\":\"wait eight seconds\"}"}], "model_id": "fake"}
+   +680  MODEL         #31 model=fake tools=25 n=29 last: assistant:r25w1 r25w2 r25w3  || user:<user_query>\nHELDQUIT queued at quit\n</user_query> || assistant:r27w1 r27w2 r27w3  || user:<user_query>\nSIGMABUSY TOOLSLEEP before term\n</user_query>
+   +681  MODEL         #31 reply done (tool)
+   +765  HOOK          PreToolUse promptId=None tool=run_terminal_command
+   +874  PODIUM-HOOK   pre_tool_use promptId=None
+   +882  events        {"ts": "2026-09-29T16:25:06.575Z", "type": "permission_requested", "tool_name": "run_terminal_command"}
+   +882  updates       _x.ai/session/update hook_execution event_name=pre_tool_use _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-449 _meta.agentTimestampMs=1790699106570
+   +903  events        {"ts": "2026-09-29T16:25:06.577Z", "type": "permission_resolved", "tool_name": "run_terminal_command", "decision": "allow", "wait_ms": 2}
+   +903  updates       session/update tool_call _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-448 _meta.promptId=f8d2755f-da44-4d9c-bb8c-7c8faa702d1b _meta.agentTimestampMs=1790699106381
+  +1976  KEY           S6t-queued Enter: HELDTERM queued at sigterm
+  +2802  KEY           S6t-term Enter: kill -TERM 1006055
+  +2859  resume_status.json (state file written; keys ['background'])
+  +2859  updates       session/update tool_call_update _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-450 _meta.promptId=f8d2755f-da44-4d9c-bb8c-7c8faa702d1b _meta.agentTimestampMs=1790699106574
+  +3091  HOOK          SessionEnd promptId=None reason=shutdown
+  +3124  PODIUM-HOOK   session_end promptId=None
+  +3179  updates       _x.ai/session/update hook_execution event_name=session_end _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-451 _meta.agentTimestampMs=1790699108864
+  +3189  HOOK          Stop promptId=None reason=shutdown
+  +3222  PODIUM-HOOK   stop promptId=None
+  +3240  updates       _x.ai/session/update hook_execution event_name=stop _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-452 _meta.agentTimestampMs=1790699108918

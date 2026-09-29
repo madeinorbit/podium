@@ -1,0 +1,13 @@
+# timeline for S6t-resume (Enter at 1790699120296), ms relative to Enter
+     +0  KEY           S6t-resume Enter: grok -c after SIGTERM
+   +373  updates       _x.ai/session/update turn_completed prompt_id=f8d2755f-da44-4d9c-bb8c-7c8faa702d1b stop_reason=interrupted _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-0 _meta.agentTimestampMs=1790699120651
+   +393  events        {"ts": "2026-09-29T16:25:20.688Z", "type": "turn_ended", "outcome": "interrupted"}
+   +474  chat_history  INODE CHANGED, content append-only
+   +553  HOOK          SessionStart promptId=None source=load
+   +555  chat_history  INODE CHANGED, content append-only
+   +597  updates       _x.ai/session/update background_tasks _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-455 _meta.agentTimestampMs=1790699120853
+   +617  chat_history  INODE CHANGED, content append-only
+   +617  chat_history  tool_result 'Tool execution was cancelled by the user (tool `run_terminal_command` was not executed).' {"type": "tool_result", "tool_call_id": "call_fake31"}
+   +638  chat_history  REWRITTEN inodeChanged=True lines 32->33 from line 14; replaced: [{"type": "tool_result", "prompt_index": null, "tool_call_id": "call_fake11", "content": "Tool execution was cancelled by the user (tool `run_terminal_command` was not executed)."}, {"type": "user", "…
+   +639  PODIUM-HOOK   session_start promptId=None
+   +660  updates       _x.ai/session/update hook_execution event_name=session_start _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-457 _meta.agentTimestampMs=1790699120939

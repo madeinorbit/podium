@@ -1,0 +1,12 @@
+# timeline for S10-race (Enter at 1790698987723), ms relative to Enter
+     +0  KEY           S10-race Enter: RACEKILL killed right after Enter
+    +40  prompt_history {"timestamp": "2026-09-29T16:23:07.749123098Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "RACEKILL killed right after Enter", "is_bash": false}
+    +40  events        {"ts": "2026-09-29T16:23:07.750Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 30, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 17, "session_relationship": "primary", "schema_version": "1…
+    +42  HOOK          UserPromptSubmit promptId=8b32e907-5cb7-485b-9815-146b0153d370 prompt='RACEKILL killed right after Enter'
+    +89  PODIUM-HOOK   user_prompt_submit promptId=8b32e907-5cb7-485b-9815-146b0153d370
+   +101  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=8b32e907-5cb7-485b-9815-146b0153d370 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-373 _meta.agentTimestampMs=1790698987818
+   +121  events        {"ts": "2026-09-29T16:23:07.844Z", "type": "loop_started", "loop_index": 0}
+   +121  updates       session/update user_message_chunk text='RACEKILL killed right after Enter' u._meta.promptIndex=30 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-374 _meta.agentTimestampMs=1790698987818
+   +121  chat_history  user '<user_query>\\nRACEKILL killed right after Enter\\n</user_query>' {"type": "user", "prompt_index": 30}
+   +133  MODEL         #16 model=fake tools=25 n=17 last: user:<system-reminder>\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may … || user:<user_query>\nAFTERKILL first prompt after resume\n</user_query> || assistant:r13w1 r13w2 r13w3  || user:<user_query>\nRACEKILL killed right after Enter\n</user_query>
+   +136  KEY           S10-race-kill Enter: kill -9 993461

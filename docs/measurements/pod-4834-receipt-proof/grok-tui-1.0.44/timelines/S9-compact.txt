@@ -1,0 +1,19 @@
+# timeline for S9-compact2 (Enter at 1790698734615), ms relative to Enter
+     +0  KEY           S9-compact2 Enter: /compact
+   +106  HOOK          PreCompact promptId=None source=manual
+   +151  PODIUM-HOOK   pre_compact promptId=None
+   +161  MODEL         #2 model=fake tools=25 n=2 last: assistant:\n[... truncated 18 bytes to fit the compaction window ...] || user:Your task is to produce a faithful, concise summary of the conversation so far so that a successor assistant can continu…
+   +163  MODEL         #2 reply done (summary)
+   +176  9980c17e-3777-4cde-bed1-f656eae02466.json (state file written; keys ['attempt_details', 'attempts', 'chat_history', 'created_at', 'error', 'model', 'prompt_variant', 'request_id', 'schema_version', 'summary', 'tools', 'trigger'])
+   +176  updates       _x.ai/session/update hook_execution event_name=pre_compact _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-319 _meta.agentTimestampMs=1790698734772
+   +179  HOOK          PostCompact promptId=None source=manual
+   +215  PODIUM-HOOK   post_compact promptId=None
+   +218  96a03e6f-386a-4416-a616-ba6429a5d0c2.json (state file written; keys ['checkpoint_id', 'compacted_history', 'created_at', 'original_user_info', 'prompt_index_at_compaction', 'reread_file_paths', 'schema_version'])
+   +218  updates       _x.ai/session/update compaction_checkpoint _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-320 _meta.agentTimestampMs=1790698734779
+   +239  chat_history  REWRITTEN inodeChanged=True lines 62->5 from line 2; replaced: [{"type": "user", "prompt_index": null, "tool_call_id": null, "content": "<user_info>\nOS Version: linux\nShell: /bin/sh\nWorkspace Path: /tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issu"},…
+   +279  plan.json     (state file written; keys ['todos'])
+   +279  announcement_state.json (state file written; keys ['announced_failed_servers', 'announced_skill_names', 'mcp_server_fingerprints'])
+   +299  chat_history  user "<system-reminder>\\n\\nTo use MCP tools, you MUST call `search_tool` first to retrieve the tool's input schema before calling `use_tool`. NEVE…" {"type": "user", "synthetic_reason": "system_reminder"}
+   +299  plan_mode.json (state file written; keys ['awaiting_plan_approval', 'pending_exit_reminder', 'reminder_count', 'state', 'was_previously_active'])
+   +319  updates       _x.ai/session/update hook_execution event_name=post_compact _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-321 _meta.agentTimestampMs=1790698734834
+   +319  updates       _x.ai/session/update auto_compact_completed _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-322 _meta.agentTimestampMs=1790698734834

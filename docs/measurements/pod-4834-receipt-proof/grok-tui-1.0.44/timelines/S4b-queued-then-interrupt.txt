@@ -1,0 +1,51 @@
+# timeline for S4b-busy (Enter at 1790698508008), ms relative to Enter
+     +0  KEY           S4b-busy Enter: NU TOOLSLEEP please
+   +155  prompt_history {"timestamp": "2026-09-29T16:15:08.157091695Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "NU TOOLSLEEP please", "is_bash": false}
+   +155  events        {"ts": "2026-09-29T16:15:08.162Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 12, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 33, "session_relationship": "primary", "schema_version": "1…
+   +178  HOOK          UserPromptSubmit promptId=ee0de4a4-33cb-4ccc-a166-cd6d7239defa prompt='NU TOOLSLEEP please'
+   +236  PODIUM-HOOK   user_prompt_submit promptId=ee0de4a4-33cb-4ccc-a166-cd6d7239defa
+   +241  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=ee0de4a4-33cb-4ccc-a166-cd6d7239defa _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-169 _meta.agentTimestampMs=1790698508247
+   +261  chat_history  user '<user_query>\\nNU TOOLSLEEP please\\n</user_query>' {"type": "user", "prompt_index": 12}
+   +283  updates       session/update user_message_chunk text='NU TOOLSLEEP please' u._meta.promptIndex=12 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-170 _meta.agentTimestampMs=1790698508248
+   +295  MODEL         #38 model=fake tools=25 n=33 last: tool:[tool_result call_fake34] Tool execution was halted by the harness (user_cancel); the tool `run_terminal_command` was no… || user:<user_query>\nMU after interrupt\n</user_query> || assistant:r35w1 r35w2 r35w3  || user:<user_query>\nNU TOOLSLEEP please\n</user_query>
+   +295  MODEL         #38 reply done (tool)
+   +304  events        {"ts": "2026-09-29T16:15:08.300Z", "type": "loop_started", "loop_index": 0}
+   +304  events        {"ts": "2026-09-29T16:15:08.307Z", "type": "tool_started", "tool_name": "run_terminal_command"}
+   +304  chat_history  assistant '' {"type": "assistant", "tool_calls": [{"id": "call_fake38", "name": "run_terminal_command", "arguments": "{\"command\":\"sleep 8\",\"description\":\"wait eight seconds\"}"}], "model_id": "fake"}
+   +319  HOOK          PreToolUse promptId=None tool=run_terminal_command
+   +415  PODIUM-HOOK   pre_tool_use promptId=None
+   +424  events        {"ts": "2026-09-29T16:15:08.428Z", "type": "permission_requested", "tool_name": "run_terminal_command"}
+   +424  events        {"ts": "2026-09-29T16:15:08.428Z", "type": "permission_resolved", "tool_name": "run_terminal_command", "decision": "allow", "wait_ms": 0}
+   +444  updates       _x.ai/session/update hook_execution event_name=pre_tool_use _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-174 _meta.agentTimestampMs=1790698508427
+   +465  updates       session/update tool_call _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-173 _meta.promptId=ee0de4a4-33cb-4ccc-a166-cd6d7239defa _meta.agentTimestampMs=1790698508307
+  +2606  KEY           S4b-queued Enter: XI queued before interrupt
+  +3645  KEY           S4b-ctrlc Enter: (C-c)
+  +3760  events        {"ts": "2026-09-29T16:15:11.756Z", "type": "turn_ended", "outcome": "cancelled", "cancellation_category": "mid_turn_abort", "cancellation_context": {"trigger": "ctrl_c"}}
+  +3772  HOOK          StopCancelled promptId=ee0de4a4-33cb-4ccc-a166-cd6d7239defa reason=user_interrupt
+  +3780  chat_history  INODE CHANGED, content append-only
+  +3780  chat_history  tool_result 'Tool execution was halted by the harness (user_cancel); the tool `run_terminal_command` was not executed.' {"type": "tool_result", "tool_call_id": "call_fake38"}
+  +3800  prompt_history {"timestamp": "2026-09-29T16:15:11.790145534Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "XI queued before interrupt", "is_bash": false}
+  +3800  events        {"ts": "2026-09-29T16:15:11.791Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 13, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 36, "session_relationship": "primary", "schema_version": "1…
+  +3824  HOOK          UserPromptSubmit promptId=8602c830-3935-42a3-a401-a6df0d81142c prompt='XI queued before interrupt'
+  +3862  updates       session/update tool_call_update _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-175 _meta.promptId=ee0de4a4-33cb-4ccc-a166-cd6d7239defa _meta.agentTimestampMs=1790698508428
+  +3862  updates       _x.ai/session/update turn_completed prompt_id=ee0de4a4-33cb-4ccc-a166-cd6d7239defa stop_reason=cancelled _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-176 _meta.agentTimestampMs=1790698511774
+  +3943  updates       _x.ai/session/update hook_execution event_name=stop_cancelled prompt_id=ee0de4a4-33cb-4ccc-a166-cd6d7239defa _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-177 _meta.agentTimestampMs=1790698511784
+  +4026  PODIUM-HOOK   user_prompt_submit promptId=8602c830-3935-42a3-a401-a6df0d81142c
+  +4079  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=8602c830-3935-42a3-a401-a6df0d81142c _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-178 _meta.agentTimestampMs=1790698512080
+  +4099  chat_history  user '<user_query>\\nXI queued before interrupt\\n</user_query>' {"type": "user", "prior_turn_interrupt": "mid_turn_abort", "prompt_index": 13}
+  +4139  updates       session/update user_message_chunk text='XI queued before interrupt' u._meta.promptIndex=13 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-179 _meta.agentTimestampMs=1790698512094
+  +4152  MODEL         #39 model=fake tools=25 n=36 last: user:<user_query>\nNU TOOLSLEEP please\n</user_query> || assistant: [tool_call call_fake38] || tool:[tool_result call_fake38] Tool execution was halted by the harness (user_cancel); the tool `run_terminal_command` was no… || user:<user_query>\nXI queued before interrupt\n</user_query>
+  +4160  events        {"ts": "2026-09-29T16:15:12.158Z", "type": "loop_started", "loop_index": 0}
+  +4247  MODEL         #39 reply done (quick)
+  +4262  chat_history  assistant 'r39w1 r39w2 r39w3 ' {"type": "assistant", "model_id": "fake"}
+  +4285  HOOK          Stop promptId=8602c830-3935-42a3-a401-a6df0d81142c reason=end_turn
+  +4324  PODIUM-HOOK   stop promptId=8602c830-3935-42a3-a401-a6df0d81142c
+  +4343  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=8602c830-3935-42a3-a401-a6df0d81142c _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-187 _meta.agentTimestampMs=1790698512336
+  +4363  updates       session/update agent_message_chunk text='r39w1 r39w2 r39w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-183 _meta.promptId=8602c830-3935-42a3-a401-a6df0d81142c _meta.agentTimestampMs=1790698512256
+  +4386  rewind_points {"prompt_index": 13, "created_at": "2026-09-29T16:15:12.094007509Z", "file_snapshots": {}, "after_snapshots": {}}
+  +4407  events        {"ts": "2026-09-29T16:15:12.406Z", "type": "turn_ended", "outcome": "completed"}
+  +4429  MODEL         #40 model=fake tools=25 n=38 last: tool:[tool_result call_fake38] Tool execution was halted by the harness (user_cancel); the tool `run_terminal_command` was no… || user:<user_query>\nXI queued before interrupt\n</user_query> || assistant:r39w1 r39w2 r39w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+  +4429  updates       _x.ai/session/update turn_completed prompt_id=8602c830-3935-42a3-a401-a6df0d81142c stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-188 _meta.agentTimestampMs=1790698512432
+  +4442  MODEL         #41 model=fake tools=0 n=1 last: user:CWD: <scratch>/grok/work\n\nTranscript:\n\nUser: <user_info>\nOS Version: linux\nShell: /bin/sh\nWorkspace Path: <scratc…
+  +4442  MODEL         #41 reply done (tool)
+  +4526  MODEL         #40 reply done (quick)
