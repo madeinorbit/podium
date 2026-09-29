@@ -23,6 +23,7 @@ import {
   harnessSupportsNoTools,
   markOf,
   parseServedDescriptors,
+  providerOf,
   resolveDescriptors,
 } from './browser.js'
 import { declaredValue } from './manifest.js'
@@ -149,10 +150,14 @@ describe('@podium/harness/browser — the descriptor mark (POD-4737)', () => {
   })
 
   it('never resurrects a login or sections a served row omits (POD-4737)', () => {
-    // Only INHERITABLE_WHEN_ABSENT (provider, mark — fields an older daemon
-    // cannot know) falls back to bundled. A served row without login or
-    // sections omits them deliberately (a newer daemon whose harness needs
-    // no login flow), so the merged row must not regain the bundled copy.
+    // Only INHERITABLE_WHEN_ABSENT (mark — the one optional presentation
+    // field whose generic fallback cannot derive the arbitrary spellings)
+    // falls back to bundled. A served row without login or sections omits
+    // them deliberately (a newer daemon whose harness needs no login flow),
+    // so the merged row must not regain the bundled copy.
+    // `provider` is deliberately NOT inheritable (POD-4542, POD-4859): an
+    // older row without it stays without it so providerOf falls back to
+    // kind — see the test below.
     // Stated through two served rows for the same kind: the second omits
     // what the first stated, and the merge must not carry it over.
     const merged = resolveDescriptors(
@@ -169,6 +174,28 @@ describe('@podium/harness/browser — the descriptor mark (POD-4737)', () => {
       ]),
     )
     expect(withSections.find((d) => d.kind === 'codex')).not.toHaveProperty('sections')
+  })
+
+  it('never backfills a missing provider from bundled (POD-4542, POD-4859)', () => {
+    // An older daemon's RAW row without a provider must stay without one so
+    // the one providerOf rule falls back to kind ('claude-code'), not to the
+    // bundled vendor ('anthropic'). e11e0a570 inherited the bundled copy
+    // here (served-wins-per-field for an optional presentation field), so the
+    // Accounts hub showed a different provider for older daemons. Armed:
+    // re-adding 'provider' to INHERITABLE_WHEN_ABSENT turns exactly this red
+    // (and the accounts POD-4542 test with it).
+    const bundled = bundledDescriptorFor('claude-code')!
+    expect(bundled.provider).toBe('anthropic')
+    const { provider: _p, ...older } = bundled
+    void _p
+    const resolved = resolveDescriptors([older]).find((d) => d.kind === 'claude-code')!
+    expect(resolved).not.toHaveProperty('provider')
+    expect(providerOf(resolved)).toBe('claude-code')
+    // A stated provider still wins over bundled.
+    const stated = resolveDescriptors([
+      { ...older, provider: 'served-provider-x' },
+    ]).find((d) => d.kind === 'claude-code')!
+    expect(stated.provider).toBe('served-provider-x')
   })
 })
 
