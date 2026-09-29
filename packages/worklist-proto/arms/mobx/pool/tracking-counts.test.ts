@@ -65,8 +65,9 @@
  * rewrites the file from the measured counts (and still checks nothing else).
  *
  * PLANTS (proven red, restored with cp; POD-4748): one extra computed
- * declared on every `IssueNode`, and one extra reaction per issue node in
- * `VisibleCollection.add`, each fail the gate by growth.
+ * declared on every issue object (then `IssueNode`, now `IssueModel`), and one
+ * extra reaction per held issue in `VisibleCollection.add`, each fail the gate
+ * by growth.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
