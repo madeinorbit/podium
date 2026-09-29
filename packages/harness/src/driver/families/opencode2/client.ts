@@ -1,4 +1,4 @@
-import type { OpencodeClient, OpencodeClientConfig } from '../opencode/client.js'
+import { type OpencodeClient, type OpencodeClientConfig, OpencodeHttpError } from '../opencode/client.js'
 import type {
   OpencodeEvent,
   OpencodeMessageWithParts,
@@ -49,8 +49,11 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       clearTimeout(timeout)
       if (!streaming) signal?.removeEventListener('abort', onAbort)
     }
+    // The status travels as data: the driver refuses a send only on the 400 or
+    // 404 measured to record nothing, never on a 409, which means the id IS
+    // recorded (POD-4834, POD-4839).
     if (!response.ok)
-      throw new Error(`opencode2 ${method} ${path} → ${response.status}: ${await response.text()}`)
+      throw new OpencodeHttpError(response.status, `${method} ${path}`, await response.text())
     return response
   }
   const sid = () => {
