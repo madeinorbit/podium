@@ -174,7 +174,7 @@ describe('enforcement', () => {
 })
 
 describe('ingest', () => {
-  it('bootstraps every resident row into its table and builds no model until one is read', () => {
+  it('bootstraps every resident row into its table and builds only the worklist\'s objects', () => {
     const r = rig()
     try {
       const { pool } = r.handle
@@ -190,8 +190,15 @@ describe('ingest', () => {
       ])
       expect(sizes[0]).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
-      for (const entity of ENTITIES) expect(pool.modelCount(entity), entity).toBe(0)
-      expect(pool.stats.counters.modelsCreated).toBe(0)
+      // One object per issue the worklist holds (its visibility is cached on
+      // it), and the sessions those read; no worktree or repo object until
+      // one is read.
+      expect(pool.modelCount('issue')).toBe(pool.worklist.size())
+      expect(pool.modelCount('worktree')).toBe(0)
+      expect(pool.modelCount('repo')).toBe(0)
+      expect(pool.stats.counters.modelsCreated).toBe(
+        pool.modelCount('issue') + pool.modelCount('session'),
+      )
     } finally {
       r.dispose()
     }
@@ -314,10 +321,11 @@ describe('ingest', () => {
       const watch = autorun(() => {
         titles.push(pool.issue(id)?.view?.title)
       })
-      expect(pool.modelCount('issue')).toBe(1)
+      const models = pool.modelCount('issue')
       r.push({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
       expect(runInAction(() => pool.tables.issue.has(id))).toBe(false)
-      expect(pool.modelCount('issue')).toBe(0)
+      expect(pool.modelCount('issue')).toBe(models - 1)
+      expect(tracked(() => pool.issue(id))).toBeUndefined()
       expect(pool.stats.counters.rowsRemoved).toBe(1)
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Back again' })] })
       watch()

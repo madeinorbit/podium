@@ -86,6 +86,8 @@ export interface IssueParts {
   readonly prefix: string | null
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
+  /** What a spin-off's origin tick copies (the ref, the title and the seq): a group apart from the own part. */
+  readonly label: Label
   /**
    * `issue.discoveredFrom`, resolved by the engine: a KNOWN origin (in the
    * live pool it may be cold), or null. Its loading check reads this.
@@ -376,17 +378,20 @@ export function originIdPartOf(input: ViewInputs, originRef: string | null): str
   return originRef !== null && input.present('issue', originRef) ? originRef : null
 }
 
-/** The ⤷ tick: a flat copy of the origin's parts (spec §3 R-ORIGIN). */
+/**
+ * The ⤷ tick: a flat copy of the origin's label (spec §3 R-ORIGIN). It reads
+ * the label, never the own part, so an origin crossing a deadline (its band,
+ * its fold) re-derives none of its spin-offs.
+ */
 export function originTickPartOf(input: ViewInputs, originId: string | null): RowOriginTick | null {
   if (originId === null) return null
-  const origin = input.parts(originId)
-  const own = origin?.own
-  if (origin === undefined || own === undefined) return null
+  const label = input.parts(originId)?.label
+  if (label === undefined || label.seq === undefined) return null
   return {
     id: originId,
-    seq: own.seq,
-    title: origin.displayTitle ?? '',
-    ref: origin.displayRef ?? '',
+    seq: label.seq,
+    title: label.displayTitle ?? '',
+    ref: label.displayRef ?? '',
   }
 }
 
@@ -435,10 +440,12 @@ export function loadingPartOf(
   return loading
 }
 
-/** The label group: what a spin-off's origin tick copies, and the row's own title and ref. */
+/** The label group: the row's own ref and title, and what a spin-off's origin tick copies. */
 export interface Label {
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
+  /** The own part's `seq`; undefined when the issue is unknown. */
+  readonly seq: number | undefined
 }
 
 /** The label group of issue `id`, over its own part. */
@@ -446,6 +453,7 @@ export function labelOf(input: ViewInputs, id: string, own: OwnPart | undefined)
   return {
     displayRef: displayRefPartOf(own, prefixPartOf(input, repoTargetPartOf(input, id))),
     displayTitle: displayTitlePartOf(input, id, sessionIdsPartOf(input, id)),
+    seq: own?.seq,
   }
 }
 
@@ -466,6 +474,9 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
     },
     get displayTitle() {
       return displayTitlePartOf(input, id, parts.sessionIds)
+    },
+    get label() {
+      return { displayRef: parts.displayRef, displayTitle: parts.displayTitle, seq: parts.own?.seq }
     },
     get originRef() {
       return originRefPartOf(input, id)

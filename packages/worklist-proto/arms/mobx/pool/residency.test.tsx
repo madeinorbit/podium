@@ -213,7 +213,12 @@ describe('bootstrap', () => {
     // What MobX itself reports building: one table slot per HOT row.
     expect(built['pool.issue']).toBe(hotIssues.length)
     expect(built['pool.session']).toBe(hotSessions.length)
-    expect(pool.stats.counters.modelsCreated).toBe(0)
+    // One object per issue the worklist holds, cold ones included (their
+    // visibility reads the cold row by id), and the sessions those read.
+    expect(pool.modelCount('issue')).toBe(pool.worklist.size())
+    expect(pool.stats.counters.modelsCreated).toBe(
+      pool.modelCount('issue') + pool.modelCount('session'),
+    )
     expect(pool.residency?.counters.requests).toBe(0)
     // Mb1 (POD-4569): the visible collection answers every cold row's
     // visibility by reading it once by id through the feed; none is loaded
@@ -261,10 +266,11 @@ describe('bootstrap', () => {
     })
   })
 
-  it('makes no model observable before first access: models == rows the mounted list drew', async () => {
+  it('drawing builds no object beyond the held issues, the drawn rows and their origins', async () => {
     const r = rig()
     const { pool } = r
-    expect(pool.stats.counters.modelsCreated).toBe(0)
+    const held = new Set(pool.worklist.heldIds())
+    expect(pool.modelCount('issue')).toBe(held.size)
     const el = document.createElement('div')
     document.body.append(el)
     let unmount = (): void => {}
@@ -287,19 +293,16 @@ describe('bootstrap', () => {
     })
     expect(drawn).toEqual(visibleHot)
     // A drawn row's activity re-composes from its retained seats' cached
-    // values (POD-4568; the seats, not every explicit member, since POD-4679:
-    // legacy `retainedSessions`), so its resident seats get a model too:
-    // models == rows drawn + the resident origins they tick + their resident
-    // retained seats, nothing else.
+    // values (legacy `retainedSessions`), so its resident seats have an
+    // object too.
     const members = new Set(
       tracked(() => drawn.flatMap((id) => pool.worklist.issue(id!)?.retainedSeatIds ?? [])).filter(
         (id) => tracked(() => pool.resident('session', id)) === 'resident',
       ),
     )
     expect(members.size).toBeGreaterThan(0)
-    // A drawn spin-off's ⤷ tick reads its origin's parts, so a RESIDENT origin
-    // the list hides gets a model too (Mb1: the list no longer draws every
-    // resident issue).
+    // A drawn spin-off's ⤷ tick reads its origin's label, so a RESIDENT
+    // origin the list hides gets an object too.
     const drawnSet = new Set(drawn)
     const origins = new Set(
       tracked(() =>
@@ -309,10 +312,12 @@ describe('bootstrap', () => {
         }),
       ),
     )
-    const issueModels = drawn.length + origins.size
+    const issueModels = new Set([...held, ...drawn, ...origins]).size
     expect(pool.modelCount('issue')).toBe(issueModels)
-    expect(pool.modelCount('session')).toBe(members.size)
-    expect(pool.stats.counters.modelsCreated).toBe(issueModels + members.size)
+    expect(pool.modelCount('session')).toBeGreaterThanOrEqual(members.size)
+    expect(pool.stats.counters.modelsCreated).toBe(
+      issueModels + pool.modelCount('session'),
+    )
     // No cold row got a model, and none was drawn.
     for (const issue of corpus.sliceIssues) {
       if (isCold(issue)) expect(tracked(() => pool.resident('issue', issue.id))).toBe('loading')

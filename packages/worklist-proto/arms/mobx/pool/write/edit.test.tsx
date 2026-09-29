@@ -8,6 +8,8 @@
  * - A rejected stage change leaves relations and order consistent (the order
  *   equals the oracle's before, during, and after; the relation check is empty).
  * - Mark-read rides `issues.markRead` and rewinds to null.
+ * - The model's setters (`issue.title = x`, `issue.update({...})`) are one
+ *   transaction each and paint their row once; without a write layer they throw.
  *
  * Truth feed (W12): the kernel's fold still runs for the legacy app, so an
  * `overlaid` feed would deliver the same patch twice. The L4b regression run
@@ -27,7 +29,8 @@ import type {
   TxId,
   WriteTransport,
 } from '../../../../shared/src/write-contract'
-import { commandFor } from '../../../../shared/src/write-contract'
+import { commandFor, WriteContractError } from '../../../../shared/src/write-contract'
+import { mobxPoolArm } from '../arm'
 import { diffRelations, knownTables } from '../enumerate'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { tracked } from '../pool'
@@ -307,6 +310,113 @@ describe('Mc1 MobX edits on the model', () => {
       expect(handle.pool.snapshot()).toBeDefined()
     } finally {
       mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+})
+
+/**
+ * Linear's edit shape on the model itself: `issue.title = x` and
+ * `issue.update({...})` are the write layer's `edit` (one transaction of its
+ * log: paint, remember, send), and reading the field back shows the pending
+ * value through the pool's one reader.
+ */
+describe('model edit setters', () => {
+  it('issue.title = x is one transaction and paints its row once', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const transport = fakeTransport()
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+    try {
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const id = ctx.targets.visibleRootId
+      const issue = tracked(() => handle.pool.issue(id))
+      if (issue === undefined) throw new Error('the visible root has a model')
+      const serverTitle = tracked(() => issue.title)
+
+      const edited = await runCountScenario(mounted, {
+        scenario: 'mobxModelSetter',
+        methodology: '#4-write',
+        apply: () => {
+          issue.title = 'Set on the model'
+        },
+        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
+      })
+      // One transaction: one command sent, one pending edit in the log.
+      expect(transport.sent).toHaveLength(1)
+      expect(transport.sent[0]!.command).toEqual(
+        commandFor('issue', id, { title: 'Set on the model' }),
+      )
+      expect(handle.write.log.size).toBe(1)
+      expect(handle.write.log.pendingFor('issue', id)).toHaveLength(1)
+      // One paint: that row, once.
+      expect(edited.rowsCommitted).toBe(1)
+      expect(edited.commitsByRow).toEqual({ [id]: 1 })
+      // Reading back shows the pending value (the one reader), as the row does.
+      expect(tracked(() => issue.title)).toBe('Set on the model')
+      expect(tracked(() => handle.pool.issue(id)?.view?.title)).toBe('Set on the model')
+      expect(serverTitle).not.toBe('Set on the model')
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+
+  it('issue.update({...}) is one transaction for every field it names', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const transport = fakeTransport()
+    const arm = writableMobxPoolArm(transport, NEVER_AUTO)
+    const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
+    try {
+      const handle = mounted.handle as WritableMobxPoolHandle
+      const id = ctx.targets.visibleRootId
+      const issue = tracked(() => handle.pool.issue(id))
+      if (issue === undefined) throw new Error('the visible root has a model')
+      const stage: EditableStage = tracked(() => issue.stage) === 'review' ? 'in_progress' : 'review'
+
+      let tx: TxId | null = null
+      const edited = await runCountScenario(mounted, {
+        scenario: 'mobxModelUpdate',
+        methodology: '#4-write',
+        apply: () => {
+          tx = issue.update({ title: 'Updated on the model', stage })
+        },
+        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
+      })
+      expect(transport.sent).toHaveLength(1)
+      expect(transport.sent[0]!.txId).toBe(tx)
+      expect(transport.sent[0]!.command).toEqual(
+        commandFor('issue', id, { title: 'Updated on the model', stage }),
+      )
+      expect(handle.write.log.pendingFor('issue', id)).toHaveLength(1)
+      expect(edited.commitsByRow[id]).toBe(1)
+      expect(tracked(() => [issue.title, issue.stage])).toEqual(['Updated on the model', stage])
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+
+  it('a pool without a write layer refuses a model edit and changes nothing', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, NEVER_AUTO)
+    try {
+      const id = ctx.targets.visibleRootId
+      const issue = tracked(() => handle.pool.issue(id))
+      if (issue === undefined) throw new Error('the visible root has a model')
+      const title = tracked(() => issue.title)
+      expect(() => {
+        issue.title = 'Nowhere to go'
+      }).toThrow(WriteContractError)
+      expect(tracked(() => issue.title)).toBe(title)
+    } finally {
+      handle.dispose()
       feeds.dispose()
       ctx.engine.destroy()
     }
