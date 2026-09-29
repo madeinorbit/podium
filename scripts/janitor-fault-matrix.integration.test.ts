@@ -51,7 +51,7 @@ function dueMessage(id: string): MessageRow {
 function observed(message: MessageRow) {
   return {
     messageId: message.id,
-    status: 'queued' as const,
+    deliveryStatus: 'stored' as const,
     lifecycle: message.lifecycle,
     createdAt: message.createdAt,
     expiresAt: message.expiresAt,
@@ -154,7 +154,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
       fencingToken: 1,
       observed: {
         messageId: 'stale',
-        status: 'queued',
+        deliveryStatus: 'stored',
         lifecycle: 'wait',
         createdAt: '2026-07-01T00:00:00.000Z',
         expiresAt: null,

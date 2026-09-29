@@ -7,10 +7,10 @@
  *  - the table walker drives the repository's one guarded write for EVERY
  *    (from, to) pair, so a move the table does not list is refused by the SQL,
  *    not only by review;
- *  - the legacy `status` column is written as a pure mirror of every move;
  *  - the CHECK constraint admits exactly the machine's states;
- *  - the migration turns legacy rows into the new statuses, including the
- *    sub-state that used to hide in `injected_at`;
+ *  - the migrations turn legacy rows into the new statuses, including the
+ *    sub-state that used to hide in `injected_at`, and then drop the legacy
+ *    column (POD-4787);
  *  - nothing outside the repository writes the status, and inside it only the
  *    guarded move does (the grep proof).
  */
@@ -31,7 +31,7 @@ import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
-import { legacyMessageStatus, MessagesRepository } from './messages'
+import { MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
@@ -78,18 +78,11 @@ function row(id: string): MessageRow {
 /** Plant a row in `status` directly: the walker is about the next move. */
 async function planted(id: string, status: MessageDeliveryStatus): Promise<void> {
   await messages.addMessage(row(id))
-  db.prepare('UPDATE messages SET delivery_status = ?, status = ? WHERE id = ?').run(
-    status,
-    legacyMessageStatus(status, false),
-    id,
-  )
+  db.prepare('UPDATE messages SET delivery_status = ? WHERE id = ?').run(status, id)
 }
 
 const statusOf = (id: string) =>
-  db.prepare('SELECT delivery_status AS d, status AS s FROM messages WHERE id = ?').get(id) as {
-    d: string
-    s: string
-  }
+  db.prepare('SELECT delivery_status AS d FROM messages WHERE id = ?').get(id) as { d: string }
 
 /** The repository's one guarded write, which every public status method uses. */
 const move = (id: string, to: MessageDeliveryStatus): Promise<MoveOutcome<MessageDeliveryStatus>> =>
@@ -135,49 +128,6 @@ describe('the table walker', () => {
       expect(await move('c', to)).toEqual({ kind: 'refused', current: 'confirmed' })
     }
     expect(statusOf('c').d).toBe('confirmed')
-  })
-})
-
-describe('the legacy status mirror', () => {
-  it('is written in the same statement as every move', async () => {
-    // Written out, not derived from `legacyMessageStatus`: a test that asked the
-    // function under test for its expectation could never fail.
-    const legacy: Record<MessageDeliveryStatus, string> = {
-      stored: 'queued',
-      dispatched: 'queued',
-      'reached-machine': 'queued',
-      typing: 'queued',
-      typed: 'queued',
-      unknown: 'queued',
-      confirmed: 'delivered',
-      failed: 'dead_letter',
-      expired: 'expired',
-      cancelled: 'cancelled',
-    }
-    for (const status of MESSAGE_DELIVERY_STATUSES) {
-      const id = `mirror-${status}`
-      const from = MessageDelivery.allowedFrom(status)[0]
-      if (from === undefined) {
-        // The entry state: `addMessage` writes it.
-        await messages.addMessage(row(id))
-      } else {
-        await planted(id, from)
-        expect((await move(id, status)).kind).toBe('applied')
-      }
-      expect(statusOf(id)).toEqual({ d: status, s: legacy[status] })
-    }
-  })
-
-  it('reads `read` for a confirmed row once it was read, as the old pull path wrote it', async () => {
-    await messages.addMessage(row('pulled'))
-    await messages.markRead('pulled', null, 't1')
-    expect(statusOf('pulled')).toEqual({ d: 'confirmed', s: 'read' })
-
-    await messages.addMessage(row('pushed-then-read'))
-    await messages.markDelivered('pushed-then-read', null, 't1')
-    expect(statusOf('pushed-then-read')).toEqual({ d: 'confirmed', s: 'delivered' })
-    await messages.markRead('pushed-then-read', null, 't2')
-    expect(statusOf('pushed-then-read')).toEqual({ d: 'confirmed', s: 'read' })
   })
 })
 
@@ -239,10 +189,9 @@ describe('the migration', () => {
     runDrizzleMigrations(legacy, DRIZZLE_MIGRATIONS)
     cases.forEach(([status, injectedAt, , expected], i) => {
       const after = legacy
-        .prepare('SELECT delivery_status AS d, status AS s FROM messages WHERE id = ?')
-        .get(`m${i}`) as { d: string; s: string }
-      // The legacy column is untouched: a rollback binary reads what it wrote.
-      expect(after, `${status} injected=${injectedAt}`).toEqual({ d: expected, s: status })
+        .prepare('SELECT delivery_status AS d FROM messages WHERE id = ?')
+        .get(`m${i}`) as { d: string }
+      expect(after, `${status} injected=${injectedAt}`).toEqual({ d: expected })
     })
   })
 })
@@ -293,15 +242,13 @@ describe('every status write goes through the guarded move (the grep proof)', ()
     )
     expect(assignments.sort()).toEqual(["'stored'", 'r.deliveryStatus', 'to'].sort())
     // The move is the one `moveStatus` call. Of the table's UPDATEs, exactly
-    // one sets delivery_status (the move); the legacy mirror is set only by the
-    // move and by the read stamp, which moves no status. The others (ack,
-    // reminder) touch neither.
+    // one sets delivery_status (the move); the others (read stamp, ack,
+    // reminder) move no status.
     expect([...source.matchAll(/moveStatus\(/g)]).toHaveLength(1)
     const updates = [
       ...source.matchAll(/\.update\(messagesTable\)\s*\.set\(\{([\s\S]*?)\}\)/g),
     ].map((m) => m[1]!)
     expect(updates.length).toBeGreaterThanOrEqual(2)
     expect(updates.filter((set) => /deliveryStatus/.test(set))).toHaveLength(1)
-    expect(updates.filter((set) => /legacyStatus/.test(set))).toHaveLength(2)
   })
 })

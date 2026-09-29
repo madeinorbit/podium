@@ -129,8 +129,9 @@ function helpText(): string {
     '  show <id>',
     '      One message in full (sender/recipient/thread/ledger).',
     '  status <id>',
-    '      What happened to a message you sent: queued / delivered (in the target’s',
-    '      transcript) / read (inbox-pulled) / dead-lettered, with timestamps.',
+    '      What happened to a message you sent: stored / on its way (dispatched …',
+    '      typed) / confirmed (in the target’s transcript, or read from its inbox) /',
+    '      failed / expired / cancelled, with timestamps.',
     '  dismiss <id>',
     '      Clear a message without opening the inbox; a new transition may notify again.',
     '  reply <id> --body "…" [--kind ack|message]',
@@ -149,10 +150,8 @@ interface MessageWire {
   lifecycle: string
   body: string
   createdAt: string
-  /** Legacy vocabulary; the only status a server before POD-4765 sends. */
-  status: string
-  /** Forward-only delivery status (POD-4765). Absent from older servers. */
-  deliveryStatus?: string
+  /** Forward-only delivery status (POD-4765). */
+  deliveryStatus: string
   ackedBy: string | null
   threadId: ThreadId
   inReplyTo: string | null
@@ -170,13 +169,9 @@ interface MessageWire {
   expectsResponse?: boolean
 }
 
-/** The status to show: the delivery status, or the legacy word from an older
- *  server that does not send one. */
-const statusOf = (m: MessageWire): string => m.deliveryStatus ?? m.status
-
 function renderRow(m: MessageWire): string {
   const flags = [
-    statusOf(m),
+    m.deliveryStatus,
     m.kind !== 'message' ? m.kind : null,
     // Show an OPEN request (not once it is answered) so the reader knows to reply.
     m.expectsResponse && !m.ackedBy ? 'wants-reply' : null,
@@ -186,9 +181,7 @@ function renderRow(m: MessageWire): string {
   // unconfirmed row (delivery-failed) is a delivery failure, not a vanished
   // target. The shared ledger line keeps every surface worded one way.
   const cause =
-    statusOf(m) === 'failed' || statusOf(m) === 'dead_letter'
-      ? ` · ${deadLetterDeliveryLine(m.deliveryDeferredReason)}`
-      : ''
+    m.deliveryStatus === 'failed' ? ` · ${deadLetterDeliveryLine(m.deliveryDeferredReason)}` : ''
   return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]${cause}\n  ${m.body}`
 }
 
@@ -241,22 +234,13 @@ function renderLifecycle(m: MessageWire): string {
       : anonymous
         ? 'recorded as consumed, but NO recipient session was named — nobody is known to have it'
         : 'appeared in the target’s transcript — the agent has it',
-    failed,
-    unknown: 'handed on, but it cannot be told whether it arrived — check before resending',
-    // The legacy words an older server sends.
-    queued: 'captured + waiting for the target (not yet in its context)',
-    delivered: anonymous
-      ? 'recorded as consumed, but NO recipient session was named — nobody is known to have it'
-      : 'appeared in the target’s transcript — the agent has it',
-    read: anonymous
-      ? 'opened from an inbox, but NO recipient session was named'
-      : 'the recipient opened its inbox and read it',
     // The drain reasons name what actually happened to the target [POD-2132,
     // POD-2202]; without one, the plain "gone" story is the right one. An
-    // injected-but-unconfirmed dead letter (delivery-failed) is a delivery
-    // failure, not a vanished target [POD-4704] — the shared gloss keeps the
-    // CLI worded the same way as the web ledger and the steward notice.
-    dead_letter: failed,
+    // injected-but-unconfirmed failure (delivery-failed) is a delivery failure,
+    // not a vanished target [POD-4704] — the shared gloss keeps the CLI worded
+    // the same way as the web ledger and the steward notice.
+    failed,
+    unknown: 'handed on, but it cannot be told whether it arrived — check before resending',
     expired: 'sat undelivered past its TTL',
     cancelled: 'withdrawn',
   }
@@ -271,7 +255,7 @@ function renderLifecycle(m: MessageWire): string {
   ].filter(Boolean)
   return [
     `${m.id} ${m.from} -> ${m.to}`,
-    `  status: ${statusOf(m)} — ${gloss[statusOf(m)] ?? ''}`,
+    `  status: ${m.deliveryStatus} — ${gloss[m.deliveryStatus] ?? ''}`,
     `  captured=${m.createdAt}${stamps.length ? ` ${stamps.join(' ')}` : ''}`,
   ].join('\n')
 }

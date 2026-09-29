@@ -123,7 +123,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
       messageId: message.id,
-      status: 'queued' as const,
+      deliveryStatus: 'stored' as const,
       lifecycle: message.lifecycle,
       createdAt: message.createdAt,
       expiresAt: message.expiresAt,
@@ -159,7 +159,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
       messageId: explicit.id,
-      status: 'queued' as const,
+      deliveryStatus: 'stored' as const,
       lifecycle: explicit.lifecycle,
       createdAt: explicit.createdAt,
       expiresAt: explicit.expiresAt,

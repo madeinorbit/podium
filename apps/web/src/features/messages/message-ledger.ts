@@ -24,8 +24,6 @@ export interface LedgerMessage {
   lifecycle: string
   body: string
   createdAt: string
-  /** Legacy vocabulary, kept on the wire for older clients; not read here. */
-  status: string
   /** Where delivery stands, forward-only (`MessageDelivery` in @podium/model). */
   deliveryStatus: MessageDeliveryStatus
   /** Current 1-based position in the recipient session FIFO at read time. */

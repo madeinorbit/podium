@@ -149,10 +149,6 @@ export interface MessageWire {
   lifecycle: string
   body: string
   createdAt: string
-  /** LEGACY: the pre-POD-4765 vocabulary (`queued`/`delivered`/`read`/
-   *  `dead_letter`/`expired`/`cancelled`), kept for clients that predate
-   *  `deliveryStatus`. New readers use `deliveryStatus`. */
-  status: string
   /** Where delivery stands, forward-only (`MessageDelivery` in @podium/model). */
   deliveryStatus: MessageDeliveryStatus
   /** Current 1-based position in the recipient session FIFO, read at projection time. */
@@ -163,10 +159,8 @@ export interface MessageWire {
   // message / why didn't my wake fire" from these.
   deliveredAt: string | null
   deliveredTo: string | null
-  /** When the push crossed into the recipient's CLI — short of delivery, which
-   *  waits for the agent to take it as a turn. A queued row carrying this stamp
-   *  is in the harness's hands: nothing further will be typed, and the chat stops
-   *  calling it pending (POD-1242). */
+  /** When it was handed on toward `deliveredTo`. A timestamp only: where
+   *  delivery stands is `deliveryStatus`, never this stamp [POD-4765]. */
   injectedAt: string | null
   expiresAt: string | null
   /** JSON of the REQUESTED axes when the clamp matrix downgraded them. */

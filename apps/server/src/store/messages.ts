@@ -53,7 +53,7 @@ import {
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 import { moveStatus } from './guarded-move'
-import type { LegacyMessageStatus, MessageRow, MessageToKind } from './types'
+import type { MessageRow, MessageToKind } from './types'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). Here, below the renderer,
@@ -84,34 +84,8 @@ const notOnItsWay = (handedTo?: SessionId): SQL =>
 /** Not ended: held, on its way, or lost track of. */
 const pending = (): SQL => inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING])
 
-/**
- * THE LEGACY `status` VALUE for a delivery status (POD-4765). Written beside
- * every move so a one-release rollback reads rows it understands; decided on by
- * nothing current. A confirmed row reads `read` once its read_at is stamped,
- * as the old pull path wrote it.
- */
-export function legacyMessageStatus(status: MessageDeliveryStatus, read: boolean): LegacyMessageStatus {
-  switch (status) {
-    case 'stored':
-    case 'dispatched':
-    case 'reached-machine':
-    case 'typing':
-    case 'typed':
-    case 'unknown':
-      return 'queued'
-    case 'confirmed':
-      return read ? 'read' : 'delivered'
-    case 'failed':
-      return 'dead_letter'
-    case 'expired':
-      return 'expired'
-    case 'cancelled':
-      return 'cancelled'
-  }
-}
-
-/** The columns a move may set besides the status pair the move owns. */
-type MoveSet = Omit<SQLiteUpdateSetSource<typeof messagesTable>, 'deliveryStatus' | 'legacyStatus' | 'id'>
+/** The columns a move may set besides the status the move owns. */
+type MoveSet = Omit<SQLiteUpdateSetSource<typeof messagesTable>, 'deliveryStatus' | 'id'>
 
 /** Did the move change the row? The one reading most callers need. */
 export const moved = (outcome: MoveOutcome<MessageDeliveryStatus>): boolean =>
@@ -352,7 +326,6 @@ export class MessagesRepository {
         expiresAt: m.expiresAt,
         createdAt: m.createdAt,
         deliveryStatus: 'stored',
-        legacyStatus: legacyMessageStatus('stored', false),
         deliveredAt: m.deliveredAt,
         deliveredTo: m.deliveredTo,
         ackedBy: m.ackedBy,
@@ -783,9 +756,9 @@ export class MessagesRepository {
   /**
    * THE ONE STATUS WRITE [POD-4765]. Every change to `delivery_status` is this
    * guarded UPDATE: it applies only from a state {@link MessageDelivery} allows a
-   * move from, sets the legacy `status` mirror in the same statement, and says
-   * what happened — applied, already there (a repeat: nothing written, nothing
-   * to announce), or refused with where the row actually is. `where` narrows the
+   * move from, and says what happened — applied, already there (a repeat:
+   * nothing written, nothing to announce), or refused with where the row
+   * actually is. `where` narrows the
    * row further (which push a report answers); `set` carries the stamps that
    * travel with the move.
    */
@@ -794,7 +767,6 @@ export class MessagesRepository {
     to: MessageDeliveryStatus,
     opts: { set?: MoveSet; where?: readonly SQL[] } = {},
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    const readNow = opts.set?.readAt != null
     return await moveStatus({
       machine: MessageDelivery,
       column: messagesTable.deliveryStatus,
@@ -803,14 +775,7 @@ export class MessagesRepository {
         (
           await this.write(async () => this.db
             .update(messagesTable)
-            .set({
-              ...opts.set,
-              deliveryStatus: to,
-              legacyStatus:
-                to === 'confirmed' && !readNow
-                  ? sql`CASE WHEN ${messagesTable.readAt} IS NULL THEN 'delivered' ELSE 'read' END`
-                  : legacyMessageStatus(to, readNow),
-            })
+            .set({ ...opts.set, deliveryStatus: to })
             .where(and(eq(messagesTable.id, id), guard, ...(opts.where ?? [])))
             .returning()
             .all(), 'upsert')
@@ -1068,7 +1033,7 @@ export class MessagesRepository {
       // A stamp, not a move: `delivery_status` is untouched. First read wins.
       const stamped = await this.write(async () => this.db
         .update(messagesTable)
-        .set({ readAt, legacyStatus: legacyMessageStatus('confirmed', true) })
+        .set({ readAt })
         .where(and(eq(messagesTable.id, id), isNull(messagesTable.readAt)))
         .returning()
         .all(), 'upsert')

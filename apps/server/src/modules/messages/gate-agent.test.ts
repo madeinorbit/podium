@@ -1235,7 +1235,7 @@ describe('message ledger (gate)', () => {
     expect(rows).toHaveLength(2)
     // Newest first.
     expect(rows.map((r) => r.body)).toEqual(['second', 'first'])
-    expect(rows[1]).toMatchObject({ from: 'issue:#212', to: 'issue:#228', status: 'queued' })
+    expect(rows[1]).toMatchObject({ from: 'issue:#212', to: 'issue:#228', deliveryStatus: 'stored' })
     // Ledger fields present on the wire.
     expect(rows[0]).toHaveProperty('deliveredAt')
     expect(rows[0]).toHaveProperty('clampedFrom')
@@ -1307,7 +1307,7 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
     const wire = (await gate.dispatch(PARENT, undefined, 'status', {
       id: r.message.id,
     })) as Record<string, unknown>
-    expect(wire).toMatchObject({ id: r.message.id, status: 'queued' })
+    expect(wire).toMatchObject({ id: r.message.id, deliveryStatus: 'stored' })
     // The lifecycle timestamps are on the wire (all null until they transition).
     expect(wire).toHaveProperty('deliveredAt')
     expect(wire).toHaveProperty('readAt')

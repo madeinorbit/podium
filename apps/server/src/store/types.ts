@@ -549,21 +549,8 @@ export type MessageToKind = 'issue' | 'session' | 'operator'
 export type MessageKind = 'message' | 'ack' | 'notification' | 'question'
 export type MessageUrgency = 'fyi' | 'next-turn' | 'interrupt'
 export type MessageLifecycle = 'wait' | 'wake'
-/** The LEGACY delivery vocabulary [spec:SP-34d7, POD-834], still written to
- *  the `status` column as a mirror of `delivery_status` so a one-release rollback
- *  reads rows it understands (POD-4765). Nothing current decides on it: the
- *  store derives it and the wire repeats it for clients that predate
- *  `deliveryStatus`. */
-export type LegacyMessageStatus =
-  | 'queued'
-  | 'delivered'
-  | 'read'
-  | 'dead_letter'
-  | 'expired'
-  | 'cancelled'
-
 /** One row in the unified `messages` table: the message AND its delivery
- *  ledger (status, delivered_at/to, acked_by are the ledger columns). */
+ *  ledger (delivery_status, delivered_at/to, acked_by are the ledger columns). */
 export interface MessageRow {
   id: string
   /** = id for a new thread; replies inherit the original's threadId. */

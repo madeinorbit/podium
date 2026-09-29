@@ -635,9 +635,8 @@ export class MessageExpiryReader {
         candidates.push(
           MessageExpiryObservation.parse({
             messageId: row.id,
-            // Only a row the server still holds can expire (POD-4765); the
-            // observation names it in the legacy vocabulary the protocol pins.
-            status: 'queued',
+            // The page read only `stored` rows: the one status that expires.
+            deliveryStatus: 'stored',
             lifecycle: row.lifecycle,
             createdAt: row.created_at,
             expiresAt: row.expires_at,

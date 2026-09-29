@@ -56,7 +56,7 @@ function row(over: Record<string, unknown>) {
     body: 'b',
     expiresAt: null,
     createdAt: 't',
-    status: 'queued',
+    deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
     ackedBy: null,
