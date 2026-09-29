@@ -740,9 +740,9 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     expect(ptyFrames(o.daemon).filter((f) => f.data.includes(BODY))).toEqual([])
 
     // Handed on is not delivered: the ledger waits for the driver.
-    expect(((await o.call.messages.show({ id: sent.id })) as { status: string }).status).toBe(
-      'queued',
-    )
+    expect(
+      ((await o.call.messages.show({ id: sent.id })) as { deliveryStatus: string }).deliveryStatus,
+    ).toBe('dispatched')
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: `delivery-${request!.rowId}`,
@@ -760,8 +760,8 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     })
     await waitFor(
       async () =>
-        ((await o.call.messages.show({ id: sent.id })) as { status: string }).status ===
-        'delivered',
+        ((await o.call.messages.show({ id: sent.id })) as { deliveryStatus: string })
+          .deliveryStatus === 'confirmed',
       'the delivery event to settle the message',
     )
     expect(ptyFrames(o.daemon)).toEqual([])
