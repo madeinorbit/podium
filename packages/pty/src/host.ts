@@ -51,6 +51,8 @@ export const HostFrame = {
   KILL: 0x08,
   REPLAY: 0x09,
   STEAL: 0x0a,
+  /** Ask a screen host for pictures (POD-4909); see {@link HostConnection.requestPicture}. */
+  PICTURE: 0x0b,
   WELCOME: 0x81,
   DATA: 0x82,
   GAP: 0x83,
@@ -63,8 +65,16 @@ export const HostFrame = {
   REPLAYING: 0x8a,
   REPLAYED: 0x8b,
   STOLEN: 0x8c,
+  /** A picture of the screen in the output stream: u64 seq, u8 reason, u16 cols, u16 rows, bytes. */
+  PICTURE_DATA: 0x8d,
   ERR: 0x8f,
 } as const
+
+/** Why a host sent a picture: it answers a request or follows a resize, or it bounds the tail. */
+export const HostPictureReason = { RESET: 0, CUT: 1 } as const
+
+/** WELCOME's trailing features byte (the Rust host; the C host sends none). */
+export const HostFeature = { SCREEN: 1 } as const
 
 /**
  * ERR codes. INPUT_FULL comes only from the Rust host (POD-4791): it caps the
@@ -120,7 +130,22 @@ export interface HostWelcome {
   seqLow: bigint
   seqHigh: bigint
   lease: boolean
+  /** WELCOME's trailing features byte; 0 when absent (the C host). */
+  features: number
+  /** The host keeps the screen and answers PICTURE (features bit 0). */
+  screen: boolean
 }
+
+/**
+ * What a connection's output stream carries, in order: DATA, and (from a
+ * screen host, once asked) pictures. A picture's `bytes`, written to a fresh
+ * terminal of `cols` x `rows`, leave it as the output before `seq` did; the
+ * DATA before it ends at `seq` and the DATA after it goes on from there.
+ * `reset` answers a request or follows a resize; `cut` bounds the tail.
+ */
+export type HostItem =
+  | { kind: 'data'; seq: bigint; data: Buffer }
+  | { kind: 'picture'; seq: bigint; reason: 'reset' | 'cut'; cols: number; rows: number; bytes: Buffer }
 
 export interface HostStatus {
   alive: boolean
@@ -197,6 +222,7 @@ export class HostConnection {
   private resolveWelcome!: (w: HostWelcome) => void
   private rejectWelcome!: (e: Error) => void
   private readonly dataCbs = new Set<(seq: bigint, data: Buffer) => void>()
+  private readonly itemCbs = new Set<(item: HostItem) => void>()
   private readonly gapCbs = new Set<(seqLow: bigint) => void>()
   private readonly exitCbs = new Set<(code: number, signal: number) => void>()
   private readonly closeCbs = new Set<(err?: Error) => void>()
@@ -266,6 +292,8 @@ export class HostConnection {
           seqLow: p.readBigUInt64BE(15),
           seqHigh: p.readBigUInt64BE(23),
           lease: p[31] === 1,
+          features: p.length > 32 ? (p[32] as number) : 0,
+          screen: p.length > 32 && ((p[32] as number) & HostFeature.SCREEN) !== 0,
         }
         this.welcomed = w
         this.leaseHeld = w.lease
@@ -282,6 +310,23 @@ export class HostConnection {
         if (this.lastSeq === undefined || end > this.lastSeq) this.lastSeq = end
         if (this.replaying) this.replaying.bytes += data.length
         for (const cb of [...this.dataCbs]) cb(seq, data)
+        this.emitItem({ kind: 'data', seq, data })
+        return
+      }
+      case HostFrame.PICTURE_DATA: {
+        const seq = p.readBigUInt64BE(0)
+        // The DATA before it already reached seq; a max, as for DATA.
+        if (this.lastSeq === undefined || seq > this.lastSeq) this.lastSeq = seq
+        this.emitItem({
+          kind: 'picture',
+          seq,
+          // A picture is the whole state whatever the reason; one this client
+          // does not know is treated as the safer of the two.
+          reason: p[8] === HostPictureReason.CUT ? 'cut' : 'reset',
+          cols: p.readUInt16BE(9),
+          rows: p.readUInt16BE(11),
+          bytes: p.subarray(13),
+        })
         return
       }
       case HostFrame.REPLAYING:
@@ -368,6 +413,10 @@ export class HostConnection {
     }
   }
 
+  private emitItem(item: HostItem): void {
+    for (const cb of [...this.itemCbs]) cb(item)
+  }
+
   private setSize(cols: number, rows: number): void {
     const size = { cols, rows }
     this.kernelSize = size
@@ -437,6 +486,21 @@ export class HostConnection {
   }
 
   /**
+   * Ask for pictures (POD-4909). Sent only to a host whose WELCOME announced
+   * the screen — never to the C host, which would close the connection on an
+   * unknown frame — so it returns false until the WELCOME is in, or when the
+   * host keeps no screen. The answer is not a reply: a `reset` picture arrives
+   * through {@link onItem} in its place in the stream, and from then on this
+   * connection also gets a reset after every resize and cuts that bound the
+   * tail.
+   */
+  requestPicture(): boolean {
+    if (this.closed || !this.welcomed?.screen) return false
+    this.sock.write(encodeHostFrame(HostFrame.PICTURE))
+    return true
+  }
+
+  /**
    * Deliberate takeover (POD-4434): revoke the current writer's lease and take
    * it on this connection. The daemon sends this only on an explicit operator
    * action — never as a retry — so a second writer is always a decision. The
@@ -491,6 +555,14 @@ export class HostConnection {
   onData(cb: (seq: bigint, data: Buffer) => void): () => void {
     this.dataCbs.add(cb)
     return () => this.dataCbs.delete(cb)
+  }
+  /**
+   * Every DATA frame and every picture, in stream order and synchronously
+   * with {@link onData} (a DATA frame reaches both).
+   */
+  onItem(cb: (item: HostItem) => void): () => void {
+    this.itemCbs.add(cb)
+    return () => this.itemCbs.delete(cb)
   }
   onGap(cb: (seqLow: bigint) => void): () => void {
     this.gapCbs.add(cb)

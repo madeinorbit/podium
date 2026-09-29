@@ -199,7 +199,10 @@ describe('HostConnection: pictures (POD-4909)', () => {
     cleanups.push(rust.close, c.close)
     const a = connectHost(rust.path)
     const b = connectHost(c.path)
-    cleanups.push(() => a.detach(), () => b.detach())
+    cleanups.push(
+      () => a.detach(),
+      () => b.detach(),
+    )
     expect(await a.welcome).toMatchObject({ features: 1, screen: true })
     expect(await b.welcome).toMatchObject({ features: 0, screen: false })
   })
@@ -215,7 +218,10 @@ describe('HostConnection: pictures (POD-4909)', () => {
     cleanups.push(rust.close, c.close)
     const a = connectHost(rust.path)
     const b = connectHost(c.path)
-    cleanups.push(() => a.detach(), () => b.detach())
+    cleanups.push(
+      () => a.detach(),
+      () => b.detach(),
+    )
     await Promise.all([a.welcome, b.welcome])
 
     expect(a.requestPicture()).toBe(true)
@@ -257,12 +263,11 @@ describe('HostConnection: pictures (POD-4909)', () => {
     conn.requestPicture()
     await got
 
-    expect(items.map((i) => (i.kind === 'data' ? `data ${i.seq} ${i.data}` : `picture ${i.seq} ${i.reason}`))).toEqual([
-      'data 0 ab',
-      'picture 2 reset',
-      'data 2 cd',
-      'picture 4 cut',
-    ])
+    expect(
+      items.map((i) =>
+        i.kind === 'data' ? `data ${i.seq} ${i.data}` : `picture ${i.seq} ${i.reason}`,
+      ),
+    ).toEqual(['data 0 ab', 'picture 2 reset', 'data 2 cd', 'picture 4 cut'])
     expect(items[1]).toMatchObject({ kind: 'picture', cols: 80, rows: 24 })
     expect((items[1] as Extract<HostItem, { kind: 'picture' }>).bytes.toString()).toBe('\x1bcpic')
     expect(datas).toEqual(['ab', 'cd'])
