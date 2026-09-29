@@ -3,6 +3,14 @@
  * and reads the row it was fed. The test iterates `SCHEMA`, not a list of
  * its own: a field added to the schema is covered here with no edit, and a
  * field the models could not read fails.
+ *
+ * POD-4756: the issue implements `RowView`, and five of its schema fields
+ * are the row's too (`IssueModel.answers`: `title`, `seq`, `createdAt`,
+ * `pinned`, `sortKey`). Those read the row's value: the display title (the
+ * fed title for a non-draft in memory; a draft's name is the row rules',
+ * checked by the gate and `worklist/draft-title.test.tsx`), and the flags
+ * normalized (`pinned` a boolean, `sortKey` null when absent). Checked here
+ * against the fed row by those rules.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -12,6 +20,7 @@ import { fixedLocals } from '../../../shared/src/locals-source'
 import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import { mobxPoolArm } from './arm'
+import { IssueModel } from './models'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
 import { ENTITIES } from './tables'
@@ -41,6 +50,7 @@ describe('schema fields on models', () => {
       expect([...ENTITIES].sort()).toEqual((Object.keys(SCHEMA) as EntityName[]).sort())
       const covered: Record<string, number> = {}
       let checked = 0
+      let answered = 0
       tracked(() => {
         for (const entity of ENTITIES) {
           const spec = SCHEMA[entity]
@@ -52,8 +62,18 @@ describe('schema fields on models', () => {
             expect(model, `${entity}:${id}`).toBeDefined()
             for (const field of Object.keys(spec.fields)) {
               expect(field in model, `${entity}.${field} has no getter`).toBe(true)
-              const want =
-                field === spec.key ? id : (row as Record<string, unknown>)[spelling[field] ?? field]
+              const fed = row as Record<string, unknown>
+              let want =
+                field === spec.key ? id : fed[spelling[field] ?? field]
+              if (entity === 'issue' && IssueModel.answers.has(field)) {
+                if (field === 'pinned') want = want === true
+                else if (field === 'sortKey') want = want ?? null
+                else if (field === 'title') {
+                  // A draft's name, or a cold row's (not in memory: no title yet), is the row rules'.
+                  if (fed['draft'] === true || model['inMemory'] !== true) continue
+                }
+                answered += 1
+              }
               expect(model[field], `${entity}:${id}.${field}`).toBe(want)
               if (want !== undefined)
                 covered[`${entity}.${field}`] = (covered[`${entity}.${field}`] ?? 0) + 1
@@ -73,6 +93,7 @@ describe('schema fields on models', () => {
         }
       }
       expect(checked).toBeGreaterThan(1000)
+      expect(answered, 'the row-answered fields were checked').toBeGreaterThan(100)
     } finally {
       handle.dispose()
       locals.dispose()

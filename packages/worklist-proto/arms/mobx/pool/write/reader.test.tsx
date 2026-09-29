@@ -34,6 +34,7 @@ import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
 import { createMobxWriteApi } from './edit'
 import { PendingOverlay } from './overlay'
 import { ECHO_TTL_MS } from './pending'
+import { rowViewOf } from '../models'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -128,7 +129,7 @@ function shownOf(pool: MobxPool, id: string): Shown {
       modelStage: model?.stage,
       readerTitle: row?.title,
       readerStage: row?.stage,
-      viewTitle: model?.view?.title,
+      viewTitle: rowViewOf(model)?.title,
       visible: pool.worklist.issue(id)?.visible,
     }
   })
@@ -275,7 +276,7 @@ describe('POD-4743 one row reader with pending edits', () => {
       const serverTitle = tracked(() => pool.issue(id)?.title)
       const tx = write.edit('issue', id, { title: 'Painted without patching' })
       expect(tracked(() => pool.issue(id)?.title)).toBe('Painted without patching')
-      expect(tracked(() => pool.issue(id)?.view?.title)).toBe('Painted without patching')
+      expect(tracked(() => rowViewOf(pool.issue(id))?.title)).toBe('Painted without patching')
       expectSame('while an edit is pending', before)
       write.reject({ txId: tx, error: { message: 'refused', parked: false } })
       write.edit('issue', id, { title: 'Pending at dispose' })

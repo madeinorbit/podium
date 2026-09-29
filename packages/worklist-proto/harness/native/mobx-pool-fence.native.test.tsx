@@ -280,7 +280,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
   }, 300_000)
 })
 
-/** The count mount: one slot per visible id, each observing only its own view. */
+/** The count mount: one slot per visible id, each observing only whether its issue is in memory; the row observes its fields. */
 const FullNativeSlot = observer(function FullNativeSlot({
   pool,
   id,
@@ -289,10 +289,8 @@ const FullNativeSlot = observer(function FullNativeSlot({
   id: string
 }): ReactElement | null {
   const model = pool.issue(id)
-  if (model === undefined) return null
-  const view = model.view
-  if (view === undefined) return null
-  return <RowShell row={view} component={PoolNativeRow} />
+  if (model === undefined || !model.inMemory) return null
+  return <RowShell row={model} component={PoolNativeRow} />
 })
 
 const FullNativeList = observer(function FullNativeList({
@@ -317,12 +315,10 @@ const PlantedSlot = observer(function PlantedSlot({
   pool: MobxPool
   id: string
 }): ReactElement | null {
-  for (const other of pool.worklist.order) void pool.issue(other)?.view?.title
+  for (const other of pool.worklist.order) void pool.issue(other)?.title
   const model = pool.issue(id)
-  if (model === undefined) return null
-  const view = model.view
-  if (view === undefined) return null
-  return <RowShell row={view} component={PoolNativeRow} />
+  if (model === undefined || !model.inMemory) return null
+  return <RowShell row={model} component={PoolNativeRow} />
 })
 
 const PlantedNativeList = observer(function PlantedNativeList({

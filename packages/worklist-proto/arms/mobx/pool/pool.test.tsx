@@ -4,6 +4,7 @@
  * through a replay feed, with the reads fence on and the MobX warn trap armed.
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import {
   _getGlobalState,
   autorun,
@@ -19,13 +20,14 @@ import { writeResult } from '../../../harness/src/results'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence, type ReadFence } from '../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
-import type { RowView } from '../../../shared/src/row-view'
+import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { ENFORCEMENT } from './enforce'
 import { installMobxWarnTrap } from './mobx-trap'
+import { rowViewOf } from './models'
 import { tracked } from './pool'
 import { ENTITIES } from './tables'
 import { FINISHED_GRACE_MS } from './views'
@@ -124,23 +126,34 @@ function rig(): Rig {
   }
 }
 
-/** Observe every issue's view with one reaction each, like mounted rows do. */
+/**
+ * Observe every issue's row with one reaction each, reading every row field
+ * off the issue as a mounted row does (POD-4756), and count each row's
+ * re-runs (`rerun`: the rows a change redrew, since `resetRuns`).
+ */
 function observeAll(handle: MobxPoolHandle): {
   views: Map<string, RowView | undefined>
+  rerun: Set<string>
+  resetRuns(): void
   stop(): void
 } {
   const views = new Map<string, RowView | undefined>()
+  const rerun = new Set<string>()
   const stops: IReactionDisposer[] = []
   const ids = tracked(() => handle.pool.issueIds)
   for (const id of ids) {
     stops.push(
       autorun(() => {
-        views.set(id, handle.pool.issue(id)?.view)
+        views.set(id, rowViewOf(handle.pool.issue(id)))
+        rerun.add(id)
       }),
     )
   }
+  rerun.clear()
   return {
     views,
+    rerun,
+    resetRuns: () => rerun.clear(),
     stop: () => {
       for (const stop of stops) stop()
     },
@@ -164,7 +177,7 @@ describe('enforcement', () => {
     try {
       const id = openIssues[0]!.id
       const model = tracked(() => r.handle.pool.issue(id)!)
-      expect(() => model.view).toThrow(/trapped.*outside a reactive context/)
+      expect(() => model.title).toThrow(/trapped.*outside a reactive context/)
       expect(trap.warnings.length).toBe(1)
       trap.warnings.length = 0
     } finally {
@@ -214,6 +227,7 @@ describe('ingest', () => {
       expect(r.reads.isBorrowed(stored)).toBe(true)
       const before = all.views.get(id)
       pool.stats.reset()
+      all.resetRuns()
       const nodesBefore = pool.stats.counters.issueNodes
       // The feed re-sends the very object it holds (a heartbeat-shaped no-op).
       r.push({
@@ -229,13 +243,16 @@ describe('ingest', () => {
       expect(pool.stats.counters.tableWrites).toBe(0)
       expect(pool.stats.notifications).toBe(0)
       // POD-4705: the named row is touched, so a hidden row without a node
-      // gets one (first touch) and its observing view evaluates once. The
+      // gets one (first touch) and its observing row redraws once. The
       // touch converges the row to its eager value: only the rollup-backed
       // progress appears (it read undefined with no node). Nothing else
-      // moves: no write, no notification, no membership flip.
+      // moves: no write, no notification, no membership flip. POD-4756: the
+      // row's fields re-derive on their own, a few of ONE row's.
       expect(pool.stats.counters.issueNodes).toBe(nodesBefore + 1)
       expect(pool.stats.counters.membershipFlips).toBe(0)
-      expect(pool.stats.rowsDerived).toBe(1)
+      expect([...all.rerun]).toEqual([id])
+      expect(pool.stats.rowsDerived).toBeGreaterThan(0)
+      expect(pool.stats.rowsDerived).toBeLessThanOrEqual(ROW_VIEW_FIELDS.length)
       const after = all.views.get(id)
       expect(after).not.toBe(before)
       expect({ ...after, progressDone: 0, progressTotal: 0 }).toEqual(before)
@@ -253,10 +270,14 @@ describe('ingest', () => {
       const id = openIssues.find((issue) => !issue.draft)!.id
       const before = new Map(all.views)
       pool.stats.reset()
+      all.resetRuns()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Renamed by the test' })] })
       expect(pool.stats.notifications).toBe(1)
       expect(pool.stats.counters.tableWrites).toBe(1)
-      expect(pool.stats.rowsDerived).toBe(1)
+      // Exactly the renamed row redraws; the fields that re-derive are its own.
+      expect([...all.rerun]).toEqual([id])
+      expect(pool.stats.rowsDerived).toBeGreaterThan(0)
+      expect(pool.stats.rowsDerived).toBeLessThanOrEqual(ROW_VIEW_FIELDS.length)
       expect(all.views.get(id)?.title).toBe('Renamed by the test')
       const changed = [...all.views]
         .filter(([key, view]) => before.get(key) !== view)
@@ -319,7 +340,7 @@ describe('ingest', () => {
       )!.id
       const titles: (string | undefined)[] = []
       const watch = autorun(() => {
-        titles.push(pool.issue(id)?.view?.title)
+        titles.push(rowViewOf(pool.issue(id))?.title)
       })
       const models = pool.modelCount('issue')
       r.push({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
@@ -368,9 +389,13 @@ describe('locals', () => {
       r.locals.flush()
       expect(all.views.get(a!)?.selected).toBe(true)
       r.handle.pool.stats.reset()
+      all.resetRuns()
       r.locals.set({ selectedIssueId: b! })
       r.locals.flush()
-      expect(r.handle.pool.stats.rowsDerived).toBe(2)
+      // Exactly the two rows redraw; no row field re-derives (`selected` is a
+      // keyed read of the selection, not a derivation).
+      expect([...all.rerun].sort()).toEqual([a!, b!].sort())
+      expect(r.handle.pool.stats.rowsDerived).toBe(0)
       expect(all.views.get(a!)?.selected).toBe(false)
       expect(all.views.get(b!)?.selected).toBe(true)
     } finally {
@@ -395,18 +420,24 @@ describe('locals', () => {
       expect(waiting).toBeGreaterThan(0)
       let crossings = pool.clock.crossings
       pool.stats.reset()
+      all.resetRuns()
       r.locals.set({ coarseNow: corpus.fixedNow + 60_000 })
       r.locals.flush()
-      // Every re-derivation is a crossing (a row reading two deadlines may
-      // cross both, so crossings bound re-derivations from above).
-      expect(pool.stats.rowsDerived).toBeLessThanOrEqual(pool.clock.crossings - crossings)
+      // Every redrawn row is a crossing (a row reading two deadlines may
+      // cross both, so crossings bound the redrawn rows from above).
+      expect(all.rerun.size).toBeLessThanOrEqual(pool.clock.crossings - crossings)
       const beforeGrace = new Map(all.views)
       crossings = pool.clock.crossings
       pool.stats.reset()
+      all.resetRuns()
       r.locals.set({ coarseNow: corpus.fixedNow + 60_000 + FINISHED_GRACE_MS })
       r.locals.flush()
-      const changed = [...all.views].filter(([id, view]) => beforeGrace.get(id) !== view).length
-      expect(pool.stats.rowsDerived).toBeLessThanOrEqual(pool.clock.crossings - crossings)
+      const changed = [...all.views].filter(
+        ([id, view]) => !isDeepStrictEqual(beforeGrace.get(id), view),
+      ).length
+      expect(all.rerun.size).toBeLessThanOrEqual(pool.clock.crossings - crossings)
+      expect(all.rerun.size).toBeGreaterThan(0)
+      // Row fields re-derived: a few per crossing (`closed`, `dismissed`), never the corpus.
       expect(pool.stats.rowsDerived).toBeGreaterThan(0)
       expect(pool.stats.rowsDerived).toBeLessThan(corpus.sliceIssues.length / 4)
       expect(changed).toBeGreaterThan(0)

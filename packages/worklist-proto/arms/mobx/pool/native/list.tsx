@@ -20,15 +20,18 @@ import { PoolNativeRow } from './row'
 /** Rows in the first batch: one screen and a half of 56 px rows on a phone. */
 const INITIAL_ROWS = 24
 
-/** A drawn row: observes its model's view only, so a redraw looks nothing up. */
+/**
+ * A drawn row's shell: observes only whether its issue is in memory, and
+ * hands the issue ITSELF to the row (it implements `RowView`). The row is the
+ * observer of its fields, so a field change redraws the row and never this.
+ */
 const PoolNativeRowView = observer(function PoolNativeRowView({
   model,
 }: {
   model: IssueModel
 }): ReactElement | null {
-  const view = model.view
-  if (view === undefined) return null
-  return <RowShell row={view} component={PoolNativeRow} />
+  if (!model.inMemory) return null
+  return <RowShell row={model} component={PoolNativeRow} />
 })
 
 /** One visible id: resolves its model once, else a loading placeholder (see the web list). */

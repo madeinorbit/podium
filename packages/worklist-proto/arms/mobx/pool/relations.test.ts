@@ -44,6 +44,7 @@ import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
 import { rebuildSnapshot } from './rebuild'
 import { ancestorPaths } from './relations'
+import { rowViewOf } from './models'
 
 installMobxWarnTrap()
 
@@ -1262,13 +1263,13 @@ describe('the row views resolve relations through the engine (M3 F2)', () => {
     runInAction(() => link.forward.set(id, target))
   }
 
-  const view = (r: Rig, id: string) => tracked(() => r.pool.issue(id)?.view)
+  const view = (r: Rig, id: string) => tracked(() => rowViewOf(r.pool.issue(id)))
   const rebuilt = (r: Rig) => rebuildSnapshot(r.replay.source, r.locals.source)
 
   it('a wrong issue.repo forward slot reaches displayRef, and the rebuild disagrees', () => {
     const r = rig(rows)
     try {
-      const keep = autorun(() => r.pool.issue('I1')?.view)
+      const keep = autorun(() => rowViewOf(r.pool.issue('I1')))
       expect(view(r, 'I1')?.displayRef).toBe('POD-1')
       expect(r.pool.snapshot().rowsById).toEqual(rebuilt(r).rowsById)
       plant(r, 'repo', 'I1', 'RB')
@@ -1287,7 +1288,7 @@ describe('the row views resolve relations through the engine (M3 F2)', () => {
   it('a wrong issue.discoveredFrom forward slot reaches originTick', () => {
     const r = rig(rows)
     try {
-      const keep = autorun(() => r.pool.issue('I3')?.view)
+      const keep = autorun(() => rowViewOf(r.pool.issue('I3')))
       expect(view(r, 'I3')?.originTick?.id).toBe('I2')
       plant(r, 'discoveredFrom', 'I3', 'I1')
       expect(view(r, 'I3')?.originTick?.id, 'the view reads the engine').toBe('I1')

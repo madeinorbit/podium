@@ -31,6 +31,7 @@ import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
 import { LOAD_WINDOW_MS } from './residency'
 import { sliceOrderOf } from './worklist/groups'
+import { rowViewOf } from './models'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -347,7 +348,7 @@ describe('the loader', () => {
     const seen: string[] = []
     const watch = autorun(() => {
       const state = pool.resident('issue', a!.id)
-      const view = pool.issue(a!.id)?.view
+      const view = rowViewOf(pool.issue(a!.id))
       seen.push(`${state}:${view === undefined ? '-' : view.title}`)
     })
     // Asked for: queued, the window armed once at 50 ms, nothing read yet.
@@ -429,7 +430,7 @@ describe('the loader', () => {
     expect(pool.stats.notifications).toBe(1)
     expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
     r.fire()
-    expect(tracked(() => pool.issue(closed.id)?.view?.title)).toBe('Renamed while cold')
+    expect(tracked(() => rowViewOf(pool.issue(closed.id))?.title)).toBe('Renamed while cold')
   })
 
   it('a cold row read by a derivation stays tracked across an untracked residency check (POD-4569)', () => {
@@ -532,7 +533,7 @@ describe('lazy relations', () => {
     r.fire()
     const views: (RowView | undefined)[] = []
     const watch = autorun(() => {
-      views.push(pool.issue(issue.id)?.view)
+      views.push(rowViewOf(pool.issue(issue.id)))
     })
     // Its sessions stay cold: the row is loading, its activity provisional.
     expect(views.length).toBe(1)
@@ -562,7 +563,7 @@ describe('lazy relations', () => {
     const spinOff = hotIssues.find((issue) => (issue.deps ?? []).length === 0 && !issue.draft)!
     const views: (RowView | undefined)[] = []
     const watch = autorun(() => {
-      views.push(pool.issue(spinOff.id)?.view)
+      views.push(rowViewOf(pool.issue(spinOff.id)))
     })
     r.push({
       type: 'update',

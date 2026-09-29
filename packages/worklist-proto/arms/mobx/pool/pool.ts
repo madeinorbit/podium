@@ -35,10 +35,10 @@
  * `LOADING` alone, or its current value by id through the feed). Every table
  * read goes through the reads fence (`reads.wrapTables`), every relation read
  * through `reads.wrapRelations`; with the fence disabled both are the
- * identity. Derivations run lazily: a row view computes when a mounted row
+ * identity. Derivations run lazily: a row field computes when a mounted row
  * (or `snapshot()`) reads it and suspends when nothing does (no `keepAlive`).
  *
- * STATS (`README.md` has the definitions): `rowsDerived` counts row-view
+ * STATS (`README.md` has the definitions): `rowsDerived` counts row-field
  * body runs; `notifications` counts actions that changed pool state;
  * `indexUpdates` counts relation slots written (forward entries and
  * buckets; `counters.bucketElements` the elements inside them);
@@ -81,7 +81,14 @@ import {
 } from '../../../shared/src/write-contract'
 import { DeadlineClock } from './clock'
 import { builtIds, issueIdsOf, knownIssueIds, reseed } from './enumerate'
-import { type EntityModel, type IssueModel, MODEL_CLASSES, type ModelOf, type SessionModel } from './models'
+import {
+  type EntityModel,
+  type IssueModel,
+  MODEL_CLASSES,
+  type ModelOf,
+  rowViewOf,
+  type SessionModel,
+} from './models'
 import { PoolRelations, type ReadableTables } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
 import {
@@ -1265,7 +1272,11 @@ export class MobxPool {
       const snapshot = tracked(() => {
         const rowsById: SliceSnapshot['rowsById'] = {}
         for (const id of this.worklist.order) {
-          const view = this.issue(id)?.view
+          // The row read as a drawn row reads it, every field (so the loads
+          // its fields reach, a spin-off's origin, settle below), then
+          // projected for parity. The issue IS its row: this copy is the
+          // snapshot's, never drawn.
+          const view = rowViewOf(this.issue(id))
           if (view === undefined) {
             this.resident('issue', id)
             continue

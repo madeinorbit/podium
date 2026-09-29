@@ -48,8 +48,9 @@
  * one reaction per `observer` the list would mount, reading what each reads:
  * the list (`PoolList`: the pinned ids, each lane's keys, row ids and closed
  * ids, unfolded), each header in the window (`PoolGroupHeader`), and per row
- * its slot (`PoolRowSlot`: the model, else its residence) and its view
- * (`PoolRowView`: `model.view`). The window is the first 20 rows in list
+ * its slot (`PoolRowSlot`: the model, else its residence), its shell
+ * (`PoolRowView`: `model.inMemory`) and its row (`PoolRow`, POD-4756: every
+ * row field, read off the issue). The window is the first 20 rows in list
  * order, with the headers among them. A cold row in it queues a load that
  * never lands here (the load window never closes): what is counted is the
  * paint before loads.
@@ -86,6 +87,7 @@ import {
 import { legacyDerivationFromStore, visibleIssueRows } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import { createReadFence } from '../../../shared/src/instrument/reads'
+import { ROW_VIEW_FIELDS } from '../../../shared/src/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '../../../shared/src/schema'
 import { mobxPoolArm } from './arm'
@@ -221,7 +223,15 @@ function paintWindow(pool: MobxPool): () => void {
     )
     const model = pool.issue(id)
     if (model !== undefined) {
-      stops.push(autorun(() => void model.view, { name: `paint.view.${id}` }))
+      stops.push(autorun(() => void model.inMemory, { name: `paint.shell.${id}` }))
+      stops.push(
+        autorun(
+          () => {
+            if (model.inMemory) for (const field of ROW_VIEW_FIELDS) void model[field]
+          },
+          { name: `paint.row.${id}` },
+        ),
+      )
     }
   }
   expect(rows, 'the window is full').toBe(WINDOW_ROWS)

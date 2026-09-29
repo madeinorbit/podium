@@ -33,6 +33,17 @@
  * over plain maps, where there are none, so they read the same typed names
  * by id (`ViewInputs.links`, `VisibleInputs.links`).
  *
+ * THE ISSUE IS ITS ROW (POD-4756). `IssueModel` implements `RowView` (L1b):
+ * a drawn row receives the issue object itself and is an `observer` reading
+ * its fields (`react/row.tsx`); no row view object is built. Each field is
+ * its own cached value, so a row redraws exactly when a field it shows
+ * changes. Five of the row's fields are also schema fields (`title`, `seq`,
+ * `createdAt`, `pinned`, `sortKey`): the ROW's getter answers them
+ * (`IssueModel.answers`), so `issue.title` is the title as the row shows it (a
+ * draft's derived name; any other issue's own title, pending edit included)
+ * and `issue.pinned` a boolean. The row as fed stays at `issue.row`. The
+ * setters stay the schema's: `issue.title = x` edits the title.
+ *
  * EDITS, LINEAR'S SHAPE. Every field the write contract declares editable
  * (`FIELD_COVERAGE`, `shared/src/write-contract.ts`) also has a setter:
  * `issue.title = x` is `issue.update({ title: x })`, and `update(patch)` is
@@ -65,9 +76,21 @@ import type {
   TargetOf,
 } from '../../../shared/src/links'
 import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
-import type { RowOriginTick, RowRank, RowView } from '../../../shared/src/row-view'
+import {
+  plainRowView,
+  ROW_VIEW_FIELDS,
+  type RowOriginTick,
+  type RowRank,
+  type RowView,
+  type RowViewField,
+} from '../../../shared/src/row-view'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
+import type {
+  SliceIssue,
+  SlicePhase,
+  SliceSession,
+  SliceWorktree,
+} from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import {
   type EditableStage,
@@ -82,11 +105,10 @@ import type { StoredRow } from './tables'
 import {
   activityAtOf,
   activityMsOf,
-  buildRowView,
-  type IssueParts,
   type Label,
   labelOfRow,
   loadingPartOf,
+  NO_ROLLUP,
   type OwnPart,
   originIdPartOf,
   originRefPartOf,
@@ -95,7 +117,10 @@ import {
   type RepoRow,
   rankOfPart,
   repoTargetPartOf,
+  rowActivityAtOf,
+  rowLoadingOf,
   sessionIdsPartOf,
+  unlessWaiting,
   type ViewInputs,
 } from './views'
 import { type Placement, withWaiting } from './worklist/groups'
@@ -166,6 +191,12 @@ export interface ModelHost {
 }
 
 export class EntityModel {
+  /**
+   * The schema fields this class answers with its own getter (`installFields`
+   * keeps it and adds only the setter). None, but the issue's row fields.
+   */
+  static readonly answers: ReadonlySet<string> = new Set<string>()
+
   constructor(
     readonly entity: EntityName,
     readonly id: string,
@@ -179,25 +210,39 @@ export class EntityModel {
   }
 }
 
-/** Install one getter per declared field of `entity` on `prototype`, and a setter per editable one. */
-function installFields(prototype: EntityModel, entity: EntityName): void {
+/**
+ * Install one getter per declared field of `entity` on `prototype`, and a
+ * setter per editable one. A field the class already answers is an error,
+ * unless the class names it in `answers` (the issue's row fields): then the
+ * class's getter stays and only the setter is added.
+ */
+function installFields(
+  prototype: EntityModel,
+  entity: EntityName,
+  answers: ReadonlySet<string>,
+): void {
   const spec = SCHEMA[entity]
   const spelling = FEED_SPELLING[entity] ?? {}
   const editable: Readonly<Record<string, unknown>> =
     (FIELD_COVERAGE as Readonly<Record<string, Readonly<Record<string, unknown>>>>)[entity] ?? {}
   for (const field of Object.keys(spec.fields)) {
-    if (field in prototype) {
+    const answered = answers.has(field)
+      ? Object.getOwnPropertyDescriptor(prototype, field)?.get
+      : undefined
+    if (field in prototype && answered === undefined) {
       throw new Error(`[pool] ${entity}.${field} collides with a model member; rename one`)
     }
     const property = spelling[field] ?? field
     Object.defineProperty(prototype, field, {
       configurable: false,
       enumerable: false,
-      get(this: EntityModel): unknown {
-        if (field === spec.key) return this.id
-        const row = this.row as Readonly<Record<string, unknown>> | undefined
-        return row === undefined ? undefined : row[property]
-      },
+      get:
+        answered ??
+        function (this: EntityModel): unknown {
+          if (field === spec.key) return this.id
+          const row = this.row as Readonly<Record<string, unknown>> | undefined
+          return row === undefined ? undefined : row[property]
+        },
       ...(Object.hasOwn(editable, field)
         ? {
             set(this: IssueModel, value: unknown): void {
@@ -340,12 +385,29 @@ export interface Loaded {
 }
 
 /**
- * THE issue: its row, its row view, its visibility, its roll-ups and its
- * edits. The groups (cached values) are `facts`, `rank`, `members`,
- * `presence`, `nesting`, `tip`, `attention`, `progress`, `loaded` and `view`;
- * each is a cached group (`cachedGroup`), built on first reactive read.
+ * One row field as a cached value of the issue: built when a drawn row (or
+ * any reaction) first reads it, dropped when none does. Its value compares
+ * structurally, so a field whose inputs moved but whose value did not
+ * notifies no row. Each run is a `rowsDerived`.
  */
-export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
+function rowField<V>(field: RowViewField, compute: (issue: IssueModel) => V): (issue: IssueModel) => V {
+  return cachedGroup(field, (issue: IssueModel) => {
+    issue.stats.rowsDerived += 1
+    return compute(issue)
+  })
+}
+
+/**
+ * THE issue: its row, its visibility, its roll-ups and its edits. The groups
+ * (cached values) are `facts`, `rank`, `members`, `presence`, `nesting`,
+ * `tip`, `attention`, `progress`, `loaded`, `inMemory` and `rowRollup`, and
+ * one per field of the row (`fields`); each is a cached group
+ * (`cachedGroup`), built on first reactive read.
+ */
+export class IssueModel extends EntityModel implements HeldIssue, RowView {
+  /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
+  static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
+
   private static readonly groups = {
     /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
     facts: cachedGroup('facts', (issue: IssueModel) =>
@@ -386,16 +448,57 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
         originRef: originRefPartOf(issue.host.inputs, issue.id),
       }
     }),
-    /** The L1b row view; undefined while the row is not in memory (its load queued) or gone. */
-    view: cachedGroup('view', (issue: IssueModel): RowView | undefined => {
-      issue.host.stats.rowsDerived += 1
-      if (issue.loaded.facts.state !== 'ready') return undefined
-      return buildRowView(issue.host.inputs, issue.id, issue)
-    }),
+    /** Whether the row is in memory: a row is drawn only then (else its load is queued, or it is gone). */
+    inMemory: cachedGroup('inMemory', (issue: IssueModel) => issue.loaded.facts.state === 'ready'),
+    /** The roll-up as the row reads it: the worklist's (`ViewInputs.rollup`), else none. */
+    rowRollup: cachedGroup(
+      'rowRollup',
+      (issue: IssueModel): Rollup => issue.host.inputs.rollup(issue.id) ?? NO_ROLLUP,
+    ),
   }
+
+  /**
+   * The row's fields (L1b `RowView`), one cached value each, from the groups
+   * above and the rules the rebuild's plain view uses (`views.ts`). `id` is
+   * the object's own and `selected` a keyed read of the selection: neither
+   * needs one.
+   */
+  private static readonly fields = {
+    displayRef: rowField('displayRef', (issue) => issue.label.displayRef ?? ''),
+    title: rowField('title', (issue) => issue.label.displayTitle ?? ''),
+    phase: rowField('phase', (issue) => issue.rowRollup.phase),
+    progressDone: rowField('progressDone', (issue) => issue.rowRollup.progressDone),
+    progressTotal: rowField('progressTotal', (issue) => issue.rowRollup.progressTotal),
+    working: rowField('working', (issue) => issue.rowRollup.working),
+    asking: rowField('asking', (issue) => issue.rowRollup.asking),
+    workingSince: rowField('workingSince', (issue) => issue.rowRollup.workingSince),
+    band: rowField('band', (issue) => issue.own?.band ?? 1),
+    repoKey: rowField('repoKey', (issue) => issue.own?.repoKey ?? ''),
+    closed: rowField('closed', (issue) => unlessWaiting(issue.own?.closed === true, issue.rowRollup)),
+    dismissed: rowField('dismissed', (issue) =>
+      unlessWaiting(issue.own?.dismissed === true, issue.rowRollup),
+    ),
+    pinned: rowField('pinned', (issue) => issue.own?.pinned === true),
+    sortKey: rowField('sortKey', (issue) => issue.own?.sortKey ?? null),
+    createdAt: rowField('createdAt', (issue) => issue.own?.createdAt ?? ''),
+    seq: rowField('seq', (issue) => issue.own?.seq ?? 0),
+    foldAt: rowField('foldAt', (issue) => issue.own?.foldAt ?? ''),
+    originTick: rowField('originTick', (issue) =>
+      originTickPartOf(issue.host.inputs, issue.originId),
+    ),
+    activityAt: rowField('activityAt', (issue) =>
+      rowActivityAtOf(issue.ownActivityAt, issue.rowRollup),
+    ),
+    loading: rowField('loading', (issue) => rowLoadingOf(issue.lazyLoading, issue.rowRollup)),
+  } satisfies { readonly [F in Exclude<RowViewField, 'id' | 'selected'>]: (issue: IssueModel) => RowView[F] }
 
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
+  }
+
+  /** The pool's stats (a row field's run counts in them). */
+  get stats(): ArmStats {
+    return this.host.stats
   }
 
   /** Edit this issue: one transaction of the write layer's log (paint, remember, send). */
@@ -441,8 +544,99 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     return IssueModel.groups.loaded(this)
   }
 
-  get view(): RowView | undefined {
-    return IssueModel.groups.view(this)
+  get inMemory(): boolean {
+    return IssueModel.groups.inMemory(this)
+  }
+
+  get rowRollup(): Rollup {
+    return IssueModel.groups.rowRollup(this)
+  }
+
+  // ------------------------------------------ the row (RowView, L1b): the fields
+
+  get displayRef(): string {
+    return IssueModel.fields.displayRef(this)
+  }
+
+  get title(): string {
+    return IssueModel.fields.title(this)
+  }
+
+  get phase(): SlicePhase {
+    return IssueModel.fields.phase(this)
+  }
+
+  get progressDone(): number {
+    return IssueModel.fields.progressDone(this)
+  }
+
+  get progressTotal(): number {
+    return IssueModel.fields.progressTotal(this)
+  }
+
+  get working(): boolean {
+    return IssueModel.fields.working(this)
+  }
+
+  get asking(): boolean {
+    return IssueModel.fields.asking(this)
+  }
+
+  get workingSince(): number | null {
+    return IssueModel.fields.workingSince(this)
+  }
+
+  get band(): 0 | 1 | 2 {
+    return IssueModel.fields.band(this)
+  }
+
+  get repoKey(): string {
+    return IssueModel.fields.repoKey(this)
+  }
+
+  get closed(): boolean {
+    return IssueModel.fields.closed(this)
+  }
+
+  get dismissed(): boolean {
+    return IssueModel.fields.dismissed(this)
+  }
+
+  get pinned(): boolean {
+    return IssueModel.fields.pinned(this)
+  }
+
+  get sortKey(): string | null {
+    return IssueModel.fields.sortKey(this)
+  }
+
+  get createdAt(): string {
+    return IssueModel.fields.createdAt(this)
+  }
+
+  get seq(): number {
+    return IssueModel.fields.seq(this)
+  }
+
+  get foldAt(): string {
+    return IssueModel.fields.foldAt(this)
+  }
+
+  get originTick(): RowOriginTick | null {
+    return IssueModel.fields.originTick(this)
+  }
+
+  get activityAt(): number {
+    return IssueModel.fields.activityAt(this)
+  }
+
+  get loading(): true | undefined {
+    return IssueModel.fields.loading(this)
+  }
+
+  /** The selection local (a keyed read: only a change of THIS row's selection notifies). */
+  get selected(): boolean {
+    return this.host.inputs.selected(this.id)
   }
 
   // --------------------------------------------------- reads of the groups
@@ -531,15 +725,7 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     return this.loaded.label
   }
 
-  get displayRef(): string | undefined {
-    return this.label.displayRef
-  }
-
-  get displayTitle(): string | undefined {
-    return this.label.displayTitle
-  }
-
-  /** The row view's own fields; undefined when the issue is unknown. */
+  /** The row's own-row fields; undefined when the issue is unknown. */
   get own(): OwnPart | undefined {
     return this.facts?.part
   }
@@ -612,15 +798,12 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     return originIdPartOf(this.host.inputs, this.originRef)
   }
 
-  get originTick(): RowOriginTick | null {
-    return originTickPartOf(this.host.inputs, this.originId)
-  }
-
   get sessionIds(): readonly string[] {
     return sessionIdsPartOf(this.host.inputs, this.id)
   }
 
-  get activityAt(): number {
+  /** The own-row activity stamp, before the roll-up's latest seat raises it (`activityAt`). */
+  get ownActivityAt(): number {
     const inputs = this.host.inputs
     return activityAtOf(
       inputs,
@@ -629,7 +812,8 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     )
   }
 
-  get loading(): boolean {
+  /** A lazy input of the row's own parts (the origin, a member session) is not resident yet. */
+  get lazyLoading(): boolean {
     return loadingPartOf(this.host.inputs, this.originRef, this.sessionIds)
   }
 }
@@ -695,7 +879,10 @@ export class RepoModel extends EntityModel {
   }
 }
 
-/** The issue's editable fields as setters take them (`issue.stage = 'review'`). */
+/**
+ * The issue's editable fields as setters take them (`issue.stage = 'review'`).
+ * `title` reads as the row shows it (`IssueModel.title`) and sets the title.
+ */
 interface IssueEdits {
   get title(): string
   set title(value: string)
@@ -712,7 +899,7 @@ interface IssueEdits {
  */
 export type ModelOf = {
   issue: IssueModel &
-    Readonly<Omit<SliceIssue, 'unread' | 'title' | 'stage' | 'readAt'>> &
+    Readonly<Omit<SliceIssue, 'unread' | 'title' | 'stage' | 'readAt' | keyof RowView>> &
     IssueEdits &
     RelationGetters<'issue'>
   session: SessionModel & Readonly<SliceSession> & RelationGetters<'session'>
@@ -724,10 +911,8 @@ export type ModelOf = {
 
 /** The model class of each schema entity. */
 export const MODEL_CLASSES: {
-  readonly [E in EntityName]: new (
-    id: string,
-    host: ModelHost,
-  ) => EntityModel
+  readonly [E in EntityName]: (new (id: string, host: ModelHost) => EntityModel) &
+    Pick<typeof EntityModel, 'answers'>
 } = {
   issue: IssueModel,
   session: SessionModel,
@@ -736,6 +921,15 @@ export const MODEL_CLASSES: {
 }
 
 for (const entity of Object.keys(MODEL_CLASSES) as EntityName[]) {
-  installFields(MODEL_CLASSES[entity].prototype, entity)
+  installFields(MODEL_CLASSES[entity].prototype, entity, MODEL_CLASSES[entity].answers)
   installRelations(MODEL_CLASSES[entity].prototype, entity)
+}
+
+/**
+ * The issue's row as ONE plain `RowView` (the projection through the
+ * interface, `plainRowView`): what a gate or a test compares with the
+ * rebuild. Undefined while the row is not in memory. Drawing never calls it.
+ */
+export function rowViewOf(issue: IssueModel | undefined): RowView | undefined {
+  return issue === undefined || !issue.inMemory ? undefined : plainRowView(issue)
 }

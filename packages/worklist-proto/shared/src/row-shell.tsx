@@ -14,6 +14,16 @@
  * Stable callbacks (spec §4: click selects) arrive through `RowActionsContext`,
  * typed to the `RowActions` interface, never through props.
  *
+ * THE ROW MAY BE A LIVE OBJECT (POD-4756). `row` is typed `RowView`, and a
+ * pool may pass a plain view (the hand arm) or an object that IMPLEMENTS it
+ * (the MobX arm's issue: every field a cached getter). The component is then
+ * an `observer` reading the object's fields, and it redraws itself when one
+ * it read changes; the shell hands over the same object on every render, so
+ * the shell does not redraw. Through the type the component sees the
+ * `RowView` fields only; a cast to reach anything else is a review item, and
+ * a walk over data that grows with the corpus is the scale check's
+ * (`harness/src/scale-check.ts`, POD-4746).
+ *
  * `CommitBoundary({ id, children })` is the raw counting wrapper this file
  * shipped as `RowShell` in round two. It stays for the legacy control and the
  * frozen round-two arms: the control exists to exhibit whole-array props and
@@ -30,7 +40,8 @@
  * the type system.
  *
  * COUNTING. Under the count harness both wrappers are a `React.Profiler`
- * reporting every non-mount commit to the harness-provided log; outside the
+ * reporting every non-mount commit to the harness-provided log (an observer
+ * row redrawing itself inside the profiler is such a commit); outside the
  * harness (production entries, arm unit tests) the context is absent and they
  * render their children untouched — zero behavior change, zero cost beyond one
  * context read.
@@ -190,7 +201,7 @@ export function CommitBoundary({ id, children }: { id: string; children: ReactNo
 // The capability rule (L1b)
 // -----------------------------------------------------------------------------
 
-/** Everything a row component receives: its own view. Nothing else. */
+/** Everything a row component receives: its own view (plain, or a live object implementing it). Nothing else. */
 export interface RowProps {
   readonly row: RowView
 }

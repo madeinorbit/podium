@@ -13,9 +13,10 @@
  *   redraws when its group's membership or label changes, never on a
  *   row-internal change. It toggles its closed fold (UI state, not data).
  * - A row slot: resolves its model when it mounts or its row's presence
- *   changes (a cold row's load); the row inside observes only the model's
- *   `view`, and `RowShell` renders the `memo` row on that view, so a change
- *   redraws exactly the rows whose view changed. A redraw looks nothing up.
+ *   changes (a cold row's load); its shell observes only whether the model
+ *   is in memory and hands `RowShell` the model itself; the row (`./row.tsx`,
+ *   an `observer`) reads the model's row fields, so a change redraws exactly
+ *   the rows a changed field is read by. A redraw looks nothing up.
  *   A visible row still COLD (a closed issue) is asked for and drawn as a bare
  *   placeholder outside `RowShell` until its load lands: its first row commit
  *   is its data. With the window, only the drawn rows' cold rows load.
@@ -62,15 +63,18 @@ function itemKey(item: Item): string {
   return item.kind === 'header' ? `group:${item.key}` : 'pinned'
 }
 
-/** A drawn row: observes its model's view only, so a redraw looks nothing up. */
+/**
+ * A drawn row's shell: observes only whether its issue is in memory, and
+ * hands the issue ITSELF to the row (it implements `RowView`). The row is the
+ * observer of its fields, so a field change redraws the row and never this.
+ */
 const PoolRowView = observer(function PoolRowView({
   model,
 }: {
   model: IssueModel
 }): ReactElement | null {
-  const view = model.view
-  if (view === undefined) return null
-  return <RowShell row={view} component={PoolRow} />
+  if (!model.inMemory) return null
+  return <RowShell row={model} component={PoolRow} />
 })
 
 /**

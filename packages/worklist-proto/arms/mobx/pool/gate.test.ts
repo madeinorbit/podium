@@ -123,6 +123,7 @@ import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
 import { rebuildSnapshot, rebuildViews } from './rebuild'
+import { rowViewOf } from './models'
 
 installMobxWarnTrap()
 
@@ -390,7 +391,7 @@ function checked(
       const { pool } = handle
       // Kept alive as the mounted list keeps it (see OBSERVED).
       const stop = reaction(
-        () => [pool.worklist.order.map((id) => pool.issue(id)?.view), pool.groups.layout],
+        () => [pool.worklist.order.map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
         () => {},
         { name: 'gate.observer' },
       )
@@ -433,7 +434,7 @@ function checked(
           }
           const direct = rebuildViews(source, locals)
           wrapper.views += direct.size
-          const views = tracked(() => diffViews((id) => pool.issue(id)?.view, direct))
+          const views = tracked(() => diffViews((id) => rowViewOf(pool.issue(id)), direct))
           if (views.length > 0) {
             throw new Error(
               `row views diverged from the direct rule table (snapshot ${wrapper.snapshots}):\n${views.join('\n')}`,
@@ -672,7 +673,7 @@ describe('row fields against the oracle', () => {
       })
       handle.pool.snapshot()
       const actual = tracked(() =>
-        Object.fromEntries(ids.map((id) => [id, handle.pool.issue(id)?.view])),
+        Object.fromEntries(ids.map((id) => [id, rowViewOf(handle.pool.issue(id))])),
       )
       let closedByOracle = 0
       // POD-4671 fixed: no gap, every row's seat-fed fields compare.

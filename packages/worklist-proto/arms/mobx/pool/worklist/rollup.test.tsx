@@ -72,6 +72,7 @@ import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
 import { issueAbandoned } from '../views'
+import { rowViewOf } from '../models'
 
 installMobxWarnTrap()
 
@@ -373,7 +374,7 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     expect(found, 'a hot visible parent with a cold done child').not.toBeNull()
     const { parent, child } = found!
     observe = reaction(
-      () => pool.issue(parent)?.view,
+      () => rowViewOf(pool.issue(parent)),
       () => {},
     )
     const oracleOf = () =>
@@ -382,16 +383,16 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
       ] as RowView
     // The first read, and every load it and its landings ask for (the row's
     // own seats and origin, Ma1's), settled: the cold child is never among them.
-    tracked(() => pool.issue(parent)!.view!)
+    tracked(() => rowViewOf(pool.issue(parent))!)
     let childAsked = false
     for (let round = 0; residency.hasQueued() && round < 16; round += 1) {
       const batch = residency.take()
       if (batch.some(([entity, rowId]) => entity === 'issue' && rowId === child)) childAsked = true
       for (const [entity, rowId] of batch) residency.request(entity, rowId)
       pool.hydrate()
-      tracked(() => pool.issue(parent)!.view!)
+      tracked(() => rowViewOf(pool.issue(parent))!)
     }
-    const first = tracked(() => pool.issue(parent)!.view!)
+    const first = tracked(() => rowViewOf(pool.issue(parent))!)
     const oracleBefore = oracleOf()
     const readsBefore = feeds.rowReads()
     const wire = ctx.cache.read('issue', child)?.value as object
@@ -402,7 +403,7 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     })
     await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
     feeds.flush()
-    const after = tracked(() => pool.issue(parent)!.view!)
+    const after = tracked(() => rowViewOf(pool.issue(parent))!)
     return {
       parent,
       child,
@@ -629,7 +630,7 @@ describe('row roll-ups (Mb3)', () => {
         const visible = tracked(() => [...pool.worklist.order])
         const firstPaint = tracked(() =>
           visible.map((id) => {
-            const view = pool.issue(id)?.view
+            const view = rowViewOf(pool.issue(id))
             return {
               id,
               resident: view !== undefined,
@@ -687,7 +688,7 @@ describe('row roll-ups (Mb3)', () => {
         expect(cell.coldFormalChildrenOfVisibleRows).toBeGreaterThan(0)
         expect(cell.progressLoads).toBe(0)
         const settled = tracked(() =>
-          visible.filter((id) => pool.issue(id)?.view?.loading === true),
+          visible.filter((id) => rowViewOf(pool.issue(id))?.loading === true),
         )
         expect(settled).toEqual([])
         cells.push(cell)
@@ -759,7 +760,7 @@ describe('row roll-ups (Mb3)', () => {
       expect(found, 'a visible row with a cold, started spin-off').not.toBeNull()
       const { id, spinOff } = found!
       observe = reaction(
-        () => pool.issue(id)?.view,
+        () => rowViewOf(pool.issue(id)),
         () => {},
       )
       const wire = ctx.cache.read('issue', id)?.value as object
@@ -776,7 +777,7 @@ describe('row roll-ups (Mb3)', () => {
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()
       expect(residency.isCold('issue', spinOff), 'the spin-off stays cold').toBe(true)
-      const waiting = tracked(() => pool.issue(id)!.view!)
+      const waiting = tracked(() => rowViewOf(pool.issue(id))!)
       const batch = residency.take()
       for (const [entity, rowId] of batch) residency.request(entity, rowId)
       expect(waiting.loading, 'loading while the spin-off is pending').toBe(true)
@@ -786,7 +787,7 @@ describe('row roll-ups (Mb3)', () => {
         pool.hydrate()
         windows += 1
       }
-      const landed = tracked(() => pool.issue(id)!.view!)
+      const landed = tracked(() => rowViewOf(pool.issue(id))!)
       const oracle = rowViewsFromStore(ctx.engine.getSnapshot(), {
         ...parityLocals(ctx),
         selectedIssueId: null,

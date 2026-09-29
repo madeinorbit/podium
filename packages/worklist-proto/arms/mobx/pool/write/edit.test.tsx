@@ -36,6 +36,7 @@ import { installMobxWarnTrap } from '../mobx-trap'
 import { tracked } from '../pool'
 import { reaction, runInAction } from 'mobx'
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
+import { rowViewOf } from '../models'
 
 installMobxWarnTrap()
 
@@ -340,7 +341,7 @@ describe('model edit setters', () => {
       // interim paint).
       const paints: (string | undefined)[] = []
       const stop = reaction(
-        () => issue.view,
+        () => rowViewOf(issue),
         (view) => paints.push(view?.title),
       )
 
@@ -366,7 +367,7 @@ describe('model edit setters', () => {
       expect(edited.commitsByRow).toEqual({ [id]: 1 })
       // Reading back shows the pending value (the one reader), as the row does.
       expect(tracked(() => issue.title)).toBe('Set on the model')
-      expect(tracked(() => handle.pool.issue(id)?.view?.title)).toBe('Set on the model')
+      expect(tracked(() => rowViewOf(handle.pool.issue(id))?.title)).toBe('Set on the model')
       expect(serverTitle).not.toBe('Set on the model')
     } finally {
       mounted.unmount()

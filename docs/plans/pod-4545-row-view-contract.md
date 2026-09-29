@@ -20,6 +20,10 @@ Round three removes that channel. A row component receives its own `RowView`
 and nothing else. A `RowView` holds only scalars and one flat record: no
 arrays, no entity objects, no store.
 
+`RowView` is an interface, not necessarily an object built for the row. The
+hand arm builds a plain view per row. The MobX arm's issue object implements
+it, and its row reads the issue directly (§4d, POD-4756).
+
 ## 2. The fields
 
 Every field names its rule (slice spec `docs/plans/pod-4441-round-two-slice.md` §3)
@@ -111,6 +115,10 @@ contract fixes only the keys.
   round-two arms. Ten call sites moved to it; no behaviour changed. A
   round-three arm that renders a row through it fails the shape review.
 
+- `row` may be a live object that implements `RowView` (§4d). The component
+  is then a MobX `observer` and redraws itself when a field it read changes.
+  The shell's counter sees that commit as well, exactly per row.
+
 **What the types do not close:** a row module importing a module-level store,
 calling a store hook, or a *memoised* closure over a store. These are
 lint-shaped. They belong to the safety fences (L6), not the type system
@@ -194,6 +202,60 @@ names it" in `arms/hand/pool/relations.test.ts`) plants both `issue.repo`
 and `issue.discoveredFrom` forward slots and asserts both views follow while
 `diffRelations` reports both slots. Both pool gates run `diffRelations` at
 every snapshot (per-step) plus the full-residency checkpoint.
+
+## 4d. The MobX arm: the issue is its row (POD-4756)
+
+**Decision** (operator, 2026-09-28): rows read the issue object directly
+instead of a separately built summary. Before, the MobX pool built one plain
+`RowView` per drawn issue (a structural computed, `IssueModel.view`), and a
+`memo` row drew it.
+
+**Now.** `IssueModel` (`arms/mobx/pool/models.ts`) implements `RowView`. Each
+field is a getter with its own cached value (`IssueModel.fields`), computed
+by the same rules the rebuild's plain view uses (`views.ts`: `unlessWaiting`,
+`rowActivityAtOf`, `rowLoadingOf`). `id` is the object's own, and `selected`
+is a keyed read of the selection. The list's slot observes only
+`issue.inMemory` and hands the issue itself to `RowShell`. The row
+(`pool/react/row.tsx`, `pool/native/row.tsx`) is an `observer` that reads the
+fields directly. A field whose inputs moved but whose value did not notifies
+no row, so a row redraws exactly when a field it reads changes.
+
+**The row reads every field.** The exact-commit fence's oracle says a row
+must redraw when any `RowView` field changes (§4, `assertCommits`). So the
+row reads all of them. The web row draws the rendered fields as text and the
+placement fields and stamps as data attributes. The native row puts them in
+its accessibility state and label and in its style. A row that stopped
+reading a placement field (`sortKey`, say) would under-commit on the fence.
+To make a placement-only change redraw nothing, the oracle would need each
+arm's list of the fields its row shows. That is left open (§6, question 5).
+
+**Five schema fields are row fields too:** `title`, `seq`, `createdAt`,
+`pinned` and `sortKey`. The row's getter answers them (`IssueModel.answers`;
+`installFields` keeps the class getter and adds only the schema setter). So
+`issue.title` is the title as the row shows it: a draft's derived name, or
+any other issue's own title with its pending edit. `issue.pinned` is a
+boolean, and `issue.sortKey` is null when the field is absent. The row as fed
+stays at `issue.row`. `issue.title = x` still edits the title.
+
+**Projection.** `sliceRowOf(issue)` projects the object for parity
+(`MobxPool.snapshot`). `plainRowView(row)` (`row-view.ts`) copies every
+field into one plain view, and `rowViewOf(issue)` is that projection, or
+undefined while the row is not in memory. The gate and tests use it to
+compare with the rebuild's plain views. Drawing never builds one.
+
+**Safety.** Collections are not banned. The row receives only its own issue,
+typed `RowView`. There is no store prop, and the lint still refuses a row
+module that imports a store module by value (`no-store-in-component`,
+`harness/lint`). A cast past the interface to the object's other members is
+a review item. A walk over data that grows with the corpus is the scale
+check's (POD-4746, `harness/src/scale-check.ts`), which the fences run on
+every roster arm.
+
+**Cost.** Each drawn row holds about 20 small cached fields where it held one
+view. A change re-runs only the fields whose inputs moved (`rowsDerived` now
+counts field runs, `arms/mobx/README.md`). The census baseline
+(`tracking-counts.baseline.json`) moved with this change, and the reason is
+recorded in it.
 
 ## 5. Evidence
 
@@ -280,3 +342,9 @@ gate is green.
    fields in the slice (the Row does not render them; the label belongs to the
    group header), so neither appears here. Confirm, or name who writes R-VIS
    down for the pool.
+5. **Placement-only changes (§4d).** The fence counts a redraw as required
+   whenever any `RowView` field changes, so the MobX row reads the placement
+   fields (`sortKey`, `foldAt`, `repoKey`, …) it does not draw as text. If a
+   row should not redraw when only its position changes, the oracle needs
+   each arm's list of the fields its row shows. That is a shared-harness
+   change for the coordinator.

@@ -56,6 +56,7 @@ import { knownIssueIds } from '../enumerate'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { type MobxPool, tracked } from '../pool'
 import { PoolRow } from '../react/row'
+import { rowViewOf } from '../models'
 
 installMobxWarnTrap()
 
@@ -122,7 +123,7 @@ function checkParity(ctx: ScenarioEngine, handle: MobxPoolHandle, at: string): P
   const diffs: string[] = []
   tracked(() => {
     for (const id of order) {
-      const live = pool.issue(id)?.view
+      const live = rowViewOf(pool.issue(id))
       const oracle = views[id]
       for (const field of OWN_FIELDS) {
         if (JSON.stringify(live?.[field]) !== JSON.stringify(oracle?.[field])) {
@@ -384,12 +385,12 @@ const AllKnownSlot = observer(function AllKnownSlot({
   pool: MobxPool
   id: string
 }): ReactElement | null {
-  const view = pool.issue(id)?.view
-  if (view === undefined) {
+  const issue = pool.issue(id)
+  if (issue === undefined || !issue.inMemory) {
     pool.resident('issue', id)
     return null
   }
-  return <RowShell row={view} component={PoolRow} />
+  return <RowShell row={issue} component={PoolRow} />
 })
 
 const AllKnownList = observer(function AllKnownList({ pool }: { pool: MobxPool }): ReactElement {

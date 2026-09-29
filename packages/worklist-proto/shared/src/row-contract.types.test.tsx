@@ -13,9 +13,17 @@
  * RUN TIME. `RowShell` renders the component with exactly `{ row }`, counts
  * its commits under the harness log, and throws when component identity
  * changes between renders (the inline-closure channel).
+ *
+ * LIVE ROWS (POD-4756). A pool may hand the shell a live object that
+ * implements `RowView` (the MobX arm's issue) instead of a plain view; the
+ * row is then an `observer` that redraws itself on a field it reads. The
+ * shell's counter sees that commit too, exactly per row: a field change
+ * commits its own row, a sibling's commits nothing, and a change the row
+ * does not read commits nothing.
  */
 import { act, memo, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
+import { observable, runInAction } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { describe, expect, it } from 'vitest'
 import {
@@ -181,6 +189,34 @@ describe('RowShell capability rule', () => {
     expect(log.total()).toBe(0)
     await act(async () => root.render(tree({ ...row, title: 'Renamed' })))
     expect(Object.fromEntries(log.counts)).toEqual({ A: 1 })
+    await act(async () => root.unmount())
+  })
+
+  it('counts a live row object exactly: its own field change commits it, a sibling or an unread change nothing', async () => {
+    // Two live rows (observable objects implementing RowView, plus a member
+    // the row does not read), each drawn by an observer row through the shell.
+    const a = observable({ ...row, id: 'A', unshown: 0 })
+    const b = observable({ ...row, id: 'B', unshown: 0 })
+    const log = createCommitLog()
+    const { el, root } = mount()
+    await act(async () =>
+      root.render(
+        <CommitLogContext.Provider value={log}>
+          <RowShell row={a} component={ObserverRow} />
+          <RowShell row={b} component={ObserverRow} />
+        </CommitLogContext.Provider>,
+      ),
+    )
+    expect(log.total()).toBe(0)
+    await act(async () => runInAction(() => (a.title = 'Renamed')))
+    expect(Object.fromEntries(log.counts)).toEqual({ A: 1 })
+    expect(el.textContent).toContain('POD-10 Renamed')
+    log.reset()
+    await act(async () => runInAction(() => (b.title = 'Sibling renamed')))
+    expect(Object.fromEntries(log.counts)).toEqual({ B: 1 })
+    log.reset()
+    await act(async () => runInAction(() => (a.unshown += 1)))
+    expect(log.total()).toBe(0)
     await act(async () => root.unmount())
   })
 

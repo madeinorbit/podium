@@ -201,9 +201,10 @@ idle).
 
 ### Stats (what each counter counts)
 
-- `rowsDerived` — runs of an issue model's `view` computed body (one per
-  row view re-derived; a body whose result is structurally equal still
-  counts, and keeps the old object).
+- `rowsDerived` — runs of a row field's cached body on an issue model (one
+  per row field re-derived, POD-4756: the issue is its row, and each field
+  is its own cached value; a body whose result is equal still counts, and
+  notifies no row).
 - `notifications` — actions that changed pool state: one per feed event
   that wrote a table slot, one per locals notification naming a key the
   pool uses (selection, clock).

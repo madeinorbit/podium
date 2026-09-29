@@ -64,10 +64,10 @@ export interface RepoRow {
 }
 
 /**
- * One issue's derived parts. The live pool caches the own part and the label
- * (`displayRef`, `displayTitle`) in groups, and computes the rest inside the
- * row view (`IssueModel.view`); a group whose value did not move stops the
- * propagation there.
+ * One issue's derived parts, as the rebuild computes them (`directParts`).
+ * The live issue computes the same parts with the same functions, cached in
+ * its groups (`models.ts`), and answers the row's fields from them one by
+ * one; a group whose value did not move stops the propagation there.
  *
  * Relations are split in two: the TARGET (`repoTarget`, `originRef`: the
  * engine's `one()`, which reads the relation's forward slot and the target's
@@ -142,8 +142,8 @@ export interface ViewInputs {
    * pool queues its load. Always false where every row is held (the rebuild).
    */
   loading(entity: EntityName, id: string): boolean
-  /** Another issue's parts (the origin of a spin-off). */
-  parts(id: string): IssueParts | undefined
+  /** Another issue's label (the origin of a spin-off): its parts, or its object in the live pool. */
+  parts(id: string): Pick<IssueParts, 'label'> | undefined
   /** The issue's roll-up fields (its held issue's `rollup`); undefined when the worklist holds none. */
   rollup(id: string): Rollup | undefined
   /**
@@ -517,7 +517,7 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
 // ------------------------------------------------------------------ the view
 
 /** The roll-up of an issue the worklist has no node for (never a visible row). */
-const NO_ROLLUP: Rollup = {
+export const NO_ROLLUP: Rollup = {
   phase: 'queued',
   progressDone: 0,
   progressTotal: 0,
@@ -529,28 +529,55 @@ const NO_ROLLUP: Rollup = {
 }
 
 /**
- * The row view of issue `id` from its parts, or undefined when the issue is
- * not in the pool. Reads no row: only `self`'s parts, its roll-up and the
- * selection.
+ * The row fields that combine a part with the roll-up. The live issue answers
+ * each field from these (`IssueModel`, one cached value per field); the
+ * rebuild's plain view below calls the same ones.
+ */
+
+/** `closed` / `dismissed`: the own part's verdict, unless something in the subtree waits (R-GROUP 3). */
+export function unlessWaiting(verdict: boolean, rollup: Rollup): boolean {
+  return verdict && !rollup.asking
+}
+
+/** `activityAt`: the own-row stamp, raised by the latest seat below (`rows.ts:336-339`). */
+export function rowActivityAtOf(ownActivityAt: number, rollup: Rollup): number {
+  const seat = rollup.seatActivity
+  return seat !== null && seat > ownActivityAt ? seat : ownActivityAt
+}
+
+/** `loading`: a lazy input of the row's own parts, or of its roll-up, is not resident yet. */
+export function rowLoadingOf(partsLoading: boolean, rollup: Rollup): true | undefined {
+  return partsLoading || rollup.loading ? true : undefined
+}
+
+/**
+ * The row view of issue `id` from its parts, as one plain object, or
+ * undefined when the issue is not in the pool: the REBUILD's (the gate's
+ * oracle). The live pool builds no such object: a drawn row reads the issue
+ * itself, field by field. Reads no row: only `self`'s parts, its roll-up and
+ * the selection.
  */
 export function buildRowView(input: ViewInputs, id: string, self: IssueParts): RowView | undefined {
   const own = self.own
   if (own === undefined) return undefined
-  const { loading, seatActivity, ...rollup } = input.rollup(id) ?? NO_ROLLUP
-  const waiting = rollup.asking
+  const rollup = input.rollup(id) ?? NO_ROLLUP
+  const loading = rowLoadingOf(self.loading, rollup)
   return {
     id,
     displayRef: self.displayRef ?? '',
     title: self.displayTitle ?? '',
-    ...rollup,
+    phase: rollup.phase,
+    progressDone: rollup.progressDone,
+    progressTotal: rollup.progressTotal,
+    working: rollup.working,
+    asking: rollup.asking,
+    workingSince: rollup.workingSince,
     ...own,
-    closed: own.closed && !waiting,
-    dismissed: own.dismissed && !waiting,
+    closed: unlessWaiting(own.closed, rollup),
+    dismissed: unlessWaiting(own.dismissed, rollup),
     selected: input.selected(id),
     originTick: self.originTick,
-    // The own-row stamp, raised by the latest seat below (`rows.ts:336-339`).
-    activityAt:
-      seatActivity !== null && seatActivity > self.activityAt ? seatActivity : self.activityAt,
-    ...(self.loading || loading ? { loading: true as const } : {}),
+    activityAt: rowActivityAtOf(self.activityAt, rollup),
+    ...(loading === true ? { loading } : {}),
   }
 }

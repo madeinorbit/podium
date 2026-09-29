@@ -29,6 +29,7 @@ import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
 import { installMobxWarnTrap } from '../mobx-trap'
+import { rowViewOf } from '../models'
 
 installMobxWarnTrap()
 
@@ -63,7 +64,7 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
       const handle = base.create(source, locals, reads) as MobxPoolHandle
       const { pool } = handle
       const stop = reaction(
-        () => [pool.worklist.order.map((id) => pool.issue(id)?.view), pool.groups.layout],
+        () => [pool.worklist.order.map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
         () => {},
         { name: 'gate.observer' },
       )
