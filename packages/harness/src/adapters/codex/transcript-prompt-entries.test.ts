@@ -88,6 +88,22 @@ describe('Codex measured prompt entries', () => {
       expect(transcriptEchoAcceptCorrelation.accepts(item)).toBe(false)
     }
   })
+
+  it('preserves legacy user_message display without asserting the measured receipt contract', () => {
+    const records = readFileSync(
+      new URL('../../store/__fixtures__/codex-rollout.jsonl', import.meta.url),
+      'utf8',
+    )
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((record) => record.payload.type === 'user_message')
+    expect(records).toHaveLength(1)
+    const [item] = records.flatMap(codexRecordToItems)
+    expect(item).toMatchObject({ role: 'user', promptEntry: false })
+    expect(item?.text).not.toBe('')
+    expect(transcriptEchoAcceptCorrelation.accepts(item!)).toBe(false)
+  })
 })
 
 describe('Codex measured text tolerance', () => {

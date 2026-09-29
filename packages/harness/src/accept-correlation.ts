@@ -73,7 +73,8 @@ const typedForm = (item: TranscriptItem): string =>
 
 /** An interrupt marker is a user action, but never a typed prompt. */
 export const transcriptEchoAcceptCorrelation: TerminalAcceptCorrelation<TranscriptItem> = {
-  accepts: (item) => item.role === 'user' && item.event !== 'interrupt',
+  accepts: (item) =>
+    item.role === 'user' && item.event !== 'interrupt' && item.promptEntry !== false,
   fingerprint: (item) => echoFingerprint(typedForm(item)),
   fingerprintText: echoFingerprint,
 }
