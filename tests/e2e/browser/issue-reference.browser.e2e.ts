@@ -104,7 +104,11 @@ test('Tray and command palette use the live issue-reference glyph', async ({
   )
   await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'review' } })
 
-  await page.setViewportSize({ width: 1280, height: 900 })
+  // The workspace entry (gotoWorkspace) drives the OPEN sidebar. Below
+  // SIDEBARS_FOLD_BELOW (1600, POD-1980) the sidebar auto-folds and the entry
+  // has no rows to click — a setup wall, not an issue-reference verdict. Run
+  // wide enough to keep the sidebar open (same as transcript-loading).
+  await page.setViewportSize({ width: 1700, height: 900 })
   await openApp(page)
 
   // The tray half of this test is gone with the Tray itself (ca0370028
@@ -190,7 +194,9 @@ test('chat issue references remain stable across issue updates', async ({
   await mkdir(BUCKET, { recursive: true })
   await writeFile(transcriptPath, `${transcript.join('\n')}\n`, 'utf8')
 
-  await page.setViewportSize({ width: 1280, height: 900 })
+  // Wide: the workspace entry needs the open sidebar, which auto-folds below
+  // 1600px (POD-1980). See the first test above.
+  await page.setViewportSize({ width: 1700, height: 900 })
   if (isMobile) {
     // The WebKit project carries a phone UA, which normally redirects to the
     // separate Expo app. Keep this web-transcript boundary on the web surface.
@@ -204,8 +210,11 @@ test('chat issue references remain stable across issue updates', async ({
     await openApp(page)
   }
   await newSession(page, 'Claude')
+  // Panel-deck selector: since the split-pane deck the panels are
+  // absolutely-positioned rectangles carrying data-panel-resident, not flex
+  // children of .flex.min-h-0 and not .absolute (same as transcript-loading).
   const sessionId = await page
-    .locator('div[data-session].absolute:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   if (!sessionId) throw new Error('active harness session missing')
@@ -403,12 +412,15 @@ test('chat proposal reference opens reliable approval and harness controls', asy
   await mkdir(BUCKET, { recursive: true })
   await writeFile(transcriptPath, `${transcript.join('\n')}\n`, 'utf8')
 
-  await page.setViewportSize({ width: 1280, height: 900 })
+  // Wide: the workspace entry needs the open sidebar, which auto-folds below
+  // 1600px (POD-1980). See the first test above.
+  await page.setViewportSize({ width: 1700, height: 900 })
   await openApp(page)
   await waitForClaudeInventory(request)
   await newSession(page, 'Claude')
+  // Panel-deck selector (same as the chat-reference test above).
   const sessionId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   if (!sessionId) throw new Error('active harness session missing')
