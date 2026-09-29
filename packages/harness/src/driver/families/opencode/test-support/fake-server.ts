@@ -76,9 +76,10 @@ export interface FakeOpencodeServer {
    *  where the words actually arrive. */
   promptCount(sessionId: string): number
   lastPrompt(sessionId: string): OpencodePromptBody | undefined
-  /** The next prompt POST answers 500. The honest way to make a send fail
-   *  without a verification window this family does not have. */
-  failNextPrompt(): void
+  /** The next prompt POST answers `status` (500 unless given), storing
+   *  nothing. A 400 or 404 is OpenCode's measured "recorded nothing"; any
+   *  other status is not proof either way (POD-4839). */
+  failNextPrompt(status?: number): void
   createSessionId(): string
   session(id: string): FakeOpencodeSession | undefined
   /** Push one SSE frame to every subscriber whose `?directory=` matches. */
@@ -144,7 +145,7 @@ export async function startFakeOpencodeServer(options: {
     write: (chunk: string) => void
     end: () => void
   }>()
-  let failNext = false
+  let failNext: number | false = false
 
   const expected = `Basic ${Buffer.from(`${options.username}:${options.password}`).toString('base64')}`
 
@@ -306,11 +307,12 @@ export async function startFakeOpencodeServer(options: {
         return
       }
       if (failNext) {
+        const status = failNext
         failNext = false
-        // NOT A "verification failure" — this family has no verification window.
-        // A server that refuses the POST is the only way a send can fail here,
-        // and the driver must report `refused`, never `unverified`.
-        json(500, { error: 'induced failure' })
+        // NOT A "verification failure" — this family has no verification
+        // window. The driver refuses a 400 or 404, which record nothing, and
+        // throws any other failure as unproven (POD-4839); never `unverified`.
+        json(status, { error: 'induced failure' })
         return
       }
       readBody((body) => {
@@ -480,8 +482,8 @@ export async function startFakeOpencodeServer(options: {
     alive: true,
     promptCount: (sessionId) => prompts.get(sessionId) ?? 0,
     lastPrompt: (sessionId) => promptBodies.get(sessionId),
-    failNextPrompt: () => {
-      failNext = true
+    failNextPrompt: (status = 500) => {
+      failNext = status
     },
     createSessionId: () => id('ses'),
     session: (sessionId) => sessions.get(sessionId),
