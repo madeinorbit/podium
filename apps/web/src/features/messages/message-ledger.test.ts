@@ -13,7 +13,6 @@ const base: LedgerMessage = {
   lifecycle: 'wait',
   body: 'hi',
   createdAt: '2026-07-13T00:00:00.000Z',
-  status: 'queued',
   deliveryStatus: 'stored',
   ackedBy: null,
   deliveredAt: null,

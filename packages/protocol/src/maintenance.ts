@@ -33,7 +33,11 @@ import { z } from 'zod'
 // expiry indexes, which exist only from that migration. A v5 janitor facing a
 // v4 server's database would fail every expiry read; the handshake refuses it
 // instead. The command shapes are unchanged, so the protocol version is too.
-export const MAINTENANCE_PROTOCOL_VERSION = 4
+// v5 (POD-4787): the message-expiry observation names the row's delivery status
+// (`deliveryStatus: 'stored'`) instead of the legacy word (`status: 'queued'`).
+// A v4 janitor's observation fails a v5 server's parse, and the reverse, so the
+// handshake refuses the mismatch.
+export const MAINTENANCE_PROTOCOL_VERSION = 5
 export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v5'
 export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
@@ -100,7 +104,8 @@ export type MaintenanceHandshakeReply = z.infer<typeof MaintenanceHandshakeReply
 
 export const MessageExpiryObservation = z.object({
   messageId: z.string().min(1).max(256),
-  status: z.literal('queued'),
+  /** Only a row the server still holds can expire [POD-4765]. */
+  deliveryStatus: z.literal('stored'),
   lifecycle: z.enum(['wait', 'wake']),
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime().nullable(),

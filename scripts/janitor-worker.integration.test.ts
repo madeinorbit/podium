@@ -29,7 +29,7 @@ function messageStatus(dbPath: string): string | undefined {
   const db = openDatabase(dbPath, { readOnly: true })
   try {
     return (
-      db.prepare("SELECT status FROM messages WHERE id = 'msg_worker_due'").get() as
+      db.prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_worker_due'").get() as
         | { status: string }
         | undefined
     )?.status

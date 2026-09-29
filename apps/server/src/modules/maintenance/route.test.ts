@@ -76,7 +76,7 @@ describe('maintenance route [spec:SP-c29e]', () => {
 
     const observed = {
       messageId: 'msg_1',
-      status: 'queued' as const,
+      deliveryStatus: 'stored' as const,
       lifecycle: 'wait' as const,
       createdAt: '2026-07-01T00:00:00.000Z',
       expiresAt: null,

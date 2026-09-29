@@ -166,7 +166,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
         return [
           {
             messageId: 'msg_1',
-            status: 'queued',
+            deliveryStatus: 'stored',
             lifecycle: 'wait',
             createdAt: '2026-07-01T00:00:00.000Z',
             expiresAt: null,
@@ -223,7 +223,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       readExpiryCandidates: () => [
         {
           messageId: 'msg_1',
-          status: 'queued',
+          deliveryStatus: 'stored',
           lifecycle: 'wait',
           createdAt: '2026-07-01T00:00:00.000Z',
           expiresAt: null,
@@ -262,7 +262,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       )
       // Every seeded row is one the server still holds unless it says otherwise.
       const insert = {
-        run: (id: string, _legacy: string, lifecycle: string, createdAt: string, expiresAt: string | null) =>
+        run: (id: string, lifecycle: string, createdAt: string, expiresAt: string | null) =>
           insertAs.run(id, 'stored', lifecycle, createdAt, expiresAt),
       }
       // HANDED ON, and older than every due row: the machine may still type
@@ -275,22 +275,10 @@ describe('JanitorService [spec:SP-c29e]', () => {
         '2026-06-01T00:00:00.000Z',
         '2026-06-02T00:00:00.000Z',
       )
-      insert.run(
-        'msg_explicit',
-        'queued',
-        'wake',
-        '2026-07-17T00:00:00.000Z',
-        '2026-07-18T00:00:00.000Z',
-      )
-      insert.run('msg_wait', 'queued', 'wait', '2026-07-01T00:00:00.000Z', null)
-      insert.run('msg_wake', 'queued', 'wake', '2026-07-01T00:00:00.000Z', null)
-      insert.run(
-        'msg_future',
-        'queued',
-        'wait',
-        '2026-07-17T00:00:00.000Z',
-        '2026-07-19T00:00:00.000Z',
-      )
+      insert.run('msg_explicit', 'wake', '2026-07-17T00:00:00.000Z', '2026-07-18T00:00:00.000Z')
+      insert.run('msg_wait', 'wait', '2026-07-01T00:00:00.000Z', null)
+      insert.run('msg_wake', 'wake', '2026-07-01T00:00:00.000Z', null)
+      insert.run('msg_future', 'wait', '2026-07-17T00:00:00.000Z', '2026-07-19T00:00:00.000Z')
 
       const reader = new MessageExpiryReader(db)
       const prepare = vi.spyOn(db, 'prepare')
@@ -303,10 +291,9 @@ describe('JanitorService [spec:SP-c29e]', () => {
 
       for (let index = 0; index < 30; index += 1) {
         const suffix = index.toString().padStart(2, '0')
-        insert.run(`msg_wait_${suffix}`, 'queued', 'wait', '2026-07-01T00:00:00.000Z', null)
+        insert.run(`msg_wait_${suffix}`, 'wait', '2026-07-01T00:00:00.000Z', null)
         insert.run(
           `msg_explicit_${suffix}`,
-          'queued',
           'wake',
           '2026-07-17T00:00:00.000Z',
           '2026-07-18T00:00:00.000Z',

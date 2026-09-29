@@ -99,7 +99,10 @@ export const APPROVED_CONTRACT_STEPS = new Map<
 
 /** The findings an approved contract step does not admit. Each admission is
  *  spent once, so a second rebuild of the same table still fails. */
-export function unadmitted(path: string, findings: DestructiveDdlFinding[]): DestructiveDdlFinding[] {
+export function unadmitted(
+  path: string,
+  findings: DestructiveDdlFinding[],
+): DestructiveDdlFinding[] {
   const admits = [...(APPROVED_CONTRACT_STEPS.get(path)?.admits ?? [])]
   return findings.filter((finding) => {
     const at = admits.findIndex(
@@ -426,7 +429,9 @@ if (import.meta.main) {
     if (clean.length > 0) {
       console.log(`FAIL  the real migration tree should be clean, got ${clean.length} finding(s)`)
     } else {
-      console.log('PASS  the real migration tree is clean after the historical allowlist and the approved contract steps')
+      console.log(
+        'PASS  the real migration tree is clean after the historical allowlist and the approved contract steps',
+      )
     }
 
     if (failures.length > 0 || clean.length > 0) {

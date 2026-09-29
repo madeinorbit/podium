@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  APPROVED_CONTRACT_STEPS,
   findDestructiveDdl,
   PROBES,
   probeFailures,
   runChecks,
+  unadmitted,
 } from './audit-expand-only-migrations'
 
 describe('findDestructiveDdl', () => {
@@ -104,5 +106,43 @@ describe('the expand-only gate probes', () => {
 
   it('spares the real migration tree after its historical allowlist', () => {
     expect(runChecks()).toEqual([])
+  })
+})
+
+describe('an approved contract step', () => {
+  const [path] = [...APPROVED_CONTRACT_STEPS.keys()]
+  const rebuild = (table: string) => `--> statement-breakpoint
+CREATE TABLE \`__new_${table}\` (id text PRIMARY KEY);
+--> statement-breakpoint
+INSERT INTO \`__new_${table}\` SELECT id FROM \`${table}\`;--> statement-breakpoint
+DROP TABLE \`${table}\`;--> statement-breakpoint
+ALTER TABLE \`__new_${table}\` RENAME TO \`${table}\`;`
+
+  it('carries a written reason', () => {
+    for (const step of APPROVED_CONTRACT_STEPS.values())
+      expect(step.reason.length).toBeGreaterThan(20)
+  })
+
+  it('admits the one rebuild it names, in its own file only', () => {
+    if (!path) throw new Error('expected an approved contract step')
+    expect(unadmitted(path, findDestructiveDdl(rebuild('messages')))).toEqual([])
+    expect(unadmitted('elsewhere.sql', findDestructiveDdl(rebuild('messages')))).toHaveLength(1)
+  })
+
+  it('still fails anything else destructive in that file', () => {
+    if (!path) throw new Error('expected an approved contract step')
+    // Another table rebuilt, a second rebuild of the same table, a dropped column.
+    expect(unadmitted(path, findDestructiveDdl(rebuild('sessions'))).map((f) => f.kind)).toEqual([
+      'table-rebuild',
+    ])
+    expect(
+      unadmitted(path, findDestructiveDdl(`${rebuild('messages')}\n${rebuild('messages')}`)),
+    ).toHaveLength(1)
+    expect(
+      unadmitted(
+        path,
+        findDestructiveDdl(`${rebuild('messages')}\nALTER TABLE messages DROP COLUMN body;`),
+      ).map((f) => f.kind),
+    ).toEqual(['drop-column'])
   })
 })

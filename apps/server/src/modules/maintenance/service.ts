@@ -35,7 +35,7 @@ import {
   systemPrincipal,
 } from '../../command-principal'
 import type { SessionStore } from '../../store'
-import { legacyMessageStatus, moved } from '../../store/messages'
+import { moved } from '../../store/messages'
 import type { MessageRow } from '../../store/types'
 import type { AutomationsService } from '../automations/service'
 import type { WriteFunnel } from '../funnel'
@@ -602,9 +602,9 @@ export class MaintenanceService {
     observed: Extract<MaintenanceCommand, { jobKind: 'message-expiry' }>['observed'],
   ): boolean {
     return (
-      // The observation speaks the legacy vocabulary (`queued`); only a row the
-      // server still holds can expire, and the move enforces that [POD-4765].
-      legacyMessageStatus(current.deliveryStatus, Boolean(current.readAt)) === observed.status &&
+      // Only a row the server still holds can expire, and the move enforces
+      // that too [POD-4765]; a row handed on since the read is stale.
+      current.deliveryStatus === observed.deliveryStatus &&
       current.createdAt === observed.createdAt &&
       current.lifecycle === observed.lifecycle &&
       current.expiresAt === observed.expiresAt

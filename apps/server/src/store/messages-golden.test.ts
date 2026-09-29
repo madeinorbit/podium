@@ -29,7 +29,7 @@ import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
-import { INLINE_BODY_MAX, legacyMessageStatus, MessagesRepository } from './messages'
+import { INLINE_BODY_MAX, MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
 /**
@@ -100,10 +100,9 @@ const add = async (input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Pro
   await messages.addMessage({ ...row, deliveryStatus: 'stored' })
   if (row.deliveryStatus !== 'stored' || row.injectedAt || row.readAt) {
     db.prepare(
-      'UPDATE messages SET delivery_status = ?, status = ?, injected_at = ?, read_at = ? WHERE id = ?',
+      'UPDATE messages SET delivery_status = ?, injected_at = ?, read_at = ? WHERE id = ?',
     ).run(
       row.deliveryStatus,
-      legacyMessageStatus(row.deliveryStatus, Boolean(row.readAt)),
       row.injectedAt ?? null,
       row.readAt ?? null,
       row.id,

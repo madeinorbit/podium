@@ -17,7 +17,7 @@ const WIRE = {
   lifecycle: 'wait',
   body: 'hello',
   createdAt: 't0',
-  status: 'delivered',
+  deliveryStatus: 'confirmed',
   ackedBy: null,
 }
 
@@ -34,7 +34,7 @@ function client(
       inbox: proc(over?.inbox ?? [WIRE]),
       show: proc(over?.show ?? WIRE),
       status: proc(over?.status ?? WIRE),
-      dismiss: proc(over?.dismiss ?? { ...WIRE, status: 'read' }),
+      dismiss: proc(over?.dismiss ?? { ...WIRE, deliveryStatus: 'confirmed' }),
       reply: proc(over?.reply ?? { id: 'msg_r', ok: true, acked: true }),
     },
   } satisfies MailClient
@@ -223,7 +223,6 @@ describe('podium mail CLI (argv shape)', () => {
       client({
         status: {
           ...WIRE,
-          status: 'dead_letter',
           deliveryStatus: 'failed',
           deliveryDeferredReason: 'never-live',
           noticeId: 'msg_n',
@@ -237,7 +236,7 @@ describe('podium mail CLI (argv shape)', () => {
   it('[POD-4778] the inbox names the cause from the delivery status', async () => {
     const c = client()
     c.messages.inbox.mutate.mockResolvedValueOnce([
-      { ...WIRE, status: 'queued', deliveryStatus: 'failed', deliveryDeferredReason: 'teardown' },
+      { ...WIRE, deliveryStatus: 'failed', deliveryDeferredReason: 'teardown' },
     ])
     const out = await runMailCli(['inbox'], c)
     expect(out).toContain('[failed]')
@@ -249,7 +248,7 @@ describe('podium mail CLI (argv shape)', () => {
   // "appeared in the target's transcript — the agent has it" asserted an agent had
   // it while naming nobody, so every sender-side check said the message was fine.
   it('[POD-1420] mail status does not claim an agent has it when no session is named', async () => {
-    const c = client({ status: { ...WIRE, status: 'delivered', deliveredAt: 't1' } })
+    const c = client({ status: { ...WIRE, deliveryStatus: 'confirmed', deliveredAt: 't1' } })
     const out = await runMailCli(['status', 'msg_1'], c)
     expect(out).not.toMatch(/the agent has it/)
     expect(out).toMatch(/no recipient session/i)
@@ -259,14 +258,14 @@ describe('podium mail CLI (argv shape)', () => {
     const c = client({
       status: {
         ...WIRE,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deadLetteredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredReason: 'never-live',
       },
     })
     const out = await runMailCli(['status', 'msg_1'], c)
-    expect(out).toContain('status: dead_letter')
+    expect(out).toContain('status: failed')
     // The sender is told what actually happened, and told it is over — the old
     // "still queued for retry" line described a wait that nothing was serving.
     expect(out).toContain('the agent was not accepting input — never typed, not dropped')
@@ -278,7 +277,7 @@ describe('podium mail CLI (argv shape)', () => {
     const c = client({
       status: {
         ...WIRE,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deadLetteredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
         deliveryDeferredReason: 'teardown',
@@ -291,7 +290,7 @@ describe('podium mail CLI (argv shape)', () => {
 
   it('[POD-1420] mail status still confirms delivery when a session IS named', async () => {
     const c = client({
-      status: { ...WIRE, status: 'delivered', deliveredAt: 't1', deliveredTo: 's-abc' },
+      status: { ...WIRE, deliveryStatus: 'confirmed', deliveredAt: 't1', deliveredTo: 's-abc' },
     })
     const out = await runMailCli(['status', 'msg_1'], c)
     expect(out).toMatch(/the agent has it/)
@@ -306,7 +305,7 @@ describe('podium mail CLI (argv shape)', () => {
     const c = client({
       status: {
         ...WIRE,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deadLetteredAt: '2026-09-13T18:00:00.000Z',
         deliveryDeferredAt: '2026-09-13T18:00:00.000Z',
         deliveryDeferredReason: 'delivery-failed',
@@ -321,27 +320,35 @@ describe('podium mail CLI (argv shape)', () => {
 
   it('[POD-4704] mail status keeps target gone only for a target that is really gone', async () => {
     const c = client({
-      status: { ...WIRE, status: 'dead_letter', deadLetteredAt: 't1' },
+      status: { ...WIRE, deliveryStatus: 'failed', deadLetteredAt: 't1' },
     })
     const out = await runMailCli(['status', 'msg_1'], c)
     expect(out).toMatch(/target was gone/)
   })
 
-  it('[POD-4765] mail status shows the delivery status when the server sends one', async () => {
+  it('[POD-4765] mail status shows the delivery status', async () => {
     const handedOn = await runMailCli(
       ['status', 'msg_1'],
-      client({ status: { ...WIRE, status: 'queued', deliveryStatus: 'dispatched', deliveredTo: 's-abc' } }),
+      client({ status: { ...WIRE, deliveryStatus: 'dispatched', deliveredTo: 's-abc' } }),
     )
-    expect(handedOn).toContain('status: dispatched — handed to the target session — not yet confirmed')
+    expect(handedOn).toContain(
+      'status: dispatched — handed to the target session — not yet confirmed',
+    )
     const lost = await runMailCli(
       ['status', 'msg_1'],
-      client({ status: { ...WIRE, status: 'queued', deliveryStatus: 'unknown' } }),
+      client({ status: { ...WIRE, deliveryStatus: 'unknown' } }),
     )
     expect(lost).toContain('status: unknown — handed on, but it cannot be told whether it arrived')
     const read = await runMailCli(
       ['status', 'msg_1'],
       client({
-        status: { ...WIRE, status: 'read', deliveryStatus: 'confirmed', readAt: 't2', deliveredTo: 's-abc' },
+        status: {
+          ...WIRE,
+          deliveryStatus: 'confirmed',
+          deliveryStatus: 'confirmed',
+          readAt: 't2',
+          deliveredTo: 's-abc',
+        },
       }),
     )
     expect(read).toContain('status: confirmed — the recipient opened its inbox and read it')
@@ -368,7 +375,7 @@ describe('podium mail CLI (argv shape)', () => {
     const c = client({
       show: {
         ...WIRE,
-        status: 'dead_letter',
+        deliveryStatus: 'failed',
         deadLetteredAt: '2026-09-13T18:00:00.000Z',
         deliveryDeferredAt: '2026-09-13T18:00:00.000Z',
         deliveryDeferredReason: 'delivery-failed',
@@ -385,7 +392,7 @@ describe('podium mail CLI (argv shape)', () => {
       inbox: [
         {
           ...WIRE,
-          status: 'dead_letter',
+          deliveryStatus: 'failed',
           deliveryDeferredReason: 'delivery-failed',
           deliveredTo: 's1',
         },

@@ -131,7 +131,7 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
             dbPath,
             (db) =>
               (
-                db.prepare("SELECT status FROM messages WHERE id = 'msg_due'").get() as
+                db.prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_due'").get() as
                   | { status: string }
                   | undefined
               )?.status,
