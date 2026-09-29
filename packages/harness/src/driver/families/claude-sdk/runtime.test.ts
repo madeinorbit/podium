@@ -4,8 +4,10 @@ import type { RuntimeEvent } from '../../host.js'
 import {
   type ClaudeSdkRuntimeHost,
   type ClaudeSdkTurnHandle,
+  type ClaudeSdkTurnResult,
   createClaudeSdkRuntime,
 } from './runtime.js'
+import { claudeUserMessageUuid } from './message-uuid.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const SESSION = 'claude-sdk-durable' as SessionId
@@ -36,8 +38,12 @@ function hostWith(fail: (message: string) => Error): {
     mintResumeValue: () => resumeValue,
     now: () => '2026-08-28T00:00:00.000Z',
     startTurn(): ClaudeSdkTurnHandle {
+      // The CLI took the line; the turn then failed.
+      const done = Promise.reject(fail('turn'))
+      done.catch(() => {})
       return {
-        done: Promise.reject(fail('turn')),
+        done,
+        accepted: Promise.resolve(),
         interrupt() {},
         answerPermission() {},
         dispose() {},
@@ -164,79 +170,294 @@ describe('Claude SDK durable failure state', () => {
   })
 })
 
-describe('the history entry a delivered send became (POD-4774)', () => {
-  function namingHost(): { host: ClaudeSdkRuntimeHost; started: Array<string | undefined> } {
-    const started: Array<string | undefined> = []
-    let minted = 0
-    const { host } = hostWith(() => new Error('unused'))
-    return {
-      started,
-      host: {
-        ...host,
-        mintUserMessageUuid: () => `user-uuid-${++minted}`,
-        startTurn(input): ClaudeSdkTurnHandle {
-          started.push(input.userMessageUuid)
-          return {
-            done: new Promise(() => {}),
-            interrupt() {},
-            answerPermission() {},
-            dispose() {},
-          }
-        },
+/** A host whose turns the test settles by hand: the CLI's ack of the line,
+ *  then the turn's end. */
+function manualHost(): {
+  host: ClaudeSdkRuntimeHost
+  started: string[]
+  turns: Array<{
+    ack(): void
+    refuse(error: Error): void
+    finish(result?: Partial<ClaudeSdkTurnResult>): void
+    fail(error: Error): void
+    interrupts: number
+  }>
+} {
+  const started: string[] = []
+  const turns: ReturnType<typeof manualHost>['turns'] = []
+  const { host } = hostWith(() => new Error('unused'))
+  return {
+    started,
+    turns,
+    host: {
+      ...host,
+      startTurn(input): ClaudeSdkTurnHandle {
+        started.push(input.userMessageUuid)
+        let ack!: () => void
+        let refuse!: (error: Error) => void
+        const accepted = new Promise<void>((res, rej) => {
+          ack = res
+          refuse = rej
+        })
+        accepted.catch(() => {})
+        let finish!: (value: ClaudeSdkTurnResult) => void
+        let fail!: (error: Error) => void
+        const done = new Promise<ClaudeSdkTurnResult>((res, rej) => {
+          finish = res
+          fail = rej
+        })
+        done.catch(() => {})
+        const turn: ReturnType<typeof manualHost>['turns'][number] = {
+          ack: () => ack(),
+          refuse: (error) => {
+            refuse(error)
+            fail(error)
+          },
+          finish: (result = {}) => finish({ resumeValue: 'resume-1', output: '', ...result }),
+          fail,
+          interrupts: 0,
+        }
+        turns.push(turn)
+        return {
+          done,
+          accepted,
+          interrupt() {},
+          async requestInterrupt() {
+            turn.interrupts += 1
+            return { outcome: 'accepted' as const }
+          },
+          answerPermission() {},
+          dispose() {},
+        }
       },
-    }
+    },
   }
-  const userItemIds = (events: readonly RuntimeEvent[]): string[] =>
-    events.flatMap((event) =>
-      event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user'
-        ? [event.item.item.id]
-        : [],
-    )
+}
 
-  it('hands the CLI the uuid it names the turn with, and reports that entry', async () => {
-    const { host, started } = namingHost()
+const pending = Symbol('pending')
+async function settled<T>(promise: Promise<T>): Promise<T | typeof pending> {
+  return Promise.race([
+    promise,
+    new Promise<typeof pending>((res) => setTimeout(() => res(pending), 0)),
+  ])
+}
+
+async function eventsUntil(
+  handle: { events(cursor: 'bootstrap'): AsyncIterable<RuntimeEvent> },
+  done: (events: readonly RuntimeEvent[]) => boolean,
+): Promise<RuntimeEvent[]> {
+  const events: RuntimeEvent[] = []
+  for await (const event of handle.events('bootstrap')) {
+    events.push(event)
+    if (done(events)) break
+  }
+  return events
+}
+
+const userItemIds = (events: readonly RuntimeEvent[]): string[] =>
+  events.flatMap((event) =>
+    event.t === 'item' && event.item.kind === 'complete' && event.item.item.role === 'user'
+      ? [event.item.item.id]
+      : [],
+  )
+const turnEvents = (events: readonly RuntimeEvent[]): string[] =>
+  events.flatMap((event) => (event.t === 'turn' ? [event.ev.ev] : []))
+
+describe('the history entry a delivered send became (POD-4774, POD-4836)', () => {
+  const MESSAGE = 'msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70'
+  const ENTRY = '0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70'
+
+  it('types the line under the uuid derived from the message id, and reports that entry', async () => {
+    const { host, started, turns } = manualHost()
     const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
-    const receipt = await handle.send(
-      { id: 't1', text: 'ping' },
+    const receipt = handle.send(
+      { id: MESSAGE, text: 'ping' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(started).toEqual(['user-uuid-1'])
-    expect(receipt).toMatchObject({
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    turns[0]!.ack()
+    await expect(receipt).resolves.toMatchObject({
       outcome: 'accepted',
-      provenBy: 'sdk-callback',
-      transcriptItem: { id: 'user-uuid-1' },
+      provenBy: 'protocol-ack',
+      transcriptItem: { id: ENTRY },
     })
-    const events: RuntimeEvent[] = []
-    for await (const event of handle.events('bootstrap')) {
-      events.push(event)
-      if (userItemIds(events).length > 0) break
-    }
+    expect(started).toEqual([ENTRY])
     // The id the chat shows for the prompt.
-    expect(userItemIds(events)).toEqual(['user-uuid-1'])
+    const events = await eventsUntil(handle, (seen) => userItemIds(seen).length > 0)
+    expect(userItemIds(events)).toEqual([ENTRY])
+    runtime.dispose()
+  })
+
+  it('names the same entry on every attempt at the same message', async () => {
+    const { host, started, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const first = handle.send(
+      { id: 'notice:4720:7', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    turns[0]!.refuse(
+      new Error('the Claude model host process exited with code 1 before the turn finished'),
+    )
+    await expect(first).resolves.toMatchObject({ outcome: 'refused' })
+    const again = handle.send(
+      { id: 'notice:4720:7', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(2))
+    turns[1]!.ack()
+    await expect(again).resolves.toMatchObject({ outcome: 'accepted' })
+    expect(started).toEqual([
+      claudeUserMessageUuid('notice:4720:7'),
+      claudeUserMessageUuid('notice:4720:7'),
+    ])
     runtime.dispose()
   })
 
   it("carries the entry on a durable row's delivered outcome", async () => {
-    const { host } = namingHost()
+    const { host, turns } = manualHost()
     const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
     await handle.send(
-      { text: 'durable ping', rowId: 'msg_row' },
+      { id: 'row-1', text: 'durable ping', rowId: 'row-1' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    const events: RuntimeEvent[] = []
-    for await (const event of handle.events('bootstrap')) {
-      events.push(event)
-      if (event.t === 'delivery') break
-    }
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    turns[0]!.ack()
+    const events = await eventsUntil(handle, (seen) => seen.some((event) => event.t === 'delivery'))
     expect(events.find((event) => event.t === 'delivery')).toMatchObject({
       t: 'delivery',
-      rowId: 'msg_row',
+      rowId: 'row-1',
       outcome: 'delivered',
-      transcriptItem: { id: 'user-uuid-1' },
+      transcriptItem: { id: claudeUserMessageUuid('row-1') },
     })
-    expect(userItemIds(events)).toEqual(['user-uuid-1'])
+    expect(userItemIds(events)).toEqual([claudeUserMessageUuid('row-1')])
+    runtime.dispose()
+  })
+})
+
+describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () => {
+  it('is not accepted, and opens no turn, until the CLI acks the line', async () => {
+    const { host, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const receipt = handle.send(
+      { id: 'm1', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    expect(await settled(receipt)).toBe(pending)
+    expect(await handle.state()).toMatchObject({ phase: 'idle' })
+    turns[0]!.ack()
+    await expect(receipt).resolves.toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
+    expect(await handle.state()).toMatchObject({ phase: 'working' })
+    runtime.dispose()
+  })
+
+  it('refuses a line the CLI never took, with no turn and no prompt on the transcript', async () => {
+    const { host, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const receipt = handle.send(
+      { id: 'm1', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    turns[0]!.refuse(
+      new Error('the Claude model host process exited with code 1 before the turn finished'),
+    )
+    await expect(receipt).resolves.toEqual({
+      outcome: 'refused',
+      refusal: {
+        reason: 'not_running',
+        detail: 'the Claude model host process exited with code 1 before the turn finished',
+      },
+    })
+    // The session is free again, and nothing claims a turn ran.
+    const next = handle.send(
+      { id: 'm2', text: 'pong' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(2))
+    turns[1]!.ack()
+    await expect(next).resolves.toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
+    const events = await eventsUntil(handle, (seen) => userItemIds(seen).length > 0)
+    expect(turnEvents(events)).toEqual(['started'])
+    expect(userItemIds(events)).toEqual([claudeUserMessageUuid('m2')])
+    runtime.dispose()
+  })
+
+  it('accepts a line the session already held, and closes the turn it opens without running one', async () => {
+    const { host, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const receipt = handle.send(
+      { id: 'm1', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    // What the protocol does with a skipped line: acked, and the turn ends
+    // empty at once — no `result` will ever come for it.
+    turns[0]!.ack()
+    turns[0]!.finish()
+    await expect(receipt).resolves.toMatchObject({
+      outcome: 'accepted',
+      transcriptItem: { id: claudeUserMessageUuid('m1') },
+    })
+    const events = await eventsUntil(handle, (seen) => turnEvents(seen).includes('completed'))
+    expect(turnEvents(events)).toEqual(['started', 'completed'])
+    expect(
+      events.some(
+        (event) =>
+          event.t === 'item' &&
+          event.item.kind === 'complete' &&
+          event.item.item.role === 'assistant',
+      ),
+    ).toBe(false)
+    runtime.dispose()
+  })
+
+  it('queues a send that arrives while a line waits for its ack', async () => {
+    const { host, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const first = handle.send(
+      { id: 'm1', text: 'one' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    await expect(
+      handle.send({ id: 'm2', text: 'two' }, { origin: 'human', delivery: 'when-ready' }),
+    ).resolves.toMatchObject({ outcome: 'queued', position: 1 })
+    await expect(
+      handle.send(
+        { id: 'm3', text: 'three' },
+        { origin: 'human', delivery: 'when-ready', deliveryAttempt: true },
+      ),
+    ).resolves.toEqual({ outcome: 'refused', refusal: { reason: 'busy' } })
+    expect(turns).toHaveLength(1)
+    turns[0]!.ack()
+    await expect(first).resolves.toMatchObject({ outcome: 'accepted' })
+    turns[0]!.finish()
+    // The queued line goes out at the boundary.
+    await vi.waitFor(() => expect(turns).toHaveLength(2))
+    runtime.dispose()
+  })
+
+  it('an interrupt while the line waits for its ack stops the turn the ack opens', async () => {
+    const { host, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    void handle.send({ id: 'm1', text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    const interrupted = handle.interrupt()
+    expect(await settled(interrupted)).toBe(pending)
+    expect(turns[0]!.interrupts).toBe(0)
+    turns[0]!.ack()
+    await interrupted
+    expect(turns[0]!.interrupts).toBe(1)
     runtime.dispose()
   })
 })

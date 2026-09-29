@@ -351,7 +351,8 @@ export type TurnReceipt =
 /** What proved a send was accepted — the declared mechanism behind rule 2's
  *  family-invariant guarantee. */
 export type SendProof =
-  /** A protocol acknowledgement (Codex `turn/started`, opencode's message ack). */
+  /** A protocol acknowledgement (Codex `turn/started`, opencode's message ack,
+   *  Claude's `command_lifecycle` for the user line's uuid). */
   | 'protocol-ack'
   /** An SDK callback returned. */
   | 'sdk-callback'

@@ -119,6 +119,10 @@ export function buildClaudeStreamInvocation(
     '--input-format',
     'stream-json',
     '--include-partial-messages',
+    // Each user line comes back as an `isReplay` echo carrying its uuid. It is
+    // the only sign that the session already held a line and skipped it
+    // (POD-4836); see `ClaudeStreamTurnAcceptance`.
+    '--replay-user-messages',
     '--permission-mode',
     mode,
     ...(mode === 'bypassPermissions' ? ['--allow-dangerously-skip-permissions'] : []),
@@ -311,8 +315,37 @@ export interface ClaudeStreamTurnCallbacks {
   emit(event: HeadlessTurnEvent): void
 }
 
+/**
+ * THE CLI TOOK THE USER LINE (POD-4836), by its own word about the line's
+ * uuid — never inferred from the write.
+ *
+ * Measured on claude 2.1.282 and 2.1.284 (`__fixtures__/user-message-ack.json`):
+ *  - a new line is answered by `command_lifecycle` `queued` then `started`,
+ *    `command_uuid` = the line's uuid, ~60 ms after the write, and recorded in
+ *    the session under that uuid. That ack accepts it.
+ *  - the `isReplay` echo of the line also carries the uuid, but the CLI holds
+ *    it back until the model's first output — 3.7 s behind a 3 s first token,
+ *    and not at all through 40 s of API retries while the entry was already on
+ *    disk. It accepts a line only when no lifecycle ack came.
+ *  - a line whose uuid the session already holds is SKIPPED: not recorded, no
+ *    model call, no `result`. The same process says so only with the echo, and
+ *    that echo has no `timestamp` (the CLI copies the input line's, and ours
+ *    carry none; a recorded line's echo carries the record's). A process on
+ *    `--resume` adds a lone `completed`. Either one, before any `queued` or
+ *    `started`, is `duplicate: true`, and the turn ends there, empty.
+ */
+export interface ClaudeStreamTurnAcceptance {
+  /** The line's uuid: the id of the session's history entry for it. */
+  uuid: string
+  /** The session already held this uuid; this line was skipped, nothing ran. */
+  duplicate: boolean
+}
+
 export interface ClaudeStreamTurn {
   done: Promise<ClaudeStreamTurnOutcome>
+  /** Settles once: the CLI's ack of the user line, or the failure that ended
+   *  the turn before any. See `ClaudeStreamTurnAcceptance`. */
+  accepted: Promise<ClaudeStreamTurnAcceptance>
   /** Teardown's poke: fire and forget, deliberately unacknowledged. */
   interrupt(): void
   /** The operator's interrupt, which owes an answer. Absent verdict → unconfirmed, never success. */
@@ -328,7 +361,9 @@ export interface ClaudeStreamClient {
    *  CLI-reported one, else the one the invocation named — or, with neither,
    *  once the CLI reports one. Never a gate on the first user line. */
   readonly ready: Promise<string>
-  /** Run one turn over the long-lived child. Strictly serial: one open turn. */
+  /** Run one turn over the long-lived child. Strictly serial: one open turn.
+   *  `userMessageUuid` names the user line and so its history entry (POD-4774);
+   *  absent, the client mints one — a line always has a uuid to be acked by. */
   turn(
     prompt: string,
     callbacks: ClaudeStreamTurnCallbacks,
@@ -397,6 +432,12 @@ export function createClaudeStreamClient(
   let openTurn:
     | {
         callbacks: ClaudeStreamTurnCallbacks
+        /** The user line's uuid, lower-case: what the CLI's acks name. */
+        uuid: string
+        acceptance?: ClaudeStreamTurnAcceptance
+        /** First of the two wins; the other is then a no-op. */
+        accept(acceptance: ClaudeStreamTurnAcceptance): void
+        refuse(error: Error): void
         output: string
         partial: string
         partialUuid: string
@@ -434,7 +475,9 @@ export function createClaudeStreamClient(
     clearOpenTurn(turn)
     clearTimeout(turn.timer)
     if (turn.killTimer) clearTimeout(turn.killTimer)
-    turn.reject(new HeadlessTurnFailure(message, sessionId || undefined))
+    const failure = new HeadlessTurnFailure(message, sessionId || undefined)
+    turn.refuse(failure)
+    turn.reject(failure)
   }
 
   const succeedOpenTurn = (): void => {
@@ -444,16 +487,49 @@ export function createClaudeStreamClient(
     clearOpenTurn(turn)
     clearTimeout(turn.timer)
     if (turn.killTimer) clearTimeout(turn.killTimer)
-    if (!sessionId) {
+    // A turn that ran to its end without the CLI ever acking the line proved
+    // nothing about the line: unaccepted, whatever the turn produced.
+    turn.refuse(
+      new HeadlessTurnFailure(
+        'the Claude CLI never acknowledged the user line',
+        sessionId || undefined,
+      ),
+    )
+    // The CLI keeps the id the invocation named; a skipped line may end the
+    // turn before the CLI has reported it.
+    const harnessSessionId = sessionId || namedSessionId
+    if (!harnessSessionId) {
       turn.reject(new HeadlessTurnFailure('claude turn ended without reporting a session id'))
       return
     }
     turn.resolve({
-      harnessSessionId: sessionId,
+      harnessSessionId,
       output: turn.output,
       ...(turn.observedModel ? { observedModel: turn.observedModel } : {}),
       ...(turn.observedEffort ? { observedEffort: turn.observedEffort } : {}),
     })
+  }
+
+  /**
+   * THE CLI'S WORD ABOUT THE OPEN TURN'S LINE (POD-4836). `queued`/`started`
+   * accept it; `completed`, or the timestamp-less echo, before either means
+   * the session already held the uuid and skipped the line — accepted as a
+   * duplicate, and the turn ends now, since no `result` will come for it. The
+   * recorded line's echo accepts only when no lifecycle ack came first.
+   */
+  function noteLineAck(
+    uuid: string,
+    signal: 'queued' | 'started' | 'completed' | 'echo' | 'skip-echo',
+  ): void {
+    const turn = openTurn
+    if (!turn || turn.settled || uuid.toLowerCase() !== turn.uuid) return
+    if (signal === 'completed' || signal === 'skip-echo') {
+      if (turn.acceptance) return
+      turn.accept({ uuid: turn.uuid, duplicate: true })
+      succeedOpenTurn()
+      return
+    }
+    turn.accept({ uuid: turn.uuid, duplicate: false })
   }
 
   function writeLine(line: string): void {
@@ -610,6 +686,17 @@ export function createClaudeStreamClient(
       return
     }
     if (type === 'keep_alive' || type === 'transcript_mirror') return
+    if (type === 'command_lifecycle') {
+      const lifecycle = msg as { command_uuid?: unknown; state?: unknown }
+      const state = lifecycle.state
+      if (
+        typeof lifecycle.command_uuid === 'string' &&
+        (state === 'queued' || state === 'started' || state === 'completed')
+      ) {
+        noteLineAck(lifecycle.command_uuid, state)
+      }
+      return
+    }
     const turn = openTurn
     switch (type) {
       case 'system': {
@@ -660,6 +747,16 @@ export function createClaudeStreamClient(
         return
       }
       case 'user': {
+        const echo = msg as { isReplay?: unknown; uuid?: unknown; timestamp?: unknown }
+        if (
+          echo.isReplay === true &&
+          typeof echo.uuid === 'string' &&
+          turn &&
+          echo.uuid.toLowerCase() === turn.uuid
+        ) {
+          noteLineAck(echo.uuid, typeof echo.timestamp === 'string' ? 'echo' : 'skip-echo')
+          return
+        }
         // The CLI reports every tool's return as a user message holding
         // tool_result blocks — the same shape Claude Code writes to its own
         // JSONL. A result is ALWAYS emitted, even empty: a tool that printed
@@ -834,8 +931,28 @@ export function createClaudeStreamClient(
       // owner always awaits `done` — but an owner that only interrupts still
       // needs the silence.
       done.catch(() => {})
-      const turn = {
+      let accept!: (value: ClaudeStreamTurnAcceptance) => void
+      let refuse!: (error: Error) => void
+      const accepted = new Promise<ClaudeStreamTurnAcceptance>((res, rej) => {
+        accept = res
+        refuse = rej
+      })
+      // Like done: an owner that never asks must not see it unhandled.
+      accepted.catch(() => {})
+      const turn: NonNullable<typeof openTurn> = {
         callbacks,
+        uuid: (options?.userMessageUuid ?? randomUUID()).toLowerCase(),
+        accept(acceptance) {
+          if (turn.acceptance) return
+          turn.acceptance = acceptance
+          accept(acceptance)
+        },
+        refuse(error) {
+          if (turn.acceptance) return
+          // Settled for good: a late ack for a turn already over is no receipt.
+          turn.acceptance = { uuid: turn.uuid, duplicate: false }
+          refuse(error)
+        },
         output: '',
         partial: '',
         partialUuid: '',
@@ -861,15 +978,16 @@ export function createClaudeStreamClient(
       void handshake
         .then(() => {
           if (turn.settled || closed) return
-          writeLine(userMessageLine(prompt, options?.userMessageUuid))
+          writeLine(userMessageLine(prompt, turn.uuid))
         })
         .catch((error: unknown) => {
           if (!turn.settled) {
             turn.settled = true
             clearTimeout(turn.timer)
-            reject(
-              error instanceof Error ? error : new HeadlessTurnFailure(String(error), undefined),
-            )
+            const failure =
+              error instanceof Error ? error : new HeadlessTurnFailure(String(error), undefined)
+            turn.refuse(failure)
+            reject(failure)
           }
         })
       const requestInterruptFor = (requestId: string): Promise<ClaudeStreamInterruptAck> => {
@@ -892,6 +1010,7 @@ export function createClaudeStreamClient(
       }
       return {
         done,
+        accepted,
         interrupt: () => {
           sendInterrupt()
         },

@@ -158,6 +158,7 @@ function turnInput(text = 'hello', resumeValue = 'resume-1', fresh = true) {
     turn: { text },
     resumeValue,
     newConversation: fresh,
+    userMessageUuid: USER_UUID,
     onPartialText: () => {},
     onPermission: () => {},
     onToolCall: () => {},
@@ -166,6 +167,7 @@ function turnInput(text = 'hello', resumeValue = 'resume-1', fresh = true) {
 }
 
 const frame = (value: unknown): string => JSON.stringify(value)
+const USER_UUID = '0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70'
 
 /** Drive the stub CLI side: answer initialize, report a session, end a turn. */
 function answerHandshake(
@@ -340,12 +342,41 @@ describe('the claude stream engine host', () => {
     })
   })
 
+  it('writes the line under the turn uuid and is accepted on the CLI ack of it (POD-4836)', async () => {
+    const attachment = fakeAttachment({ childPid: 4242 })
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment })
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
+    const handle = host.startTurn(turnInput())
+    await vi.waitFor(() => expect(spawned).toHaveLength(1))
+    expect(spawned[0]?.args).toContain('--replay-user-messages')
+    answerHandshake(attachment)
+    await vi.waitFor(() =>
+      expect(
+        attachment.writes.map((line) => JSON.parse(line)).find((msg) => msg.type === 'user')?.uuid,
+      ).toBe(USER_UUID),
+    )
+    let acked = false
+    void handle.accepted.then(() => {
+      acked = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(acked).toBe(false)
+    attachment.emitStdout(
+      `${frame({ type: 'command_lifecycle', command_uuid: USER_UUID, state: 'queued' })}\n`,
+    )
+    await expect(handle.accepted).resolves.toBeUndefined()
+    endTurn(attachment)
+    await expect(handle.done).resolves.toMatchObject({ output: 'answered' })
+  })
+
   it('refuses loudly when another daemon holds the writer lease', async () => {
     const attachment = fakeAttachment({ lease: false })
     const { supervision, engines } = fakePorts({ engineAlive: true, attach: attachment })
     const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
     const handle = host.startTurn(turnInput())
     await expect(handle.done).rejects.toBeInstanceOf(ClaudeEngineLeaseRefused)
+    // No line was written, so none was accepted.
+    await expect(handle.accepted).rejects.toBeInstanceOf(ClaudeEngineLeaseRefused)
   })
 
   it('reaps a stillborn engine and reports the bind failure', async () => {
@@ -370,6 +401,7 @@ describe('the claude stream engine host', () => {
       `${frame({ type: 'control_response', response: { subtype: 'error', request_id: init.request_id, error: 'nope' } })}\n`,
     )
     await expect(handle.done).rejects.toBeInstanceOf(EngineBindUnrecoverable)
+    await expect(handle.accepted).rejects.toBeInstanceOf(EngineBindUnrecoverable)
     await vi.waitFor(() => expect(destroyed).toEqual(['podium-cl-claude-engine-session']))
     expect(journal.recorded(SESSION_ID)).toBeUndefined()
   })
