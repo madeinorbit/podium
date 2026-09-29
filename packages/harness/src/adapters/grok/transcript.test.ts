@@ -32,6 +32,10 @@ describe('grokRecordToItems', () => {
         role: 'assistant',
         ts: '2026-06-15T10:00:01.000Z',
         text: 'hi there',
+        // A text-only assistant record is the terminal reply — the same
+        // answer:true Claude/Codex/Pi/OpenCode carry, so it renders ANSWER.
+        // [POD-4809]
+        answer: true,
       },
     ])
   })
