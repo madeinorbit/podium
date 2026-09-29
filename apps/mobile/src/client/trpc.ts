@@ -127,10 +127,11 @@ interface MobileTrpcExtras {
     // `listThreads` and `history` were declared here over two mobile-local row
     // interfaces. `listThreads` is served by the shared PodiumClientApi seam and
     // answers `SuperThreadView[]` — the type the superagent SLICE publishes — so
-    // the phone and the desktop render one thread shape. `history` is deleted
-    // outright rather than re-typed: it is the FROZEN legacy buffer, and this
-    // app never called it (see SuperagentScreen for why folding it back
-    // in is a trap). Only turn control is mobile's own.
+    // the phone and the desktop render one thread shape; `latestTurnFailure`
+    // rides the same seam as `SuperagentTurnFailure | null` for the same
+    // reason. `history` stays deleted outright rather than re-typed: it is the
+    // FROZEN legacy buffer, and this app never calls it (see SuperagentScreen
+    // for why folding it back in is a trap). Only turn control is mobile's own.
     interruptTurn: MutationProcedure<{ threadId: ThreadId }>
     clear: MutationProcedure<{ threadId: ThreadId }>
   }

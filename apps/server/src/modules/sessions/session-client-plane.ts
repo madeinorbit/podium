@@ -18,6 +18,7 @@ import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
+import { authorReattachBinding } from './binding-mint'
 import type { MachinesService, MachineListing } from '../machines/service'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { Session } from './session'
@@ -92,21 +93,14 @@ export class SessionClientPlane {
       // it back on `bind`. What this server knows W to be is not evidence about
       // the size a surviving agent has actually been running at.
       lastKnownGeometry: session.terminal.geometry,
-      binding: {
-        delegation: session.delegation,
-        transitionId: `reattach:${session.sessionId}:${requestedGeneration}`,
+      binding: authorReattachBinding({
+        sessionId: session.sessionId,
+        ...(session.delegation ? { delegation: session.delegation } : {}),
+        ownerUserId: session.ownerUserId,
+        ...(session.issueId ? { issueId: session.issueId } : {}),
+        observationGeneration: requestedGeneration,
         machineAccess: recoveryMachineAccess,
-        sessionAccess: 'allowed',
-        principal: { kind: 'system' },
-        // WHO this session belongs to, for a survivor the daemon has no binding
-        // record for (every session older than the binding store). The daemon
-        // cannot know it; this row is where it lives. `principal` above is the
-        // probe, not the owner — see SessionBindingReattachInstruction.adopt.
-        adopt: {
-          ownerUserId: session.ownerUserId,
-          ...(session.issueId ? { issueId: session.issueId } : {}),
-        },
-      },
+      }),
       ...(observationLease
         ? {
             observationGeneration: observationLease.observationGeneration,

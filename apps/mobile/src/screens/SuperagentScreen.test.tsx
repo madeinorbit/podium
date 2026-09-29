@@ -418,16 +418,14 @@ describe('SuperagentScreen chrome', () => {
               { id: 'global', kind: 'global', podiumSessionId: 'session:superagent', turnRunning: false },
             ],
           },
-          history: {
-            query: async () => [
-              { role: 'user', content: 'Reply with exactly the word PONG-SUPER.', createdAt: '2026-09-29T01:31:26.000Z' },
-              {
-                role: 'assistant',
-                content:
-                  "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
-                createdAt: '2026-09-29T01:31:27.000Z',
-              },
-            ],
+          latestTurnFailure: {
+            query: async () => ({
+              inputId: 'input-1',
+              userText: 'Reply with exactly the word PONG-SUPER.',
+              error:
+                "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+              at: '2026-09-29T01:31:27.000Z',
+            }),
           },
           sendTurn: { mutate: async () => ({ threadId: 'global' }) },
           clear: { mutate: async () => {} },

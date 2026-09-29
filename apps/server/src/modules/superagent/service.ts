@@ -88,16 +88,22 @@ export const SUPERAGENT_HARNESS_TIMEOUT_MS = 600_000
  *  thread — never a silent fallback). */
 export const TURN_FAILED_MARKER = 'the headless harness turn failed'
 /**
- * Never surface the daemon's internal binding gate to the operator (POD-4806).
- * After the headless binding fix this path is unreachable, but a stale daemon
- * or a queued spawn from before the fix can still report it — rewrite to an
- * actionable line instead of leaking internals.
+ * Structural marker for a persisted turn failure (POD-4806 review). The
+ * assistant row of every durable user + failure pair carries this in its
+ * `tool_name` column and the failed input's id in `tool_call_id` (the user
+ * row carries the same id), so `latestTurnFailure` selects failures by column
+ * — never by matching prose in content.
  */
-export function sanitizeSuperagentFailure(raw: string): string {
-  if (/server-minted SessionBinding instruction is required/i.test(raw)) {
-    return 'could not start the session — please retry'
-  }
-  return raw
+export const TURN_FAILURE_TOOL = 'superagent-turn-failure'
+
+/** One durable turn failure, as `latestTurnFailure` serves it. `userText` is
+ *  null when the turn reached a harness (the transcript carries the prompt);
+ *  the user row is persisted only for turns that provably never dispatched. */
+export interface SuperagentTurnFailure {
+  inputId: string
+  userText: string | null
+  error: string
+  at: string
 }
 
 /**
@@ -453,6 +459,40 @@ export class SuperagentService {
   }
 
   /**
+   * The thread's most recent durable turn failure, if any (POD-4806). Selected
+   * by column — the failure row's `TURN_FAILURE_TOOL` marker and the failed
+   * input's id shared with its user row — never by matching prose in content.
+   * A turn that never dispatched persists both rows; a post-dispatch failure
+   * persists only the failure row (the transcript carries the prompt), so
+   * `userText` is null there and the client renders the banner without a
+   * second user bubble.
+   */
+  async latestTurnFailure(
+    ownerUserId: UserId,
+    requested: ThreadId = asThreadId('global'),
+  ): Promise<SuperagentTurnFailure | null> {
+    const thread =
+      requested === 'global'
+        ? await this.ownedThread(ownerUserId, await this.ensureGlobalThread(ownerUserId))
+        : await this.ownedThread(ownerUserId, requested)
+    const rows = await this.store.superagent.loadSuperagentMessages(thread.id)
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const row = rows[i]!
+      if (row.role !== 'assistant' || row.toolName !== TURN_FAILURE_TOOL || !row.toolCallId) continue
+      const user = [...rows.slice(0, i)]
+        .reverse()
+        .find((r) => r.role === 'user' && r.toolCallId === row.toolCallId)
+      return {
+        inputId: row.toolCallId,
+        userText: user?.content ?? null,
+        error: row.content,
+        at: row.createdAt,
+      }
+    }
+    return null
+  }
+
+  /**
    * Reset a thread's context (issue #225). The harness owns the conversation, so
    * clearing the legacy buffered rows alone was a no-op the user could see —
    * the real reset drops the harness+headless binding and the event watermark,
@@ -592,9 +632,12 @@ export class SuperagentService {
       // thread, as if the message was never sent. A queued failure cannot
       // throw to anyone, which is why the pump writes the same rows instead.
       const threadNow = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
+      // Never dispatched (preparation threw before promote), so the
+      // transcript cannot hold the prompt — keep the user row.
       const message = await this.persistTurnFailure(
         threadId,
         ownerUserId,
+        queued.inputId,
         text,
         err,
         threadNow?.podiumSessionId,
@@ -649,11 +692,12 @@ export class SuperagentService {
 
   /** A queued input that never became a turn: durable user + failure lines and
    *  a turn-end, so the composer reopens and the reader sees both what they
-   *  sent and why it did not run — including after a reload (POD-4806). */
+   *  sent and why it did not run — including after a reload (POD-4806). Never
+   *  dispatched, so the user row is always kept. */
   private async failQueuedInput(queued: QueuedSuperagentInputRow, error: unknown): Promise<void> {
     this.queuedHarness.delete(queued.inputId)
     const sessionId = (await this.store.superagent.getSuperagentThread(queued.threadId))?.podiumSessionId
-    await this.persistTurnFailure(queued.threadId, queued.ownerUserId, queued.text, error, sessionId)
+    await this.persistTurnFailure(queued.threadId, queued.ownerUserId, queued.inputId, queued.text, error, sessionId)
   }
 
   /**
@@ -996,12 +1040,14 @@ export class SuperagentService {
     let harnessErrorKind: HarnessErrorKind | undefined
     try {
       if (!agent.success) {
-        // Unknown persisted harness: still leave the durable user + failure
-        // rows (POD-4806) rather than deleting the turn silently.
+        // Unknown persisted harness: never dispatched, so the transcript
+        // cannot hold the prompt — keep the user row (POD-4806).
+        const prompt = typeof pending.payload.prompt === 'string' ? pending.payload.prompt : ''
         await this.persistTurnFailure(
           pending.threadId,
           pending.ownerUserId,
-          typeof pending.payload.prompt === 'string' ? pending.payload.prompt : '',
+          pending.turnId,
+          prompt,
           result.error ?? `unknown persisted harness: ${pending.payload.agent}`,
           pending.podiumSessionId,
         )
@@ -1041,33 +1087,21 @@ export class SuperagentService {
           // token as "re-authenticate" — each with distinct guidance.
           const classified = classifyHarnessError(rawError, agent.data)
           harnessErrorKind = classified.kind
-          const userFacing = sanitizeSuperagentFailure(classified.message)
-          // Persisted user + failure (POD-4806): the transcript may already
-          // hold the prompt when the harness ran, but when the turn never
-          // reached one (offline ladder spent, transport lost) these rows are
-          // the only record a reload can show.
-          try {
-            const prompt = pending.payload.prompt
-            if (typeof prompt === 'string' && prompt.length > 0) {
-              await this.store.superagent.appendSuperagentMessage(pending.threadId, {
-                ownerUserId: pending.ownerUserId,
-                role: 'user',
-                content: prompt,
-              })
-            }
-          } catch {
-            // The failure row below still lands.
-          }
-          // Persisted failure notice: visible on the thread's legacy history,
-          // never a silent fallback to the buffered path.
-          await this.store.superagent.appendSuperagentMessage(pending.threadId, {
-            ownerUserId: pending.ownerUserId,
-            role: 'assistant',
-            content: `${TURN_FAILED_MARKER} (${agent.data}): ${userFacing}`,
-          })
+          // The prompt went to the harness, so the transcript carries it —
+          // persisting the user row again would show it twice after a reload
+          // (POD-4806 review). Only the failure row is durable here.
+          await this.persistTurnFailure(
+            pending.threadId,
+            pending.ownerUserId,
+            pending.turnId,
+            typeof pending.payload.prompt === 'string' ? pending.payload.prompt : '',
+            classified.message,
+            pending.podiumSessionId,
+            false,
+          )
           this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
             kind: 'turn-end',
-            error: userFacing,
+            error: classified.message,
           })
         }
       }
@@ -1386,31 +1420,45 @@ export class SuperagentService {
 
   /**
    * Leave a visible, durable record of a turn that never ran (POD-4806): the
-   * user's message as a `user` row plus the failure as an assistant row, so a
-   * reload still shows both. The harness transcript cannot carry it — the turn
-   * never reached a harness — and the ephemeral turn-end error is gone after a
-   * reload. Best-effort: a persistence miss must not mask the original error.
+   * failure as an assistant row, plus the user's message as a `user` row when
+   * the turn provably never reached a harness — so a reload still shows both.
+   * The harness transcript cannot carry a turn that never reached one, and the
+   * ephemeral turn-end error is gone after a reload. Both rows share the
+   * failed input's id (`tool_call_id`); the failure row carries the
+   * `TURN_FAILURE_TOOL` marker, which is how `latestTurnFailure` finds it.
+   * Best-effort: a persistence miss must not mask the original error.
+   *
+   * `includeUser` is decided by state the caller holds, never by guessing
+   * from the error: pre-dispatch failures (synchronous send refusal, queued
+   * preparation failure, unknown persisted harness) never dispatched, so the
+   * transcript cannot hold the prompt. A post-dispatch failure skips the user
+   * row — the prompt went to the harness — or a reload would show it twice.
    */
   private async persistTurnFailure(
     threadId: ThreadId,
     ownerUserId: UserId,
+    inputId: string,
     userText: string,
     rawError: unknown,
     podiumSessionId?: SessionId,
+    includeUser = true,
   ): Promise<string> {
-    const message = sanitizeSuperagentFailure(describeError(rawError))
+    const message = describeError(rawError)
     try {
-      if (userText.length > 0) {
+      if (includeUser && userText.length > 0) {
         await this.store.superagent.appendSuperagentMessage(threadId, {
           ownerUserId,
           role: 'user',
           content: userText,
+          toolCallId: inputId,
         })
       }
       await this.store.superagent.appendSuperagentMessage(threadId, {
         ownerUserId,
         role: 'assistant',
         content: `${TURN_FAILED_MARKER}: ${message}`,
+        toolCallId: inputId,
+        toolName: TURN_FAILURE_TOOL,
       })
     } catch {
       // The caller's throw below still reports the failure.

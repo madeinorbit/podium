@@ -49,7 +49,7 @@ const sendTurn = vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'h1' 
 const concierge = vi.fn(async () => ({ threadId: 'c1', podiumSessionId: 'h1', isNew: false }))
 const interruptTurn = vi.fn(async () => {})
 const sendText = vi.fn(async () => {})
-const superagentHistory = vi.fn(async () => [] as Array<{ role: string; content: string; createdAt: string }>)
+const latestTurnFailure = vi.fn(async () => null)
 
 const fakeTrpc = {
   sessions: {
@@ -64,7 +64,7 @@ const fakeTrpc = {
     sendTurn: { mutate: sendTurn },
     concierge: { mutate: concierge },
     interruptTurn: { mutate: interruptTurn },
-    history: { query: superagentHistory },
+    latestTurnFailure: { query: latestTurnFailure },
   },
 }
 
@@ -480,19 +480,17 @@ describe('ChatView headless mode', () => {
    * OFFLINE DEFAULT KEEPS ITS WORDS (POD-4806). The turn never reached a
    * harness, so the transcript is empty and the live turn-end error is gone —
    * a reload that rendered only the transcript read as an empty thread, as if
-   * the message was never sent. The server persists the user message plus the
-   * failure to history; the pane restores both (the words as a failed bubble
-   * with retry, the reason inline), and never the internal spawn text.
+   * the message was never sent. The server serves the durable failure typed;
+   * the pane restores the words as a failed bubble with retry plus the reason
+   * inline, and never the internal spawn text.
    */
   it('restores the offline failure and the user message after reload', async () => {
-    superagentHistory.mockResolvedValueOnce([
-      { role: 'user', content: 'Reply with exactly the word PONG-SUPER.', createdAt: '2026-09-29T01:31:26.000Z' },
-      {
-        role: 'assistant',
-        content: "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
-        createdAt: '2026-09-29T01:31:27.000Z',
-      },
-    ])
+    latestTurnFailure.mockResolvedValueOnce({
+      inputId: 'input-1',
+      userText: 'Reply with exactly the word PONG-SUPER.',
+      error: "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+      at: '2026-09-29T01:31:27.000Z',
+    })
     mount()
     await flush()
     await flush()
@@ -502,5 +500,24 @@ describe('ChatView headless mode', () => {
     expect(failed?.textContent).toContain('is offline')
     expect(container.textContent).not.toContain('SessionBinding')
     expect(container.querySelector('[title="Retry failed message"]')).not.toBeNull()
+  })
+
+  /**
+   * A failure WITHOUT its user words restores the reason only (POD-4806
+   * review): a post-dispatch failure persists no user row — the transcript
+   * carries the prompt — so there is no second bubble after a reload.
+   */
+  it('restores a harness failure reason without duplicating the user turn', async () => {
+    latestTurnFailure.mockResolvedValueOnce({
+      inputId: 'turn-9',
+      userText: null,
+      error: 'the headless harness turn failed: (codex): the CLI could not be launched',
+      at: '2026-09-29T01:31:27.000Z',
+    })
+    mount()
+    await flush()
+    await flush()
+    expect(container.querySelector('[data-testid="dead-lettered-chat-message"]')).toBeNull()
+    expect(container.textContent).toContain('could not be launched')
   })
 })

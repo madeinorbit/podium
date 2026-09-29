@@ -14,8 +14,9 @@ import type {
   ThreadId,
   UserId,
 } from '@podium/model'
-import { asAccountId, asAgentIdentityId, asSessionId, type MachineId } from '@podium/model'
+import { asAccountId, asSessionId, type MachineId } from '@podium/model'
 import type {
+  BindingMachineAccess,
   HeadlessActivityEvent,
   HeadlessTurnEvent,
   LiveServerMessage,
@@ -28,6 +29,8 @@ import type {
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import { harnessSupportsNoTools } from '../../harness-manifest'
+import type { ObservationLeaseRecord } from '../../store/types'
+import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
 import { Session, type SessionDurableState } from '../sessions/session'
 
 export interface HeadlessRuntimeRelay {
@@ -98,6 +101,19 @@ export interface HeadlessDeps {
   relay(): HeadlessRuntimeRelay
   /** History/snapshot reads for output + resume. Same late-bound rule. */
   store(): HeadlessHistoryRelay
+  /**
+   * Fence a fresh observation generation for a binding transition — the same
+   * fence the headed spawn and reattach paths take before sending, so the
+   * frame carries a generation that exists and every reattach mints its own
+   * transition id (the daemon dedupes on it).
+   */
+  fenceObservation(session: Session): Promise<ObservationLeaseRecord | undefined>
+  /**
+   * The machine-use decision for a headless reattach probe — the same
+   * allowed/denied answer the headed reattach path computes, never invented
+   * here.
+   */
+  reattachMachineAccess(machineId: MachineId): Promise<BindingMachineAccess>
 }
 
 /**
@@ -159,6 +175,16 @@ export class HeadlessService {
       if (!same) throw new Error(`refusing to reuse mismatched headless session ${sessionId}`)
       return { sessionId }
     }
+    // The identity half comes from the shared spawn mint (POD-4806 review):
+    // the daemon refuses spawns without a server-minted binding, and a
+    // second hand-built copy is how this path lost it. Minted once, used for
+    // both the durable row and the daemon frame — the same rule SessionStart
+    // states for headed spawns.
+    const authored = authorSpawnBinding({
+      sessionId,
+      principal: { kind: 'user', userId: input.ownerUserId },
+      ...(input.issueId ? { issueId: input.issueId } : {}),
+    })
     const session = new Session({
       sessionId,
       durableLabel: this.deps.durableLabelFor(sessionId),
@@ -177,16 +203,7 @@ export class HeadlessService {
       // below promotes it the moment the first turn reports the harness's id.
       conversationBinding: 'never',
       ownerUserId: input.ownerUserId,
-      // The daemon refuses spawns without a server-minted binding (POD-4806):
-      // mint the same user-principal delegation a normal spawn carries, so a
-      // headless establish is not a path that was never meant to be reached.
-      delegation: {
-        actor: asAgentIdentityId(sessionId),
-        onBehalfOf: input.ownerUserId,
-        grantedScope: { kind: 'none' },
-        parentBindingId: null,
-        revision: 1,
-      },
+      delegation: authored.delegation,
       ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.accountId ? { accountId: input.accountId } : {}),
@@ -200,8 +217,11 @@ export class HeadlessService {
     // Establish the daemon-side headless session over the existing WS relay.
     // Fire-and-forget: a turn that lands before the bind reports `not_running`
     // (retryable), and `resumePendingTurns` re-drives it after reconnect.
-    // The binding is server-minted (POD-4806): without it the daemon refuses
-    // with "server-minted SessionBinding instruction is required".
+    // FENCED BEFORE SEND, like every headed spawn: the frame carries the
+    // generation this allocates, and the binding comes from the shared mint —
+    // without it the daemon refuses with "server-minted SessionBinding
+    // instruction is required" (POD-4806).
+    const observationLease = await this.deps.fenceObservation(session)
     try {
       this.deps.toMachine(machineId, {
         type: 'spawn',
@@ -210,19 +230,17 @@ export class HeadlessService {
         agentKind: input.agentKind,
         cwd: input.cwd,
         geometry: this.deps.defaultGeometry(),
-        binding: {
-          principal: { kind: 'user', userId: input.ownerUserId },
-          delegation: {
-            actor: asAgentIdentityId(sessionId),
-            onBehalfOf: input.ownerUserId,
-            grantedScope: { kind: 'none' },
-            parentBindingId: null,
-            revision: 1,
-          },
-          transitionId: `spawn:${sessionId}`,
-          machineAccess: 'allowed',
-          ...(input.issueId ? { issueId: input.issueId } : {}),
-        },
+        binding: authored.binding,
+        ...(observationLease
+          ? {
+              observationGeneration: observationLease.observationGeneration,
+              observationBindingVersion: observationLease.bindingVersion,
+              observationProviderSessionId: observationLease.providerSessionId,
+              ...(observationLease.checkpoint
+                ? { observationCheckpoint: observationLease.checkpoint }
+                : {}),
+            }
+          : {}),
         ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
         ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
         requestedDriverId: 'headless',
@@ -588,9 +606,9 @@ export class HeadlessService {
   /** (Re)establish the daemon-side headless session — the reattach equivalent
    *  for sessions with no PTY. Sends `reattach` with `requestedDriverId:
    *  'headless'`; the daemon adopts (or resumes) the headless handle and
-   *  rebinds the transcript tail. Best-effort and idempotent. Carries the
-   *  server-minted reattach binding (POD-4806) for the same reason the spawn
-   *  does — the daemon refuses a reattach without one. */
+   *  rebinds the transcript tail. Best-effort and idempotent. Fenced per call
+   *  like the headed reattach path, so every reattach mints its own transition
+   *  id instead of collapsing into the previous one (POD-4806 review). */
   async headlessBind(input: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -601,6 +619,7 @@ export class HeadlessService {
     const machineId = session?.machineId ?? await this.deps.defaultMachine()
     try {
       const ownerUserId = session?.ownerUserId
+      const observationLease = session ? await this.deps.fenceObservation(session) : undefined
       this.deps.toMachine(machineId, {
         type: 'reattach',
         sessionId: input.sessionId,
@@ -611,17 +630,24 @@ export class HeadlessService {
         resume: { kind: 'headless-session', value: input.resumeValue },
         ...(session && ownerUserId
           ? {
-              binding: {
+              binding: authorReattachBinding({
+                sessionId: input.sessionId,
                 ...(session.delegation ? { delegation: session.delegation } : {}),
-                transitionId: `reattach:${input.sessionId}:1`,
-                machineAccess: 'allowed' as const,
-                sessionAccess: 'allowed' as const,
-                principal: { kind: 'system' as const },
-                adopt: {
-                  ownerUserId,
-                  ...(session.issueId ? { issueId: session.issueId } : {}),
-                },
-              },
+                ownerUserId,
+                ...(session.issueId ? { issueId: session.issueId } : {}),
+                observationGeneration: observationLease?.observationGeneration ?? 1,
+                machineAccess: await this.deps.reattachMachineAccess(machineId),
+              }),
+            }
+          : {}),
+        ...(observationLease
+          ? {
+              observationGeneration: observationLease.observationGeneration,
+              observationBindingVersion: observationLease.bindingVersion,
+              observationProviderSessionId: observationLease.providerSessionId,
+              ...(observationLease.checkpoint
+                ? { observationCheckpoint: observationLease.checkpoint }
+                : {}),
             }
           : {}),
         requestedDriverId: 'headless',

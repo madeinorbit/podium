@@ -547,25 +547,23 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     if (!headless) return send.failedMessages
     const restored = headlessTurn.restoredFailure
     if (!restored || !restored.userText) return send.failedMessages
-    // The transcript echoed the prompt (a later retry ran): drop the
-    // restoration so one old failure cannot pin the thread forever — same
-    // rule as the phone's dropEchoedTurns.
-    const echoed = blocks.some((block) => {
-      const text = (block as { item?: { text?: unknown } }).item?.text
-      return typeof text === 'string' && text.trim() === restored.userText.trim()
-    })
-    if (echoed) return send.failedMessages
-    // A live failed bubble for the same words already covers it.
-    const liveCovered = send.pending.some(
-      (turn) => turn.text.trim() === restored.userText.trim() && turn.state === 'failed',
-    )
-    if (liveCovered) return send.failedMessages
+    // Dropped by structure, never by comparing words (POD-4806 review): a
+    // transcript item recorded after the failure means a later turn ran, and
+    // live send activity means this mount is already speaking for itself.
+    const failureAt = Date.parse(restored.at)
+    const superseded =
+      Number.isFinite(failureAt) &&
+      blocks.some((block) => {
+        const ts = block.item?.ts
+        return typeof ts === 'string' && Number.isFinite(Date.parse(ts)) && Date.parse(ts) > failureAt
+      })
+    if (superseded || send.pending.length > 0) return send.failedMessages
     return [
       ...send.failedMessages,
       {
-        id: `superagent-restored:${restored.at}`,
+        id: `superagent-restored:${restored.inputId}`,
         text: restored.userText,
-        at: restored.at,
+        at: Number.isFinite(failureAt) ? failureAt : Date.now(),
         failure: restored.error,
       },
     ]

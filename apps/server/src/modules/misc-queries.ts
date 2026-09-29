@@ -242,13 +242,20 @@ export const FEATURE_QUERIES = {
 // The reads of families whose WRITES another issue already derived
 // ---------------------------------------------------------------------------
 
-/** POD-383 derived the seven superagent writes; these two reads stayed
+/** POD-383 derived the seven superagent writes; these reads stayed
  *  hand-written because a read writes nothing. */
 export const SUPERAGENT_QUERIES = {
   /** The global orchestrator thread plus per-session 'btw' threads. */
   listThreads: q(noInput, async (s) => await s.superagent.listThreads(asUserId(s.caller.userId))),
   history: q(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }), async (s, input) =>
     await s.superagent.history(asUserId(s.caller.userId), input.threadId),
+  ),
+  /** The thread's most recent durable turn failure for post-reload restoration
+   *  (POD-4806): a typed `{inputId, userText, error, at}` or null — selected
+   *  server-side by column, so clients never match prose to find it. */
+  latestTurnFailure: q(
+    z.object({ threadId: ThreadIdField.default(asThreadId('global')) }),
+    async (s, input) => await s.superagent.latestTurnFailure(asUserId(s.caller.userId), input.threadId),
   ),
 } as const
 
