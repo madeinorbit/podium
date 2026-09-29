@@ -29,7 +29,7 @@ import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
-import { INLINE_BODY_MAX, MessagesRepository } from './messages'
+import { INLINE_BODY_MAX, isPointerMessage, MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
 /**
@@ -599,7 +599,9 @@ describe('per-reader pending', () => {
   // send to the daemon at once, so a busy agent's inline mail sits `queued`
   // with injected_at stamped until the daemon delivers it as a turn. Telling the
   // agent "you have mail" for it makes it read the same mail twice. A pointer
-  // row (fyi, or a body too long to paste) stays counted: only a read confirms it.
+  // row (a body too long to paste) stays counted: only a read confirms it. A
+  // short fyi is typed inline like any other row, so it is on its way too
+  // [POD-4845].
   it('pendingSummaryForSession skips inline mail already handed to this reader', async () => {
     await add({ id: 'waiting', fromSession: PEER, createdAt: 't5', urgency: 'next-turn' })
     await add({
@@ -609,7 +611,7 @@ describe('per-reader pending', () => {
       urgency: 'next-turn',
     })
     await add({
-      id: 'pointer-handed-on',
+      id: 'fyi-handed-on',
       fromSession: PEER,
       createdAt: 't5',
       urgency: 'fyi',
@@ -626,22 +628,65 @@ describe('per-reader pending', () => {
     // still nags here.
     await add({ id: 'handed-to-peer', fromIssue: asIssueId('iss_x'), createdAt: 't5', urgency: 'next-turn' })
     // Handed on the way production does it: stamped injected to the reader.
-    for (const id of ['handed-on', 'pointer-handed-on', 'oversized-handed-on']) {
+    for (const id of ['handed-on', 'fyi-handed-on', 'oversized-handed-on']) {
       await messages.markDispatched(id, READER, 't6')
     }
     await messages.markDispatched('handed-to-peer', PEER, 't6')
     const summary = await messages.pendingSummaryForSession(asIssueId(TARGET) as IssueId, READER)
-    expect(summary.count).toBe(4)
+    expect(summary.count).toBe(3)
     const issue = asIssueId(TARGET) as IssueId
-    expect(await messages.countPendingForSession(issue, READER)).toBe(4)
+    expect(await messages.countPendingForSession(issue, READER)).toBe(3)
   })
 
   it('pendingSummary skips inline mail already handed to a session', async () => {
     await add({ id: 'waiting', urgency: 'next-turn' })
     await add({ id: 'handed-on', urgency: 'next-turn' })
-    await add({ id: 'pointer-handed-on', urgency: 'fyi' })
-    for (const id of ['handed-on', 'pointer-handed-on']) await messages.markDispatched(id, READER, 't6')
+    await add({ id: 'fyi-handed-on', urgency: 'fyi' })
+    await add({ id: 'pointer-handed-on', body: 'x'.repeat(INLINE_BODY_MAX + 1) })
+    for (const id of ['handed-on', 'fyi-handed-on', 'pointer-handed-on']) {
+      await messages.markDispatched(id, READER, 't6')
+    }
     expect((await messages.pendingSummary({ kind: 'issue', id: TARGET })).count).toBe(2)
+  })
+
+  // THE POINTER RULE is stated twice, in code (what the renderer types) and in
+  // SQL (what still nags): the two must classify every body alike [POD-4845].
+  // SQLite counts characters where `.length` counts UTF-16 units, so the
+  // boundary cases carry an emoji (one character, two units).
+  it('the pointer rule in code and in SQL agree on every body, at the boundary too', async () => {
+    const emoji = '\u{1F600}'
+    const bodies = {
+      short: 'short',
+      'at-limit': 'x'.repeat(INLINE_BODY_MAX),
+      'over-limit': 'x'.repeat(INLINE_BODY_MAX + 1),
+      'at-limit-with-emoji': 'x'.repeat(INLINE_BODY_MAX - 1) + emoji,
+      'over-limit-with-emoji': 'x'.repeat(INLINE_BODY_MAX - 1) + emoji + 'x',
+      'all-emoji-at-limit': emoji.repeat(INLINE_BODY_MAX),
+      'all-emoji-over-limit': emoji.repeat(INLINE_BODY_MAX + 1),
+    }
+    // A handed-on row nags its reader exactly when it is a pointer.
+    const issue = asIssueId(TARGET) as IssueId
+    const nagging: string[] = []
+    for (const [id, body] of Object.entries(bodies)) {
+      const before = await messages.countPendingForSession(issue, READER)
+      await add({ id, fromSession: PEER, body })
+      await messages.markDispatched(id, READER, 't6')
+      if ((await messages.countPendingForSession(issue, READER)) > before) nagging.push(id)
+    }
+    const pointers = Object.entries(bodies)
+      .filter(([, body]) => isPointerMessage({ toKind: 'issue', body }))
+      .map(([id]) => id)
+    expect(pointers).toEqual(['over-limit', 'over-limit-with-emoji', 'all-emoji-over-limit'])
+    expect(nagging).toEqual(pointers)
+  })
+
+  it('pendingSummary never takes session mail for a pointer, however long', async () => {
+    // Only issue-addressed mail is rendered as a pointer [POD-4845].
+    const to = { toKind: 'session' as const, toId: String(READER) }
+    await add({ id: 'long-to-session', ...to, body: 'x'.repeat(INLINE_BODY_MAX + 1) })
+    await add({ id: 'fyi-to-session', ...to, urgency: 'fyi' })
+    for (const id of ['long-to-session', 'fyi-to-session']) await messages.markDispatched(id, READER, 't6')
+    expect((await messages.pendingSummary({ kind: 'session', id: String(READER) })).count).toBe(0)
   })
 
   it('countPendingForSession and listPendingSendersForSession agree with the summary', async () => {

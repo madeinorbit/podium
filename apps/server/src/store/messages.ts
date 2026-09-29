@@ -55,15 +55,44 @@ import { currentTransaction } from './executor/sync-drizzle'
 import { moveStatus } from './guarded-move'
 import type { MessageRow, MessageToKind } from './types'
 
-/** Bodies past this render as a pointer, not inline (issue-addressed only —
- *  they are readable via `podium issue mail inbox`). Here, below the renderer,
- *  so the pending-mail count can tell a pointer row from an inline one. */
+/** Bodies past this many characters render as a pointer, not inline
+ *  (issue-addressed only — they are readable via `podium issue mail inbox`). */
 export const INLINE_BODY_MAX = 6_000
 
-/** A pointer row — fyi, or a body too long to paste — shows no body inline, so
- *  only an inbox read confirms it and it keeps nagging until then. */
+/** Longer than {@link INLINE_BODY_MAX} counted as SQLite's `length()` counts
+ *  text: in characters (code points), where `.length` counts UTF-16 units and so
+ *  counts an emoji twice. Units are never fewer than characters and never more
+ *  than twice as many, so only a body between the two bounds is walked. SQLite
+ *  also stops counting at a NUL; a body holding one is the one it can misjudge. */
+const longerThanInline = (body: string): boolean => {
+  if (body.length <= INLINE_BODY_MAX) return false
+  if (body.length > 2 * INLINE_BODY_MAX) return true
+  let chars = 0
+  for (let i = 0; i < body.length; i += body.codePointAt(i)! > 0xffff ? 2 : 1) {
+    if (++chars > INLINE_BODY_MAX) return true
+  }
+  return false
+}
+
+/**
+ * THE POINTER RULE — one definition, in code and in SQL, here below the
+ * renderer so the pending-mail count reads the same rule the renderer types by.
+ *
+ * A pointer is exactly a row the renderer types as a pointer to the inbox: an
+ * issue-addressed body too long to type inline. It shows no body, so only an
+ * inbox read confirms it and it keeps nagging until then. Nothing else is one:
+ * fyi mail short enough to type is typed inline in its envelope like any other
+ * row, and the daemon's settlement confirms it [POD-4845].
+ */
+export const isPointerMessage = (message: Pick<MessageRow, 'toKind' | 'body'>): boolean =>
+  message.toKind === 'issue' && longerThanInline(message.body)
+
+/** {@link isPointerMessage} as a row predicate. */
 const isPointerRow = (): SQL =>
-  or(eq(messagesTable.urgency, 'fyi'), sql`length(${messagesTable.body}) > ${INLINE_BODY_MAX}`) as SQL
+  and(
+    eq(messagesTable.toKind, 'issue'),
+    sql`length(${messagesTable.body}) > ${INLINE_BODY_MAX}`,
+  ) as SQL
 
 /** Handed on toward a session and not confirmed, or handed on and lost track
  *  of: either way the server has done its part and nothing re-pushes it. */

@@ -7,14 +7,15 @@
  *    (mailIdentity pattern) — callers never pass sender fields;
  *  - the row is durable before any delivery attempt; every status transition
  *    emits a podium_events row (steward visibility, human audit);
- *  - delivery resolves the recipient AT DELIVERY TIME (TOCTOU-safe) and acts
- *    on the session's state now, per the urgency × lifecycle table:
- *        running   fyi → surface at next pause (stop-hook/prime pending)
- *                  next-turn → queueText (immediate next turn, FIFO)
- *                  interrupt → durable row that cuts the turn (POD-4795)
- *        idle      inject now (sendText)
- *        parked    wait → stay queued (drain-on-idle / stop-hook / sweep)
- *                  wake → durable queue + resurrect; unresumable → spawn seam
+ *  - delivery resolves the recipient AT DELIVERY TIME (TOCTOU-safe) and never
+ *    holds a message on its view of the agent (POD-4661):
+ *        has a process   fyi, next-turn → the durable queue, whose daemon waits
+ *                        for readiness and the turn boundary itself
+ *                        interrupt → the driver, to cut the running turn
+ *        parked          wait → held for its next run (bind / sweep)
+ *                        wake → durable queue + resurrect; unresumable → spawn seam
+ *    fyi and next-turn are typed alike, in full; only an issue body too long
+ *    to type becomes a pointer to the inbox (POD-4845).
  *  - the clamp matrix downgrades (never rejects) requests above the sender's
  *    cap; downgrades are recorded on the row (clamped_from) + event-ledgered;
  *  - containment brakes: wake cooldown 1/10min per (sender, target-issue),
@@ -1464,7 +1465,7 @@ export class MessageDeliveryService {
       // answer — the injection IS the delivery [POD-834, POD-853].
       await this.markDelivered(message, sessionId, 'injection')
     } else {
-      // Enveloped (echo) or a coalesced pointer (read): handed on, and the
+      // Enveloped (echo) or a pointer (read): handed on, and the
       // agent's own signal moves it on.
       await this.markDispatched(message, sessionId)
     }
@@ -1596,8 +1597,9 @@ export class MessageDeliveryService {
 
   /** SessionInbox calls this when the daemon settles a durable row as delivered:
    *  the driver took the turn. That settlement IS the delivery receipt, for every
-   *  row — an operator's unwrapped line and enveloped mail alike [POD-4661]. A
-   *  pointer row still waits for its inbox read. */
+   *  row — an operator's unwrapped line and enveloped mail, fyi or not, alike
+   *  [POD-4661, POD-4845]. A pointer row (an oversized issue body) still waits
+   *  for its inbox read. */
   async onQueuedInputApplied(messageId: string, sessionId: SessionId): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
