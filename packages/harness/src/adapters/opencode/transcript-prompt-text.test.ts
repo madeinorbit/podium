@@ -44,8 +44,29 @@ describe('OpenCode measured text tolerance', () => {
     const pasted = promptHistory
       .flatMap((entry) => entry.parts)
       .find((part) => part.type === 'text' && part.text.startsWith('S7 LONGPASTE')).text
-    const recorded = recordedText('S7 LONGPASTE')
+    // Both committed history snapshots abbreviate long text. The fake-model
+    // request retains the full content, and the native part's suffix records
+    // its unabridged length. Neither is used here to classify a prompt entry.
+    const requests = readFileSync(new URL('model-requests.jsonl', lane), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+    const recorded = requests
+      .flatMap((request) => request.messages)
+      .find((message) => message.role === 'user' && message.content.startsWith('S7 LONGPASTE'))
+      .content
+    const timeline = readFileSync(new URL('timeline.jsonl', lane), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+    const native = timeline.find(
+      (entry) =>
+        entry.kind === 'db' &&
+        entry.table === 'part' &&
+        entry.row.data.text?.startsWith('S7 LONGPASTE'),
+    ).row.data.text
     expect(pasted.length).toBe(16_902)
+    expect(native.endsWith('…(16903 chars)')).toBe(true)
     expect(recorded).toBe(`${pasted} `)
     expect(opencodePromptTextMatches(pasted, recorded)).toBe(true)
   })

@@ -54,6 +54,7 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
           ...(ts ? { ts } : {}),
           text: 'Conversation interrupted',
           event: 'interrupt',
+          promptEntry: false,
         },
       ]
     }
@@ -76,6 +77,10 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
               stringField(payload, 'id') ??
               SYNTHESIZED_ITEM_ID_PREFIX,
             role: 'user',
+            // Receipt proof in 0.155.0 comes from UserMessage completion only.
+            // Preserve the older user_message display without asserting that
+            // its legacy event satisfies the measured receipt contract.
+            promptEntry: currentUserMessage !== undefined,
             ...(ts ? { ts } : {}),
             text,
           },
@@ -83,6 +88,9 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       : []
   }
 
+  // Compaction replays older prompts in replacement_history. Expanding those
+  // here would put an old identical prompt after a new send's history floor.
+  if (type === 'compacted') return []
   if (type !== 'response_item') return []
 
   switch (ptype) {
@@ -117,11 +125,15 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       // Encrypted or plain reasoning blobs — internal to the model, not chat content.
       return []
     default:
-      // Known unparsed gap: `compacted` (replacement_history) records appear in
-      // long sessions where Codex compacts its context. They carry no displayable
-      // content, so falling through to an empty result is correct.
       return []
   }
+}
+
+/** Codex 0.155.0 terminal S7 trims only outer whitespace. Internal whitespace
+ *  and Unicode remain exact; an empty prompt cannot prove a send. */
+export function codexPromptTextMatches(submitted: string, recorded: string): boolean {
+  const text = submitted.trim()
+  return text.length > 0 && text === recorded.trim()
 }
 
 function userMessageText(payload: Record<string, unknown>): string {
