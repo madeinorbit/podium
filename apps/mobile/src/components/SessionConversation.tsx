@@ -294,7 +294,7 @@ export function SessionConversation({
             throw error
           }
         },
-        retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
+        retract: (id) => trpc.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
         discard: (deliveryId) => store.discardChat(asMutationId(deliveryId)),
         dismissNotice: (id) => trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
@@ -341,6 +341,9 @@ export function SessionConversation({
           : {}),
         ...(bubble.notice ? { notice: bubble.notice } : {}),
         ...(bubble.retractable ? { retractable: true } : {}),
+        ...(bubble.state === 'retracted' ? { retracted: true } : {}),
+        ...(bubble.retract ? { retract: bubble.retract } : {}),
+        ...(bubble.retractError ? { retractError: bubble.retractError } : {}),
       })),
     [conversation.bubbles],
   )

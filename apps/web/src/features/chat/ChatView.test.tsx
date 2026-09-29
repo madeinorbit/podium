@@ -904,21 +904,20 @@ describe('ChatView composer', () => {
     expect(queued?.querySelector('.transcript-you-bubble--queued')).toBeNull()
   })
 
-  it('retracts a pending message by its id and removes it from the transcript', async () => {
+  // POD-4776: the chat shows what came of a retract — never a silent vanish.
+  it('retracts a pending message by its id and says it was retracted', async () => {
     setFakeStore({ messageRecords: [sentRecord('msg_retract', 'do not send this')] })
     fakeTrpc.messages.cancel.mutate.mockImplementationOnce(async () => {
-      // The server cancels it; the feed lets it go.
+      // The agent's machine agreed; the feed lets the record go.
       setFakeStore({ messageRecords: [] })
-      return { status: 'cancelled' }
+      return { status: 'cancelled', deliveryStatus: 'cancelled' }
     })
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
 
-    const retract = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Retract pending message"]',
-    )
+    const retract = container.querySelector<HTMLButtonElement>('[aria-label="Retract message"]')
     expect(retract).not.toBeNull()
     await act(async () => {
       retract?.click()
@@ -927,7 +926,61 @@ describe('ChatView composer', () => {
     await flush()
 
     expect(fakeTrpc.messages.cancel.mutate).toHaveBeenCalledWith({ id: 'msg_retract' })
-    expect(container.textContent).not.toContain('do not send this')
+    expect(container.textContent).toContain('do not send this')
+    expect(container.querySelector('.transcript-pending .transcript-delivery')?.textContent).toBe(
+      'retracted',
+    )
+    expect(container.querySelector('[aria-label="Retract message"]')).toBeNull()
+  })
+
+  it('offers Retract on a message handed on toward the agent, and says when it came too late', async () => {
+    setFakeStore({
+      messageRecords: [sentRecord('msg_late', 'already on its way', { status: 'dispatched' })],
+    })
+    fakeTrpc.messages.cancel.mutate.mockImplementationOnce(async () => {
+      setFakeStore({
+        messageRecords: [
+          sentRecord('msg_late', 'already on its way', {
+            status: 'typing',
+            retractRequestedAt: '2026-09-29T10:00:01.000Z',
+          }),
+        ],
+      })
+      return { status: 'queued', deliveryStatus: 'typing' }
+    })
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const retract = container.querySelector<HTMLButtonElement>('[aria-label="Retract message"]')
+    expect(retract).not.toBeNull()
+    await act(async () => {
+      retract?.click()
+      await Promise.resolve()
+    })
+    await flush()
+
+    expect(container.querySelector('[data-testid="retract-state"]')?.textContent).toBe(
+      'too late to retract — already typed',
+    )
+    expect(container.querySelector('[aria-label="Retract message"]')).toBeNull()
+  })
+
+  it('says why a retract did not go through', async () => {
+    setFakeStore({ messageRecords: [sentRecord('msg_retract', 'do not send this')] })
+    fakeTrpc.messages.cancel.mutate.mockRejectedValueOnce(new Error('server unreachable'))
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="Retract message"]')?.click()
+      await Promise.resolve()
+    })
+    await flush()
+    expect(container.textContent).toContain("couldn't retract — server unreachable")
+    expect(container.querySelector('[aria-label="Retract message"]')).not.toBeNull()
   })
 
   it('does not submit Enter during composition and submits after composition ends', async () => {

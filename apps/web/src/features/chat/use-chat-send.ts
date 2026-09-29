@@ -330,7 +330,9 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         ? {}
         : {
             retract: (id: string) =>
-              operationsRef.current.trpc.messages.cancel.mutate({ id }).then(() => undefined),
+              operationsRef.current.trpc.messages.cancel
+                .mutate({ id })
+                .then((message) => message.deliveryStatus),
             discard: (deliveryId: string) =>
               operationsRef.current.discardChat(asMutationId(deliveryId)),
             dismissNotice: (id: string) =>

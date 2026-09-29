@@ -177,6 +177,28 @@ export function queuedDeliveryLabel(
   return `${label}${queuePositionSuffix(position)}`
 }
 
+/** What a bubble says about a retract of it (POD-4776): asked and on its way
+ *  to the agent's machine, or answered too late — typing had started. */
+export function retractCaption(retract: 'requested' | 'too-late'): string {
+  return retract === 'requested' ? 'retracting…' : 'too late to retract — already typed'
+}
+
+/** Take a message back. Shown only while its status still lets a retract win. */
+function RetractButton({ onRetract }: { onRetract: () => void }) {
+  return (
+    <button
+      data-pressable
+      type="button"
+      className="msg-action msg-action--retract"
+      aria-label="Retract message"
+      title="Retract message"
+      onClick={onRetract}
+    >
+      <MetaGlyph name="close" />
+    </button>
+  )
+}
+
 /** Public process narration is visible transcript content, not hidden chain of
  * thought. It includes the assistant's intermediate commentary and the tool
  * activity that commentary introduces, then ends before the final answer. */
@@ -578,28 +600,32 @@ export function TranscriptFeed({
                 The word is PENDING, not "queued" — one noun for every
                 not-yet-delivered bubble, whatever parked it (a hibernated
                 session, a turn already in flight, a server that queued it). */}
-            {p.state === 'interrupted' ? (
+            {p.state === 'interrupted' || p.state === 'retracted' ? (
               <div className="msg-foot" data-side="right">
-                <span className="transcript-delivery">interrupted</span>
+                <span className="transcript-delivery">{p.state}</span>
               </div>
-            ) : waiting ? (
+            ) : p.state !== 'failed' &&
+              p.state !== 'unknown' &&
+              (waiting || p.retractable || p.retract || p.retractError) ? (
               <div className="msg-foot" data-side="right">
-                <span className="transcript-delivery">
-                  {p.record || queueIsBlocked(session)
-                    ? queuedDeliveryLabel(session, p.queuePosition)
-                    : `pending${queuePositionSuffix(p.queuePosition)}`}
-                </span>
+                {p.retract ? (
+                  <span className="transcript-delivery" data-testid="retract-state">
+                    {retractCaption(p.retract)}
+                  </span>
+                ) : waiting ? (
+                  <span className="transcript-delivery">
+                    {p.record || queueIsBlocked(session)
+                      ? queuedDeliveryLabel(session, p.queuePosition)
+                      : `pending${queuePositionSuffix(p.queuePosition)}`}
+                  </span>
+                ) : null}
+                {p.retractError && (
+                  <span className="transcript-delivery transcript-delivery--error">
+                    {`couldn't retract — ${p.retractError}`}
+                  </span>
+                )}
                 {p.retractable && (
-                  <button
-                    data-pressable
-                    type="button"
-                    className="msg-action msg-action--retract"
-                    aria-label="Retract pending message"
-                    title="Retract pending message"
-                    onClick={() => void onRetractQueued(p.id)}
-                  >
-                    <MetaGlyph name="close" />
-                  </button>
+                  <RetractButton onRetract={() => void onRetractQueued(p.id)} />
                 )}
               </div>
             ) : p.state === 'failed' || p.state === 'unknown' ? (
@@ -609,6 +635,14 @@ export function TranscriptFeed({
                     ? 'not confirmed — it may or may not have arrived'
                     : (p.failure ?? 'not delivered')}
                 </span>
+                {p.retract && (
+                  <span className="transcript-delivery" data-testid="retract-state">
+                    {retractCaption(p.retract)}
+                  </span>
+                )}
+                {p.retractable && (
+                  <RetractButton onRetract={() => void onRetractQueued(p.id)} />
+                )}
                 {p.notice !== undefined ? (
                   // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
                   // cannot say). Never a resend of it: "send again" puts its

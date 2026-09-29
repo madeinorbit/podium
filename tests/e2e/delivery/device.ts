@@ -297,7 +297,7 @@ export class Device {
             ),
           ),
         records: storeConversationRecords(this.records.store, sessionId),
-        retract: (id) => this.api.messages.cancel.mutate({ id }).then(() => undefined),
+        retract: (id) => this.api.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
         discard: (deliveryId) => discardChatThroughOutbox(outbox, asMutationId(deliveryId)),
         dismissNotice: (id) => this.api.messages.dismissNotice.mutate({ id }).then(() => undefined),
       })

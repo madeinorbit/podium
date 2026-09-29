@@ -360,7 +360,7 @@ export class ConversationController {
       if (bubble.record === undefined && bubble.state === 'sending' && this.options.discard) {
         if (await this.discardFromOutbox(messageId)) {
           this.retracting.delete(messageId)
-          this.markRetracted(messageId)
+          this.markRetracted(bubble)
           return
         }
       }
@@ -368,7 +368,7 @@ export class ConversationController {
       const status = await this.options.retract(messageId)
       if (status === 'cancelled') {
         this.retracting.delete(messageId)
-        this.markRetracted(messageId)
+        this.markRetracted(bubble)
       }
     } catch (error) {
       this.retracting.set(messageId, { error: errorText(error) })
@@ -388,12 +388,14 @@ export class ConversationController {
     return !held.some((send) => (send.mutationId as string) === messageId)
   }
 
-  private markRetracted(messageId: string): void {
+  /** The retract won: the bubble stays, as the answer, from what it showed
+   *  when it was asked — the feed may already have let the record go. */
+  private markRetracted(bubble: ConversationBubble): void {
+    const messageId = bubble.deliveryId
     const turn = this.state.pending.find((candidate) => candidate.deliveryId === messageId)
-    const bubble = this.state.bubbles.find((candidate) => candidate.deliveryId === messageId)
-    const retracted: ConversationPendingTurn | undefined = turn
+    const retracted: ConversationPendingTurn = turn
       ? { ...turn, state: 'retracted' }
-      : bubble && {
+      : {
           id: `retracted-${messageId}`,
           deliveryId: messageId,
           text: bubble.text,
@@ -401,11 +403,8 @@ export class ConversationController {
           at: bubble.at,
           state: 'retracted',
           kind: bubble.kind,
+          ...(bubble.files ? { files: bubble.files } : {}),
         }
-    if (!retracted) {
-      this.patch({})
-      return
-    }
     this.patch({
       pending: turn
         ? this.state.pending.map((candidate) => (candidate === turn ? retracted : candidate))

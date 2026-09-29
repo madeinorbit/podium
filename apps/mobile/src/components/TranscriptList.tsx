@@ -138,6 +138,21 @@ export interface PendingTurn {
   notice?: 'failed' | 'unknown'
   /** It can still be taken back. */
   retractable?: boolean
+  /** Taken back before the agent's machine started typing it (POD-4776). */
+  retracted?: boolean
+  /** A retract of it is on its way to the agent's machine (`requested`), or
+   *  came too late: the machine had already started typing it (POD-4776). */
+  retract?: 'requested' | 'too-late'
+  /** Why this phone's retract of it did not go through. */
+  retractError?: string
+}
+
+/** What the line under a bubble says about a retract of it (POD-4776). */
+export function retractLine(turn: Pick<LocalPendingTurn, 'retracted' | 'retract'>): string | undefined {
+  if (turn.retracted) return 'retracted'
+  if (turn.retract === 'requested') return 'retracting…'
+  if (turn.retract === 'too-late') return 'too late to retract — already typed'
+  return undefined
 }
 
 function shortTime(ts: string | undefined): string | undefined {
@@ -661,17 +676,24 @@ const TranscriptFeedRow = memo(
                     </PressableScale>
                   ) : null}
                 </>
-              ) : turn.retractable && onRetractPending ? (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel="Retract this queued message"
-                  onPress={() => onRetractPending(turn.id)}
-                  hitSlop={8}
-                  style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                >
-                  <Text style={styles.retryText}>Retract</Text>
-                </PressableScale>
-              ) : null}
+              ) : (
+                <>
+                  {turn.retractError ? (
+                    <Text style={styles.pendingError}>{`couldn't retract — ${turn.retractError}`}</Text>
+                  ) : null}
+                  {turn.retractable && onRetractPending ? (
+                    <PressableScale
+                      accessibilityRole="button"
+                      accessibilityLabel="Retract this message"
+                      onPress={() => onRetractPending(turn.id)}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+                    >
+                      <Text style={styles.retryText}>Retract</Text>
+                    </PressableScale>
+                  ) : null}
+                </>
+              )}
             </View>
             <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
               {failed
@@ -680,13 +702,14 @@ const TranscriptFeedRow = memo(
                   : turn.notice !== undefined
                     ? 'not delivered'
                     : 'not sent'
-                : turn.interrupted
+                : retractLine(turn) ??
+                  (turn.interrupted
                   ? 'interrupted'
                   : turn.queued
                     ? 'waiting its turn'
                     : turn.delivery === 'sent'
                       ? 'sent'
-                      : 'sending…'}
+                      : 'sending…')}
             </Text>
           </View>
         )
