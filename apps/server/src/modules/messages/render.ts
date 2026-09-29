@@ -223,8 +223,11 @@ export class MessageRenderer {
     }
     // An automation's prompt and auto-continue (POD-4868): the words are kept,
     // control-stripped like every non-person body, inside the short frame. Ahead
-    // of the operator branch because an automation's row is the owner's.
+    // of the operator branch because an automation's row is the owner's. A plain
+    // shell gets them bare: they are its command line, there is no agent to read
+    // a frame, and a frame typed at a shell would run as a command.
     if (typedByAJob(message)) {
+      if (await this.receiverIsShell(receiverSessionId)) return sanitizeBody(message.body)
       return renderShortFrame(
         { ...message, body: sanitizeBody(message.body) },
         await this.fromLabel(message),
@@ -271,6 +274,11 @@ export class MessageRenderer {
       await this.crossMachineNote(message, receiverSessionId),
       { turnClose: message.toKind !== 'operator' },
     )
+  }
+
+  private async receiverIsShell(receiverSessionId?: SessionId): Promise<boolean> {
+    if (!receiverSessionId) return false
+    return (await this.deps.sessionById(receiverSessionId))?.agentKind === 'shell'
   }
 
   /** The coalesced pointer rendering (also used for oversized bodies). */
@@ -340,20 +348,23 @@ export class MessageRenderer {
   /** How a message reaches the agent, deciding how (and whether) its delivery is
    *  confirmed [POD-834]. Reads {@link isPointer} rather than restating it, so it
    *  cannot drift from what `renderFor` actually produced. */
-  deliveryMode(message: MessageRow): DeliveryMode {
+  deliveryMode(message: MessageRow, receiver?: Pick<SessionMeta, 'agentKind'>): DeliveryMode {
     if (this.isPointer(message)) return 'pointer'
-    if (typedByAJob(message)) return 'echo'
+    // A server job's text is framed (echo) except to a plain shell, which gets
+    // it bare — the same receiver test `renderFor` makes.
+    if (typedByAJob(message)) return receiver?.agentKind === 'shell' ? 'unwrapped' : 'echo'
     if (deliversUnwrapped(principalOfRow(message), message.kind)) return 'unwrapped'
     return 'echo'
   }
 
   /** A message whose push into the PTY is itself the confirmation — no transcript
    *  echo is awaited and the sweep never re-injects it [POD-853]. Two cases: an
-   *  unwrapped operator body (no id to echo), and a best-effort ack/notification.
+   *  unwrapped body (an operator's, or a job's bare text to a shell — no id to
+   *  echo), and a best-effort ack/notification.
    *  Pointer/pull-path rows are NOT confirmed on injection (an inbox read confirms
    *  those), so best-effort applies only to inline echo-mode rows. */
-  confirmedOnInjection(message: MessageRow): boolean {
-    const mode = this.deliveryMode(message)
+  confirmedOnInjection(message: MessageRow, receiver?: Pick<SessionMeta, 'agentKind'>): boolean {
+    const mode = this.deliveryMode(message, receiver)
     return mode === 'unwrapped' || (mode === 'echo' && this.isBestEffort(message))
   }
 

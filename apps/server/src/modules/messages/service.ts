@@ -1454,7 +1454,10 @@ export class MessageDeliveryService {
       return { ...r, disposition: via === 'queue' ? okDisposition : 'queued' }
     }
     // Only a shell's raw push reaches here: every agent push was queued above.
-    const confirmed = this.render.confirmedOnInjection(message)
+    const confirmed = this.render.confirmedOnInjection(
+      message,
+      await this.deps.sessions.sessionById(sessionId),
+    )
     if (confirmed) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification), and no driver will
