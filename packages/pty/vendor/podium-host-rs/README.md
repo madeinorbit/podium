@@ -18,6 +18,11 @@ Deliberate, each for a reason; everything else matches host.c byte for byte.
 
 **Protocol**
 
+- **The screen (`version` says `features=2`; host.c stays at 1).** With the `screen`
+  cargo feature, on by default, a host with a pty keeps the terminal's screen in an
+  emulator (alacritty_terminal) fed from every read, with `--screen-scrollback N`
+  lines of history (default 1000). WELCOME gains a trailing features byte, bit 0 =
+  screen; a `--no-pty` host keeps no screen and sends 0. See **Pictures** below.
 - **ERR 5 "input queue full".** The input queue toward a child that is not reading is
   capped at 16 MiB (plus 64 bytes per queued write, so empty WRITEs are bounded too): up
   to 16 MiB in flight toward a slow reader still lands, and a child that has stopped
@@ -58,6 +63,36 @@ Deliberate, each for a reason; everything else matches host.c byte for byte.
   not 16; a failed ring allocation aborts; a signal cannot cut short the final drain of
   the child's output; the signal handler preserves `errno`; each client's send queue
   drops its already-sent prefix once it is large.
+
+## Pictures (POD-4909)
+
+A picture is an ANSI redraw of the whole terminal state (scrollback and screen with
+attributes, the alternate screen, saved cursor, scrolling region, modes, pen, title,
+synchronized output), followed by any unfinished escape sequence the emulator is
+holding. Written to a fresh terminal of its size, it leaves that terminal where the
+child's output up to its `seq` left the real one.
+
+- **`PICTURE` (`0x0B`, empty)** opts the connection in and is answered with a `reset`
+  picture. A host without a screen answers it as any unknown frame (ERR bad frame,
+  then close); `host.ts` never sends it to one.
+- **`PICTURE` out (`0x8D`)**: `u64 seq`, `u8 reason` (0 `reset`, 1 `cut`), `u16 cols`,
+  `u16 rows`, the bytes. It sits in the connection's output stream exactly at `seq`:
+  the DATA before it ends there and the DATA after it starts there.
+- **When:** a `reset` answers a request and follows every resize that changed the
+  pty's size (to every opted-in connection). A `cut` bounds what a late viewer must
+  replay: one clock per host takes one when the output since the last cut reaches
+  max(64 KiB, the last picture's size) and 250 ms have passed, waking for the 250 ms
+  if no more output comes. One serialisation serves every connection that gets it.
+- **Bounds:** a picture is at most 1 MiB (scrollback lines are dropped from the top;
+  a visible screen larger than that is sent whole) and does not count against the
+  connection's queue limit. A connection has at most one picture in flight and one
+  more owed (a reset outranks a cut); one the ring outran before the connection read
+  up to it is replaced by a fresh reset.
+- **Cost** (release musl, measured on POD-4909): +92 KB executable, +0.4 MB idle, up
+  to +4.7 MB with 1000 lines of scrollback at 160 columns; 0.01–0.02 % of a core at
+  real Claude output rates; a Claude picture is 4–15 KB.
+- **vte 0.15.0** drops the byte after a UTF-8 character it was handed in part; the
+  feed never hands it one (`screen.rs`, with a test).
 
 The client side already copes with all of this: `packages/pty/src/host.ts` has
 `HostErr.INPUT_FULL`, rejects exactly the write an ERR names (falling back to the

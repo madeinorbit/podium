@@ -44,6 +44,8 @@ const VENDOR_HOST_C = join(VENDOR_DIR, 'host.c')
  * `features=<n>`.
  *
  * 1 — SPEC-6 protocol version 1.
+ * 2 — the Rust host's screen: WELCOME's features byte and PICTURE (POD-4909).
+ *     The vendored C host stays at 1; resolution accepts any level >= this one.
  */
 export const C_HOST_FEATURES = 1
 /** Rust host with the screen/picture protocol. The C fallback remains at level 1. */
