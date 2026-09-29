@@ -2351,6 +2351,99 @@ describe('busy OpenCode delivery (POD-4700, POD-4795)', () => {
     expect(world.abandoned).toEqual([])
     world.runtime.dispose()
   })
+
+  it('delivers an inbound send on an adopted idle session through its transcript echo [POD-4794]', async () => {
+    // The live shape: an idle opencode session adopted after a daemon restart
+    // takes the next inbound when-ready send — typed once under the ledger
+    // message id, proven by the transcript echo it records. A session that
+    // lost its observer tail at adopt types into nothing observable and
+    // settles failed while still reading idle.
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('opencode', OPENCODE)
+    const session = await driver.create({ ...SPEC, harness: 'opencode' })
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+
+    const pendingEchoes = new Set(['first turn', 'inbound after adopt'])
+    // Echo-on-write, re-armed after adopt: the adopt path hands the session a
+    // fresh transport object (slots.set hook), so a proxy installed once would
+    // be dropped at exactly the moment this test cares about. The real echo
+    // comes from the observer tailing the transcript, not from the transport
+    // identity — crediting on write either way is the deterministic stand-in.
+    const armEchoProxy = (): void => {
+      const current = world.transportFor(sessionId)
+      world.setTerminal(sessionId, new Proxy(current, {
+        get(target, prop, receiver) {
+          if (prop === 'writeBase64') {
+            return (dataBase64: string) => {
+              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+              const pasted = pastedText(text)
+              if (pasted !== undefined && pendingEchoes.has(pasted)) {
+                pendingEchoes.delete(pasted)
+                world.echo(sessionId, pasted)
+              }
+              return target.writeBase64(dataBase64)
+            }
+          }
+          return Reflect.get(target, prop, target)
+        },
+      }))
+    }
+    armEchoProxy()
+    const pastes = (): string[] =>
+      world.written
+        .map(pastedText)
+        .filter((text): text is string => text !== undefined)
+    const waitForPaste = async (text: string): Promise<void> => {
+      for (let i = 0; i < 40 && !pastes().includes(text); i++) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(pastes()).toContain(text)
+    }
+
+    // First turn lands and the agent runs it to idle.
+    expect(
+      (
+        await session.send(
+          { text: 'first turn', rowId: 'row-first' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await waitForPaste('first turn')
+    world.setPhase(sessionId, 'idle')
+    world.observe(sessionId, {
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      state: {
+        phase: 'idle',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    expect((await session.state()).phase).toBe('idle')
+
+    // The daemon restarts; the survivor is adopted under a new generation.
+    const checkpoint = await session.snapshot()
+    world.runtime.control.restartSupervisor()
+    const adopted = await driver.adopt(checkpoint.binding)
+    const after = await adopted.snapshot()
+    expect(after.observerGeneration).toBeGreaterThan(checkpoint.observerGeneration)
+    armEchoProxy()
+
+    // The next inbound send — a direct issue-mail turn under the ledger id —
+    // is typed once and proven by its transcript echo, not settled failed.
+    const receipt = await adopted.send(
+      { id: 'msg_inbound', text: 'inbound after adopt' },
+      { origin: 'mail', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('accepted')
+    expect(receipt).toMatchObject({ provenBy: 'transcript-echo' })
+    await waitForPaste('inbound after adopt')
+    expect(pastes()).toEqual(['first turn', 'inbound after adopt'])
+    world.runtime.dispose()
+  })
 })
 
 describe('interrupt', () => {

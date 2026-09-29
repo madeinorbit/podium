@@ -297,7 +297,13 @@ export interface InboxAuthorizationPort {
   rejected(input: {
     queueId: string
     sourceMessageId: string | null
-    principal: InboxPrincipalReference
+    /**
+     * Who sent the turn. Absent only when the daemon reports on a turn id
+     * that names no durable queue row (a direct send, settled by ledger id):
+     * there is no row to read the sender from, and production routes the
+     * report by sourceMessageId alone — so no attribution is invented here.
+     */
+    principal?: InboxPrincipalReference
     reason: string
     /** Why, when the daemon said so: `never-live` = the agent was not
      *  accepting input, so nothing was typed. Absent = no cause known. */
@@ -1441,6 +1447,18 @@ export class SessionInbox {
 
   private readonly settlingDeliveries = new Map<string, Promise<void>>()
 
+  /**
+   * Durable row ids this inbox already settled (any outcome). A daemon
+   * replays a finished row's outcome on duplicate custody (POD-4687), so a
+   * second report for a settled row must not re-fire the ports — and, now
+   * that reports without a queue row settle the ledger row they name
+   * (POD-4794), must not be mistaken for a direct send either. Stale ids can
+   * only collide with a live direct send by guessing its UUID; the ledger
+   * guards downstream make even that a no-op rather than a loss. Grows one
+   * short string per settled row, like `reportedPromptFailures` below.
+   */
+  private readonly settledQueueRowIds = new Set<string>()
+
   /** Already ownership/generation-fenced by the runtime event gate. Repeat-safe by row id. */
   async deliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
     const key = `${sessionId}:${event.rowId}`
@@ -1476,7 +1494,17 @@ export class SessionInbox {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
-    if (!row) return
+    if (!row) {
+      // A replayed report for a durable row settled above is neither a live
+      // row nor a direct send: acknowledge it without re-firing anything.
+      if (this.settledQueueRowIds.has(event.rowId)) return
+      // No durable queue row behind this turn id: a DIRECT send the daemon
+      // held or typed itself, reported under the ledger message id (POD-4794).
+      // Dropping the report here stranded the ledger row queued forever while
+      // the session read idle — so settle the ledger row it names instead.
+      await this.settleDirectDeliveryOutcome(sessionId, event)
+      return
+    }
     if (event.outcome === 'delivered') {
       await this.settleDelivered(session, row)
     } else if (event.outcome === 'dropped') {
@@ -1530,10 +1558,44 @@ export class SessionInbox {
       await this.deps.queue.delete(row.id)
       this.forwardedRows.get(sessionId)?.ids.delete(row.id)
     }
+    this.settledQueueRowIds.add(row.id)
     const remaining = await this.deps.queue.list(sessionId)
     await this.deps.write(session, (draft) => { draft.queuedMessageCount = remaining.length })
     this.deps.broadcast()
     if (remaining.length) await this.drain(sessionId)
+  }
+
+  /**
+   * Settle a daemon delivery report that names no durable queue row (POD-4794).
+   *
+   * A direct send — typed by the driver itself, or held daemon-side under the
+   * server's turn id (POD-4700) — carries the LEDGER message id as its turn
+   * id, so the queue lookup above misses and the report used to vanish: the
+   * ledger row stayed queued+injected forever on an idle session, with no echo
+   * coming, no turn boundary to confirm it, and nothing visible anywhere.
+   *
+   * `delivered` confirms the ledger row it names (guarded downstream: a row
+   * already settled, or an id naming no message at all, is a no-op — so a
+   * late duplicate of a durable row's report cannot move anything). A proven
+   * `failed` (no inner `unverified` receipt) rejects it the way the durable
+   * path does: dead-letter plus the sender notice, which is also what the
+   * abandonment channel already does for never-typed held turns. An UNPROVEN
+   * failure (`cause: 'unconfirmed'`, POD-4775) is left alone (POD-4802):
+   * the bytes may have landed, and dead-lettering them would stamp a
+   * delivered message as failed. `dropped` is an explicit retraction its
+   * holder ordered and already knows about: nothing to settle.
+   */
+  private async settleDirectDeliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
+    if (event.outcome === 'delivered') {
+      await this.deps.authorization.applied({ sourceMessageId: event.rowId, sessionId })
+      return
+    }
+    if (event.outcome !== 'failed' || event.cause === 'unconfirmed') return
+    await this.deps.authorization.rejected({
+      queueId: event.rowId,
+      sourceMessageId: event.rowId,
+      reason: event.reason ?? 'daemon could not confirm delivery',
+    })
   }
 
   async drain(sessionId: SessionId, opts?: { justBound?: boolean }): Promise<void> {

@@ -867,3 +867,65 @@ describe('OpenCode abort query rows', () => {
     expect(after).toEqual([])
   })
 })
+
+describe('OpenCode adopt rebinding (POD-4794 defect 1)', () => {
+  // Adopt shape: the daemon reattaches a survivor after its own restart. It
+  // passes the recorded resume id and OMITS startedAtMs (the manifest
+  // contract: omitted means discovery has no freshness floor). The recorded
+  // resume may be stale (store moved on); the observer must fall back to
+  // discovery rather than dying silent with no observations and no echo.
+  it('falls back to discovery when the recorded resume resolves nowhere', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-adopt-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_adopt', '/repo/adopt', 'idle baseline')
+    const databasePath = join(root, 'opencode.db')
+    const seen: string[] = []
+    const items: unknown[] = []
+    const obs = observeOpencodeState({
+      cwd: '/repo/adopt',
+      databasePath,
+      resumeValue: 'ses_stale_gone',
+      pollMs: 10,
+      loadSource,
+      onEvents: () => {},
+      onSession: (id) => seen.push(id),
+      onTranscriptItems: (batch) => {
+        items.push(...batch)
+      },
+    })
+    try {
+      await waitFor(() => seen.length > 0)
+      expect(seen).toEqual(['ses_adopt'])
+      await waitFor(() => items.length > 0)
+      expect(items.length).toBeGreaterThan(0)
+    } finally {
+      obs.stop()
+    }
+  })
+
+  // Omitted startedAtMs is the no-floor contract: an adopted idle session is
+  // old, so a spawn-time freshness floor can never match it.
+  it('discovers an old session when startedAtMs is omitted', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-adopt-nofloor-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_old', '/repo/old', 'idle baseline')
+    const databasePath = join(root, 'opencode.db')
+    const seen: string[] = []
+    const obs = observeOpencodeState({
+      cwd: '/repo/old',
+      databasePath,
+      pollMs: 10,
+      loadSource,
+      onEvents: () => {},
+      onSession: (id) => seen.push(id),
+    })
+    try {
+      await waitFor(() => seen.length > 0)
+      expect(seen).toEqual(['ses_old'])
+    } finally {
+      obs.stop()
+    }
+  })
+})
