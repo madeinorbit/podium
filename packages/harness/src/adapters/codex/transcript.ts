@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
-import { findCodexRolloutPath } from './state-provider.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
+import type { HarnessRuntimeObservation } from '../../transcript-types.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 // One authoritative definition (spec rule 2): the interview-preview helpers
 // live with the claude grammar and are reused here, never duplicated.
 import {
@@ -8,10 +9,9 @@ import {
   safeAskQuestionInputJson,
   toolInputPreview,
 } from '../claude-code/transcript.js'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
-import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 import { contentToText, isRecord, stringField } from '../shared/json-util.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
+import { findCodexRolloutPath } from './state-provider.js'
 
 /**
  * Normalize one Codex rollout JSONL record (envelope `{ timestamp, type, payload }`)
@@ -527,7 +527,6 @@ export function codexRuntime(record: unknown): HarnessRuntimeObservation {
 // Transcript section: file-store grammar + layout (POD-4471), the ONE
 // authoritative transcript definition for this harness (spec §4).
 // ---------------------------------------------------------------------------
-
 
 // Codex stores no derivable per-cwd path; resolve the rollout from the resume
 // value (state DB, then filename fallback). null/undefined → no chain.

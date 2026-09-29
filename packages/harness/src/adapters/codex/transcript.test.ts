@@ -248,7 +248,7 @@ describe('codexRecordToItems', () => {
         type: 'custom_tool_call',
         name: 'exec',
         input:
-          'const r = await tools.exec_command({workdir:"/repo",cmd:"printf \'{cmd:\\\"fake\\\"}\'"}); text(r.output);',
+          'const r = await tools.exec_command({workdir:"/repo",cmd:"printf \'{cmd:\\"fake\\"}\'"}); text(r.output);',
       }),
     )
 

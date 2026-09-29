@@ -55,8 +55,9 @@ describe('OpenCode measured text tolerance', () => {
       .map((line) => JSON.parse(line))
     const recorded = requests
       .flatMap((request) => request.messages)
-      .find((message) => message.role === 'user' && message.content.startsWith('S7 LONGPASTE'))
-      .content
+      .find(
+        (message) => message.role === 'user' && message.content.startsWith('S7 LONGPASTE'),
+      ).content
     const timeline = readFileSync(new URL('timeline.jsonl', lane), 'utf8')
       .split('\n')
       .filter(Boolean)
