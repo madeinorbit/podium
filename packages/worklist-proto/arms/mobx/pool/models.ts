@@ -54,7 +54,7 @@ import {
 } from '../../../shared/src/write-contract'
 import type { StoredRow } from './tables'
 import {
-  activityAtPartOf,
+  activityAtOf,
   activityMsOf,
   buildRowView,
   type IssueParts,
@@ -62,9 +62,8 @@ import {
   labelOfRow,
   loadingPartOf,
   type OwnPart,
-  originIdPartOf,
   originRefPartOf,
-  originTickPartOf,
+  originTickOf,
   prefixPartOf,
   rankOfPart,
   type RepoRow,
@@ -129,6 +128,12 @@ export interface ModelHost {
   /** What the roll-up parts read (one per pool, shared by every issue). */
   readonly rollupInputs: RollupInputs
   readonly stats: ArmStats
+  /**
+   * The one object of issue `id` (an identity memo, untracked: its groups
+   * track what they read). A row reads another issue's cached groups
+   * through it, never that issue's table slot.
+   */
+  issueObject(id: string): IssueModel
   /** One transaction of the write layer's edit log; throws when the pool has no write layer. */
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
 }
@@ -468,12 +473,15 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
     return originRefPartOf(this.host.inputs, this.id)
   }
 
+  /** The origin while it is in memory: its own cached in-memory read answers, no table probe. */
   get originId(): string | null {
-    return originIdPartOf(this.host.inputs, this.originRef)
+    const ref = this.originRef
+    return ref !== null && this.host.issueObject(ref).loaded.facts.state === 'ready' ? ref : null
   }
 
   get originTick(): RowOriginTick | null {
-    return originTickPartOf(this.host.inputs, this.originId)
+    const id = this.originId
+    return id === null ? null : originTickOf(id, this.host.issueObject(id).label)
   }
 
   get sessionIds(): readonly string[] {
@@ -481,7 +489,8 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
   }
 
   get activityAt(): number {
-    return activityAtPartOf(this.host.inputs, this.id)
+    const inputs = this.host.inputs
+    return activityAtOf(inputs, inputs.retainedSeats(this.id), () => this.standing?.updatedMs ?? null)
   }
 
   get loading(): boolean {

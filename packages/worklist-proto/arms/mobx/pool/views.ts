@@ -384,8 +384,11 @@ export function originIdPartOf(input: ViewInputs, originRef: string | null): str
  * its fold) re-derives none of its spin-offs.
  */
 export function originTickPartOf(input: ViewInputs, originId: string | null): RowOriginTick | null {
-  if (originId === null) return null
-  const label = input.parts(originId)?.label
+  return originId === null ? null : originTickOf(originId, input.parts(originId)?.label)
+}
+
+/** The ⤷ tick of a resident origin, from its label. */
+export function originTickOf(originId: string, label: Label | undefined): RowOriginTick | null {
   if (label === undefined || label.seq === undefined) return null
   return {
     id: originId,
@@ -414,12 +417,21 @@ export function activityMsOf(session: SliceSession | undefined): number | null {
  * seat only.
  */
 export function activityAtPartOf(input: ViewInputs, id: string): number {
+  return activityAtOf(input, input.retainedSeats(id), () => parseMs(input.issue(id)?.updatedAt))
+}
+
+/** `activityAt` from the retained seats' cached stamps, else the own `updatedAt` (asked only then). */
+export function activityAtOf(
+  input: Pick<ViewInputs, 'sessionActivity'>,
+  retainedSeats: readonly string[],
+  updatedMs: () => number | null,
+): number {
   let latest = 0
-  for (const sessionId of input.retainedSeats(id)) {
+  for (const sessionId of retainedSeats) {
     const at = input.sessionActivity(sessionId)
     if (at !== null && at > latest) latest = at
   }
-  return latest || parseMs(input.issue(id)?.updatedAt) || 0
+  return latest || updatedMs() || 0
 }
 
 /**

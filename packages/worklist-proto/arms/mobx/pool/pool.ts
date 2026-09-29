@@ -620,6 +620,7 @@ export class MobxPool {
       writes: false,
       rollupInputs: false,
       object: false,
+      issueObject: false,
       release: false,
       edit: false,
       row: false,
@@ -751,6 +752,11 @@ export class MobxPool {
     if (entity === 'issue' && this.worklist.has(id)) return
     if (entity === 'session' && this.residency?.isCold('session', id) === true) return
     this.models[entity].delete(id)
+  }
+
+  /** The one object of issue `id`, built on first request (untracked: an identity memo). */
+  issueObject(id: string): IssueModel {
+    return this.object('issue', id) as IssueModel
   }
 
   /** A model's edit (`issue.title = x`): one transaction of the write layer's log. */
