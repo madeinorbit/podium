@@ -302,12 +302,12 @@ describe("OpenCode's own ids for our message (POD-4841)", () => {
         { id: 'notice:4720:7', text: 'hashed' },
         { origin: 'human', delivery: 'when-ready' },
       )
-      const stored = rows(host, handle).at(-1)?.info.id
+      const stored = String(rows(host, handle).at(-1)?.info.id)
       expect(stored).toMatch(/^msg_[0-9a-f]{32}$/)
       expect(receipt).toMatchObject({
         harnessRef: [
           { kind: 'opencode-message', id: stored },
-          { kind: 'opencode-part', id: `prt_000000000000${stored!.slice('msg_'.length)}` },
+          { kind: 'opencode-part', id: `prt_000000000000${stored.slice('msg_'.length)}` },
         ],
       })
     } finally {
