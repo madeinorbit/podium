@@ -50,7 +50,7 @@ const sendTurn = vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'h1' 
 const concierge = vi.fn(async () => ({ threadId: 'c1', podiumSessionId: 'h1', isNew: false }))
 const interruptTurn = vi.fn(async () => {})
 const sendText = vi.fn(async () => {})
-const superagentHistory = vi.fn(async () => [] as Array<{ role: string; content: string; createdAt: string }>)
+const latestTurnFailure = vi.fn(async () => null)
 
 const fakeTrpc = {
   sessions: {
@@ -65,7 +65,7 @@ const fakeTrpc = {
     sendTurn: { mutate: sendTurn },
     concierge: { mutate: concierge },
     interruptTurn: { mutate: interruptTurn },
-    history: { query: superagentHistory },
+    latestTurnFailure: { query: latestTurnFailure },
   },
 }
 
@@ -494,19 +494,36 @@ describe('ChatView headless mode', () => {
    * that bubble on the new feed is open.)
    */
   it('restores the offline failure and the user message after reload', async () => {
-    superagentHistory.mockResolvedValueOnce([
-      { role: 'user', content: 'Reply with exactly the word PONG-SUPER.', createdAt: '2026-09-29T01:31:26.000Z' },
-      {
-        role: 'assistant',
-        content: "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
-        createdAt: '2026-09-29T01:31:27.000Z',
-      },
-    ])
+    latestTurnFailure.mockResolvedValueOnce({
+      inputId: 'input-1',
+      userText: 'Reply with exactly the word PONG-SUPER.',
+      error: "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+      at: '2026-09-29T01:31:27.000Z',
+    })
     mount()
     await flush()
     await flush()
     expect(container.textContent).toContain('ludovico')
     expect(container.textContent).toContain('is offline')
     expect(container.textContent).not.toContain('SessionBinding')
+  })
+
+  /**
+   * A failure WITHOUT its user words restores the reason only (POD-4806
+   * review): a post-dispatch failure persists no user row — the transcript
+   * carries the prompt — so there is no second bubble after a reload.
+   */
+  it('restores a harness failure reason without duplicating the user turn', async () => {
+    latestTurnFailure.mockResolvedValueOnce({
+      inputId: 'turn-9',
+      userText: null,
+      error: 'the headless harness turn failed: (codex): the CLI could not be launched',
+      at: '2026-09-29T01:31:27.000Z',
+    })
+    mount()
+    await flush()
+    await flush()
+    expect(container.querySelector('[data-testid="dead-lettered-chat-message"]')).toBeNull()
+    expect(container.textContent).toContain('could not be launched')
   })
 })

@@ -20,13 +20,14 @@ import { asDelegationRef } from '@podium/protocol'
 import { RuntimeAttachmentRef, type RuntimeEvent } from '@podium/protocol/daemon'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
-import { userCommandPrincipal } from '../../command-principal'
+import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
+import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
@@ -363,6 +364,18 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
     clients: () => bag.clients.values(),
+    // Fenced per frame like the headed paths, so every headless spawn and
+    // reattach carries its own observation generation (POD-4806 review).
+    fenceObservation: (session) => bag.terminalProof.fence(session),
+    // The same allowed/denied answer the headed reattach probe computes.
+    reattachMachineAccess: async (machineId) =>
+      machineUseDecision(
+        systemPrincipal('session-rebind'),
+        machineId,
+        await ownershipSnapshotFromMachines(machines),
+      ) === 'granted'
+        ? 'allowed'
+        : 'denied',
     // Late-bound: the gateway is constructed further down; reads inside the
     // closure stay legal per the file header.
     relay: () => bag.runtimeGateway,

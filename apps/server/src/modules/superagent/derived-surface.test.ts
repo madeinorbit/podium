@@ -44,9 +44,10 @@ describe('the assembled superagent router', () => {
     expect(Object.keys(SUPERAGENT_COMMANDS)).toHaveLength(8)
   })
 
-  it('serves the two reads as QUERIES — a write cannot hide among them', () => {
+  it('serves the three reads as QUERIES — a write cannot hide among them', () => {
     expect(typeOf('superagent.listThreads')).toBe('query')
     expect(typeOf('superagent.history')).toBe('query')
+    expect(typeOf('superagent.latestTurnFailure')).toBe('query')
   })
 
   /**
@@ -57,15 +58,17 @@ describe('the assembled superagent router', () => {
   it('does not serve the deleted `send` alias', () => {
     expect(superagentPaths()).not.toContain('superagent.send')
     expect(superagentPaths()).toContain('superagent.sendTurn')
-    // Nothing else crept onto the router either: the ten paths are the eight
-    // derived writes plus the two hand-written reads, and no eleventh.
-    // `ensureSession` is POD-782's eighth write.
+    // Nothing else crept onto the router either: the eleven paths are the eight
+    // derived writes plus the three hand-written reads, and no twelfth.
+    // `ensureSession` is POD-782's eighth write; `latestTurnFailure` is
+    // POD-4806's durable-failure read.
     expect(superagentPaths()).toEqual([
       'superagent.clear',
       'superagent.concierge',
       'superagent.ensureSession',
       'superagent.history',
       'superagent.interruptTurn',
+      'superagent.latestTurnFailure',
       'superagent.listThreads',
       'superagent.openInTerminal',
       'superagent.restart',

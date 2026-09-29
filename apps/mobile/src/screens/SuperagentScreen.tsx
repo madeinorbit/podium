@@ -138,6 +138,18 @@ export function SuperagentScreen() {
     [superagent.active, backendPick],
   )
   const [pendingTurns, setPendingTurns] = useState<LocalPendingTurn[]>([])
+  // The most recent durable turn failure (POD-4806): restored from the typed
+  // `latestTurnFailure` read once the transcript is in, and rendered as a
+  // failed row beside the live pending turns. Held apart from `pendingTurns`
+  // on purpose — the echo matcher below compares words, and the restoration
+  // must be dropped by structure only (a newer transcript item, or live
+  // send activity), never by text.
+  const [restoredFailure, setRestoredFailure] = useState<{
+    inputId: string
+    userText: string
+    failed: string
+    at: string
+  } | null>(null)
   const prepareAttachmentSession = useCallback(async (): Promise<SessionId> => {
     if (podiumSid) return podiumSid
     const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
@@ -281,38 +293,25 @@ export function SuperagentScreen() {
   // DURABLE FAILURE RESTORATION (POD-4806). A turn that never reached a
   // harness leaves no transcript and the live turn-end error is gone after a
   // reload — the Super thread then reads empty, as if nothing was sent. The
-  // server persists the user message plus the failure to history, so a
-  // remount restores the pair as a failed pending row (words kept, "not
-  // sent", one-tap retry — the POD-346 grammar). The existing
-  // dropEchoedTurns effect drops it once the transcript echoes the same
-  // words (a later retry ran), so one old failure cannot pin the thread.
+  // typed `latestTurnFailure` read names the failure server-side (by column,
+  // never by matching prose), so the remount restores it as a failed row
+  // with one-tap retry. Without user words (a post-dispatch failure, whose
+  // prompt the transcript carries) only the reason restores — never a second
+  // user bubble.
   useEffect(() => {
     if (!podiumSid || !transcriptLoaded) return
     let cancelled = false
-    const history = (trpc as unknown as {
-      superagent?: { history?: { query: (input: unknown) => Promise<unknown> } }
-    }).superagent?.history
-    if (!history) return
-    void history
+    void trpc.superagent.latestTurnFailure
       .query({ threadId: THREAD_ID })
-      .then((rows: unknown) => {
-        if (cancelled || !Array.isArray(rows) || rows.length === 0) return
-        const items = rows as Array<{ role?: unknown; content?: unknown }>
-        const last = items[items.length - 1]
-        if (!last || last.role !== 'assistant' || typeof last.content !== 'string') return
-        if (!last.content.includes('the headless harness turn failed')) return
-        const prev = items[items.length - 2]
-        const userText =
-          prev && prev.role === 'user' && typeof prev.content === 'string' ? prev.content : ''
-        if (!userText) return
-        const reason = last.content as string
-        setError(reason)
-        setPendingTurns((prevPending) => {
-          if (prevPending.some((t) => t.text.trim() === userText.trim())) return prevPending
-          return [
-            ...prevPending,
-            { id: `restored:${Date.now()}`, text: userText, wire: userText, failed: reason },
-          ]
+      .then((failure) => {
+        if (cancelled || !failure) return
+        setError(failure.error)
+        if (!failure.userText) return
+        setRestoredFailure({
+          inputId: failure.inputId,
+          userText: failure.userText,
+          failed: failure.error,
+          at: failure.at,
         })
       })
       .catch(() => {})
@@ -421,6 +420,11 @@ export function SuperagentScreen() {
     (id: string, wire: string) => {
       setJustSent(true)
       setPinRequest((count) => count + 1)
+      // A fresh send supersedes any restored failure: live activity speaks
+      // for the thread now (the restoration drops by structure anyway, but
+      // clearing the state keeps it from resurfacing once the live rows
+      // drain).
+      setRestoredFailure(null)
       void trpc.superagent.sendTurn
         .mutate({ threadId: THREAD_ID, text: wire, ...superagentTurnChoice(backend) })
         .then((ack) => {
@@ -469,6 +473,21 @@ export function SuperagentScreen() {
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      // A restored failure becomes a live turn: seed it into the live list
+      // (which itself drops the restoration) and dispatch. Matched by row
+      // identity against the restoration's input id, never by comparing
+      // words.
+      if (restoredFailure && turn.id === `restored:${restoredFailure.inputId}`) {
+        const live: LocalPendingTurn = {
+          id: `retry:${restoredFailure.inputId}:${Date.now()}`,
+          text: restoredFailure.userText,
+          wire: restoredFailure.userText,
+        }
+        setRestoredFailure(null)
+        setPendingTurns((prev) => [...prev, live])
+        dispatch(live.id, live.wire)
+        return
+      }
       const local = pendingTurns.find((candidate) => candidate.id === turn.id)
       if (!local) return
       setPendingTurns((prev) =>
@@ -480,7 +499,7 @@ export function SuperagentScreen() {
       )
       dispatch(local.id, local.wire)
     },
-    [dispatch, pendingTurns],
+    [dispatch, pendingTurns, restoredFailure],
   )
 
   const interrupt = useCallback(async () => {
@@ -506,6 +525,7 @@ export function SuperagentScreen() {
       attachments.clear()
       void refreshSuperThreads().catch(() => {})
       setPendingTurns([])
+      setRestoredFailure(null)
       clearLiveText()
       setRunning(false)
       setJustSent(false)
@@ -518,6 +538,34 @@ export function SuperagentScreen() {
   // Keep the high-frequency live row outside the settled transcript. This
   // preserves the settled array's identity and its cached paired/row model.
   const liveItem = useMemo(() => liveTranscriptItem(liveText, running), [liveText, running])
+  // The restored failure as a failed pending row (POD-4806). Dropped by
+  // structure, never by comparing words: a transcript item recorded after the
+  // failure means a later turn ran, and live send activity means this mount
+  // is already speaking for itself — either way the old row must not pin the
+  // thread.
+  const restoredRow = useMemo((): LocalPendingTurn | null => {
+    if (!restoredFailure) return null
+    const failureAt = Date.parse(restoredFailure.at)
+    if (
+      Number.isFinite(failureAt) &&
+      settled.some((item) => {
+        const ts = item.ts
+        return typeof ts === 'string' && Number.isFinite(Date.parse(ts)) && Date.parse(ts) > failureAt
+      })
+    )
+      return null
+    if (pendingTurns.length > 0 || working) return null
+    return {
+      id: `restored:${restoredFailure.inputId}`,
+      text: restoredFailure.userText,
+      wire: restoredFailure.userText,
+      failed: restoredFailure.failed,
+    }
+  }, [restoredFailure, settled, pendingTurns.length, working])
+  const visiblePendingTurns = useMemo(
+    () => (restoredRow ? [...pendingTurns, restoredRow] : pendingTurns),
+    [pendingTurns, restoredRow],
+  )
   // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
   // screen reads the same store and the same published slices as the web.
   const transcriptResolved = podiumSid
@@ -528,7 +576,7 @@ export function SuperagentScreen() {
     resolved &&
     settled.length === 0 &&
     liveItem === undefined &&
-    pendingTurns.length === 0 &&
+    visiblePendingTurns.length === 0 &&
     !working
 
   return (
@@ -578,7 +626,7 @@ export function SuperagentScreen() {
                       }
                     : undefined
                 }
-                pendingTurns={pendingTurns}
+                pendingTurns={visiblePendingTurns}
                 pinRequest={pinRequest}
                 onRetryPending={retry}
                 onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}

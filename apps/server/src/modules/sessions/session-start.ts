@@ -1,6 +1,5 @@
-import { asAgentIdentityId, type SessionDelegation } from '@podium/model'
-import { readIssue } from '../world-index/issue-reader'
 import { createLogger } from '@podium/logger'
+import { readIssue } from '../world-index/issue-reader'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
  *
@@ -76,6 +75,7 @@ import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
 import { createdByForBinding } from './command-plane'
+import { authorSpawnBinding } from './binding-mint'
 import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
@@ -490,31 +490,21 @@ export class SessionStart {
       principal.kind === 'agent'
         ? (await this.ports.store.sessions.getSession(principal.parentBindingId))?.delegation
         : undefined
-    if (principal.kind === 'agent' && !parent) throw new Error('parent delegation missing')
-    const narrowDefault: SessionDelegation['grantedScope'] = input.issueId
-      ? { kind: 'subtree', rootId: input.issueId }
-      : { kind: 'none' }
-    const grantedScope = input.binding?.requestedScope ?? narrowDefault
-    if (principal.kind === 'agent' && !scopeWithin(grantedScope, parent!.grantedScope))
-      throw new Error('child delegation cannot widen its parent scope')
-    if (
-      principal.kind === 'user' &&
-      !input.binding?.scopeOverrideConfirmed &&
-      !scopeWithin(grantedScope, narrowDefault)
-    )
-      throw new Error('scope override is not authorized')
-    const delegation: SessionDelegation = {
-      actor: asAgentIdentityId(sessionId),
-      onBehalfOf:
-        principal.kind === 'system'
-          ? null
-          : principal.kind === 'user'
-            ? principal.userId
-            : parent!.onBehalfOf,
-      grantedScope,
-      parentBindingId: principal.kind === 'agent' ? principal.parentBindingId : null,
-      revision: 1,
-    }
+    // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516) — authored by the shared
+    // mint so every spawn frame carries the same identity half. Hoisting it is
+    // what lets the durable attribution pair and the daemon binding come from
+    // THE SAME identity rather than from two constructions of it.
+    const authored = authorSpawnBinding({
+      sessionId,
+      principal,
+      ...(parent ? { parent } : {}),
+      ...(issueId ? { issueId } : {}),
+      ...(input.binding?.requestedScope ? { requestedScope: input.binding.requestedScope } : {}),
+      ...(input.binding?.scopeOverrideConfirmed ? { scopeOverrideConfirmed: true as const } : {}),
+      ...(input.binding?.relaunch ? { relaunch: true as const } : {}),
+      ...(input.bindingMachineAccess ? { machineAccess: input.bindingMachineAccess } : {}),
+    })
+    const delegation = authored.delegation
     const session = new Session({
       delegation,
       sessionId,
@@ -593,14 +583,7 @@ export class SessionStart {
       agentKind: input.agentKind,
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       cwd: input.cwd,
-      binding: {
-        ...input.binding,
-        principal,
-        delegation,
-        transitionId: `spawn:${sessionId}`,
-        machineAccess: input.bindingMachineAccess ?? 'allowed',
-        ...(input.issueId ? { issueId: input.issueId } : {}),
-      },
+      binding: authored.binding,
       ...(observationLease
         ? {
             observationGeneration: observationLease.observationGeneration,
@@ -632,23 +615,5 @@ export class SessionStart {
       machineId,
       accountId: accountId ?? null,
     }
-  }
-}
-
-/** Declared-scope containment is checked by the authoring server, never the daemon. */
-function scopeWithin(
-  child: SessionDelegation['grantedScope'],
-  parent: SessionDelegation['grantedScope'],
-): boolean {
-  if (child.kind === 'none' || parent.kind === 'all') return true
-  if (child.kind !== parent.kind) return false
-  switch (child.kind) {
-    case 'subtree':
-      return parent.kind === 'subtree' && child.rootId === parent.rootId
-    case 'owned':
-    case 'self':
-      return parent.kind === child.kind && child.userId === parent.userId
-    default:
-      return false
   }
 }

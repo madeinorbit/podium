@@ -181,20 +181,23 @@ describe('superagent offline machine (POD-4806)', () => {
       )
     expect(err).toContain('is offline')
     expect(err).not.toContain('SessionBinding')
-    // The user's message and a visible failure survive a reload (history).
+    // The user's message and a visible failure survive a reload: the typed
+    // read finds them by column, and the history holds both rows.
+    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+    expect(failure?.userText).toBe('Reply with exactly the word PONG-SUPER.')
+    expect(failure?.error).toContain('is offline')
+    expect(failure?.error).not.toContain('SessionBinding')
     const history = await h.sa.history(firstAdminMemberId(), asThreadId('global'))
     const contents = history.map((m) => m.content)
     expect(contents).toContain('Reply with exactly the word PONG-SUPER.')
-    const failure = history.find((m) => m.content.includes(TURN_FAILED_MARKER))
-    expect(failure?.content).toContain('is offline')
-    expect(failure?.content).not.toContain('SessionBinding')
+    expect(contents.some((c) => c.includes(TURN_FAILED_MARKER))).toBe(true)
     // The first turn's session is untouched; the failed turn never dispatched.
     expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.podiumSessionId).toBe(
       ack.podiumSessionId,
     )
   })
 
-  it('a turn that fails after dispatch keeps the message and never leaks internals', async () => {
+  it('a turn that fails after dispatch keeps a visible failure but no duplicate user row', async () => {
     const h = await offlineHarness()
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
@@ -202,6 +205,8 @@ describe('superagent offline machine (POD-4806)', () => {
       text: 'run it',
     })
     // Fail the dispatched turn at the harness (provider error while online).
+    // The prompt reached the harness, so the transcript carries it: persisting
+    // the user row again would show it twice after a reload (POD-4806 review).
     const req = h.turnReqs[0]!
     const epoch = 1
     await h.registry.gateway.routeDaemonFrame(h.host, {
@@ -226,6 +231,10 @@ describe('superagent offline machine (POD-4806)', () => {
       expect(m.content).not.toContain('server-minted SessionBinding instruction is required')
     }
     expect(history.some((m) => m.content.includes(TURN_FAILED_MARKER))).toBe(true)
-    expect(history.some((m) => m.role === 'user' && m.content === 'run it')).toBe(true)
+    expect(history.some((m) => m.role === 'user' && m.content === 'run it')).toBe(false)
+    // The typed read still names the failure, with no user words to duplicate.
+    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+    expect(failure?.error).toContain(TURN_FAILED_MARKER)
+    expect(failure?.userText).toBeNull()
   })
 })

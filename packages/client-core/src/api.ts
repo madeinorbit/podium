@@ -420,5 +420,26 @@ export interface PodiumClientApi {
       { threadId: ThreadId },
       { threadId: ThreadId; podiumSessionId?: SessionId }
     >
+    /** The thread's most recent durable turn failure for post-reload
+     *  restoration (POD-4806): the failed input's id, its words when the turn
+     *  never reached a harness (null when the transcript carries the prompt),
+     *  the failure text, and when it was recorded. Selected server-side by
+     *  column — clients never match prose to find it. */
+    latestTurnFailure: ApiQuery<{ threadId: ThreadId }, SuperagentTurnFailure | null>
   }
+}
+
+/**
+ * A durable superagent turn failure (POD-4806). Mirrors the server's
+ * `SuperagentTurnFailure` field for field — web's tsc checks the live
+ * AppRouter client against this seam, so drift fails the typecheck rather
+ * than reaching a phone.
+ */
+export interface SuperagentTurnFailure {
+  inputId: string
+  userText: string | null
+  error: string
+  /** ISO 8601 recording time, for the structural supersede check against the
+   *  transcript tail (never a text comparison). */
+  at: string
 }
