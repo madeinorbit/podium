@@ -340,6 +340,14 @@ export function editForPendingWrite(
  *  the test. */
 export const ECHO_TTL_MS = 60_000
 
+/**
+ * The reference clock of {@link createPendingLog} (wall time, like the
+ * kernel's awaiting-truth TTL it mirrors). Arms that arm their own TTL timer
+ * default to it, so the timer's receipt times agree with the log's TTL clock
+ * by construction.
+ */
+export const wallClockNow = (): number => Date.now()
+
 type Value = string | null
 
 interface Slot {
@@ -380,7 +388,7 @@ function covers(slot: Slot, v: Value): boolean {
 }
 
 export function createPendingLog(opts: { now?: () => number; ttlMs?: number } = {}): PendingLog {
-  const now = opts.now ?? Date.now
+  const now = opts.now ?? wallClockNow
   const ttlMs = opts.ttlMs ?? ECHO_TTL_MS
   const rows = new Map<string, Row>()
   const byTx = new Map<string, { row: Row; entry: Entry }>()

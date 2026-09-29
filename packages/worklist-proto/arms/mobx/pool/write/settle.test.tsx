@@ -22,6 +22,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { act } from 'react'
 import { asMutationId } from '@podium/model'
 import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
@@ -36,9 +37,13 @@ import type {
   WriteEvent,
   WriteTransport,
 } from '../../../../shared/src/write-contract'
+import { ECHO_TTL_MS } from '../../../../shared/src/write-contract'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { tracked } from '../pool'
+import { mobxPoolArm, type MobxPoolHandle } from '../arm'
 import { writableMobxPoolArm, type WritableMobxPoolHandle } from './arm'
+import { createMobxWriteApi, type MobxWriteApi } from './edit'
+import { PendingOverlay } from './overlay'
 
 installMobxWarnTrap()
 
@@ -381,5 +386,166 @@ describe('Mc2 MobX receipts and remote updates', () => {
       feeds.dispose()
       ctx.engine.destroy()
     }
+  }, 120_000)
+})
+
+/**
+ * POD-4742 — the W10 expiry timer: a receipted edit whose echo never arrives
+ * is dropped at the TTL and the row shows server truth again.
+ *
+ * The api owns its timer, driven here by a manual clock (no fake timers):
+ * while at least one receipted edit is pending it is armed for the earliest
+ * receipt + `ECHO_TTL_MS`, and firing only calls `expire()`. The stack is the
+ * pool with the write api over it and the arm's feed wiring mirrored, so an
+ * echo settles through `handleRemote` exactly as in the arm.
+ */
+describe('MobX edit expiry timer (W10)', () => {
+  /** A manual clock + timer queue for the api's `schedule`/`now` opts. */
+  function manualClock() {
+    let t = 1_000_000
+    let next = 1
+    const timers = new Map<number, { run: () => void; at: number }>()
+    return {
+      now: (): number => t,
+      schedule: (run: () => void, ms: number): (() => void) => {
+        const id = next++
+        timers.set(id, { run, at: t + ms })
+        return () => {
+          timers.delete(id)
+        }
+      },
+      pending: (): number => timers.size,
+      advance: (ms: number): void => {
+        const target = t + ms
+        for (;;) {
+          let best: number | null = null
+          for (const [id, timer] of timers) {
+            if (timer.at <= target && (best === null || timer.at < timers.get(best)!.at)) best = id
+          }
+          if (best === null) break
+          const timer = timers.get(best)!
+          timers.delete(best)
+          t = timer.at
+          timer.run()
+        }
+        t = target
+      },
+    }
+  }
+
+  interface ExpiryStack {
+    readonly ctx: ScenarioEngine
+    readonly id: string
+    readonly pool: MobxPoolHandle['pool']
+    readonly write: MobxWriteApi
+    readonly clock: ReturnType<typeof manualClock>
+    readonly feeds: ReturnType<typeof openFenceFeeds>
+    readonly serverTitle: string
+  }
+
+  function titleOfStack(stack: ExpiryStack): string | undefined {
+    return tracked(() => (stack.pool.inputs.issue(stack.id) as SliceIssue | undefined)?.title)
+  }
+
+  async function withExpiryStack(run: (stack: ExpiryStack) => Promise<void>): Promise<void> {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'truth')
+    const clock = manualClock()
+    const overlay = new PendingOverlay()
+    const handle = mobxPoolArm.create(
+      feeds.rows.source,
+      feeds.locals.source,
+      undefined,
+      NEVER_AUTO,
+      overlay,
+    )
+    const write = createMobxWriteApi(handle.pool, overlay, fakeTransport(), {
+      now: clock.now,
+      schedule: clock.schedule,
+    })
+    // The arm's feed wiring (write/arm.ts): server rows land on pending
+    // fields as the rewind target, and echoes settle their receipts there.
+    const offRemote = feeds.rows.source.subscribe((event) => {
+      for (const row of event.rows) {
+        if (row.kind !== 'issue' || row.value === undefined) continue
+        const value = row.value as SliceIssue
+        write.handleRemote('issue', row.id, {
+          title: value.title,
+          stage: value.stage,
+          readAt: (value.readAt ?? null) as never,
+        })
+      }
+    })
+    try {
+      const id = ctx.targets.visibleRootId
+      const serverTitle = tracked(
+        () => (handle.pool.inputs.issue(id) as SliceIssue | undefined)?.title,
+      ) as string
+      await run({ ctx, id, pool: handle.pool, write, clock, feeds, serverTitle })
+    } finally {
+      offRemote()
+      write.dispose()
+      handle.dispose()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }
+
+  it('a receipted edit with no echo expires at the TTL and shows server truth', async () => {
+    await withExpiryStack(async (stack) => {
+      const { id, write, clock, serverTitle } = stack
+      const tx = write.edit('issue', id, { title: 'Expiring title' })
+      write.handleAccepted(tx)
+      expect(clock.pending()).toBe(1)
+      expect(titleOfStack(stack)).toBe('Expiring title')
+      clock.advance(ECHO_TTL_MS - 1)
+      expect(titleOfStack(stack)).toBe('Expiring title')
+      expect(write.log.pendingFor('issue', id)).toHaveLength(1)
+      clock.advance(1)
+      expect(titleOfStack(stack)).toBe(serverTitle)
+      expect(write.log.size).toBe(0)
+      expect(clock.pending()).toBe(0)
+    })
+  }, 120_000)
+
+  it('an edit with no receipt never expires', async () => {
+    await withExpiryStack(async (stack) => {
+      const { id, write, clock } = stack
+      write.edit('issue', id, { title: 'Unreceipted title' })
+      expect(clock.pending()).toBe(0)
+      clock.advance(10 * ECHO_TTL_MS)
+      expect(titleOfStack(stack)).toBe('Unreceipted title')
+      expect(write.log.size).toBe(1)
+      expect(clock.pending()).toBe(0)
+    })
+  }, 120_000)
+
+  it('an echo before the TTL clears the timer', async () => {
+    await withExpiryStack(async (stack) => {
+      const { ctx, id, write, clock, feeds } = stack
+      const tx = write.edit('issue', id, { title: 'Echoed title' })
+      write.handleAccepted(tx)
+      expect(clock.pending()).toBe(1)
+      serverWrite(ctx, id, { title: 'Echoed title' }, { stamp: false })
+      feeds.flush()
+      expect(write.log.size).toBe(0)
+      expect(clock.pending()).toBe(0)
+      clock.advance(10 * ECHO_TTL_MS)
+      expect(titleOfStack(stack)).toBe('Echoed title')
+      expect(write.log.size).toBe(0)
+    })
+  }, 120_000)
+
+  it('dispose clears the expiry timer', async () => {
+    await withExpiryStack(async (stack) => {
+      const { id, write, clock } = stack
+      const tx = write.edit('issue', id, { title: 'Disposed title' })
+      write.handleAccepted(tx)
+      expect(clock.pending()).toBe(1)
+      write.dispose()
+      expect(clock.pending()).toBe(0)
+      clock.advance(10 * ECHO_TTL_MS)
+      expect(write.log.size).toBe(1)
+    })
   }, 120_000)
 })

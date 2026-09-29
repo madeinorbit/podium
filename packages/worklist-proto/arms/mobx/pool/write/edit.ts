@@ -72,22 +72,30 @@ import { compareStructural, runInAction } from 'mobx'
 import type { RowSource } from '../../../../shared/src/arm'
 import {
   commandFor,
+  ECHO_TTL_MS,
   editForPendingWrite,
   type EditPatch,
   type FieldValues,
   type PendingLog,
   type Rejection,
   type TxId,
+  wallClockNow,
   type WritableKind,
   type WriteTransport,
   WriteContractError,
 } from '../../../../shared/src/write-contract'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { MobxPool } from '../pool'
+import type { Schedule } from '../residency'
 import type { IssueOverlay, PendingOverlay } from './overlay'
 import { createPendingLog } from './pending'
 
 const OVERLAY_FIELDS: readonly (keyof IssueOverlay)[] = ['title', 'stage', 'readAt']
+
+const realSchedule: Schedule = (run, ms) => {
+  const timer = setTimeout(run, ms)
+  return () => clearTimeout(timer)
+}
 
 /** The newest pending value per field for (kind, id), oldest edit first. */
 function displayOf(log: PendingLog, kind: WritableKind, id: string): IssueOverlay | undefined {
@@ -124,9 +132,10 @@ export interface MobxWriteApi {
   handleSuperseded(txId: TxId): void
   /**
    * Drop receipted edits whose echo never arrived after the TTL (W10) and
-   * repaint their rows to server truth. Unreceipted edits never expire.
-   * No timer drives this yet: expiry is covered at the log level (L1c) and
-   * stays out of the gate, whose oracle holds entries the same way.
+   * repaint their rows to server truth. Unreceipted edits never expire. The
+   * api owns a timer for this: while at least one receipted edit is pending
+   * it is armed for the earliest receipt time + the TTL, and firing only
+   * calls `expire()` (which re-arms while receipted edits remain).
    */
   expire(): void
   /**
@@ -161,20 +170,56 @@ export interface MobxWriteApi {
  * The write api over `pool`, mirroring its log into `overlay`: the seam the
  * pool was constructed with (`new MobxPool(..., overlay)`), refused otherwise,
  * since an overlay the pool does not read would paint nothing.
+ *
+ * `schedule`/`now` drive the W10 expiry timer (the pool residency `Schedule`
+ * shape); the default log is built with the same `now`, so the timer's
+ * receipt times agree with the log's TTL clock.
  */
 export function createMobxWriteApi(
   pool: MobxPool,
   overlay: PendingOverlay,
   transport: WriteTransport,
-  opts: { log?: PendingLog } = {},
+  opts: { log?: PendingLog; schedule?: Schedule; now?: () => number } = {},
 ): MobxWriteApi {
   if (pool.writes !== overlay) {
     throw new WriteContractError('the pool was not constructed with this write overlay')
   }
-  const log = opts.log ?? createPendingLog()
+  // W10 is a wall-clock liveness bound (the kernel's AWAITING_TRUTH_TTL_MS and
+  // the reference log's default clock are wall-clock too): it fires a timer,
+  // never a displayed value, so no derivation reads it.
+  const now = opts.now ?? wallClockNow
+  const log = opts.log ?? createPendingLog({ now })
+  const schedule: Schedule = opts.schedule ?? realSchedule
   const listeners = new Set<
     (rejection: Rejection & { readonly kind: WritableKind; readonly id: string }) => void
   >()
+
+  /**
+   * W10: receipt times of the entries still in the log. The log holds `ackedAt`
+   * internally but never exposes it, so the api records what it settled: a
+   * txId enters here when its receipt arrives while the entry stays pending,
+   * and leaves with every txId a log call reports in `left`.
+   */
+  const receiptedAt = new Map<TxId, number>()
+  let cancelTimer: (() => void) | null = null
+  /** Arm for the earliest receipt + the TTL; clear when nothing receipted remains. */
+  const rearm = (): void => {
+    cancelTimer?.()
+    cancelTimer = null
+    if (receiptedAt.size === 0) return
+    let earliest = Number.POSITIVE_INFINITY
+    for (const at of receiptedAt.values()) if (at < earliest) earliest = at
+    cancelTimer = schedule(
+      () => {
+        cancelTimer = null
+        api.expire()
+      },
+      Math.max(0, earliest + ECHO_TTL_MS - now()),
+    )
+  }
+  const forgetLeft = (left: readonly TxId[]): void => {
+    for (const txId of left) receiptedAt.delete(txId)
+  }
 
   const refreshOverlay = (kind: WritableKind, id: string): void => {
     if (kind !== 'issue') return
@@ -247,10 +292,21 @@ export function createMobxWriteApi(
 
     reject(rejection) {
       let outcome: { kind: WritableKind; id: string } | null = null
+      let left: readonly TxId[] = []
       runInAction(() => {
-        outcome = log.reject(rejection) as { kind: WritableKind; id: string } | null
-        if (outcome !== null) refreshOverlay(outcome.kind, outcome.id)
+        const result = log.reject(rejection) as {
+          kind: WritableKind
+          id: string
+          left: readonly TxId[]
+        } | null
+        outcome = result
+        if (result !== null) {
+          left = result.left
+          refreshOverlay(result.kind, result.id)
+        }
       })
+      forgetLeft(left)
+      rearm()
       if (outcome === null) return
       const row = outcome as { kind: WritableKind; id: string }
       const enriched = { ...rejection, kind: row.kind, id: row.id }
@@ -259,40 +315,53 @@ export function createMobxWriteApi(
 
     handleRemote(kind, id, values) {
       runInAction(() => {
-        log.remote(kind, id, values)
+        const outcome = log.remote(kind, id, values)
+        // An echo (or overtake) can settle a receipted edit here: the timer
+        // must follow, or it would fire for an entry already gone.
+        forgetLeft(outcome.left)
         // Pending fields keep the local value (no overlay change); a settle
         // or overtake (Mc2) would change the display — refresh anyway so this
         // path never double-paints the tables' own update.
         refreshOverlay(kind, id)
       })
+      rearm()
     },
 
     handleAccepted(txId) {
       runInAction(() => {
         const outcome = log.settle({ txId })
         if (outcome === null) return
+        forgetLeft(outcome.left)
+        if (!outcome.left.includes(txId)) receiptedAt.set(txId, now())
         // The receipt alone confirms nothing: the entry stays until its echo
         // (or an overtake) resolves every field, so this refresh is a no-op
         // unless the echo already arrived (echo-before-receipt). A second
         // receipt returns null above: no repaint, ever (S4).
         refreshOverlay(outcome.kind, outcome.id)
       })
+      rearm()
     },
 
     handleSuperseded(txId) {
       runInAction(() => {
         const outcome = log.supersede({ txId })
         if (outcome === null) return
+        forgetLeft(outcome.left)
         // No repaint: the successor is newer and carries the value (W9). The
         // refresh only drops tracking that ended.
         refreshOverlay(outcome.kind, outcome.id)
       })
+      rearm()
     },
 
     expire() {
       runInAction(() => {
-        for (const outcome of log.expire()) refreshOverlay(outcome.kind, outcome.id)
+        for (const outcome of log.expire()) {
+          forgetLeft(outcome.left)
+          refreshOverlay(outcome.kind, outcome.id)
+        }
       })
+      rearm()
     },
 
     bootstrap(source: RowSource) {
@@ -303,6 +372,8 @@ export function createMobxWriteApi(
       }
       let applied = 0
       let skipped = 0
+      const settled: TxId[] = []
+      const left: TxId[] = []
       runInAction(() => {
         const touched: { kind: WritableKind; id: string }[] = []
         for (const entry of entries) {
@@ -332,7 +403,11 @@ export function createMobxWriteApi(
           }
           if (entry.acked) {
             const outcome = log.settle({ txId: entry.txId })
-            if (outcome !== null) refreshOverlay(outcome.kind, outcome.id)
+            if (outcome !== null) {
+              left.push(...outcome.left)
+              if (!outcome.left.includes(entry.txId)) settled.push(entry.txId)
+              refreshOverlay(outcome.kind, outcome.id)
+            }
           }
           refreshOverlay(mapped.kind, mapped.id)
           touched.push({ kind: mapped.kind, id: mapped.id })
@@ -348,14 +423,21 @@ export function createMobxWriteApi(
           if (log.pendingFor(kind, id).length === 0) continue
           const server = feedRows.get(id)
           if (server === undefined) continue
-          log.remote(kind, id, {
+          const outcome = log.remote(kind, id, {
             title: (server as SliceIssue).title,
             stage: (server as SliceIssue).stage,
             readAt: ((server as SliceIssue).readAt ?? null) as never,
           } as never)
+          left.push(...outcome.left)
           refreshOverlay(kind, id)
         }
       })
+      // Receipts restored from the outbox arm the timer like live ones; an
+      // echo that landed before the reload settles above and leaves no timer.
+      const at = now()
+      for (const txId of settled) if (!left.includes(txId)) receiptedAt.set(txId, at)
+      forgetLeft(left)
+      rearm()
       // The arm never re-sends: the kernel replays its own queue under the
       // same mutation ids, and receipts arrive under the same txIds.
       return { applied, skipped }
@@ -374,6 +456,9 @@ export function createMobxWriteApi(
     },
 
     dispose() {
+      cancelTimer?.()
+      cancelTimer = null
+      receiptedAt.clear()
       overlay.leave()
       runInAction(() => overlay.clear())
       listeners.clear()
