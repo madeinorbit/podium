@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { TranscriptItem } from '@podium/model'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import type { OpencodeMessagePartRow } from './transcript.js'
-import { opencodeRowsToItems } from './transcript.js'
+import { opencodePromptTextMatches, opencodeRowsToItems } from './transcript.js'
 
 // Native message/part changes from OpenCode 1.18.33, measured 2026-09-29.
 const timeline = readFileSync(
@@ -33,9 +33,14 @@ for (const entry of timeline) {
   if (entry.table === 'part') parts.set(entry.row.id, entry.row)
 }
 
-function rowsFor(messageId: string): OpencodeMessagePartRow[] {
+function messageFor(messageId: string): NativeRow {
   const message = messages.get(messageId)
-  expect(message).toBeDefined()
+  if (!message) throw new Error(`Missing measured message ${messageId}`)
+  return message
+}
+
+function rowsFor(messageId: string): OpencodeMessagePartRow[] {
+  const message = messageFor(messageId)
   return [...parts.values()]
     .filter((part) => part.m === messageId)
     .map((part) => ({
@@ -44,7 +49,7 @@ function rowsFor(messageId: string): OpencodeMessagePartRow[] {
       sessionId: part.s,
       timeCreated: part.tc,
       timeUpdated: part.tu,
-      messageData: JSON.stringify(message!.data),
+      messageData: JSON.stringify(message.data),
       partData: JSON.stringify(part.data),
     }))
 }
@@ -54,22 +59,23 @@ describe('OpenCode measured prompt entries', () => {
     const rows = rowsFor('msg_0ee0606b7001zBYRfjhAzXvajL')
     expect(rows).toHaveLength(1)
     const [item] = opencodeRowsToItems(rows)
+    if (!item) throw new Error('Missing measured user text item')
     expect(item).toMatchObject({ role: 'user', text: 'TUI S1 ALPHA idle', promptEntry: true })
     expect(TranscriptItem.parse(item)).toHaveProperty('promptEntry', true)
-    expect(transcriptEchoAcceptCorrelation.accepts(item!)).toBe(true)
+    expect(transcriptEchoAcceptCorrelation.accepts(item)).toBe(true)
   })
 
   it('drops the text-less user message that /compact stores', () => {
     const rows = rowsFor('msg_0ee0901af0011C15u69E6qZrKI')
     expect(rows).toHaveLength(1)
-    expect(JSON.parse(rows[0]!.messageData)).toHaveProperty('role', 'user')
-    expect(JSON.parse(rows[0]!.partData)).toHaveProperty('type', 'compaction')
+    expect(JSON.parse(rows[0]?.messageData ?? '')).toHaveProperty('role', 'user')
+    expect(JSON.parse(rows[0]?.partData ?? '')).toHaveProperty('type', 'compaction')
     expect(opencodeRowsToItems(rows)).toEqual([])
   })
 
   it('never turns a crash-left message without a text part into a prompt entry', () => {
     const messageId = 'msg_0ee0d3131001OpA8PjOTkNc0J3'
-    expect(messages.get(messageId)?.data).toHaveProperty('role', 'user')
+    expect(messageFor(messageId).data).toHaveProperty('role', 'user')
     const rows = rowsFor(messageId)
     expect(rows).toEqual([])
     expect(opencodeRowsToItems(rows)).toEqual([])
@@ -87,18 +93,21 @@ describe('OpenCode measured prompt entries', () => {
         (entry) => entry.kind === 'db' && entry.row.type?.startsWith('command.executed'),
       ),
     ).toEqual([])
-    const reply = messages.get(command.messageID)!
+    const reply = messageFor(command.messageID)
     expect(reply.data.role).toBe('assistant')
     const messageId = reply.data.parentID as string
     expect(messageId).toBe('msg_0ee0dddb70010IzMbZxeLd4WbK')
     const rows = rowsFor(messageId)
-    expect(JSON.parse(rows[0]!.partData)).toEqual({
+    expect(JSON.parse(rows[0]?.partData ?? '')).toEqual({
       type: 'text',
       text: 'S9 CMD TEMPLATE expanded with: hello args',
     })
     expect(opencodeRowsToItems(rows)).toEqual([
       expect.objectContaining({ role: 'user', text: 'S9 CMD TEMPLATE expanded with: hello args' }),
     ])
+    expect(
+      opencodePromptTextMatches('/probe hello args', opencodeRowsToItems(rows)[0]?.text ?? ''),
+    ).toBe(false)
   })
 
   it('keeps HTTP-injected messages real while leaving their unrecorded origin unknown', () => {
@@ -106,8 +115,8 @@ describe('OpenCode measured prompt entries', () => {
     const keyboardId = 'msg_0ee0864a1001OfXnzcZMj2qwL0'
     // Same metadata for both sources, apart from creation time. Do not infer
     // origin from the caller-supplied id shape or from words in the message.
-    const { time: _httpTime, ...httpData } = messages.get(httpId)!.data
-    const { time: _keyboardTime, ...keyboardData } = messages.get(keyboardId)!.data
+    const { time: _httpTime, ...httpData } = messageFor(httpId).data
+    const { time: _keyboardTime, ...keyboardData } = messageFor(keyboardId).data
     expect(httpData).toEqual(keyboardData)
     const [http] = opencodeRowsToItems(rowsFor(httpId))
     const [keyboard] = opencodeRowsToItems(rowsFor(keyboardId))

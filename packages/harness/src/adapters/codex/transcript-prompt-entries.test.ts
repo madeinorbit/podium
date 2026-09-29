@@ -100,9 +100,10 @@ describe('Codex measured prompt entries', () => {
       .filter((record) => record.payload.type === 'user_message')
     expect(records).toHaveLength(1)
     const [item] = records.flatMap(codexRecordToItems)
+    if (!item) throw new Error('Missing measured legacy user item')
     expect(item).toMatchObject({ role: 'user', promptEntry: false })
-    expect(item?.text).not.toBe('')
-    expect(transcriptEchoAcceptCorrelation.accepts(item!)).toBe(false)
+    expect(item.text).not.toBe('')
+    expect(transcriptEchoAcceptCorrelation.accepts(item)).toBe(false)
   })
 })
 
@@ -117,10 +118,10 @@ describe('Codex measured text tolerance', () => {
     ]
     expect(records).toHaveLength(inputs.length)
     records.forEach((record, index) => {
-      const input = inputs[index]!
+      const input = inputs[index] ?? ''
       const [item] = codexRecordToItems(record)
       expect(item?.text).toBe(input.trim())
-      expect(codexPromptTextMatches(input, item!.text)).toBe(true)
+      expect(codexPromptTextMatches(input, item?.text ?? '')).toBe(true)
     })
   })
 
