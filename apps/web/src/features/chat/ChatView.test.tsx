@@ -675,6 +675,43 @@ describe('ChatView composer', () => {
     )
   })
 
+  it('keeps a refused first send visible: Enter during a daemon restart shows the failure, never an empty feed', async () => {
+    // POD-4800. The desktop posted sessions.sendText while the daemon was
+    // away, the server answered dead_letter, and the client cleared the
+    // composer with no user bubble and no notice. Whatever the server answers,
+    // a send that is not accepted keeps the user's message on screen with its
+    // reason — through the same textarea-Enter entry point the real UI uses.
+    fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+      ok: false,
+      reason: 'machine unreachable',
+      disposition: 'dead_letter',
+    })
+    storeDrafts = { s1: 'are you there' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+    await flush()
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: asSessionId('s1'), text: 'are you there' }),
+    )
+    const failed = container.querySelector('.transcript-pending--failed')
+    expect(failed).not.toBeNull()
+    expect(failed?.textContent).toContain('are you there')
+    expect(failed?.textContent).toContain('machine unreachable')
+  })
+
   it('restores a queued chat message from the durable ledger after refresh', async () => {
     fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
       {

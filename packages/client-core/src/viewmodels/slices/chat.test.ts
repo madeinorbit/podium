@@ -327,22 +327,36 @@ describe('composer, queue, offer and activity', () => {
     ).toMatchObject({ deliverable: false, placeholder: 'Session is not running.' })
   })
 
-  // POD-3219. Deliverability is a statement about the WIRE, and these are the
-  // cases where the box used to be locked with it: a session row that has not
-  // arrived, and a live agent whose socket is mid-reconnect. The state says
-  // "not deliverable"; the composer keeps typing open regardless.
-  it('is not deliverable while the session is unknown or reconnecting', () => {
+  // POD-3219. Deliverability is a statement about the WIRE: a session row
+  // that has not arrived stays undeliverable, and the composer keeps typing
+  // open regardless.
+  it('is not deliverable while the session is unknown', () => {
     expect(
       composerState({ session: undefined, headless: false, turnRunning: false, compact: false }),
     ).toMatchObject({ deliverable: false, sendable: false, canResume: false })
+  })
+
+  // POD-4800. A machine being briefly UNREACHABLE is transport state: the
+  // server queues the send durably and forwards it on reconnect, so the
+  // composer stays sendable and the send routes straight through (the bubble
+  // then reads queued, not failed). Gating reconnecting as "not running"
+  // blocked Enter exactly in the window the server fix keeps open.
+  it('stays sendable while the session is reconnecting', () => {
+    const composer = composerState({
+      session: session({ status: 'reconnecting' }),
+      headless: false,
+      turnRunning: false,
+      compact: false,
+    })
+    expect(composer).toMatchObject({ deliverable: true, sendable: true, canResume: false })
     expect(
-      composerState({
-        session: session({ status: 'reconnecting' }),
+      chatSendRoute({
+        sessionId: asSessionId('s1'),
         headless: false,
-        turnRunning: false,
-        compact: false,
+        superThread: undefined,
+        composer,
       }),
-    ).toMatchObject({ deliverable: false, placeholder: 'Session is not running.' })
+    ).toEqual({ kind: 'session', sessionId: asSessionId('s1') })
   })
 
   it('treats an archived resume ref as history, not a send route', () => {
