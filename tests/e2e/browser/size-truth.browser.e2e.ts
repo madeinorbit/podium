@@ -441,6 +441,12 @@ test('the agent’s real size, the server’s copy and every browser grid agree 
       .poll(() => readViewer(d1).then((r) => r.sessionId), { timeout: 60_000 })
       .toBe(session)
     await claudeReady(d1.page)
+    // A signed-out Claude is forced onto the CLI view and has no Chat tab, so
+    // the chat row below could not run: say so, rather than fail on a tab.
+    await expect(
+      d1.page.getByText('Claude isn’t logged in').or(d1.page.getByText("Claude isn't logged in")),
+      'Claude is logged in (the harness borrows the machine’s own login)',
+    ).toHaveCount(0)
     agentPid = kernel(session)?.pid
     await check('spawn straight in CLI')
 
