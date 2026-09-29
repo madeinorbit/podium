@@ -264,3 +264,64 @@ it('renders the Bash input as coloured inline text when a work run opens', () =>
   expect(description).toBeDefined()
   expect(getComputedStyle(description as HTMLElement).whiteSpace).toBe('nowrap')
 })
+
+/**
+ * WHAT A SENT BUBBLE SAYS (POD-4764). A message the server handed on toward the
+ * agent used to read "sending…" until its text matched a transcript entry —
+ * forever, when the harness rewrote it. The caption now says where the synced
+ * record says it is, and a message the server says did not arrive offers
+ * "Send again" (a new message), never "Try again".
+ */
+describe('TranscriptList pending delivery captions', () => {
+  const turn = (over: Record<string, unknown>) =>
+    ({ id: 'msg_1', text: 'ship it', ...over }) as never
+
+  it('says "sent" for a message on its way, not "sending…"', () => {
+    render(
+      <TranscriptList
+        items={[]}
+        live
+        onAnswer={async () => {}}
+        pendingTurns={[turn({ delivery: 'sent' })]}
+      />,
+    )
+    expect(screen.getByText('sent')).toBeTruthy()
+    expect(screen.queryByText('sending…')).toBeNull()
+  })
+
+  it('offers "Send again" and Dismiss on a message the server says did not arrive', () => {
+    const onSendAgainPending = vi.fn()
+    const onRetryPending = vi.fn()
+    render(
+      <TranscriptList
+        items={[]}
+        live
+        onAnswer={async () => {}}
+        onRetryPending={onRetryPending}
+        onSendAgainPending={onSendAgainPending}
+        onDiscardPending={() => {}}
+        pendingTurns={[turn({ failed: 'not delivered · session torn down', notice: 'failed' })]}
+      />,
+    )
+    expect(screen.getByText('not delivered')).toBeTruthy()
+    expect(screen.queryByText('Try again')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Send again'))
+    expect(onSendAgainPending).toHaveBeenCalledTimes(1)
+    expect(onRetryPending).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Dismiss')).toBeTruthy()
+  })
+
+  it('says an unknown message may already have arrived before offering it again', () => {
+    render(
+      <TranscriptList
+        items={[]}
+        live
+        onAnswer={async () => {}}
+        onSendAgainPending={() => {}}
+        pendingTurns={[turn({ delivery: 'unknown', notice: 'unknown' })]}
+      />,
+    )
+    expect(screen.getByText('not confirmed — it may or may not have arrived')).toBeTruthy()
+    expect(screen.getByLabelText('Send again — it may already have arrived')).toBeTruthy()
+  })
+})
