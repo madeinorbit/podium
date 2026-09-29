@@ -77,8 +77,17 @@ export const ACCOUNT_QUERIES = {
         ...(attempt ? { loginAttempt: attempt } : {}),
         // Which native login this viewer's server AI would spend (POD-4750):
         // resolved once above; rows match the returned harness by equality.
+        // The last refusal text (POD-4805) rides along when the issue
+        // assistant has recorded one — including when no machine could be
+        // picked, so Settings still says why.
         ...(serverAi && harness === serverAi.harness
-          ? { serverAi: { machineId: serverAi.machineId, machineName: serverAi.machineName } }
+          ? {
+              serverAi: {
+                ...(serverAi.machineId !== undefined ? { machineId: serverAi.machineId } : {}),
+                ...(serverAi.machineName !== undefined ? { machineName: serverAi.machineName } : {}),
+                ...(serverAi.lastError !== undefined ? { lastError: serverAi.lastError } : {}),
+              },
+            }
           : {}),
       }
     }))

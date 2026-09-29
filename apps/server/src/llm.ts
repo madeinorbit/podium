@@ -1,3 +1,4 @@
+import { bundledDescriptorFor, effectiveCatalogModel } from '@podium/harness/browser'
 import type { LlmBackend, PodiumSettings } from '@podium/runtime'
 import { LlmConfigError } from './llm-error'
 export { LlmConfigError } from './llm-error'
@@ -151,13 +152,36 @@ function codexClient(backend: LlmBackend, transport: CodexTransport | undefined)
       'Codex server AI needs a machine transport — no connected Codex login is available.',
     )
   }
-  const model = backend.model && backend.model !== 'auto' ? backend.model : 'gpt-5.5'
+  const model =
+    backend.model && backend.model !== 'auto' ? backend.model : codexCatalogHead(backend)
   const effort = codexEffort(backend)
   const harness = backend.harnessAgent
   return {
     label: `codex · ${model} (ChatGPT subscription)`,
     complete: async (m, t) => await transport.complete(model, m, t, effort, harness),
   }
+}
+
+/**
+ * What a stored model of 'auto' sends on the Codex server-AI path (POD-4805).
+ *
+ * Read through {@link effectiveCatalogModel} — the ONE function the settings
+ * page's effective-model line also reads, so the displayed model and the
+ * called model cannot disagree. 'auto' means "no opinion" everywhere else in
+ * settings; the Responses API takes no such value, so the CLI's own priority
+ * head is the honest default. A second hard-coded slug here would be a list
+ * of its own, drifting the next time the catalog moves — which is exactly how
+ * a ChatGPT login came to be sent a model it refuses. Unknown harness (no
+ * catalog row): fail closed with an actionable error rather than guessing.
+ */
+function codexCatalogHead(backend: LlmBackend): string {
+  const head = effectiveCatalogModel(bundledDescriptorFor(backend.harnessAgent), backend.model)
+  if (!head) {
+    throw new LlmConfigError(
+      `no Codex model catalog for harness '${backend.harnessAgent}' — pick an explicit model in Settings → Background LLM.`,
+    )
+  }
+  return head
 }
 
 // ---- OpenAI-compatible (OpenRouter, OpenAI) ----

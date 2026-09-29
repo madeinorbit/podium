@@ -43,10 +43,20 @@ export interface AccountState {
    * just today's. Undefined when the role runs on no native login (or none is
    * usable for the viewer): rows then omit "Server AI uses …" rather than
    * inventing one. Optional so existing test states stay valid.
+   *
+   * `lastError` is the background role's last refusal text (POD-4805), when
+   * the issue assistant has recorded one. It rides even when no machine could
+   * be picked (machine fields then absent), so a refused server-AI call still
+   * says why on Settings instead of looking fine.
    */
   readonly resolveCodexServerAi?:
     | (() => Promise<
-        { harness: HarnessAgent; machineId: MachineId; machineName: string } | undefined
+        {
+          harness: HarnessAgent
+          machineId?: MachineId
+          machineName?: string
+          lastError?: string
+        } | undefined
       >)
     | undefined
 }

@@ -1332,6 +1332,7 @@
       "testFiles": [
         "apps/server/src/modules/accounts/native-login.test.ts",
         "apps/server/src/modules/accounts/queries.test.ts",
+        "apps/server/src/modules/accounts/server-ai-marker.test.ts",
         "apps/server/src/modules/derived-family.runtime.test.ts",
         "apps/server/src/modules/derived-family.types.test.ts",
         "apps/server/src/modules/files/queries.search.test.ts",
@@ -1505,6 +1506,7 @@
         "src/modules/accounts/queries.test.ts",
         "src/modules/accounts/queries.ts",
         "src/modules/accounts/registry.ts",
+        "src/modules/accounts/server-ai-marker.test.ts",
         "src/modules/accounts/trpc.ts",
         "src/modules/approvals/queries.ts",
         "src/modules/approvals/registry.ts",

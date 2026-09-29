@@ -36,8 +36,13 @@ export interface AccountView {
    * by the same scoped picker as the one-shot transport (POD-4750). Absent
    * when no login is usable for the viewer — the row still lists every
    * machine that reports the login via `machines`.
+   *
+   * `lastError` is the background role's last refusal text (POD-4805), when
+   * the issue assistant has recorded one. It is present even when no machine
+   * could be picked, so Settings says why the server AI is failing instead of
+   * looking fine.
    */
-  serverAi?: { machineId: MachineId; machineName: string }
+  serverAi?: { machineId?: MachineId; machineName?: string; lastError?: string }
   /** Managed only: where the credential actually lives. */
   credentialSource?: 'stored' | 'legacy'
   loginRequired?: boolean

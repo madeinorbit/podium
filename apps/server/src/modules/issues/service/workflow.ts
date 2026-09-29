@@ -1900,4 +1900,14 @@ export class IssueGitWorkflowModule {
   async refreshAssistant(id: string): Promise<IssueWire> {
     return await this.assistant.refreshAssistant(id)
   }
+
+  /**
+   * The last background-LLM failure's actionable text — see
+   * {@link IssueAssistantDigestModule.backgroundLastError}. Read by the
+   * accounts hub so Settings → Background LLM / Accounts can say why the
+   * server AI is failing instead of looking fine.
+   */
+  backgroundLastError(): string | undefined {
+    return this.assistant.backgroundLastError()
+  }
 }

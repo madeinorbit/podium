@@ -300,7 +300,9 @@ describe('normalizeSettings — Codex harness migration into roles', () => {
   it('migrates a codex-harness work LLM to the codex api account (chat-only consumer)', () => {
     const s = normalizeSettings({ workLlm: { kind: 'harness', harnessAgent: 'codex' } })
     expect(s.roles.background.accountId).toBe(nativeAccountId('codex'))
-    expect(s.roles.background.model).toBe('gpt-5.5')
+    // 'auto' stays 'auto' (POD-4805): the call-time Codex client resolves it
+    // from the harness catalog — the migration must not mint a second list.
+    expect(s.roles.background.model).toBe('auto')
     expect(resolveRole(s, 'background')).toMatchObject({ execution: 'api', provider: 'codex' })
   })
 
