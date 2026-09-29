@@ -16,7 +16,9 @@ import { BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   BUNDLED_DESCRIPTORS,
+  bundledDescriptorFor,
   composerRulesFor,
+  effectiveCatalogModel,
   HARNESS_NO_TOOLS,
   harnessSupportsNoTools,
   markOf,
@@ -167,5 +169,35 @@ describe('@podium/harness/browser — the descriptor mark (POD-4737)', () => {
       ]),
     )
     expect(withSections.find((d) => d.kind === 'codex')).not.toHaveProperty('sections')
+  })
+})
+
+/**
+ * The effective catalog model (POD-4805): the ONE function the server's
+ * one-shot Codex client and the settings page's effective-model line both
+ * read, so the displayed model and the called model cannot disagree.
+ */
+describe('@podium/harness/browser — effectiveCatalogModel', () => {
+  it("resolves 'auto' to the catalog head (the list the harness uses)", () => {
+    const codex = bundledDescriptorFor('codex')
+    expect(codex?.catalog.models[0]?.value).toBeTruthy()
+    expect(effectiveCatalogModel(codex, 'auto')).toBe(codex?.catalog.models[0]?.value)
+  })
+
+  it('passes explicit models through untouched', () => {
+    const codex = bundledDescriptorFor('codex')
+    expect(effectiveCatalogModel(codex, 'gpt-5.5')).toBe('gpt-5.5')
+    expect(effectiveCatalogModel(codex, 'a-custom-slug')).toBe('a-custom-slug')
+  })
+
+  it('prefers the live list when the probe answered', () => {
+    const codex = bundledDescriptorFor('codex')
+    const live = [{ value: 'live-model', label: 'Live' }]
+    expect(effectiveCatalogModel(codex, 'auto', live)).toBe('live-model')
+  })
+
+  it('fails closed without a catalog (never a guessed slug)', () => {
+    expect(effectiveCatalogModel(undefined, 'auto')).toBeUndefined()
+    expect(effectiveCatalogModel(bundledDescriptorFor('some-future-cli'), 'auto')).toBeUndefined()
   })
 })

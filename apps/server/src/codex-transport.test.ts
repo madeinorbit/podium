@@ -1,6 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { bundledDescriptorFor } from '@podium/harness/browser'
 import { asMachineId, asUserId, Inventory } from '@podium/model'
 import { LlmBackend } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -97,6 +98,32 @@ describe('codex transport (POD-4750)', () => {
     expect(calls).toEqual([{ machineId: 'desk', model: 'gpt-5.5' }])
   })
 
+  it("'auto' resolves from the harness catalog, not a hard-coded slug (POD-4805)", async () => {
+    // The Codex server-AI role stores model 'auto'. The slug the daemon sends
+    // must come from the same model list the Codex harness uses (the bundled
+    // descriptor catalog, generated from the adapter registry) — a hard-coded
+    // slug here is a second list that drifts when the catalog moves, which is
+    // how the server AI came to send a model the login refuses.
+    const seen: string[] = []
+    const transport = createCodexTransport({
+      listMachines: async () => [record('desk')],
+      isOnline: () => true,
+      defaultMachineId: async () => asMachineId('desk'),
+      authorizerFor: async () => () => undefined,
+      ownerUserId: async () => asUserId('owner-1'),
+      codexComplete: async (_m, input) => {
+        seen.push(input.model)
+        return { ok: true, text: 'ok', toolCalls: [] }
+      },
+    })
+    const head = bundledDescriptorFor('codex')?.catalog.models[0]?.value
+    expect(head).toBeTruthy()
+    const auto = llmClient(codexBackend('auto'), undefined, fetch, { codexTransport: transport })
+    expect(auto.label).toBe(`codex · ${head} (ChatGPT subscription)`)
+    await auto.complete([{ role: 'user', content: 'hi' }], [])
+    expect(seen).toEqual([head])
+  })
+
   it('maps model default and effort like the old client did', async () => {
     const seen: { model: string; effort: string }[] = []
     const transport = createCodexTransport({
@@ -110,9 +137,10 @@ describe('codex transport (POD-4750)', () => {
         return { ok: true, text: 'ok', toolCalls: [] }
       },
     })
-    // 'auto' resolves to the same default the deleted codexClient used.
+    // 'auto' resolves from the harness catalog (see the POD-4805 test above).
+    const head = bundledDescriptorFor('codex')?.catalog.models[0]?.value
     const auto = llmClient(codexBackend('auto'), undefined, fetch, { codexTransport: transport })
-    expect(auto.label).toBe('codex · gpt-5.5 (ChatGPT subscription)')
+    expect(auto.label).toBe(`codex · ${head} (ChatGPT subscription)`)
     await auto.complete([{ role: 'user', content: 'hi' }], [])
     // Explicit effort rides through.
     const high = llmClient(codexBackend('gpt-5.5', 'high'), undefined, fetch, {
@@ -120,7 +148,7 @@ describe('codex transport (POD-4750)', () => {
     })
     await high.complete([{ role: 'user', content: 'hi' }], [])
     expect(seen).toEqual([
-      { model: 'gpt-5.5', effort: 'medium' },
+      { model: head, effort: 'medium' },
       { model: 'gpt-5.5', effort: 'high' },
     ])
   })

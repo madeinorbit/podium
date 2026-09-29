@@ -108,8 +108,12 @@ export interface AccountView {
   /**
    * Native Codex only (POD-4750): the machine whose login the viewer's server
    * AI runs on. Absent when no login is usable for the viewer.
+   *
+   * `lastError` is the background role's last refusal text (POD-4805). It is
+   * present even when no machine could be picked, so Settings says why the
+   * server AI is failing instead of looking fine.
    */
-  serverAi?: { machineId: MachineId; machineName: string }
+  serverAi?: { machineId?: MachineId; machineName?: string; lastError?: string }
   /** Managed only: 'stored' = the accounts table (Podium injects it, and can drop
    *  it again); 'legacy' = a pre-hub Settings → API keys value the server has no
    *  row for, so it cannot be disconnected from here. */
@@ -291,6 +295,7 @@ export function RoleBackendEditor({
   accounts,
   onChange,
   descriptors,
+  fallbackAccountId,
 }: {
   role: 'coding' | 'superagent' | 'background' | 'shipwright'
   backend: RoleBackend
@@ -298,12 +303,22 @@ export function RoleBackendEditor({
   onChange: (b: RoleBackend) => void
   /** Resolved descriptors when held; otherwise the bundled fallback applies. */
   descriptors?: readonly HarnessDescriptorWire[]
+  /**
+   * Server-truth account shown when the stored account matches no option
+   * (POD-4805): an unset ('') background role otherwise displays the first
+   * native login while the server runs the role default — the page must show
+   * what the call uses. Sections pass `resolveRole(settings, role).accountId`;
+   * roles without one keep the old first-option fallback.
+   */
+  fallbackAccountId?: AccountId
 }): JSX.Element {
   const modelCatalog = useModelCatalog()
   const options = accountOptions(role, accounts, descriptors)
   const accountId = options.some((option) => option.id === backend.accountId)
     ? backend.accountId
-    : options[0]?.id || asAccountId('native:claude-code')
+    : fallbackAccountId && options.some((option) => option.id === fallbackAccountId)
+      ? fallbackAccountId
+      : (options[0]?.id || asAccountId('native:claude-code'))
   const selectedOption = options.find((option) => option.id === accountId)
   const selectedAccount = accounts.find((account) => account.id === accountId)
   const selectedStatus =

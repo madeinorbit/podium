@@ -1,7 +1,10 @@
+import { createLogger } from '@podium/logger'
 import type { IssueWire, SessionId } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
 import type { IssueStore } from './core'
+
+const log = createLogger('server:issues')
 
 /**
  * THE ISSUE ACTIVITY DIGEST — the second job the git-workflow capability was doing.
@@ -33,6 +36,21 @@ export class IssueAssistantDigestModule {
   private assistantTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(private readonly store: IssueStore) {}
+
+  /**
+   * The last background-LLM failure's actionable text (POD-4805): a refused
+   * server-AI call must say why somewhere the operator looks — the server log
+   * (one warn line at the catch below) and Settings → Background LLM /
+   * Accounts (read through the accounts hub). Undefined until the first
+   * failure. Never an issue field: `refreshAssistant` stays non-throwing and
+   * leaves prior state intact.
+   */
+  private lastAssistantError: string | undefined
+
+  /** The last background-LLM failure's actionable text, if any has failed. */
+  backgroundLastError(): string | undefined {
+    return this.lastAssistantError
+  }
 
   /** A member session did something. Debounce a digest refresh for the issue that
    *  owns its worktree — 120s after the LAST activity, not once per event. */
@@ -68,7 +86,7 @@ export class IssueAssistantDigestModule {
       phase: s.agentState?.phase ?? 'shell',
       tail: '',
     }))
-    const [status, log] = await Promise.all([
+    const [status, history] = await Promise.all([
       this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
       this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
@@ -85,7 +103,7 @@ export class IssueAssistantDigestModule {
         ...(row.prUrl ? { prUrl: row.prUrl } : {}),
       },
       gitStatus: status.output,
-      gitLog: log.output,
+      gitLog: history.output,
       members,
       otherIssues: others,
     }
@@ -104,7 +122,12 @@ export class IssueAssistantDigestModule {
         { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
       )
       result = resp.data
-    } catch {
+    } catch (err) {
+      // A refused server-AI call must not vanish (POD-4805): one warn line
+      // with the backend's error text, plus the last-error slot Settings
+      // reads. The digest itself still returns the issue untouched.
+      log.warn('background LLM call failed', { err })
+      this.lastAssistantError = err instanceof Error ? err.message : String(err)
       result = null
     }
     /**

@@ -163,9 +163,14 @@ function NativeAccountRow({
         </div>
       </Row>
       {status && <p className="max-w-[62ch] pb-2.5 settings-prose">{status}</p>}
-      {account.serverAi && (
+      {account.serverAi?.machineName && (
         <p className="max-w-[62ch] pb-2.5 settings-prose">
           Server AI uses {account.serverAi.machineName}&rsquo;s login.
+        </p>
+      )}
+      {account.serverAi?.lastError && (
+        <p className="max-w-[62ch] pb-2.5 settings-prose text-warning">
+          Server AI last failed: {account.serverAi.lastError}
         </p>
       )}
     </div>

@@ -253,4 +253,26 @@ describe('AccountsSection', () => {
     expect(await screen.findByText('bad credential')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
   })
+
+  it('shows the server-AI login and its last failure on the spent row (POD-4805)', async () => {
+    serveList([
+      {
+        ...NATIVE,
+        id: 'native:codex',
+        harness: 'codex',
+        status: 'connected',
+        identity: 'user@example.com',
+        serverAi: {
+          machineId: asMachineId('desk'),
+          machineName: 'Desk',
+          lastError: "codex 400: The 'gpt-5.5' model is not supported.",
+        },
+      },
+    ])
+    render(<AccountsSection />)
+
+    expect(await screen.findByText(/Server AI uses Desk/)).toBeTruthy()
+    expect(screen.getByText(/Server AI last failed: /)).toBeTruthy()
+    expect(screen.getByText(/not supported/)).toBeTruthy()
+  })
 })

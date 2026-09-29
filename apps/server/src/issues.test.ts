@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  asAccountId,
   asArtifactId,
   asIssueId,
   asMachineId,
@@ -21,12 +22,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
 import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
+import { llmClient } from './llm'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
+import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
 import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 
@@ -2720,6 +2723,106 @@ describe('IssueService assistant', () => {
     const wire = await svc.refreshAssistant(c.id)
     expect(wire.activityNotes).toBe('making progress')
     expect(wire.suggestedStage).toBe('in_progress')
+  })
+
+  it('a refused server-AI call stays non-throwing but records the actionable error (POD-4805)', async () => {
+    // The daemon's refusal (e.g. a ChatGPT login sent a model it does not
+    // support) surfaces as a throw out of the llm factory — the shape
+    // `createCodexTransport` produces for a daemon `{ ok: false }` outcome.
+    const refusal =
+      "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account."
+    const { deps } = await harness([])
+    deps.llm = (() => ({
+      label: 'fake',
+      complete: async () => {
+        throw new Error(refusal)
+      },
+    })) as never
+    deps.repoOp = vi.fn(async (op: string) => ({
+      ok: true,
+      output: op === 'status' ? '## issue/1-x' : 'abc plan',
+    })) as never
+    deps.getSettings = async () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+        issues: { assistantEnabled: true },
+        workLlm: { kind: 'api', provider: 'openrouter', model: 'm' },
+      })
+    const svc = await IssueService.create(deps)
+    expect(svc.backgroundLastError()).toBeUndefined()
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
+    const logs = captureLogs()
+    try {
+      // Still non-throwing for callers; the issue keeps its prior (empty) state
+      // and the error is NOT written as an issue field.
+      const wire = await svc.refreshAssistant(c.id)
+      expect(wire.activityNotes).toBeUndefined()
+      expect(wire.suggestedStage).toBeUndefined()
+      // One warn line carrying the backend's error text.
+      const warns = logs.at('warn')
+      expect(warns.map((r) => r.msg)).toContain('background LLM call failed')
+      expect(warns.map((r) => r.err?.message)).toContain(refusal)
+    } finally {
+      logs.restore()
+    }
+    // And the actionable error is recorded for Settings to read.
+    expect(svc.backgroundLastError()).toBe(refusal)
+  })
+
+  it("an unset background role names its throw: '' never reaches the Codex login (POD-4805)", async () => {
+    // Stored exactly as the acceptance run had it —
+    // {accountId:'', model:'auto', effort:'auto'} — with a Codex login on the
+    // fleet and no provider key in the secrets store. '' is the documented
+    // role default, which resolves to managed:openrouter, so the call never
+    // spends the login: llmClient throws demanding the missing key, and the
+    // digest used to swallow it without a word.
+    const { deps } = await harness([])
+    deps.llm = ((backend: never, apiKey: never) =>
+      llmClient(backend, apiKey, fetch, {
+        codexTransport: {
+          complete: async () => {
+            throw new Error('must not reach the Codex transport: unset role runs managed:openrouter')
+          },
+        },
+      })) as never
+    deps.repoOp = vi.fn(async (op: string) => ({
+      ok: true,
+      output: op === 'status' ? '## issue/1-x' : 'abc plan',
+    })) as never
+    deps.getSettings = async () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+        issues: { assistantEnabled: true },
+        roles: { background: { accountId: asAccountId(''), model: 'auto', effort: 'auto' } },
+      })
+    const svc = await IssueService.create(deps)
+    const c = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
+    const logs = captureLogs()
+    try {
+      const wire = await svc.refreshAssistant(c.id)
+      expect(wire.activityNotes).toBeUndefined()
+      const expected = 'no API key configured for openrouter — add one in Settings → API keys'
+      const warns = logs.at('warn')
+      expect(warns.map((r) => r.msg)).toContain('background LLM call failed')
+      expect(warns.map((r) => r.err?.message)).toContain(expected)
+    } finally {
+      logs.restore()
+    }
+    expect(svc.backgroundLastError()).toBe(
+      'no API key configured for openrouter — add one in Settings → API keys',
+    )
   })
 
   it('applySuggestion moves the stage and clears the suggestion', async () => {

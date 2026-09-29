@@ -377,8 +377,10 @@ const LEGACY_HARNESS_MIGRATIONS: Partial<
     ...backend,
     kind: 'api',
     provider: 'codex',
-    model:
-      backend.harnessModel && backend.harnessModel !== 'auto' ? backend.harnessModel : 'gpt-5.5',
+    // An unset ('auto') harness model stays 'auto' (POD-4805): the call-time
+    // Codex client resolves it from the harness catalog, so a second
+    // hard-coded slug here would drift the next time the catalog moves.
+    model: backend.harnessModel && backend.harnessModel !== 'auto' ? backend.harnessModel : 'auto',
   }),
 }
 

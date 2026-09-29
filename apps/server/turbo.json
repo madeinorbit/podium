@@ -1061,6 +1061,7 @@
         "src/modules/accounts/queries.test.ts",
         "src/modules/accounts/queries.ts",
         "src/modules/accounts/registry.ts",
+        "src/modules/accounts/server-ai-marker.test.ts",
         "src/modules/accounts/trpc.ts",
         "src/modules/approvals/queries.ts",
         "src/modules/approvals/registry.ts",

@@ -101,4 +101,36 @@ describe('accounts list — server-AI login marker (POD-4750)', () => {
     expect(codex).toBeDefined()
     expect(codex?.serverAi).toBeUndefined()
   })
+
+  it('carries the background last-error on the matching row (POD-4805)', async () => {
+    const rows = await ACCOUNT_QUERIES.list.run(
+      stateWith(async () => ({
+        harness: 'codex' as HarnessAgent,
+        machineId: asMachineId('desk'),
+        machineName: 'Desk',
+        lastError: "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+      })),
+      {},
+    )
+    const codex = rows.find((row) => row.id === 'native:codex')
+    expect(codex?.serverAi).toEqual({
+      machineId: asMachineId('desk'),
+      machineName: 'Desk',
+      lastError: "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+    })
+  })
+
+  it('carries a machine-less last-error on the matching row when no login is usable', async () => {
+    const rows = await ACCOUNT_QUERIES.list.run(
+      stateWith(async () => ({
+        harness: 'codex' as HarnessAgent,
+        lastError: 'no connected Codex login is available to you — run `codex login`.',
+      })),
+      {},
+    )
+    const codex = rows.find((row) => row.id === 'native:codex')
+    expect(codex?.serverAi).toEqual({
+      lastError: 'no connected Codex login is available to you — run `codex login`.',
+    })
+  })
 })

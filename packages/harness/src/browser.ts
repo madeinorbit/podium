@@ -404,6 +404,27 @@ export function modelOptionsForDescriptor(
   return [{ value: DESCRIPTOR_AUTO, label: 'Auto' }, ...descriptorModels(descriptor, live)]
 }
 
+/**
+ * The concrete model a stored 'auto' SENDS on paths that must name a slug
+ * (POD-4805): the head of the harness catalog — the same list the picker
+ * offers (live first, static fallback), so the settings page and the call
+ * cannot disagree. Explicit models pass through untouched. `undefined` when
+ * there is no catalog to read (unknown harness, empty list): callers fail
+ * closed rather than guessing a slug.
+ *
+ * ONE FUNCTION, called from both sides: the server's one-shot Codex client
+ * and the settings page's effective-model line read this and nothing else.
+ */
+export function effectiveCatalogModel(
+  descriptor: HarnessDescriptorWire | undefined,
+  modelValue: string | null | undefined,
+  live?: readonly ModelChoiceWire[],
+): string | undefined {
+  if (modelValue && modelValue !== DESCRIPTOR_AUTO) return modelValue
+  if (!descriptor) return undefined
+  return descriptorModels(descriptor, live)[0]?.value
+}
+
 const EFFORT_LEVEL_LABELS: Record<string, string> = {
   off: 'Off',
   minimal: 'Minimal',
