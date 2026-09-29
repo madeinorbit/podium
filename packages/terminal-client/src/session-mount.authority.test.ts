@@ -206,7 +206,6 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
       mounted.dispose()
     }
   })
-
 })
 
 // ---------------------------------------------------------------------------
