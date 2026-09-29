@@ -14,7 +14,7 @@
  *   verdict are computed once per row, and the rank and the group placement
  *   take them from here);
  * - one hop through a declared single-valued relation, resolved by the
- *   relation engine (`inputs.relations.one`, `relations.ts`; the rebuild's
+ *   relation engine (`inputs.links.issue.repo`, `relations.ts`; the rebuild's
  *   from-scratch scan): `displayRef` (`issue.repo` prefix) and `originTick`
  *   (`issue.discoveredFrom`). No view resolves a relation itself;
  * - locals: `selected` (selection), and the clock through deadlines
@@ -39,7 +39,7 @@
  * parity. No legacy view-model import.
  */
 
-import type { RelationReader } from '../../../shared/src/instrument/reads'
+import type { RelationLinks } from '../../../shared/src/links'
 import {
   isDraftNameSession,
   type RowOriginTick,
@@ -123,7 +123,8 @@ export interface OwnPart {
 
 /** Everything a row view reads. Tracked in the live pool; plain in the rebuild. */
 export interface ViewInputs {
-  readonly relations: RelationReader
+  /** Every relation, by typed name (POD-4758, `shared/src/links.ts`). */
+  readonly links: RelationLinks
   issue(id: string): SliceIssue | undefined
   session(id: string): SliceSession | undefined
   /**
@@ -337,7 +338,7 @@ function firstMemberOf(input: ViewInputs, sessionIds: readonly string[]): SliceS
 
 /** `issue.repo` through the engine (declared in the schema): the repo's id, or null. */
 export function repoTargetPartOf(input: ViewInputs, id: string): string | null {
-  return input.relations.one('issue', id, 'repo')
+  return input.links.issue.repo(id)
 }
 
 /** The resolved repo's prefix (one hop), or null. */
@@ -370,7 +371,7 @@ export function displayTitlePartOf(
  * cold target as present), or null.
  */
 export function originRefPartOf(input: ViewInputs, id: string): string | null {
-  return input.relations.one('issue', id, 'discoveredFrom')
+  return input.links.issue.discoveredFrom(id)
 }
 
 /** The origin, when it is resident (a cold one is `loading`, `loadingPartOf`). */

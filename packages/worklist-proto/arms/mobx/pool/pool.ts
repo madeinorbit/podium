@@ -62,6 +62,7 @@ import {
   runInAction,
 } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
+import { relationLinks } from '../../../shared/src/links'
 import { sliceRowOf } from '../../../shared/src/row-view'
 import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type {
@@ -494,8 +495,9 @@ export class MobxPool {
     // edits arrive through `writes`). A view reads rows in memory: a row that
     // is not answers undefined, its load queued.
     const inMemory = (row: Loaded<object>): object | undefined => (row === LOADING ? undefined : row)
+    const links = relationLinks(this.relations, this.graph.schema)
     this.inputs = {
-      relations: this.relations,
+      links,
       issue: (id) => inMemory(this.row('issue', id)) as SliceIssue | undefined,
       session: (id) => inMemory(this.row('session', id)) as SliceSession | undefined,
       // The member's cached stamp (its object's, hot or cold): no row read.
@@ -537,7 +539,7 @@ export class MobxPool {
       passed: (t) => this.clock.passed(t),
     }
     this.visibleInputs = {
-      relations: this.relations,
+      links,
       // Hot or cold: a cold row is read by id through the feed, never loaded.
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
@@ -845,7 +847,7 @@ export class MobxPool {
     // only where a node may genuinely be built.
     const live = this.visibleInputs
     const plain: VisibleInputs = {
-      relations: rawRelations,
+      links: relationLinks(rawRelations, this.graph.schema),
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       // Exactly what a live derivation reads: a held row's parts (hot or

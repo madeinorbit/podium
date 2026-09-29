@@ -80,7 +80,7 @@ function plantedArm(schedule: Schedule, plant: Plant): CheckableArm {
           plant.runs += 1
           if (pool.resident('issue', target) === 'resident') {
             plant.loadedRuns += 1
-            for (const _ of pool.inputs.relations.many('issue', target, 'sessions')) void _
+            for (const _ of pool.inputs.links.issue.sessions.ids(target)) void _
           }
         }
         return original(id)

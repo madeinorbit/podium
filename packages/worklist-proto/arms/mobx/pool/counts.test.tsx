@@ -188,7 +188,7 @@ describe('fence steps #1-#4', () => {
         const original = inputs.sessionActivity
         inputs.sessionActivity = (id) => {
           if (target !== null && pool.resident('issue', target) === 'resident') {
-            for (const _ of pool.inputs.relations.many('issue', target, 'sessions')) void _
+            for (const _ of pool.inputs.links.issue.sessions.ids(target)) void _
           }
           return original(id)
         }

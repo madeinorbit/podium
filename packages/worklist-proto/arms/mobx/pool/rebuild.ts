@@ -43,6 +43,7 @@
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
+import { relationLinks } from '../../../shared/src/links'
 import {
   compareClosedFold,
   groupKeyOf,
@@ -58,10 +59,10 @@ import type {
 import { scanRelations } from './enumerate'
 import { createPlainTables, ingestOut, ingestRecord } from './tables'
 import {
+  activityMsOf,
   buildRowView,
   directParts,
   type RepoRow,
-  activityMsOf,
   type ViewInputs,
 } from './views'
 import { repoLabelOf } from './worklist/groups'
@@ -127,7 +128,7 @@ function rebuild(
 
   const { coarseNow, selectedIssueId } = locals.get()
   const inputs: ViewInputs = {
-    relations: scanRelations(tables),
+    links: relationLinks(scanRelations(tables)),
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
     sessionActivity: (id) => activityMsOf(tables.session.get(id) as SliceSession | undefined),
@@ -142,10 +143,10 @@ function rebuild(
     // POD-4678 (item 1, plant/old): from scratch (the live pool's fenced
     // `seats()` counts; the rebuild never counts). Unused after item 2
     // (`sessionIdsPartOf` reads `seatList`), kept for the interface + plant.
-    seats: (id) => inputs.relations.many('issue', id, 'sessions'),
+    seats: (id) => inputs.links.issue.sessions.ids(id),
     // POD-4678 (item 2, O(1) real): from scratch, sorted (the live pool reads
     // its maintained SORTED mirror without iterating it).
-    seatList: (id) => [...inputs.relations.many('issue', id, 'sessions')].sort(),
+    seatList: (id) => [...inputs.links.issue.sessions.ids(id)].sort(),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
@@ -154,7 +155,7 @@ function rebuild(
   const sessions = new Map<string, SessionVisibility>()
   let nested: ReadonlyMap<string, readonly string[]> | null = null
   const visibleInputs: VisibleInputs = {
-    relations: inputs.relations,
+    links: inputs.links,
     issueRow: inputs.issue,
     sessionRow: inputs.session,
     issue: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo) : undefined),
@@ -188,10 +189,10 @@ function rebuild(
     // POD-4678 (item 1, plant/old): from scratch (the live pool's fenced
     // `seats()` counts; the rebuild never counts). Unused after item 2
     // (`seatIdsPartOf` reads `seatList`), kept for the interface + plant.
-    seats: (id) => inputs.relations.many('issue', id, 'sessions'),
+    seats: (id) => inputs.links.issue.sessions.ids(id),
     // POD-4678 (item 2, O(1) real): from scratch, sorted (the live pool reads
     // its maintained SORTED mirror without iterating it).
-    seatList: (id) => [...inputs.relations.many('issue', id, 'sessions')].sort(),
+    seatList: (id) => [...inputs.links.issue.sessions.ids(id)].sort(),
     counted: () => {},
   }
   const visible = issues

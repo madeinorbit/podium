@@ -83,10 +83,9 @@ import {
   observable,
   reaction,
 } from 'mobx'
-import type { RelationReader } from '../../../../shared/src/instrument/reads'
+import { type RelationLinks, refs } from '../../../../shared/src/links'
 import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
-import { relationRef } from '../relations'
 import {
   FINISHED_GRACE_MS,
   isClosedTopLevel,
@@ -119,7 +118,8 @@ export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
 export interface VisibleInputs {
-  readonly relations: RelationReader
+  /** Every relation, by typed name (POD-4758, `shared/src/links.ts`). */
+  readonly links: RelationLinks
   /** An issue's row, hot or cold (a cold one read by id through the feed); undefined when unknown. */
   issueRow(id: string): SliceIssue | undefined
   /** A session's row, hot or cold; undefined when unknown. */
@@ -199,7 +199,7 @@ export interface Standing {
   readonly pinned: boolean
   /**
    * The declared `issue.parent` forward key: the relation engine's own
-   * `relationRef` over this row (foreign key and `where`), so it costs this
+   * `refs.issue.parent` over this row (foreign key and `where`), so it costs this
    * row alone and never the parent's residency. The progress filing's key.
    */
   readonly formalParent: string | null
@@ -250,7 +250,7 @@ export function standingOf(issue: SliceIssue): Standing {
     updatedMs: parseMs(issue.updatedAt),
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
-    formalParent: relationRef('issue', 'parent', issue),
+    formalParent: refs.issue.parent(issue),
   }
 }
 
@@ -417,16 +417,16 @@ export interface SessionLinks {
   readonly worktreeLink: string | null
 }
 
-export function sessionLinksOf(input: Pick<VisibleInputs, 'relations'>, id: string): SessionLinks {
+export function sessionLinksOf(input: Pick<VisibleInputs, 'links'>, id: string): SessionLinks {
   return {
-    issueLink: input.relations.one('session', id, 'issue'),
-    worktreeLink: input.relations.one('session', id, 'worktree'),
+    issueLink: input.links.session.issue(id),
+    worktreeLink: input.links.session.worktree(id),
   }
 }
 
 /** A session's parts computed directly (the rebuild). */
 export function directSessionVisibility(
-  input: Pick<VisibleInputs, 'relations' | 'sessionRow' | 'loadedSession'>,
+  input: Pick<VisibleInputs, 'links' | 'sessionRow' | 'loadedSession'>,
   id: string,
 ): SessionVisibility {
   const row = input.sessionRow(id)
@@ -487,7 +487,7 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
     loadedIssue: (id) => input.loadedIssue(id),
     progressFacts: (id) => input.progressFacts(id),
-    spinOffCount: (id) => input.relations.size('issue', id, 'spinOffs'),
+    spinOffCount: (id) => input.links.issue.spinOffs.size(id),
     nested: (id) => input.nested(id),
     formalChildren: (id) => input.formalChildren(id),
     rollupNode: (id) => input.issue(id),
@@ -506,9 +506,9 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
  * so the union roots seat an unscanned checkout all the same.
  */
 export function laneMemberIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
-  const worktree = input.relations.one('issue', id, 'worktree')
+  const worktree = input.links.issue.worktree(id)
   if (worktree === null) return []
-  return [...input.relations.subset('worktree', worktree, 'sessions', 'issueless')].sort()
+  return [...input.links.worktree.sessions.issueless(worktree)].sort()
 }
 
 /** R2 then R3, id order, no duplicates. */
@@ -523,11 +523,11 @@ export function memberIdsPartOf(
 }
 
 export function childIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
-  return [...input.relations.many('issue', id, 'children')].sort()
+  return [...input.links.issue.children.ids(id)].sort()
 }
 
 export function spinOffIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
-  return [...input.relations.many('issue', id, 'spinOffs')].sort()
+  return [...input.links.issue.spinOffs.ids(id)].sort()
 }
 
 /**
@@ -743,7 +743,7 @@ function ownerOf(input: VisibleInputs, sessionId: string): string | null {
   const worktree = session.worktreeLink
   if (worktree === null) return null
   let owner: string | null = null
-  for (const issueId of input.relations.many('worktree', worktree, 'issues')) {
+  for (const issueId of input.links.worktree.issues.ids(worktree)) {
     if (owner !== null && issueId > owner) continue
     const issue = input.issue(issueId)
     if (issue?.standing?.excluded === false && issue.present) owner = issueId

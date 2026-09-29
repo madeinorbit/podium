@@ -19,6 +19,20 @@
  * `shared/src/repo-from-lane.ts`). `models.test.ts` iterates the schema and
  * reads every field off a model.
  *
+ * RELATIONS FROM THE SCHEMA (POD-4758). Every declared relation is a getter
+ * too, installed by `installRelations` from `SCHEMA[entity].relations` and
+ * typed from the declared schema (`RelationGetters`, `shared/src/links.ts`):
+ * a misspelled relation does not compile. A single relation answers the
+ * target's object, `LOADING` while a cold target loads (only a lazy relation
+ * can, Rule L, and its type says so), or null (no target, or a known one
+ * with no row: an issue's own checkout that no scan reported). A collection
+ * answers a `LazyCollection`: its members in memory, as objects, and how
+ * many are loading; each subset it declares is a collection of its own
+ * (`worktree.sessions.issueless`). They read through the pool's fenced
+ * relations. Part functions do not navigate objects: the rebuild runs them
+ * over plain maps, where there are none, so they read the same typed names
+ * by id (`ViewInputs.links`, `VisibleInputs.links`).
+ *
  * EDITS, LINEAR'S SHAPE. Every field the write contract declares editable
  * (`FIELD_COVERAGE`, `shared/src/write-contract.ts`) also has a setter:
  * `issue.title = x` is `issue.update({ title: x })`, and `update(patch)` is
@@ -42,7 +56,14 @@
  * across), so no two groups wait on each other.
  */
 
-import { cachedGroup } from './cached'
+import type { RelationReader } from '../../../shared/src/instrument/reads'
+import type {
+  CollectionName,
+  IsLazy,
+  SingleName,
+  SubsetName,
+  TargetOf,
+} from '../../../shared/src/links'
 import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import type { RowOriginTick, RowRank, RowView } from '../../../shared/src/row-view'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
@@ -55,6 +76,8 @@ import {
   type TxId,
   type WritableKind,
 } from '../../../shared/src/write-contract'
+import { cachedGroup } from './cached'
+import type { Residence } from './pool'
 import type { StoredRow } from './tables'
 import {
   activityAtOf,
@@ -69,8 +92,8 @@ import {
   originRefPartOf,
   originTickPartOf,
   prefixPartOf,
-  rankOfPart,
   type RepoRow,
+  rankOfPart,
   repoTargetPartOf,
   sessionIdsPartOf,
   type ViewInputs,
@@ -117,8 +140,8 @@ import {
   sessionLinksOf,
   spinOffIdsPartOf,
   unreadPartOf,
-  verdictPartOf,
   type VisibleInputs,
+  verdictPartOf,
 } from './worklist/visible'
 
 /** What a model reads from its pool. */
@@ -134,6 +157,12 @@ export interface ModelHost {
   readonly stats: ArmStats
   /** One transaction of the write layer's edit log; throws when the pool has no write layer. */
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
+  /** The pool's fenced relation reader: what the relation getters follow. */
+  readonly relations: RelationReader
+  /** The object of a row in memory, built on first request; undefined when not in memory. */
+  model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined
+  /** Where a row stands; a cold one answers `loading` and is queued (first access). */
+  resident(entity: EntityName, id: string): Residence
 }
 
 export class EntityModel {
@@ -178,6 +207,128 @@ function installFields(prototype: EntityModel, entity: EntityName): void {
         : {}),
     })
   }
+}
+
+/** Install one getter per declared relation of `entity` on `prototype` (POD-4758). */
+function installRelations(prototype: EntityModel, entity: EntityName): void {
+  for (const [name, spec] of Object.entries(SCHEMA[entity].relations)) {
+    if (name in prototype) {
+      throw new Error(`[pool] ${entity}.${name} collides with a model member; rename one`)
+    }
+    const collection = spec.kind === 'hasMany' || (spec.kind === 'edge' && spec.direction === 'in')
+    if (!collection) {
+      Object.defineProperty(prototype, name, {
+        configurable: false,
+        enumerable: false,
+        get(this: EntityModel): EntityModel | typeof LOADING | null {
+          const host = hostOf(this)
+          const target = host.relations.one(entity, this.id, name)
+          return target === null ? null : objectOrLoading(host, spec.to, target)
+        },
+      })
+      continue
+    }
+    // One collection class per relation, with a getter per declared subset.
+    class Members extends ModelCollection {}
+    for (const subset of spec.kind === 'hasMany' ? Object.keys(spec.subsets ?? {}) : []) {
+      Object.defineProperty(Members.prototype, subset, {
+        configurable: false,
+        enumerable: false,
+        get(this: Members): ModelCollection {
+          return new ModelCollection(this.host, spec.to, this.owner, () =>
+            this.host.relations.subset(entity, this.owner, name, subset),
+          )
+        },
+      })
+    }
+    Object.defineProperty(prototype, name, {
+      configurable: false,
+      enumerable: false,
+      get(this: EntityModel): ModelCollection {
+        const host = hostOf(this)
+        return new Members(host, spec.to, this.id, () => host.relations.many(entity, this.id, name))
+      },
+    })
+  }
+}
+
+function hostOf(model: EntityModel): ModelHost {
+  return (model as unknown as { readonly host: ModelHost }).host
+}
+
+/** `to:id`'s object when its row is in memory, `LOADING` when cold (its load queued), else null. */
+function objectOrLoading(
+  host: ModelHost,
+  to: EntityName,
+  id: string,
+): EntityModel | typeof LOADING | null {
+  return host.model(to, id) ?? (host.resident(to, id) === 'loading' ? LOADING : null)
+}
+
+/**
+ * A lazy collection read (Rule L): the members in memory, as objects, and
+ * how many are still loading, every cold one queued. `ready` is in bucket
+ * order, which is unordered (M3 F1). It is a READ, not a live view: the
+ * first of `ready` or `loading` reads the members, once, where it is asked;
+ * a reader that holds a collection across runs re-reads the getter.
+ */
+export interface LazyCollection<M> {
+  readonly ready: readonly M[]
+  readonly loading: number
+}
+
+class ModelCollection implements LazyCollection<EntityModel> {
+  private read: { readonly ready: readonly EntityModel[]; readonly loading: number } | null = null
+
+  constructor(
+    readonly host: ModelHost,
+    private readonly to: EntityName,
+    /** The id of the row the collection belongs to (its subsets read under it). */
+    readonly owner: string,
+    private readonly members: () => Iterable<string>,
+  ) {}
+
+  get ready(): readonly EntityModel[] {
+    return this.settle().ready
+  }
+
+  get loading(): number {
+    return this.settle().loading
+  }
+
+  private settle(): { readonly ready: readonly EntityModel[]; readonly loading: number } {
+    if (this.read !== null) return this.read
+    const ready: EntityModel[] = []
+    let loading = 0
+    for (const id of this.members()) {
+      const found = objectOrLoading(this.host, this.to, id)
+      if (found === LOADING) loading += 1
+      else if (found !== null) ready.push(found)
+    }
+    this.read = { ready, loading }
+    return this.read
+  }
+}
+
+type ObjectOne<E extends EntityName, R extends SingleName<E>> =
+  IsLazy<E, R> extends false
+    ? ModelOf[TargetOf<E, R>] | null
+    : ModelOf[TargetOf<E, R>] | typeof LOADING | null
+
+type ObjectMany<E extends EntityName, R extends CollectionName<E>> = LazyCollection<
+  ModelOf[TargetOf<E, R>]
+> & { readonly [S in SubsetName<E, R>]: LazyCollection<ModelOf[TargetOf<E, R>]> }
+
+/**
+ * The relation getters of `E`'s object, from the declared schema (POD-4758):
+ * a single relation is the target's object, or null, or `LOADING` when the
+ * relation is lazy; a collection is a `LazyCollection` with one per declared
+ * subset.
+ */
+export type RelationGetters<E extends EntityName> = {
+  readonly [R in SingleName<E>]: ObjectOne<E, R>
+} & {
+  readonly [R in CollectionName<E>]: ObjectMany<E, R>
 }
 
 /** The own row's in-memory read, cached (`IssueModel.loaded`). */
@@ -471,7 +622,11 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
 
   get activityAt(): number {
     const inputs = this.host.inputs
-    return activityAtOf(inputs, inputs.retainedSeats(this.id), () => this.standing?.updatedMs ?? null)
+    return activityAtOf(
+      inputs,
+      inputs.retainedSeats(this.id),
+      () => this.standing?.updatedMs ?? null,
+    )
   }
 
   get loading(): boolean {
@@ -556,10 +711,15 @@ interface IssueEdits {
  * the feed rows already carry, so no field list is written here.
  */
 export type ModelOf = {
-  issue: IssueModel & Readonly<Omit<SliceIssue, 'unread' | 'title' | 'stage' | 'readAt'>> & IssueEdits
-  session: SessionModel & Readonly<SliceSession>
-  worktree: WorktreeModel & Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>>
-  repo: RepoModel & Readonly<RepoRow> & { readonly path?: string }
+  issue: IssueModel &
+    Readonly<Omit<SliceIssue, 'unread' | 'title' | 'stage' | 'readAt'>> &
+    IssueEdits &
+    RelationGetters<'issue'>
+  session: SessionModel & Readonly<SliceSession> & RelationGetters<'session'>
+  worktree: WorktreeModel &
+    Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>> &
+    RelationGetters<'worktree'>
+  repo: RepoModel & Readonly<RepoRow> & { readonly path?: string } & RelationGetters<'repo'>
 }
 
 /** The model class of each schema entity. */
@@ -577,4 +737,5 @@ export const MODEL_CLASSES: {
 
 for (const entity of Object.keys(MODEL_CLASSES) as EntityName[]) {
   installFields(MODEL_CLASSES[entity].prototype, entity)
+  installRelations(MODEL_CLASSES[entity].prototype, entity)
 }

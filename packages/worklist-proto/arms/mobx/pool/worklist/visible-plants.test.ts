@@ -54,7 +54,7 @@ function plantOwnerOf(input: VisibleInputs, sessionId: string): string | null {
   const worktree = session.worktreeLink
   if (worktree === null) return null
   let owner: string | null = null
-  for (const issueId of input.relations.many('worktree', worktree, 'issues')) {
+  for (const issueId of input.links.worktree.issues.ids(worktree)) {
     if (owner !== null && issueId > owner) continue
     const issue = input.issue(issueId)
     if (issue?.standing?.excluded === false && issue.present) owner = issueId
@@ -263,14 +263,15 @@ describe('visibility plants against the oracle (POD-4681)', () => {
     // on every seed.
     const restore = patchGroup('members', function () {
       const input = inputsOf(this)
-      const relations = input.relations
+      const links = input.links
       const noLane: VisibleInputs = {
         ...input,
-        relations: {
-          one: (from, id, relation) => relations.one(from, id, relation),
-          many: (from, id, relation) => relations.many(from, id, relation),
-          size: (from, id, relation) => relations.size(from, id, relation),
-          subset: () => [],
+        links: {
+          ...links,
+          worktree: {
+            ...links.worktree,
+            sessions: { ...links.worktree.sessions, issueless: () => [] },
+          },
         },
       }
       return membersOf(noLane, this.id, this.standing)
