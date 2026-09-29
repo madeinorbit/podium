@@ -799,3 +799,120 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     expect(reply?.threadId).toBe(original.threadId)
   })
 })
+
+/**
+ * PROOF THAT COMES AFTER THE DAEMON STOPPED WAITING (POD-4840).
+ *
+ * The driver could not prove a send inside its window: the row settles
+ * `failed` with cause `unconfirmed`, the queue row is deleted, and the message
+ * goes `unknown`. The driver keeps watching; when the agent's own history
+ * records the prompt later, a second outcome for the same id says `delivered`.
+ * That outcome finds no queue row, and must still move the message to
+ * `confirmed` through the guarded move — while a message that failed as never
+ * typed stays failed whatever arrives later.
+ */
+describe('late proof of an unconfirmed message (POD-4840)', () => {
+  type DurableSend = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
+  const setup = async () => {
+    const o = await makeOracle()
+    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    const issue = await o.reg.issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/t' })
+    const { sessionId } = await o.call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/r/.worktrees/t',
+      issueId: issue.id,
+    })
+    const spawn = o.daemon.find(
+      (m): m is Extract<ControlMessage, { type: 'spawn' }> =>
+        m.type === 'spawn' && m.sessionId === sessionId,
+    )
+    if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
+    const observerGeneration = spawn.observationGeneration
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/r/.worktrees/t',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+    let seq = 0
+    /** One `delivery` runtime event from the driver, in stream order. */
+    const outcome = async (rowId: string, event: Record<string, unknown>) => {
+      seq += 1
+      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: `delivery-${rowId}-${seq}`,
+        sessionId,
+        event: {
+          t: 'delivery',
+          rowId,
+          ...event,
+          at: new Date().toISOString(),
+          provenance: 'live',
+          cursor: { segmentId: `delivery-${sessionId}`, components: { seq } },
+          observerGeneration,
+          turnEpoch: 0,
+        },
+      } as never)
+    }
+    const status = async (id: string) =>
+      ((await o.call.messages.show({ id })) as { deliveryStatus: string }).deliveryStatus
+    /** An operator's chat: it lands unwrapped, so no frame can confirm it. */
+    const send = async (body: string) => {
+      const sent = (await o.call.messages.send({ to: issue.id, body, urgency: 'next-turn' })) as {
+        id: string
+      }
+      await waitFor(
+        () =>
+          o.daemon.some(
+            (m) => m.type === 'runtimeDurableSendRequest' && (m as DurableSend).rowId === sent.id,
+          ),
+        'the message to reach the driver',
+      )
+      return sent.id
+    }
+    return { o, outcome, status, send }
+  }
+
+  it('a late delivered moves an unknown message to confirmed and names its entry', async () => {
+    const { o, outcome, status, send } = await setup()
+    const id = await send('please confirm you got this')
+    await outcome(id, {
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+      cause: 'unconfirmed',
+    })
+    await waitFor(async () => (await status(id)) === 'unknown', 'the message to go unknown')
+    await outcome(id, {
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-late', cursor: 'c-late' },
+    })
+    await waitFor(async () => (await status(id)) === 'confirmed', 'the late proof to confirm it')
+    expect((await o.store.messages.getMessage(id))?.transcriptItem).toEqual({
+      id: 'entry-late',
+      cursor: 'c-late',
+    })
+  })
+
+  it('a late delivered for a message that failed as never typed changes nothing', async () => {
+    const { outcome, status, send } = await setup()
+    const id = await send('this one never went in')
+    await outcome(id, {
+      outcome: 'failed',
+      reason: 'agent not accepting input',
+      cause: 'not-accepting-input',
+    })
+    await waitFor(async () => (await status(id)) === 'failed', 'the message to fail')
+    await outcome(id, { outcome: 'delivered', transcriptItem: { id: 'entry-stray' } })
+    // Settle whatever the late outcome could have started, then look again.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(await status(id)).toBe('failed')
+  })
+})

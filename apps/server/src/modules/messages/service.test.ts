@@ -3557,6 +3557,44 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
   })
 
+  it('late proof confirms only an unknown message, and only for its own session [POD-4840]', async () => {
+    const { svc, store } = await harness([
+      session({ sessionId: asSessionId('s1') }),
+      session({ sessionId: asSessionId('s2') }),
+    ])
+    const to = async (body: string) =>
+      (
+        await svc.send(
+          { kind: 'superagent' },
+          { to: { kind: 'session', id: asSessionId('s1') }, body },
+        )
+      ).message.id
+    const status = async (id: string) => (await store.messages.getMessage(id))!.deliveryStatus
+    const lost = await to('did it land?')
+    await svc.onQueuedInputUnknown(lost, asSessionId('s1'), 'delivery could not be confirmed')
+    const pending = await to('still on its way')
+    const before = await status(pending)
+    // Another session's history proves nothing about a message handed to s1.
+    await svc.onQueuedInputProvenLate(lost, asSessionId('s2'))
+    expect(await status(lost)).toBe('unknown')
+    await svc.onQueuedInputProvenLate(lost, asSessionId('s1'))
+    expect(await status(lost)).toBe('confirmed')
+    const delivered = (
+      await store.events.listEventsSince(0, { kinds: ['message.delivered'] })
+    ).filter((e) => e.subject === lost)
+    expect(delivered).toHaveLength(1)
+    // A message the daemon never reported unconfirmed is not moved by it.
+    await svc.onQueuedInputProvenLate(pending, asSessionId('s1'))
+    expect(await status(pending)).toBe(before)
+    // A repeat changes nothing.
+    await svc.onQueuedInputProvenLate(lost, asSessionId('s1'))
+    expect(
+      (await store.events.listEventsSince(0, { kinds: ['message.delivered'] })).filter(
+        (e) => e.subject === lost,
+      ),
+    ).toHaveLength(1)
+  })
+
   it('onTranscriptDelta confirms EVERY id across a multi-id, multi-item delta', async () => {
     // Regression lock for the issue parenthetical: the global matchAll already
     // loops all ids in every delta item — keep it that way (two ids concatenated

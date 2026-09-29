@@ -806,3 +806,103 @@ describe('a receipt held in memory (POD-4849)', () => {
     expect(f.events()).toEqual([])
   })
 })
+
+/**
+ * PROOF THAT COMES AFTER THE WINDOW STILL COUNTS (POD-4840).
+ *
+ * A row whose send came back `unverified` settles `failed` with cause
+ * `unconfirmed` — the server records it `unknown`. The driver keeps watching,
+ * and when the harness's own record of the prompt lands late it says so
+ * through `onLateProof`: the row moves forward to `delivered`, naming the
+ * entry. Forward only: nothing leaves `delivered`, and a row that failed
+ * because it was never typed has no proof to receive.
+ */
+describe('late proof of an unconfirmed row (POD-4840)', () => {
+  type LateProof = (seen: { transcriptItem?: { id: string; cursor?: string } }) => void
+  const fixture = (receipt: Record<string, unknown> = { outcome: 'unverified' }) => {
+    vi.useFakeTimers()
+    const proofs = new Map<string, LateProof | undefined>()
+    const send = vi.fn(async (input: { text: string }, options?: { onLateProof?: LateProof }) => {
+      proofs.set(input.text, options?.onLateProof)
+      return {
+        deliveredAs: 'when-ready',
+        verificationWindowMs: 4800,
+        at: new Date().toISOString(),
+        ...receipt,
+      }
+    })
+    const emit = vi.fn()
+    const handle = withDeliveryQueue(
+      {
+        send,
+        state: async () => ({ phase: 'idle' }),
+        lease: { state: async () => null },
+      } as unknown as AgentSessionHandle,
+      emit,
+    )
+    const prove = (text: string, seen: Parameters<LateProof>[0]) => {
+      const onLateProof = proofs.get(text)
+      if (!onLateProof) throw new Error(`the send of ${text} armed no late proof`)
+      onLateProof(seen)
+    }
+    return { handle, emit, prove, events: () => emit.mock.calls.map(([event]) => event) }
+  }
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+  const unconfirmed = {
+    t: 'delivery',
+    rowId: 'row',
+    outcome: 'failed',
+    reason: 'delivery could not be confirmed; check the transcript before retrying',
+    cause: 'unconfirmed',
+  }
+
+  it('moves an unconfirmed row to delivered, naming the entry, once, and replays it', async () => {
+    const f = fixture()
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.events()).toEqual([unconfirmed])
+    f.prove('a', { transcriptItem: { id: 'entry-1', cursor: 'c-1' } })
+    f.prove('a', { transcriptItem: { id: 'entry-other' } })
+    const delivered = {
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-1', cursor: 'c-1' },
+    }
+    expect(f.events()).toEqual([unconfirmed, delivered])
+    // A repeated admission replays the delivered outcome, never the failure.
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    expect(f.events().at(-1)).toEqual(delivered)
+    // And a retract now loses to a delivery.
+    expect(await f.handle.cancelDelivery!('row')).toMatchObject({ tooLate: 'delivered' })
+  })
+
+  it('ignores late proof for a row that failed without being typed', async () => {
+    const f = fixture({
+      outcome: 'refused',
+      refusal: { reason: 'staging_failed', detail: 'no upload' },
+    })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    const failed = { t: 'delivery', rowId: 'row', outcome: 'failed', reason: 'no upload' }
+    expect(f.events()).toEqual([failed])
+    // Whatever reaches the queue later, a row nobody typed was not delivered.
+    f.prove('a', { transcriptItem: { id: 'entry-1' } })
+    expect(f.events()).toEqual([failed])
+  })
+
+  it("moves a direct send's unconfirmed turn to delivered under its turn id", async () => {
+    const f = fixture()
+    const receipt = await f.handle.send({ id: 'msg_direct', text: 'a' }, options)
+    expect(receipt.outcome).toBe('unverified')
+    f.prove('a', { transcriptItem: { id: 'entry-3' } })
+    expect(f.events()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'msg_direct',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-3' },
+      },
+    ])
+  })
+})
