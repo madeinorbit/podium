@@ -80,6 +80,19 @@ afterEach(() => {
 })
 
 describe('podium mail', () => {
+  // POD-4868 (was POD-4853): the 'continue' auto-continue types, and an
+  // automation's prompt, arrive in the short frame — Podium's, never the person.
+  it("shows auto-continue's short frame as a note from Podium, not as the person's turn", () => {
+    mount(
+      userItem(
+        '[podium message msg_c · from system:auto-continue · to your session]\ncontinue\n[end podium message msg_c]',
+      ),
+    )
+    expect(host.querySelectorAll('.mail-group')).toHaveLength(1)
+    expect(host.textContent).toContain('1 note from Podium')
+    expect(host.textContent).not.toContain('[podium message')
+  })
+
   // FOLDED BY DEFAULT, AND FOLDED AS ONE (POD-993). Mail is provenance: a reader
   // scanning a conversation should see that notes arrived and from whom without
   // the paragraphs — and a burst of three should cost one line, not three.

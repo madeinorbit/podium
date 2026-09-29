@@ -7,10 +7,11 @@ import { automationPromptSender } from './prompt'
 /**
  * AN AUTOMATION'S PROMPT IS A MESSAGE FROM ITS OWNER (POD-4846).
  *
- * A person wrote the words, so they are typed as that person's own — no
- * envelope, shown as the owner's bubble — but a schedule delivered them: the
- * row is attributed to the automation, it does not count as the person acting
- * on a standing offer, and a failure is the run's to record, not mail.
+ * The row is the owner's, attributed to the automation that delivered it. A
+ * schedule typed it, not the person, so it is wrapped in the short frame — its
+ * id in the text, no mail rules around it (POD-4868) — it does not count as the
+ * person acting on a standing offer, and a failure is the run's to record, not
+ * mail.
  */
 describe('an automation prompt', () => {
   const owner = firstAdminMemberId()
@@ -29,7 +30,7 @@ describe('an automation prompt', () => {
       sessionById: async (id) => h.sessions.find((s) => s.sessionId === id),
     })
 
-  it("is stored as the owner's words, attributed to the automation, and typed without a frame", async () => {
+  it("is stored as the owner's words, attributed to the automation, and typed inside the short frame", async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'nightly' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'starting' })
@@ -49,14 +50,30 @@ describe('an automation prompt', () => {
     })
     const [push, ...more] = h.pushes
     expect(more).toHaveLength(0)
-    // The words exactly as the person wrote them, and not a person typing now:
-    // `system`, so a standing offer survives the scheduled prompt.
+    // The words as the person wrote them, inside the short frame that names the
+    // automation — and not a person typing now: `system`, so a standing offer
+    // survives the scheduled prompt.
     expect(push).toMatchObject({
       fn: 'queueText',
       sessionId: 's1',
-      text: 'Summarise what changed overnight.',
+      text:
+        `[podium message ${id} · from automation:aut_nightly · to your session]\n` +
+        `Summarise what changed overnight.\n` +
+        `[end podium message ${id}]`,
       inputOrigin: 'system',
     })
+  })
+
+  it("is confirmed by its id when the agent's history shows the typed turn", async () => {
+    const h = await mailHarness()
+    const iss = await h.createIssue({ title: 'nightly' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'starting' })
+    await sender(h)(prompt())
+    const id = automationPromptMessageId('run_1', asSessionId('s1'))
+
+    await h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: h.pushes[0]?.text ?? '' }])
+
+    expect((await h.svc.message(id))?.deliveryStatus).toBe('confirmed')
   })
 
   it('a repeated run stores one message and types it once', async () => {

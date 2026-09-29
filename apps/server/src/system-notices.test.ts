@@ -63,16 +63,20 @@ describe('a system notice to an issue', () => {
 })
 
 /**
- * AUTO-CONTINUE IS A MESSAGE, TYPED BARE (POD-4846).
+ * AUTO-CONTINUE IS A MESSAGE, WRAPPED IN A SHORT FRAME (POD-4846, POD-4868).
  *
- * The 'continue' the server types into an errored agent is a key press standing
- * in for the person, so it is the one server notice delivered WITHOUT the
- * envelope — the agent sees exactly what a person would have typed. It is still
- * a row, with an id and a status, one per errored turn however often the retry
- * loop fires, and it is not a person's chat bubble.
+ * The 'continue' the server types into an errored agent is a row with an id
+ * and a status, one per errored turn however often the retry loop fires, and
+ * it is not a person's chat bubble. It carries its id in the text like every
+ * other message that is not a person's own words, so the agent's history names
+ * it exactly. The frame is the short one: the id line and the end line, with
+ * none of the rules for mail an agent answers.
  */
+const shortFrame = (id: string, from: string, body: string): string =>
+  `[podium message ${id} · from ${from} · to your session]\n${body}\n[end podium message ${id}]`
+
 describe('an auto-continue', () => {
-  it("is a row from system:auto-continue, typed as the bare word with the auto-continue origin", async () => {
+  it("is a row from system:auto-continue, typed inside the short frame with the auto-continue origin", async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'work' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'errored' })
@@ -95,12 +99,24 @@ describe('an auto-continue', () => {
       expect.objectContaining({
         fn: 'queueText',
         sessionId: 's1',
-        text: 'continue',
+        text: shortFrame(id, 'system:auto-continue', 'continue'),
         inputOrigin: 'auto_continue',
       }),
     ])
     // Not a person's chat message: no bubble on the chat feed.
     expect(row && messageRecordOf(row)).toBeNull()
+  })
+
+  it("is confirmed by its id when the agent's history shows the typed turn", async () => {
+    const h = await mailHarness()
+    const iss = await h.createIssue({ title: 'work' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'errored' })
+    await autoContinueSender(h.svc)({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+    const id = autoContinueMessageId(asSessionId('s1'), 'epoch:3')
+
+    await h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: h.pushes[0]?.text ?? '' }])
+
+    expect((await h.svc.message(id))?.deliveryStatus).toBe('confirmed')
   })
 
   it('the retry loop firing again inside one errored turn stores and types it once', async () => {
@@ -114,6 +130,10 @@ describe('an auto-continue', () => {
     await send({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:4' })
 
     expect(await h.store.messages.listLedger({ sessionId: asSessionId('s1') })).toHaveLength(2)
-    expect(h.pushes.map((p) => p.text)).toEqual(['continue', 'continue'])
+    expect(h.pushes.map((p) => p.text)).toEqual(
+      ['epoch:3', 'epoch:4'].map((turn) =>
+        shortFrame(autoContinueMessageId(asSessionId('s1'), turn), 'system:auto-continue', 'continue'),
+      ),
+    )
   })
 })

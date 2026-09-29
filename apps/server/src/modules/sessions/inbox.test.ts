@@ -2965,40 +2965,55 @@ describe('agent drain via the runtime contract', () => {
 
   // POD-4778: an agent's message is its sender's to hear about. The owner of
   // the target is told only what a person can act on, and a person's composer
-  // never receives an agent's text.
-  it.each([
-    [
-      'never typed',
-      { outcome: 'failed' as const, reason: 'no', cause: undefined },
-      'delivery-failed',
-    ],
-    [
-      'unconfirmed',
-      { outcome: 'failed' as const, reason: 'maybe', cause: 'unconfirmed' as const },
-      undefined,
-    ],
-  ])("an agent's %s message leaves the owner and the draft alone", async (_label, event, cause) => {
-    vi.useFakeTimers()
-    const h = harness({ contractReceipts: [] })
-    await h.inbox.queueText({
-      sessionId: SID,
-      text: 'from another agent',
-      sourceMessageId: 'msg_agent',
-      inputOrigin: 'mail',
-      principal: agentPrincipal(),
-    })
-    await vi.advanceTimersByTimeAsync(0)
-    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_agent', ...event })
-    expect(h.promptFailed).not.toHaveBeenCalled()
-    expect(h.setSessionDraft).not.toHaveBeenCalled()
-    if (cause) {
-      expect(h.rejected).toEqual([expect.objectContaining({ sourceMessageId: 'msg_agent', cause })])
-    } else {
-      expect(h.unconfirmed).toHaveBeenCalledWith(
-        expect.objectContaining({ sourceMessageId: 'msg_agent' }),
-      )
-    }
-  })
+  // never receives an agent's text. POD-4844 (fixed under POD-4868): the same
+  // holds for every sender that is not a person — the steward, a system job, an
+  // automation's prompt (`system`) and auto-continue — not only for `mail`.
+  const notAPerson = ['mail', 'steward', 'system', 'auto_continue'] as const
+  const failures = [
+    ['never typed', { outcome: 'failed' as const, reason: 'no', cause: undefined }, 'delivery-failed'],
+    ['unconfirmed', { outcome: 'failed' as const, reason: 'maybe', cause: 'unconfirmed' as const }, undefined],
+  ] as const
+  it.each(notAPerson.flatMap((origin) => failures.map(([label, event, cause]) => [origin, label, event, cause] as const)))(
+    "a %s-origin %s message leaves the owner and the draft alone",
+    async (origin, _label, event, cause) => {
+      vi.useFakeTimers()
+      const h = harness({ contractReceipts: [] })
+      await h.inbox.queueText({
+        sessionId: SID,
+        text: 'not from a person',
+        sourceMessageId: 'msg_agent',
+        inputOrigin: origin,
+        principal: agentPrincipal(),
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      await h.inbox.deliveryOutcome(SID, { rowId: 'msg_agent', ...event })
+      expect(h.promptFailed).not.toHaveBeenCalled()
+      expect(h.setSessionDraft).not.toHaveBeenCalled()
+      if (cause) {
+        expect(h.rejected).toEqual([expect.objectContaining({ sourceMessageId: 'msg_agent', cause })])
+      } else {
+        expect(h.unconfirmed).toHaveBeenCalledWith(
+          expect.objectContaining({ sourceMessageId: 'msg_agent' }),
+        )
+      }
+    },
+  )
+
+  // `controller` is a person: it is what a person's chat and the owner's own
+  // messages are typed with (the inbox's default, and the messages service's
+  // origin for an operator's words); `human` is a person at the keyboard.
+  it.each(['controller', 'human'] as const)(
+    "a person's (%s-origin) message that was never typed goes back to the draft",
+    async (origin) => {
+      vi.useFakeTimers()
+      const h = harness({ contractReceipts: [] })
+      await h.inbox.queueText({ sessionId: SID, text: 'mine', sourceMessageId: 'msg_mine', inputOrigin: origin })
+      await vi.advanceTimersByTimeAsync(0)
+      await h.inbox.deliveryOutcome(SID, { rowId: 'msg_mine', outcome: 'failed', reason: 'no' })
+      expect(h.promptFailed).toHaveBeenCalledOnce()
+      expect(h.getDraft()).toBe('mine')
+    },
+  )
 
   it("an agent's message to a target waiting on a person still tells the owner, without a draft", async () => {
     vi.useFakeTimers()

@@ -10,6 +10,22 @@ const frame = (id: string, from: string, to: string, body: string, extra = '') =
   `[podium message ${id} · from ${from} · to ${to} · reply: podium mail reply ${id}]\n${body}\n${extra}[end podium message ${id}]`
 
 describe('parseMessageEnvelope', () => {
+  // The short frame (POD-4868): auto-continue and an automation's prompt carry
+  // their id in the text but are not mail an agent answers, so the head line has
+  // no reply part. The chat must still read them as Podium's, never as the person.
+  it('parses the short frame a system job types', () => {
+    const text = '[podium message msg_c · from system:auto-continue · to your session]\ncontinue\n[end podium message msg_c]'
+    expect(parseMessageEnvelope(text)).toEqual({
+      id: 'msg_c',
+      from: 'system:auto-continue',
+      to: 'your session',
+      body: 'continue',
+      question: false,
+      expectsReply: false,
+    })
+    expect(parseEnvelopeBatch(text)).toMatchObject({ envelopes: [{ id: 'msg_c' }], operatorText: '' })
+  })
+
   it('parses a server-rendered frame', () => {
     const p = parseMessageEnvelope(frame('msg_1', 'issue:#212', 'issue:#228', 'hello\nworld'))
     expect(p).toEqual({

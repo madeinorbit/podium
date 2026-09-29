@@ -61,12 +61,11 @@ describe('the unwrapped byte-faithful body belongs to a PERSON, not to a grade',
   })
 })
 
-describe('the one server sender typed bare (POD-4846)', () => {
-  it("auto-continue's key press is delivered unwrapped, like the person it stands in for", () => {
-    expect(deliversUnwrapped(system(AUTO_CONTINUE_SENDER), 'message')).toBe(true)
-  })
-
-  it('every other system sender is wrapped', () => {
+describe('no server sender is typed bare (POD-4868)', () => {
+  // Auto-continue was the one declared exception (POD-4846). It is wrapped now,
+  // so its id travels in the text like every other non-human message.
+  it("auto-continue's 'continue' is wrapped like every other system sender", () => {
+    expect(deliversUnwrapped(system(AUTO_CONTINUE_SENDER), 'message')).toBe(false)
     expect(deliversUnwrapped(system('steward'), 'notification')).toBe(false)
     expect(deliversUnwrapped(system('lock-manager'), 'notification')).toBe(false)
   })
