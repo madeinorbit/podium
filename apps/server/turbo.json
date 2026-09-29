@@ -1417,6 +1417,7 @@
         "src/modules/superagent/btw.ts",
         "src/modules/superagent/concierge.ts",
         "src/modules/superagent/derived-surface.test.ts",
+        "src/modules/superagent/first-turn-timing.test.ts",
         "src/modules/superagent/global.ts",
         "src/modules/superagent/harness-error.ts",
         "src/modules/superagent/headless-spawn-delivery.test.ts",

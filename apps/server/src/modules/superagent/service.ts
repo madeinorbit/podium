@@ -1518,7 +1518,11 @@ export class SuperagentService {
     podiumSessionId?: SessionId,
     includeUser = true,
   ): Promise<string> {
-    const message = describeError(rawError)
+    // A typed refusal (TRPCError) already carries its plain message — describing
+    // it would prefix the class name ("TRPCError: machine ... offline"), which
+    // is what the reload panel showed. Strip it so the durable line reads as
+    // the plain refusal.
+    const message = rawError instanceof TRPCError ? rawError.message : describeError(rawError)
     try {
       if (includeUser && userText.length > 0) {
         await this.store.superagent.appendSuperagentMessage(threadId, {
@@ -1721,8 +1725,16 @@ export class SuperagentService {
     const repos: GlobalRepoDigest[] = []
     const questions: GlobalQuestion[] = []
     const issueByWorktree = new Map<string, IssueWire>()
+    // Index every fetched issue by id so the live-session pass below reuses
+    // them instead of re-listing per session (N+1 that stalled the first turn
+    // for minutes on a real database: S sessions × R repos × issues.list).
+    const issueByIdCache = new Map<IssueId, IssueWire>()
     for (const repoPath of repoPaths) {
       const all = await issues.list(repoPath)
+      for (const i of all) {
+        if (i.worktreePath) issueByWorktree.set(i.worktreePath, i)
+        issueByIdCache.set(i.id, i)
+      }
       for (const i of all) if (i.worktreePath) issueByWorktree.set(i.worktreePath, i)
       const needsHuman = all.filter((i) => i.needsHuman)
       for (const i of needsHuman) {
@@ -1744,7 +1756,12 @@ export class SuperagentService {
     const sessions: ConciergeSessionInfo[] = await Promise.all(
       this.sessionFacts()
         .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
-        .map(async (s) => (await this.sessionInfo(s.sessionId)) ?? { sessionId: s.sessionId }),
+        .map(
+          async (s) =>
+            (await this.sessionInfo(s.sessionId, (id) => issueByIdCache.get(id))) ?? {
+              sessionId: s.sessionId,
+            },
+        ),
     )
     return {
       repos,
@@ -1757,10 +1774,17 @@ export class SuperagentService {
   }
 
   /** One live session, digested for a seed / focus block. */
-  private async sessionInfo(sessionId: SessionId): Promise<FocusSessionInfo | undefined> {
+  private async sessionInfo(
+    sessionId: SessionId,
+    issueLookup?: (id: IssueId) => IssueWire | undefined | Promise<IssueWire | undefined>,
+  ): Promise<FocusSessionInfo | undefined> {
     const s = await this.sessionById(sessionId)
     if (!s) return undefined
-    const issue = s.issueId ? await this.issueById(s.issueId) : undefined
+    const issue = s.issueId
+      ? issueLookup
+        ? await issueLookup(s.issueId)
+        : await this.issueById(s.issueId)
+      : undefined
     return {
       sessionId: s.sessionId,
       ...((s.name ?? s.title) ? { name: s.name ?? s.title } : {}),
