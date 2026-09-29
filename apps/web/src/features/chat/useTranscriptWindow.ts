@@ -90,6 +90,11 @@ export interface UseTranscriptWindowOptions {
   /** Search is part of the same worker/index request as block shaping. */
   query?: string
   cursor?: number
+  /** LIVE machine presence for this session (POD-4808 review): true = online,
+   *  false = offline, undefined = unknown. A false->true transition re-reads
+   *  the window so the "history will load when it reconnects" promise holds
+   *  without a reload. */
+  machineOnline?: boolean
 }
 
 export interface UseTranscriptWindowResult {
@@ -158,6 +163,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     verbosity = 'normal',
     query = '',
     cursor = 0,
+    machineOnline,
   } = opts
 
   const transcriptController = useMemo(
@@ -390,6 +396,20 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     }
     if (wokeToLive || becameActive) void readNewest({ force: true, disclose: true }).catch(() => {})
   }, [session?.status, active, initialLoaded, readNewest, probeNewest, sessionId, items.length])
+
+  // MACHINE RECONNECT (POD-4808 review): the empty-chat promise — "history
+  // will load when it reconnects" — holds without a reload. A false->true
+  // presence transition re-reads the newest window; the reconcile replaces
+  // the offline message with history (or with the genuine empty state when
+  // the re-read is online and still empty). Unknown presence never triggers.
+  const prevMachineOnline = useRef(machineOnline)
+  useEffect(() => {
+    const was = prevMachineOnline.current
+    prevMachineOnline.current = machineOnline
+    if (!initialLoaded) return
+    if (was !== false || machineOnline !== true) return
+    void readNewest({ force: true, disclose: true }).catch(() => {})
+  }, [machineOnline, initialLoaded, readNewest])
 
   // -------------------------------------------------------------------------
   // THE FEED MUST NOT GO QUIET [POD-701]

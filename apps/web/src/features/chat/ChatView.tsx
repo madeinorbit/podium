@@ -397,6 +397,7 @@ export function ChatView({
             turnPreview={chat.turnPreview}
             activity={chat.activity}
             offlineMachineName={chat.offlineMachineName}
+            presenceOfflineMachineName={chat.presenceOfflineMachineName}
             attribution={chat.attribution}
             expandRuns={chat.expandRuns}
             // Per-message Quote (POD-376): the feed builds the blockquote, the

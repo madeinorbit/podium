@@ -115,6 +115,11 @@ export interface ChatSurface {
   /** The session's machine is offline (POD-4808) — names the machine so the
    *  chat can say WHY history is missing and mark a live-looking session. */
   offlineMachineName: string | null
+  /** LIVE machine presence for the half-2 banner (POD-4808 review): derived
+   *  from session.machineId -> the store's machines list (the client's live
+   *  MachineWire.online), NOT from the frozen transcript flag — so it appears
+   *  when the machine drops and clears when it returns without any re-read. */
+  presenceOfflineMachineName: string | null
   livePendingAskIndex: number
   /** The live question drawn from agent state, for the window where the
    *  transcript has no item for it yet — see `pendingAskFromState`. Null
@@ -232,6 +237,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     superThreads,
     transcriptReveal,
     clearTranscriptReveal,
+    machines,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -252,6 +258,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       superThreads: s.superThreads,
       transcriptReveal: s.transcriptReveal,
       clearTranscriptReveal: s.clearTranscriptReveal,
+      machines: s.machines,
     }),
     shallowEqual,
   )
@@ -276,6 +283,19 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   )
   const cwd = session?.cwd ?? '/'
   const headless = session?.headless === true
+
+  // LIVE machine presence (POD-4808 review): session.machineId -> the store's
+  // machines list (MachineWire.online). Unknown (no row) reads as no banner —
+  // never a fabricated offline. Defensive against partial test stores.
+  const machineWire = useMemo(() => {
+    const id = session?.machineId
+    if (!id) return undefined
+    return (machines ?? []).find((m) => m.id === id)
+  }, [machines, session?.machineId])
+  const presenceOfflineMachineName = machineWire && machineWire.online === false
+    ? (machineWire.name ?? session?.machineName ?? session?.machineId ?? null)
+    : null
+  const machineOnline = machineWire ? machineWire.online : undefined
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
@@ -336,6 +356,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     verbosity,
     query,
     cursor: matchCursor,
+    machineOnline,
   })
 
   // Operator-prompt recognition needs the message-envelope parser, which is a
@@ -737,6 +758,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadOlder: scroll.loadOlder,
     offlineAsOf,
     offlineMachineName,
+    presenceOfflineMachineName,
     livePendingAskIndex,
     pendingAskBlock,
     lastAnswerBlockIndex: answer.blockIndex,
