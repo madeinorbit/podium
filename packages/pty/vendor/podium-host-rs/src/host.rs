@@ -22,7 +22,10 @@ const MAX_WAIT: Duration = Duration::from_secs(60);
 const READ_CHUNK: usize = 65536;
 
 /// Bytes queued for one client. Sent from a cursor, so a partial write costs
-/// nothing; the buffer is reset once everything in it has gone.
+/// nothing; the buffer is reset once everything in it has gone, and the sent
+/// prefix is dropped once it is both large and at least half the buffer, so a
+/// client that never quite drains cannot pin what it was already sent (the
+/// queue limits count only unsent bytes).
 #[derive(Default)]
 struct Outbox {
     buf: Vec<u8>,
@@ -44,8 +47,13 @@ impl Outbox {
         if self.is_empty() {
             self.buf.clear();
             self.sent = 0;
+        } else if self.sent >= Self::COMPACT_AT && self.sent * 2 >= self.buf.len() {
+            // Each byte moves at most once per doubling: amortized O(1).
+            self.buf.drain(..self.sent);
+            self.sent = 0;
         }
     }
+    const COMPACT_AT: usize = 64 * 1024;
     /// Where new frames are appended.
     fn tail(&mut self) -> &mut Vec<u8> {
         &mut self.buf
@@ -879,4 +887,53 @@ fn is_transient(e: &io::Error) -> bool {
         e.kind(),
         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Outbox;
+
+    #[test]
+    fn a_client_that_never_quite_drains_does_not_pin_what_it_was_sent() {
+        // Keep 1 KiB unsent at all times while 64 MiB flows through: without
+        // compaction the buffer would hold every byte ever queued.
+        let mut out = Outbox::default();
+        let chunk = vec![7u8; 32 * 1024];
+        out.tail().extend_from_slice(&[0; 1024]);
+        for _ in 0..2048 {
+            out.tail().extend_from_slice(&chunk);
+            let n = out.len() - 1024;
+            out.advance(n);
+            assert_eq!(out.len(), 1024);
+        }
+        assert!(
+            out.buf.len() <= 2 * Outbox::COMPACT_AT + chunk.len(),
+            "{}",
+            out.buf.len()
+        );
+        assert!(
+            out.buf.capacity() <= 4 * Outbox::COMPACT_AT + 2 * chunk.len(),
+            "{}",
+            out.buf.capacity()
+        );
+    }
+
+    #[test]
+    fn compaction_keeps_the_unsent_bytes_in_order() {
+        let mut out = Outbox::default();
+        let data: Vec<u8> = (0..200_000u32).map(|i| i as u8).collect();
+        out.tail().extend_from_slice(&data);
+        let mut got = Vec::new();
+        while !out.is_empty() {
+            let n = out.pending().len().min(70_001);
+            got.extend_from_slice(&out.pending()[..n]);
+            out.advance(n);
+            if got.len() == 70_001 {
+                out.tail().extend_from_slice(b"tail"); // appended mid-send
+            }
+        }
+        let mut want = data.clone();
+        want.extend_from_slice(b"tail");
+        assert_eq!(got, want);
+    }
 }
