@@ -2310,6 +2310,40 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
   })
 
+  it('keeps a transcript-ambiguous failure queued for echo/boundary instead of dead-lettering it', async () => {
+    // POD-4802: the daemon typed the bytes but could not prove it
+    // (`unverified`) or a previous owner may have typed them (recovery), so
+    // the write may have landed — the agent answered, yet the ledger row was
+    // dead-lettered "delivery failed" and the chat showed the echo in place
+    // plus the failed bubble at the bottom, forever. An ambiguous failure
+    // unblocks the turn-boundary backstop (the inbox row leaves) but never
+    // dead-letters the ledger row: echo or the boundary settles it.
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'ambiguous', 'source-ambiguous')
+    await queueOne(h, 'recovered', 'source-recovered')
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'ambiguous',
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+    })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'recovered',
+      outcome: 'failed',
+      reason: 'previous delivery could not be confirmed; check the transcript before retrying',
+    })
+    expect(h.rows).toEqual([])
+    expect(h.rejected).toEqual([])
+    expect(h.applied).not.toHaveBeenCalled()
+    // No retry affordance: resending what may have landed duplicates the turn.
+    // The owner hears "could not confirm" (POD-4775), never "failed".
+    for (const [notice] of h.promptFailed.mock.calls) {
+      expect(notice).toMatchObject({ unconfirmed: true })
+    }
+    expect(h.setSessionDraft).not.toHaveBeenCalled()
+  })
+
   it('keeps the row visibly queued on an unverified receipt (the RPC timeout answer)', async () => {
     vi.useFakeTimers()
     // This receipt is byte-for-byte what machines/rpc.ts synthesizes when the

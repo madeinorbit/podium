@@ -1337,6 +1337,7 @@
         "src/modules/sessions/runtime-gateway.ts",
         "src/modules/sessions/runtime-transcript.ts",
         "src/modules/sessions/send-during-restart.test.ts",
+        "src/modules/sessions/send-during-turn.test.ts",
         "src/modules/sessions/session-access.ts",
         "src/modules/sessions/session-authz.drain-mail.test.ts",
         "src/modules/sessions/session-authz.owner-await.test.ts",
