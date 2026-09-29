@@ -15,6 +15,21 @@ const item = (
 ): TranscriptItem => ({ id, role, text, ...extra })
 
 describe('mobile transcript feed', () => {
+  // POD-4868: auto-continue and an automation's prompt arrive in the short
+  // frame, and the phone shows them as Podium's, never as the person's turn.
+  it("shows auto-continue's short frame as an envelope, not as the person's turn", () => {
+    const model = buildMobileTranscript([
+      item(
+        'u1',
+        'user',
+        '[podium message msg_c · from system:auto-continue · to your session]\ncontinue\n[end podium message msg_c]',
+      ),
+    ])
+
+    expect(model.rows.map((row) => row.kind)).toEqual(['envelope'])
+    expect(model.rows[0]?.envelope).toMatchObject({ id: 'msg_c', from: 'system:auto-continue', body: 'continue' })
+  })
+
   it('spends space at turn boundaries and binds work inside the exchange', () => {
     const model = buildMobileTranscript([
       item('u1', 'user', 'Please update the screen'),
