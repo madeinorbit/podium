@@ -124,7 +124,10 @@ export async function gotoWorkspace(page: Page): Promise<void> {
     // ("Give <project> its first mission."), with no `Start first task` to click.
     const startWork = page.getByRole('button', { name: 'Start work' })
     if (!(await startWork.isVisible().catch(() => false))) {
-      await list.getByRole('button', { name: 'Start first task' }).first().click({ timeout: 15_000 })
+      await list
+        .getByRole('button', { name: 'Start first task' })
+        .first()
+        .click({ timeout: 15_000 })
     }
     await startWork.click({ timeout: 30_000 })
   }
