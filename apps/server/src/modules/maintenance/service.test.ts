@@ -153,7 +153,9 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('[POD-4787] refuses a row handed on since the janitor read it as stored', async () => {
-    const message = baseMessage({})
+    // Not due yet, so only the observation check can answer `precondition`: the
+    // guarded move (which also refuses a handed-on row) is never reached.
+    const message = baseMessage({ expiresAt: '2026-07-19T00:00:00.000Z' })
     await store.messages.addMessage(message)
     const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
