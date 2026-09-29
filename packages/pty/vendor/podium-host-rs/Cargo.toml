@@ -16,6 +16,14 @@ path = "src/main.rs"
 rustix = { version = "1", default-features = false, features = ["std", "event", "fs", "net", "process", "pty", "stdio", "termios"] }
 # Only what rustix cannot offer safely: fork, sigaction, and macOS LOCAL_PEERCRED.
 libc = "0.2"
+# The terminal emulator behind the `screen` feature (POD-4861 chose it).
+alacritty_terminal = { version = "0.26", default-features = false, optional = true }
+
+[features]
+default = ["screen"]
+# Keep the terminal's screen in the host and put pictures of it into the output
+# stream (POD-4909). Without it the host is the plain SPEC-6 host (features=1).
+screen = ["dep:alacritty_terminal"]
 
 [profile.release]
 opt-level = "z"

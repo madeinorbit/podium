@@ -13,6 +13,8 @@ mod args;
 mod host;
 mod proto;
 mod ring;
+#[cfg(feature = "screen")]
+mod screen;
 mod sys;
 
 use std::ffi::OsStr;

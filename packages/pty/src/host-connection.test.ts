@@ -20,13 +20,17 @@ import {
   HostErr,
   HostError,
   HostFrame,
+  type HostItem,
+  HostPictureReason,
 } from './host.js'
 
 const C_WRITE = 0x02
 const C_RESIZE = 0x03
 
-function welcome(): Buffer {
-  const p = Buffer.alloc(32)
+/** WELCOME; `features` appends the trailing features byte the Rust host sends. */
+function welcome(features?: number): Buffer {
+  const p = Buffer.alloc(features === undefined ? 32 : 33)
+  if (features !== undefined) p[32] = features
   p.writeUInt16BE(1, 0) // version
   p.writeUInt32BE(4242, 2) // host pid
   p.writeUInt32BE(4343, 6) // child pid
@@ -62,11 +66,34 @@ function resized(cols: number, rows: number): Buffer {
   return encodeHostFrame(HostFrame.RESIZED, p)
 }
 
+function sizeReply(cols: number, rows: number): Buffer {
+  const p = Buffer.alloc(4)
+  p.writeUInt16BE(cols, 0)
+  p.writeUInt16BE(rows, 2)
+  return encodeHostFrame(HostFrame.SIZE_REPLY, p)
+}
+
+function data(seq: bigint, text: string): Buffer {
+  const p = Buffer.alloc(8)
+  p.writeBigUInt64BE(seq, 0)
+  return encodeHostFrame(HostFrame.DATA, Buffer.concat([p, Buffer.from(text)]))
+}
+
+function picture(seq: bigint, reason: number, cols: number, rows: number, text: string): Buffer {
+  const p = Buffer.alloc(13)
+  p.writeBigUInt64BE(seq, 0)
+  p[8] = reason
+  p.writeUInt16BE(cols, 9)
+  p.writeUInt16BE(rows, 11)
+  return encodeHostFrame(HostFrame.PICTURE_DATA, Buffer.concat([p, Buffer.from(text)]))
+}
+
 type Frame = { type: number; payload: Buffer }
 
 /** A fake host: answers HELLO with WELCOME, then hands each frame to `script`. */
 function fakeHost(
   script: (frames: Frame[], sock: Socket) => void,
+  features?: number,
 ): Promise<{ path: string; close: () => void }> {
   const dir = mkdtempSync(join(tmpdir(), 'podium-host-conn-'))
   const path = join(dir, 'h.sock')
@@ -75,7 +102,7 @@ function fakeHost(
     const seen: Frame[] = []
     sock.on('data', (chunk: Buffer) => {
       for (const f of decode(chunk)) {
-        if (f.type === 0x01) sock.write(welcome())
+        if (f.type === 0x01) sock.write(welcome(features))
         else {
           seen.push({ type: f.type, payload: Buffer.from(f.payload) })
           script(seen, sock)
@@ -162,5 +189,83 @@ describe('HostConnection: which request an ERR refuses', () => {
 
     const write = conn.write(Buffer.from('x'))
     await expect(write).rejects.toMatchObject({ code: HostErr.EXITED })
+  })
+})
+
+describe('HostConnection: pictures (POD-4909)', () => {
+  it('reads the WELCOME features byte; a host without it (the C host) announces nothing', async () => {
+    const rust = await fakeHost(() => {}, 1)
+    const c = await fakeHost(() => {})
+    cleanups.push(rust.close, c.close)
+    const a = connectHost(rust.path)
+    const b = connectHost(c.path)
+    cleanups.push(() => a.detach(), () => b.detach())
+    expect(await a.welcome).toMatchObject({ features: 1, screen: true })
+    expect(await b.welcome).toMatchObject({ features: 0, screen: false })
+  })
+
+  it('requestPicture sends PICTURE only to a host that announced a screen', async () => {
+    const seen: number[][] = [[], []]
+    const record = (i: number) => (frames: Frame[], sock: Socket) => {
+      seen[i] = frames.map((f) => f.type)
+      if (frames.at(-1)?.type === HostFrame.SIZE) sock.write(sizeReply(80, 24))
+    }
+    const rust = await fakeHost(record(0), 1)
+    const c = await fakeHost(record(1))
+    cleanups.push(rust.close, c.close)
+    const a = connectHost(rust.path)
+    const b = connectHost(c.path)
+    cleanups.push(() => a.detach(), () => b.detach())
+    await Promise.all([a.welcome, b.welcome])
+
+    expect(a.requestPicture()).toBe(true)
+    expect(b.requestPicture()).toBe(false)
+    // A request after it: once it is answered, each host has seen everything before it.
+    await Promise.all([a.size(), b.size()])
+    expect(seen[0]).toEqual([HostFrame.PICTURE, HostFrame.SIZE])
+    expect(seen[1]).toEqual([HostFrame.SIZE])
+    expect(b.isOpen).toBe(true)
+  })
+
+  it('a picture is an item on the same in-order path as DATA', async () => {
+    const host = await fakeHost((frames, sock) => {
+      if (frames.at(-1)?.type !== HostFrame.PICTURE) return
+      // One socket write: the items must come out in this order, in one go.
+      sock.write(
+        Buffer.concat([
+          data(0n, 'ab'),
+          picture(2n, HostPictureReason.RESET, 80, 24, '\x1bcpic'),
+          data(2n, 'cd'),
+          picture(4n, HostPictureReason.CUT, 80, 24, 'cut'),
+        ]),
+      )
+    }, 1)
+    cleanups.push(host.close)
+    const conn = connectHost(host.path)
+    cleanups.push(() => conn.detach())
+    await conn.welcome
+
+    const items: HostItem[] = []
+    const datas: string[] = []
+    conn.onItem((item) => items.push(item))
+    conn.onData((_seq, d) => datas.push(d.toString()))
+    const got = new Promise<void>((resolve) => {
+      conn.onItem((item) => {
+        if (item.kind === 'picture' && item.reason === 'cut') resolve()
+      })
+    })
+    conn.requestPicture()
+    await got
+
+    expect(items.map((i) => (i.kind === 'data' ? `data ${i.seq} ${i.data}` : `picture ${i.seq} ${i.reason}`))).toEqual([
+      'data 0 ab',
+      'picture 2 reset',
+      'data 2 cd',
+      'picture 4 cut',
+    ])
+    expect(items[1]).toMatchObject({ kind: 'picture', cols: 80, rows: 24 })
+    expect((items[1] as Extract<HostItem, { kind: 'picture' }>).bytes.toString()).toBe('\x1bcpic')
+    expect(datas).toEqual(['ab', 'cd'])
+    expect(conn.lastSeq).toBe(4n)
   })
 })
