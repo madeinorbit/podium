@@ -226,6 +226,15 @@ interface DriverSession {
   turnEpoch: number
   /** Highest epoch whose terminal observation has already been folded. */
   fencedTurnEpoch: number
+  /** Whether the driver has emitted `turn/started` for the current epoch
+   *  without yet emitting its close (POD-4828). A lone `turn_completed` for
+   *  an epoch never opened (Grok's first prompt typed by the spawn races the
+   *  observer attach, so its `prompt_submitted` lands in bootstrap history
+   *  silently and only the close arrives live) synthesizes the missing open —
+   *  otherwise the server's turn-epoch-jump gate rejects the close, the
+   *  checkpoint never advances, and every later delivery is rejected behind
+   *  it while the queue waits on an epoch that was never opened. */
+  epochOpen: boolean
   /** The newest cursor an observation gave us; null until one arrives. */
   providerCursor: ProviderCursor | null
   publishedCursor: ProviderCursor | null
@@ -1239,6 +1248,7 @@ export function createTerminalRuntime(
     const at = state.since
     if (activeTurnPhase(state.phase) && !activeTurnPhase(prior)) {
       session.turnEpoch += 1
+      session.epochOpen = true
       emit(
         session,
         { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin: 'human' } },
@@ -1249,6 +1259,7 @@ export function createTerminalRuntime(
     }
     if (state.phase === 'idle' && activeTurnPhase(prior)) {
       session.fencedTurnEpoch = Math.max(session.fencedTurnEpoch, session.turnEpoch)
+      session.epochOpen = false
       emit(
         session,
         {
@@ -1322,6 +1333,12 @@ export function createTerminalRuntime(
     session.providerCursor = observation.providerCursor
     const lifecycleFromState = profiles.get(session.sessionId)?.lifecycleFromState === true
     let alreadyFenced = false
+    // The driver's epoch BEFORE this observation folds (POD-4828). A lone
+    // close synthesizes its open only when the driver already knows the epoch
+    // — seen silently via a bootstrap snapshot (history folded with no live
+    // callbacks) but never opened live. A close for an epoch the driver never
+    // saw (conformance lone closes, fresh turns) stays a close alone.
+    let priorTurnEpoch = session.turnEpoch
     if (!lifecycleFromState) {
       alreadyFenced =
         observation.transitionKind === 'turn_terminal' &&
@@ -1350,19 +1367,67 @@ export function createTerminalRuntime(
         session.fencedTurnEpoch = Math.max(session.fencedTurnEpoch, observation.turnEpoch)
       }
     }
+    // The lone-close net below decides before the fenced return, so its own
+    // absorbing guard (!alreadyFenced) is what keeps a closed epoch closed —
+    // and what the ARM removes to prove it. Everything else still returns here.
+    const at = observation.providerAt ??
+      (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt)
+    // A LONE CLOSE OPENS FIRST (POD-4828), decided BEFORE the fenced return
+    // so its own guard is what keeps a closed epoch closed (and what the ARM
+    // below removes to prove it). The close proves its turn ran, but the open
+    // never arrived live: Grok's spawn-typed first prompt races the observer
+    // attach (its hook is buffered pre-bootstrap and its file record lands in
+    // history — when the record wins the race the fold opens silently and the
+    // replay dedupes, so only the close arrives live). Without the open the
+    // server's turn-epoch-jump gate rejects the close, the checkpoint stalls,
+    // and every later delivery is rejected behind it. Synthesize the missing
+    // open at the close's own instant and epoch, immediately before the
+    // close. Order is what the gate reads; the turn did run, so nothing here
+    // is invented. Fires ONLY for an epoch the driver already knows
+    // (priorTurnEpoch): a bootstrap snapshot carried it, but no live open
+    // did — a close for a never-seen epoch (conformance lone closes, fresh
+    // turns) stays a close alone, exactly as before. Poll-owned lifecycles
+    // never take this branch (their edges always open before they close).
+    if (
+      !lifecycleFromState &&
+      observation.transitionKind === 'turn_terminal' &&
+      observation.provenance === 'live' &&
+      !session.epochOpen &&
+      // Absorbing fence (POD-4804): never fire for an epoch at or below the
+      // fence. A duplicate or late close of an already-closed epoch stays
+      // silent instead of reopening it with a synthesized started.
+      !alreadyFenced &&
+      observation.turnEpoch === priorTurnEpoch
+    ) {
+      session.epochOpen = true
+      emit(
+        session,
+        {
+          t: 'turn',
+          ev: { ev: 'started', turnEpoch: observation.turnEpoch, origin: observation.inputOrigin },
+        },
+        at,
+        observation.provenance,
+        observation.providerCursor,
+      )
+    }
     if (alreadyFenced) return
     const transcriptFence = {
       observerGeneration: session.observerGeneration,
       bindingVersion: session.bindingVersion,
     }
 
-    const at = observation.providerAt ??
-      (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt)
     // Poll state owns lifecycle and epochs for this harness. The observation
     // envelope still carries cursor, generation, asks, transcript items and
     // state events, so only its lifecycle mutation and turn event are skipped.
+    // (`at` is computed above, ahead of the lone-close net, so both emissions
+    // share the close's own instant.)
     const turn = lifecycleFromState ? null : turnEventForObservation(observation)
-    if (turn) emit(session, turn, at, observation.provenance, observation.providerCursor)
+    if (turn) {
+      if (observation.transitionKind === 'turn_opened') session.epochOpen = true
+      if (observation.transitionKind === 'turn_terminal') session.epochOpen = false
+      emit(session, turn, at, observation.provenance, observation.providerCursor)
+    }
 
     const change = stateEventForObservation(observation)
     session.state = change.state
@@ -1646,6 +1711,7 @@ export function createTerminalRuntime(
       observerGeneration: registration.observerGeneration ?? 1,
       turnEpoch: carried?.turnEpoch ?? 0,
       fencedTurnEpoch: carried?.fencedTurnEpoch ?? 0,
+      epochOpen: false,
       providerCursor: null,
       publishedCursor: null,
       seq: carried?.seq ?? seqFloor,

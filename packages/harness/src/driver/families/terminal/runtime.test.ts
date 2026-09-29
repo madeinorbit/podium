@@ -4342,3 +4342,182 @@ describe('headed Grok follow-ups are never held without end [POD-4804]', () => {
     world.runtime.dispose()
   })
 })
+
+describe('a lone turn_completed without turn_started never holds the queue [POD-4828]', () => {
+  const GROK_SPEC = { ...SPEC, harness: 'grok' as const }
+
+  const pastesOf = (world: ReturnType<typeof makeWorld>): string[] =>
+    world.written
+      .map(pastedText)
+      .filter((text): text is string => text !== undefined)
+  const deliveriesOf = (world: ReturnType<typeof makeWorld>): Array<{ rowId: string; outcome: string }> =>
+    world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
+        ? [{ rowId: frame.event.rowId, outcome: frame.event.outcome }]
+        : [],
+    )
+  const waitForPaste = async (world: ReturnType<typeof makeWorld>, text: string): Promise<void> => {
+    for (let i = 0; i < 80 && !pastesOf(world).includes(text); i++) {
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(pastesOf(world)).toContain(text)
+  }
+  const waitForDelivery = async (world: ReturnType<typeof makeWorld>, rowId: string): Promise<void> => {
+    for (
+      let i = 0;
+      i < 80 &&
+      !deliveriesOf(world).some((event) => event.rowId === rowId && event.outcome === 'delivered');
+      i++
+    ) {
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(deliveriesOf(world)).toContainEqual({ rowId, outcome: 'delivered' })
+  }
+  const turnEvents = (world: ReturnType<typeof makeWorld>): Array<{ ev: string; turnEpoch: number }> =>
+    world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'turn'
+        ? [{ ev: frame.event.ev.ev, turnEpoch: frame.event.ev.turnEpoch }]
+        : [],
+    )
+
+  it('a first turn that closes without ever opening still lets follow-ups drain', async () => {
+    // The exact order the daemon logged for 353fb62a and 1f6adb92: the first
+    // turn's turn_completed arrives with NO turn_started before it. The file
+    // record landed in bootstrap history first (folded silently — the driver
+    // knows epoch 1 via this snapshot, working, but never opened it live),
+    // so only the close arrives live. The queue must not wait forever behind
+    // an epoch it never saw open.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(GROK_SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // Past the raw-first-turn window so follow-ups go as pastes the
+    // assertions can read (Grok types its very first prompt as raw keystrokes).
+    world.echo(sessionId, 'first prompt')
+    world.observe(sessionId, {
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+      turnEpoch: 1,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      state: {
+        phase: 'working',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    expect((await session.state()).phase).toBe('working')
+    world.observe(sessionId, {
+      transitionKind: 'turn_terminal',
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      turnEpoch: 1,
+      state: {
+        phase: 'idle',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+    // The close implies its open: the driver synthesizes the missing
+    // turn_started so the epoch it closes was opened first (and so the
+    // server's turn-epoch-jump gate accepts the close instead of rejecting
+    // it, which is what left the checkpoint behind and got every later
+    // delivery rejected).
+    expect(turnEvents(world).filter((event) => event.ev === 'started')).toHaveLength(1)
+    expect(turnEvents(world).filter((event) => event.ev === 'completed')).toHaveLength(1)
+    expect((await session.state()).phase).toBe('idle')
+
+    expect(
+      (
+        await session.send(
+          { text: 'second prompt', rowId: 'row-after-lone-close' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await waitForPaste(world, 'second prompt')
+    world.echo(sessionId, 'second prompt')
+    await waitForDelivery(world, 'row-after-lone-close')
+    world.runtime.dispose()
+  })
+
+  it('a durable row is never typed twice, even when its send repeats', async () => {
+    // Re-delivery guard for the de319965 half of this issue: answered
+    // follow-ups must not be typed again on retry, sweep or duplicate send.
+    // The daemon queues by row id — a repeat carries the same id and joins
+    // the same entry instead of typing a second turn.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(GROK_SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.echo(sessionId, 'first prompt')
+
+    expect(
+      (
+        await session.send(
+          { text: 'second prompt', rowId: 'row-once' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    expect(
+      (
+        await session.send(
+          { text: 'second prompt', rowId: 'row-once' },
+          { origin: 'controller', delivery: 'when-ready' },
+        )
+      ).outcome,
+    ).toBe('queued')
+    await waitForPaste(world, 'second prompt')
+    world.echo(sessionId, 'second prompt')
+    await waitForDelivery(world, 'row-once')
+    expect(pastesOf(world).filter((paste) => paste === 'second prompt')).toHaveLength(1)
+    expect(deliveriesOf(world).filter((event) => event.rowId === 'row-once')).toHaveLength(1)
+    world.runtime.dispose()
+  })
+
+  it('a duplicate close of an already-closed epoch emits no new open', async () => {
+    // The safety net above must never fire inside POD-4804's absorbing fence:
+    // a real open+close followed by a duplicate or late close of that same
+    // epoch stays silent instead of reopening it with a synthesized started.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(GROK_SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    world.echo(sessionId, 'first prompt')
+    const close = {
+      transitionKind: 'turn_terminal',
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      turnEpoch: 1,
+      state: {
+        phase: 'idle',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+      },
+    } as const
+    world.observe(sessionId, {
+      transitionKind: 'turn_opened',
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      turnEpoch: 1,
+      state: {
+        phase: 'working',
+        since: new Date(world.now()).toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    world.observe(sessionId, close)
+    expect(turnEvents(world).filter((event) => event.ev === 'started')).toHaveLength(1)
+    expect(turnEvents(world).filter((event) => event.ev === 'completed')).toHaveLength(1)
+    world.observe(sessionId, close)
+    expect(turnEvents(world).filter((event) => event.ev === 'started')).toHaveLength(1)
+    expect(turnEvents(world).filter((event) => event.ev === 'completed')).toHaveLength(1)
+    expect((await session.state()).phase).toBe('idle')
+    world.runtime.dispose()
+  })
+})

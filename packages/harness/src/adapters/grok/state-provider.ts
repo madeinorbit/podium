@@ -630,7 +630,10 @@ function tailGrokUpdates(
     if (!causal) return
     const waiting = pendingHooks.splice(0)
     for (const payload of waiting) {
-      if (!causal.observeHook(payload, segmentIdentity)) pendingHooks.push(payload)
+      // Replayed, not re-observed: the flush decides force (silent open),
+      // discard (silent close) or a normal open on the observer's real epoch
+      // state (POD-4828). A hook no replay accepts is rebuffered, as before.
+      if (!causal.replayPendingHook(payload, segmentIdentity)) pendingHooks.push(payload)
     }
   }
 

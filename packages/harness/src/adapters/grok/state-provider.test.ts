@@ -2823,6 +2823,167 @@ describe('grok Stop-hook cancel fast path (slow Stop clear: 17s -> seconds)', ()
   })
 })
 
+describe('a first-prompt hook buffered across bootstrap [POD-4828]', () => {
+  const hookPayload = { hook_event_name: 'UserPromptSubmit', session_id: 'g-pending-hook' }
+  const segment = {
+    segmentId: 'grok:pending-hook',
+    pathHint: '/tmp/pending-hook.jsonl',
+    device: '1',
+    inode: '2',
+  }
+  const historyPrompt = (promptId: string) => ({
+    record: { prompt_id: promptId },
+    cursor: {
+      segmentId: segment.segmentId,
+      pathHint: segment.pathHint,
+      device: segment.device,
+      inode: segment.inode,
+      components: { updates: 10 },
+    },
+    events: [{ kind: 'prompt_submitted' as const }],
+    sourceEventKind: 'update:user_message_chunk',
+    providerAt: null,
+  })
+  const historyClose = () => ({
+    record: { turn_id: 'turn-1' },
+    cursor: {
+      segmentId: segment.segmentId,
+      pathHint: segment.pathHint,
+      device: segment.device,
+      inode: segment.inode,
+      components: { updates: 20 },
+    },
+    events: [{ kind: 'turn_completed' as const }],
+    sourceEventKind: 'update:turn_completed',
+    providerAt: null,
+  })
+  const freshObserver = (onObservation: (observation: AgentObservation) => void) =>
+    new GrokCausalObserver({
+      podiumSessionId: asSessionId('podium-grok-pending-hook'),
+      providerSessionId: 'g-pending-hook',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      onObservation,
+    })
+
+  it('a hook replayed after a silent history open still emits its live open', async () => {
+    // The spawn-typed first prompt races the observer attach: its file record
+    // lands in bootstrap history (folded silently, opening epoch 1 with no
+    // live event) while its hook waits in pendingHooks. Replaying the hook
+    // must convert the silent open into a live turn_opened — deduping it
+    // leaves only the live close, a lone close the server rejects as a jump.
+    const observations: AgentObservation[] = []
+    const causal = freshObserver((observation) => observations.push(observation))
+    causal.fold(historyPrompt('prompt-1'))
+    expect(causal.replayPendingHook(hookPayload, segment)).toBe(true)
+    await waitFor(() => observations.length === 1)
+    expect(observations[0]).toMatchObject({
+      transitionKind: 'turn_opened',
+      turnEpoch: 1,
+      provenance: 'live',
+      sourceEventKind: 'hook:user_prompt_submit',
+    })
+  })
+
+  it('a hook replayed after a silent history open AND close is discarded, never reopened', async () => {
+    // A turn that finished before the observer attached (prompt and close
+    // both in history, folded silently) must not be reopened live by its
+    // stale buffered hook — that would strand an epoch whose close was
+    // already consumed.
+    const observations: AgentObservation[] = []
+    const causal = freshObserver((observation) => observations.push(observation))
+    causal.fold(historyPrompt('prompt-1'))
+    causal.fold(historyClose())
+    expect(causal.replayPendingHook(hookPayload, segment)).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(observations).toEqual([])
+  })
+
+  it('a pre-attach hook buffered across bootstrap opens live through the provider flush', async () => {
+    // End to end through observeGrokState (not the observer unit above): the
+    // spawn-typed first prompt's hook arrives before the observer attaches
+    // (buffered — onHookPayload answers true), its file record is already in
+    // history (folded silently at bootstrap), and the flush must still emit
+    // the live turn_opened. With the flush wired to plain observeHook instead
+    // of replayPendingHook, the replay dedupes and no live open ever arrives.
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-flush-wiring-'))
+    const cwd = '/repo/grok-flush'
+    const sessionId = 'g-flush-wiring'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    await writeFile(
+      paths.updatesPath,
+      `${JSON.stringify({
+        method: 'session/update',
+        params: { update: { sessionUpdate: 'user_message_chunk', prompt_id: 'prompt-1' } },
+      })}\n`,
+    )
+    const observations: AgentObservation[] = []
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      causal: {
+        podiumSessionId: asSessionId('podium-grok-flush-wiring'),
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        onObservation: (observation) => observations.push(observation),
+      },
+    })
+    try {
+      expect(observer.onHookPayload?.({ hook_event_name: 'UserPromptSubmit' })).toBe(true)
+      await waitFor(() => observations.length >= 1)
+      const bootstrap = observations[0]!
+      const accepted = acceptAgentObservation(
+        checkpoint,
+        {
+          provider: 'grok',
+          providerSessionId: sessionId,
+          bindingVersion: 1,
+          observationGeneration: 1,
+        },
+        bootstrap,
+        '2026-09-29T00:00:00.000Z',
+      )
+      if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+      checkpoint = accepted.checkpoint
+      // Ack WITH the authoritative checkpoint, as the daemon does in
+      // production: the snapshot ack lands between the flush enqueueing the
+      // forced replay and the drain reaching it, so the adopt must preserve
+      // the silently-opened epoch (state-causal) for the force to still fire.
+      observer.onObservationAck?.({
+        type: 'agentObservationAck',
+        sessionId: asSessionId('podium-grok-flush-wiring'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: bootstrap.transitionId,
+        result: accepted.kind,
+        acceptedCursor: accepted.checkpoint.providerCursor,
+        checkpoint: accepted.checkpoint,
+      })
+      await waitFor(() =>
+        observations.some(
+          (observation) =>
+            observation.transitionKind === 'turn_opened' && observation.provenance === 'live',
+        ),
+      )
+      const opened = observations.find(
+        (observation) =>
+          observation.transitionKind === 'turn_opened' && observation.provenance === 'live',
+      )
+      expect(opened).toMatchObject({ turnEpoch: 1, sourceEventKind: 'hook:user_prompt_submit' })
+    } finally {
+      observer.stop()
+    }
+  })
+})
+
 async function waitFor(fn: () => boolean): Promise<void> {
   const start = Date.now()
   while (!fn()) {
