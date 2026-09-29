@@ -73,6 +73,49 @@ export const HISTORICAL_ALLOWLIST = new Set<string>([
   'apps/server/src/migrations/drizzle/20260803030000_session-attribution-pair/migration.sql',
 ])
 
+/**
+ * CONTRACT STEPS a person decided to ship, each with its reason. Unlike the
+ * historical allowlist this names the exact finding admitted — its kind and the
+ * table it rebuilds — so anything ELSE destructive in the same file still fails
+ * the gate. It is not a policy change: each entry is one reviewed decision.
+ */
+export const APPROVED_CONTRACT_STEPS = new Map<
+  string,
+  { reason: string; admits: ReadonlyArray<{ kind: DestructiveDdlKind; table: string }> }
+>([
+  [
+    'apps/server/src/migrations/drizzle/20260929145432_drop-legacy-message-status/migration.sql',
+    {
+      // POD-4787 (user decision, 2026-09-29): drop the legacy `messages.status`
+      // mirror now rather than a release later. The one-release rollback it was
+      // kept for does not exist: a database newer than the code refuses to open
+      // (apps/daemon/src/convergence.ts), so rolling back across this schema
+      // change is refused by design either way.
+      reason: 'rollback across a schema change is refused by design (convergence.ts)',
+      admits: [{ kind: 'table-rebuild', table: 'messages' }],
+    },
+  ],
+])
+
+/** The findings an approved contract step does not admit. Each admission is
+ *  spent once, so a second rebuild of the same table still fails. */
+export function unadmitted(path: string, findings: DestructiveDdlFinding[]): DestructiveDdlFinding[] {
+  const admits = [...(APPROVED_CONTRACT_STEPS.get(path)?.admits ?? [])]
+  return findings.filter((finding) => {
+    const at = admits.findIndex(
+      (admit) =>
+        admit.kind === finding.kind &&
+        finding.kind === 'table-rebuild' &&
+        new RegExp(`\\bCREATE\\s+TABLE\\s+[\`"]?__new_${admit.table}[\`"]?\\s*\\(`, 'i').test(
+          finding.statement,
+        ),
+    )
+    if (at < 0) return true
+    admits.splice(at, 1)
+    return false
+  })
+}
+
 interface StatementSpan {
   start: number
   end: number
@@ -317,7 +360,7 @@ export function runChecks(): MigrationFinding[] {
   for (const path of migrationFiles()) {
     if (HISTORICAL_ALLOWLIST.has(path)) continue
     const sql = readFileSync(join(ROOT, path), 'utf8')
-    for (const finding of findDestructiveDdl(sql)) {
+    for (const finding of unadmitted(path, findDestructiveDdl(sql))) {
       findings.push({ where: path, ...finding })
     }
   }
@@ -383,7 +426,7 @@ if (import.meta.main) {
     if (clean.length > 0) {
       console.log(`FAIL  the real migration tree should be clean, got ${clean.length} finding(s)`)
     } else {
-      console.log('PASS  the real migration tree is clean after the historical allowlist')
+      console.log('PASS  the real migration tree is clean after the historical allowlist and the approved contract steps')
     }
 
     if (failures.length > 0 || clean.length > 0) {
