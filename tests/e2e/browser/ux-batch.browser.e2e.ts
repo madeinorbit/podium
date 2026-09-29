@@ -131,24 +131,26 @@ test('#16/#17 memory view: "Project processes" legend; hibernation note ahead of
 
   // POD-563 entry: the desktop topbar renders one header-machine-chip per
   // machine (HeaderHostIndicators, HostIndicators.tsx:188, aria
-  // '{host}; {mem}; {load}; …'). Hover (openOnHover) reveals the LoadPanel
-  // hover surface (.health-popover-machine); its footer jumps to the
-  // HostInfoView dialog. The dialog assertions below are unchanged.
+  // '{host}; {mem}; {load}; …'). The chip is the HealthPopover trigger, which
+  // opens on hover (80ms delay) AND toggles on click — so the entry is click
+  // ONLY, never hover-then-click: a hover that opens late races the fallback
+  // click (toggling the panel back closed) or leaves it still animating when
+  // the footer button is clicked (POD-4824). A single click from the
+  // known-closed initial state opens it exactly once (health-popover-mount
+  // control case pins that a click opens it).
   const chip = page.locator('button.header-machine-chip').first()
   await expect(chip).toBeVisible({ timeout: 15_000 })
-  await chip.hover()
+  await chip.click()
   const loadPanel = page.locator('.health-popover-machine')
-  try {
-    await expect(loadPanel).toBeVisible({ timeout: 5_000 })
-  } catch {
-    // Headless hover can miss the 80ms openOnHover window; a real click
-    // toggles the same popover (health-popover-mount control case).
-    await chip.click()
-    await expect(loadPanel).toBeVisible({ timeout: 10_000 })
-  }
+  await expect(loadPanel).toBeVisible({ timeout: 10_000 })
 
   // The hover panel is the readout; the dialog holds the guarded Memory tab.
-  await loadPanel.getByRole('button', { name: /connection/i }).click()
+  // The panel content arrives through React.lazy, so the footer mounts a beat
+  // after the popup box — wait for the button itself before clicking it.
+  const connBtn = loadPanel.getByRole('button', { name: /connection/i })
+  await expect(connBtn).toBeVisible({ timeout: 10_000 })
+  await expect(connBtn).toBeEnabled({ timeout: 10_000 })
+  await connBtn.click()
   const panel = page.locator('[aria-label="Host info"]')
   await expect(panel).toBeVisible({ timeout: 10_000 })
   await panel.getByRole('tab', { name: 'Memory' }).click()
@@ -159,19 +161,27 @@ test('#16/#17 memory view: "Project processes" legend; hibernation note ahead of
   })
 
   // #16 — the auto-hibernation note renders ABOVE the per-process sections.
+  // The breakdown and the hibernation setting each arrive async, so the note
+  // can mount a beat after the section label — poll the document order until
+  // both are present and ordered instead of reading once (POD-4824).
   await expect(panel.getByText('AGENTS & SHELLS', { exact: true })).toBeVisible({ timeout: 10_000 })
-  const noteBeforeList = await panel.evaluate((root) => {
-    const note = [...root.querySelectorAll('p')].find((p) =>
-      /Auto-hibernation|hibernate/i.test(p.textContent ?? ''),
+  await expect
+    .poll(
+      async () =>
+        panel.evaluate((root) => {
+          const note = [...root.querySelectorAll('p')].find((p) =>
+            /Auto-hibernation|hibernate/i.test(p.textContent ?? ''),
+          )
+          const section = [...root.querySelectorAll('*')].find(
+            (el) => el.children.length === 0 && el.textContent?.trim() === 'AGENTS & SHELLS',
+          )
+          if (!note || !section) return null
+          // bit 4 (FOLLOWING) set → section comes after the note in document order.
+          return Boolean(note.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING)
+        }),
+      { timeout: 10_000 },
     )
-    const section = [...root.querySelectorAll('*')].find(
-      (el) => el.children.length === 0 && el.textContent?.trim() === 'AGENTS & SHELLS',
-    )
-    if (!note || !section) return null
-    // bit 4 (FOLLOWING) set → section comes after the note in document order.
-    return Boolean(note.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING)
-  })
-  expect(noteBeforeList).toBe(true)
+    .toBe(true)
 })
 
 test('#11 snooze hover menu opens, with a fixed gap-bridge', async ({ page }) => {
