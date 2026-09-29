@@ -566,6 +566,17 @@ export function openOwnPartOf(input: VisibleInputs, id: string, seatIds: readonl
   return false
 }
 
+/** The retained seats not exited, in member order (`sessionVisibleInLiveRoster`). */
+export function rosterIdsPartOf(
+  input: VisibleInputs,
+  retainedSeatIds: readonly string[],
+): readonly string[] {
+  const roster = retainedSeatIds.filter(
+    (sessionId) => input.session(sessionId).retention?.exited !== true,
+  )
+  return roster.length === retainedSeatIds.length ? retainedSeatIds : roster
+}
+
 /** The members group of issue `id`, over its standing. */
 export function membersOf(
   input: VisibleInputs,
@@ -578,10 +589,7 @@ export function membersOf(
   const laneMemberIds = laneMemberIdsPartOf(input, id)
   const memberIds = memberIdsPartOf(seatIds, laneMemberIds)
   const retainedSeatIds = retainedSeatIdsPartOf(input, id, standing, memberIds)
-  const roster = retainedSeatIds.filter(
-    (sessionId) => input.session(sessionId).retention?.exited !== true,
-  )
-  const rosterIds = roster.length === retainedSeatIds.length ? retainedSeatIds : roster
+  const rosterIds = rosterIdsPartOf(input, retainedSeatIds)
   return {
     seatIds,
     laneMemberIds,
@@ -793,8 +801,8 @@ export function directVisibility(
     return values.get(key) as T
   }
   const rollupInputs = rollupInputsOf(input)
-  const facts = () => once('facts', () => issueFactsPartOf(input, id))
-  const members = () => once('members', () => membersOf(input, id, parts.standing))
+  // Part by part, each memoized: a pass asks for a few parts of every known
+  // issue (the plain pass: presence and the formal parent), never whole groups.
   const presence = () => once('presence', () => presenceOf(input, id, parts))
   const nesting = () =>
     once('nesting', () => nestingOf(input, id, parts.standing, parts.present))
@@ -802,31 +810,37 @@ export function directVisibility(
   const progress = (): Progress => once('progress', () => progressOf(rollupInputs, id, parts))
   const parts: IssueVisibility = {
     get standing() {
-      return facts()?.standing
+      return once('standing', () => {
+        const issue = input.issueRow(id)
+        return issue === undefined ? undefined : standingOf(issue)
+      })
     },
     get seatIds() {
-      return members().seatIds
-    },
-    get memberIds() {
-      return members().memberIds
+      return once('seatIds', () => input.seatList(id).slice())
     },
     get laneMemberIds() {
-      return members().laneMemberIds
+      return once('laneMemberIds', () => laneMemberIdsPartOf(input, id))
+    },
+    get memberIds() {
+      return once('memberIds', () => memberIdsPartOf(parts.seatIds, parts.laneMemberIds))
     },
     get retainedSeatIds() {
-      return members().retainedSeatIds
+      return once('retainedSeatIds', () =>
+        retainedSeatIdsPartOf(input, id, parts.standing, parts.memberIds),
+      )
     },
     get rosterIds() {
-      return members().rosterIds
+      return once('rosterIds', () => rosterIdsPartOf(input, parts.retainedSeatIds))
     },
     get retained() {
-      return members().retained
+      const standing = parts.standing
+      return standing !== undefined && !standing.excluded && parts.retainedSeatIds.length > 0
     },
     get liveRoster() {
-      return members().liveRoster
+      return parts.rosterIds.length > 0
     },
     get openOwn() {
-      return members().openOwn
+      return once('openOwn', () => openOwnPartOf(input, id, parts.seatIds))
     },
     get childIds() {
       return once('childIds', () => childIdsPartOf(input, id))
@@ -859,8 +873,7 @@ export function directVisibility(
       return nesting().visible
     },
     get rank() {
-      const part = facts()?.part
-      return part === undefined ? undefined : rankOfPart(id, part)
+      return once('rank', () => rankPartOf(input, id))
     },
     get finished() {
       return parts.standing?.finished
