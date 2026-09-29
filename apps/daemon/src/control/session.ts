@@ -1189,6 +1189,55 @@ async function adoptServerDriverSession(
    */
   const runtime = ctx.agentRuntime
   if (!runtime) return false
+  /**
+   * THE LINK BLIP, NOT A RESTART (POD-4807): this daemon never lost the
+   * session — only the transport to the server dropped for a second, and the
+   * server's reattach probe is how the row comes back to `live`.
+   *
+   * Re-adopting through the binding journal here would open a SECOND writer
+   * attachment to the engine's host while the first (this daemon's own, still
+   * held in the family's live handle) keeps the one writer lease — so the
+   * engine host refuses loudly ("writer lease is held elsewhere") and the
+   * failed-adoption reap below kills the survivor the blip never touched.
+   *
+   * The PTY path already short-circuits this (`recoverTerminalHost` reuses the
+   * already-held bridge and re-emits `bind`); the server arm never did. A live
+   * server handle IS the session, so re-bind it in place: no new host attach,
+   * no journal read, nothing killed, nothing read-only.
+   *
+   * Optional-chained: partial test doubles omit `serverHandleFor`, and absent
+   * means "no live handle known" — the adopt below answers that case.
+   */
+  const live = runtime.serverHandleFor?.(msg.sessionId)
+  if (live) {
+    try {
+      ctx.send(
+        bindFrame(appliedGeometryFor(ctx), {
+          sessionId: msg.sessionId,
+          cmd: `${live.binding.driver} (${live.binding.driver})`,
+          cwd: live.binding.workdir ?? msg.cwd,
+          agentKind: msg.agentKind,
+          driverId: live.binding.driver,
+          configureFields: [...configureFieldsForDriver(live.binding.driver)],
+          attachKinds: [...attachKindsForDriver(live.binding.driver)],
+        }),
+      )
+      ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await live.state() })
+      log.info('reattached a live server-family session without a second adopt', {
+        sessionId: msg.sessionId,
+        driver: live.binding.driver,
+      })
+      reconcileNativeClientTerminal(ctx, msg.sessionId)
+      return true
+    } catch (err) {
+      ctx.send({
+        type: 'reattachFailed',
+        sessionId: msg.sessionId,
+        reason: err instanceof Error ? err.message : String(err),
+      })
+      return true
+    }
+  }
   const reapFailedAdoption = (): void => {
     // Adoption failure is terminal for this startup probe: the server will
     // record the reattach failure, so retaining the journal would leave a
