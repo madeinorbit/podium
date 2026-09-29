@@ -38,6 +38,7 @@
 
 import type { PanelMode } from '@podium/client-core/ui-state'
 import type { TerminalOutlook } from '@podium/client-core/viewmodels'
+import { isMachineOfflineForLiveTerminal } from '@podium/model'
 import type { MachineWire, SessionMeta, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
@@ -266,16 +267,21 @@ export function panelChatCapable(
  * and the machine row already says so: `online` is the same fact every other
  * surface reads (POD-4630 made an owned offline machine answer "offline").
  *
- * Only a machine that is KNOWN and not online counts. A session with no
+ * POD-4830: `online` alone misses a supervised daemon loss (online stays true,
+ * degraded, while the execution plane is gone). Read the live-terminal
+ * predicate too — the same daemon signal the transcript offline flag and
+ * `requireOnlineSession` already read — or a frozen daemon never names itself.
+ *
+ * Only a machine that is KNOWN and unreachable counts. A session with no
  * machine, or one whose machine this principal cannot see, says nothing rather
  * than guess — the phone's rule too.
  */
 export function panelOfflineMachine(
   session: Pick<SessionMeta, 'machineId' | 'machineName'> | undefined,
-  machines: readonly Pick<MachineWire, 'id' | 'name' | 'online'>[],
+  machines: readonly Pick<MachineWire, 'id' | 'name' | 'online' | 'availability'>[],
 ): string | null {
   if (!session?.machineId) return null
   const machine = machines.find((m) => m.id === session.machineId)
-  if (!machine || machine.online) return null
+  if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
   return machine.name || session.machineName || 'This machine'
 }

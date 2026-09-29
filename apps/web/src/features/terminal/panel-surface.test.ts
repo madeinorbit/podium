@@ -320,6 +320,9 @@ describe('the switcher, once offered, is never withdrawn', () => {
 // ---------------------------------------------------------------------------
 // POD-4629 — the CLI of a session whose machine is offline says so. The reason
 // is the machine row's own `online`, and only a machine the panel can see.
+// POD-4830 — a supervised daemon loss keeps `online` true (degraded) while the
+// live terminal is gone. The panel must read the daemon too, or a frozen
+// daemon never names itself (107 s past the grace, no banner).
 // ---------------------------------------------------------------------------
 describe('panelOfflineMachine', () => {
   const id = asMachineId('m-lud')
@@ -328,6 +331,32 @@ describe('panelOfflineMachine', () => {
 
   it('names a known machine that is not online', () => {
     expect(panelOfflineMachine(onLud, [machine(false)])).toBe('ludovico')
+  })
+
+  it('names a supervised machine whose daemon is gone (online true, degraded)', () => {
+    expect(
+      panelOfflineMachine(onLud, [
+        {
+          id,
+          name: 'ludovico',
+          online: true,
+          availability: { epoch: 'e', server: false, daemon: false, supervisor: true },
+        },
+      ]),
+    ).toBe('ludovico')
+  })
+
+  it('says nothing when the daemon is attached', () => {
+    expect(
+      panelOfflineMachine(onLud, [
+        {
+          id,
+          name: 'ludovico',
+          online: true,
+          availability: { epoch: 'e', server: false, daemon: true, supervisor: true },
+        },
+      ]),
+    ).toBeNull()
   })
 
   it('says nothing about an online machine', () => {

@@ -31,7 +31,7 @@ import {
   transcriptAttributionTable,
   transcriptPhase,
 } from '@podium/client-core/viewmodels'
-import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model/browser'
+import { isAgentComputing, isMachineOfflineForLiveTerminal, type SessionId, type SessionMeta } from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
@@ -284,18 +284,21 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const cwd = session?.cwd ?? '/'
   const headless = session?.headless === true
 
-  // LIVE machine presence (POD-4808 review): session.machineId -> the store's
-  // machines list (MachineWire.online). Unknown (no row) reads as no banner —
-  // never a fabricated offline. Defensive against partial test stores.
+  // LIVE machine presence (POD-4808 review, POD-4830): session.machineId ->
+  // the store's machines list. Unknown (no row) reads as no banner — never a
+  // fabricated offline. Defensive against partial test stores. Reads the
+  // live-terminal predicate (online OR daemon), not just `online`: a supervised
+  // daemon loss keeps `online` true while the execution plane is gone, and the
+  // transcript offline flag + `requireOnlineSession` already read the daemon.
   const machineWire = useMemo(() => {
     const id = session?.machineId
     if (!id) return undefined
     return (machines ?? []).find((m) => m.id === id)
   }, [machines, session?.machineId])
-  const presenceOfflineMachineName = machineWire && machineWire.online === false
+  const presenceOfflineMachineName = machineWire && isMachineOfflineForLiveTerminal(machineWire)
     ? (machineWire.name ?? session?.machineName ?? session?.machineId ?? null)
     : null
-  const machineOnline = machineWire ? machineWire.online : undefined
+  const machineOnline = machineWire ? !isMachineOfflineForLiveTerminal(machineWire) : undefined
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)

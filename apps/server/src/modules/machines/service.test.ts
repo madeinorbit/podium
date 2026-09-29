@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { firstAdminMemberId, asAccountId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asAccountId, asMachineId, asSessionId, asUserId, isMachineOfflineForLiveTerminal } from '@podium/model'
 import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
@@ -274,6 +274,38 @@ describe('MachinesService supervisor presence', () => {
     expect(supervisor.at(-1)).toEqual(grant)
     expect(participant).toEqual([])
     expect(daemon.got).toEqual([])
+  })
+
+  test('POD-4830: a supervised daemon detach reads offline for live terminals (banner follows presence)', async () => {
+    // Starts from the server's detach — the broken link in POD-4830. The daemon
+    // freeze in the field left `online` true (degraded, by design) while the
+    // execution plane was gone, so a banner reading only `online` never showed
+    // (107 s past the grace, chip blue, no banner). The live-terminal predicate
+    // must read the daemon too, in both directions.
+    const { svc, store } = await storedService()
+    try {
+      const daemon = recorder()
+      const supervisor: MachineSupervisorControlMessage[] = []
+      await svc.attach(MACHINE, daemon.send)
+      await svc.attachSupervisor(MACHINE, (message) => supervisor.push(message), build, [
+        'update.delivery.feed',
+      ])
+      // Online with the daemon attached: no banner.
+      expect(isMachineOfflineForLiveTerminal((await svc.listMachines())[0]!)).toBe(false)
+
+      svc.detach(MACHINE, daemon.send)
+      const offlineRow = (await svc.listMachines())[0]!
+      // The producer keeps `online` true (degraded) — the banner must still fire.
+      expect(offlineRow).toMatchObject({ online: true, availability: { daemon: false } })
+      expect(isMachineOfflineForLiveTerminal(offlineRow)).toBe(true)
+
+      // Reattach: the banner clears without any re-read.
+      await svc.attach(MACHINE, daemon.send)
+      expect(isMachineOfflineForLiveTerminal((await svc.listMachines())[0]!)).toBe(false)
+    } finally {
+      svc.dispose()
+      await store.close()
+    }
   })
 
   test.each([
