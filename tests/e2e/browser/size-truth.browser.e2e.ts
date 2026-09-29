@@ -11,7 +11,7 @@ import {
   test,
 } from '@playwright/test'
 import { harnessEnv } from '../harness-env'
-import { openApp, RELAY } from './_harness'
+import { openApp, openHome, RELAY } from './_harness'
 
 /**
  * THE SIZE INVARIANT, END TO END (POD-4773; POD-3190 design rev 3).
@@ -365,16 +365,27 @@ test('the agent’s real size, the server’s copy and every browser grid agree 
     return { name, page: await context.newPage() }
   }
 
-  /** A second screen onto the session, as a deep link opens it. */
+  /**
+   * A second screen onto the session, opened the way the packaged shell opens a
+   * Podium link: one `podium:native-open` event, routed by the same resolver as
+   * every in-app link. (A `/sessions/<id>` start URL is declined while it carries
+   * `e2e=1`, and the test API needs that flag.)
+   */
   const openOnDesktop = async (viewer: Viewer): Promise<void> => {
-    await viewer.page.addInitScript(() => localStorage.setItem('podium.panelModeDefault', 'native'))
-    await viewer.page.goto(`/sessions/${session}?server=${RELAY}&e2e=1`)
-    await expect
-      .poll(() => readViewer(viewer).then((r) => r.sessionId), {
-        timeout: 90_000,
-        message: `${viewer.name} shows the session`,
-      })
-      .toBe(session)
+    await openHome(viewer.page)
+    const shows = async (): Promise<boolean> => (await readViewer(viewer)).sessionId === session
+    const deadline = Date.now() + 90_000
+    while (!(await shows())) {
+      if (Date.now() > deadline) {
+        await viewer.page.screenshot({ path: test.info().outputPath(`${viewer.name}-open.png`) })
+        throw new Error(`${viewer.name} never showed the session`)
+      }
+      await viewer.page.evaluate(
+        (href) => window.dispatchEvent(new CustomEvent('podium:native-open', { detail: href })),
+        `${HTTP}/sessions/${session}`,
+      )
+      await viewer.page.waitForTimeout(10_000)
+    }
   }
 
   const claudeReady = async (page: Page): Promise<void> => {
